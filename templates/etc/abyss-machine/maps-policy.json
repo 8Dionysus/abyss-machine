@@ -1,0 +1,182 @@
+{
+  "schema": "abyss_machine_maps_policy_v1",
+  "version": "0.8.86",
+  "purpose": "Generated host-machine atlas for fast orientation across time, subsystems, routes, freshness, and boundary-context packets.",
+  "truth_status": "generated_route_signal_not_source_truth",
+  "source_contract": "{{ABYSS_MACHINE_ETC}}/MAPS.md",
+  "limits": {
+    "entries_per_axis_soft": 80,
+    "hash_file_max_bytes": 1048576,
+    "write_entry_files": true
+  },
+  "policy": {
+    "generated": true,
+    "do_not_hand_edit_generated_entries": true,
+    "automatic_action": false,
+    "automatic_response": false,
+    "raw_private_content": false,
+    "project_roots_readonly": true,
+    "reader_profiles_are_not_destinations": true
+  },
+  "rag_trace": {
+    "schema": "abyss_machine_rag_policy_v1",
+    "version": "0.8.86",
+    "default_axis": "by-rag-run",
+    "default_reader_profile": "retrieval-context",
+    "limits": {
+      "packet_entries": 8,
+      "evidence_refs": 12,
+      "json_file_max_bytes": 262144,
+      "text_file_max_bytes": 65536,
+      "text_excerpt_chars": 4000,
+      "directory_entries": 24
+    },
+    "policy": {
+      "generated": true,
+      "read_only": true,
+      "route_signal_only": true,
+      "opens_bounded_evidence_summaries": true,
+      "raw_private_content": false,
+      "automatic_action": false,
+      "automatic_response": false,
+      "memory_writeback": false,
+      "proof_verdict": false,
+      "kag_truth_publication": false,
+      "reader_profiles_are_not_destinations": true,
+      "aoa_organs_are_external_authorities": true
+    }
+  },
+  "llm_prompt_layout": {
+    "schema": "abyss_machine_llm_prompt_layout_policy_v1",
+    "version": "0.8.86",
+    "purpose": "Package maps/RAG/DAG material for local long-context LLMs so reusable context stays in a stable prefix and changing work stays in the suffix.",
+    "stable_prefix_order": [
+      "machine identity, route law, and source contracts",
+      "canonical maps packet with stable sorting, digests, truth status, owner route, and evidence refs",
+      "bounded RAG trace/eval summaries and runtime/eval summaries",
+      "active change and rollback context",
+      "task-specific retrieved evidence likely to be reused across nearby turns"
+    ],
+    "suffix_material": [
+      "current user question",
+      "proposed action",
+      "fresh ad hoc snippets",
+      "short-lived retrieved evidence",
+      "anything expected to change on the next turn"
+    ],
+    "policy": {
+      "stable_prefix_first": true,
+      "changing_task_suffix": true,
+      "do_not_rewrite_prefix_for_suffix_only_changes": true,
+      "optimization_contract_only": true,
+      "route_signal_only": true,
+      "automatic_action": false,
+      "automatic_response": false,
+      "memory_writeback": false,
+      "proof_verdict": false,
+      "kag_truth_publication": false,
+      "aoa_organ_delivery": false
+    }
+  },
+  "automation": {
+    "schema": "abyss_machine_context_refresh_policy_v1",
+    "version": "0.8.86",
+    "timer": "abyss-machine-context-refresh.timer",
+    "service": "abyss-machine-context-refresh.service",
+    "command": "abyss-machine rag refresh --query scheduled-machine-context-refresh --json",
+    "interval": "15 minutes",
+    "refreshes": [
+      "maps latest/index/axis indexes",
+      "maps validate latest",
+      "RAG trace latest/history",
+      "RAG eval latest/history",
+      "RAG refresh latest/history",
+      "RAG validate latest/history"
+    ],
+    "policy": {
+      "generated_context_only": true,
+      "read_only": true,
+      "automatic_action": false,
+      "automatic_response": false,
+      "memory_writeback": false,
+      "proof_verdict": false,
+      "kag_truth_publication": false,
+      "aoa_organ_delivery": false
+    }
+  },
+  "source_inputs": [
+    "{{ABYSS_MACHINE_ETC}}/MAPS.md",
+    "{{ABYSS_MACHINE_ETC}}/maps-policy.json",
+    "{{ABYSS_MACHINE_STATE}}/graph/latest.json",
+    "{{ABYSS_MACHINE_STATE}}/nervous/brief/latest.json",
+    "{{ABYSS_MACHINE_STATE}}/nervous/events/latest.json",
+    "{{ABYSS_MACHINE_STATE}}/nervous/episodes/latest.json",
+    "{{ABYSS_MACHINE_STATE}}/reactions/latest.json",
+    "{{ABYSS_MACHINE_STATE}}/responses/latest.json",
+    "{{ABYSS_MACHINE_STATE}}/changes/index.json",
+    "{{ABYSS_MACHINE_STATE}}/rag/traces/latest.json",
+    "{{ABYSS_MACHINE_STATE}}/rag/evals/latest.json"
+  ],
+  "axes": [
+    {
+      "axis": "by-time",
+      "question": "When did a machine observation or read model change?"
+    },
+    {
+      "axis": "by-subsystem",
+      "question": "Which host subsystem owns this evidence or validator?"
+    },
+    {
+      "axis": "by-event-type",
+      "question": "Which nervous event category or severity should I inspect?"
+    },
+    {
+      "axis": "by-episode",
+      "question": "Which grouped machine episode explains repeated events?"
+    },
+    {
+      "axis": "by-causal-chain",
+      "question": "Which event chain links facts, synthesis, route, action candidate, and validation?"
+    },
+    {
+      "axis": "by-owner-route",
+      "question": "Which owner surface owns the cited truth boundary?"
+    },
+    {
+      "axis": "by-freshness",
+      "question": "Which evidence is fresh, stale, or maintenance-needed?"
+    },
+    {
+      "axis": "by-resource-state",
+      "question": "What does current resource posture allow or defer?"
+    },
+    {
+      "axis": "by-risk-privacy",
+      "question": "What privacy, protected-root, or non-action boundary applies?"
+    },
+    {
+      "axis": "by-actionability",
+      "question": "What can be acted on only through an owner-gated route?"
+    },
+    {
+      "axis": "by-correlation",
+      "question": "Which records are tied by an active change, route, or repeated signal?"
+    },
+    {
+      "axis": "by-rag-run",
+      "question": "Which RAG, retrieval, rerank, or agentic evidence is available?"
+    },
+    {
+      "axis": "by-memory-candidate",
+      "question": "Which host evidence could become reviewed memory later?"
+    },
+    {
+      "axis": "by-eval-packet",
+      "question": "Which host/runtime evidence can inform a bounded proof-context review?"
+    },
+    {
+      "axis": "by-kag-export",
+      "question": "Which derived host evidence can inform a graph or knowledge-context projection?"
+    }
+  ]
+}

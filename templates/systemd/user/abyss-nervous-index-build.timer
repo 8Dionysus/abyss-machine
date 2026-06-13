@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodic Abyss nervous-system local index rebuild
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/nervous/AGENTS.md
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=45min
+AccuracySec=5min
+RandomizedDelaySec=3min
+Persistent=true
+Unit=abyss-nervous-index-build.service
+
+[Install]
+WantedBy=timers.target

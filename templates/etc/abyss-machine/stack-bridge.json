@@ -1,0 +1,1276 @@
+{
+  "schema": "abyss_machine_stack_bridge_manifest_v1",
+  "id": "abyss-machine-stack-bridge",
+  "version": "0.8.41",
+  "owner": "host-machine",
+  "consumer": "future abyss-stack bridge and future local agents",
+  "purpose": "Read-only host-to-stack handoff contract for machine facts, AI capability evidence, and local chronicle artifacts.",
+  "contract": {
+    "layer": "host-machine",
+    "read_only_by_default": true,
+    "host_layer_mutates_stack": false,
+    "dependency_direction": "abyss-stack may consume abyss-machine; abyss-machine must not import or mutate abyss-stack",
+    "evidence_first": true,
+    "derived_candidates_are_not_truth": true,
+    "automatic_hooks_enabled": false,
+    "private_sources_enabled": false
+  },
+  "first_commands": [
+    "abyss-machine stack-bridge --json",
+    "abyss-machine stack-bridge validate --json",
+    "abyss-machine bridge --json",
+    "abyss-machine graph --json",
+    "abyss-machine nervous status --json",
+    "abyss-machine nervous recall --query TEXT --json",
+    "abyss-machine ai capabilities --json",
+    "abyss-machine storage pressure --json",
+    "abyss-machine memory plan --json",
+    "abyss-machine memory pressure --json",
+    "abyss-machine resource plan --class heavy --kind ai --json",
+    "abyss-machine resource status --json",
+    "abyss-machine processes game-guard --json",
+    "abyss-machine processes thermal-plan --json",
+    "abyss-machine ai cpu route --class heavy --json",
+    "abyss-machine mode plan --json",
+    "abyss-machine mode validate --json",
+    "abyss-machine ai llm registry --json",
+    "abyss-machine ai llm validate --json",
+    "abyss-machine ai llm resident status --json",
+    "abyss-machine ai llm resident digest --json",
+    "abyss-machine ai llm resident validate --json",
+    "abyss-machine resource orchestrator --json",
+    "abyss-machine resource orchestrator --refresh-nervous --json",
+    "abyss-machine nervous quality-audit --json",
+    "abyss-machine nervous quality-audit --refresh --json",
+    "abyss-machine nervous quality-audit --refresh --refresh-index --json",
+    "abyss-machine heartbeats pulse --json",
+    "abyss-machine heartbeats paths --json",
+    "abyss-machine heartbeats validate --json",
+    "abyss-machine stack-bridge observability --json",
+    "abyss-machine self-awareness status --json",
+    "abyss-machine self-awareness probe --json",
+    "abyss-machine self-awareness validate --json",
+    "abyss-machine self-awareness capabilities --json",
+    "abyss-machine self-awareness correlate --json",
+    "abyss-machine self-awareness investigate --query latest --json",
+    "abyss-machine self-awareness replay --json",
+    "abyss-machine self-awareness export --json",
+    "abyss-machine maps --json",
+    "abyss-machine rag refresh --query TEXT --json",
+    "abyss-machine rag trace --query TEXT --json",
+    "abyss-machine rag validate --json",
+    "abyss-machine typing status --json",
+    "abyss-machine typing coverage --json",
+    "abyss-machine typing process --json",
+    "abyss-machine typing causal-context --json",
+    "abyss-machine changes status --json",
+    "abyss-machine reactions --json",
+    "abyss-machine responses --json",
+    "abyss-machine dictation status --json",
+    "abyss-machine dictation journal latest --json",
+    "abyss-machine self-awareness failure-matrix --json",
+    "abyss-machine self-awareness coverage-audit --json",
+    "abyss-machine self-awareness cycle --json",
+    "abyss-machine self-awareness requirements --json",
+    "abyss-machine self-awareness requirement-probes --json",
+    "abyss-machine self-awareness stack-closure-dossier --json",
+    "abyss-machine self-awareness activation-smoke --json",
+    "abyss-machine self-awareness autolink --json"
+  ],
+  "validation_commands": [
+    "abyss-machine stack-bridge validate --json",
+    "abyss-machine nervous baseline --json",
+    "abyss-machine graph validate --json",
+    "abyss-machine memory validate --json",
+    "abyss-machine resource validate --json",
+    "abyss-machine doctor --json",
+    "abyss-machine mode validate --json",
+    "abyss-machine ai llm validate --json",
+    "abyss-machine ai llm resident validate --json",
+    "abyss-machine resource orchestrator --json",
+    "abyss-machine nervous quality-audit --json",
+    "abyss-machine heartbeats validate --json",
+    "abyss-machine stack-bridge observability --json",
+    "abyss-machine self-awareness probe --json",
+    "abyss-machine self-awareness validate --json",
+    "abyss-machine self-awareness replay --json",
+    "abyss-machine self-awareness export --json",
+    "abyss-machine maps validate --json",
+    "abyss-machine rag validate --json",
+    "abyss-machine typing validate --json",
+    "abyss-machine reactions validate --json",
+    "abyss-machine responses validate --json",
+    "abyss-machine dictation validate --json",
+    "abyss-machine self-awareness failure-matrix --json",
+    "abyss-machine self-awareness coverage-audit --json",
+    "abyss-machine self-awareness cycle --json",
+    "abyss-machine self-awareness requirements --json",
+    "abyss-machine self-awareness requirement-probes --json",
+    "abyss-machine self-awareness stack-closure-dossier --json",
+    "abyss-machine self-awareness activation-smoke --json",
+    "abyss-machine self-awareness autolink --json"
+  ],
+  "mutation_gates": [
+    "abyss-machine changes preflight --intent TEXT --surface SURFACE --json",
+    "abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json"
+  ],
+  "non_claims": [
+    "This bridge does not start abyss-stack services.",
+    "This bridge does not write to abyss-stack, AoA, work, or games roots.",
+    "Synthesis candidates are cited summaries for orientation, not canonical truth.",
+    "Stack-owned runtime promotion decisions remain inside abyss-stack.",
+    "Work-mode plan is host-side launch policy, not a stack runtime launcher.",
+    "Memory plan gates new starts only; it does not kill, swap, reconfigure zram, enable oomd, tune sysctl, throttle, or re-affinitize existing processes.",
+    "Resource launch applies cgroup/systemd policy to new processes only; it does not kill, throttle, re-affinitize, or migrate existing user, game, work, or stack processes."
+  ],
+  "mode_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/mode/AGENTS.md",
+    "policy": "{{ABYSS_MACHINE_ETC}}/mode-policy.json",
+    "plan_latest": "{{ABYSS_MACHINE_STATE}}/mode/plans/latest.json",
+    "validate_latest": "{{ABYSS_MACHINE_STATE}}/mode/validate/latest.json",
+    "commands": {
+      "plan": "abyss-machine mode plan --json",
+      "validate": "abyss-machine mode validate --json",
+      "policy": "abyss-machine mode policy --json",
+      "paths": "abyss-machine mode paths --json"
+    },
+    "contract": "Stack-side launchers should consume mode plan before starting heavy local AI or sustained agent work."
+  },
+  "process_thermal_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/processes/AGENTS.md",
+    "game_guard_latest": "{{ABYSS_MACHINE_STATE}}/processes/game-guard/latest.json",
+    "attribution_latest": "{{ABYSS_MACHINE_STATE}}/processes/thermal-attribution/latest.json",
+    "plan_latest": "{{ABYSS_MACHINE_STATE}}/processes/thermal-plan/latest.json",
+    "commands": {
+      "game_guard": "abyss-machine processes game-guard --json",
+      "thermal_attribution": "abyss-machine processes thermal-attribution --seconds 3 --interval 0.5 --json",
+      "thermal_plan": "abyss-machine processes thermal-plan --seconds 3 --interval 0.5 --json",
+      "cpu_route_heavy": "abyss-machine ai cpu route --class heavy --json",
+      "cpu_launch": "abyss-machine ai cpu launch --class CLASS -- COMMAND..."
+    },
+    "contract": "Stack-side launchers may consume game guard, thermal plan and CPU route evidence before starting new heavy local work; host layer does not mutate existing stack, user process affinity, or active games.",
+    "game_contract": "Active games block default heavy/sustained host launch wrappers and unattended medium-or-heavier launches; Steam helpers alone are platform context, not an active game."
+  },
+  "paths": {
+    "schema": "abyss_machine_stack_bridge_paths_v1",
+    "version": "0.8.35",
+    "generated_at": "2026-05-07T11:59:55-06:00",
+    "root": "{{ABYSS_MACHINE_STATE}}/stack-bridge",
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/stack-bridge/AGENTS.md",
+    "latest": "{{ABYSS_MACHINE_STATE}}/stack-bridge/latest.json",
+    "today": "{{ABYSS_MACHINE_STATE}}/stack-bridge/2026/05/2026-05-07.jsonl",
+    "daily_glob": "{{ABYSS_MACHINE_STATE}}/stack-bridge/YYYY/MM/YYYY-MM-DD.jsonl",
+    "validate": {
+      "root": "{{ABYSS_MACHINE_STATE}}/stack-bridge/validate",
+      "latest": "{{ABYSS_MACHINE_STATE}}/stack-bridge/validate/latest.json",
+      "daily_glob": "{{ABYSS_MACHINE_STATE}}/stack-bridge/validate/YYYY/MM/YYYY-MM-DD.jsonl"
+    },
+    "config": {
+      "manifest": "{{ABYSS_MACHINE_ETC}}/stack-bridge.json",
+      "doc": "{{ABYSS_MACHINE_ETC}}/STACK-BRIDGE.md",
+      "main_bridge": "{{ABYSS_MACHINE_ETC}}/bridge.json",
+      "host_agents": "{{ABYSS_MACHINE_ETC}}/AGENTS.md",
+      "commands": "{{ABYSS_MACHINE_ETC}}/commands.md"
+    },
+    "hooks": {
+      "etc": "{{ABYSS_MACHINE_ETC}}/hooks.d/stack-bridge",
+      "srv": "{{ABYSS_MACHINE_SRV}}/hooks.d/stack-bridge",
+      "automatic_execution": false
+    },
+    "commands": {
+      "status": "abyss-machine stack-bridge --json",
+      "paths": "abyss-machine stack-bridge paths --json",
+      "export": "abyss-machine stack-bridge export --json",
+      "latest": "abyss-machine stack-bridge latest --json",
+      "validate": "abyss-machine stack-bridge validate --json"
+    }
+  },
+  "stack_roots": {
+    "source_abyss_stack": "{{ABYSS_USER_HOME}}/src/abyss-stack",
+    "source_abyss_stack_exists": true,
+    "srv_abyss_os": "{{ABYSS_OS_ROOT}}",
+    "srv_abyss_os_exists": true,
+    "srv_abyss_stack": "{{ABYSS_OS_ROOT}}/abyss-stack",
+    "srv_abyss_stack_exists": true,
+    "canonical_abyss_stack": "/srv/abyss-stack",
+    "canonical_abyss_stack_exists": false,
+    "host_layer_mutates_stack": false
+  },
+  "protected_roots": [
+    {
+      "path": "{{ABYSS_OS_ROOT}}",
+      "owner": "abyss_os_project",
+      "status": "protected_read_only",
+      "reason": "Abyss OS project material. Host storage automation may read bridge evidence but must not write or clean here."
+    },
+    {
+      "path": "{{ABYSS_OS_ROOT}}/abyss-stack",
+      "owner": "abyss_stack",
+      "status": "protected_read_only",
+      "reason": "Stack repository/model material under reformation; host layer must not mutate it."
+    },
+    {
+      "path": "/srv/abyss-stack",
+      "owner": "abyss_stack",
+      "status": "protected_read_only",
+      "reason": "Stack/service material; host layer must not mutate it."
+    },
+    {
+      "path": "{{ABYSS_USER_HOME}}/src/abyss-stack",
+      "owner": "abyss_stack",
+      "status": "protected_read_only",
+      "reason": "User source repository; host layer must not mutate it."
+    },
+    {
+      "path": "/srv/GAMES",
+      "owner": "operator_games",
+      "status": "protected_operator_owned",
+      "reason": "Operator-owned game library. Never a machine cleanup/write target."
+    },
+    {
+      "path": "/srv/games",
+      "owner": "operator_games",
+      "status": "protected_operator_owned",
+      "reason": "Operator-owned game library. Never a machine cleanup/write target."
+    },
+    {
+      "path": "/srv/work",
+      "owner": "operator_work",
+      "status": "protected_work_owned",
+      "reason": "Freelance/work projects. Machine-owned data must not be routed here."
+    },
+    {
+      "path": "/work",
+      "owner": "operator_work",
+      "status": "protected_work_owned",
+      "reason": "Work mount/path. Machine-owned data must not be routed here."
+    }
+  ],
+  "artifacts": {
+    "machine": {
+      "bridge": {
+        "path": "{{ABYSS_MACHINE_ETC}}/bridge.json",
+        "schema": "abyss_machine_bridge_v1",
+        "truth_level": "contract"
+      },
+      "topology": {
+        "path": "{{ABYSS_MACHINE_STATE}}/topology/latest.json",
+        "schema": "abyss_machine_topology_v1",
+        "truth_level": "host_contract"
+      },
+      "graph": {
+        "path": "{{ABYSS_MACHINE_STATE}}/graph/latest.json",
+        "schema": "abyss_machine_graph_v1",
+        "truth_level": "generated_contract_graph"
+      },
+      "changes": {
+        "path": "{{ABYSS_MACHINE_STATE}}/changes/index.json",
+        "schema": "abyss_machine_changes_index_v1",
+        "truth_level": "change_ledger"
+      },
+      "maps": {
+        "path": "{{ABYSS_MACHINE_STATE}}/maps/latest.json",
+        "schema": "abyss_machine_maps_v1",
+        "truth_level": "generated_route_atlas"
+      },
+      "rag_trace": {
+        "path": "{{ABYSS_MACHINE_STATE}}/rag/traces/latest.json",
+        "schema": "abyss_machine_rag_trace_v1",
+        "truth_level": "generated_rag_trace"
+      },
+      "rag_eval": {
+        "path": "{{ABYSS_MACHINE_STATE}}/rag/evals/latest.json",
+        "schema": "abyss_machine_rag_eval_v1",
+        "truth_level": "generated_trace_quality_eval"
+      }
+    },
+    "ai": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/index.json",
+        "schema": "abyss_machine_ai_index_v1",
+        "truth_level": "host_contract"
+      },
+      "capabilities": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/capabilities/latest.json",
+        "schema": "abyss_machine_ai_capabilities_v1",
+        "truth_level": "latest_capability_evidence"
+      },
+      "devices": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/devices/latest.json",
+        "schema": "abyss_machine_ai_devices_v1",
+        "truth_level": "latest_device_evidence"
+      },
+      "runtime": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/runtime/latest.json",
+        "schema": "abyss_machine_ai_runtime_v1",
+        "truth_level": "latest_runtime_evidence"
+      },
+      "workloads": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/workloads/latest.json",
+        "schema": "abyss_machine_ai_workload_status_v1",
+        "truth_level": "routing_policy_evidence"
+      },
+      "tts_profiles": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/profiles/latest.json",
+        "schema": "abyss_machine_ai_tts_profiles_v1",
+        "truth_level": "host_profile_evidence"
+      },
+      "cpu_thermal_map": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/thermal-map/latest.json",
+        "schema": "abyss_machine_ai_cpu_thermal_map_v1",
+        "truth_level": "latest_cpu_thermal_evidence"
+      },
+      "cpu_route": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/route/latest.json",
+        "schema": "abyss_machine_ai_cpu_route_v1",
+        "truth_level": "latest_cpu_route_evidence"
+      },
+      "cpu_launch": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/launch/latest.json",
+        "schema": "abyss_machine_ai_cpu_launch_v1",
+        "truth_level": "latest_cpu_launch_evidence"
+      },
+      "llm_registry": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/registry/latest.json",
+        "schema": "abyss_machine_ai_llm_registry_v1",
+        "truth_level": "host_profile_evidence"
+      },
+      "llm_validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/validate/latest.json",
+        "schema": "abyss_machine_ai_llm_validate_v1",
+        "truth_level": "latest_contract_validation"
+      },
+      "llm_resident_status": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/status/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_status_v1",
+        "truth_level": "latest_resident_runtime_evidence"
+      },
+      "llm_resident_monitor": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/monitor/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_monitor_v1",
+        "truth_level": "latest_resident_monitor_evidence"
+      },
+      "llm_resident_digest": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/digests/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_digest_v1",
+        "truth_level": "derived_candidate_not_truth"
+      },
+      "llm_resident_jobs": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/jobs/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_jobs_run_v1",
+        "truth_level": "derived_candidate_not_truth"
+      },
+      "llm_resident_jobs_validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/jobs/validate/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_jobs_validate_v1",
+        "truth_level": "latest_resident_jobs_validation"
+      },
+      "llm_resident_micro": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/jobs/micro/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_micro_tick_v1",
+        "truth_level": "derived_candidate_not_truth"
+      },
+      "llm_resident_candidates": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/candidates/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_candidate_readmodel_v2",
+        "truth_level": "derived_candidate_not_truth"
+      },
+      "llm_resident_candidates_validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/candidates/validate/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_candidates_validate_v1",
+        "truth_level": "latest_resident_candidates_validation"
+      },
+      "llm_resident_evals": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/evals/resident/gemma4.spark/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_heartbeat_evals_v1",
+        "truth_level": "latest_resident_eval_scorecard"
+      },
+      "llm_resident_evals_validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/evals/resident/gemma4.spark/validate/latest.json",
+        "schema": "abyss_machine_gemma4_spark_resident_heartbeat_evals_validate_v1",
+        "truth_level": "latest_resident_eval_validation"
+      }
+    },
+    "storage": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/storage/index.json",
+        "schema": "abyss_machine_storage_paths_v1",
+        "truth_level": "host_contract"
+      },
+      "pressure": {
+        "path": "{{ABYSS_MACHINE_STATE}}/storage/pressure/latest.json",
+        "schema": "abyss_machine_storage_pressure_v1",
+        "truth_level": "latest_storage_evidence"
+      },
+      "cleanup_plan": {
+        "path": "{{ABYSS_MACHINE_STATE}}/storage/cleanup-plan/latest.json",
+        "schema": "abyss_machine_storage_cleanup_plan_v1",
+        "truth_level": "dry_run_plan"
+      },
+      "write_preflight": {
+        "path": "{{ABYSS_MACHINE_STATE}}/storage/write-preflight/latest.json",
+        "schema": "abyss_machine_storage_write_preflight_v1",
+        "truth_level": "mutation_gate_evidence"
+      }
+    },
+    "memory": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/memory/index.json",
+        "schema": "abyss_machine_memory_paths_v1",
+        "truth_level": "host_contract"
+      },
+      "status": {
+        "path": "{{ABYSS_MACHINE_STATE}}/memory/latest.json",
+        "schema": "abyss_machine_memory_status_v1",
+        "truth_level": "latest_memory_evidence"
+      },
+      "pressure": {
+        "path": "{{ABYSS_MACHINE_STATE}}/memory/pressure/latest.json",
+        "schema": "abyss_machine_memory_pressure_v1",
+        "truth_level": "latest_memory_pressure_evidence"
+      },
+      "processes": {
+        "path": "{{ABYSS_MACHINE_STATE}}/memory/processes/latest.json",
+        "schema": "abyss_machine_memory_processes_v1",
+        "truth_level": "latest_memory_process_evidence"
+      },
+      "plan": {
+        "path": "{{ABYSS_MACHINE_STATE}}/memory/plan/latest.json",
+        "schema": "abyss_machine_memory_plan_v1",
+        "truth_level": "latest_memory_launch_plan"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/memory/validate/latest.json",
+        "schema": "abyss_machine_memory_validate_v1",
+        "truth_level": "latest_memory_contract_validation"
+      }
+    },
+    "resource": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/resource/index.json",
+        "schema": "abyss_machine_resource_paths_v1",
+        "truth_level": "host_contract"
+      },
+      "status": {
+        "path": "{{ABYSS_MACHINE_STATE}}/resource/latest.json",
+        "schema": "abyss_machine_resource_status_v1",
+        "truth_level": "latest_resource_state"
+      },
+      "plan": {
+        "path": "{{ABYSS_MACHINE_STATE}}/resource/plans/latest.json",
+        "schema": "abyss_machine_resource_plan_v1",
+        "truth_level": "latest_unified_resource_plan"
+      },
+      "run": {
+        "path": "{{ABYSS_MACHINE_STATE}}/resource/runs/latest.json",
+        "schema": "abyss_machine_resource_launch_v1",
+        "truth_level": "latest_resource_launch_evidence"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/resource/validate/latest.json",
+        "schema": "abyss_machine_resource_validate_v1",
+        "truth_level": "latest_resource_contract_validation"
+      },
+      "orchestrator": {
+        "path": "{{ABYSS_MACHINE_STATE}}/resource/orchestrator/latest.json",
+        "schema": "abyss_machine_resource_orchestrator_v2_v1",
+        "truth_level": "latest_resource_orchestration_audit"
+      }
+    },
+    "processes": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/processes/index.json",
+        "schema": "abyss_machine_process_paths_v1",
+        "truth_level": "host_contract"
+      },
+      "latest": {
+        "path": "{{ABYSS_MACHINE_STATE}}/processes/latest.json",
+        "schema": "abyss_machine_process_snapshot_v1",
+        "truth_level": "latest_process_evidence"
+      },
+      "game_guard": {
+        "path": "{{ABYSS_MACHINE_STATE}}/processes/game-guard/latest.json",
+        "schema": "abyss_machine_process_game_guard_v1",
+        "truth_level": "latest_game_guard_evidence"
+      },
+      "thermal_attribution": {
+        "path": "{{ABYSS_MACHINE_STATE}}/processes/thermal-attribution/latest.json",
+        "schema": "abyss_machine_process_thermal_attribution_v1",
+        "truth_level": "latest_process_thermal_evidence"
+      },
+      "thermal_plan": {
+        "path": "{{ABYSS_MACHINE_STATE}}/processes/thermal-plan/latest.json",
+        "schema": "abyss_machine_process_thermal_plan_v1",
+        "truth_level": "latest_process_thermal_plan"
+      }
+    },
+    "nervous": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/index.json",
+        "schema": "abyss_machine_nervous_index_v1",
+        "truth_level": "host_contract"
+      },
+      "status": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/latest.json",
+        "schema": "abyss_machine_nervous_status_v1",
+        "truth_level": "latest_state"
+      },
+      "facts": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/facts/latest.json",
+        "schema": "abyss_machine_nervous_fact_snapshot_v1",
+        "truth_level": "evidence"
+      },
+      "events": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/events/latest.json",
+        "schema": "abyss_machine_nervous_events_build_v1",
+        "truth_level": "derived_evidence"
+      },
+      "episodes": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/episodes/latest.json",
+        "schema": "abyss_machine_nervous_episodes_build_v1",
+        "truth_level": "derived_grouping"
+      },
+      "retrieval": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/retrieval/latest.json",
+        "schema": "abyss_machine_nervous_retrieval_pack_v1",
+        "truth_level": "evidence_pack"
+      },
+      "synthesis": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/synthesis/latest.json",
+        "schema": "abyss_machine_nervous_synthesis_candidate_v1",
+        "truth_level": "candidate_not_truth"
+      },
+      "evals": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/evals/latest.json",
+        "schema": "abyss_machine_nervous_eval_v1",
+        "truth_level": "quality_gate"
+      },
+      "retention": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/retention/latest.json",
+        "schema": null,
+        "truth_level": "retention_audit_latest"
+      },
+      "quality": {
+        "path": "{{ABYSS_MACHINE_STATE}}/nervous/quality/latest.json",
+        "schema": "abyss_machine_nervous_quality_audit_v1",
+        "truth_level": "latest_nervous_quality_audit"
+      }
+    },
+    "observability": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/observability/index.json",
+        "schema": "abyss_machine_observability_index_v1",
+        "truth_level": "host_contract"
+      },
+      "thermal_battery": {
+        "path": "{{ABYSS_MACHINE_STATE}}/observability/thermal-battery/latest.json",
+        "schema": "abyss_machine_observability_latest_v1",
+        "truth_level": "latest_telemetry"
+      },
+      "stack_observability": {
+        "path": "{{ABYSS_MACHINE_STATE}}/stack-bridge/observability/latest.json",
+        "schema": "abyss_machine_stack_observability_v1",
+        "truth_level": "latest_stack_observability"
+      }
+    },
+    "cooling": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/cooling/index.json",
+        "schema": "abyss_machine_cooling_index_v1",
+        "truth_level": "host_contract"
+      },
+      "status": {
+        "path": "{{ABYSS_MACHINE_STATE}}/cooling/latest.json",
+        "schema": "abyss_machine_cooling_status_v1",
+        "truth_level": "latest_cooling_state"
+      },
+      "thermal_audit": {
+        "path": "{{ABYSS_MACHINE_STATE}}/cooling/thermal-audit/latest.json",
+        "schema": "abyss_machine_cooling_thermal_audit_v1",
+        "truth_level": "latest_thermal_evidence"
+      }
+    },
+    "heartbeats": {
+      "latest": {
+        "path": "{{ABYSS_MACHINE_STATE}}/heartbeats/latest.json",
+        "schema": "abyss_machine_heartbeat_pulse_v1",
+        "truth_level": "latest_heartbeat_readmodel"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/heartbeats/validate/latest.json",
+        "schema": "abyss_machine_heartbeats_validate_v1",
+        "truth_level": "latest_heartbeat_validation"
+      }
+    },
+    "self_awareness": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/index.json",
+        "schema": "abyss_machine_self_awareness_correlation_index_v1",
+        "truth_level": "correlation_index"
+      },
+      "events": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/events/latest.json",
+        "schema": "abyss_machine_self_awareness_events_v1",
+        "truth_level": "normalized_observation_events"
+      },
+      "collect": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/collect/latest.json",
+        "schema": "abyss_machine_self_awareness_collect_v1",
+        "truth_level": "latest_self_awareness_collect"
+      },
+      "timeline": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/timeline/latest.json",
+        "schema": "abyss_machine_self_awareness_timeline_v1",
+        "truth_level": "latest_temporal_readmodel"
+      },
+      "spatial_graph": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/spatial-graph/latest.json",
+        "schema": "abyss_machine_self_awareness_spatial_graph_v1",
+        "truth_level": "latest_spatial_overlay"
+      },
+      "context": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/context/latest.json",
+        "schema": "abyss_machine_self_awareness_context_v1",
+        "truth_level": "latest_trace_context_index"
+      },
+      "episodes": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/episodes/latest.json",
+        "schema": "abyss_machine_self_awareness_episodes_v1",
+        "truth_level": "candidate_causal_episodes"
+      },
+      "alerts": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/alerts/latest.json",
+        "schema": "abyss_machine_self_awareness_alerts_v1",
+        "truth_level": "owner_gated_reaction_candidates"
+      },
+      "brief": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/brief/latest.json",
+        "schema": "abyss_machine_self_awareness_brief_v1",
+        "truth_level": "evidence_cited_semantic_brief"
+      },
+      "probe": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/probe/latest.json",
+        "schema": "abyss_machine_self_awareness_probe_v1",
+        "truth_level": "latest_e2e_probe"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/validate/latest.json",
+        "schema": "abyss_machine_self_awareness_validate_v1",
+        "truth_level": "latest_self_awareness_validation"
+      },
+      "capabilities": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/capabilities/latest.json",
+        "schema": "abyss_machine_self_awareness_capabilities_v1",
+        "truth_level": "live_stack_capability_map"
+      },
+      "requirements": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/requirements/latest.json",
+        "schema": "abyss_machine_self_awareness_requirements_v1",
+        "truth_level": "stack_owned_gap_report"
+      },
+      "query": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/query/latest.json",
+        "schema": "abyss_machine_self_awareness_query_v1",
+        "truth_level": "bounded_operator_query"
+      },
+      "correlation": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/correlation/latest.json",
+        "schema": "abyss_machine_self_awareness_correlation_v1",
+        "truth_level": "correlation_slo_anomaly_provenance"
+      },
+      "investigate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/investigate/latest.json",
+        "schema": "abyss_machine_self_awareness_investigation_v1",
+        "truth_level": "checkpointed_langgraph_investigation"
+      },
+      "replay": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/replay/latest.json",
+        "schema": "abyss_machine_self_awareness_replay_v1",
+        "truth_level": "checkpoint_replay_verification"
+      },
+      "export": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/export/latest.json",
+        "schema": "abyss_machine_self_awareness_export_v1",
+        "truth_level": "portable_self_awareness_bundle"
+      },
+      "failure_matrix": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/failure-matrix/latest.json",
+        "schema": "abyss_machine_self_awareness_failure_matrix_v1",
+        "truth_level": "failure_mode_coverage_matrix"
+      },
+      "cycle": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/cycle/latest.json",
+        "schema": "abyss_machine_self_awareness_cycle_v1",
+        "truth_level": "full_e2e_cycle_proof"
+      },
+      "requirement_probes": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/requirement-probes/latest.json",
+        "schema": "abyss_machine_self_awareness_requirement_probes_v1",
+        "truth_level": "stack_requirement_acceptance_probe"
+      },
+      "stack_closure_dossier": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/stack-closure-dossier/latest.json",
+        "schema": "abyss_machine_self_awareness_stack_closure_dossier_v1",
+        "truth_level": "stack_owner_closure_dossier"
+      },
+      "coverage_audit": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/coverage-audit/latest.json",
+        "schema": "abyss_machine_self_awareness_objective_coverage_audit_v1",
+        "truth_level": "objective_full_stack_coverage_audit"
+      },
+      "working_stack": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/working-stack/latest.json",
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "truth_level": "actual_working_stack_runtime_body"
+      },
+      "activation_smoke": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/activation-smoke/latest.json",
+        "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_v1",
+        "truth_level": "per_service_investigate_replay_smoke_matrix"
+      },
+      "autolink": {
+        "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/autolink/latest.json",
+        "schema": "abyss_machine_self_awareness_autolink_v1",
+        "truth_level": "automatic_time_space_context_state_delta"
+      }
+    },
+    "typing": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/index.json",
+        "schema": "abyss_machine_typing_index_v1",
+        "truth_level": "host_contract"
+      },
+      "events": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/events/latest.json",
+        "schema": "abyss_machine_typing_event_v1",
+        "truth_level": "latest_committed_text_event"
+      },
+      "coverage": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/coverage/latest.json",
+        "schema": "abyss_machine_typing_coverage_v1",
+        "truth_level": "latest_typing_coverage_readmodel"
+      },
+      "process": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/process/latest.json",
+        "schema": "abyss_machine_typing_process_v1",
+        "truth_level": "latest_typing_process_readmodel"
+      },
+      "nervous_refresh": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/nervous-refresh/latest.json",
+        "schema": "abyss_machine_typing_nervous_refresh_v1",
+        "truth_level": "latest_typing_to_nervous_refresh"
+      },
+      "browser_extension": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-extension/latest.json",
+        "schema": "abyss_machine_typing_browser_extension_status_v1",
+        "truth_level": "latest_browser_adapter_status"
+      },
+      "browser_ai_transcript": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-ai-transcript/latest.json",
+        "schema": "abyss_machine_typing_browser_ai_transcript_status_v1",
+        "truth_level": "latest_browser_ai_transcript_status"
+      },
+      "editor_extension": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/editor-extension/latest.json",
+        "schema": "abyss_machine_vscode_typing_intake_status_v1",
+        "truth_level": "latest_editor_adapter_status"
+      },
+      "codex_session_tail": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/codex-session-tail/latest.json",
+        "schema": "abyss_machine_typing_codex_session_tail_v1",
+        "truth_level": "latest_codex_session_tail_status"
+      },
+      "atspi_text_events": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/atspi-text-events/latest.json",
+        "schema": "abyss_machine_typing_atspi_text_events_v1",
+        "truth_level": "latest_accessibility_text_events_status"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/typing/validate/latest.json",
+        "schema": "abyss_machine_typing_validate_v1",
+        "truth_level": "latest_typing_contract_validation"
+      }
+    },
+    "dictation": {
+      "index": {
+        "path": "{{ABYSS_MACHINE_STATE}}/dictation/index.json",
+        "schema": "abyss_machine_dictation_index_v1",
+        "truth_level": "host_contract"
+      },
+      "transcript": {
+        "path": "{{ABYSS_MACHINE_STATE}}/dictation/transcripts/latest.json",
+        "schema": "abyss_machine_dictation_transcript_event_v1",
+        "truth_level": "latest_voice_transcript_event"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/dictation/validate/latest.json",
+        "schema": "abyss_machine_dictation_validate_v1",
+        "truth_level": "latest_dictation_contract_validation"
+      }
+    },
+    "reactions": {
+      "latest": {
+        "path": "{{ABYSS_MACHINE_STATE}}/reactions/latest.json",
+        "schema": "abyss_machine_reactions_status_v1",
+        "truth_level": "latest_reaction_candidates"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/reactions/validate/latest.json",
+        "schema": "abyss_machine_reactions_validate_v1",
+        "truth_level": "latest_reactions_validation"
+      }
+    },
+    "responses": {
+      "latest": {
+        "path": "{{ABYSS_MACHINE_STATE}}/responses/latest.json",
+        "schema": "abyss_machine_responses_status_v1",
+        "truth_level": "latest_response_routes"
+      },
+      "validate": {
+        "path": "{{ABYSS_MACHINE_STATE}}/responses/validate/latest.json",
+        "schema": "abyss_machine_responses_validate_v1",
+        "truth_level": "latest_responses_validation"
+      }
+    }
+  },
+  "memory_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/memory/AGENTS.md",
+    "policy": "{{ABYSS_MACHINE_ETC}}/memory-policy.json",
+    "status_latest": "{{ABYSS_MACHINE_STATE}}/memory/latest.json",
+    "pressure_latest": "{{ABYSS_MACHINE_STATE}}/memory/pressure/latest.json",
+    "processes_latest": "{{ABYSS_MACHINE_STATE}}/memory/processes/latest.json",
+    "plan_latest": "{{ABYSS_MACHINE_STATE}}/memory/plan/latest.json",
+    "validate_latest": "{{ABYSS_MACHINE_STATE}}/memory/validate/latest.json",
+    "commands": {
+      "paths": "abyss-machine memory paths --json",
+      "policy": "abyss-machine memory policy --json",
+      "status": "abyss-machine memory status --json",
+      "pressure": "abyss-machine memory pressure --json",
+      "processes": "abyss-machine memory processes --json",
+      "plan": "abyss-machine memory plan --json",
+      "validate": "abyss-machine memory validate --json"
+    },
+    "contract": "Future stack-side launchers may consume memory plan before starting medium/heavy/sustained local work; host memory subsystem writes facts and gates new starts only.",
+    "protected_context": "Dictation, games, work projects, project repositories, and existing user processes must be reported before any operator action; this route never mutates them automatically."
+  },
+  "resource_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/resource/AGENTS.md",
+    "policy": "{{ABYSS_MACHINE_ETC}}/resource-policy.json",
+    "status_latest": "{{ABYSS_MACHINE_STATE}}/resource/latest.json",
+    "plan_latest": "{{ABYSS_MACHINE_STATE}}/resource/plans/latest.json",
+    "run_latest": "{{ABYSS_MACHINE_STATE}}/resource/runs/latest.json",
+    "validate_latest": "{{ABYSS_MACHINE_STATE}}/resource/validate/latest.json",
+    "commands": {
+      "paths": "abyss-machine resource paths --json",
+      "status": "abyss-machine resource status --json",
+      "policy": "abyss-machine resource policy --json",
+      "plan_heavy_ai": "abyss-machine resource plan --class heavy --kind ai --json",
+      "launch_dry_run": "abyss-machine resource launch --class light --kind generic --dry-run -- /bin/true",
+      "validate": "abyss-machine resource validate --json",
+      "orchestrator": "abyss-machine resource orchestrator --json",
+      "orchestrator_refresh_nervous": "abyss-machine resource orchestrator --refresh-nervous --json"
+    },
+    "contract": "Future stack-side launchers may consume resource plan as the unified host decision over mode, memory, storage, game guard, thermal plan, and CPU route.",
+    "execution": "Resource launch uses user systemd transient services/scopes with AllowedCPUs, CPUWeight, IOWeight, and soft MemoryHigh for new processes only.",
+    "orchestrator_latest": "{{ABYSS_MACHINE_STATE}}/resource/orchestrator/latest.json"
+  },
+  "generated_at": "2026-05-07T12:53:48-06:00",
+  "updated_at": "2026-06-06T10:46:12-06:00",
+  "commands": {
+    "ai_llm_resident_job_json": [
+      "abyss-machine",
+      "ai",
+      "llm",
+      "resident",
+      "job",
+      "JOB",
+      "--json"
+    ],
+    "ai_llm_resident_jobs_json": [
+      "abyss-machine",
+      "ai",
+      "llm",
+      "resident",
+      "jobs",
+      "--json"
+    ],
+    "ai_llm_resident_jobs_validate_json": [
+      "abyss-machine",
+      "ai",
+      "llm",
+      "resident",
+      "jobs-validate",
+      "--json"
+    ],
+    "resource_orchestrator_json": [
+      "abyss-machine",
+      "resource",
+      "orchestrator",
+      "--json"
+    ],
+    "resource_orchestrator_refresh_nervous_json": [
+      "abyss-machine",
+      "resource",
+      "orchestrator",
+      "--refresh-nervous",
+      "--json"
+    ],
+    "nervous_quality_audit_json": [
+      "abyss-machine",
+      "nervous",
+      "quality-audit",
+      "--json"
+    ],
+    "nervous_quality_audit_refresh_json": [
+      "abyss-machine",
+      "nervous",
+      "quality-audit",
+      "--refresh",
+      "--json"
+    ],
+    "nervous_quality_audit_refresh_index_json": [
+      "abyss-machine",
+      "nervous",
+      "quality-audit",
+      "--refresh",
+      "--refresh-index",
+      "--json"
+    ],
+    "stack_bridge_sync_static_json": [
+      "sudo",
+      "abyss-machine",
+      "stack-bridge",
+      "sync-static",
+      "--json"
+    ],
+    "heartbeats_pulse_json": [
+      "abyss-machine",
+      "heartbeats",
+      "pulse",
+      "--json"
+    ],
+    "heartbeats_paths_json": [
+      "abyss-machine",
+      "heartbeats",
+      "paths",
+      "--json"
+    ],
+    "heartbeats_validate_json": [
+      "abyss-machine",
+      "heartbeats",
+      "validate",
+      "--json"
+    ],
+    "maps_json": [
+      "abyss-machine",
+      "maps",
+      "--json"
+    ],
+    "maps_validate_json": [
+      "abyss-machine",
+      "maps",
+      "validate",
+      "--json"
+    ],
+    "rag_refresh_json": [
+      "abyss-machine",
+      "rag",
+      "refresh",
+      "--query",
+      "scheduled machine context refresh",
+      "--json"
+    ],
+    "rag_trace_json": [
+      "abyss-machine",
+      "rag",
+      "trace",
+      "--query",
+      "machine RAG trace",
+      "--json"
+    ],
+    "rag_validate_json": [
+      "abyss-machine",
+      "rag",
+      "validate",
+      "--json"
+    ],
+    "stack_bridge_observability_json": [
+      "abyss-machine",
+      "stack-bridge",
+      "observability",
+      "--json"
+    ],
+    "self_awareness_paths_json": [
+      "abyss-machine",
+      "self-awareness",
+      "paths",
+      "--json"
+    ],
+    "self_awareness_status_json": [
+      "abyss-machine",
+      "self-awareness",
+      "status",
+      "--json"
+    ],
+    "self_awareness_collect_json": [
+      "abyss-machine",
+      "self-awareness",
+      "collect",
+      "--json"
+    ],
+    "self_awareness_timeline_json": [
+      "abyss-machine",
+      "self-awareness",
+      "timeline",
+      "--json"
+    ],
+    "self_awareness_spatial_graph_json": [
+      "abyss-machine",
+      "self-awareness",
+      "spatial-graph",
+      "--json"
+    ],
+    "self_awareness_context_json": [
+      "abyss-machine",
+      "self-awareness",
+      "context",
+      "--json"
+    ],
+    "self_awareness_episodes_json": [
+      "abyss-machine",
+      "self-awareness",
+      "episodes",
+      "--json"
+    ],
+    "self_awareness_alerts_json": [
+      "abyss-machine",
+      "self-awareness",
+      "alerts",
+      "--json"
+    ],
+    "self_awareness_brief_json": [
+      "abyss-machine",
+      "self-awareness",
+      "brief",
+      "--json"
+    ],
+    "self_awareness_probe_json": [
+      "abyss-machine",
+      "self-awareness",
+      "probe",
+      "--json"
+    ],
+    "self_awareness_validate_json": [
+      "abyss-machine",
+      "self-awareness",
+      "validate",
+      "--json"
+    ],
+    "self_awareness_capabilities_json": [
+      "abyss-machine",
+      "self-awareness",
+      "capabilities",
+      "--json"
+    ],
+    "self_awareness_query_json": [
+      "abyss-machine",
+      "self-awareness",
+      "query",
+      "--query",
+      "TEXT",
+      "--json"
+    ],
+    "self_awareness_correlate_json": [
+      "abyss-machine",
+      "self-awareness",
+      "correlate",
+      "--json"
+    ],
+    "self_awareness_investigate_json": [
+      "abyss-machine",
+      "self-awareness",
+      "investigate",
+      "--query",
+      "TEXT",
+      "--json"
+    ],
+    "self_awareness_replay_json": [
+      "abyss-machine",
+      "self-awareness",
+      "replay",
+      "--json"
+    ],
+    "self_awareness_export_json": [
+      "abyss-machine",
+      "self-awareness",
+      "export",
+      "--json"
+    ],
+    "self_awareness_failure_matrix_json": [
+      "abyss-machine",
+      "self-awareness",
+      "failure-matrix",
+      "--json"
+    ],
+    "self_awareness_cycle_json": [
+      "abyss-machine",
+      "self-awareness",
+      "cycle",
+      "--json"
+    ],
+    "self_awareness_requirements_json": [
+      "abyss-machine",
+      "self-awareness",
+      "requirements",
+      "--json"
+    ],
+    "self_awareness_requirement_probes_json": [
+      "abyss-machine",
+      "self-awareness",
+      "requirement-probes",
+      "--json"
+    ],
+    "self_awareness_stack_closure_dossier_json": [
+      "abyss-machine",
+      "self-awareness",
+      "stack-closure-dossier",
+      "--json"
+    ],
+    "self_awareness_working_stack_json": [
+      "abyss-machine",
+      "self-awareness",
+      "working-stack",
+      "--json"
+    ],
+    "self_awareness_activation_smoke_json": [
+      "abyss-machine",
+      "self-awareness",
+      "activation-smoke",
+      "--json"
+    ],
+    "self_awareness_autolink_json": [
+      "abyss-machine",
+      "self-awareness",
+      "autolink",
+      "--json"
+    ]
+  },
+  "nervous_quality_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/nervous/AGENTS.md",
+    "quality_latest": "{{ABYSS_MACHINE_STATE}}/nervous/quality/latest.json",
+    "commands": {
+      "quality_audit": "abyss-machine nervous quality-audit --json",
+      "quality_audit_refresh": "abyss-machine nervous quality-audit --refresh --json",
+      "quality_audit_refresh_index": "abyss-machine nervous quality-audit --refresh --refresh-index --json"
+    },
+    "contract": "Use the quality audit before relying on local memory, synthesis, or stack bridge handoff material.",
+    "non_claim": "Quality audit is evidence-only; it does not execute user intent, mutate repositories, or take automatic actions."
+  },
+  "heartbeat_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/heartbeats/AGENTS.md",
+    "latest": "{{ABYSS_MACHINE_STATE}}/heartbeats/latest.json",
+    "validate_latest": "{{ABYSS_MACHINE_STATE}}/heartbeats/validate/latest.json",
+    "stable_fields": [
+      "source_freshness",
+      "rhythm",
+      "candidate_lifecycle",
+      "pressure_context",
+      "capture_health",
+      "ai_hygiene",
+      "e2b_breath",
+      "self_awareness_breath"
+    ],
+    "commands": {
+      "pulse": "abyss-machine heartbeats pulse --json",
+      "paths": "abyss-machine heartbeats paths --json",
+      "validate": "abyss-machine heartbeats validate --json"
+    },
+    "contract": "Stack-side readers may consume heartbeat readmodel fields only after heartbeats validate proves the stable field set.",
+    "non_claim": "Heartbeat bridge is evidence-only; it does not execute reactions, responses, browser diagnostics, model review, cleanup, or stack promotion."
+  },
+  "stack_observability_bridge": {
+    "latest": "{{ABYSS_MACHINE_STATE}}/stack-bridge/observability/latest.json",
+    "commands": {
+      "observability": "abyss-machine stack-bridge observability --json"
+    },
+    "contract": "Use this read-only snapshot to verify abyss-stack Prometheus, Grafana, Loki, Alloy, PromQL, and LogQL availability from the host layer.",
+    "non_claim": "Stack observability bridge reads host endpoints and stack container network probes only; it does not import, write, start, stop, or reconfigure abyss-stack."
+  },
+  "self_awareness_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/self-awareness/AGENTS.md",
+    "doc": "{{ABYSS_MACHINE_ETC}}/SELF-AWARENESS.md",
+    "latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/collect/latest.json",
+    "capabilities_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/capabilities/latest.json",
+    "requirements_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/requirements/latest.json",
+    "requirement_probes_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/requirement-probes/latest.json",
+    "stack_closure_dossier_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/stack-closure-dossier/latest.json",
+    "failure_matrix_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/failure-matrix/latest.json",
+    "working_stack_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/working-stack/latest.json",
+    "coverage_audit_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/coverage-audit/latest.json",
+    "activation_smoke_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/activation-smoke/latest.json",
+    "autolink_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/autolink/latest.json",
+    "correlation_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/correlation/latest.json",
+    "investigate_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/investigate/latest.json",
+    "replay_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/replay/latest.json",
+    "export_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/export/latest.json",
+    "validate_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/validate/latest.json",
+    "probe_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/probe/latest.json",
+    "cycle_latest": "{{ABYSS_MACHINE_STATE}}/self-awareness/cycle/latest.json",
+    "commands": {
+      "paths": "abyss-machine self-awareness paths --json",
+      "status": "abyss-machine self-awareness status --json",
+      "capabilities": "abyss-machine self-awareness capabilities --json",
+      "requirements": "abyss-machine self-awareness requirements --json",
+      "requirement_probes": "abyss-machine self-awareness requirement-probes --json",
+      "stack_closure_dossier": "abyss-machine self-awareness stack-closure-dossier --json",
+      "working_stack": "abyss-machine self-awareness working-stack --json",
+      "collect": "abyss-machine self-awareness collect --json",
+      "query": "abyss-machine self-awareness query --query TEXT --json",
+      "correlate": "abyss-machine self-awareness correlate --json",
+      "timeline": "abyss-machine self-awareness timeline --json",
+      "spatial_graph": "abyss-machine self-awareness spatial-graph --json",
+      "context": "abyss-machine self-awareness context --json",
+      "episodes": "abyss-machine self-awareness episodes --json",
+      "alerts": "abyss-machine self-awareness alerts --json",
+      "investigate": "abyss-machine self-awareness investigate --query TEXT --json",
+      "replay": "abyss-machine self-awareness replay --json",
+      "brief": "abyss-machine self-awareness brief --json",
+      "failure_matrix": "abyss-machine self-awareness failure-matrix --json",
+      "coverage_audit": "abyss-machine self-awareness coverage-audit --json",
+      "activation_smoke": "abyss-machine self-awareness activation-smoke --json",
+      "autolink": "abyss-machine self-awareness autolink --json",
+      "probe": "abyss-machine self-awareness probe --json",
+      "cycle": "abyss-machine self-awareness cycle --json",
+      "export": "abyss-machine self-awareness export --json",
+      "validate": "abyss-machine self-awareness validate --json"
+    },
+    "contract": "Read-only causal-temporal-spatial understanding layer over stack observability and host readmodels.",
+    "non_claim": "Self-awareness is evidence and owner-gated reaction routing; it does not mutate abyss-stack, execute remediation, or claim root cause without cited evidence."
+  },
+  "config_exists": true,
+  "config_error": null,
+  "typing_bridge": {
+    "agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md",
+    "latest_event": "{{ABYSS_MACHINE_STATE}}/typing/events/latest.json",
+    "coverage_latest": "{{ABYSS_MACHINE_STATE}}/typing/coverage/latest.json",
+    "process_latest": "{{ABYSS_MACHINE_STATE}}/typing/process/latest.json",
+    "nervous_refresh_latest": "{{ABYSS_MACHINE_STATE}}/typing/nervous-refresh/latest.json",
+    "validate_latest": "{{ABYSS_MACHINE_STATE}}/typing/validate/latest.json",
+    "stable_causal_fields": [
+      "input",
+      "where",
+      "recipient",
+      "task",
+      "policy"
+    ],
+    "commands": {
+      "status": "abyss-machine typing status --json",
+      "coverage": "abyss-machine typing coverage --json",
+      "process": "abyss-machine typing process --json",
+      "causal_context": "abyss-machine typing causal-context --json",
+      "validate": "abyss-machine typing validate --json"
+    },
+    "contract": "Use typing coverage and causal-context to answer what was written, where it was written, to whom it was routed, and which task/context it belonged to.",
+    "non_claim": "Typing bridge is committed-text evidence only; it is not raw keylogging and does not authorize automatic action."
+  }
+}

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local/editor
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Abyss Machine local/generated planes
+/var/
+/srv/
+/run/
+/cache/
+/runtimes/
+/storage/
+/tmp/
+/backups/
+/artifacts/
+
+# Host snapshots and generated/publication-blocking artifacts
+*.bak
+*.bak-*
+*.pre-*
+*.xpi
+*.zip
+*.tar
+*.tar.*
+*.jsonl
+*.sqlite
+*.db
+*.db-shm
+*.db-wal
+
+# Vault/secrets should never be vendored.
+secrets/
+*.password
+*.key
+*.pem

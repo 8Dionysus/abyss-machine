@@ -1,0 +1,604 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import shutil
+import subprocess
+import sys
+from typing import Any
+
+
+SCHEMA = "abyss_machine_storage_reclaim_audit_v1"
+VERSION = "0.1.0"
+LATEST_PATH = Path("/var/lib/abyss-machine/storage/reclaim-audit/latest.json")
+ROOT_PATH = Path("/")
+SRV_PATH = Path("/srv")
+GIB = 1024**3
+MIB = 1024**2
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def command_exists(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def run(cmd: list[str], timeout: float = 30.0) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return {"ok": False, "returncode": 127, "stdout": "", "stderr": f"{cmd[0]} not found", "command": cmd}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "returncode": 124, "stdout": "", "stderr": "timeout", "command": cmd}
+    return {
+        "ok": completed.returncode == 0,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+        "command": cmd,
+    }
+
+
+def run_with_pkexec_if_needed(cmd: list[str], timeout: float = 180.0) -> dict[str, Any]:
+    if os.geteuid() == 0:
+        return run(cmd, timeout=timeout)
+    if not command_exists("pkexec"):
+        return {"ok": False, "returncode": 127, "stdout": "", "stderr": "pkexec not found", "command": ["pkexec", *cmd]}
+    return run(["pkexec", *cmd], timeout=timeout)
+
+
+def parse_int(value: str) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def human_bytes(value: int | None) -> str:
+    if value is None:
+        return "unknown"
+    sign = "-" if value < 0 else ""
+    n = abs(float(value))
+    for suffix in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if n < 1024 or suffix == "TiB":
+            if suffix == "B":
+                return f"{sign}{int(n)} {suffix}"
+            return f"{sign}{n:.1f} {suffix}"
+        n /= 1024
+    return f"{sign}{n:.1f} TiB"
+
+
+def operator_account() -> dict[str, Any]:
+    uid: int | None = None
+    source = None
+    for env_name in ("SUDO_UID", "PKEXEC_UID"):
+        raw = os.environ.get(env_name)
+        if raw and raw.isdigit() and int(raw) != 0:
+            uid = int(raw)
+            source = env_name
+            break
+    if uid is None and os.geteuid() != 0:
+        uid = os.geteuid()
+        source = "euid"
+    if uid is None and Path("/home/dionysus").exists():
+        try:
+            entry = pwd.getpwnam("dionysus")
+            uid = entry.pw_uid
+            source = "fallback_dionysus"
+        except KeyError:
+            pass
+    if uid is None:
+        entry = pwd.getpwuid(os.geteuid())
+    else:
+        entry = pwd.getpwuid(uid)
+    return {"uid": entry.pw_uid, "name": entry.pw_name, "home": entry.pw_dir, "source": source}
+
+
+def df_for(path: Path) -> dict[str, Any]:
+    out = run(["df", "-B1", "--output=source,target,size,used,avail,pcent", str(path)], timeout=8)
+    result: dict[str, Any] = {"path": str(path), "ok": out["ok"], "command": out["command"]}
+    if not out["ok"]:
+        result["error"] = (out["stderr"] or out["stdout"]).strip()
+        return result
+    lines = [line.strip() for line in str(out["stdout"]).splitlines() if line.strip()]
+    if len(lines) < 2:
+        result.update({"ok": False, "error": "df returned no data"})
+        return result
+    fields = re.split(r"\s+", lines[-1])
+    if len(fields) < 6:
+        result.update({"ok": False, "error": f"cannot parse df line: {lines[-1]}"})
+        return result
+    source, target, size, used, avail, pcent = fields[:6]
+    result.update({
+        "source": source,
+        "target": target,
+        "size_bytes": parse_int(size),
+        "used_bytes": parse_int(used),
+        "avail_bytes": parse_int(avail),
+        "use_percent": pcent,
+    })
+    return result
+
+
+def parse_btrfs_bytes_line(line: str) -> tuple[str, int] | None:
+    match = re.match(r"\s*([A-Za-z][A-Za-z ()/,.-]+):\s+([0-9]+)\b", line)
+    if not match:
+        return None
+    key = re.sub(r"[^a-z0-9]+", "_", match.group(1).strip().lower()).strip("_")
+    value = parse_int(match.group(2))
+    if value is None:
+        return None
+    return key, value
+
+
+def btrfs_usage(path: Path) -> dict[str, Any]:
+    out = run(["btrfs", "filesystem", "usage", "-b", str(path)], timeout=15)
+    result: dict[str, Any] = {"path": str(path), "ok": out["ok"], "command": out["command"]}
+    if not out["ok"]:
+        result["error"] = (out["stderr"] or out["stdout"]).strip()
+        return result
+    values: dict[str, int] = {}
+    for line in str(out["stdout"]).splitlines():
+        parsed = parse_btrfs_bytes_line(line)
+        if parsed:
+            values[parsed[0]] = parsed[1]
+    result["values"] = values
+    result["warning"] = str(out["stderr"]).strip() or None
+    result["raw"] = "\n".join(str(out["stdout"]).splitlines()[:80])
+    return result
+
+
+def visible_du_root() -> dict[str, Any]:
+    if os.geteuid() != 0:
+        return {
+            "ok": False,
+            "requires_root": True,
+            "reason": "skipped: full root du needs root; run with pkexec for exact visible usage",
+            "command": ["du", "-xbs", "/"],
+        }
+    out = run(["du", "-xbs", "/"], timeout=120)
+    result: dict[str, Any] = {"ok": out["ok"], "command": out["command"]}
+    if not out["ok"]:
+        result["error"] = (out["stderr"] or out["stdout"]).strip()
+        return result
+    first = str(out["stdout"]).splitlines()[0] if out["stdout"] else ""
+    size = parse_int(first.split()[0] if first else "")
+    result["bytes"] = size
+    return result
+
+
+def btrfs_sync() -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for cmd in (["btrfs", "subvolume", "sync", "/"], ["btrfs", "filesystem", "sync", "/"]):
+        out = run_with_pkexec_if_needed(cmd, timeout=300)
+        actions.append({
+            "action": " ".join(cmd),
+            "ok": out["ok"],
+            "returncode": out["returncode"],
+            "stdout": str(out["stdout"]).strip(),
+            "stderr": str(out["stderr"]).strip(),
+            "command": out["command"],
+        })
+    return actions
+
+
+def parse_snapper_table(stdout: str) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for line in stdout.splitlines():
+        if "│" not in line or line.lstrip().startswith(("#", "─")):
+            continue
+        parts = [part.strip() for part in line.split("│")]
+        if len(parts) < 8:
+            continue
+        number = parse_int(parts[0])
+        if number is None:
+            continue
+        entries.append({
+            "number": number,
+            "type": parts[1] or None,
+            "pre_number": parts[2] or None,
+            "date": parts[3] or None,
+            "user": parts[4] or None,
+            "cleanup": parts[5] or None,
+            "description": parts[6] or None,
+            "userdata": parts[7] or None,
+            "raw": line,
+        })
+    return entries
+
+
+def snapper_list() -> dict[str, Any]:
+    out = run(["snapper", "--no-dbus", "list"], timeout=12)
+    result: dict[str, Any] = {"ok": out["ok"], "command": out["command"], "entries": []}
+    if not out["ok"]:
+        result["error"] = (out["stderr"] or out["stdout"]).strip()
+        if os.geteuid() != 0:
+            result["requires_root"] = True
+            result["recommend_command"] = "pkexec abyss-storage-reclaim-audit --json"
+        return result
+    entries = parse_snapper_table(str(out["stdout"]))
+    result["entries"] = entries
+    result["non_current"] = [entry for entry in entries if entry.get("number") not in (0, None)]
+    result["raw"] = str(out["stdout"]).strip()
+    return result
+
+
+def delete_snapshots(snapshot_ids: list[str]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for snapshot_id in snapshot_ids:
+        if not re.fullmatch(r"[0-9]+", snapshot_id):
+            actions.append({"action": "delete_snapshot", "snapshot": snapshot_id, "ok": False, "error": "snapshot id must be numeric"})
+            continue
+        out = run_with_pkexec_if_needed(["snapper", "--no-dbus", "delete", snapshot_id], timeout=300)
+        actions.append({
+            "action": "delete_snapshot",
+            "snapshot": snapshot_id,
+            "ok": out["ok"],
+            "returncode": out["returncode"],
+            "stdout": str(out["stdout"]).strip(),
+            "stderr": str(out["stderr"]).strip(),
+            "command": out["command"],
+        })
+    actions.extend(btrfs_sync())
+    return actions
+
+
+def parse_lsof_field_output(stdout: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    proc: dict[str, Any] = {}
+    file_rec: dict[str, Any] | None = None
+
+    for raw_token in stdout.split("\0"):
+        token = raw_token.strip("\n")
+        if not token:
+            continue
+        field, value = token[0], token[1:]
+        if field == "p":
+            if file_rec is not None:
+                records.append({**proc, **file_rec})
+                file_rec = None
+            proc = {"pid": parse_int(value)}
+        elif field == "c":
+            proc["command"] = value
+        elif field == "L":
+            proc["login"] = value
+        elif field == "u":
+            proc["uid"] = parse_int(value)
+        elif field == "f":
+            if file_rec is not None:
+                records.append({**proc, **file_rec})
+            file_rec = {"fd": value}
+        elif field == "t" and file_rec is not None:
+            file_rec["type"] = value
+        elif field == "s" and file_rec is not None:
+            file_rec["size_bytes"] = parse_int(value)
+        elif field == "n" and file_rec is not None:
+            file_rec["name"] = value
+    if file_rec is not None:
+        records.append({**proc, **file_rec})
+    return records
+
+
+def classify_deleted_name(name: str) -> str:
+    clean = name.removesuffix(" (deleted)")
+    if clean.startswith(("/memfd:", "/SYSV", "/dev/shm/", "/run/")):
+        return "memory_or_tmpfs"
+    if clean.startswith("/tmp/"):
+        return "tmp_path_check_mount"
+    if clean.startswith("/srv/"):
+        return "srv_disk_candidate"
+    if clean.startswith(("/home/", "/var/", "/usr/", "/opt/", "/etc/", "/root/")):
+        return "root_disk_candidate"
+    return "unknown"
+
+
+def deleted_open_files(min_bytes: int) -> dict[str, Any]:
+    if not command_exists("lsof"):
+        return {"ok": False, "error": "lsof not found", "records": []}
+    out = run(["lsof", "-nP", "+L1", "-F0pcuftsLn"], timeout=45)
+    result: dict[str, Any] = {"ok": out["ok"], "command": out["command"], "records": []}
+    if not out["ok"]:
+        result["error"] = (out["stderr"] or out["stdout"]).strip()
+        return result
+    records = parse_lsof_field_output(str(out["stdout"]))
+    filtered = []
+    for rec in records:
+        size = rec.get("size_bytes")
+        if not isinstance(size, int) or size < min_bytes:
+            continue
+        name = str(rec.get("name") or "")
+        rec["class"] = classify_deleted_name(name)
+        filtered.append(rec)
+    filtered.sort(key=lambda item: int(item.get("size_bytes") or 0), reverse=True)
+    result["records"] = filtered
+    result["root_disk_bytes"] = sum(int(item.get("size_bytes") or 0) for item in filtered if item.get("class") == "root_disk_candidate")
+    result["memory_or_tmpfs_bytes"] = sum(int(item.get("size_bytes") or 0) for item in filtered if item.get("class") == "memory_or_tmpfs")
+    return result
+
+
+def find_large_files(paths: list[Path], min_bytes: int, limit: int) -> dict[str, Any]:
+    records: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    min_mib = max(1, min_bytes // MIB)
+    for path in paths:
+        if not path.exists():
+            continue
+        out = run(["find", str(path), "-xdev", "-type", "f", "-size", f"+{min_mib}M", "-printf", "%s\t%p\\0"], timeout=90)
+        if not out["ok"]:
+            errors.append({"path": str(path), "error": (out["stderr"] or out["stdout"]).strip(), "returncode": out["returncode"]})
+        for token in str(out["stdout"]).split("\0"):
+            if not token:
+                continue
+            size_raw, sep, file_path = token.partition("\t")
+            if not sep:
+                continue
+            size = parse_int(size_raw)
+            if size is None:
+                continue
+            records.append({"size_bytes": size, "path": file_path})
+    records.sort(key=lambda item: int(item["size_bytes"]), reverse=True)
+    return {"ok": not errors, "records": records[:limit], "errors": errors}
+
+
+def lsof_path(path: Path) -> dict[str, Any]:
+    if not command_exists("lsof") or not path.exists():
+        return {"ok": False, "records": []}
+    out = run(["lsof", "-nP", "--", str(path)], timeout=12)
+    result: dict[str, Any] = {"ok": out["ok"], "command": out["command"], "records": []}
+    if not out["ok"]:
+        result["error"] = (out["stderr"] or out["stdout"]).strip()
+        return result
+    lines = [line for line in str(out["stdout"]).splitlines() if line.strip()]
+    for line in lines[1:]:
+        parts = re.split(r"\s+", line, maxsplit=8)
+        if len(parts) < 9:
+            continue
+        result["records"].append({
+            "command": parts[0],
+            "pid": parse_int(parts[1]),
+            "user": parts[2],
+            "fd": parts[3],
+            "type": parts[4],
+            "device": parts[5],
+            "size_off": parts[6],
+            "node": parts[7],
+            "name": parts[8],
+        })
+    return result
+
+
+def watch_files(home: Path) -> list[dict[str, Any]]:
+    candidates = [
+        home / ".codex" / "log" / "codex-tui.log",
+        home / ".codex" / "sessions",
+        Path("/var/lib/systemd/coredump"),
+        Path("/var/log/journal"),
+    ]
+    records: list[dict[str, Any]] = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            stat = path.stat()
+        except OSError as exc:
+            records.append({"path": str(path), "ok": False, "error": str(exc)})
+            continue
+        item: dict[str, Any] = {"path": str(path), "ok": True, "is_dir": path.is_dir(), "size_bytes": stat.st_size}
+        if path.is_file():
+            item["open_by"] = lsof_path(path).get("records", [])
+        records.append(item)
+    return records
+
+
+def core_dump_total() -> dict[str, Any]:
+    path = Path("/var/lib/systemd/coredump")
+    if not path.exists():
+        return {"ok": True, "path": str(path), "bytes": 0, "files": 0}
+    out = run(["du", "-sb", str(path)], timeout=20)
+    if not out["ok"]:
+        return {"ok": False, "path": str(path), "error": (out["stderr"] or out["stdout"]).strip()}
+    first = str(out["stdout"]).splitlines()[0] if out["stdout"] else ""
+    return {"ok": True, "path": str(path), "bytes": parse_int(first.split()[0] if first else "")}
+
+
+def scan_paths(home: Path) -> list[Path]:
+    paths = [
+        home,
+        Path("/var/lib/systemd/coredump"),
+        Path("/var/log/journal"),
+        Path("/var/lib/flatpak"),
+        Path("/var/lib/snapd/snaps"),
+    ]
+    return paths
+
+
+def build_recommendations(audit: dict[str, Any]) -> list[dict[str, Any]]:
+    recommendations: list[dict[str, Any]] = []
+    snapper = audit.get("snapper", {})
+    non_current = snapper.get("non_current") if isinstance(snapper, dict) else None
+    if isinstance(non_current, list) and non_current:
+        ids = ", ".join(str(item.get("number")) for item in non_current[:8])
+        recommendations.append({
+            "priority": "high",
+            "kind": "snapper_snapshot_review",
+            "summary": f"Non-current snapper snapshots exist: {ids}",
+            "command": "pkexec abyss-storage-reclaim-audit --delete-snapshot ID --sync-btrfs --json",
+        })
+    elif isinstance(snapper, dict) and snapper.get("requires_root"):
+        recommendations.append({
+            "priority": "medium",
+            "kind": "snapper_requires_root",
+            "summary": "Snapper root config is not visible to this user run.",
+            "command": "pkexec abyss-storage-reclaim-audit --json",
+        })
+
+    deleted = audit.get("deleted_open_files", {})
+    root_deleted = int(deleted.get("root_disk_bytes") or 0) if isinstance(deleted, dict) else 0
+    if root_deleted >= 512 * MIB:
+        recommendations.append({
+            "priority": "high",
+            "kind": "deleted_open_root_files",
+            "summary": f"Deleted files still held open on root filesystem: {human_bytes(root_deleted)}",
+            "action": "Restart or gracefully rotate the owning process; do not expect rm to reclaim space until the fd closes.",
+        })
+
+    btrfs = audit.get("btrfs", {})
+    du = audit.get("visible_root_du", {})
+    values = btrfs.get("values") if isinstance(btrfs, dict) else {}
+    btrfs_used = values.get("used") if isinstance(values, dict) else None
+    du_bytes = du.get("bytes") if isinstance(du, dict) else None
+    if isinstance(btrfs_used, int) and isinstance(du_bytes, int):
+        gap = btrfs_used - du_bytes
+        if gap > 10 * GIB:
+            recommendations.append({
+                "priority": "medium",
+                "kind": "btrfs_visible_gap",
+                "summary": f"Btrfs used exceeds visible current tree by {human_bytes(gap)}.",
+                "command": "pkexec abyss-storage-reclaim-audit --sync-btrfs --json",
+            })
+    elif isinstance(du, dict) and du.get("requires_root"):
+        recommendations.append({
+            "priority": "low",
+            "kind": "visible_du_requires_root",
+            "summary": "Exact root visible-size comparison was skipped in non-root mode.",
+            "command": "pkexec abyss-storage-reclaim-audit --json",
+        })
+
+    for item in audit.get("watch_files", []):
+        if item.get("path", "").endswith("/.codex/log/codex-tui.log") and int(item.get("size_bytes") or 0) > GIB:
+            recommendations.append({
+                "priority": "medium",
+                "kind": "codex_log_rotate",
+                "summary": f"Codex TUI log is large: {human_bytes(int(item.get('size_bytes') or 0))}.",
+                "action": "Rotate or truncate with process awareness; the file is actively opened if open_by is non-empty.",
+            })
+
+    cores = audit.get("core_dumps", {})
+    core_bytes = cores.get("bytes") if isinstance(cores, dict) else None
+    if isinstance(core_bytes, int) and core_bytes > GIB:
+        recommendations.append({
+            "priority": "medium",
+            "kind": "coredump_cleanup",
+            "summary": f"Systemd coredumps use {human_bytes(core_bytes)}.",
+            "command": "pkexec coredumpctl list --no-pager",
+        })
+
+    if not recommendations:
+        recommendations.append({"priority": "info", "kind": "no_immediate_reclaim", "summary": "No large stuck reclaim target was detected in this run."})
+    return recommendations
+
+
+def collect_audit(args: argparse.Namespace, actions: list[dict[str, Any]]) -> dict[str, Any]:
+    account = operator_account()
+    home = Path(account["home"])
+    audit: dict[str, Any] = {
+        "schema": SCHEMA,
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "effective_uid": os.geteuid(),
+        "operator": account,
+        "actions": actions,
+        "mounts": {
+            "root": df_for(ROOT_PATH),
+            "srv": df_for(SRV_PATH) if SRV_PATH.exists() else None,
+        },
+        "btrfs": btrfs_usage(ROOT_PATH),
+        "visible_root_du": visible_du_root(),
+        "snapper": snapper_list(),
+        "deleted_open_files": deleted_open_files(args.min_deleted_mib * MIB),
+        "watch_files": watch_files(home),
+        "core_dumps": core_dump_total(),
+        "large_files": find_large_files(scan_paths(home), args.min_large_mib * MIB, args.top_large),
+    }
+    audit["recommendations"] = build_recommendations(audit)
+    return audit
+
+
+def write_latest(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        LATEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = LATEST_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, LATEST_PATH)
+        return {"ok": True, "path": str(LATEST_PATH)}
+    except OSError as exc:
+        return {"ok": False, "path": str(LATEST_PATH), "error": str(exc)}
+
+
+def print_text(audit: dict[str, Any]) -> None:
+    root = audit.get("mounts", {}).get("root") or {}
+    srv = audit.get("mounts", {}).get("srv") or {}
+    print(f"abyss-storage-reclaim-audit {audit['version']}  {audit['generated_at']}")
+    print(f"root: used {human_bytes(root.get('used_bytes'))} / avail {human_bytes(root.get('avail_bytes'))} ({root.get('use_percent') or 'unknown'})")
+    if srv:
+        print(f"/srv: used {human_bytes(srv.get('used_bytes'))} / avail {human_bytes(srv.get('avail_bytes'))} ({srv.get('use_percent') or 'unknown'})")
+
+    snapper = audit.get("snapper", {})
+    if snapper.get("ok"):
+        non_current = snapper.get("non_current") or []
+        print(f"snapper: {len(non_current)} non-current snapshot(s)")
+    else:
+        print(f"snapper: unavailable ({snapper.get('error') or 'unknown error'})")
+
+    deleted = audit.get("deleted_open_files", {})
+    records = deleted.get("records") or []
+    print(f"deleted-open >= threshold: {len(records)} record(s), root-disk {human_bytes(deleted.get('root_disk_bytes'))}")
+    for item in records[:8]:
+        print(f"  {human_bytes(item.get('size_bytes'))} {item.get('class')} pid={item.get('pid')} {item.get('command')} {item.get('name')}")
+
+    print("watch files:")
+    for item in audit.get("watch_files", []):
+        extra = ""
+        if item.get("open_by"):
+            pids = ", ".join(str(rec.get("pid")) for rec in item["open_by"][:6])
+            extra = f" open_by={pids}"
+        print(f"  {human_bytes(item.get('size_bytes'))} {item.get('path')}{extra}")
+
+    print("recommendations:")
+    for rec in audit.get("recommendations", []):
+        print(f"  [{rec.get('priority')}] {rec.get('kind')}: {rec.get('summary')}")
+        if rec.get("command"):
+            print(f"    command: {rec['command']}")
+        if rec.get("action"):
+            print(f"    action: {rec['action']}")
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Audit stuck disk reclaim on the Abyss machine root filesystem.")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    parser.add_argument("--write-latest", action="store_true", help=f"write latest JSON to {LATEST_PATH}")
+    parser.add_argument("--sync-btrfs", action="store_true", help="run btrfs subvolume/filesystem sync before auditing")
+    parser.add_argument("--delete-snapshot", action="append", default=[], metavar="ID", help="delete an explicit numeric snapper snapshot id, then sync btrfs")
+    parser.add_argument("--min-deleted-mib", type=int, default=50, help="minimum deleted-open file size to report")
+    parser.add_argument("--min-large-mib", type=int, default=512, help="minimum large-file size to report")
+    parser.add_argument("--top-large", type=int, default=30, help="number of large files to include")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    actions: list[dict[str, Any]] = []
+    if args.delete_snapshot:
+        actions.extend(delete_snapshots(args.delete_snapshot))
+    elif args.sync_btrfs:
+        actions.extend(btrfs_sync())
+    audit = collect_audit(args, actions)
+    if args.write_latest:
+        audit["write_latest"] = write_latest(audit)
+    if args.json:
+        print(json.dumps(audit, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print_text(audit)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

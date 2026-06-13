@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+SCHEMA = "abyss_machine_test_run_v1"
+VERSION = "0.1.0"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TEST_ROOT = REPO_ROOT / "tests" / "host_contract"
+if not DEFAULT_TEST_ROOT.exists():
+    DEFAULT_TEST_ROOT = REPO_ROOT / "tests"
+TEST_ROOT = Path(os.environ.get("ABYSS_MACHINE_TEST_ROOT", str(DEFAULT_TEST_ROOT)))
+PYTEST_INI = Path(os.environ.get("ABYSS_MACHINE_PYTEST_INI", str(REPO_ROOT / "pytest.ini")))
+
+LANES = {
+    "quick": "quick and not live and not long and not manual",
+    "full": "not live and not long and not manual",
+    "live": "live and not manual",
+    "long": "long and not manual",
+    "manual": "manual",
+}
+
+
+def run_lane(lane: str, *, extra_args: list[str], json_output: bool) -> int:
+    marker = LANES[lane]
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "-c",
+        str(PYTEST_INI),
+        str(TEST_ROOT),
+        "-m",
+        marker,
+        *extra_args,
+    ]
+    started = time.time()
+    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    duration = round(time.time() - started, 3)
+    ok = completed.returncode == 0
+    payload = {
+        "schema": SCHEMA,
+        "version": VERSION,
+        "ok": ok,
+        "lane": lane,
+        "marker": marker,
+        "command": command,
+        "returncode": completed.returncode,
+        "duration_sec": duration,
+        "stdout": completed.stdout[-8000:],
+        "stderr": completed.stderr[-8000:],
+        "policy": {
+            "quick_and_full_are_non_mutating": lane in {"quick", "full"},
+            "does_not_invoke_sudo_or_pkexec": True,
+            "does_not_execute_live_restarts": True,
+            "test_root": str(TEST_ROOT),
+        },
+    }
+    if json_output:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        sys.stdout.write(completed.stdout)
+        sys.stderr.write(completed.stderr)
+        print(f"abyss-machine test {lane}: {'ok' if ok else 'failed'} ({duration}s)")
+    return completed.returncode
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run layered abyss-machine tests.")
+    parser.add_argument("lane", choices=sorted(LANES), help="test lane to run")
+    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    parser.add_argument("pytest_args", nargs=argparse.REMAINDER, help="extra pytest args after --")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if not raw or raw[0] in {"-h", "--help"}:
+        build_parser().parse_args(raw)
+        return 0
+    lane = raw.pop(0)
+    if lane not in LANES:
+        build_parser().parse_args([lane])
+        return 64
+    json_output = False
+    if "--" in raw:
+        split_at = raw.index("--")
+        option_args = raw[:split_at]
+        extra = raw[split_at + 1 :]
+    else:
+        option_args = raw
+        extra = []
+    for item in option_args:
+        if item == "--json":
+            json_output = True
+        else:
+            raise SystemExit(f"unknown abyss-machine-test option before --: {item}")
+    os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    return run_lane(str(lane), extra_args=extra, json_output=json_output)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

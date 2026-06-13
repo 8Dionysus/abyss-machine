@@ -1,0 +1,32 @@
+{
+  "schema": "abyss_machine_doctor_policy_v1",
+  "version": "0.8.56",
+  "automation": {
+    "scope": "user",
+    "service": "abyss-machine-doctor.service",
+    "timer": "abyss-machine-doctor.timer",
+    "interval": "2h",
+    "command": "abyss-machine doctor --repair --safe-only --json --no-thermal-sample",
+    "stdout": "null",
+    "priority": "nice+ionice"
+  },
+  "repair": {
+    "enabled": true,
+    "safe_only": true,
+    "semantic_maintain": false,
+    "docs_mesh": true,
+    "privileged_actions": false,
+    "project_repo_mutation": false,
+    "large_downloads": false
+  },
+  "status": {
+    "active_change_records_are_watch": true,
+    "doctor_timer_inactive_is_watch": true,
+    "ai_quick_benchmark_missing_is_watch": true
+  },
+  "non_claims": [
+    "Doctor is a oneshot orchestrator, not a resident daemon.",
+    "Doctor never performs privileged actions or project-repo mutations.",
+    "Safe repair is limited to host-owned generated/read-model refresh routes."
+  ]
+}

@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+SCHEMA = "abyss_machine_bootstrap_v1"
+VERSION = "0.1.0"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
+    "linux-systemd-core": {
+        "system": [
+            "abyss-ai-workload-refresh.timer",
+            "abyss-observability-collect.timer",
+            "abyss-power-profile-auto.timer",
+        ],
+        "user": [
+            "abyss-machine-heartbeat.timer",
+            "abyss-machine-context-refresh.timer",
+            "abyss-topology-audit.timer",
+            "abyss-storage-monitor.timer",
+            "abyss-process-snapshot.timer",
+        ],
+    },
+    "typing-intake": {
+        "system": [],
+        "user": [
+            "abyss-machine-typing-focused-snapshot.timer",
+            "abyss-machine-typing-saved-text-scan.timer",
+            "abyss-machine-typing-atspi-text-events.service",
+            "abyss-machine-typing-codex-session-tail.service",
+        ],
+    },
+    "nervous-local": {
+        "system": [],
+        "user": [
+            "abyss-nervous-passive-chronicle.timer",
+            "abyss-nervous-index-build.timer",
+            "abyss-nervous-semantic-maintain.timer",
+            "abyss-nervous-browser-content-capture.timer",
+        ],
+    },
+    "ai-local": {
+        "system": ["abyss-ai-workload-refresh.timer"],
+        "user": [
+            "abyss-gemma4-spark-monitor.timer",
+            "abyss-gemma4-spark-micro.timer",
+            "abyss-gemma4-spark-jobs.timer",
+            "abyss-gemma4-spark-digest.timer",
+        ],
+    },
+    "backup-vault": {
+        "system": [
+            "abyss-backup-system.timer",
+            "abyss-backup-sessions.timer",
+            "abyss-backup-sessions-checksum.timer",
+        ],
+        "user": [],
+    },
+    "stack-bridge": {
+        "system": [],
+        "user": [
+            "abyss-machine-doctor.timer",
+            "abyss-stack-resource-guards-apply.service",
+        ],
+    },
+}
+
+
+def default_vars(args: argparse.Namespace) -> dict[str, str]:
+    user = args.user or os.environ.get("USER") or "abyss"
+    home = Path(args.home or os.environ.get("HOME") or f"/home/{user}")
+    srv = Path(args.srv_root)
+    etc = Path(args.etc_root)
+    state = Path(args.state_root)
+    local_bin = Path(args.local_bin_dir)
+    local_libexec = Path(args.local_libexec_dir)
+    vault_mount = Path(args.vault_mount)
+    return {
+        "ABYSS_USER": user,
+        "ABYSS_USER_HOME": str(home),
+        "ABYSS_OS_ROOT": args.abyss_os_root,
+        "ABYSS_MACHINE_ETC": str(etc),
+        "ABYSS_MACHINE_STATE": str(state),
+        "ABYSS_MACHINE_SRV": str(srv),
+        "ABYSS_MACHINE_RUN": args.run_root,
+        "ABYSS_LOCAL_BIN_DIR": str(local_bin),
+        "ABYSS_LOCAL_LIBEXEC_DIR": str(local_libexec),
+        "ABYSS_VAULT_MOUNT": str(vault_mount),
+        "ABYSS_BACKUP_ROOT": str(vault_mount / "Backups"),
+        "ABYSS_BACKUP_SECRET_ROOT": str(vault_mount / "Backups" / "secrets"),
+    }
+
+
+def render_text(text: str, values: dict[str, str]) -> str:
+    for key, value in values.items():
+        text = text.replace("{{" + key + "}}", value)
+    return text
+
+
+def copy_tree(
+    source: Path,
+    target: Path,
+    *,
+    values: dict[str, str],
+    apply: bool,
+    actions: list[dict[str, Any]],
+) -> None:
+    for path in sorted(source.rglob("*")):
+        rel = path.relative_to(source)
+        dest = target / rel
+        if path.is_dir():
+            if apply:
+                dest.mkdir(parents=True, exist_ok=True)
+            actions.append({"action": "mkdir", "path": str(dest)})
+            continue
+        if path.is_symlink():
+            continue
+        try:
+            data = path.read_text(encoding="utf-8")
+            rendered = render_text(data, values)
+            if apply:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(rendered, encoding="utf-8")
+                shutil.copymode(path, dest)
+            actions.append({"action": "render", "source": str(path), "target": str(dest)})
+        except UnicodeDecodeError:
+            if apply:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest)
+            actions.append({"action": "copy_binary", "source": str(path), "target": str(dest)})
+
+
+def ensure_roots(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
+    roots = [
+        values["ABYSS_MACHINE_ETC"],
+        values["ABYSS_MACHINE_STATE"],
+        values["ABYSS_MACHINE_SRV"],
+        str(Path(values["ABYSS_MACHINE_SRV"]) / "cache"),
+        str(Path(values["ABYSS_MACHINE_SRV"]) / "runtimes"),
+        str(Path(values["ABYSS_MACHINE_SRV"]) / "storage"),
+        str(Path(values["ABYSS_MACHINE_SRV"]) / "tmp"),
+    ]
+    for root in roots:
+        if apply:
+            Path(root).mkdir(parents=True, exist_ok=True)
+        actions.append({"action": "ensure_root", "path": root})
+
+
+def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
+    source = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
+    libexec = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss-machine"
+    bin_path = Path(values["ABYSS_LOCAL_BIN_DIR"]) / "abyss-machine"
+    if apply:
+        libexec.parent.mkdir(parents=True, exist_ok=True)
+        bin_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, libexec)
+        libexec.chmod(0o755)
+        if bin_path.exists() or bin_path.is_symlink():
+            bin_path.unlink()
+        bin_path.symlink_to(libexec)
+    actions.append({"action": "install_cli", "source": str(source), "target": str(libexec), "symlink": str(bin_path)})
+
+
+def command_payload(command: str, ok: bool, actions: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    return {
+        "schema": SCHEMA,
+        "version": VERSION,
+        "command": command,
+        "ok": ok,
+        "actions": actions,
+        **extra,
+    }
+
+
+def emit(payload: dict[str, Any], *, json_output: bool) -> None:
+    if json_output:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+    print(f"{payload['command']}: {'ok' if payload.get('ok') else 'failed'}")
+    for action in payload.get("actions", []):
+        print(f"- {action.get('action')}: {action.get('target') or action.get('path') or action.get('source')}")
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    actions: list[dict[str, Any]] = []
+    values = default_vars(args)
+    checks = {
+        "repo_root_exists": REPO_ROOT.exists(),
+        "cli_source_exists": (REPO_ROOT / "src" / "abyss_machine" / "cli.py").exists(),
+        "etc_templates_exist": (REPO_ROOT / "templates" / "etc" / "abyss-machine").exists(),
+        "systemd_templates_exist": (REPO_ROOT / "templates" / "systemd").exists(),
+        "python": sys.version.split()[0],
+        "profile_known": args.profile in PROFILE_UNITS,
+    }
+    ok = all(value for value in checks.values() if isinstance(value, bool))
+    actions.append({"action": "doctor", "dry_run": bool(args.dry_run), "profile": args.profile})
+    payload = command_payload("doctor", ok, actions, vars=values, checks=checks)
+    emit(payload, json_output=args.json)
+    return 0 if ok else 1
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    actions: list[dict[str, Any]] = []
+    values = default_vars(args)
+    target = Path(args.render_root) if args.render_root else Path(args.etc_root)
+    copy_tree(REPO_ROOT / "templates" / "etc" / "abyss-machine", target, values=values, apply=bool(args.apply), actions=actions)
+    payload = command_payload("render", True, actions, profile=args.profile, dry_run=not args.apply, target=str(target))
+    emit(payload, json_output=args.json)
+    return 0
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    actions: list[dict[str, Any]] = []
+    values = default_vars(args)
+    apply = bool(args.apply)
+    ensure_roots(values, apply=apply, actions=actions)
+    copy_tree(REPO_ROOT / "templates" / "etc" / "abyss-machine", Path(args.etc_root), values=values, apply=apply, actions=actions)
+    copy_tree(REPO_ROOT / "templates" / "systemd" / "system", Path(args.systemd_system_dir), values=values, apply=apply, actions=actions)
+    copy_tree(REPO_ROOT / "templates" / "systemd" / "user", Path(args.systemd_user_dir), values=values, apply=apply, actions=actions)
+    install_cli(values, apply=apply, actions=actions)
+    payload = command_payload("install", True, actions, profile=args.profile, dry_run=not apply)
+    emit(payload, json_output=args.json)
+    return 0
+
+
+def cmd_enable_profile(args: argparse.Namespace) -> int:
+    actions: list[dict[str, Any]] = []
+    units = PROFILE_UNITS[args.profile]
+    apply = bool(args.apply)
+    for scope, names in units.items():
+        for name in names:
+            command = ["systemctl"]
+            if scope == "user":
+                command.append("--user")
+            command.extend(["enable"])
+            if args.now:
+                command.append("--now")
+            command.append(name)
+            actions.append({"action": "enable_unit", "scope": scope, "unit": name, "command": command})
+            if apply:
+                subprocess.run(command, check=True)
+    payload = command_payload("enable-profile", True, actions, profile=args.profile, dry_run=not apply)
+    emit(payload, json_output=args.json)
+    return 0
+
+
+def add_common_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--profile", default="linux-systemd-core", choices=sorted(PROFILE_UNITS))
+    parser.add_argument("--user")
+    parser.add_argument("--home")
+    parser.add_argument("--etc-root", default="/etc/abyss-machine")
+    parser.add_argument("--state-root", default="/var/lib/abyss-machine")
+    parser.add_argument("--srv-root", default="/srv/abyss-machine")
+    parser.add_argument("--run-root", default="/run/abyss-machine")
+    parser.add_argument("--abyss-os-root", default="/srv/AbyssOS")
+    parser.add_argument("--vault-mount", default="/abyss")
+    parser.add_argument("--local-bin-dir", default="/usr/local/bin")
+    parser.add_argument("--local-libexec-dir", default="/usr/local/libexec")
+    parser.add_argument("--systemd-system-dir", default="/etc/systemd/system")
+    parser.add_argument("--systemd-user-dir", default=str(Path.home() / ".config/systemd/user"))
+    parser.add_argument("--json", action="store_true")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Render and install the portable abyss-machine seed.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    doctor = sub.add_parser("doctor")
+    add_common_options(doctor)
+    doctor.add_argument("--dry-run", action="store_true")
+    doctor.set_defaults(func=cmd_doctor)
+
+    render = sub.add_parser("render")
+    add_common_options(render)
+    render.add_argument("--render-root")
+    render.add_argument("--dry-run", action="store_true")
+    render.add_argument("--apply", action="store_true")
+    render.set_defaults(func=cmd_render)
+
+    install = sub.add_parser("install")
+    add_common_options(install)
+    install.add_argument("--apply", action="store_true")
+    install.set_defaults(func=cmd_install)
+
+    enable = sub.add_parser("enable-profile")
+    add_common_options(enable)
+    enable.add_argument("--dry-run", action="store_true")
+    enable.add_argument("--apply", action="store_true")
+    enable.add_argument("--now", action="store_true")
+    enable.set_defaults(func=cmd_enable_profile)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,749 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from urllib import request, error, parse
+
+
+DEFAULT_RUNTIME_ID = "b9060"
+RUNTIMES = {
+    "b9060": Path("/srv/abyss-machine/runtimes/llama.cpp/b9060/llama-b9060"),
+    "05ff59c": Path("/srv/abyss-machine/runtimes/llama.cpp/05ff59c/llama-05ff59c-vulkan"),
+    "22cadc1": Path("/srv/abyss-machine/runtimes/llama.cpp/22cadc1/llama-22cadc1-vulkan"),
+}
+CPUSET = "0-1,6-11,14-15"
+MEMORY_HIGH = "26779M"
+CTX_CHOICES = (8192, 16384, 32768)
+PREFILL_CACHE_ROOT = Path("/srv/abyss-machine/cache/ai/qwen3.6/prefill-cache")
+SLOT_CACHE_ROOT = PREFILL_CACHE_ROOT / "slots"
+EVIDENCE_ROOT = Path("/var/lib/abyss-machine/ai/llm/evals/qwen36/prefill-cache")
+SERVER_HELP: dict[str, str] = {}
+
+PROFILES = {
+    "ordinary": {
+        "model": Path("/srv/abyss-machine/cache/ai/qwen3.6/ordinary/unsloth/Qwen3.6-27B-Q3_K_M.gguf"),
+        "port_base": 18180,
+        "sha256": "bdfa99d488b501f5ca711f35c930f005319a064eabcaae23290571a25c499eeb",
+    },
+    "heretic": {
+        "model": Path("/srv/abyss-machine/cache/ai/qwen3.6/uncensored-heretic-v2/llmfan46/Qwen3.6-27B-uncensored-heretic-v2-Q3_K_M.gguf"),
+        "port_base": 18190,
+        "sha256": "0819abee96c430d156f35c10f667f8020b9b706f1102886985b94b411492f168",
+    },
+}
+
+
+def run(argv: list[str], timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(argv, text=True, capture_output=True, timeout=timeout)
+
+
+def emit(data: dict, ok_code: int = 0) -> int:
+    json.dump(data, sys.stdout, ensure_ascii=False, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return ok_code
+
+
+def runtime_id(args: argparse.Namespace | None = None) -> str:
+    return str(getattr(args, "runtime_id", None) or DEFAULT_RUNTIME_ID)
+
+
+def runtime_path(runtime: str) -> Path:
+    return RUNTIMES[runtime]
+
+
+def llama_server_path(runtime: str) -> Path:
+    return runtime_path(runtime) / "llama-server"
+
+
+def llama_server_help(runtime: str = DEFAULT_RUNTIME_ID) -> str:
+    if runtime not in SERVER_HELP:
+        out = run([str(llama_server_path(runtime)), "--help"], timeout=10.0)
+        SERVER_HELP[runtime] = "\n".join(part for part in (out.stdout, out.stderr) if part)
+    return SERVER_HELP[runtime]
+
+
+def server_supports(flag: str, runtime: str = DEFAULT_RUNTIME_ID) -> bool:
+    return flag in llama_server_help(runtime)
+
+
+def server_features(runtime: str = DEFAULT_RUNTIME_ID) -> dict[str, bool]:
+    return {
+        "slot_save_path": server_supports("--slot-save-path", runtime),
+        "cache_reuse": server_supports("--cache-reuse", runtime),
+        "ctx_checkpoints": server_supports("--ctx-checkpoints", runtime) or server_supports("--swa-checkpoints", runtime),
+        "checkpoint_every_n_tokens": server_supports("--checkpoint-every-n-tokens", runtime),
+        "checkpoint_min_step": server_supports("--checkpoint-min-step", runtime),
+        "cache_ram": server_supports("--cache-ram", runtime),
+        "slot_prompt_similarity": server_supports("--slot-prompt-similarity", runtime),
+        "parallel_slots": server_supports("--parallel", runtime),
+        "cache_prompt_server": server_supports("--cache-prompt", runtime),
+        "spec_type": server_supports("--spec-type", runtime),
+        "spec_draft_model": server_supports("--spec-draft-model", runtime),
+        "spec_draft_n_max": server_supports("--spec-draft-n-max", runtime),
+        "draft_mtp": "draft-mtp" in llama_server_help(runtime),
+    }
+
+
+def port_for(profile: str, ctx: int, port: int | None = None) -> int:
+    if port:
+        return int(port)
+    return int(PROFILES[profile]["port_base"]) + {8192: 0, 16384: 1, 32768: 2}[ctx]
+
+
+def unit_for(profile: str, ctx: int, runtime: str = DEFAULT_RUNTIME_ID) -> str:
+    suffix = "" if runtime == DEFAULT_RUNTIME_ID else f"-{runtime}"
+    return f"abyss-qwen36-{profile}-{ctx // 1024}k{suffix}.service"
+
+
+def slot_save_dir(profile: str, ctx: int, root: str | None = None, runtime: str = DEFAULT_RUNTIME_ID) -> Path:
+    base = Path(root) if root else SLOT_CACHE_ROOT
+    if runtime != DEFAULT_RUNTIME_ID:
+        base = base / "runtimes" / runtime
+    return base / profile / f"{ctx // 1024}k"
+
+
+def validate_slot_filename(filename: str) -> str:
+    value = filename.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", value):
+        raise SystemExit("slot filename must match [A-Za-z0-9][A-Za-z0-9._-]{0,159}")
+    if "/" in value or value in {".", ".."}:
+        raise SystemExit("slot filename must be a basename")
+    return value
+
+
+def parse_show(text: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in text.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            result[key] = value
+    return result
+
+
+def unit_status(unit: str) -> dict:
+    out = run(["systemctl", "--user", "show", unit], timeout=10.0)
+    if out.returncode != 0:
+        return {"unit": unit, "exists": False, "active_state": "not-found", "stderr": out.stderr.strip()}
+    data = parse_show(out.stdout)
+    return {
+        "unit": unit,
+        "exists": True,
+        "active_state": data.get("ActiveState"),
+        "sub_state": data.get("SubState"),
+        "main_pid": data.get("MainPID"),
+        "memory_current": data.get("MemoryCurrent"),
+        "memory_peak": data.get("MemoryPeak"),
+        "memory_swap_current": data.get("MemorySwapCurrent"),
+        "memory_swap_peak": data.get("MemorySwapPeak"),
+        "n_restarts": data.get("NRestarts"),
+    }
+
+
+def active_qwen_units() -> list[str]:
+    out = run(
+        [
+            "systemctl",
+            "--user",
+            "--no-pager",
+            "--plain",
+            "--no-legend",
+            "list-units",
+            "abyss-qwen36-*.service",
+            "--state=running",
+        ],
+        timeout=10.0,
+    )
+    if out.returncode != 0:
+        return []
+    units: list[str] = []
+    for line in out.stdout.splitlines():
+        parts = line.split()
+        if parts and parts[0].startswith("abyss-qwen36-"):
+            units.append(parts[0])
+    return units
+
+
+def health(host: str, port: int, timeout: float = 2.0) -> dict:
+    url = f"http://{host}:{port}/health"
+    try:
+        with request.urlopen(url, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            parsed = {"raw": body}
+        return {"ok": True, "url": url, "response": parsed}
+    except Exception as exc:
+        return {"ok": False, "url": url, "error": str(exc)}
+
+
+def http_json(host: str, port: int, method: str, path: str, payload: dict | None = None, timeout: float = 30.0) -> dict:
+    data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(
+        f"http://{host}:{port}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method=method,
+    )
+    started = time.monotonic()
+    with request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+    elapsed = time.monotonic() - started
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        parsed = {"raw": body[-4000:]}
+    return {"ok": True, "elapsed_seconds": round(elapsed, 3), "response": parsed}
+
+
+def append_supported(cmd: list[str], rejected: list[dict], flag: str, *values: object, required: bool = False, runtime: str = DEFAULT_RUNTIME_ID) -> None:
+    if server_supports(flag, runtime):
+        cmd.append(flag)
+        cmd.extend(str(value) for value in values)
+        return
+    item = {"flag": flag, "values": [str(value) for value in values], "reason": "flag not supported by current llama-server"}
+    rejected.append(item)
+    if required:
+        raise RuntimeError(json.dumps(item, ensure_ascii=False))
+
+
+def resource_plan(force: bool = False) -> dict:
+    out = run(["abyss-machine", "resource", "plan", "--class", "heavy", "--kind", "ai", "--json"], timeout=90.0)
+    try:
+        data = json.loads(out.stdout) if out.stdout.strip() else {}
+    except json.JSONDecodeError:
+        data = {"ok": False, "error": "resource plan returned non-json", "stdout": out.stdout[-1000:], "stderr": out.stderr[-1000:]}
+    data["returncode"] = out.returncode
+    decision = data.get("decision")
+    data["accepted_for_start"] = bool(force or (out.returncode == 0 and decision == "allow"))
+    data["force_used"] = bool(force and decision != "allow")
+    return data
+
+
+def build_server_command(args: argparse.Namespace) -> tuple[list[str], dict]:
+    profile = args.profile
+    ctx = int(args.ctx)
+    runtime = runtime_id(args)
+    host = args.host
+    port = port_for(profile, ctx, args.port)
+    model = PROFILES[profile]["model"]
+    rejected: list[dict] = []
+    server_path = llama_server_path(runtime)
+    slot_dir = slot_save_dir(profile, ctx, args.slot_cache_root, runtime=runtime)
+    cmd = [
+        "taskset", "-c", CPUSET,
+        str(server_path),
+        "-m", str(model),
+        "-ngl", "99",
+        "-t", str(args.threads),
+        "-tb", str(args.threads_batch),
+        "-c", str(ctx),
+        "-b", str(args.batch),
+        "-ub", str(args.ubatch),
+        "--flash-attn", "on",
+        "-ctk", "q8_0",
+        "-ctv", "q8_0",
+        "--host", host,
+        "--port", str(port),
+        "--no-webui",
+        "--metrics",
+        "--slots",
+        "--timeout", str(args.server_timeout),
+        "--sleep-idle-seconds", str(args.sleep_idle_seconds),
+        "--reasoning", "off",
+    ]
+    if args.parallel is not None:
+        append_supported(cmd, rejected, "--parallel", int(args.parallel), required=True, runtime=runtime)
+    if args.slot_cache:
+        slot_dir.mkdir(parents=True, exist_ok=True)
+        append_supported(cmd, rejected, "--slot-save-path", slot_dir, required=True, runtime=runtime)
+    if args.cache_reuse is not None:
+        append_supported(cmd, rejected, "--cache-reuse", int(args.cache_reuse), required=True, runtime=runtime)
+    if args.ctx_checkpoints is not None:
+        append_supported(cmd, rejected, "--ctx-checkpoints", int(args.ctx_checkpoints), required=True, runtime=runtime)
+    if args.checkpoint_every_n_tokens is not None:
+        append_supported(cmd, rejected, "--checkpoint-every-n-tokens", int(args.checkpoint_every_n_tokens), required=True, runtime=runtime)
+    if args.cache_ram is not None:
+        append_supported(cmd, rejected, "--cache-ram", int(args.cache_ram), required=True, runtime=runtime)
+    if args.slot_prompt_similarity is not None:
+        append_supported(cmd, rejected, "--slot-prompt-similarity", float(args.slot_prompt_similarity), required=True, runtime=runtime)
+    return cmd, {
+        "runtime_id": runtime,
+        "runtime": str(server_path),
+        "threads": int(args.threads),
+        "threads_batch": int(args.threads_batch),
+        "batch": int(args.batch),
+        "ubatch": int(args.ubatch),
+        "parallel": args.parallel,
+        "slot_cache_enabled": bool(args.slot_cache),
+        "slot_save_path": str(slot_dir) if args.slot_cache else None,
+        "cache_reuse": args.cache_reuse,
+        "ctx_checkpoints": args.ctx_checkpoints,
+        "checkpoint_every_n_tokens": args.checkpoint_every_n_tokens,
+        "cache_ram": args.cache_ram,
+        "slot_prompt_similarity": args.slot_prompt_similarity,
+        "rejected": rejected,
+        "features": server_features(runtime),
+    }
+
+
+def ensure_started(args: argparse.Namespace) -> tuple[int, dict]:
+    profile = args.profile
+    ctx = int(args.ctx)
+    runtime = runtime_id(args)
+    host = args.host
+    port = port_for(profile, ctx, args.port)
+    unit = unit_for(profile, ctx, runtime=runtime)
+    model = PROFILES[profile]["model"]
+    server_path = llama_server_path(runtime)
+    checks = {
+        "runtime_id": runtime,
+        "runtime_exists": server_path.exists(),
+        "model_exists": model.exists(),
+        "model": str(model),
+        "runtime": str(server_path),
+    }
+    if not checks["runtime_exists"] or not checks["model_exists"]:
+        return 1, {"ok": False, "action": "start", "profile": profile, "ctx": ctx, "checks": checks}
+
+    active = active_qwen_units()
+    other_active = [item for item in active if item != unit]
+    if other_active and not args.allow_parallel:
+        return 2, {
+            "ok": False,
+            "action": "start",
+            "profile": profile,
+            "ctx": ctx,
+            "unit": unit,
+            "active_qwen_units": active,
+            "error": "another Qwen3.6 unit is active; stop it or pass --allow-parallel",
+        }
+
+    current = unit_status(unit)
+    if current.get("active_state") == "active":
+        h = wait_health(host, port, args.health_timeout)
+        return 0 if h.get("ok") else 3, {"ok": h.get("ok"), "action": "start", "already_active": True, "profile": profile, "ctx": ctx, "runtime_id": runtime, "unit": unit, "port": port, "health": h, "status": unit_status(unit)}
+
+    plan = resource_plan(force=args.force)
+    if not plan.get("accepted_for_start"):
+        return 3, {"ok": False, "action": "start", "profile": profile, "ctx": ctx, "runtime_id": runtime, "unit": unit, "resource_plan": plan}
+
+    try:
+        server_cmd, server_options = build_server_command(args)
+    except RuntimeError as exc:
+        return 3, {"ok": False, "action": "start", "profile": profile, "ctx": ctx, "runtime_id": runtime, "unit": unit, "error": "unsupported server option", "details": str(exc)}
+    cmd = [
+        "systemd-run",
+        "--user",
+        f"--unit={unit.removesuffix('.service')}",
+        "--same-dir",
+        "--collect",
+        "--slice=abyss-machine-ai.slice",
+        "-p", f"AllowedCPUs={CPUSET}",
+        "-p", "CPUWeight=90",
+        "-p", "IOWeight=100",
+        "-p", f"MemoryHigh={MEMORY_HIGH}",
+        "-E", "OMP_NUM_THREADS=6",
+        "-E", "MKL_NUM_THREADS=6",
+        "-E", "OPENBLAS_NUM_THREADS=6",
+        "-E", "NUMEXPR_NUM_THREADS=6",
+        "-E", "TOKENIZERS_PARALLELISM=false",
+    ] + server_cmd
+    out = run(cmd, timeout=30.0)
+    h = wait_health(host, port, args.health_timeout)
+    return 0 if out.returncode == 0 and h.get("ok") else 4, {
+        "ok": out.returncode == 0 and bool(h.get("ok")),
+        "action": "start",
+        "profile": profile,
+        "ctx": ctx,
+        "runtime_id": runtime,
+        "unit": unit,
+        "port": port,
+        "server_options": server_options,
+        "resource_plan": {"decision": plan.get("decision"), "ok": plan.get("ok"), "force_used": plan.get("force_used")},
+        "systemd_run": {"returncode": out.returncode, "stdout": out.stdout.strip(), "stderr": out.stderr.strip()[-2000:]},
+        "health": h,
+        "status": unit_status(unit),
+    }
+
+
+def start(args: argparse.Namespace) -> int:
+    code, data = ensure_started(args)
+    return emit(data, code)
+
+
+def wait_health(host: str, port: int, timeout: float) -> dict:
+    start_time = time.monotonic()
+    tries = 0
+    last = {"ok": False, "error": "not attempted"}
+    while time.monotonic() - start_time < timeout:
+        tries += 1
+        last = health(host, port, timeout=2.0)
+        if last.get("ok"):
+            last["tries"] = tries
+            last["wait_seconds"] = round(time.monotonic() - start_time, 3)
+            return last
+        time.sleep(1.0)
+    last["tries"] = tries
+    last["wait_seconds"] = round(time.monotonic() - start_time, 3)
+    return last
+
+
+def stop(args: argparse.Namespace) -> int:
+    runtime = runtime_id(args)
+    units = active_qwen_units() if args.all else [unit_for(args.profile, int(args.ctx), runtime=runtime)]
+    results = []
+    for unit in units:
+        out = run(["systemctl", "--user", "stop", unit], timeout=30.0)
+        results.append({"unit": unit, "returncode": out.returncode, "stderr": out.stderr.strip()[-1000:]})
+    return emit({"ok": all(item["returncode"] == 0 for item in results), "action": "stop", "results": results, "active_qwen_units_after": active_qwen_units()})
+
+
+def status(args: argparse.Namespace) -> int:
+    profile = args.profile
+    ctx = int(args.ctx)
+    runtime = runtime_id(args)
+    port = port_for(profile, ctx, args.port)
+    unit = unit_for(profile, ctx, runtime=runtime)
+    return emit({
+        "ok": True,
+        "action": "status",
+        "profile": profile,
+        "ctx": ctx,
+        "runtime_id": runtime,
+        "runtime": str(llama_server_path(runtime)),
+        "unit": unit,
+        "port": port,
+        "status": unit_status(unit),
+        "health": health(args.host, port, timeout=1.0),
+        "cache": {"slot_save_path": str(slot_save_dir(profile, ctx, args.slot_cache_root, runtime=runtime))},
+        "server_features": server_features(runtime),
+        "active_qwen_units": active_qwen_units(),
+    })
+
+
+def read_prompt(args: argparse.Namespace) -> str:
+    if args.prompt_file:
+        return Path(args.prompt_file).read_text(encoding="utf-8")
+    if args.prompt is not None:
+        return str(args.prompt)
+    raise SystemExit("--prompt or --prompt-file is required")
+
+
+def completion(args: argparse.Namespace) -> dict:
+    profile = args.profile
+    ctx = int(args.ctx)
+    port = port_for(profile, ctx, args.port)
+    prompt = read_prompt(args)
+    payload = {
+        "prompt": prompt,
+        "n_predict": int(args.n_predict),
+        "temperature": float(args.temperature),
+        "cache_prompt": bool(args.cache_prompt),
+    }
+    if args.slot_id is not None:
+        payload["id_slot"] = int(args.slot_id)
+    if args.n_cache_reuse is not None:
+        payload["n_cache_reuse"] = int(args.n_cache_reuse)
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(
+        f"http://{args.host}:{port}/completion",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    started = time.monotonic()
+    with request.urlopen(req, timeout=float(args.request_timeout)) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+    elapsed = time.monotonic() - started
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        parsed = {"raw": body}
+    return {"ok": True, "elapsed_seconds": round(elapsed, 3), "response": parsed}
+
+
+def write_evidence(kind: str, args: argparse.Namespace, result: dict, prompt: str | None = None) -> dict:
+    now = datetime.now().astimezone()
+    root = EVIDENCE_ROOT / now.strftime("%Y") / now.strftime("%m")
+    root.mkdir(parents=True, exist_ok=True)
+    label = getattr(args, "evidence_label", None) or kind
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", label.strip())[:80] or kind
+    path = root / f"{now.strftime('%Y-%m-%dT%H%M%S%z')}-{args.profile}-{args.ctx}-{label}.json"
+    response = result.get("response") if isinstance(result.get("response"), dict) else {}
+    content = response.get("content") if isinstance(response, dict) else None
+    redacted_response = dict(response) if isinstance(response, dict) else response
+    if isinstance(redacted_response, dict) and "content" in redacted_response:
+        redacted_response.pop("content", None)
+        redacted_response["content_chars"] = len(content or "")
+        redacted_response["content_preview"] = (content or "")[:160]
+    if isinstance(redacted_response, dict) and "prompt" in redacted_response:
+        prompt_text = redacted_response.pop("prompt") or ""
+        redacted_response["response_prompt_sha256"] = hashlib.sha256(str(prompt_text).encode("utf-8")).hexdigest()
+        redacted_response["response_prompt_chars"] = len(str(prompt_text))
+    record = {
+        "schema": "abyss_machine_qwen36_prefill_cache_evidence_v1",
+        "generated_at": now.isoformat(),
+        "kind": kind,
+        "profile": args.profile,
+        "ctx": int(args.ctx),
+        "runtime_id": runtime_id(args),
+        "runtime": str(llama_server_path(runtime_id(args))),
+        "port": port_for(args.profile, int(args.ctx), getattr(args, "port", None)),
+        "prompt": {
+            "sha256": hashlib.sha256((prompt or "").encode("utf-8")).hexdigest() if prompt is not None else None,
+            "chars": len(prompt) if prompt is not None else None,
+            "source": str(getattr(args, "prompt_file", None) or "inline") if prompt is not None else None,
+        },
+        "options": {
+            "n_predict": getattr(args, "n_predict", None),
+            "n_cache_reuse": getattr(args, "n_cache_reuse", None),
+            "cache_prompt": getattr(args, "cache_prompt", None),
+            "slot_id": getattr(args, "slot_id", None),
+            "restore_slot": getattr(args, "restore_slot", None),
+            "save_slot": getattr(args, "save_slot", None),
+        },
+        "result": {key: value for key, value in result.items() if key != "response"},
+        "response": redacted_response,
+    }
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return {"path": str(path), "bytes": path.stat().st_size}
+
+
+def maybe_write_evidence(kind: str, args: argparse.Namespace, result: dict, prompt: str | None = None) -> None:
+    if not getattr(args, "write_evidence", False):
+        return
+    try:
+        result["evidence"] = write_evidence(kind, args, result, prompt=prompt)
+    except Exception as exc:
+        result["evidence_error"] = str(exc)
+
+
+def slot_action(args: argparse.Namespace, action: str) -> int:
+    start_code, start_data = ensure_started(args)
+    if start_code != 0:
+        emit(start_data, start_code)
+        return start_code
+    profile = args.profile
+    ctx = int(args.ctx)
+    runtime = runtime_id(args)
+    port = port_for(profile, ctx, args.port)
+    payload = None
+    filename = getattr(args, "filename", None)
+    if action in {"save", "restore"}:
+        filename = validate_slot_filename(str(filename))
+        payload = {"filename": filename}
+    path = f"/slots/{int(args.slot_id)}?{parse.urlencode({'action': action})}"
+    try:
+        result = http_json(args.host, port, "POST", path, payload=payload, timeout=float(args.request_timeout))
+        slot_path = slot_save_dir(profile, ctx, args.slot_cache_root, runtime=runtime) / filename if filename else None
+        result.update({
+            "action": f"slot-{action}",
+            "profile": profile,
+            "ctx": ctx,
+            "runtime_id": runtime,
+            "unit": unit_for(profile, ctx, runtime=runtime),
+            "port": port,
+            "slot_id": int(args.slot_id),
+            "filename": filename,
+            "slot_file": str(slot_path) if slot_path else None,
+            "slot_file_exists": slot_path.exists() if slot_path else None,
+            "slot_file_size": slot_path.stat().st_size if slot_path and slot_path.exists() else None,
+            "start": start_data,
+            "status": unit_status(unit_for(profile, ctx, runtime=runtime)),
+        })
+        maybe_write_evidence(f"slot-{action}", args, result)
+        return emit(result)
+    except error.URLError as exc:
+        return emit({"ok": False, "action": f"slot-{action}", "runtime_id": runtime, "error": str(exc), "status": unit_status(unit_for(profile, ctx, runtime=runtime))}, 5)
+
+
+def slots(args: argparse.Namespace) -> int:
+    runtime = runtime_id(args)
+    port = port_for(args.profile, int(args.ctx), args.port)
+    try:
+        result = http_json(args.host, port, "GET", "/slots", timeout=float(args.request_timeout))
+        result.update({
+            "action": "slots",
+            "profile": args.profile,
+            "ctx": int(args.ctx),
+            "runtime_id": runtime,
+            "unit": unit_for(args.profile, int(args.ctx), runtime=runtime),
+            "port": port,
+            "health": health(args.host, port, timeout=1.0),
+            "status": unit_status(unit_for(args.profile, int(args.ctx), runtime=runtime)),
+        })
+        maybe_write_evidence("slots", args, result)
+        return emit(result)
+    except error.URLError as exc:
+        return emit({"ok": False, "action": "slots", "error": str(exc), "health": health(args.host, port, timeout=1.0)}, 5)
+
+
+def request_action(args: argparse.Namespace) -> int:
+    start_code, start_data = ensure_started(args)
+    if start_code != 0:
+        emit(start_data, start_code)
+        return start_code
+    try:
+        prompt = read_prompt(args)
+        if args.restore_slot:
+            restore_filename = validate_slot_filename(args.restore_slot)
+            restore_slot_id = int(args.slot_id) if args.slot_id is not None else 0
+            args.slot_id = restore_slot_id
+            restore_path = f"/slots/{restore_slot_id}?{parse.urlencode({'action': 'restore'})}"
+            restore = http_json(args.host, port_for(args.profile, int(args.ctx), args.port), "POST", restore_path, payload={"filename": restore_filename}, timeout=float(args.request_timeout))
+        else:
+            restore = None
+        result = completion(args)
+        if args.save_slot:
+            save_filename = validate_slot_filename(args.save_slot)
+            response = result.get("response") if isinstance(result.get("response"), dict) else {}
+            save_slot_id = int(args.slot_id) if args.slot_id is not None else int(response.get("id_slot") or 0)
+            save_path = f"/slots/{save_slot_id}?{parse.urlencode({'action': 'save'})}"
+            saved = http_json(args.host, port_for(args.profile, int(args.ctx), args.port), "POST", save_path, payload={"filename": save_filename}, timeout=float(args.request_timeout))
+        else:
+            saved = None
+        result.update({
+            "action": "request",
+            "start": start_data,
+            "profile": args.profile,
+            "ctx": int(args.ctx),
+            "runtime_id": runtime_id(args),
+            "unit": unit_for(args.profile, int(args.ctx), runtime=runtime_id(args)),
+            "port": port_for(args.profile, int(args.ctx), args.port),
+            "restore_slot": restore,
+            "save_slot": saved,
+            "status": unit_status(unit_for(args.profile, int(args.ctx), runtime=runtime_id(args))),
+        })
+        maybe_write_evidence("prefill" if int(args.n_predict) == 0 else "request", args, result, prompt=prompt)
+        return emit(result)
+    except error.URLError as exc:
+        return emit({"ok": False, "action": "request", "runtime_id": runtime_id(args), "error": str(exc), "status": unit_status(unit_for(args.profile, int(args.ctx), runtime=runtime_id(args)))}, 5)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Qwen3.6 27B on-demand llama-server controller")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def common(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--profile", choices=sorted(PROFILES), default="ordinary")
+        p.add_argument("--ctx", type=int, choices=CTX_CHOICES, default=8192)
+        p.add_argument("--runtime-id", choices=sorted(RUNTIMES), default=DEFAULT_RUNTIME_ID)
+        p.add_argument("--host", default="127.0.0.1")
+        p.add_argument("--port", type=int, default=None)
+        p.add_argument("--json", action="store_true")
+
+    def server_options(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--threads", type=int, default=6)
+        p.add_argument("--threads-batch", type=int, default=6)
+        p.add_argument("--batch", type=int, default=512)
+        p.add_argument("--ubatch", type=int, default=256)
+        p.add_argument("--parallel", type=int, default=None)
+        p.add_argument("--slot-cache", action=argparse.BooleanOptionalAction, default=True)
+        p.add_argument("--slot-cache-root", default=str(SLOT_CACHE_ROOT))
+        p.add_argument("--cache-reuse", type=int, default=None)
+        p.add_argument("--ctx-checkpoints", type=int, default=None)
+        p.add_argument("--checkpoint-every-n-tokens", type=int, default=None)
+        p.add_argument("--cache-ram", type=int, default=None)
+        p.add_argument("--slot-prompt-similarity", type=float, default=None)
+
+    def request_options(p: argparse.ArgumentParser, *, prefill_default: bool = False) -> None:
+        p.add_argument("--force", action="store_true")
+        p.add_argument("--allow-parallel", action="store_true")
+        p.add_argument("--health-timeout", type=float, default=120.0)
+        p.add_argument("--server-timeout", type=int, default=900)
+        p.add_argument("--sleep-idle-seconds", type=int, default=60)
+        server_options(p)
+        p.add_argument("--prompt", default=None)
+        p.add_argument("--prompt-file", default=None)
+        p.add_argument("--n-predict", type=int, default=0 if prefill_default else 128)
+        p.add_argument("--temperature", type=float, default=0.2)
+        p.add_argument("--cache-prompt", action=argparse.BooleanOptionalAction, default=True)
+        p.add_argument("--n-cache-reuse", type=int, default=None)
+        p.add_argument("--slot-id", type=int, default=None)
+        p.add_argument("--restore-slot", default=None)
+        p.add_argument("--save-slot", default=None)
+        p.add_argument("--write-evidence", action="store_true")
+        p.add_argument("--evidence-label", default=None)
+        p.add_argument("--request-timeout", type=float, default=900.0)
+
+    p = sub.add_parser("start")
+    common(p)
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--allow-parallel", action="store_true")
+    p.add_argument("--health-timeout", type=float, default=120.0)
+    p.add_argument("--server-timeout", type=int, default=900)
+    p.add_argument("--sleep-idle-seconds", type=int, default=60)
+    server_options(p)
+
+    p = sub.add_parser("stop")
+    common(p)
+    p.add_argument("--all", action="store_true")
+
+    p = sub.add_parser("status")
+    common(p)
+    p.add_argument("--slot-cache-root", default=str(SLOT_CACHE_ROOT))
+
+    p = sub.add_parser("request")
+    common(p)
+    request_options(p)
+
+    p = sub.add_parser("prefill")
+    common(p)
+    request_options(p, prefill_default=True)
+
+    p = sub.add_parser("slots")
+    common(p)
+    p.add_argument("--slot-cache-root", default=str(SLOT_CACHE_ROOT))
+    p.add_argument("--write-evidence", action="store_true")
+    p.add_argument("--evidence-label", default=None)
+    p.add_argument("--request-timeout", type=float, default=30.0)
+
+    for command in ("save-slot", "restore-slot", "erase-slot"):
+        p = sub.add_parser(command)
+        common(p)
+        p.add_argument("--force", action="store_true")
+        p.add_argument("--allow-parallel", action="store_true")
+        p.add_argument("--health-timeout", type=float, default=120.0)
+        p.add_argument("--server-timeout", type=int, default=900)
+        p.add_argument("--sleep-idle-seconds", type=int, default=60)
+        server_options(p)
+        p.add_argument("--slot-id", type=int, default=0)
+        if command != "erase-slot":
+            p.add_argument("--filename", required=True)
+        p.add_argument("--write-evidence", action="store_true")
+        p.add_argument("--evidence-label", default=None)
+        p.add_argument("--request-timeout", type=float, default=900.0)
+
+    args = parser.parse_args()
+    if args.command == "start":
+        return start(args)
+    if args.command == "stop":
+        return stop(args)
+    if args.command == "status":
+        return status(args)
+    if args.command == "request":
+        return request_action(args)
+    if args.command == "prefill":
+        return request_action(args)
+    if args.command == "slots":
+        return slots(args)
+    if args.command == "save-slot":
+        return slot_action(args, "save")
+    if args.command == "restore-slot":
+        return slot_action(args, "restore")
+    if args.command == "erase-slot":
+        return slot_action(args, "erase")
+    raise AssertionError(args.command)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

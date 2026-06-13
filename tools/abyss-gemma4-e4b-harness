@@ -1,0 +1,1380 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+from typing import Any
+
+
+VERSION = "0.2.2"
+PROFILE = "gemma4.workhorse"
+SCHEMA_PREFIX = "abyss_machine_gemma4_workhorse_harness"
+ROOT = Path("/var/lib/abyss-machine/ai/llm/workhorse/gemma4.workhorse")
+PACK_LATEST = ROOT / "packs" / "latest.json"
+REVIEW_LATEST = ROOT / "reviews" / "latest.json"
+VALIDATE_LATEST = ROOT / "validate" / "latest.json"
+REGISTRY_LATEST = Path("/var/lib/abyss-machine/ai/llm/registry/latest.json")
+RESIDENT_CANDIDATES_LATEST = Path("/var/lib/abyss-machine/ai/llm/resident/gemma4.spark/candidates/latest.json")
+RESIDENT_EVALS_LATEST = Path("/var/lib/abyss-machine/ai/llm/evals/resident/gemma4.spark/latest.json")
+RESIDENT_POLICY_LATEST = Path("/var/lib/abyss-machine/ai/llm/resident/gemma4.spark/policy/latest.json")
+TOOL = Path("/srv/abyss-machine/tools/abyss-gemma4-e4b-harness")
+LLAMA_COMPLETION_NAME = "llama-completion"
+MAX_SWAP_USED_PERCENT_FOR_MODEL = 98.0
+MIN_SWAP_FREE_MIB_FOR_MODEL = 4096.0
+MIN_MEM_AVAILABLE_MIB_FOR_MODEL = 8192.0
+SELECTION_TIER_PRIORITY = {
+    "operator_attention": 5,
+    "e4b_review": 4,
+    "heartbeat_watch": 3,
+    "model_input_support": 2,
+    "background_monitor": 1,
+    "archive": 0,
+}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def daily_path(root: Path, suffix: str = ".jsonl") -> Path:
+    now = datetime.now(timezone.utc)
+    return root / f"{now.year:04d}" / f"{now.month:02d}" / f"{now.year:04d}-{now.month:02d}-{now.day:02d}{suffix}"
+
+
+def ensure_dirs() -> None:
+    for path in (ROOT, ROOT / "packs", ROOT / "packs" / "jsonl", ROOT / "reviews", ROOT / "reviews" / "jsonl", ROOT / "validate", ROOT / "preflight", ROOT / "self-test"):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    ensure_dirs()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    ensure_dirs()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def run_json(cmd: list[str], timeout: float = 30.0) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout, check=False)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "command": cmd}
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        payload = {"ok": False, "error": f"invalid JSON stdout: {exc}", "stdout_tail": completed.stdout[-1000:]}
+    if not isinstance(payload, dict):
+        payload = {"ok": False, "error": f"stdout JSON is {type(payload).__name__}"}
+    payload.setdefault("_command", cmd)
+    payload.setdefault("_returncode", completed.returncode)
+    if completed.stderr:
+        payload.setdefault("_stderr_tail", completed.stderr[-1000:])
+    return payload
+
+
+def stable_id(prefix: str, payload: Any) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return f"{prefix}-{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]}"
+
+
+def gemma_prefix_pack_contract(consumer: str, producer: str, resident_prefix: dict[str, Any] | None = None) -> dict[str, Any]:
+    stable_prefix_order = [
+        "machine identity, route law, and source contracts",
+        "canonical maps packet with stable sorting, digests, truth_status, owner route, and evidence refs",
+        "bounded RAG trace/eval summaries plus local runtime/eval summaries",
+        "resident E2B candidate-readmodel selection summary and source refs",
+        "E4B review question, allowed source IDs, and compact evidence pack",
+    ]
+    suffix_material = [
+        "current E4B review question",
+        "current candidate evidence pack",
+        "fresh rejected or hollow candidate surfaces",
+        "operator requested decision scope",
+    ]
+    payload = {
+        "schema": "abyss_machine_gemma4_prefix_pack_contract_v1",
+        "version": VERSION,
+        "status": "source_policy",
+        "consumer_profile": consumer,
+        "producer_profile": producer,
+        "stable_prefix_first": True,
+        "changing_task_suffix": True,
+        "resident_prefix_pack_id": resident_prefix.get("contract_id") if isinstance(resident_prefix, dict) else None,
+        "source_contracts": [
+            "/etc/abyss-machine/AGENTS.md",
+            "/etc/abyss-machine/MAPS.md",
+            "/etc/abyss-machine/maps-policy.json",
+            "/etc/abyss-machine/ai/config.json",
+            "/var/lib/abyss-machine/ai/llm/AGENTS.md",
+        ],
+        "runtime_context_refs": [
+            str(RESIDENT_CANDIDATES_LATEST),
+            str(RESIDENT_EVALS_LATEST),
+            str(RESIDENT_POLICY_LATEST),
+            str(PACK_LATEST),
+            str(REVIEW_LATEST),
+        ],
+        "stable_prefix_order": stable_prefix_order,
+        "suffix_material": suffix_material,
+        "policies": {
+            "action_execution": False,
+            "memory_writeback": False,
+            "proof_verdict": False,
+            "stack_mutation": False,
+            "service_control": False,
+            "resident_service": False,
+            "starts_llama_server": False,
+            "derived_candidate_not_truth": True,
+            "source_ids_required_for_handoff": True,
+        },
+        "non_claims": [
+            "The stable prefix optimizes local prompt reuse; it does not make maps source truth.",
+            "E4B may review, keep, drop, or escalate candidates only.",
+            "Canonical evidence remains in the referenced source artifacts.",
+        ],
+    }
+    payload["contract_id"] = stable_id("gemma-prefix", {
+        "consumer": consumer,
+        "producer": producer,
+        "resident_prefix_pack_id": payload["resident_prefix_pack_id"],
+        "stable_prefix_order": stable_prefix_order,
+        "suffix_material": suffix_material,
+    })
+    return payload
+
+
+def gemma_handoff_contract(prefix_pack: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "schema": "abyss_machine_gemma4_e2b_e4b_handoff_contract_v1",
+        "version": VERSION,
+        "status": "active_contract",
+        "input_schema": "abyss_machine_gemma4_spark_resident_candidate_readmodel_v2",
+        "input_queue": "selected_for_e4b_review",
+        "output_schema": f"{SCHEMA_PREFIX}_review_v1",
+        "prefix_pack_id": prefix_pack.get("contract_id"),
+        "expected_decisions": ["keep", "drop", "escalate"],
+        "requires": [
+            "allowed_source_ids",
+            "candidate_id",
+            "source_excerpts",
+            "uncertainty_notes",
+            "safe_next_check",
+        ],
+        "policies": {
+            "default_model_execution": False,
+            "resident_service": False,
+            "starts_llama_server": False,
+            "action_execution": False,
+            "stack_mutation": False,
+            "memory_writeback": False,
+            "final_safety_gate": False,
+            "downstream_validator_required": True,
+        },
+    }
+    payload["handoff_id"] = stable_id("gemma-e2b-e4b-handoff", {
+        "input_schema": payload["input_schema"],
+        "input_queue": payload["input_queue"],
+        "output_schema": payload["output_schema"],
+        "prefix_pack_id": payload["prefix_pack_id"],
+        "expected_decisions": payload["expected_decisions"],
+    })
+    return payload
+
+
+def gemma_prompt_pack_contract(prefix_pack: dict[str, Any], handoff_contract: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "schema": "abyss_machine_gemma4_prompt_pack_contract_v1",
+        "version": VERSION,
+        "status": "contract_only",
+        "lane": "e4b_workhorse_review",
+        "prefix_pack_id": prefix_pack.get("contract_id"),
+        "handoff_id": handoff_contract.get("handoff_id"),
+        "stable_prefix_first": prefix_pack.get("stable_prefix_first") is True,
+        "changing_task_suffix": prefix_pack.get("changing_task_suffix") is True,
+        "suffix_material": list_value(prefix_pack.get("suffix_material")),
+        "policies": {
+            "action_execution": False,
+            "memory_writeback": False,
+            "service_control": False,
+            "stack_mutation": False,
+            "raw_private_content": False,
+        },
+    }
+    payload["prompt_pack_id"] = stable_id("gemma-prompt-pack", {
+        "lane": payload["lane"],
+        "prefix_pack_id": payload["prefix_pack_id"],
+        "handoff_id": payload["handoff_id"],
+        "suffix_material": payload["suffix_material"],
+    })
+    return payload
+
+
+def float_value(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def int_value(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def list_value(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def compact_text(value: Any, limit: int = 420) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def paths_payload() -> dict[str, Any]:
+    ensure_dirs()
+    return {
+        "schema": f"{SCHEMA_PREFIX}_paths_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": True,
+        "profile": PROFILE,
+        "root": str(ROOT),
+        "tool": str(TOOL),
+        "latest": {
+            "pack": str(PACK_LATEST),
+            "review": str(REVIEW_LATEST),
+            "validate": str(VALIDATE_LATEST),
+            "resident_candidates": str(RESIDENT_CANDIDATES_LATEST),
+            "resident_evals": str(RESIDENT_EVALS_LATEST),
+            "resident_policy": str(RESIDENT_POLICY_LATEST),
+            "registry": str(REGISTRY_LATEST),
+        },
+        "history": {
+            "packs": str(ROOT / "packs" / "jsonl" / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "reviews": str(ROOT / "reviews" / "jsonl" / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+        },
+        "commands": {
+            "paths": "abyss-machine ai llm workhorse paths --json",
+            "preflight": "abyss-machine ai llm workhorse preflight --json",
+            "pack": "abyss-machine ai llm workhorse pack --json",
+            "review": "abyss-machine ai llm workhorse review --json",
+            "model_review": "abyss-machine ai llm workhorse review --run-model --json",
+            "validate": "abyss-machine ai llm workhorse validate --json",
+            "self_test": "abyss-machine ai llm workhorse self-test --json",
+        },
+        "policy": {
+            "resident_service": False,
+            "starts_llama_server": False,
+            "action_execution": False,
+            "mutates_stack": False,
+            "default_model_execution": False,
+        },
+    }
+
+
+def registry_profile() -> tuple[dict[str, Any], dict[str, Any]]:
+    registry = run_json(["abyss-machine", "ai", "llm", "registry", "--json"], timeout=30.0)
+    profile = registry.get("profiles", {}).get(PROFILE) if isinstance(registry.get("profiles"), dict) else None
+    return registry, profile if isinstance(profile, dict) else {}
+
+
+def llama_completion_path(profile: dict[str, Any]) -> Path:
+    runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
+    cli = Path(str(runtime.get("llama_cli") or ""))
+    return cli.with_name(LLAMA_COMPLETION_NAME) if cli.name else Path("")
+
+
+def profile_context_size(profile: dict[str, Any]) -> int:
+    return max(8192, min(int_value(profile.get("context_size"), 8192), 32768))
+
+
+def memory_summary(memory: dict[str, Any]) -> dict[str, Any]:
+    summary = memory.get("meminfo", {}).get("summary", {}) if isinstance(memory.get("meminfo"), dict) else {}
+    zram = memory.get("zram", {}).get("summary", {}) if isinstance(memory.get("zram"), dict) else {}
+    psi = memory.get("psi") if isinstance(memory.get("psi"), dict) else {}
+    return {
+        "class": memory.get("class"),
+        "mem_available_mib": summary.get("mem_available_mib"),
+        "swap_used_percent": summary.get("swap_used_percent"),
+        "swap_free_mib": summary.get("swap_free_mib"),
+        "psi_some_avg10": (psi.get("some") or {}).get("avg10") if isinstance(psi.get("some"), dict) else None,
+        "psi_full_avg10": (psi.get("full") or {}).get("avg10") if isinstance(psi.get("full"), dict) else None,
+        "zram_resident_mib": zram.get("total_memory_mib"),
+        "zram_logical_to_memory_ratio": zram.get("logical_to_memory_ratio"),
+    }
+
+
+def preflight(write_latest: bool = True) -> dict[str, Any]:
+    registry, profile = registry_profile()
+    completion_path = llama_completion_path(profile)
+    memory = run_json(["abyss-machine", "memory", "status", "--json"], timeout=30.0)
+    resource = run_json(["abyss-machine", "resource", "plan", "--class", "heavy", "--kind", "ai", "--no-thermal-sample", "--json"], timeout=45.0)
+    mem = memory_summary(memory)
+    blocked: list[str] = []
+    warnings: list[str] = []
+    if not registry.get("ok"):
+        blocked.append("llm_registry_unavailable")
+    if not profile:
+        blocked.append("gemma4.workhorse_profile_missing")
+    if profile and profile.get("local_exists") is not True:
+        blocked.append("gemma4.workhorse_model_missing")
+    if not completion_path.exists():
+        blocked.append("llama_completion_missing")
+    if resource.get("decision") != "allow":
+        blocked.append(f"resource_decision={resource.get('decision')}")
+    swap_used = float_value(mem.get("swap_used_percent"))
+    if swap_used is not None and swap_used > MAX_SWAP_USED_PERCENT_FOR_MODEL:
+        blocked.append(f"swap_used_percent={swap_used}>{MAX_SWAP_USED_PERCENT_FOR_MODEL:g}")
+    swap_free = float_value(mem.get("swap_free_mib"))
+    if swap_free is not None and swap_free < MIN_SWAP_FREE_MIB_FOR_MODEL:
+        blocked.append(f"swap_free_mib={swap_free}<{MIN_SWAP_FREE_MIB_FOR_MODEL:g}")
+    mem_available = float_value(mem.get("mem_available_mib"))
+    if mem_available is not None and mem_available < MIN_MEM_AVAILABLE_MIB_FOR_MODEL:
+        blocked.append(f"mem_available_mib={mem_available}<{MIN_MEM_AVAILABLE_MIB_FOR_MODEL:g}")
+    psi_some = float_value(mem.get("psi_some_avg10")) or 0.0
+    psi_full = float_value(mem.get("psi_full_avg10")) or 0.0
+    if psi_some >= 2.0 or psi_full >= 1.0:
+        blocked.append(f"memory_psi_stall_some={psi_some}_full={psi_full}")
+    if swap_used is not None and swap_used > 75.0:
+        warnings.append(f"swap_used_percent={swap_used}")
+    data = {
+        "schema": f"{SCHEMA_PREFIX}_preflight_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": not blocked,
+        "profile": PROFILE,
+        "decision": "allow" if not blocked else "block",
+        "blocked_reasons": blocked,
+        "warnings": warnings,
+        "model": {
+            "local_path": profile.get("local_path"),
+            "local_exists": profile.get("local_exists"),
+            "quant": profile.get("quant"),
+            "context_size": profile_context_size(profile),
+            "size_bytes": profile.get("size_bytes"),
+            "llama_completion": str(completion_path),
+            "llama_completion_exists": completion_path.exists(),
+        },
+        "memory": mem,
+        "resource": {
+            "decision": resource.get("decision"),
+            "blocked_reasons": resource.get("blocked_reasons"),
+            "denied_reasons": resource.get("denied_reasons"),
+            "systemd": resource.get("systemd"),
+        },
+        "policy": {
+            "resident_service": False,
+            "starts_llama_server": False,
+            "default_review_runs_model": False,
+            "action_execution": False,
+            "swap_hard_block_percent": MAX_SWAP_USED_PERCENT_FOR_MODEL,
+            "min_swap_free_mib": MIN_SWAP_FREE_MIB_FOR_MODEL,
+            "min_mem_available_mib": MIN_MEM_AVAILABLE_MIB_FOR_MODEL,
+        },
+        "paths": paths_payload()["latest"],
+    }
+    if write_latest:
+        write_json(ROOT / "preflight" / "latest.json", data)
+    return data
+
+
+def candidate_source_ids(candidate: dict[str, Any]) -> list[str]:
+    source_ids: list[str] = []
+    for item in list_value(candidate.get("source_ids")):
+        text = str(item or "").strip()
+        if text and text not in source_ids:
+            source_ids.append(text)
+    single = str(candidate.get("source_id") or "").strip()
+    if single and single not in source_ids:
+        source_ids.append(single)
+    return source_ids[:8]
+
+
+def candidate_excerpt(candidate: dict[str, Any], payload: dict[str, Any]) -> str:
+    for key in ("excerpt", "summary", "reason", "next_action", "follow_up", "classification", "verdict"):
+        value = payload.get(key)
+        if value:
+            return compact_text(value, 360)
+    for key in ("text", "title"):
+        value = candidate.get(key)
+        if value:
+            return compact_text(value, 360)
+    return compact_text(candidate.get("candidate_id"), 160)
+
+
+def candidate_uncertainty_notes(candidate: dict[str, Any], source_ids: list[str], payload: dict[str, Any]) -> list[str]:
+    notes: list[str] = []
+    if not source_ids:
+        notes.append("missing_source_ids")
+    freshness = str(candidate.get("freshness_class") or "")
+    if freshness and freshness != "fresh":
+        notes.append(f"freshness={freshness}")
+    correctness = str(candidate.get("correctness_risk") or "")
+    if correctness in {"medium", "high"}:
+        notes.append(f"correctness_risk={correctness}")
+    utility = float_value(candidate.get("utility_score"))
+    if utility is not None and utility < 0.35:
+        notes.append(f"low_utility={utility:.2f}")
+    if candidate.get("review_required") is True:
+        notes.append("operator_review_required")
+    tier = str(candidate.get("selection_tier") or "")
+    if tier:
+        notes.append(f"selection_tier={tier}")
+    for key in ("missing_data", "missing_evidence", "source_refs_missing"):
+        value = payload.get(key)
+        if value:
+            notes.append(f"{key}={compact_text(value, 140)}")
+    if not notes:
+        notes.append("derived_candidate_not_source_truth")
+    return notes[:8]
+
+
+def candidate_rejection_reasons(candidate: dict[str, Any], source_ids: list[str], payload: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if not source_ids:
+        reasons.append("missing_source_ids")
+    if candidate.get("action_execution") is True:
+        reasons.append("unsafe_action_execution_claim")
+    if str(candidate.get("freshness_class") or "") == "stale":
+        reasons.append("stale_candidate")
+    utility = float_value(candidate.get("utility_score"))
+    if utility is not None and utility < 0.2:
+        reasons.append(f"utility_below_pack_threshold={utility:.2f}")
+    route = str(candidate.get("route") or "")
+    if route in {"direct", "execute", "e2b_ok", "service_mutation"}:
+        reasons.append(f"unsafe_route={route}")
+    if payload.get("source_refs_missing") is True:
+        reasons.append("source_refs_missing")
+    return reasons[:8]
+
+
+def candidate_record(candidate: dict[str, Any]) -> dict[str, Any]:
+    payload = candidate.get("payload") if isinstance(candidate.get("payload"), dict) else {}
+    source_ids = candidate_source_ids(candidate)
+    excerpt = candidate_excerpt(candidate, payload)
+    uncertainty = candidate_uncertainty_notes(candidate, source_ids, payload)
+    return {
+        "candidate_id": str(candidate.get("candidate_id") or ""),
+        "kind": str(candidate.get("kind") or ""),
+        "source_job": str(candidate.get("source_job") or ""),
+        "source_id": source_ids[0] if source_ids else "",
+        "source_ids": source_ids,
+        "title": compact_text(candidate.get("title"), 160),
+        "text": compact_text(candidate.get("text"), 420),
+        "source_excerpts": [{"source_id": sid, "excerpt": excerpt} for sid in source_ids[:3]] or [{"source_id": "", "excerpt": excerpt}],
+        "score": candidate.get("score"),
+        "confidence": candidate.get("confidence"),
+        "utility_score": float_value(candidate.get("utility_score")),
+        "selection_score": float_value(candidate.get("selection_score")),
+        "selection_tier": candidate.get("selection_tier"),
+        "selection_lane": candidate.get("selection_lane"),
+        "selection_reasons": list_value(candidate.get("selection_reasons"))[:8],
+        "correctness_risk": candidate.get("correctness_risk"),
+        "freshness_class": candidate.get("freshness_class"),
+        "heartbeat_priority": int_value(candidate.get("heartbeat_priority")),
+        "e4b_review_eligible": candidate.get("e4b_review_eligible") is True,
+        "risk": candidate.get("risk") or "none",
+        "route": candidate.get("route"),
+        "review_required": candidate.get("review_required") is True,
+        "action_execution": False,
+        "uncertainty_notes": uncertainty,
+        "source_artifact": candidate.get("source_artifact"),
+        "source_generated_at": candidate.get("source_generated_at"),
+        "artifact_age_sec": float_value(candidate.get("artifact_age_sec")),
+        "expires_at": candidate.get("expires_at"),
+        "payload": {
+            key: payload.get(key)
+            for key in ("classification", "allowed_use", "rank", "query", "card_id", "confirm_required", "reason", "missing_data", "missing_evidence", "doc_type", "issue_type", "verdict", "next_action", "source_refs_missing")
+            if key in payload
+        },
+    }
+
+
+def candidate_selection_tier_priority(value: Any) -> int:
+    return SELECTION_TIER_PRIORITY.get(str(value or ""), 0)
+
+
+def candidate_review_sort_key(candidate: dict[str, Any]) -> tuple[int, float, int, int, int, float, int, str]:
+    selection_score = float_value(candidate.get("selection_score"))
+    if selection_score is None:
+        selection_score = float_value(candidate.get("utility_score")) or 0.0
+    return (
+        candidate_selection_tier_priority(candidate.get("selection_tier")),
+        selection_score,
+        int_value(candidate.get("heartbeat_priority")),
+        1 if candidate.get("e4b_review_eligible") is True else 0,
+        1 if candidate.get("review_required") is True else 0,
+        float_value(candidate.get("utility_score")) or 0.0,
+        0 if str(candidate.get("freshness_class") or "") == "fresh" else -1,
+        str(candidate.get("candidate_id") or ""),
+    )
+
+
+def compact_rejected_candidate(candidate: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
+    record = candidate_record(candidate)
+    return {
+        "candidate_id": record.get("candidate_id"),
+        "kind": record.get("kind"),
+        "source_job": record.get("source_job"),
+        "source_ids": record.get("source_ids"),
+        "title": record.get("title"),
+        "route": record.get("route"),
+        "utility_score": record.get("utility_score"),
+        "selection_score": record.get("selection_score"),
+        "selection_tier": record.get("selection_tier"),
+        "selection_lane": record.get("selection_lane"),
+        "freshness_class": record.get("freshness_class"),
+        "rejection_reasons": reasons,
+    }
+
+
+def runtime_degradation_context(evals_latest: dict[str, Any], policy_latest: dict[str, Any]) -> dict[str, Any]:
+    degraded_jobs = []
+    for row in list_value(((evals_latest.get("scorecard") or {}) if isinstance(evals_latest.get("scorecard"), dict) else {}).get("degraded_jobs")):
+        if not isinstance(row, dict):
+            continue
+        model = row.get("model") if isinstance(row.get("model"), dict) else {}
+        model_policy = model.get("policy") if isinstance(model.get("policy"), dict) else {}
+        if not model_policy and isinstance(model.get("gate"), dict):
+            model_policy = model.get("gate", {}).get("policy") if isinstance(model.get("gate", {}).get("policy"), dict) else {}
+        degraded_jobs.append({
+            "job": row.get("job"),
+            "status": row.get("status"),
+            "policy_decision": model_policy.get("decision"),
+            "primary_reason": model_policy.get("primary_reason"),
+            "model_used": model.get("used"),
+            "fallback_used": model.get("fallback_used"),
+        })
+    decision = str(policy_latest.get("decision") or "unknown")
+    current_status = "current" if decision in {"degraded", "fallback", "blocked"} else "historical_not_current" if degraded_jobs else "none"
+    return {
+        "schema": f"{SCHEMA_PREFIX}_runtime_degradation_context_v1",
+        "current_status": current_status,
+        "current_policy": {
+            "decision": decision,
+            "primary_reason": policy_latest.get("primary_reason"),
+            "generated_at": policy_latest.get("generated_at"),
+            "request": policy_latest.get("request") if isinstance(policy_latest.get("request"), dict) else {},
+            "warnings": list_value(policy_latest.get("warnings"))[:8],
+            "thermal_class": (((policy_latest.get("temperatures") or {}) if isinstance(policy_latest.get("temperatures"), dict) else {}).get("thermal_class")),
+            "package_temp_c": (((policy_latest.get("temperatures") or {}) if isinstance(policy_latest.get("temperatures"), dict) else {}).get("package_temp_c")),
+            "memory_class": (((((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("memory") or {}) if isinstance(((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("memory"), dict) else {}).get("summary") or {}).get("class") if isinstance(((((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("memory") or {}) if isinstance(((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("memory"), dict) else {}).get("summary"), dict) else None,
+            "active_game_processes": (((((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("game_guard") or {}) if isinstance(((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("game_guard"), dict) else {}).get("summary") or {}).get("active_game_processes") if isinstance(((((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("game_guard") or {}) if isinstance(((policy_latest.get("inputs") or {}) if isinstance(policy_latest.get("inputs"), dict) else {}).get("game_guard"), dict) else {}).get("summary"), dict) else None,
+        },
+        "historical_degraded_jobs": degraded_jobs[:12],
+        "historical_degraded_count": len(degraded_jobs),
+    }
+
+
+def build_pack_from_resident(resident: dict[str, Any], evals_latest: dict[str, Any], policy_latest: dict[str, Any], limit: int = 24) -> dict[str, Any]:
+    candidates = [item for item in list_value(resident.get("candidates")) if isinstance(item, dict)]
+    queues = resident.get("queues") if isinstance(resident.get("queues"), dict) else {}
+    selected_for_e4b = [item for item in list_value(queues.get("selected_for_e4b_review")) if isinstance(item, dict)]
+    candidate_pool = selected_for_e4b if selected_for_e4b else candidates
+    rejected_candidates = []
+    rejected_ids: set[int] = set()
+    for candidate in candidate_pool:
+        reasons = candidate_rejection_reasons(candidate, candidate_source_ids(candidate), candidate.get("payload") if isinstance(candidate.get("payload"), dict) else {})
+        if reasons:
+            rejected_ids.add(id(candidate))
+            rejected_candidates.append(compact_rejected_candidate(candidate, reasons))
+    if selected_for_e4b:
+        preferred = [item for item in candidate_pool if id(item) not in rejected_ids]
+    else:
+        preferred = sorted([item for item in candidate_pool if id(item) not in rejected_ids], key=candidate_review_sort_key, reverse=True)
+    items = [candidate_record(item) for item in preferred[: max(1, min(limit, 128))]]
+    scorecard = evals_latest.get("scorecard") if isinstance(evals_latest.get("scorecard"), dict) else {}
+    hollow_candidates = [item for item in list_value(scorecard.get("hollow_candidates")) if isinstance(item, dict)]
+    eval_rejected_candidates = [item for item in list_value(scorecard.get("rejected_candidates")) if isinstance(item, dict)]
+    action_candidates = [
+        item
+        for item in items
+        if item.get("kind") == "action_card"
+        or item.get("route") in {"operator_confirm", "operator_review", "operator_needed", "blocked_by_policy", "human_review"}
+        or item.get("review_required") is True
+    ]
+    risk_candidates = [item for item in items if item.get("risk") not in {"", "none", "low"}]
+    source_ids = sorted({str(source_id) for item in items for source_id in list_value(item.get("source_ids")) if source_id})
+    degradation = runtime_degradation_context(evals_latest, policy_latest)
+    uncertainty_notes = sorted({str(note) for item in items for note in list_value(item.get("uncertainty_notes")) if note})
+    selected_items = [item for item in items if item.get("selection_tier") in {"operator_attention", "e4b_review", "heartbeat_watch"}]
+    selection_tiers = sorted({str(item.get("selection_tier")) for item in items if item.get("selection_tier")})
+    selection_lanes = sorted({str(item.get("selection_lane")) for item in items if item.get("selection_lane")})
+    resident_prefix = resident.get("prefix_pack") if isinstance(resident.get("prefix_pack"), dict) else {}
+    prefix_pack = gemma_prefix_pack_contract(
+        consumer=PROFILE,
+        producer="e2b_candidate_readmodel_v2_for_e4b_review",
+        resident_prefix=resident_prefix,
+    )
+    handoff_contract = gemma_handoff_contract(prefix_pack)
+    prompt_pack = gemma_prompt_pack_contract(prefix_pack, handoff_contract)
+    data = {
+        "schema": f"{SCHEMA_PREFIX}_e4b_review_pack_v2",
+        "compatibility_schema": f"{SCHEMA_PREFIX}_evidence_pack_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": True,
+        "profile": PROFILE,
+        "mode": "e2b_candidate_readmodel_v2_for_e4b_review",
+        "pack_id": stable_id("e4b-pack", {"source": str(RESIDENT_CANDIDATES_LATEST), "items": items, "degradation": degradation, "prefix_pack_id": prefix_pack.get("contract_id"), "handoff_id": handoff_contract.get("handoff_id")}),
+        "raw_private_content": False,
+        "action_execution": False,
+        "prefix_pack": prefix_pack,
+        "handoff_contract": handoff_contract,
+        "prompt_pack": prompt_pack,
+        "source": {
+            "resident_candidates_latest": str(RESIDENT_CANDIDATES_LATEST),
+            "resident_candidates_generated_at": resident.get("generated_at"),
+            "resident_summary": resident.get("summary"),
+            "resident_selection": resident.get("selection") if isinstance(resident.get("selection"), dict) else {},
+            "resident_prefix_pack_id": resident_prefix.get("contract_id") if isinstance(resident_prefix, dict) else None,
+            "resident_selected_for_e4b_review": len(selected_for_e4b),
+            "resident_evals_latest": str(RESIDENT_EVALS_LATEST),
+            "resident_evals_generated_at": evals_latest.get("generated_at"),
+            "resident_policy_latest": str(RESIDENT_POLICY_LATEST),
+            "resident_policy_generated_at": policy_latest.get("generated_at"),
+        },
+        "summary": {
+            "items": len(items),
+            "source_ids": len(source_ids),
+            "source_excerpts": sum(len(list_value(item.get("source_excerpts"))) for item in items),
+            "action_candidates": len(action_candidates),
+            "risk_candidates": len(risk_candidates),
+            "model_input_candidates": sum(1 for item in items if item.get("route") == "model_input_candidate"),
+            "review_required": sum(1 for item in items if item.get("review_required")),
+            "e4b_review_eligible": sum(1 for item in items if item.get("e4b_review_eligible")),
+            "selected_candidates": len(selected_items),
+            "selection_tiers": selection_tiers,
+            "selection_lanes": selection_lanes,
+            "uncertainty_notes": len(uncertainty_notes),
+            "rejected_candidates": len(rejected_candidates) + len(eval_rejected_candidates),
+            "hollow_candidates": len(hollow_candidates),
+            "runtime_degradation_status": degradation.get("current_status"),
+            "historical_degraded_jobs": degradation.get("historical_degraded_count"),
+            "prefix_pack_contract": prefix_pack.get("contract_id"),
+            "handoff_contract": handoff_contract.get("handoff_id"),
+            "prompt_pack_contract": prompt_pack.get("prompt_pack_id"),
+        },
+        "allowed_source_ids": source_ids,
+        "evidence_items": items,
+        "rejected_candidates": rejected_candidates[:16],
+        "eval_rejected_candidates": eval_rejected_candidates[:16],
+        "hollow_candidates": hollow_candidates[:16],
+        "runtime_degradation_context": degradation,
+        "pack_guidance": {
+            "e4b_expected_decisions": ["keep", "drop", "escalate"],
+            "requires_missing_evidence_if_drop": True,
+            "requires_safe_next_check": True,
+            "derived_candidate_not_truth": True,
+            "prefer_selection_score_before_utility_score": True,
+        },
+        "policy": {
+            "for_model_input": True,
+            "derived_candidate_not_truth": True,
+            "e4b_may_review_only": True,
+            "e4b_may_not_execute": True,
+            "selection_score_is_routing_hint": True,
+            "missing_source_ids_in_output_is_invalid": True,
+        },
+        "paths": paths_payload()["latest"],
+        "non_claims": [
+            "This pack is derived from E2B candidate artifacts; canonical evidence remains in source artifacts.",
+            "This pack does not authorize action execution, memory writes, service control, or stack mutation.",
+            "E4B review may keep, drop, or escalate candidates only; it is not a final executor or safety gate.",
+        ],
+    }
+    return data
+
+
+def build_pack(limit: int = 24, refresh_candidates: bool = False, write_latest: bool = True) -> dict[str, Any]:
+    if refresh_candidates or not RESIDENT_CANDIDATES_LATEST.exists():
+        run_json(["abyss-machine", "ai", "llm", "resident", "candidates", "--limit", str(max(1, min(limit, 128))), "--json"], timeout=90.0)
+    resident = load_json(RESIDENT_CANDIDATES_LATEST)
+    evals_latest = load_json(RESIDENT_EVALS_LATEST)
+    policy_latest = load_json(RESIDENT_POLICY_LATEST)
+    data = build_pack_from_resident(resident, evals_latest, policy_latest, limit=limit)
+    if write_latest:
+        write_json(PACK_LATEST, data)
+        append_jsonl(daily_path(ROOT / "packs" / "jsonl"), data)
+    return data
+
+
+def pack_checks(pack: dict[str, Any]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    def add(level: str, key: str, message: str, details: Any = None) -> None:
+        item = {"level": level, "key": key, "message": message}
+        if details is not None:
+            item["details"] = details
+        checks.append(item)
+
+    add("ok" if pack else "fail", "pack_exists", "E4B evidence pack exists", {"path": str(PACK_LATEST)})
+    if not pack:
+        return checks
+    add("ok" if pack.get("schema") == f"{SCHEMA_PREFIX}_e4b_review_pack_v2" else "fail", "pack_schema", "E4B review pack schema is current", {"schema": pack.get("schema")})
+    prefix_pack = pack.get("prefix_pack") if isinstance(pack.get("prefix_pack"), dict) else {}
+    prefix_policies = prefix_pack.get("policies") if isinstance(prefix_pack.get("policies"), dict) else {}
+    handoff_contract = pack.get("handoff_contract") if isinstance(pack.get("handoff_contract"), dict) else {}
+    handoff_policies = handoff_contract.get("policies") if isinstance(handoff_contract.get("policies"), dict) else {}
+    prompt_pack = pack.get("prompt_pack") if isinstance(pack.get("prompt_pack"), dict) else {}
+    prompt_policies = prompt_pack.get("policies") if isinstance(prompt_pack.get("policies"), dict) else {}
+    add(
+        "ok" if prefix_pack.get("schema") == "abyss_machine_gemma4_prefix_pack_contract_v1" and prefix_pack.get("stable_prefix_first") is True and prefix_pack.get("changing_task_suffix") is True else "fail",
+        "prefix_pack_contract",
+        "pack exposes stable-prefix/changing-suffix prompt contract",
+        {"contract_id": prefix_pack.get("contract_id"), "schema": prefix_pack.get("schema")},
+    )
+    add(
+        "fail" if prefix_policies.get("action_execution") is not False or prefix_policies.get("resident_service") is not False or prefix_policies.get("starts_llama_server") is not False or prefix_policies.get("stack_mutation") is not False else "ok",
+        "prefix_pack_non_executing",
+        "prefix-pack contract cannot authorize execution, serving, or stack mutation",
+        {"policies": prefix_policies},
+    )
+    add(
+        "ok" if handoff_contract.get("schema") == "abyss_machine_gemma4_e2b_e4b_handoff_contract_v1" and set(list_value(handoff_contract.get("expected_decisions"))) >= {"keep", "drop", "escalate"} else "fail",
+        "handoff_contract",
+        "pack exposes the E2B-to-E4B keep/drop/escalate handoff contract",
+        {"handoff_id": handoff_contract.get("handoff_id"), "schema": handoff_contract.get("schema")},
+    )
+    add(
+        "fail" if handoff_policies.get("default_model_execution") is not False or handoff_policies.get("resident_service") is not False or handoff_policies.get("starts_llama_server") is not False or handoff_policies.get("action_execution") is not False else "ok",
+        "handoff_non_executing",
+        "handoff contract keeps E4B on-demand and non-executing",
+        {"policies": handoff_policies},
+    )
+    add(
+        "ok" if prompt_pack.get("schema") == "abyss_machine_gemma4_prompt_pack_contract_v1" and prompt_pack.get("prefix_pack_id") == prefix_pack.get("contract_id") and prompt_pack.get("handoff_id") == handoff_contract.get("handoff_id") else "fail",
+        "prompt_pack_contract",
+        "prompt pack ties the stable prefix to the E2B-to-E4B handoff",
+        {"prompt_pack_id": prompt_pack.get("prompt_pack_id"), "schema": prompt_pack.get("schema")},
+    )
+    add(
+        "fail" if prompt_policies.get("action_execution") is not False or prompt_policies.get("service_control") is not False or prompt_policies.get("raw_private_content") is not False else "ok",
+        "prompt_pack_non_executing",
+        "prompt-pack contract stays compact and non-executing",
+        {"policies": prompt_policies},
+    )
+    items = [item for item in list_value(pack.get("evidence_items")) if isinstance(item, dict)]
+    add("ok" if items else "warn", "evidence_items", "evidence pack has bounded candidate items", {"count": len(items)})
+    bad_identity = [item for item in items if not item.get("candidate_id") or not list_value(item.get("source_ids")) or not item.get("source_job")]
+    add("fail" if bad_identity else "ok", "candidate_identity", "pack items keep candidate/source identity", {"bad": bad_identity[:5]})
+    missing_excerpts = [item for item in items if not list_value(item.get("source_excerpts"))]
+    add("fail" if missing_excerpts else "ok", "source_excerpts", "pack items include bounded source excerpts", {"bad": missing_excerpts[:5]})
+    missing_uncertainty = [item for item in items if not list_value(item.get("uncertainty_notes"))]
+    add("fail" if missing_uncertainty else "ok", "uncertainty_notes", "pack items preserve uncertainty notes", {"bad": missing_uncertainty[:5]})
+    missing_selection = [
+        item
+        for item in items
+        if not isinstance(item.get("selection_score"), (int, float))
+        or item.get("selection_tier") not in set(SELECTION_TIER_PRIORITY.keys())
+        or not str(item.get("selection_lane") or "")
+        or not list_value(item.get("selection_reasons"))
+    ]
+    add("fail" if missing_selection else "ok", "selection_fields", "pack items preserve E2B selection score/tier/reasons", {"bad": missing_selection[:5]})
+    selected_items = [item for item in items if item.get("selection_tier") in {"operator_attention", "e4b_review", "heartbeat_watch"}]
+    add("ok" if selected_items or not items else "warn", "selected_candidates", "pack is ordered by selected E2B review material", {"selected": len(selected_items), "items": len(items)})
+    executors = [item for item in items if item.get("action_execution") is not False]
+    add("fail" if executors else "ok", "no_action_execution", "pack cannot mark items executable", {"bad": executors[:5]})
+    source_ids = list_value(pack.get("allowed_source_ids"))
+    add("ok" if source_ids or not items else "fail", "allowed_source_ids", "non-empty packs expose allowed source IDs", {"count": len(source_ids)})
+    add("ok" if isinstance(pack.get("runtime_degradation_context"), dict) else "fail", "runtime_degradation_context", "pack includes current-vs-historical runtime degradation context")
+    add("ok" if isinstance(pack.get("rejected_candidates"), list) and isinstance(pack.get("hollow_candidates"), list) else "fail", "weak_candidate_surfaces", "pack exposes rejected and hollow candidate surfaces")
+    guidance = pack.get("pack_guidance") if isinstance(pack.get("pack_guidance"), dict) else {}
+    add("ok" if set(list_value(guidance.get("e4b_expected_decisions"))) >= {"keep", "drop", "escalate"} else "fail", "decision_contract", "pack asks E4B for keep/drop/escalate review decisions", {"guidance": guidance})
+    if pack.get("raw_private_content") is not False:
+        add("fail", "raw_private_content", "pack must not claim raw private content")
+    else:
+        add("ok", "raw_private_content", "pack is compact derived content")
+    return checks
+
+
+def deterministic_review(pack: dict[str, Any], reason: str = "deterministic_contract_review") -> dict[str, Any]:
+    items = [item for item in list_value(pack.get("evidence_items")) if isinstance(item, dict)]
+    def item_source_ids(item: dict[str, Any]) -> list[str]:
+        values = [str(value) for value in list_value(item.get("source_ids")) if value]
+        if not values and item.get("source_id"):
+            values = [str(item.get("source_id"))]
+        return values
+    source_ids = sorted({source_id for item in items for source_id in item_source_ids(item) if source_id})
+    action_items = [
+        item
+        for item in items
+        if item.get("kind") == "action_card"
+        or item.get("review_required") is True
+        or item.get("route") in {"operator_confirm", "operator_review", "operator_needed", "blocked_by_policy", "human_review"}
+    ]
+    risk_items = [item for item in items if item.get("risk") not in {"", "none", "low"}]
+    rejected = [item for item in list_value(pack.get("rejected_candidates")) if isinstance(item, dict)]
+    judgements = []
+    for item in items[:12]:
+        decision = "escalate" if item in action_items or item in risk_items else "keep"
+        judgements.append({
+            "source_ids": item_source_ids(item)[:6],
+            "candidate_id": str(item.get("candidate_id")),
+            "decision": decision,
+            "reason": compact_text("; ".join(str(note) for note in list_value(item.get("uncertainty_notes"))) or item.get("text") or item.get("title"), 260),
+            "safe_next_check": "operator_review" if decision == "escalate" else "preserve_as_candidate_evidence",
+        })
+    for item in rejected[:4]:
+        judgements.append({
+            "source_ids": list_value(item.get("source_ids"))[:6],
+            "candidate_id": str(item.get("candidate_id")),
+            "decision": "drop",
+            "reason": compact_text("; ".join(str(reason) for reason in list_value(item.get("rejection_reasons"))), 260),
+            "safe_next_check": "wait_for_sourceful_fresh_candidate",
+        })
+    review_items = [
+        {
+            "source_id": str(item.get("source_id")),
+            "candidate_id": str(item.get("candidate_id")),
+            "decision": "route_to_operator" if item in action_items or item in risk_items else "review_candidate",
+            "reason": compact_text(item.get("text") or item.get("title"), 220),
+        }
+        for item in items[:8]
+    ]
+    action_cards = [
+        {
+            "source_id": str(item.get("source_id")),
+            "candidate_id": str(item.get("candidate_id")),
+            "intent": compact_text(item.get("text"), 260),
+            "risk": item.get("risk") or "low",
+            "confirm_required": True,
+            "route": "operator_review",
+            "blocked_actions": ["direct_execution", "service_mutation_without_operator"],
+        }
+        for item in action_items[:6]
+    ]
+    return {
+        "verdict": "candidate_review_ready" if items else "blocked_no_evidence",
+        "summary": f"{reason}; items={len(items)}; action_candidates={len(action_items)}; risk_candidates={len(risk_items)}",
+        "operator_summary": f"{len(items)} E2B candidates packed for E4B review; {len(action_items)} need operator-facing review; {len(rejected)} weak candidates are dropped or held.",
+        "source_ids": source_ids,
+        "candidate_judgements": judgements,
+        "review_items": review_items,
+        "action_cards": action_cards,
+        "risk_routes": [
+            {
+                "source_id": str(item.get("source_id")),
+                "risk": item.get("risk") or "low",
+                "route": "operator_review",
+                "reason": compact_text(item.get("text"), 220),
+            }
+            for item in risk_items[:8]
+        ],
+        "missing_evidence": [] if items else ["evidence_items"],
+        "safe_next_checks": ["preserve_source_ids", "operator_confirms_before_action"] if items else ["refresh_e2b_candidates"],
+        "next_queries": [],
+        "confidence": "medium" if items else "low",
+        "action_execution": False,
+    }
+
+
+def review_prompt(pack: dict[str, Any]) -> str:
+    contract = {
+        "verdict": "candidate_review_ready|needs_more_evidence|blocked_by_policy|blocked_no_evidence",
+        "summary": "short operational summary",
+        "operator_summary": "short Russian or neutral operator-facing summary of what matters",
+        "source_ids": ["exact source ids from ALLOWED_SOURCE_IDS"],
+        "candidate_judgements": [{"source_ids": ["id"], "candidate_id": "id", "decision": "keep|drop|escalate", "reason": "evidence-based reason", "safe_next_check": "non-executing next check"}],
+        "review_items": [{"source_id": "id", "candidate_id": "id", "decision": "review_candidate|route_to_operator|reject|needs_more_evidence", "reason": "short reason"}],
+        "action_cards": [{"source_id": "id", "candidate_id": "id", "intent": "short intent", "risk": "none|low|high_stakes|unsafe_automation|privacy|medical|emergency|weapons", "confirm_required": True, "route": "operator_review|blocked_by_policy|stack_executor_candidate|needs_more_evidence", "blocked_actions": ["direct_execution"]}],
+        "risk_routes": [{"source_id": "id", "risk": "risk", "route": "operator_review|blocked_by_policy|curated_source_needed", "reason": "short reason"}],
+        "missing_evidence": ["short field names"],
+        "safe_next_checks": ["non-executing checks only"],
+        "next_queries": ["search or recall query candidates"],
+        "confidence": "low|medium|high",
+        "action_execution": False,
+    }
+    model_pack = {
+        "pack_id": pack.get("pack_id"),
+        "prefix_pack": pack.get("prefix_pack"),
+        "handoff_contract": pack.get("handoff_contract"),
+        "prompt_pack": pack.get("prompt_pack"),
+        "summary": pack.get("summary"),
+        "allowed_source_ids": pack.get("allowed_source_ids"),
+        "evidence_items": pack.get("evidence_items"),
+        "rejected_candidates": pack.get("rejected_candidates"),
+        "hollow_candidates": pack.get("hollow_candidates"),
+        "runtime_degradation_context": pack.get("runtime_degradation_context"),
+        "pack_guidance": pack.get("pack_guidance"),
+        "policy": pack.get("policy"),
+    }
+    return (
+        "<|turn>user\n"
+        "You are Gemma4 E4B inside Abyss Machine as a non-executing agent-OS workhorse reviewer. "
+        "Review the compact E2B evidence pack. Return only valid JSON with the exact schema shape. "
+        "Use only exact source IDs from ALLOWED_SOURCE_IDS. Never execute actions, never claim service control, "
+        "never approve protected-service mutation. If source IDs or evidence are missing, block or ask for more evidence.\n"
+        f"ALLOWED_SOURCE_IDS: {json.dumps(pack.get('allowed_source_ids') or [], ensure_ascii=False)}\n"
+        f"OUTPUT_CONTRACT: {json.dumps(contract, ensure_ascii=False)}\n"
+        f"EVIDENCE_PACK: {json.dumps(model_pack, ensure_ascii=False)}\n"
+        "<turn|>\n<|turn>model\n<|channel>final\n"
+    )
+
+
+def extract_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    best: tuple[int, dict[str, Any]] | None = None
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and (best is None or end > best[0]):
+            best = (end, value)
+        if isinstance(value, dict) and {"verdict", "source_ids", "action_execution"}.issubset(value):
+            return value
+    return best[1] if best else None
+
+
+def normalize_review(parsed: dict[str, Any] | None, pack: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    if not isinstance(parsed, dict):
+        return False, deterministic_review(pack, reason="model_parse_failed")
+    if not {"verdict", "source_ids", "action_execution"}.issubset(parsed):
+        return False, deterministic_review(pack, reason="model_root_contract_missing")
+    allowed = set(str(item) for item in list_value(pack.get("allowed_source_ids")) if item)
+    result = deterministic_review(pack, reason="model_review_normalization_seed")
+    result["verdict"] = str(parsed.get("verdict") or result["verdict"])[:80]
+    result["summary"] = compact_text(parsed.get("summary") or result["summary"], 500)
+    result["operator_summary"] = compact_text(parsed.get("operator_summary") or result.get("operator_summary"), 500)
+    result["source_ids"] = [sid for sid in [str(item) for item in list_value(parsed.get("source_ids"))] if sid in allowed]
+    result["candidate_judgements"] = []
+    for item in list_value(parsed.get("candidate_judgements"))[:12]:
+        if not isinstance(item, dict):
+            continue
+        ids = [sid for sid in [str(value) for value in list_value(item.get("source_ids"))] if sid in allowed]
+        if not ids:
+            continue
+        decision = str(item.get("decision") or "keep")[:40]
+        if decision not in {"keep", "drop", "escalate"}:
+            decision = "escalate"
+        result["candidate_judgements"].append({
+            "source_ids": ids[:6],
+            "candidate_id": str(item.get("candidate_id") or "")[:120],
+            "decision": decision,
+            "reason": compact_text(item.get("reason"), 260),
+            "safe_next_check": compact_text(item.get("safe_next_check"), 220),
+        })
+    result["review_items"] = []
+    for item in list_value(parsed.get("review_items"))[:8]:
+        if not isinstance(item, dict):
+            continue
+        sid = str(item.get("source_id") or "")
+        if sid in allowed:
+            result["review_items"].append({
+                "source_id": sid,
+                "candidate_id": str(item.get("candidate_id") or "")[:120],
+                "decision": str(item.get("decision") or "review_candidate")[:80],
+                "reason": compact_text(item.get("reason"), 260),
+            })
+    result["action_cards"] = []
+    for item in list_value(parsed.get("action_cards"))[:6]:
+        if not isinstance(item, dict):
+            continue
+        sid = str(item.get("source_id") or "")
+        if sid in allowed:
+            result["action_cards"].append({
+                "source_id": sid,
+                "candidate_id": str(item.get("candidate_id") or "")[:120],
+                "intent": compact_text(item.get("intent"), 260),
+                "risk": str(item.get("risk") or "low")[:80],
+                "confirm_required": True,
+                "route": str(item.get("route") or "operator_review")[:120],
+                "blocked_actions": [str(value)[:120] for value in list_value(item.get("blocked_actions"))[:8]] or ["direct_execution"],
+            })
+    result["risk_routes"] = []
+    for item in list_value(parsed.get("risk_routes"))[:8]:
+        if not isinstance(item, dict):
+            continue
+        sid = str(item.get("source_id") or "")
+        if sid in allowed:
+            result["risk_routes"].append({
+                "source_id": sid,
+                "risk": str(item.get("risk") or "low")[:80],
+                "route": str(item.get("route") or "operator_review")[:120],
+                "reason": compact_text(item.get("reason"), 260),
+            })
+    result["missing_evidence"] = [str(item)[:120] for item in list_value(parsed.get("missing_evidence"))[:12]]
+    result["safe_next_checks"] = [compact_text(item, 220) for item in list_value(parsed.get("safe_next_checks"))[:8]]
+    result["next_queries"] = [compact_text(item, 220) for item in list_value(parsed.get("next_queries"))[:8]]
+    result["confidence"] = str(parsed.get("confidence") or result["confidence"])[:40]
+    result["action_execution"] = False
+    return True, result
+
+
+def review_checks(review_result: dict[str, Any], pack: dict[str, Any]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    def add(level: str, key: str, message: str, details: Any = None) -> None:
+        item = {"level": level, "key": key, "message": message}
+        if details is not None:
+            item["details"] = details
+        checks.append(item)
+
+    items = [item for item in list_value(pack.get("evidence_items")) if isinstance(item, dict)]
+    allowed = {str(item) for item in list_value(pack.get("allowed_source_ids")) if item}
+    action_candidates = int((pack.get("summary") or {}).get("action_candidates") or 0) if isinstance(pack.get("summary"), dict) else 0
+    source_ids = [str(item) for item in list_value(review_result.get("source_ids")) if item]
+    bad_source_ids = [sid for sid in source_ids if sid not in allowed]
+    add("ok" if review_result else "fail", "review_result_exists", "review result exists")
+    add("fail" if review_result.get("action_execution") is not False else "ok", "no_action_execution", "review never marks action_execution true", {"value": review_result.get("action_execution")})
+    add("fail" if items and not source_ids else "ok", "source_ids_required", "non-empty evidence requires source_ids in output", {"source_ids": source_ids[:12]})
+    add("fail" if bad_source_ids else "ok", "source_ids_allowed", "output source IDs must come from pack", {"bad": bad_source_ids[:12]})
+    review_items = [item for item in list_value(review_result.get("review_items")) if isinstance(item, dict)]
+    bad_review_items = [item for item in review_items if str(item.get("source_id") or "") not in allowed]
+    add("fail" if bad_review_items else "ok", "review_items_sourceful", "review items preserve allowed source IDs", {"bad": bad_review_items[:5]})
+    judgements = [item for item in list_value(review_result.get("candidate_judgements")) if isinstance(item, dict)]
+    bad_judgements = [
+        item
+        for item in judgements
+        if not set(str(value) for value in list_value(item.get("source_ids"))).issubset(allowed)
+        or not list_value(item.get("source_ids"))
+        or item.get("decision") not in {"keep", "drop", "escalate"}
+    ]
+    add("fail" if items and not judgements else "ok", "candidate_judgements_required", "E4B handoff returns keep/drop/escalate candidate judgements", {"count": len(judgements)})
+    add("fail" if bad_judgements else "ok", "candidate_judgements_sourceful", "candidate judgements keep allowed source IDs and expected decisions", {"bad": bad_judgements[:5]})
+    add("fail" if items and not compact_text(review_result.get("operator_summary")) else "ok", "operator_summary", "review includes an operator-facing summary")
+    unsafe_next_checks = [
+        item for item in list_value(review_result.get("safe_next_checks"))
+        if any(word in str(item).lower() for word in ("execute", "restart", "delete", "write", "mutate"))
+    ]
+    add("fail" if unsafe_next_checks else "ok", "safe_next_checks_non_executing", "safe next checks stay non-executing", {"bad": unsafe_next_checks[:5]})
+    action_cards = [item for item in list_value(review_result.get("action_cards")) if isinstance(item, dict)]
+    hollow_action = action_candidates > 0 and not action_cards and str(review_result.get("verdict") or "").lower() not in {"blocked_no_evidence", "needs_more_evidence", "blocked_by_policy"}
+    add("fail" if hollow_action else "ok", "no_hollow_action_card", "action/review candidates cannot yield a safe-shaped empty action card", {"action_candidates": action_candidates, "cards": len(action_cards), "verdict": review_result.get("verdict")})
+    unsafe_cards = [
+        item
+        for item in action_cards
+        if str(item.get("source_id") or "") not in allowed
+        or item.get("confirm_required") is not True
+        or not list_value(item.get("blocked_actions"))
+        or item.get("route") in {"direct", "execute", "e2b_ok"}
+    ]
+    add("fail" if unsafe_cards else "ok", "action_cards_guarded", "action cards require source, confirmation, blocked actions, and non-execution route", {"bad": unsafe_cards[:5]})
+    return checks
+
+
+def run_llama_completion(pack: dict[str, Any], n_predict: int, timeout: float) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    pf = preflight(write_latest=True)
+    if not pf.get("ok"):
+        return {"ok": False, "blocked": True, "preflight": pf, "_content": ""}, None
+    registry, profile = registry_profile()
+    completion_path = llama_completion_path(profile)
+    model_path = str(profile.get("local_path") or "")
+    context_size = profile_context_size(profile)
+    resource = pf.get("resource") if isinstance(pf.get("resource"), dict) else {}
+    systemd = resource.get("systemd") if isinstance(resource.get("systemd"), dict) else {}
+    env = os.environ.copy()
+    for key, value in (systemd.get("env") or {}).items() if isinstance(systemd.get("env"), dict) else []:
+        env[str(key)] = str(value)
+    cpuset = (((systemd.get("properties") or {}).get("AllowedCPUs")) if isinstance(systemd.get("properties"), dict) else None) or "0-1,6-11,14-15"
+    command = [
+        "taskset",
+        "-c",
+        str(cpuset),
+        str(completion_path),
+        "-m",
+        model_path,
+        "-ngl",
+        "99",
+        "-c",
+        str(context_size),
+        "-n",
+        str(max(128, min(n_predict, 1536))),
+        "--temp",
+        "0.1",
+        "--top-p",
+        "0.9",
+        "--no-warmup",
+        "--simple-io",
+        "-no-cnv",
+        "--no-display-prompt",
+        "--reasoning",
+        "off",
+        "--reasoning-budget",
+        "0",
+        "--reasoning-format",
+        "none",
+        "-p",
+        review_prompt(pack),
+    ]
+    started = time.time()
+    completed = subprocess.run(command, text=True, capture_output=True, timeout=timeout, check=False, env=env)
+    duration = round(time.time() - started, 3)
+    output = {
+        "ok": completed.returncode == 0,
+        "returncode": completed.returncode,
+        "duration_sec": duration,
+        "command": command[:],
+        "context_size": context_size,
+        "stderr_tail": completed.stderr[-2000:],
+        "_content": completed.stdout,
+    }
+    parsed = extract_json_object(completed.stdout)
+    return output, parsed
+
+
+def review_pack(limit: int = 24, refresh_candidates: bool = False, run_model: bool = False, n_predict: int = 768, timeout: float = 420.0, write_latest: bool = True) -> dict[str, Any]:
+    pack = build_pack(limit=limit, refresh_candidates=refresh_candidates, write_latest=True)
+    pack_validation = pack_checks(pack)
+    pack_fails = [item for item in pack_validation if item.get("level") == "fail"]
+    model: dict[str, Any]
+    parsed_ok = False
+    if pack_fails:
+        result = deterministic_review(pack, reason="pack_validation_failed")
+        model = {"used": False, "blocked": True, "reason": "pack_validation_failed"}
+    elif run_model:
+        model_out, parsed = run_llama_completion(pack, n_predict=n_predict, timeout=timeout)
+        parsed_ok, result = normalize_review(parsed, pack)
+        model = {
+            "used": bool(model_out.get("ok")) and not model_out.get("blocked"),
+            "parsed": parsed_ok,
+            "blocked": model_out.get("blocked") is True,
+            "returncode": model_out.get("returncode"),
+            "duration_sec": model_out.get("duration_sec"),
+            "context_size": model_out.get("context_size"),
+            "stderr_tail": model_out.get("stderr_tail"),
+            "raw_excerpt": compact_text(model_out.get("_content"), 1800),
+            "preflight": model_out.get("preflight"),
+        }
+    else:
+        result = deterministic_review(pack)
+        model = {"used": False, "reason": "default_no_model_execution", "run_model_flag": "--run-model"}
+    checks = pack_validation + review_checks(result, pack)
+    fails = sum(1 for item in checks if item.get("level") == "fail")
+    warnings = sum(1 for item in checks if item.get("level") == "warn")
+    data = {
+        "schema": f"{SCHEMA_PREFIX}_review_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": fails == 0,
+        "profile": PROFILE,
+        "mode": "non_resident_workhorse_review",
+        "review_id": stable_id("e4b-review", {"pack": pack.get("pack_id"), "result": result}),
+        "pack": {"pack_id": pack.get("pack_id"), "path": str(PACK_LATEST), "summary": pack.get("summary")},
+        "prefix_pack": pack.get("prefix_pack") if isinstance(pack.get("prefix_pack"), dict) else {},
+        "handoff_contract": pack.get("handoff_contract") if isinstance(pack.get("handoff_contract"), dict) else {},
+        "prompt_pack": pack.get("prompt_pack") if isinstance(pack.get("prompt_pack"), dict) else {},
+        "result": result,
+        "checks": checks,
+        "summary": {"fails": fails, "warnings": warnings, "checks": len(checks), "model_used": model.get("used") is True, "parsed": parsed_ok},
+        "model": model,
+        "policy": {
+            "resident_service": False,
+            "starts_llama_server": False,
+            "action_execution": False,
+            "final_safety_gate": False,
+            "requires_downstream_validator": True,
+        },
+        "paths": paths_payload()["latest"],
+    }
+    if write_latest:
+        write_json(REVIEW_LATEST, data)
+        append_jsonl(daily_path(ROOT / "reviews" / "jsonl"), data)
+    return data
+
+
+def validate(write_latest: bool = True) -> dict[str, Any]:
+    pack = load_json(PACK_LATEST)
+    review = load_json(REVIEW_LATEST)
+    result = review.get("result") if isinstance(review.get("result"), dict) else {}
+    checks = pack_checks(pack)
+    checks.append({
+        "level": "ok" if review else "warn",
+        "key": "review_latest",
+        "message": "latest workhorse review exists",
+        "details": {"path": str(REVIEW_LATEST)},
+    })
+    if review:
+        checks.extend(review_checks(result, pack))
+        checks.append({
+            "level": "fail" if ((review.get("policy") or {}).get("resident_service") is True) else "ok",
+            "key": "not_resident_service",
+            "message": "workhorse harness is not promoted as a resident service",
+        })
+        checks.append({
+            "level": "fail" if ((review.get("policy") or {}).get("starts_llama_server") is True) else "ok",
+            "key": "does_not_start_server",
+            "message": "workhorse harness does not start llama-server",
+        })
+    fails = sum(1 for item in checks if item.get("level") == "fail")
+    warnings = sum(1 for item in checks if item.get("level") == "warn")
+    data = {
+        "schema": f"{SCHEMA_PREFIX}_validate_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": fails == 0,
+        "profile": PROFILE,
+        "checks": checks,
+        "summary": {"fails": fails, "warnings": warnings, "checks": len(checks)},
+        "paths": paths_payload()["latest"],
+    }
+    if write_latest:
+        write_json(VALIDATE_LATEST, data)
+    return data
+
+
+def self_test(write_latest: bool = True) -> dict[str, Any]:
+    fixture_prefix = gemma_prefix_pack_contract(
+        consumer=PROFILE,
+        producer="self_test_fixture_candidate_readmodel",
+        resident_prefix={},
+    )
+    fixture_handoff = gemma_handoff_contract(fixture_prefix)
+    fixture_prompt = gemma_prompt_pack_contract(fixture_prefix, fixture_handoff)
+    fixture_pack = {
+        "schema": f"{SCHEMA_PREFIX}_e4b_review_pack_v2",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": True,
+        "profile": PROFILE,
+        "raw_private_content": False,
+        "action_execution": False,
+        "prefix_pack": fixture_prefix,
+        "handoff_contract": fixture_handoff,
+        "prompt_pack": fixture_prompt,
+        "summary": {"items": 1, "source_ids": 1, "source_excerpts": 1, "action_candidates": 1, "risk_candidates": 0},
+        "allowed_source_ids": ["src-1"],
+        "evidence_items": [
+            {
+                "candidate_id": "cand-1",
+                "kind": "action_card",
+                "source_job": "action_card_compiler",
+                "source_id": "src-1",
+                "source_ids": ["src-1"],
+                "source_excerpts": [{"source_id": "src-1", "excerpt": "restart protected service"}],
+                "uncertainty_notes": ["operator_review_required"],
+                "text": "restart protected service",
+                "review_required": True,
+                "action_execution": False,
+                "risk": "unsafe_automation",
+                "route": "operator_review",
+            }
+        ],
+        "rejected_candidates": [],
+        "hollow_candidates": [],
+        "runtime_degradation_context": {"schema": f"{SCHEMA_PREFIX}_runtime_degradation_context_v1", "current_status": "none"},
+        "pack_guidance": {"e4b_expected_decisions": ["keep", "drop", "escalate"]},
+    }
+    hollow = {
+        "verdict": "candidate_review_ready",
+        "summary": "looks safe",
+        "operator_summary": "",
+        "source_ids": [],
+        "candidate_judgements": [],
+        "review_items": [],
+        "action_cards": [],
+        "risk_routes": [],
+        "missing_evidence": [],
+        "safe_next_checks": [],
+        "next_queries": [],
+        "confidence": "high",
+        "action_execution": False,
+    }
+    good = deterministic_review(fixture_pack, reason="self_test_good")
+    nested_only = {"source_id": "src-1", "candidate_id": "cand-1", "decision": "review_candidate", "reason": "truncated nested object"}
+    nested_parsed, nested_result = normalize_review(nested_only, fixture_pack)
+    hollow_checks = review_checks(hollow, fixture_pack)
+    good_checks = review_checks(good, fixture_pack)
+    nested_checks = review_checks(nested_result, fixture_pack)
+    hollow_failed_keys = sorted(item["key"] for item in hollow_checks if item.get("level") == "fail")
+    good_failed_keys = sorted(item["key"] for item in good_checks if item.get("level") == "fail")
+    nested_failed_keys = sorted(item["key"] for item in nested_checks if item.get("level") == "fail")
+    data = {
+        "schema": f"{SCHEMA_PREFIX}_self_test_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": "source_ids_required" in hollow_failed_keys and "no_hollow_action_card" in hollow_failed_keys and not good_failed_keys and not nested_parsed and not nested_failed_keys,
+        "profile": PROFILE,
+        "hollow_fixture": {"failed_keys": hollow_failed_keys, "checks": hollow_checks},
+        "good_fixture": {"failed_keys": good_failed_keys, "checks": good_checks},
+        "nested_partial_fixture": {"parsed": nested_parsed, "failed_keys": nested_failed_keys, "checks": nested_checks},
+        "policy": {
+            "proves_hollow_safety_card_rejected": True,
+            "proves_nested_partial_json_rejected": True,
+            "does_not_run_model": True,
+            "does_not_mutate_services": True,
+        },
+    }
+    if write_latest:
+        write_json(ROOT / "self-test" / "latest.json", data)
+    return data
+
+
+def print_json(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Gemma4 E4B non-resident workhorse harness for Abyss Machine.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("paths", "preflight", "pack", "review", "validate", "self-test"):
+        child = sub.add_parser(name)
+        child.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+        if name in {"pack", "review"}:
+            child.add_argument("--limit", type=int, default=24)
+            child.add_argument("--refresh-candidates", action="store_true")
+        if name == "review":
+            child.add_argument("--run-model", action="store_true", help="execute E4B through llama-completion after resource preflight")
+            child.add_argument("--n-predict", type=int, default=768)
+            child.add_argument("--timeout", type=float, default=420.0)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.command == "paths":
+        data = paths_payload()
+    elif args.command == "preflight":
+        data = preflight()
+    elif args.command == "pack":
+        data = build_pack(limit=int(args.limit), refresh_candidates=bool(args.refresh_candidates))
+    elif args.command == "review":
+        data = review_pack(limit=int(args.limit), refresh_candidates=bool(args.refresh_candidates), run_model=bool(args.run_model), n_predict=int(args.n_predict), timeout=float(args.timeout))
+    elif args.command == "validate":
+        data = validate()
+    elif args.command == "self-test":
+        data = self_test()
+    else:
+        raise SystemExit(f"unknown command: {args.command}")
+    if getattr(args, "json", False):
+        print_json(data)
+    else:
+        print(f"{args.command}: ok={data.get('ok')} profile={data.get('profile', PROFILE)}")
+    return 0 if data.get("ok", True) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

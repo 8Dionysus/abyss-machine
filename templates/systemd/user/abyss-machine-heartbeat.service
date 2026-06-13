@@ -1,0 +1,17 @@
+[Unit]
+Description=OS Abyss recurring Heartbeat pulse
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/heartbeats/AGENTS.md
+
+[Service]
+Type=oneshot
+Nice=12
+IOSchedulingClass=idle
+CPUWeight=20
+IOWeight=20
+MemoryHigh=256M
+TimeoutStartSec=90s
+Environment=ABYSS_MACHINE_HEARTBEAT_TRIGGER=timer
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine heartbeats pulse --json
+StandardOutput=null
+StandardError=journal

@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodic Abyss Machine lightweight process snapshots
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/processes/AGENTS.md
+
+[Timer]
+OnBootSec=7min
+OnUnitActiveSec=30min
+AccuracySec=5min
+RandomizedDelaySec=2min
+Persistent=true
+Unit=abyss-process-snapshot.service
+
+[Install]
+WantedBy=timers.target

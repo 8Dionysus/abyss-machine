@@ -1,0 +1,77 @@
+{
+  "schema": "abyss_machine_cooling_config_v1",
+  "version": "0.8.50",
+  "profiles": {
+    "saver": {
+      "platform_profile": "low-power",
+      "fan_mode": 0
+    },
+    "balanced": {
+      "platform_profile": "balanced",
+      "fan_mode": 1
+    },
+    "performance": {
+      "platform_profile": "performance",
+      "fan_mode": 4
+    },
+    "emergency": {
+      "platform_profile": null,
+      "fan_mode": 4
+    },
+    "firmware-auto": {
+      "platform_profile": null,
+      "fan_mode": null
+    }
+  },
+  "auto": {
+    "hot_temperature_c": 106.0,
+    "critical_temperature_c": 109.0,
+    "recovery_temperature_c": 96.0,
+    "hold_emergency_above_c": 100.0,
+    "min_emergency_hold_seconds": 420.0,
+    "use_selected_mode_after_recovery": true
+  },
+  "rapl_smoothing": {
+    "enabled": true,
+    "backend": "intel-rapl-mmio",
+    "apply_modes": [
+      "performance",
+      "ai"
+    ],
+    "normal_pl1_uw": 35000000,
+    "cap_pl1_uw": 28000000,
+    "engage_temperature_c": 106.0,
+    "engage_package_throttle_per_s": 1200.0,
+    "engage_sample_count": 2,
+    "release_temperature_c": 102.0,
+    "release_package_throttle_per_s": 250.0,
+    "release_sample_count": 2,
+    "min_sample_seconds": 5.0,
+    "max_sample_seconds": 180.0,
+    "restore_when_not_applicable": true
+  },
+  "notes": [
+    "fan_mode 4 is Lenovo ideapad-laptop Efficient Thermal Dissipation Mode.",
+    "fan_mode 1 is Lenovo ideapad-laptop Standard Mode and is the balanced writable target.",
+    "fan_mode 0 is Lenovo ideapad-laptop Super Silent Mode and is the saver writable target.",
+    "fan_mode 16 was observed as a firmware-default readback value on this ThinkBook, but writing 16 returned Invalid argument on 2026-05-06. Do not use 16 as an auto-policy write target.",
+    "emergency preserves the selected platform profile and only applies fan_mode=4, so cooling does not rewrite the user's power-mode selection.",
+    "Do not read acpi_fan fan*_input on this BIOS; use platform_profile, VPC2004 fan_mode, hwmon temps, and thermal zones.",
+    "Post-BIOS RJCN31WW validation on 2026-05-07: sensors -j still returned fan1_input I/O errors and triggered ACPI VFAN._FST / _SB.FANL kernel errors, so RPM telemetry remains blocked.",
+    "Emergency hysteresis after RJCN31WW: if fan_mode is already 4, keep emergency until temperature is at or below recovery_temperature_c, not merely below hold_emergency_above_c.",
+    "Emergency minimum hold after RJCN31WW: keep fan_mode=4 for min_emergency_hold_seconds after a thermal-origin emergency or hold-threshold event, not after every repeated timer reconcile, to prevent both 4->1->4 oscillation and self-extending emergency hold.",
+    "Do not write PNP0C0B FAN0..FAN4 cooling_device cur_state on this BIOS; a controlled FAN0 write failed with missing ACPI method _SB.PC00.LPCB.UPFS.",
+    "Do not write VFAN cooling_device cur_state; it is tied to the broken VFAN/FANL telemetry path.",
+    "INTC1063 TFN1 exposes ACPI fan performance states and fine_grain_control=1. Guarded root writes of 50 to cooling_device1/cur_state succeeded on 2026-05-06 without new TFN1 kernel errors. One fan-validate run observed conservative max temperature moving from 105C to 98C over a short window, but cur_state/RPM feedback is still unavailable. Repeated fan-series runs on 2026-05-06 wrote level 50 successfully with kernel-ok, but possible cooling effect was only 1/3 in current_hot and 1/3 in current_warm; current_warm also saw a localized critical hotspot during the run. TFN1 remains manual/candidate-only.",
+    "Manual guarded route exists: abyss-machine cooling tfn1-write --level 50 --seconds 3 --json. This command is not used by auto-policy and refuses zero/off writes.",
+    "Validation route exists: abyss-machine cooling fan-validate --levels 50 --seconds 8 --interval 2 --json. It refuses zero/off writes and refuses lower-than-max TFN1 levels while hot/critical unless explicitly overridden.",
+    "Repeated validation route exists: abyss-machine cooling fan-series --level 50 --repeats 3 --seconds 8 --interval 2 --cooldown 5 --state-label current_hot --json. It is the required evidence route before any TFN1 automation discussion.",
+    "Thermal evidence route exists: abyss-machine cooling thermal-audit --seconds 10 --interval 2 --json. It records trusted sensor roles and keeps hwmon, firmware thermal-zone evidence, component sensors, and cpu_hotspot distribution separate.",
+    "abyss-machine 0.8.18+ includes temperature.summary.cpu_hotspot. Conservative max remains the fan/power safety signal, but CPU workload routing should avoid hot mapped cores instead of globally stopping all CPU use because one core is hot.",
+    "abyss-machine 0.8.14+ skips cur_state reads for TFN1 and for PNP0C0B FAN0..FAN4/VFAN so the auto timer does not repeatedly trigger the broken ACPI paths.",
+    "Thin-laptop policy corrected on 2026-05-12: 100-105C package/core temperature is a monitored active operating range for this machine when stable. Above 105C enters watch/routing territory; hard emergency gates are reserved for roughly 109-110C or firmware trip behavior.",
+    "abyss-machine 0.8.50 adds a central thermal episode classifier. Cooling status, thermal-audit, AI policy, CPU thermal-map, process thermal-plan, and resource planning now expose duration-aware episode evidence for instantaneous, seconds, brief, sustained, and long high-temperature runs.",
+    "Auto cooling now treats hot_temperature_c=106C and critical_temperature_c=109C. Emergency fan_mode=4 preserves the selected platform profile and does not kill, throttle, or re-affinitize running work.",
+    "RAPL smoothing enabled on 2026-05-12 and retuned on 2026-05-12: only in performance/ai, only after fan_mode=4 plus above-watch temperature and high package throttle delta across repeated samples. It temporarily caps RAPL-MMIO PL1 to 28W and restores 35W after recovery. It never changes TCC offset, BD PROCHOT, raw EC/PWM, or running process affinity."
+  ]
+}

@@ -1,0 +1,12 @@
+[Unit]
+Description=Mirror Codex and AoA session evidence every two hours when ABYSSVAULT is mounted
+Documentation=file:{{ABYSS_BACKUP_ROOT}}/AGENTS.md
+
+[Timer]
+OnCalendar=*-*-* 00/2:17:00
+RandomizedDelaySec=10m
+Persistent=false
+Unit=abyss-backup-sessions.service
+
+[Install]
+WantedBy=timers.target

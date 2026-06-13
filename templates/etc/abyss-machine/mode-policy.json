@@ -1,0 +1,92 @@
+{
+  "schema": "abyss_machine_mode_policy_v1",
+    "version": "0.8.50",
+  "generated_at": "2026-05-06T23:50:00-06:00",
+  "purpose": "Abyss Machine work-mode contract tying GNOME power profiles to host hardware, thermal, AI and agent launch policy.",
+  "profiles": {
+    "saver": {
+      "power_profile": "power-saver",
+      "cooling_profile": "saver",
+      "ac_allowed": true,
+      "battery_allowed": true,
+      "ai_overlay": false,
+      "max_unattended_class_ac": "light",
+      "max_unattended_class_battery": "probe",
+      "description": "battery-first, quiet, cool, low background pressure"
+    },
+    "balanced": {
+      "power_profile": "balanced",
+      "cooling_profile": "balanced",
+      "ac_allowed": true,
+      "battery_allowed": "armed",
+      "ai_overlay": false,
+      "max_unattended_class_ac": "medium",
+      "max_unattended_class_battery": "probe",
+      "description": "daily AC/default work mode; battery reconciles to saver"
+    },
+    "performance": {
+      "power_profile": "performance",
+      "cooling_profile": "performance",
+      "ac_allowed": true,
+      "battery_allowed": "armed",
+      "ai_overlay": false,
+      "max_unattended_class_ac": "heavy",
+      "max_unattended_class_battery": "probe",
+      "description": "AC high-performance mode; cooling and launch policy remain thermal-aware"
+    },
+    "ai": {
+      "power_profile": "performance",
+      "cooling_profile": "performance",
+      "ac_allowed": true,
+      "battery_allowed": "armed",
+      "ai_overlay": true,
+      "max_unattended_class_ac": "heavy",
+      "max_unattended_class_battery": "probe",
+      "description": "Abyss AI overlay over performance with GPU/NPU/OpenVINO readiness checks"
+    }
+  },
+  "thermal_launch_policy": {
+    "green": {
+      "max_unattended_class_cap": "sustained",
+      "new_heavy": "allow_by_mode"
+    },
+        "warm": {
+            "max_unattended_class_cap": "heavy",
+            "new_heavy": "allow_if_mode_performance_or_ai_or_controlled_balanced",
+            "new_heavy_cpu_routed": "allow_if_cpu_route_has_safe_cpuset"
+        },
+        "hot": {
+            "max_unattended_class_cap": "medium",
+            "new_heavy": "operator_controlled_routed_by_trend_duration_and_hotspot",
+            "new_heavy_cpu_routed": "allow_operator_controlled_unless_broad_or_emergency_heat"
+        },
+        "critical": {
+            "max_unattended_class_cap": "probe",
+            "new_heavy": "defer_new_unattended_work_at_emergency_boundary",
+            "new_heavy_cpu_routed": "operator_only_if_explicit_and_recovering"
+        },
+    "unknown": {
+      "max_unattended_class_cap": "light",
+      "new_heavy": "defer_until_telemetry"
+    }
+  },
+  "battery_policy": {
+    "discharging_effective_mode": "saver",
+    "restore_selected_mode_on_ac": true,
+    "min_battery_percent_for_heavy": 35
+  },
+  "cooling_policy": {
+    "apply": "abyss-machine cooling apply --profile auto --json",
+    "critical_strategy": "preserve selected power profile, monitor 100-105C as active range, route above 105C by trend/duration, and reserve hard gates for 109-110C emergency range"
+  },
+  "agent_policy": {
+    "do_not_kill_running_tasks": true,
+    "gate_new_unattended_tasks": true,
+    "operator_force_requires_explicit_flag": true
+  },
+  "non_claims": [
+    "The GNOME panel exposes power-saver/balanced/performance; ai is a host overlay selected through abyss-machine mode set ai.",
+    "Mode policy returns launch gates and routes; callers must apply taskset/env hints explicitly.",
+    "Thermal policy watches trend and duration through the central thermal episode classifier: 100-105C is monitored active range, above 105C is watch/routing range, and 109-110C is the hard emergency gate for new work."
+  ]
+}

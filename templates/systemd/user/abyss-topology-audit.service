@@ -1,0 +1,16 @@
+[Unit]
+Description=Abyss Machine topology audit
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_ETC}}/TOPOLOGY.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/topology/AGENTS.md
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=20
+IOWeight=20
+TimeoutStartSec=90s
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine topology audit --json
+StandardOutput=null
+StandardError=journal

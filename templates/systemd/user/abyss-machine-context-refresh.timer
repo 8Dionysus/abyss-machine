@@ -1,0 +1,17 @@
+[Unit]
+Description=Refresh Abyss Machine maps and RAG context
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_ETC}}/MAPS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/maps/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/rag/AGENTS.md
+
+[Timer]
+OnBootSec=9min
+OnUnitActiveSec=15min
+AccuracySec=2min
+RandomizedDelaySec=45s
+Persistent=true
+Unit=abyss-machine-context-refresh.service
+
+[Install]
+WantedBy=timers.target

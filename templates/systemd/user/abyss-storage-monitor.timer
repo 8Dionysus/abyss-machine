@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Abyss Machine read-only storage monitor periodically
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/storage/AGENTS.md
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+AccuracySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

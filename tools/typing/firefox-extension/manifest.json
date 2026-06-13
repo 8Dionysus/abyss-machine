@@ -1,0 +1,44 @@
+{
+  "manifest_version": 2,
+  "name": "Abyss Machine Typing Intake",
+  "version": "0.1.2",
+  "description": "Safe committed browser text and AI chat transcript intake for Abyss Machine.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "abyss-machine-typing-intake@abyss.local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "personalCommunications",
+          "browsingActivity",
+          "websiteContent",
+          "websiteActivity"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "permissions": [
+    "nativeMessaging",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=Abyss Machine context refresh
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_ETC}}/MAPS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/maps/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/rag/AGENTS.md
+
+[Service]
+Type=oneshot
+Nice=12
+IOSchedulingClass=idle
+CPUWeight=20
+IOWeight=20
+MemoryHigh=512M
+TimeoutStartSec=180s
+Environment=ABYSS_MACHINE_CONTEXT_REFRESH_TRIGGER=timer
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine rag refresh --query scheduled-machine-context-refresh --json
+StandardOutput=null
+StandardError=journal

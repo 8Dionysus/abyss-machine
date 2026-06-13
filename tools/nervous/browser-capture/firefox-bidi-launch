@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec firefox --remote-debugging-port=9222 "$@"

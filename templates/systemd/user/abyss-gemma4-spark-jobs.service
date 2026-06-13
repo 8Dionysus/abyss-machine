@@ -1,0 +1,18 @@
+[Unit]
+Description=Abyss Gemma4 Spark resident useful jobs tick
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/ai/llm/AGENTS.md
+
+[Service]
+Type=oneshot
+Nice=12
+IOSchedulingClass=idle
+CPUWeight=15
+IOWeight=15
+TimeoutStartSec=12min
+Environment=ABYSS_GEMMA4_SPARK_SERVING_OWNER=abyss-stack
+Environment=ABYSS_GEMMA4_SPARK_BASE_URL=http://127.0.0.1:11435
+Environment=ABYSS_GEMMA4_SPARK_ALLOW_LOCAL_FALLBACK=0
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine resource launch --class medium --kind agent --unattended --timeout 600 --success-on-block --no-thermal-sample --json -- {{ABYSS_MACHINE_SRV}}/tools/abyss-gemma4-spark-resident jobs --limit 4 --json
+StandardOutput=null
+StandardError=journal
