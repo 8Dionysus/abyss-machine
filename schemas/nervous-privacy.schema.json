@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/nervous-privacy.schema.json",
+  "title": "abyss-machine nervous privacy policy",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "capture_gates": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

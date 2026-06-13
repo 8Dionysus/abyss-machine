@@ -12,7 +12,9 @@ from typing import Any
 import pytest
 
 
-ABYSS_MACHINE_BIN = Path(os.environ.get("ABYSS_MACHINE_BIN", "/usr/local/libexec/abyss-machine"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SOURCE_CLI = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
+ABYSS_MACHINE_BIN = Path(os.environ.get("ABYSS_MACHINE_BIN", str(SOURCE_CLI if SOURCE_CLI.exists() else "/usr/local/libexec/abyss-machine")))
 
 
 @pytest.fixture(scope="session")

@@ -1,0 +1,7 @@
+[Unit]
+Description=Abyss Machine focused typed-text snapshot
+Documentation=file://{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/abyss-machine-typing-focused-snapshot-tick

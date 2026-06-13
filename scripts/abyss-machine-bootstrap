@@ -14,6 +14,8 @@ from typing import Any
 SCHEMA = "abyss_machine_bootstrap_v1"
 VERSION = "0.1.0"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_TEMPLATE_ROOT = REPO_ROOT / "config-templates" / "etc" / "abyss-machine"
+SYSTEMD_TEMPLATE_ROOT = REPO_ROOT / "systemd"
 
 PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
     "linux-systemd-core": {
@@ -196,8 +198,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     checks = {
         "repo_root_exists": REPO_ROOT.exists(),
         "cli_source_exists": (REPO_ROOT / "src" / "abyss_machine" / "cli.py").exists(),
-        "etc_templates_exist": (REPO_ROOT / "templates" / "etc" / "abyss-machine").exists(),
-        "systemd_templates_exist": (REPO_ROOT / "templates" / "systemd").exists(),
+        "config_templates_exist": CONFIG_TEMPLATE_ROOT.exists(),
+        "systemd_templates_exist": SYSTEMD_TEMPLATE_ROOT.exists(),
         "python": sys.version.split()[0],
         "profile_known": args.profile in PROFILE_UNITS,
     }
@@ -212,7 +214,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     actions: list[dict[str, Any]] = []
     values = default_vars(args)
     target = Path(args.render_root) if args.render_root else Path(args.etc_root)
-    copy_tree(REPO_ROOT / "templates" / "etc" / "abyss-machine", target, values=values, apply=bool(args.apply), actions=actions)
+    copy_tree(CONFIG_TEMPLATE_ROOT, target, values=values, apply=bool(args.apply), actions=actions)
     payload = command_payload("render", True, actions, profile=args.profile, dry_run=not args.apply, target=str(target))
     emit(payload, json_output=args.json)
     return 0
@@ -223,9 +225,9 @@ def cmd_install(args: argparse.Namespace) -> int:
     values = default_vars(args)
     apply = bool(args.apply)
     ensure_roots(values, apply=apply, actions=actions)
-    copy_tree(REPO_ROOT / "templates" / "etc" / "abyss-machine", Path(args.etc_root), values=values, apply=apply, actions=actions)
-    copy_tree(REPO_ROOT / "templates" / "systemd" / "system", Path(args.systemd_system_dir), values=values, apply=apply, actions=actions)
-    copy_tree(REPO_ROOT / "templates" / "systemd" / "user", Path(args.systemd_user_dir), values=values, apply=apply, actions=actions)
+    copy_tree(CONFIG_TEMPLATE_ROOT, Path(args.etc_root), values=values, apply=apply, actions=actions)
+    copy_tree(SYSTEMD_TEMPLATE_ROOT / "system", Path(args.systemd_system_dir), values=values, apply=apply, actions=actions)
+    copy_tree(SYSTEMD_TEMPLATE_ROOT / "user", Path(args.systemd_user_dir), values=values, apply=apply, actions=actions)
     install_cli(values, apply=apply, actions=actions)
     payload = command_payload("install", True, actions, profile=args.profile, dry_run=not apply)
     emit(payload, json_output=args.json)
@@ -288,6 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install = sub.add_parser("install")
     add_common_options(install)
+    install.add_argument("--dry-run", action="store_true")
     install.add_argument("--apply", action="store_true")
     install.set_defaults(func=cmd_install)
 

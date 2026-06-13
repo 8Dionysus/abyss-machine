@@ -1,0 +1,42 @@
+# Nervous Local Mechanic
+
+## Mechanic card
+
+Nervous local owns privacy-gated local context intake and derived host memory
+evidence.
+
+### Trigger
+
+Nervous collectors, browser capture gates, event indexes, semantic maintenance,
+and nervous privacy policy changes.
+
+### abyss-machine owns
+
+Opt-in units, local intake policy, validator surfaces, and generated state
+location contracts.
+
+### Stronger owner split
+
+The user owns private activity. Browser/application content remains private.
+Sibling memory repos own durable public memory doctrine.
+
+### Inputs
+
+Source policy, opt-in unit state, local context sources, redaction settings.
+
+### Outputs
+
+Local nervous events, indexes, summaries, warnings, and quality reports.
+
+### Must not claim
+
+Browser/content capture is public-safe, enabled by default, or equivalent to
+AoA memo source truth.
+
+### Validation
+
+Use host-contract quick tests and privacy/source policy smoke checks.
+
+### Next route
+
+Use `typing-intake` for typed sources and `diagnostic-spine` for freshness.

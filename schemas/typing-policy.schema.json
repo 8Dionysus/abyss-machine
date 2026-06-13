@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/typing-policy.schema.json",
+  "title": "abyss-machine typing policy",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

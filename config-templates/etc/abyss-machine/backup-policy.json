@@ -1,0 +1,168 @@
+{
+  "commands": {
+    "heavy": "abyss-backup heavy",
+    "heavy_plan": "abyss-backup heavy --plan",
+    "heavy_strict_checksum": "abyss-backup heavy --strict-checksum",
+    "latest": "abyss-backup latest --json",
+    "restore_plan": "abyss-backup restore-plan",
+    "sessions": "abyss-backup sessions",
+    "status": "abyss-backup status",
+    "system": "sudo abyss-backup system",
+    "verify": "abyss-backup verify"
+  },
+  "generated_at": "2026-06-11T18:10:19Z",
+  "heavy": {
+    "changed_file_layers": "{{ABYSS_BACKUP_ROOT}}/heavy/layers",
+    "checksum_compare": {
+      "default": false,
+      "quick_check_command": "abyss-backup heavy",
+      "rule": "Default heavy backup uses rsync size+mtime quick-check after move-aware reconcile. Use --strict-checksum when stronger same-path content-change detection matters more than runtime.",
+      "strict_command": "abyss-backup heavy --strict-checksum",
+      "strict_rsync_flags": [
+        "--checksum",
+        "--checksum-choice=xxh128"
+      ]
+    },
+    "delete_from_latest": false,
+    "engine": "move-aware reconcile plus rsync additive latest, changed-file layers, and optional hardlink checkpoints",
+    "mirror_delete": {
+      "command": "abyss-backup heavy --mirror-delete",
+      "default": false,
+      "rule": "Use only as an explicit destructive mirror operation after operator review."
+    },
+    "move_reconcile": {
+      "ambiguity_rule": "Ambiguous candidates are left untouched rather than guessed.",
+      "default": true,
+      "error_rule": "If a source or destination cannot be safely inventoried, reconcile is skipped for that source and rsync remains additive. Rootless Podman storage is also skipped by reconcile and copied by podman unshare rsync.",
+      "identity": "regular files require conservative metadata match plus SHA256 equality; symlinks require identical link targets",
+      "plan_command": "abyss-backup heavy --plan",
+      "special_file_rule": "Special files are left to rsync and excluded from move/delete reconcile for ordinary sources."
+    },
+    "preserved_deleted_layers": "{{ABYSS_BACKUP_ROOT}}/heavy/preserved-deleted",
+    "retention": "manual prune only; normal backup never deletes vault-only files",
+    "rule": "Normal heavy backup first reconciles proven moves inside heavy/latest, preserves source-missing files under heavy/preserved-deleted/<run>, then runs additive rsync. Unchanged files are skipped by rsync, new files are added, and changed destination versions are preserved under heavy/layers/<run>.",
+    "sources": [
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/heavy/latest/srv-abyss-machine/cache",
+        "runner": "host",
+        "source": "{{ABYSS_MACHINE_SRV}}/cache"
+      },
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/heavy/latest/srv-abyss-machine/runtimes",
+        "runner": "host",
+        "source": "{{ABYSS_MACHINE_SRV}}/runtimes"
+      },
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/heavy/latest/srv-abyss-machine/storage",
+        "runner": "podman unshare",
+        "source": "{{ABYSS_MACHINE_SRV}}/storage"
+      },
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/heavy/latest/srv-AbyssOS/abyss-stack/Models",
+        "runner": "host",
+        "source": "{{ABYSS_OS_ROOT}}/abyss-stack/Models"
+      },
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/heavy/latest/home-src/abyss-stack/Models",
+        "runner": "host",
+        "source": "{{ABYSS_USER_HOME}}/src/abyss-stack/Models"
+      }
+    ]
+  },
+  "owner": "{{ABYSS_USER}}",
+  "preferred_system_paths": {
+    "policy": "{{ABYSS_MACHINE_ETC}}/backup-policy.json",
+    "state": "{{ABYSS_MACHINE_STATE}}/backup/latest.json",
+    "system_command": "{{ABYSS_LOCAL_BIN_DIR}}/abyss-backup",
+    "vault_agents": "{{ABYSS_BACKUP_ROOT}}/AGENTS.md",
+    "vault_manifest": "{{ABYSS_BACKUP_ROOT}}/MANIFEST.md"
+  },
+  "schema": "abyss_backup_policy_v1",
+  "sessions": {
+    "checksum_schedule": "Daily at 22:10 local time when {{ABYSS_VAULT_MOUNT}} is mounted; writes SHA256 manifests.",
+    "delete_from_archive": false,
+    "engine": "rsync additive raw archive plus SHA256 manifests",
+    "quick_schedule": "Every 2 hours at minute 17 local time when {{ABYSS_VAULT_MOUNT}} is mounted; no checksum scan.",
+    "resource_profile": {
+      "checksum_timer": "Nice=19, IOSchedulingClass=idle",
+      "quick_timer": "Nice=19, IOSchedulingClass=idle",
+      "rule": "Session evidence timers are intentionally low-priority so frequent raw mirrors do not compete hard with interactive work."
+    },
+    "rule": "Preserve raw Codex and AoA session evidence before any distillation.",
+    "sources": [
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/archive/codex/home-codex/sessions",
+        "source": "{{ABYSS_USER_HOME}}/.codex/sessions"
+      },
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/archive/codex/home-codex/log",
+        "source": "{{ABYSS_USER_HOME}}/.codex/log"
+      },
+      {
+        "destination": "{{ABYSS_BACKUP_ROOT}}/archive/aoa/live-root",
+        "source": "{{ABYSS_OS_ROOT}}/.aoa"
+      }
+    ],
+    "timers": {
+      "checksum": "abyss-backup-sessions-checksum.timer",
+      "quick": "abyss-backup-sessions.timer"
+    }
+  },
+  "state": {
+    "dashboard": "{{ABYSS_MACHINE_STATE}}/backup/latest.json",
+    "lanes": "{{ABYSS_MACHINE_STATE}}/backup/lanes",
+    "latest_attempt": "{{ABYSS_MACHINE_STATE}}/backup/runs/latest-attempt.json",
+    "latest_success": "{{ABYSS_MACHINE_STATE}}/backup/runs/latest-success.json",
+    "rule": "latest.json is a dashboard, not proof of the latest successful backup; use lane latest-success files for recovery freshness.",
+    "running": "{{ABYSS_MACHINE_STATE}}/backup/running.json",
+    "vault_dashboard": "{{ABYSS_BACKUP_ROOT}}/manifests/latest.json"
+  },
+  "system": {
+    "covered_inside_root": [
+      "/home",
+      "/etc",
+      "{{ABYSS_MACHINE_STATE}}"
+    ],
+    "engine": "restic",
+    "excludes": [
+      "{{ABYSS_VAULT_MOUNT}}",
+      "/dev",
+      "/proc",
+      "/run",
+      "/sys",
+      "/tmp",
+      "/var/tmp",
+      "/mnt",
+      "/media",
+      "/lost+found",
+      "{{ABYSS_MACHINE_SRV}}/storage/nervous/indexes/sqlite/*.db-shm"
+    ],
+    "password_file": "{{ABYSS_BACKUP_SECRET_ROOT}}/restic-system.password",
+    "repository": "{{ABYSS_BACKUP_ROOT}}/restic/system",
+    "requires_root": true,
+    "restic_flags": [
+      "--one-file-system"
+    ],
+    "retention": {
+      "keep_last": 24,
+      "keep_monthly": 12,
+      "keep_weekly": 12,
+      "keep_yearly": 3
+    },
+    "schedule": "Wed,Sun 03:30 local time when {{ABYSS_VAULT_MOUNT}} is mounted",
+    "sources": [
+      "/",
+      "/boot",
+      "/boot/efi",
+      "/srv"
+    ]
+  },
+  "vault": {
+    "backup_root": "{{ABYSS_BACKUP_ROOT}}",
+    "device_label": "ABYSSVAULT",
+    "luks_mapper": "abyssvault",
+    "mount": "{{ABYSS_VAULT_MOUNT}}",
+    "rule": "The SSD is manually unlocked by the operator; backup timers skip when {{ABYSS_VAULT_MOUNT}} is absent."
+  },
+  "version": "0.3.0"
+}

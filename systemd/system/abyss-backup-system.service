@@ -1,0 +1,13 @@
+[Unit]
+Description=ABYSSVAULT restic system backup
+Documentation=file:{{ABYSS_BACKUP_ROOT}}/AGENTS.md
+Documentation=file:{{ABYSS_BACKUP_ROOT}}/MANIFEST.md
+After=local-fs.target
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ExecCondition={{ABYSS_LOCAL_BIN_DIR}}/abyss-backup timer-preflight system
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-backup system

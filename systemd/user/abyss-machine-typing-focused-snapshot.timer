@@ -1,0 +1,12 @@
+[Unit]
+Description=Abyss Machine focused typed-text snapshot timer
+Documentation=file://{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=75s
+AccuracySec=20s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

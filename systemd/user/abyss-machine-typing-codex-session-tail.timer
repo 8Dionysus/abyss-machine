@@ -1,0 +1,12 @@
+[Unit]
+Description=Abyss Machine Codex submitted prompt tail intake timer
+Documentation=file://{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

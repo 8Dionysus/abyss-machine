@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/bootstrap-report.schema.json",
+  "title": "abyss-machine bootstrap report",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "version", "command", "ok", "actions"],
+  "properties": {
+    "schema": {
+      "const": "abyss_machine_bootstrap_v1"
+    },
+    "version": {
+      "type": "string"
+    },
+    "command": {
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "vars": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

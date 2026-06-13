@@ -1,0 +1,14 @@
+[Unit]
+Description=ABYSSVAULT session archive checksum manifest
+Documentation=file:{{ABYSS_BACKUP_ROOT}}/AGENTS.md
+Documentation=file:{{ABYSS_BACKUP_ROOT}}/MANIFEST.md
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User={{ABYSS_USER}}
+Group={{ABYSS_USER}}
+Nice=19
+IOSchedulingClass=idle
+ExecCondition={{ABYSS_LOCAL_BIN_DIR}}/abyss-backup timer-preflight sessions-checksum
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-backup sessions --json

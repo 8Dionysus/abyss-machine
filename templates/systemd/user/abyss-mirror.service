@@ -1,6 +1,0 @@
-[Unit]
-Description=Abyss repo mirror (sanitized)
-
-[Service]
-Type=oneshot
-ExecStart=/srv/abyss-git/scripts/mirror.sh

@@ -1,7 +1,0 @@
-[Unit]
-Description=Abyss Machine saved typed-text scan
-Documentation=file://{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md
-
-[Service]
-Type=oneshot
-ExecStart=%h/.local/bin/abyss-machine-typing-saved-text-scan-tick

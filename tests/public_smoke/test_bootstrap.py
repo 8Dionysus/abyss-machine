@@ -28,7 +28,8 @@ def run_bootstrap(*args: str) -> dict:
 def test_bootstrap_doctor_dry_run() -> None:
     payload = run_bootstrap("doctor", "--dry-run")
     assert payload["checks"]["cli_source_exists"] is True
-    assert payload["checks"]["etc_templates_exist"] is True
+    assert payload["checks"]["config_templates_exist"] is True
+    assert payload["checks"]["systemd_templates_exist"] is True
 
 
 def test_bootstrap_render_dry_run_uses_render_actions() -> None:

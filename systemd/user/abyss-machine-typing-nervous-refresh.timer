@@ -1,0 +1,15 @@
+[Unit]
+Description=Refresh typing process/facts/index freshness
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=3min
+AccuracySec=30s
+RandomizedDelaySec=20s
+Persistent=true
+Unit=abyss-machine-typing-nervous-refresh.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,1953 @@
+{
+  "schema": "abyss_machine_agents_mesh_config_v1",
+  "version": "0.8.54",
+  "authority": {
+    "design": "{{ABYSS_MACHINE_ETC}}/DESIGN.md",
+    "design_agents": "{{ABYSS_MACHINE_ETC}}/DESIGN.AGENTS.md",
+    "docs_contract": "{{ABYSS_MACHINE_ETC}}/DOCS.md",
+    "roadmap": "{{ABYSS_MACHINE_ETC}}/ROADMAP.md",
+    "changelog": "{{ABYSS_MACHINE_ETC}}/CHANGELOG.md",
+    "decisions": "{{ABYSS_MACHINE_ETC}}/decisions/AGENTS.md",
+    "root_card": "{{ABYSS_MACHINE_ETC}}/AGENTS.md",
+    "generated_index": "{{ABYSS_MACHINE_STATE}}/docs/agents-mesh.min.json",
+    "validation": "abyss-machine docs mesh-validate --json"
+  },
+  "discovery": {
+    "roots": [
+      "{{ABYSS_MACHINE_ETC}}",
+      "{{ABYSS_MACHINE_STATE}}",
+      "{{ABYSS_MACHINE_SRV}}"
+    ],
+    "excluded_roots": [
+      "{{ABYSS_MACHINE_SRV}}/storage",
+      "{{ABYSS_MACHINE_SRV}}/tmp"
+    ]
+  },
+  "cards": [
+    {
+      "id": "etc-root",
+      "path": "{{ABYSS_MACHINE_ETC}}/AGENTS.md",
+      "kind": "root_route_card",
+      "role": "host-machine root route law",
+      "required": true,
+      "max_lines": 220,
+      "required_markers": [
+        "## Applies to",
+        "## Role",
+        "## Read before editing",
+        "## Boundaries",
+        "## Validation",
+        "## Post-change route review",
+        "## Closeout",
+        "{{ABYSS_MACHINE_ETC}}/DESIGN.md",
+        "{{ABYSS_MACHINE_ETC}}/DESIGN.AGENTS.md",
+        "{{ABYSS_MACHINE_ETC}}/ROADMAP.md",
+        "{{ABYSS_MACHINE_ETC}}/decisions/AGENTS.md",
+        "abyss-machine docs mesh-validate --json"
+      ]
+    },
+    {
+      "id": "etc-hooks",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/AGENTS.md",
+      "kind": "local_card",
+      "role": "stable host hook contract",
+      "required": true,
+      "required_markers": ["## Contract", "## Stages", "Do not mutate"]
+    },
+    {
+      "id": "etc-hooks-pre-large-write",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/pre_large_write.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-post-large-write",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/post_large_write.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-pre-runtime-create",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/pre_runtime_create.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-post-runtime-create",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/post_runtime_create.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-pre-cache-cleanup",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/pre_cache_cleanup.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-post-cache-cleanup",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/post_cache_cleanup.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-pre-podman-migration",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/pre_podman_migration.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-post-podman-migration",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/post_podman_migration.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-process-snapshot",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/process_snapshot.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-hooks-stack-bridge",
+      "path": "{{ABYSS_MACHINE_ETC}}/hooks.d/stack-bridge/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "etc-decisions",
+      "path": "{{ABYSS_MACHINE_ETC}}/decisions/AGENTS.md",
+      "kind": "local_card",
+      "role": "host decision rationale route",
+      "required": true,
+      "required_markers": [
+        "## Applies to",
+        "## Role",
+        "## Decision Review Gate",
+        "## Validation",
+        "TEMPLATE.md",
+        "Current source surfaces define what"
+      ]
+    },
+    {
+      "id": "etc-ai",
+      "path": "{{ABYSS_MACHINE_ETC}}/ai/AGENTS.md",
+      "kind": "local_card",
+      "role": "AI source config lane",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "etc-cooling",
+      "path": "{{ABYSS_MACHINE_ETC}}/cooling/AGENTS.md",
+      "kind": "local_card",
+      "role": "cooling source config lane",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "100-105C"]
+    },
+    {
+      "id": "etc-dictation",
+      "path": "{{ABYSS_MACHINE_ETC}}/dictation/AGENTS.md",
+      "kind": "local_card",
+      "role": "dictation source config lane",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "etc-nervous",
+      "path": "{{ABYSS_MACHINE_ETC}}/nervous/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous source config lane",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "Privacy config"]
+    },
+    {
+      "id": "etc-observability",
+      "path": "{{ABYSS_MACHINE_ETC}}/observability/AGENTS.md",
+      "kind": "local_card",
+      "role": "observability source config lane",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-root",
+      "path": "{{ABYSS_MACHINE_SRV}}/AGENTS.md",
+      "kind": "root_route_card",
+      "role": "large host root route law",
+      "required": true,
+      "max_lines": 160,
+      "required_markers": [
+        "## Applies to",
+        "## Role",
+        "## Read Before Editing",
+        "## Boundaries",
+        "## Validation",
+        "## Closeout",
+        "{{ABYSS_MACHINE_SRV}}/DESIGN.md",
+        "abyss-machine docs mesh-validate --json"
+      ]
+    },
+    {
+      "id": "srv-artifacts",
+      "path": "{{ABYSS_MACHINE_SRV}}/artifacts/AGENTS.md",
+      "kind": "local_card",
+      "role": "large deliverable artifacts root",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-artifacts-firefox-extension",
+      "path": "{{ABYSS_MACHINE_SRV}}/artifacts/firefox-extension/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-backups",
+      "path": "{{ABYSS_MACHINE_SRV}}/backups/AGENTS.md",
+      "kind": "local_card",
+      "role": "host rollback backup root",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-storage",
+      "path": "{{ABYSS_MACHINE_SRV}}/storage/AGENTS.md",
+      "kind": "local_card",
+      "role": "large durable storage root",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "Do not replace direct storage routes with symlink tails"]
+    },
+    {
+      "id": "srv-storage-nervous",
+      "path": "{{ABYSS_MACHINE_SRV}}/storage/nervous/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous backing storage route",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "Do not manually edit the SQLite index"]
+    },
+    {
+      "id": "srv-storage-home",
+      "path": "{{ABYSS_MACHINE_SRV}}/storage/home/AGENTS.md",
+      "kind": "local_card",
+      "role": "home-scoped large storage route",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "Podman"]
+    },
+    {
+      "id": "srv-storage-backups",
+      "path": "{{ABYSS_MACHINE_SRV}}/storage/backups/AGENTS.md",
+      "kind": "local_card",
+      "role": "storage-domain backup route",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "recovery evidence"]
+    },
+    {
+      "id": "srv-legacy",
+      "path": "{{ABYSS_MACHINE_SRV}}/legacy/AGENTS.md",
+      "kind": "local_card",
+      "role": "large-root legacy archive bridge",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-legacy-archive",
+      "path": "{{ABYSS_MACHINE_SRV}}/legacy/archive/AGENTS.md",
+      "kind": "local_card",
+      "role": "legacy archive evidence route",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "does not own active policy"]
+    },
+    {
+      "id": "srv-tmp",
+      "path": "{{ABYSS_MACHINE_SRV}}/tmp/AGENTS.md",
+      "kind": "local_card",
+      "role": "large temporary work root",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "not durable truth"]
+    },
+    {
+      "id": "srv-design",
+      "path": "{{ABYSS_MACHINE_SRV}}/design/AGENTS.md",
+      "kind": "local_card",
+      "role": "large-root design artifact route",
+      "required": true,
+      "required_markers": [
+        "## Role",
+        "## Read Before Editing",
+        "## Rules",
+        "## Validation",
+        "{{ABYSS_MACHINE_SRV}}/DESIGN.md"
+      ]
+    },
+    {
+      "id": "srv-evals",
+      "path": "{{ABYSS_MACHINE_SRV}}/evals/AGENTS.md",
+      "kind": "local_card",
+      "role": "host-local eval port",
+      "required": true,
+      "required_markers": ["## Role", "## Boundaries", "## Local Shape", "## Validation", "aoa-evals"]
+    },
+    {
+      "id": "srv-cache",
+      "path": "{{ABYSS_MACHINE_SRV}}/cache/AGENTS.md",
+      "kind": "leaf_card",
+      "role": "large cache root",
+      "required": true,
+      "required_markers": ["Stable policy:", "Do not put source-of-truth"]
+    },
+    {
+      "id": "srv-cache-ai",
+      "path": "{{ABYSS_MACHINE_SRV}}/cache/ai/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-cache-nervous",
+      "path": "{{ABYSS_MACHINE_SRV}}/cache/nervous/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-cache-npm",
+      "path": "{{ABYSS_MACHINE_SRV}}/cache/npm/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-cache-var-tmp",
+      "path": "{{ABYSS_MACHINE_SRV}}/cache/var-tmp/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-cache-xoreos-tools",
+      "path": "{{ABYSS_MACHINE_SRV}}/cache/xoreos-tools/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-cache-home",
+      "path": "{{ABYSS_MACHINE_SRV}}/cache/home/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/AGENTS.md",
+      "kind": "local_card",
+      "role": "writable hook root",
+      "required": true,
+      "required_markers": ["## Rules", "## Commands"]
+    },
+    {
+      "id": "srv-hooks-pre-large-write",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/pre_large_write.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-post-large-write",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/post_large_write.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-pre-runtime-create",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/pre_runtime_create.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-post-runtime-create",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/post_runtime_create.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-pre-cache-cleanup",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/pre_cache_cleanup.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-post-cache-cleanup",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/post_cache_cleanup.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-pre-podman-migration",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/pre_podman_migration.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-post-podman-migration",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/post_podman_migration.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-process-snapshot",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/process_snapshot.d/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-hooks-stack-bridge",
+      "path": "{{ABYSS_MACHINE_SRV}}/hooks.d/stack-bridge/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-runtimes",
+      "path": "{{ABYSS_MACHINE_SRV}}/runtimes/AGENTS.md",
+      "kind": "leaf_card",
+      "role": "large runtime root",
+      "required": true,
+      "required_markers": ["Stable policy:", "Do not leave"]
+    },
+    {
+      "id": "srv-runtimes-llama-cpp",
+      "path": "{{ABYSS_MACHINE_SRV}}/runtimes/llama.cpp/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-runtimes-nervous",
+      "path": "{{ABYSS_MACHINE_SRV}}/runtimes/nervous/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-runtimes-xoreos-tools",
+      "path": "{{ABYSS_MACHINE_SRV}}/runtimes/xoreos-tools-0.0.6/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-runtimes-home",
+      "path": "{{ABYSS_MACHINE_SRV}}/runtimes/home/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-tools",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/AGENTS.md",
+      "kind": "local_card",
+      "role": "host helper tools root",
+      "required": true,
+      "required_markers": ["## Operating Contract", "## Rules", "abyss-machine ... --json"]
+    },
+    {
+      "id": "srv-tools-ai",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/ai/AGENTS.md",
+      "kind": "local_card",
+      "role": "AI helper tools",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-tools-ai-llm",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/ai/llm/AGENTS.md",
+      "kind": "local_card",
+      "role": "LLM helper tools",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-tools-ai-rerankers",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/ai/rerankers/AGENTS.md",
+      "kind": "local_card",
+      "role": "reranker helper tools",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-tools-ai-tts",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/ai/tts/AGENTS.md",
+      "kind": "local_card",
+      "role": "TTS helper tools",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-tools-nervous",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/nervous/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous helper tools",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-tools-nervous-browser-capture",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/nervous/browser-capture/AGENTS.md",
+      "kind": "local_card",
+      "role": "browser capture launch helpers",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-tools-typing",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/typing/AGENTS.md",
+      "kind": "local_card",
+      "role": "typing helper tools",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "srv-tools-typing-firefox-extension",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/typing/firefox-extension/AGENTS.md",
+      "kind": "local_card",
+      "role": "Firefox typing extension source and package route",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation", "manifest.json"]
+    },
+    {
+      "id": "srv-tools-testing",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/testing/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-tools-topology",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/topology/AGENTS.md",
+      "kind": "local_card",
+      "role": "topology helper tools",
+      "required": true,
+      "required_markers": ["## Operating Contract", "## Rules", "abyss-machine topology validate --json"]
+    },
+    {
+      "id": "srv-tests",
+      "path": "{{ABYSS_MACHINE_SRV}}/tests/AGENTS.md",
+      "kind": "local_card",
+      "role": "host-machine layered test topology",
+      "required": true,
+      "required_markers": [
+        "## Role",
+        "## Test Lanes",
+        "## Edit Rules",
+        "## Validation",
+        "abyss-machine test quick --json"
+      ]
+    },
+    {
+      "id": "srv-tests-contract",
+      "path": "{{ABYSS_MACHINE_SRV}}/tests/contract/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-tests-fixtures",
+      "path": "{{ABYSS_MACHINE_SRV}}/tests/fixtures/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-tests-live",
+      "path": "{{ABYSS_MACHINE_SRV}}/tests/live/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-tests-regression",
+      "path": "{{ABYSS_MACHINE_SRV}}/tests/regression/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "srv-tests-safety",
+      "path": "{{ABYSS_MACHINE_SRV}}/tests/safety/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "state-root",
+      "path": "{{ABYSS_MACHINE_STATE}}/AGENTS.md",
+      "kind": "local_card",
+      "role": "durable host-state root",
+      "required": true,
+      "required_markers": [
+        "## Applies to",
+        "## Role",
+        "## Read Before Editing",
+        "## State Classes",
+        "## Entry Points",
+        "## Route Selection",
+        "## Boundaries",
+        "## Storage And Processes",
+        "## Validation",
+        "## Closeout"
+      ]
+    },
+    {
+      "id": "state-docs",
+      "path": "{{ABYSS_MACHINE_STATE}}/docs/AGENTS.md",
+      "kind": "local_card",
+      "role": "generated documentation evidence lane",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Boundaries", "## Validation", "read-model lane"]
+    },
+    {
+      "id": "maps",
+      "path": "{{ABYSS_MACHINE_STATE}}/maps/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "generated machine atlas maps",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation", "route signals"]
+    },
+    {
+      "id": "rag",
+      "path": "{{ABYSS_MACHINE_STATE}}/rag/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "generated machine RAG trace loop",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation", "maps context packet"]
+    },
+    {
+      "id": "ai",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "AI host topology",
+      "required": true,
+      "required_markers": ["## Contract", "## First Commands", "## Boundaries"]
+    },
+    {
+      "id": "ai-cpu",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "CPU topology and thermal route",
+      "required": true,
+      "required_markers": ["## Contract", "## Routing Policy", "## Current Local Shape"]
+    },
+    {
+      "id": "ai-llm",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "local LLM host route",
+      "required": true,
+      "required_markers": ["## Contract", "## Resident Candidate", "## Rules"]
+    },
+    {
+      "id": "ai-devices",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/devices/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-models",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/models/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-policy",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/policy/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-capabilities",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/capabilities/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-runtime",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/runtime/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-storage",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/storage/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-benchmarks",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/benchmarks/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-evals",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/evals/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-reports",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/reports/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-fixtures",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/fixtures/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-rerankers",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/rerankers/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-token-accounting",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/token-accounting/AGENTS.md",
+      "kind": "local_card",
+      "role": "AI token accounting route",
+      "required": true,
+      "required_markers": ["## Purpose", "## Authority", "## Rules", "## Checks"]
+    },
+    {
+      "id": "ai-token-accounting-aoa-session-memory",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/token-accounting/aoa-session-memory/AGENTS.md",
+      "kind": "local_card",
+      "role": "AoA session-memory token projection route",
+      "required": true,
+      "required_markers": ["## Purpose", "## Rules", "## Commands", "## Artifacts"]
+    },
+    {
+      "id": "ai-workloads",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/workloads/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "ai-cpu-launch",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/launch/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-cpu-route",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/route/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-cpu-tests",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/tests/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-cpu-thermal-map",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/thermal-map/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-cpu-topology",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/cpu/topology/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-evals",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/evals/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-evals-resident",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/evals/resident/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-evals-resident-gemma4-spark",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/evals/resident/gemma4.spark/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-registry",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/registry/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-research",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/research/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-audit",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/audit/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-candidates",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/candidates/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-digests",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/digests/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-events",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/events/AGENTS.md",
+      "kind": "history_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-jobs",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/jobs/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-logs",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/logs/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-monitor",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/monitor/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-policy",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/policy/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-preflight",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/preflight/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-prompts",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/prompts/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-research",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/research/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-smoke",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/smoke/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-status",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/status/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-resident-gemma4-spark-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/resident/gemma4.spark/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-workhorse",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/workhorse/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-workhorse-gemma4-workhorse",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/workhorse/gemma4.workhorse/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-workhorse-gemma4-workhorse-preflight",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/workhorse/gemma4.workhorse/preflight/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-workhorse-gemma4-workhorse-packs",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/workhorse/gemma4.workhorse/packs/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-workhorse-gemma4-workhorse-reviews",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/workhorse/gemma4.workhorse/reviews/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-workhorse-gemma4-workhorse-self-test",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/workhorse/gemma4.workhorse/self-test/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-llm-workhorse-gemma4-workhorse-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/llm/workhorse/gemma4.workhorse/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-compare",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/compare/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-evals",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/evals/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-inventory",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/inventory/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-profiles",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/profiles/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-research",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/research/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-runtime-patches",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/runtime-patches/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-server",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/server/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-tts-synth",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/tts/synth/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-workloads-refresh",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/workloads/refresh/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-workloads-runs",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/workloads/runs/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-workloads-stats",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/workloads/stats/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-rerankers-qwen3-openvino",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/rerankers/qwen3-openvino/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-fixtures-stt",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/fixtures/stt/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "ai-storage-cleanups",
+      "path": "{{ABYSS_MACHINE_STATE}}/ai/storage/cleanups/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "changes",
+      "path": "{{ABYSS_MACHINE_STATE}}/changes/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "host change ledger",
+      "required": true,
+      "required_markers": ["## Scope", "## Layout", "## Rules"]
+    },
+    {
+      "id": "backup",
+      "path": "{{ABYSS_MACHINE_STATE}}/backup/AGENTS.md",
+      "kind": "local_card",
+      "role": "ABYSSVAULT backup state route",
+      "required": true
+    },
+    {
+      "id": "cooling",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "cooling and fan-policy bridge",
+      "required": true,
+      "required_markers": ["## Contract", "## Current Local Shape", "Thin-laptop"]
+    },
+    {
+      "id": "cooling-thermal-audit",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/thermal-audit/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "cooling-fan-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/fan-validate/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "cooling-fan-series",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/fan-series/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "cooling-actions",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/actions/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "cooling-experiments",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/experiments/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "cooling-research",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/research/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "cooling-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/cooling/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "dictation",
+      "path": "{{ABYSS_MACHINE_STATE}}/dictation/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "dictation host route",
+      "required": true,
+      "required_markers": ["## Stable Commands", "## Paths", "## Contracts"]
+    },
+    {
+      "id": "typing",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "safe committed typed-text intake",
+      "required": true,
+      "required_markers": ["## Contract", "## Commands", "## Rules"]
+    },
+    {
+      "id": "typing-capture-gate",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/capture-gate/AGENTS.md",
+      "kind": "local_card",
+      "role": "typing capture allow/deny gate",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-events",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/events/AGENTS.md",
+      "kind": "local_card",
+      "role": "committed typed-text event journal",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-browser-ai-transcript",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-ai-transcript/AGENTS.md",
+      "kind": "local_card",
+      "role": "browser AI counterpart transcript evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "ai_counterpart", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-codex-hook",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/codex-hook/AGENTS.md",
+      "kind": "local_card",
+      "role": "native Codex prompt hook evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "UserPromptSubmit", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-codex-session-tail",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/codex-session-tail/AGENTS.md",
+      "kind": "local_card",
+      "role": "Codex JSONL fallback prompt evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "fallback", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-saved-text",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/saved-text/AGENTS.md",
+      "kind": "local_card",
+      "role": "saved and focused text snapshot evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-process",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/process/AGENTS.md",
+      "kind": "local_card",
+      "role": "typing causal process readmodel",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "causal", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-coverage",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/coverage/AGENTS.md",
+      "kind": "local_card",
+      "role": "typing adapter coverage readmodel",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "fallback", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-end-to-end",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/end-to-end/AGENTS.md",
+      "kind": "local_card",
+      "role": "typing end-to-end proof evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "typing-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "typing-zsh-hook",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/zsh-hook/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-editor-extension",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/editor-extension/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-browser-extension",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-extension/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-atspi-text-events",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/atspi-text-events/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-focused-snapshot",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/focused-snapshot/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-nervous-refresh",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/nervous-refresh/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-privacy-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/privacy-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-generic-gui-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/generic-gui-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-browser-webextension-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-webextension-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-browser-atspi-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-atspi-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-browser-atspi-release-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-atspi-release-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-browser-context-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-context-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-focused-browser-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/focused-browser-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "typing-browser-privacy-selftest",
+      "path": "{{ABYSS_MACHINE_STATE}}/typing/browser-privacy-selftest/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "doctor",
+      "path": "{{ABYSS_MACHINE_STATE}}/doctor/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "doctor self-maintenance route",
+      "required": true,
+      "required_markers": ["## Contract", "## Paths", "## Rules", "## Validation"]
+    },
+    {
+      "id": "graph",
+      "path": "{{ABYSS_MACHINE_STATE}}/graph/AGENTS.md",
+      "kind": "generated_card",
+      "role": "generated host graph",
+      "required": true,
+      "required_markers": ["## Commands", "## Surfaces", "Do not hand-edit"]
+    },
+    {
+      "id": "memory",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "memory and zram route",
+      "required": true,
+      "required_markers": ["## Contract", "## Policy", "## Agent Guidance"]
+    },
+    {
+      "id": "memory-pressure",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/pressure/AGENTS.md",
+      "kind": "local_card",
+      "role": "memory pressure and attribution evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "zram", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "memory-plan",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/plan/AGENTS.md",
+      "kind": "local_card",
+      "role": "memory new-work gate",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "blocked", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "memory-headroom",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/headroom/AGENTS.md",
+      "kind": "local_card",
+      "role": "zram headroom route",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "zram", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "memory-processes",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/processes/AGENTS.md",
+      "kind": "local_card",
+      "role": "memory process and cgroup attribution",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "cgroup", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "memory-residency",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/residency/AGENTS.md",
+      "kind": "local_card",
+      "role": "protected capability residency evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "protected", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "memory-hotpath",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/hotpath/AGENTS.md",
+      "kind": "local_card",
+      "role": "memory hot-path latency probes",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "latency", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "memory-orchestrate",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/orchestrate/AGENTS.md",
+      "kind": "local_card",
+      "role": "memory orchestration candidate and apply gates",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "operator", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "memo",
+      "path": "{{ABYSS_MACHINE_STATE}}/memo/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "host-local reviewed memory candidate port",
+      "required": true,
+      "required_markers": ["## Role", "## Boundaries", "## Validation", "aoa-memo"]
+    },
+    {
+      "id": "mode",
+      "path": "{{ABYSS_MACHINE_STATE}}/mode/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "work-mode bridge",
+      "required": true,
+      "required_markers": ["## Contract", "## Agent Rules"]
+    },
+    {
+      "id": "nervous",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "host nervous-system facts and retrieval",
+      "required": true,
+      "required_markers": ["Current design source:", "First commands:", "Quality rules:"]
+    },
+    {
+      "id": "nervous-capture",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/capture/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous local-private capture boundary",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-browser-content",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/capture/browser-content/AGENTS.md",
+      "kind": "local_card",
+      "role": "safe browser page-content capture",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "login-sensitive", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-events",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/events/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous deterministic event readmodels",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "events-build", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-episodes",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/episodes/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous episode readmodels",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "episodes-build", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-indexes",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/indexes/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous SQLite FTS and semantic index state",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "semantic", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-retrieval",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/retrieval/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous recall and rerank packs",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "rerank", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-synthesis",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/synthesis/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous deterministic synthesis candidates",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "synthesis-build", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-quality",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/quality/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous quality audit and brief readiness",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "quality-audit", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-retention",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/retention/AGENTS.md",
+      "kind": "local_card",
+      "role": "nervous retention and forget boundaries",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "forget", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "nervous-policy",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/policy/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-sources",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/sources/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-privacy",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/privacy/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-facts",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/facts/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-checks",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/checks/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-evals",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/evals/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-brief",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/brief/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-research",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/research/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "nervous-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/nervous/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "observability",
+      "path": "{{ABYSS_MACHINE_STATE}}/observability/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "thermal and battery telemetry",
+      "required": true,
+      "required_markers": ["## Contract", "## Topology", "## Agent Guidance"]
+    },
+    {
+      "id": "processes",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "process and compositor evidence",
+      "required": true,
+      "required_markers": ["## First Commands", "## Rules", "game-guard"]
+    },
+    {
+      "id": "processes-snapshots",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/snapshots/AGENTS.md",
+      "kind": "local_card",
+      "role": "process snapshot evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "/proc", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "processes-thermal-attribution",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/thermal-attribution/AGENTS.md",
+      "kind": "local_card",
+      "role": "thermal hot-core attribution evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "confidence", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "processes-thermal-plan",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/thermal-plan/AGENTS.md",
+      "kind": "local_card",
+      "role": "thermal new-work routing plan",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "100-105C", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "processes-game-guard",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/game-guard/AGENTS.md",
+      "kind": "local_card",
+      "role": "active-game protective gate evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "game_platform", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "processes-containers",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/containers/AGENTS.md",
+      "kind": "local_card",
+      "role": "rootless container process evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "Podman", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "processes-desktop-compositor",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/desktop-compositor/AGENTS.md",
+      "kind": "local_card",
+      "role": "desktop compositor and capture context evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "GNOME", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "processes-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/processes/validate/AGENTS.md",
+      "kind": "generated_card",
+      "role": "process validation evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "generated evidence", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "resource",
+      "path": "{{ABYSS_MACHINE_STATE}}/resource/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "unified resource planner",
+      "required": true,
+      "required_markers": ["## Contract", "## Launch Policy", "## Agent Guidance"]
+    },
+    {
+      "id": "resource-plans",
+      "path": "{{ABYSS_MACHINE_STATE}}/resource/plans/AGENTS.md",
+      "kind": "local_card",
+      "role": "resource new-work gate decisions",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "force_required", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "resource-runs",
+      "path": "{{ABYSS_MACHINE_STATE}}/resource/runs/AGENTS.md",
+      "kind": "local_card",
+      "role": "resource launch evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "systemd", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "resource-orchestrator",
+      "path": "{{ABYSS_MACHINE_STATE}}/resource/orchestrator/AGENTS.md",
+      "kind": "local_card",
+      "role": "resource readiness orchestration readmodel",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "readiness", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "resource-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/resource/validate/AGENTS.md",
+      "kind": "generated_card",
+      "role": "resource validation evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "generated evidence", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "reactions",
+      "path": "{{ABYSS_MACHINE_STATE}}/reactions/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "non-executing reaction candidate readmodel",
+      "required": true,
+      "required_markers": ["## Contract", "## Inputs", "## Rules", "automatic=false"]
+    },
+    {
+      "id": "responses",
+      "path": "{{ABYSS_MACHINE_STATE}}/responses/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "owner-gated response route readmodel",
+      "required": true,
+      "required_markers": ["## Contract", "## Inputs", "## Rules", "response_route"]
+    },
+    {
+      "id": "heartbeats",
+      "path": "{{ABYSS_MACHINE_STATE}}/heartbeats/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "recurring OS Abyss heartbeat pulse readmodel",
+      "required": true,
+      "required_markers": ["## Contract", "## Recurrence", "## Rules", "heartbeat_pulse"]
+    },
+    {
+      "id": "stack-bridge",
+      "path": "{{ABYSS_MACHINE_STATE}}/stack-bridge/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "read-only host-to-stack handoff",
+      "required": true,
+      "required_markers": ["## Start Here", "## Stable Files", "## Rules"]
+    },
+    {
+      "id": "self-awareness",
+      "path": "{{ABYSS_MACHINE_STATE}}/self-awareness/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "causal-temporal-spatial observability readmodel",
+      "required": true,
+      "required_markers": ["## First Commands", "## Inputs", "## Outputs", "## Rules", "## Validation"]
+    },
+    {
+      "id": "storage",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "storage evidence and cleanup route",
+      "required": true,
+      "required_markers": ["## First Commands", "## Rules", "## Podman Migration"]
+    },
+    {
+      "id": "artifacts",
+      "path": "{{ABYSS_MACHINE_STATE}}/artifacts/AGENTS.md",
+      "kind": "subsystem_card",
+      "role": "large artifact evidence and cleanup route",
+      "required": true,
+      "required_markers": ["## Role", "## Rules", "## Commands"]
+    },
+    {
+      "id": "storage-inventory",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/inventory/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "storage-pressure",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/pressure/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "storage-cleanup-plan",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/cleanup-plan/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "storage-write-preflight",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/write-preflight/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "storage-apply",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/apply/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "storage-monitor",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/monitor/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "storage-podman-migration-preflight",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/podman-migration-preflight/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "storage-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/storage/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "changes-active",
+      "path": "{{ABYSS_MACHINE_STATE}}/changes/active/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "changes-closed",
+      "path": "{{ABYSS_MACHINE_STATE}}/changes/closed/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "changes-history",
+      "path": "{{ABYSS_MACHINE_STATE}}/changes/history/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "changes-preflight",
+      "path": "{{ABYSS_MACHINE_STATE}}/changes/preflight/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "dictation-transcripts",
+      "path": "{{ABYSS_MACHINE_STATE}}/dictation/transcripts/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "dictation-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/dictation/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "docs-agents-mesh-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/docs/agents-mesh-validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "docs-audit",
+      "path": "{{ABYSS_MACHINE_STATE}}/docs/audit/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "doctor-2026",
+      "path": "{{ABYSS_MACHINE_STATE}}/doctor/2026/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "doctor-machine-report",
+      "path": "{{ABYSS_MACHINE_STATE}}/doctor/machine-report/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "doctor-operator-required",
+      "path": "{{ABYSS_MACHINE_STATE}}/doctor/operator-required/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "doctor-reports",
+      "path": "{{ABYSS_MACHINE_STATE}}/doctor/reports/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "doctor-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/doctor/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "graph-2026",
+      "path": "{{ABYSS_MACHINE_STATE}}/graph/2026/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "graph-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/graph/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "maps-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/maps/validate/AGENTS.md",
+      "kind": "generated_card",
+      "role": "machine atlas validation evidence",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation"]
+    },
+    {
+      "id": "heartbeats-2026",
+      "path": "{{ABYSS_MACHINE_STATE}}/heartbeats/2026/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "heartbeats-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/heartbeats/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "memo-candidates",
+      "path": "{{ABYSS_MACHINE_STATE}}/memo/candidates/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "memo-exports",
+      "path": "{{ABYSS_MACHINE_STATE}}/memo/exports/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "memo-local",
+      "path": "{{ABYSS_MACHINE_STATE}}/memo/local/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "memo-receipts",
+      "path": "{{ABYSS_MACHINE_STATE}}/memo/receipts/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "memory-research",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/research/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "memory-status",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/status/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "memory-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/memory/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "mode-plans",
+      "path": "{{ABYSS_MACHINE_STATE}}/mode/plans/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "mode-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/mode/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "observability-hotfixes",
+      "path": "{{ABYSS_MACHINE_STATE}}/observability/hotfixes/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "observability-thermal-battery",
+      "path": "{{ABYSS_MACHINE_STATE}}/observability/thermal-battery/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "reactions-2026",
+      "path": "{{ABYSS_MACHINE_STATE}}/reactions/2026/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "reactions-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/reactions/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "responses-2026",
+      "path": "{{ABYSS_MACHINE_STATE}}/responses/2026/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "responses-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/responses/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "stack-bridge-2026",
+      "path": "{{ABYSS_MACHINE_STATE}}/stack-bridge/2026/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "stack-bridge-research",
+      "path": "{{ABYSS_MACHINE_STATE}}/stack-bridge/research/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "stack-bridge-static-sync",
+      "path": "{{ABYSS_MACHINE_STATE}}/stack-bridge/static-sync/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "stack-bridge-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/stack-bridge/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "topology-audit",
+      "path": "{{ABYSS_MACHINE_STATE}}/topology/audit/AGENTS.md",
+      "kind": "local_card",
+      "required": true
+    },
+    {
+      "id": "topology-validate",
+      "path": "{{ABYSS_MACHINE_STATE}}/topology/validate/AGENTS.md",
+      "kind": "generated_card",
+      "required": true
+    },
+    {
+      "id": "topology",
+      "path": "{{ABYSS_MACHINE_STATE}}/topology/AGENTS.md",
+      "kind": "generated_card",
+      "role": "generated topology facts",
+      "required": true,
+      "required_markers": ["## Source Surfaces", "## Generated Surfaces", "Do not hand-edit"]
+    }
+  ]
+}

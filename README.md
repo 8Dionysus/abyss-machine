@@ -3,13 +3,23 @@
 `abyss-machine` is the portable seed for the Abyss OS host-machine layer.
 
 It publishes the organ that makes a machine legible to agents: the CLI, source
-contracts, policy templates, typing/nervous intake machinery, systemd templates,
-validation routes, and bootstrap logic.
+contracts, public-safe config templates, typing/nervous intake machinery,
+systemd unit skeletons, validation routes, and bootstrap logic.
 
 It does not publish the private life of a specific machine. Generated facts,
 typed events, browser captures, transcripts, process histories, model caches,
 runtimes, backup vaults, and local indexes are created locally by the installed
 machine under `/var/lib/abyss-machine` and `/srv/abyss-machine`.
+
+## Reading Route
+
+Start with:
+
+1. [AGENTS.md](AGENTS.md)
+2. [DESIGN.md](DESIGN.md)
+3. [BOUNDARIES.md](BOUNDARIES.md)
+4. [mechanics/README.md](mechanics/README.md)
+5. [docs/publication/PUBLICATION_BOUNDARY.md](docs/publication/PUBLICATION_BOUNDARY.md)
 
 ## Bootstrap Shape
 
@@ -30,10 +40,10 @@ scripts/abyss-machine-bootstrap enable-profile nervous-local --dry-run --json
 
 ## Public Boundary
 
-Start with [docs/PUBLICATION_BOUNDARY.md](docs/PUBLICATION_BOUNDARY.md) before
-adding files. The short rule is:
+Start with [docs/publication/PUBLICATION_BOUNDARY.md](docs/publication/PUBLICATION_BOUNDARY.md)
+before adding files. The short rule is:
 
-- publish source, contracts, templates, schemas, validators, and tests;
+- publish source, contracts, config templates, schemas, validators, and tests;
 - do not publish generated evidence or private local state.
 
 ## Test Lanes

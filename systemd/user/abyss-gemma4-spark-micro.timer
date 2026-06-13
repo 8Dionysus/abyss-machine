@@ -1,0 +1,15 @@
+[Unit]
+Description=Run Abyss Gemma4 Spark resident micro work frequently
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/ai/llm/AGENTS.md
+
+[Timer]
+OnBootSec=8min
+OnUnitActiveSec=12min
+AccuracySec=2min
+RandomizedDelaySec=90s
+Persistent=true
+Unit=abyss-gemma4-spark-micro.service
+
+[Install]
+WantedBy=timers.target

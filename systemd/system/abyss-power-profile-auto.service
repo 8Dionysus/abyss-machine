@@ -1,0 +1,17 @@
+[Unit]
+Description=Abyss automatic power profile policy
+Documentation=man:powerprofilesctl(1)
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+After=power-profiles-daemon.service
+Wants=power-profiles-daemon.service
+
+[Service]
+Type=oneshot
+Nice=12
+IOSchedulingClass=idle
+CPUWeight=15
+IOWeight=15
+TimeoutStartSec=45s
+ExecStart=/usr/bin/flock -E 0 -n /run/abyss-power-profile-auto.lock {{ABYSS_LOCAL_BIN_DIR}}/abyss-machine mode reconcile --light
+StandardOutput=null
+StandardError=journal

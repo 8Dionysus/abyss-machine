@@ -18,6 +18,7 @@ if not DEFAULT_TEST_ROOT.exists():
     DEFAULT_TEST_ROOT = REPO_ROOT / "tests"
 TEST_ROOT = Path(os.environ.get("ABYSS_MACHINE_TEST_ROOT", str(DEFAULT_TEST_ROOT)))
 PYTEST_INI = Path(os.environ.get("ABYSS_MACHINE_PYTEST_INI", str(REPO_ROOT / "pytest.ini")))
+SOURCE_CLI = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
 
 LANES = {
     "quick": "quick and not live and not long and not manual",
@@ -104,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise SystemExit(f"unknown abyss-machine-test option before --: {item}")
     os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    if SOURCE_CLI.exists():
+        os.environ.setdefault("ABYSS_MACHINE_BIN", str(SOURCE_CLI))
     return run_lane(str(lane), extra_args=extra, json_output=json_output)
 
 

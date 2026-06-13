@@ -1,0 +1,554 @@
+{
+  "schema": "abyss_machine_typing_policy_v1",
+  "version": "0.8.80",
+  "mode": "safe_committed_text",
+  "enabled": true,
+  "capture": {
+    "raw_keylogging": false,
+    "requires_committed_text": true,
+    "password_fields_captured": false,
+    "global_keyboard_hook": false,
+    "automatic_action": false,
+    "allowed_adapters": [
+      "manual_cli_stdin",
+      "manual_cli_args",
+      "zsh_preexec",
+      "codex_user_prompt_submit",
+      "codex_session_jsonl_prompt_tail",
+      "atspi_focused_text_snapshot",
+      "atspi_text_changed_event",
+      "saved_text_snapshot",
+      "editor_extension_explicit",
+      "browser_extension_explicit",
+      "browser_ai_transcript"
+    ],
+    "diagnostic_adapters": []
+  },
+  "limits": {
+    "max_text_chars": 4000,
+    "max_context_chars": 240,
+    "max_tail_lines": 200,
+    "focused_snapshot_max_nodes": 700,
+    "focused_snapshot_max_depth": 12,
+    "focused_snapshot_timeout_sec": 3
+  },
+  "causal_context": {
+    "enabled": true,
+    "store_text": false,
+    "bind_active_changes": true,
+    "infer_recipient_route": true,
+    "infer_project_root": true,
+    "max_active_changes": 4,
+    "automatic_action": false,
+    "intent_claim": false,
+    "project_roots": [
+      {
+        "root": "{{ABYSS_MACHINE_ETC}}",
+        "id": "abyss-machine-config",
+        "kind": "host_config"
+      },
+      {
+        "root": "{{ABYSS_LOCAL_LIBEXEC_DIR}}/abyss-machine",
+        "id": "abyss-machine-libexec",
+        "kind": "host_binary"
+      },
+      {
+        "root": "{{ABYSS_MACHINE_STATE}}",
+        "id": "abyss-machine-state",
+        "kind": "host_state"
+      },
+      {
+        "root": "{{ABYSS_MACHINE_SRV}}",
+        "id": "abyss-machine-large-root",
+        "kind": "host_large_root"
+      },
+      {
+        "root": "{{ABYSS_USER_HOME}}/src/abyss-stack",
+        "id": "abyss-stack-source",
+        "kind": "project_source"
+      },
+      {
+        "root": "{{ABYSS_OS_ROOT}}/abyss-stack",
+        "id": "abyss-stack-runtime-mirror",
+        "kind": "project_runtime_mirror"
+      },
+      {
+        "root": "{{ABYSS_OS_ROOT}}",
+        "id": "AbyssOS",
+        "kind": "project_workspace"
+      },
+      {
+        "root": "/srv/work",
+        "id": "srv-work",
+        "kind": "work_workspace"
+      },
+      {
+        "root": "{{ABYSS_USER_HOME}}/src",
+        "id": "home-src",
+        "kind": "source_workspace"
+      },
+      {
+        "root": "{{ABYSS_USER_HOME}}/md",
+        "id": "home-md",
+        "kind": "notes_workspace"
+      }
+    ]
+  },
+  "capture_gate": {
+    "enabled": true,
+    "schema": "abyss_machine_typing_capture_gate_v1",
+    "default_decision": "metadata_only",
+    "unknown_decision": "metadata_only",
+    "store_skip_events": true,
+    "offline_agent": {
+      "id": "typing_capture_gate_agent",
+      "kind": "local_rule_engine",
+      "network_access": false,
+      "subprocess_access": false,
+      "may_downgrade": true,
+      "may_promote_unknown_to_allow_text": false,
+      "may_promote_safe_generic_text_role": true
+    },
+    "allow_text_source_adapters": [
+      "manual_cli_stdin",
+      "manual_cli_args",
+      "zsh_preexec",
+      "codex_user_prompt_submit",
+      "codex_session_jsonl_prompt_tail",
+      "saved_text_snapshot",
+      "editor_extension_explicit",
+      "browser_extension_explicit",
+      "browser_ai_transcript",
+      "atspi_focused_text_snapshot",
+      "atspi_text_changed_event"
+    ],
+    "focused_allow_app_tokens": [
+      "codex",
+      "code",
+      "vscode",
+      "editor",
+      "terminal",
+      "gnome-terminal",
+      "kitty",
+      "alacritty",
+      "wezterm",
+      "zsh",
+      "bash",
+      "emacs",
+      "neovim",
+      "nvim"
+    ],
+    "hard_skip_app_tokens": [
+      "telegram",
+      "signal",
+      "whatsapp",
+      "element",
+      "discord",
+      "slack",
+      "bitwarden",
+      "1password",
+      "keepass",
+      "seahorse",
+      "password manager"
+    ],
+    "hard_skip_url_tokens": [
+      "web.telegram.org",
+      "t.me/",
+      "signal.org",
+      "web.whatsapp.com",
+      "discord.com/channels",
+      "app.slack.com"
+    ],
+    "metadata_only_url_tokens": [
+      "login",
+      "signin",
+      "sign-in",
+      "auth",
+      "oauth",
+      "sso",
+      "password",
+      "reset",
+      "account",
+      "billing",
+      "checkout",
+      "payment",
+      "bank",
+      "2fa",
+      "otp",
+      "card",
+      "cvv"
+    ],
+    "metadata_only_app_tokens": [
+      "browser",
+      "firefox",
+      "chrome",
+      "chromium"
+    ],
+    "allow_text_path_roots": [
+      "{{ABYSS_USER_HOME}}/src",
+      "{{ABYSS_OS_ROOT}}",
+      "/srv/work",
+      "{{ABYSS_USER_HOME}}/md"
+    ],
+    "non_claims": [
+      "capture_gate is a local offline classifier, not an autonomous networked agent.",
+      "unknown surfaces remain metadata-only unless a local safe generic editable-text rule explicitly applies.",
+      "hard-skip surfaces persist bounded metadata only when store_skip_events is enabled."
+    ]
+  },
+  "focused_snapshot": {
+    "enabled": true,
+    "adapter": "atspi_focused_text_snapshot",
+    "mode": "safe_text_routes",
+    "text_capture_enabled": true,
+    "primary_capture_by": "atspi_text_changed_event",
+    "requires_capture_gate_allow_text": true,
+    "safe_text_routes": [
+      "browser_safe_url",
+      "generic_editable_text"
+    ],
+    "generic_editable_text": {
+      "enabled": true,
+      "requires_text_role": true,
+      "requires_editable": true,
+      "requires_focused": true,
+      "reject_browser_without_safe_url": true,
+      "reject_terminal_surfaces": true,
+      "reject_sensitive_state": true
+    },
+    "requires_focused_accessible": true,
+    "requires_editable_or_text_role": true,
+    "duplicate_window_records": 80,
+    "metadata_only_on_sensitive_context": true,
+    "sensitive_roles": [
+      "password text",
+      "password"
+    ],
+    "text_roles": [
+      "text",
+      "entry",
+      "terminal",
+      "document text",
+      "paragraph",
+      "editable text"
+    ]
+  },
+  "atspi_text_events": {
+    "enabled": true,
+    "adapter": "atspi_text_changed_event",
+    "requires_text_role": true,
+    "metadata_only_on_sensitive_context": true,
+    "generic_editable_text": {
+      "enabled": true,
+      "requires_text_role": true,
+      "requires_editable": true,
+      "requires_focus_or_visible": true,
+      "reject_browser_without_safe_url": true,
+      "reject_sensitive_state": true
+    },
+    "min_interval_sec": 0.8,
+    "heartbeat_interval_sec": 60,
+    "browser_recency_max_age_sec": 21600,
+    "browser_context_inference_max_age_sec": 900,
+    "capture_length_change_updates": true,
+    "max_events_per_run": 400,
+    "event_types": [
+      "object:text-changed:insert",
+      "object:text-changed:delete"
+    ],
+    "sensitive_roles": [
+      "password text",
+      "password"
+    ],
+    "text_roles": [
+      "text",
+      "entry",
+      "terminal",
+      "document text",
+      "paragraph",
+      "editable text"
+    ]
+  },
+  "browser_extension": {
+    "enabled": true,
+    "adapter": "browser_extension_explicit",
+    "id": "abyss-machine-typing-intake@abyss.local",
+    "native_host": "org.abyss_machine.typing_intake",
+    "requires_url": true,
+    "requires_safe_field": true,
+    "captures": "debounced committed text from safe page text inputs and editable areas only",
+    "no_key_events": true,
+    "password_fields_captured": false,
+    "form_values_captured": false,
+    "cookies_captured": false,
+    "local_storage_captured": false,
+    "automatic_action": false,
+    "allowed_event_kinds": [
+      "input_idle",
+      "change",
+      "blur",
+      "submit",
+      "selftest"
+    ],
+    "allowed_url_schemes": [
+      "http:",
+      "https:"
+    ],
+    "hard_skip_host_tokens": [
+      "web.telegram.org",
+      "t.me",
+      "signal.org",
+      "web.whatsapp.com",
+      "discord.com",
+      "app.slack.com"
+    ],
+    "metadata_only_url_tokens": [
+      "login",
+      "signin",
+      "sign-in",
+      "auth",
+      "oauth",
+      "sso",
+      "password",
+      "reset",
+      "account",
+      "billing",
+      "checkout",
+      "payment",
+      "bank",
+      "2fa",
+      "mfa",
+      "otp",
+      "card",
+      "cvv",
+      "token"
+    ],
+    "skip_input_types": [
+      "password",
+      "hidden",
+      "file",
+      "email",
+      "tel",
+      "number",
+      "url",
+      "date",
+      "datetime-local",
+      "month",
+      "time",
+      "week",
+      "color"
+    ],
+    "deny_field_tokens": [
+      "password",
+      "passwd",
+      "passphrase",
+      "secret",
+      "token",
+      "api",
+      "credential",
+      "cookie",
+      "otp",
+      "2fa",
+      "mfa",
+      "cvv",
+      "card",
+      "billing",
+      "bank",
+      "email",
+      "phone",
+      "login",
+      "auth"
+    ]
+  },
+  "browser_ai_transcript": {
+    "enabled": true,
+    "adapter": "browser_ai_transcript",
+    "requires_url": true,
+    "requires_known_ai_counterpart": true,
+    "requires_transcript_safe_marker": true,
+    "captures": "visible AI chat transcript messages from known AI pages; separate from operator typed-input capture",
+    "max_text_chars": 12000,
+    "max_messages_per_snapshot": 18,
+    "allowed_event_kinds": [
+      "ai_transcript_message",
+      "ai_transcript_selftest"
+    ],
+    "allowed_message_roles": [
+      "user",
+      "assistant",
+      "system",
+      "unknown"
+    ],
+    "allowed_url_schemes": [
+      "http:",
+      "https:"
+    ],
+    "password_fields_captured": false,
+    "form_values_captured": false,
+    "cookies_captured": false,
+    "local_storage_captured": false,
+    "automatic_action": false,
+    "partial_allowed": true,
+    "non_claims": [
+      "This route records visible AI-chat transcript text only when the page origin is a known AI counterpart.",
+      "Completeness is explicit metadata; AT-SPI browser content remains a fallback, not transcript authority."
+    ]
+  },
+  "saved_text_scan": {
+    "enabled": true,
+    "adapter": "saved_text_snapshot",
+    "interval": "120s",
+    "changed_within_sec": 1800,
+    "max_file_bytes": 262144,
+    "max_files_per_scan": 80,
+    "max_roots": 8,
+    "roots": [
+      "{{ABYSS_USER_HOME}}/src",
+      "{{ABYSS_OS_ROOT}}",
+      "/srv/work",
+      "{{ABYSS_USER_HOME}}/md"
+    ],
+    "include_extensions": [
+      ".md",
+      ".txt",
+      ".py",
+      ".js",
+      ".jsx",
+      ".ts",
+      ".tsx",
+      ".json",
+      ".yaml",
+      ".yml",
+      ".toml",
+      ".ini",
+      ".sh",
+      ".bash",
+      ".zsh",
+      ".css",
+      ".html",
+      ".rs",
+      ".go",
+      ".java",
+      ".c",
+      ".h",
+      ".cpp",
+      ".hpp",
+      ".cs",
+      ".sql",
+      ".lua",
+      ".service",
+      ".timer"
+    ],
+    "include_names": [
+      "AGENTS.md",
+      "DESIGN.md",
+      "README",
+      "README.md",
+      "CHANGELOG.md",
+      "TODO.md"
+    ],
+    "exclude_dir_names": [
+      ".git",
+      ".hg",
+      ".svn",
+      "node_modules",
+      "__pycache__",
+      ".pytest_cache",
+      ".mypy_cache",
+      ".ruff_cache",
+      ".cache",
+      ".venv",
+      "venv",
+      "target",
+      "dist",
+      "build"
+    ],
+    "exclude_path_tokens": [
+      "/.venv",
+      "/site-packages/",
+      "/.aoa/",
+      "/.aoa/sessions/",
+      "/.aoa/SESSION_NAMES.md",
+      "/.aoa/diagnostics/",
+      "/.aoa/hooks/",
+      "/.aoa/raw/",
+      "/.codex/generated/",
+      "/generated/",
+      "/raw/source.json",
+      "/session.index.json",
+      "/session.manifest.json",
+      "/hooks/events.jsonl",
+      "/hooks/receipts.jsonl"
+    ],
+    "low_signal_artifact_path_tokens": [
+      "/legacy/artifacts/",
+      "/runtime-kernels/examples/",
+      "/runtime-kernels/schemas/",
+      "/runtime-kernels/recurrence/"
+    ],
+    "deny_path_tokens": [
+      ".env",
+      "secret",
+      "secrets",
+      "password",
+      "passwd",
+      "credential",
+      "credentials",
+      "token",
+      "private",
+      "id_rsa",
+      "id_ed25519",
+      ".pem",
+      ".key",
+      ".p12",
+      ".pfx",
+      ".kdbx",
+      ".sqlite",
+      ".db"
+    ]
+  },
+  "deny_context_tokens": [
+    "password",
+    "passwd",
+    "passphrase",
+    "secret",
+    "token",
+    "api key",
+    "apikey",
+    "credential",
+    "cookie",
+    "login",
+    "sign in",
+    "signin",
+    "auth",
+    "2fa",
+    "otp",
+    "bank",
+    "billing",
+    "payment",
+    "card",
+    "cvv",
+    "ssh key",
+    "private key",
+    ".env",
+    "sudo",
+    "pkexec"
+  ],
+  "redaction": {
+    "uses": "abyss-machine nervous redact-test",
+    "store_redacted_text_only": true,
+    "metadata_only_on_sensitive_context": true,
+    "record_secret_fingerprints_only": true
+  },
+  "retention": {
+    "events_days": 90,
+    "forget_route": "abyss-machine nervous forget --minutes N --json"
+  },
+  "policy": {
+    "facts_only": true,
+    "raw_private_content": false,
+    "does_not_capture_password_fields": true,
+    "does_not_install_keylogger": true,
+    "action_execution": false
+  }
+}

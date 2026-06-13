@@ -1,0 +1,33 @@
+{
+  "schema": "abyss_machine_observability_config_v1",
+  "version": "0.1.1",
+  "sample_interval_sec": 60,
+  "retention": {
+    "samples_days": 14,
+    "events_days": 90,
+    "summaries_days": 180
+  },
+  "thresholds": {
+    "temperature_warn_c": 105.0,
+    "temperature_crit_c": 109.0,
+    "temperature_active_low_c": 100.0,
+    "temperature_hot_c": 106.0,
+    "temperature_recovery_c": 96.0,
+    "battery_low_percent": 20,
+    "battery_critical_percent": 10,
+    "battery_discharge_high_w": 35.0,
+    "load_high_per_cpu": 1.5
+  },
+  "collectors": {
+    "sensors": true,
+    "power_supply": true,
+    "cpu_freq": true,
+    "pressure": true,
+    "mode_state": true
+  },
+  "notes": [
+    "Collector 0.1.1 reads sysfs hwmon directly and skips acpi_fan because this BIOS emits VFAN/FANL ACPI errors when acpi_fan fan1_input is read.",
+    "Do not restore sensors -j polling here; use abyss-machine cooling thermal-audit for richer thermal evidence.",
+    "Thermal thresholds mirror the thin-laptop cooling policy: stable 100-105C is monitored active range, above 105C is watch/routing territory, and critical/emergency classification starts at 109C."
+  ]
+}
