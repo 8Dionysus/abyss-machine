@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "lanes": {
+    "source-fast": {
+      "command_sequence": "source_fast",
+      "owner_surface": "public source scaffold",
+      "failure_route": "scripts/validators/README.md"
+    },
+    "host-contract": {
+      "command_sequence": "host_contract",
+      "owner_surface": "host contract migration lane",
+      "failure_route": "tests/host_contract/README.md"
+    },
+    "release-public": {
+      "command_sequence": "release_public",
+      "owner_surface": "public release gate",
+      "failure_route": "docs/validation/VALIDATOR_TOPOLOGY.md"
+    },
+    "release-full": {
+      "command_sequence": "release_full",
+      "owner_surface": "local full release gate",
+      "failure_route": "docs/validation/VALIDATOR_TOPOLOGY.md"
+    }
+  },
+  "command_sequences": {
+    "source_fast": [
+      {"label": "validation lane manifest", "command": ["python", "scripts/validation_lanes.py"]},
+      {"label": "repo topology", "command": ["python", "scripts/validators/repo_topology.py"]},
+      {"label": "mechanics topology", "command": ["python", "scripts/validators/mechanics_topology.py"]},
+      {"label": "manifest integrity", "command": ["python", "scripts/validators/manifest_integrity.py"]},
+      {"label": "schema integrity", "command": ["python", "scripts/validators/schema_integrity.py"]},
+      {"label": "bootstrap contract", "command": ["python", "scripts/validators/bootstrap_contract.py"]},
+      {"label": "public boundary", "command": ["python", "scripts/validators/public_boundary.py"]},
+      {"label": "scaffold index", "command": ["python", "scripts/generate_scaffold_index.py", "--check"]},
+      {"label": "compile source", "command": ["python", "-m", "compileall", "-q", "src", "scripts"]},
+      {"label": "public smoke tests", "command": ["python", "-m", "pytest", "-q"]}
+    ],
+    "host_contract": [
+      {"label": "host contract quick lane", "command": ["tools/abyss-machine-test", "quick", "--json"]}
+    ],
+    "release_public": [
+      {"label": "source fast gate", "command": ["python", "scripts/ci_gate.py", "--mode", "source-fast"]}
+    ],
+    "release_full": [
+      {"label": "source fast gate", "command": ["python", "scripts/ci_gate.py", "--mode", "source-fast"]},
+      {"label": "host contract gate", "command": ["python", "scripts/ci_gate.py", "--mode", "host-contract"]}
+    ]
+  }
+}

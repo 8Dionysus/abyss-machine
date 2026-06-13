@@ -1,0 +1,10 @@
+{
+  "schema": "abyss_machine_schema_inventory_manifest_v1",
+  "schemas": [
+    "schemas/bootstrap-report.schema.json",
+    "schemas/host-profile.schema.json",
+    "schemas/storage-policy.schema.json",
+    "schemas/typing-policy.schema.json",
+    "schemas/nervous-privacy.schema.json"
+  ]
+}

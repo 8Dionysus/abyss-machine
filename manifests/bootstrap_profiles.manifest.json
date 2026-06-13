@@ -1,0 +1,63 @@
+{
+  "schema": "abyss_machine_bootstrap_profiles_manifest_v1",
+  "profiles": {
+    "linux-systemd-core": {
+      "system": [
+        "abyss-ai-workload-refresh.timer",
+        "abyss-observability-collect.timer",
+        "abyss-power-profile-auto.timer"
+      ],
+      "user": [
+        "abyss-machine-heartbeat.timer",
+        "abyss-machine-context-refresh.timer",
+        "abyss-topology-audit.timer",
+        "abyss-storage-monitor.timer",
+        "abyss-process-snapshot.timer"
+      ]
+    },
+    "typing-intake": {
+      "system": [],
+      "user": [
+        "abyss-machine-typing-focused-snapshot.timer",
+        "abyss-machine-typing-saved-text-scan.timer",
+        "abyss-machine-typing-atspi-text-events.service",
+        "abyss-machine-typing-codex-session-tail.service"
+      ]
+    },
+    "nervous-local": {
+      "system": [],
+      "user": [
+        "abyss-nervous-passive-chronicle.timer",
+        "abyss-nervous-index-build.timer",
+        "abyss-nervous-semantic-maintain.timer",
+        "abyss-nervous-browser-content-capture.timer"
+      ]
+    },
+    "ai-local": {
+      "system": [
+        "abyss-ai-workload-refresh.timer"
+      ],
+      "user": [
+        "abyss-gemma4-spark-monitor.timer",
+        "abyss-gemma4-spark-micro.timer",
+        "abyss-gemma4-spark-jobs.timer",
+        "abyss-gemma4-spark-digest.timer"
+      ]
+    },
+    "backup-vault": {
+      "system": [
+        "abyss-backup-system.timer",
+        "abyss-backup-sessions.timer",
+        "abyss-backup-sessions-checksum.timer"
+      ],
+      "user": []
+    },
+    "stack-bridge": {
+      "system": [],
+      "user": [
+        "abyss-machine-doctor.timer",
+        "abyss-stack-resource-guards-apply.service"
+      ]
+    }
+  }
+}

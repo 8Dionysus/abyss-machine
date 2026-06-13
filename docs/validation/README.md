@@ -1,5 +1,10 @@
 # Validation
 
-Validation starts with public smoke tests and bootstrap dry-runs. Host-contract
-tests exist for development and migration, but they are not the public install
-smoke lane.
+Validation starts with the manifest-backed source-fast lane:
+
+```bash
+python scripts/ci_gate.py --mode source-fast
+```
+
+Host-contract tests exist for development and migration, but they are separate
+from the public install smoke lane.

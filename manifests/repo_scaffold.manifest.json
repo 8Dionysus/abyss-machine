@@ -1,0 +1,75 @@
+{
+  "schema": "abyss_machine_repo_scaffold_manifest_v1",
+  "root_files": [
+    "AGENTS.md",
+    "DESIGN.md",
+    "DESIGN.AGENTS.md",
+    "BOUNDARIES.md",
+    "ROADMAP.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+    "pytest.ini"
+  ],
+  "districts": {
+    ".github": ["AGENTS.md", "workflows/ci.yml"],
+    "config-templates": ["AGENTS.md", "README.md", "etc/abyss-machine/AGENTS.md"],
+    "docs": ["AGENTS.md", "README.md"],
+    "env": ["AGENTS.md", "README.md", ".env.example"],
+    "generated": ["AGENTS.md", "README.md", "scaffold_index.min.json"],
+    "manifests": ["AGENTS.md", "README.md"],
+    "mechanics": ["AGENTS.md", "README.md"],
+    "schemas": ["AGENTS.md", "README.md"],
+    "scripts": ["AGENTS.md", "README.md", "validation_lanes.py", "ci_gate.py", "release_check.py"],
+    "src": ["abyss_machine/__init__.py", "abyss_machine/cli.py"],
+    "systemd": ["AGENTS.md", "README.md"],
+    "tests": ["AGENTS.md", "README.md"],
+    "tools": ["AGENTS.md", "README.md", "abyss-machine-test"]
+  },
+  "docs_sections": [
+    "host",
+    "install",
+    "operations",
+    "profiles",
+    "publication",
+    "testing",
+    "validation"
+  ],
+  "mechanics_packages": [
+    "host-lifecycle",
+    "config-projection",
+    "host-facts",
+    "storage-routing",
+    "typing-intake",
+    "nervous-local",
+    "local-ai-runtime",
+    "diagnostic-spine"
+  ],
+  "mechanic_required_files": [
+    "AGENTS.md",
+    "README.md",
+    "DIRECTION.md",
+    "PROVENANCE.md",
+    "PARTS.md",
+    "ROADMAP.md",
+    "LANDING_LOG.md",
+    "docs/README.md",
+    "parts/README.md"
+  ],
+  "mechanic_readme_sections": [
+    "## Mechanic card",
+    "### Trigger",
+    "### abyss-machine owns",
+    "### Stronger owner split",
+    "### Inputs",
+    "### Outputs",
+    "### Must not claim",
+    "### Validation",
+    "### Next route"
+  ],
+  "forbidden_legacy_roots": [
+    "templates"
+  ]
+}

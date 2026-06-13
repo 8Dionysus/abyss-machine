@@ -51,7 +51,7 @@ before adding files. The short rule is:
 Default public smoke:
 
 ```bash
-python -m pytest -q
+python scripts/ci_gate.py --mode source-fast
 ```
 
 Host contract tests imported from the current workstation are kept for
@@ -59,6 +59,13 @@ development and migration work, but they are not the bootstrap smoke lane:
 
 ```bash
 python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"
+```
+
+Release checks:
+
+```bash
+python scripts/release_check.py
+python scripts/release_check.py --include-host-contracts
 ```
 
 ## Current Status

@@ -37,3 +37,15 @@ def test_mechanic_packages_have_route_contracts() -> None:
 def test_public_boundary_moved_under_docs_publication() -> None:
     assert (ROOT / "docs" / "publication" / "PUBLICATION_BOUNDARY.md").is_file()
     assert not (ROOT / "docs" / "PUBLICATION_BOUNDARY.md").exists()
+
+
+def test_validation_control_plane_exists() -> None:
+    for path in [
+        ROOT / "docs" / "validation" / "validation_lanes.json",
+        ROOT / "scripts" / "validation_lanes.py",
+        ROOT / "scripts" / "ci_gate.py",
+        ROOT / "scripts" / "release_check.py",
+        ROOT / "scripts" / "generate_scaffold_index.py",
+        ROOT / "generated" / "scaffold_index.min.json",
+    ]:
+        assert path.is_file()

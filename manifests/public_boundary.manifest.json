@@ -1,0 +1,44 @@
+{
+  "schema": "abyss_machine_public_boundary_manifest_v1",
+  "forbidden_tracked_path_prefixes": [
+    "templates/",
+    "var/",
+    "srv/",
+    "run/",
+    "cache/",
+    "runtimes/",
+    "storage/",
+    "tmp/",
+    "backups/",
+    "secrets/"
+  ],
+  "forbidden_tracked_path_suffixes": [
+    ".bak",
+    ".bak-",
+    ".pre-",
+    ".xpi",
+    ".zip",
+    ".tar",
+    ".tar.gz",
+    ".tgz",
+    ".jsonl",
+    ".sqlite",
+    ".db",
+    ".db-shm",
+    ".db-wal",
+    ".password",
+    ".key",
+    ".pem"
+  ],
+  "forbidden_text_patterns": [
+    "/abyss/Backups/secret[s]",
+    "github[_]pat_[A-Za-z0-9_]+",
+    "gh[p]_[A-Za-z0-9_]+",
+    "gh[o]_[A-Za-z0-9_]+",
+    "s[k]-[A-Za-z0-9]{20,}",
+    "OPENAI_API_KEY=.*s[k]-"
+  ],
+  "allowed_legacy_template_mentions": [
+    "mechanics/config-projection/PROVENANCE.md"
+  ]
+}
