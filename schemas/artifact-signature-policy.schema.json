@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/artifact-signature-policy.schema.json",
+  "title": "abyss-machine artifact signature policy",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "policy_version", "abi_signature", "portable_runner_contract", "artifact_classes", "contract_surfaces", "release_artifact_rules"],
+  "properties": {
+    "schema": {
+      "const": "abyss_machine_artifact_signature_policy_manifest_v1"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "abi_signature": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["algorithm", "generated_surface"],
+      "properties": {
+        "algorithm": {"const": "sha256-tree-v1"},
+        "generated_surface": {"type": "string"}
+      }
+    },
+    "artifact_classes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "portable_runner_contract": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["entrypoint_sources", "runner_contexts", "required_entrypoints"],
+      "properties": {
+        "entrypoint_sources": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "runner_contexts": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "required_entrypoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "command"],
+            "properties": {
+              "id": {"type": "string"},
+              "command": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "contract_surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "epoch", "artifact_class", "source_paths"],
+        "properties": {
+          "id": {"type": "string"},
+          "epoch": {"type": "string"},
+          "artifact_class": {"type": "string"},
+          "source_paths": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "release_artifact_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "artifact_class", "artifact_patterns", "public_repo_policy", "required_controls"],
+        "properties": {
+          "id": {"type": "string"},
+          "artifact_class": {"type": "string"},
+          "artifact_patterns": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "public_repo_policy": {"type": "string"},
+          "required_controls": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "sidecar_extensions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

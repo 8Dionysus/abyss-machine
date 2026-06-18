@@ -1,8 +1,11 @@
-name: CI
+name: Repo Validation
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 * * 1"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -17,3 +20,13 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e .[dev]
       - run: python scripts/ci_gate.py --mode source-fast
+
+  release-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .[dev]
+      - run: python scripts/ci_gate.py --mode release-artifact

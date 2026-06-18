@@ -40,6 +40,35 @@ publishing the private life of a workstation.
 - Use mechanics packages for durable host moves, not for miscellaneous notes.
 - Keep typing and nervous surfaces first-class, privacy-gated, and opt-in.
 
+## GitHub Landing Workflow
+
+Root `AGENTS.md` owns the repository-wide branch, PR, CI, and merge route.
+`.github/AGENTS.md` owns the GitHub-native files that support it.
+
+When the user asks to commit, push, and merge in this repository, use this
+route:
+
+1. Start from a clean branch based on current `origin/main`.
+2. Commit only the intended diff with a message that names the changed surface.
+3. Push the branch and open a pull request with changed surfaces, validation,
+   skipped checks, remaining risk, and any local live-host evidence that GitHub
+   cannot reproduce.
+4. Wait for GitHub `Repo Validation` to finish. If it fails, fix the branch and
+   wait for the new result.
+5. Merge through GitHub after green validation. Use squash unless repository
+   settings report a different allowed method; report which method landed.
+6. Return to `main`, fast-forward from `origin/main`, and confirm the worktree
+   is clean before closeout.
+
+GitHub validation is public-safe proof for the repository seed. It does not
+replace local host evidence. For changes that touched installed
+`abyss-machine`, typing/nervous, self-awareness, or generated host contracts,
+report the local host checks separately and do not publish live `/var/lib`,
+`/srv`, secrets, captures, or indexes.
+
+If GitHub status or merge permissions cannot be observed, stop the landing route
+and report the exact blocker instead of guessing.
+
 ## Validation
 
 Run the narrow public lane first:

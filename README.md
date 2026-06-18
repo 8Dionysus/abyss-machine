@@ -45,6 +45,8 @@ before adding files. The short rule is:
 
 - publish source, contracts, config templates, schemas, validators, and tests;
 - do not publish generated evidence or private local state.
+- keep artifact signing policy explicit: ABI fingerprints for public contract
+  surfaces, release provenance/signatures only for publishable artifacts.
 
 ## Test Lanes
 
@@ -53,6 +55,10 @@ Default public smoke:
 ```bash
 python scripts/ci_gate.py --mode source-fast
 ```
+
+Validation lanes are OS Abyss CLI contracts. GitHub Actions, local host
+schedulers, release pipelines, and agent goal loops use the same
+`scripts/ci_gate.py` entrypoints.
 
 Host contract tests imported from the current workstation are kept for
 development and migration work, but they are not the bootstrap smoke lane:
@@ -64,6 +70,7 @@ python -m pytest -q tests/host_contract -m "quick and not live and not long and 
 Release checks:
 
 ```bash
+python scripts/ci_gate.py --mode release-artifact
 python scripts/release_check.py
 python scripts/release_check.py --include-host-contracts
 ```

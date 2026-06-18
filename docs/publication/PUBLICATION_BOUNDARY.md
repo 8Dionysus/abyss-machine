@@ -13,6 +13,10 @@ workstation.
 - Bootstrap scripts that render host-local paths and create empty local roots.
 - Public smoke tests and host contract tests.
 - Route docs, permissive v1 schemas, and mechanics package contracts.
+- Artifact signature policy and deterministic contract ABI signatures for
+  public contract surfaces.
+- Runner-neutral validation lanes that OS Abyss local CLI, host schedulers,
+  release pipelines, and GitHub Actions can consume.
 
 ## Not Published
 
@@ -27,6 +31,27 @@ workstation.
   histories, Codex sessions, and private retrieval packs.
 - Installed binary archives, `.bak` files, signed extension packages, compiled
   caches, and one-off probe output.
+
+## Signatures And Provenance
+
+`abyss-machine` distinguishes compatibility fingerprints from release
+signatures:
+
+- Contract ABI signatures are deterministic hashes over tracked public source
+  surfaces. They help agents and canaries detect contract drift.
+- SBOM and SLSA/in-toto provenance apply when software, install, runtime,
+  container, package, or release artifacts are built for publication.
+- Sigstore/Cosign applies to published release assets, blobs, OCI artifacts, or
+  bundles, not to every source commit.
+- C2PA applies only to public media/content exports.
+- Live host evidence is not published or signed as public source. If local
+  evidence is promoted, it keeps semantic provenance inside the host evidence
+  plane first.
+
+The `release-artifact` validation lane checks these rules before publication
+without requiring private keys or producing signatures during ordinary CI.
+The runner contexts live in `docs/validation/validation_lanes.json`; the CLI
+entrypoints live under `scripts/`.
 
 ## Lifecycle On A New Machine
 
