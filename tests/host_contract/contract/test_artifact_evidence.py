@@ -129,7 +129,10 @@ def test_semantic_probe_uses_bounded_rebuild_not_status_only(abyss_machine_modul
     machine = abyss_machine_module
     probe = machine.artifact_real_probe({"workload_probe": "nervous-semantic"})
 
-    assert any("semantic-build --max-chunks 8 --batch-size 1 --rebuild" in command for command in probe["commands"])
+    assert any(
+        "semantic-build --max-chunks 8 --batch-size 1 --device CPU --rebuild" in command
+        for command in probe["commands"]
+    )
     assert "abyss-machine nervous semantic-maintain --dry-run --json" in probe["insufficient_commands"]
 
 
