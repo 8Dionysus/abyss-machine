@@ -7,7 +7,26 @@
 The source-fast lane is defined in `docs/validation/validation_lanes.json` and
 loads through `scripts/validation_lanes.py`. It checks repo topology,
 mechanics topology, manifests, schemas, bootstrap dry-runs, public boundary,
-generated scaffold index freshness, compileall, and public smoke tests.
+artifact signature policy, contract ABI signature freshness, generated scaffold
+index freshness, compileall, and public smoke tests.
+
+## Runner Contexts
+
+`docs/validation/validation_lanes.json` declares lanes, command sequences, and
+runner contexts.
+
+The same entrypoints can run from:
+
+- `os_abyss_local_cli`: direct local repo checkout validation.
+- `os_abyss_host_scheduler`: recurring public-safe canaries from an installed
+  OS Abyss host timer or service.
+- `github_actions`: public CI and scheduled public-seed canary adapter.
+- `release_pipeline`: publication gate before artifact upload or signing.
+- `os_abyss_host_contract`: local installed-host checks that may read private
+  host state and are therefore excluded from public-safe lanes.
+
+GitHub CI runs the public and release-artifact lanes on push, pull request,
+manual dispatch, and a weekly public-seed canary schedule.
 
 ## Host Contract Lane
 
@@ -19,7 +38,34 @@ generated scaffold index freshness, compileall, and public smoke tests.
 - `python scripts/release_check.py`
 - `python scripts/release_check.py --include-host-contracts`
 
+`release-public` runs the source-fast gate and the release-artifact gate.
+`release-full` adds the fixture-backed host-contract gate.
+Release pipelines should call the same CLI gates before publishing SBOM,
+SLSA/in-toto, Sigstore/Cosign, or C2PA sidecars.
+
+## Release Artifact Lane
+
+- `python scripts/ci_gate.py --mode release-artifact`
+- `python scripts/validators/release_artifact_policy.py`
+
+This lane validates the policy consequences for publishable artifacts. It checks
+that wheel/sdist, runtime/container, browser-extension, and public media export
+classes declare the expected ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, or C2PA
+requirements, and that publishable artifacts are not tracked as ordinary public
+source files. It does not build or sign artifacts.
+
 ## Publication Smoke
 
 Scan the tracked tree for obvious secret patterns and forbidden live-state
 paths before pushing public changes.
+
+## Signature Policy
+
+- `python scripts/validators/artifact_signature_policy.py`
+- `python scripts/generate_contract_abi_signatures.py --check`
+- `python scripts/validators/release_artifact_policy.py`
+
+The policy validator keeps ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, and C2PA
+requirements explicit by artifact class. The ABI signature generator publishes a
+deterministic compatibility read model for public contract surfaces. It is not a
+release signature and does not sign live host evidence.

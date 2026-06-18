@@ -1,0 +1,202 @@
+{
+  "schema": "abyss_machine_artifact_signature_policy_manifest_v1",
+  "policy_version": "0.1.0",
+  "purpose": "Declare how abyss-machine public seed contracts, release bundles, runtime artifacts, local evidence, and public media exports are fingerprinted, attested, or signed without publishing private host state.",
+  "abi_signature": {
+    "algorithm": "sha256-tree-v1",
+    "generated_surface": "generated/contract_abi_signatures.min.json",
+    "meaning": "A deterministic digest over tracked source files that define a public contract surface. It is a compatibility signal for agents and canaries, not a cryptographic release signature."
+  },
+  "portable_runner_contract": {
+    "entrypoint_sources": [
+      "docs/validation/validation_lanes.json",
+      "scripts/validation_lanes.py",
+      "scripts/ci_gate.py",
+      "scripts/release_check.py"
+    ],
+    "runner_contexts": [
+      "os_abyss_local_cli",
+      "os_abyss_host_scheduler",
+      "release_pipeline"
+    ],
+    "required_entrypoints": [
+      {"id": "source-fast", "command": ["python", "scripts/ci_gate.py", "--mode", "source-fast"]},
+      {"id": "release-artifact", "command": ["python", "scripts/ci_gate.py", "--mode", "release-artifact"]},
+      {"id": "release-check", "command": ["python", "scripts/release_check.py"]}
+    ]
+  },
+  "artifact_classes": {
+    "public_source_seed": {
+      "description": "The public repository seed: source, templates, manifests, schemas, validators, tests, and docs that can be published safely.",
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "only when a package or release bundle is produced"},
+      "slsa_in_toto": {"required": false, "trigger": "minimal release provenance when a release artifact is built"},
+      "sigstore_cosign": {"required": false, "trigger": "release assets or OCI artifacts only"},
+      "c2pa": {"required": false, "trigger": "not a media/content credential artifact"}
+    },
+    "bootstrap_install_bundle": {
+      "description": "Rendered or packaged bootstrap/install material derived from the public seed.",
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "when distributed as wheel, archive, installer, or release bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "minimal release provenance for published install artifacts"},
+      "sigstore_cosign": {"required": true, "trigger": "published release assets"},
+      "c2pa": {"required": false, "trigger": "not media"}
+    },
+    "runtime_or_container_artifact": {
+      "description": "Install/runtime/container deliverables for host-managed services or deployable helpers.",
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "runtime, container, deployable bundle, or packaged helper"},
+      "slsa_in_toto": {"required": true, "trigger": "build or install provenance for published artifacts"},
+      "sigstore_cosign": {"required": true, "trigger": "OCI images, release bundles, and published blobs"},
+      "c2pa": {"required": false, "trigger": "not media"}
+    },
+    "browser_extension_package": {
+      "description": "Uploadable browser extension source zip or signed package for typed-text intake.",
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "lite dependency inventory if bundled third-party code appears"},
+      "slsa_in_toto": {"required": true, "trigger": "package provenance for published source zip or xpi"},
+      "sigstore_cosign": {"required": false, "trigger": "optional detached release-asset signature; Mozilla signing remains separate"},
+      "c2pa": {"required": false, "trigger": "not media"}
+    },
+    "host_local_evidence": {
+      "description": "Private local reports, histories, snapshots, traces, typed events, nervous captures, and host facts created on an installed machine.",
+      "abi_signature": {"required": false},
+      "semantic_provenance": {"required": true, "trigger": "local evidence must keep source, command, time, host route, and privacy boundary when promoted into /var/lib"},
+      "sbom": {"required": false, "trigger": "not a software distribution artifact"},
+      "slsa_in_toto": {"required": false, "trigger": "not published by default"},
+      "sigstore_cosign": {"required": false, "trigger": "not published by default"},
+      "c2pa": {"required": false, "trigger": "private evidence is not public media"}
+    },
+    "public_media_export": {
+      "description": "Public PDFs, visualizations, images, or content exports produced from host-machine material after privacy review.",
+      "abi_signature": {"required": false},
+      "sbom": {"required": false, "trigger": "not software"},
+      "slsa_in_toto": {"required": false, "trigger": "only if released inside a generated export bundle"},
+      "sigstore_cosign": {"required": false, "trigger": "optional release bundle signature"},
+      "c2pa": {"required": true, "trigger": "public media/content export"}
+    }
+  },
+  "contract_surfaces": [
+    {
+      "id": "public-seed-scaffold",
+      "epoch": "v1",
+      "artifact_class": "public_source_seed",
+      "source_paths": [
+        ".github/workflows/ci.yml",
+        "AGENTS.md",
+        "README.md",
+        "DESIGN.md",
+        "BOUNDARIES.md",
+        "SECURITY.md",
+        "docs/publication/PUBLICATION_BOUNDARY.md",
+        "docs/validation/validation_lanes.json",
+        "manifests",
+        "schemas",
+        "scripts/generate_contract_abi_signatures.py",
+        "scripts/generate_scaffold_index.py",
+        "scripts/validators",
+        "tests/public_smoke"
+      ]
+    },
+    {
+      "id": "bootstrap-install-seed",
+      "epoch": "v1",
+      "artifact_class": "bootstrap_install_bundle",
+      "source_paths": [
+        "scripts/abyss-machine-bootstrap",
+        "config-templates",
+        "env/.env.example",
+        "systemd",
+        "schemas/bootstrap-report.schema.json",
+        "manifests/bootstrap_profiles.manifest.json"
+      ]
+    },
+    {
+      "id": "host-runtime-artifact-route",
+      "epoch": "v1",
+      "artifact_class": "runtime_or_container_artifact",
+      "source_paths": [
+        "mechanics/local-ai-runtime",
+        "mechanics/storage-routing",
+        "tools/ai",
+        "config-templates/etc/abyss-machine/storage-policy.json"
+      ]
+    },
+    {
+      "id": "typing-extension-package",
+      "epoch": "v1",
+      "artifact_class": "browser_extension_package",
+      "source_paths": [
+        "tools/typing/AGENTS.md",
+        "tools/typing/firefox-extension"
+      ]
+    }
+  ],
+  "release_artifact_rules": [
+    {
+      "id": "python-package-release",
+      "artifact_class": "bootstrap_install_bundle",
+      "artifact_patterns": ["dist/*.whl", "dist/*.tar.gz"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"],
+        "sigstore_cosign": [".sigstore.json", ".cosign.bundle"]
+      }
+    },
+    {
+      "id": "runtime-or-container-release",
+      "artifact_class": "runtime_or_container_artifact",
+      "artifact_patterns": ["artifacts/**/*.tar.gz", "artifacts/**/*.oci", "artifacts/**/*.bundle"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/runtime",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"],
+        "sigstore_cosign": [".sigstore.json", ".cosign.bundle"]
+      }
+    },
+    {
+      "id": "typing-extension-release",
+      "artifact_class": "browser_extension_package",
+      "artifact_patterns": ["tools/typing/firefox-extension/build/*.zip", "tools/typing/firefox-extension/build/*.xpi"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/typing-extension",
+      "required_controls": ["abi_signature", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      },
+      "external_signing_note": "Mozilla extension signing is separate from Sigstore/Cosign release asset signing."
+    },
+    {
+      "id": "public-media-export-release",
+      "artifact_class": "public_media_export",
+      "artifact_patterns": ["docs/**/*.pdf", "generated/**/*.pdf", "docs/**/*.png", "generated/**/*.png"],
+      "public_repo_policy": "source_review_required",
+      "staging_route": "/srv/abyss-machine/artifacts/media",
+      "required_controls": ["c2pa"],
+      "sidecar_extensions": {
+        "c2pa": [".c2pa", ".c2pa.json"]
+      }
+    }
+  ],
+  "forbidden_public_inputs": [
+    "/var/lib/abyss-machine",
+    "/srv/abyss-machine/cache",
+    "/srv/abyss-machine/runtimes",
+    "/srv/abyss-machine/storage",
+    "/srv/abyss-machine/tmp",
+    "/srv/abyss-machine/backups",
+    "/abyss/Backups"
+  ],
+  "implementation_order": [
+    "validate this policy in source-fast CI",
+    "publish ABI signatures as a deterministic generated read model",
+    "add release-time SBOM and minimal SLSA/in-toto provenance for built artifacts",
+    "add Sigstore/Cosign only when release assets, blobs, or OCI artifacts exist",
+    "add C2PA only for public media/content exports"
+  ]
+}

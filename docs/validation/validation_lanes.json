@@ -1,24 +1,66 @@
 {
   "schema_version": 1,
+  "runner_contexts": {
+    "os_abyss_local_cli": {
+      "role": "Canonical OS Abyss CLI runner for validation lanes in a repo checkout.",
+      "runner_type": "canonical",
+      "requires_private_host_state": false
+    },
+    "os_abyss_host_scheduler": {
+      "role": "Installed OS Abyss timer or service adapter for recurring public-safe canaries.",
+      "runner_type": "adapter",
+      "requires_private_host_state": false
+    },
+    "github_actions": {
+      "role": "Public CI and canary adapter that runs the portable lane entrypoints.",
+      "runner_type": "adapter",
+      "requires_private_host_state": false
+    },
+    "release_pipeline": {
+      "role": "Publication adapter that gates release artifacts before upload or signing.",
+      "runner_type": "adapter",
+      "requires_private_host_state": false
+    },
+    "os_abyss_host_contract": {
+      "role": "Installed-host contract runner for local OS Abyss machine checks.",
+      "runner_type": "adapter",
+      "requires_private_host_state": true
+    }
+  },
   "lanes": {
     "source-fast": {
       "command_sequence": "source_fast",
       "owner_surface": "public source scaffold",
+      "runner_contexts": ["os_abyss_local_cli", "os_abyss_host_scheduler", "github_actions"],
+      "public_safe": true,
       "failure_route": "scripts/validators/README.md"
     },
     "host-contract": {
       "command_sequence": "host_contract",
       "owner_surface": "host contract migration lane",
+      "runner_contexts": ["os_abyss_local_cli", "os_abyss_host_contract"],
+      "public_safe": false,
       "failure_route": "tests/host_contract/README.md"
     },
     "release-public": {
       "command_sequence": "release_public",
       "owner_surface": "public release gate",
+      "runner_contexts": ["os_abyss_local_cli", "os_abyss_host_scheduler", "github_actions", "release_pipeline"],
+      "public_safe": true,
+      "failure_route": "docs/validation/VALIDATOR_TOPOLOGY.md"
+    },
+    "release-artifact": {
+      "command_sequence": "release_artifact",
+      "owner_surface": "release artifact signature and provenance policy",
+      "runner_contexts": ["os_abyss_local_cli", "os_abyss_host_scheduler", "github_actions", "release_pipeline"],
+      "public_safe": true,
       "failure_route": "docs/validation/VALIDATOR_TOPOLOGY.md"
     },
     "release-full": {
       "command_sequence": "release_full",
       "owner_surface": "local full release gate",
+      "runner_contexts": ["os_abyss_local_cli", "release_pipeline", "os_abyss_host_contract"],
+      "public_safe": false,
       "failure_route": "docs/validation/VALIDATOR_TOPOLOGY.md"
     }
   },
@@ -31,6 +73,8 @@
       {"label": "schema integrity", "command": ["python", "scripts/validators/schema_integrity.py"]},
       {"label": "bootstrap contract", "command": ["python", "scripts/validators/bootstrap_contract.py"]},
       {"label": "public boundary", "command": ["python", "scripts/validators/public_boundary.py"]},
+      {"label": "artifact signature policy", "command": ["python", "scripts/validators/artifact_signature_policy.py"]},
+      {"label": "contract ABI signatures", "command": ["python", "scripts/generate_contract_abi_signatures.py", "--check"]},
       {"label": "scaffold index", "command": ["python", "scripts/generate_scaffold_index.py", "--check"]},
       {"label": "compile source", "command": ["python", "-m", "compileall", "-q", "src", "scripts"]},
       {"label": "public smoke tests", "command": ["python", "-m", "pytest", "-q"]}
@@ -39,10 +83,17 @@
       {"label": "host contract quick lane", "command": ["tools/abyss-machine-test", "quick", "--json"]}
     ],
     "release_public": [
-      {"label": "source fast gate", "command": ["python", "scripts/ci_gate.py", "--mode", "source-fast"]}
+      {"label": "source fast gate", "command": ["python", "scripts/ci_gate.py", "--mode", "source-fast"]},
+      {"label": "release artifact gate", "command": ["python", "scripts/ci_gate.py", "--mode", "release-artifact"]}
+    ],
+    "release_artifact": [
+      {"label": "artifact signature policy", "command": ["python", "scripts/validators/artifact_signature_policy.py"]},
+      {"label": "contract ABI signatures", "command": ["python", "scripts/generate_contract_abi_signatures.py", "--check"]},
+      {"label": "release artifact policy", "command": ["python", "scripts/validators/release_artifact_policy.py"]}
     ],
     "release_full": [
       {"label": "source fast gate", "command": ["python", "scripts/ci_gate.py", "--mode", "source-fast"]},
+      {"label": "release artifact gate", "command": ["python", "scripts/ci_gate.py", "--mode", "release-artifact"]},
       {"label": "host contract gate", "command": ["python", "scripts/ci_gate.py", "--mode", "host-contract"]}
     ]
   }

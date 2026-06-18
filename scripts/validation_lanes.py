@@ -10,6 +10,15 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "docs" / "validation" / "validation_lanes.json"
+REQUIRED_RUNNER_CONTEXTS = {
+    "os_abyss_local_cli",
+    "os_abyss_host_scheduler",
+    "release_pipeline",
+}
+REQUIRED_CONTEXTS_BY_LANE = {
+    "source-fast": {"os_abyss_local_cli"},
+    "release-artifact": {"os_abyss_local_cli", "release_pipeline"},
+}
 
 
 @dataclass(frozen=True)
@@ -40,10 +49,26 @@ def validate_manifest(payload: dict[str, Any]) -> None:
         raise ManifestError("validation lane manifest schema_version must be 1")
     lanes = payload.get("lanes")
     sequences = payload.get("command_sequences")
+    runner_contexts = payload.get("runner_contexts")
     if not isinstance(lanes, dict) or not lanes:
         raise ManifestError("validation lane manifest must define lanes")
     if not isinstance(sequences, dict) or not sequences:
         raise ManifestError("validation lane manifest must define command_sequences")
+    if not isinstance(runner_contexts, dict) or not runner_contexts:
+        raise ManifestError("validation lane manifest must define runner_contexts")
+
+    missing_contexts = sorted(REQUIRED_RUNNER_CONTEXTS - set(runner_contexts))
+    if missing_contexts:
+        raise ManifestError(f"validation lane manifest missing runner_contexts: {', '.join(missing_contexts)}")
+
+    for context_id, context in runner_contexts.items():
+        if not isinstance(context, dict):
+            raise ManifestError(f"runner_context {context_id!r} must be an object")
+        for key in ("role", "runner_type"):
+            if not isinstance(context.get(key), str) or not context[key]:
+                raise ManifestError(f"runner_context {context_id!r} must define {key}")
+        if not isinstance(context.get("requires_private_host_state"), bool):
+            raise ManifestError(f"runner_context {context_id!r} must define boolean requires_private_host_state")
 
     for lane_id, lane in lanes.items():
         if not isinstance(lane, dict):
@@ -56,6 +81,31 @@ def validate_manifest(payload: dict[str, Any]) -> None:
         for key in ("owner_surface", "failure_route"):
             if not isinstance(lane.get(key), str) or not lane[key]:
                 raise ManifestError(f"lane {lane_id!r} must define {key}")
+        lane_contexts = lane.get("runner_contexts")
+        if not isinstance(lane_contexts, list) or not lane_contexts:
+            raise ManifestError(f"lane {lane_id!r} must define runner_contexts")
+        if not all(isinstance(item, str) and item for item in lane_contexts):
+            raise ManifestError(f"lane {lane_id!r} runner_contexts must be non-empty strings")
+        unknown_contexts = sorted(set(lane_contexts) - set(runner_contexts))
+        if unknown_contexts:
+            raise ManifestError(f"lane {lane_id!r} references unknown runner_contexts: {', '.join(unknown_contexts)}")
+        required_contexts = REQUIRED_CONTEXTS_BY_LANE.get(lane_id, set())
+        missing_required = sorted(required_contexts - set(lane_contexts))
+        if missing_required:
+            raise ManifestError(f"lane {lane_id!r} missing required runner_contexts: {', '.join(missing_required)}")
+        public_safe = lane.get("public_safe")
+        if not isinstance(public_safe, bool):
+            raise ManifestError(f"lane {lane_id!r} must define boolean public_safe")
+        if public_safe:
+            private_contexts = sorted(
+                context_id
+                for context_id in lane_contexts
+                if runner_contexts[context_id].get("requires_private_host_state") is True
+            )
+            if private_contexts:
+                raise ManifestError(
+                    f"lane {lane_id!r} is public_safe but uses private runner_contexts: {', '.join(private_contexts)}"
+                )
 
     for sequence_id, steps in sequences.items():
         if not isinstance(steps, list) or not steps:
@@ -106,7 +156,8 @@ def main() -> int:
     print("[ok] validation lane manifest passed")
     for lane_id in sorted(manifest["lanes"]):
         lane = manifest["lanes"][lane_id]
-        print(f"- {lane_id}: {lane['command_sequence']} -> {lane['failure_route']}")
+        contexts = ", ".join(lane["runner_contexts"])
+        print(f"- {lane_id}: {lane['command_sequence']} [{contexts}] -> {lane['failure_route']}")
     return 0
 
 

@@ -23,3 +23,11 @@ publication as the main security risk.
 
 Run public tests and scan the staged tree for obvious token patterns and known
 private path classes before pushing.
+
+Artifact signing policy is public and source-safe. Contract ABI signatures
+fingerprint public source surfaces only; do not sign or publish live host
+evidence, secrets, captures, model caches, runtimes, or backup material as a
+release substitute.
+
+Validation lanes are runner-neutral OS Abyss contracts. Public lanes use
+public-safe inputs only.

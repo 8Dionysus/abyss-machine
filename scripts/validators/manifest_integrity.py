@@ -13,6 +13,7 @@ EXPECTED_SCHEMAS = {
     "bootstrap_profiles.manifest.json": "abyss_machine_bootstrap_profiles_manifest_v1",
     "public_boundary.manifest.json": "abyss_machine_public_boundary_manifest_v1",
     "schema_inventory.manifest.json": "abyss_machine_schema_inventory_manifest_v1",
+    "artifact_signature_policy.manifest.json": "abyss_machine_artifact_signature_policy_manifest_v1",
 }
 
 
@@ -27,11 +28,15 @@ def main() -> int:
     profiles = load_json(MANIFEST_ROOT / "bootstrap_profiles.manifest.json")
     boundary = load_json(MANIFEST_ROOT / "public_boundary.manifest.json")
     inventory = load_json(MANIFEST_ROOT / "schema_inventory.manifest.json")
+    signature_policy = load_json(MANIFEST_ROOT / "artifact_signature_policy.manifest.json")
 
     require(bool(scaffold.get("mechanics_packages")), "repo scaffold manifest must name mechanics packages", failures)
     require(isinstance(profiles.get("profiles"), dict) and bool(profiles["profiles"]), "bootstrap profiles manifest must name profiles", failures)
     require(bool(boundary.get("forbidden_tracked_path_prefixes")), "public boundary manifest must name forbidden prefixes", failures)
     require(bool(inventory.get("schemas")), "schema inventory manifest must name schemas", failures)
+    require(bool(signature_policy.get("artifact_classes")), "artifact signature policy must name artifact classes", failures)
+    require(bool(signature_policy.get("contract_surfaces")), "artifact signature policy must name contract surfaces", failures)
+    require(bool(signature_policy.get("release_artifact_rules")), "artifact signature policy must name release artifact rules", failures)
 
     for path in sorted(MANIFEST_ROOT.glob("*.json")):
         try:
