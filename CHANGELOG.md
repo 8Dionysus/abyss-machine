@@ -10,6 +10,8 @@
   sidecar requirements without requiring signing keys in ordinary CI.
 - Add a portable OS Abyss runner contract so local CLI, host scheduler, release
   pipeline, and GitHub Actions adapters share the same validation entrypoints.
+- Add the family-standard GitHub landing workflow to the root route card and
+  name the public workflow `Repo Validation`.
 
 ## 0.1.0
 
