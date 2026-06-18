@@ -1,0 +1,26 @@
+# Narrow ownership map for public host-machine surfaces.
+/.github/ @8Dionysus
+/config-templates/ @8Dionysus
+/docs/ @8Dionysus
+/env/ @8Dionysus
+/generated/ @8Dionysus
+/manifests/ @8Dionysus
+/mechanics/ @8Dionysus
+/schemas/ @8Dionysus
+/scripts/ @8Dionysus
+/src/ @8Dionysus
+/systemd/ @8Dionysus
+/tests/ @8Dionysus
+/tools/ @8Dionysus
+
+/AGENTS.md @8Dionysus
+/BOUNDARIES.md @8Dionysus
+/CHANGELOG.md @8Dionysus
+/DESIGN.AGENTS.md @8Dionysus
+/DESIGN.md @8Dionysus
+/LICENSE @8Dionysus
+/README.md @8Dionysus
+/ROADMAP.md @8Dionysus
+/SECURITY.md @8Dionysus
+/pyproject.toml @8Dionysus
+/pytest.ini @8Dionysus
