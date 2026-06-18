@@ -25,7 +25,7 @@ def tracked_files() -> set[str]:
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "git ls-files failed")
-    return {line for line in result.stdout.splitlines() if line}
+    return {line for line in result.stdout.splitlines() if line and (REPO_ROOT / line).is_file()}
 
 
 def matches_any(path_text: str, patterns: list[str]) -> bool:

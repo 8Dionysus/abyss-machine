@@ -14,7 +14,7 @@
     "pytest.ini"
   ],
   "districts": {
-    ".github": ["AGENTS.md", "workflows/ci.yml"],
+    ".github": ["AGENTS.md", "CODEOWNERS", "GITHUB_SURFACE.md", "pull_request_template.md", "workflows/repo-validation.yml"],
     "config-templates": ["AGENTS.md", "README.md", "etc/abyss-machine/AGENTS.md"],
     "docs": ["AGENTS.md", "README.md"],
     "env": ["AGENTS.md", "README.md", ".env.example"],

@@ -12,6 +12,9 @@
   pipeline, and GitHub Actions adapters share the same validation entrypoints.
 - Add the family-standard GitHub landing workflow to the root route card and
   name the public workflow `Repo Validation`.
+- Align the GitHub platform surface with sibling repository landing policy:
+  CODEOWNERS, PR template, surface map, protected `Repo Validation` check, and
+  auto-deleted merge branches.
 
 ## 0.1.0
 

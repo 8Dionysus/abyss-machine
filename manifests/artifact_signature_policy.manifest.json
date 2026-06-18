@@ -82,7 +82,7 @@
       "epoch": "v1",
       "artifact_class": "public_source_seed",
       "source_paths": [
-        ".github/workflows/ci.yml",
+        ".github",
         "AGENTS.md",
         "README.md",
         "DESIGN.md",

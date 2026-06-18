@@ -39,7 +39,7 @@ def tracked_files() -> list[str]:
     )
     if result.returncode != 0:
         raise ValidationError(result.stderr.strip() or "git ls-files failed")
-    return [line for line in result.stdout.splitlines() if line]
+    return [line for line in result.stdout.splitlines() if line and (REPO_ROOT / line).is_file()]
 
 
 def fail(message: str, details: list[str] | None = None) -> int:
