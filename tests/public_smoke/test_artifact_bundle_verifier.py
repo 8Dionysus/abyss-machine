@@ -267,7 +267,7 @@ def test_abyss_stack_runtime_config_bundle_generates_runtime_config_controls(tmp
 
 def test_aoa_evals_generated_report_index_bundle_generates_report_index_controls(tmp_path: Path) -> None:
     sibling = tmp_path / "aoa-evals"
-    manifest_dir = sibling / "mechanics" / "release-support" / "manifests"
+    manifest_dir = sibling / "mechanics" / "release-support" / "parts" / "artifact-bundles" / "manifests"
     generated = sibling / "generated"
     manifest_dir.mkdir(parents=True)
     generated.mkdir(parents=True)
@@ -292,9 +292,9 @@ def test_aoa_evals_generated_report_index_bundle_generates_report_index_controls
         "id": "aoa-evals-generated-report-index-bundle",
         "artifact_class": "aoa_evals_generated_report_index_bundle",
         "owner_repo": "aoa-evals",
-        "policy_ref": artifact_bundles.POLICY_REF,
+        "policy_ref": artifact_bundles.POLICY_REF_REPO_QUALIFIED,
         "mode": "github_release",
-        "subject_repo_root": "../../..",
+        "subject_repo_root": "../../../../..",
         "build_type": "https://abyssos.local/buildtypes/aoa-evals-generated-report-index/v1",
         "artifact_identity": {
             "artifact_class": "aoa_evals_generated_report_index_bundle",
@@ -328,7 +328,7 @@ def test_aoa_evals_generated_report_index_bundle_generates_report_index_controls
     assert build["ok"] is True
     assert sign["status"] == "not_required"
     assert verify["ok"] is True
-    assert identity["bundle_manifest_ref"] == "mechanics/release-support/manifests/report_index.bundle.json"
+    assert identity["bundle_manifest_ref"] == "mechanics/release-support/parts/artifact-bundles/manifests/report_index.bundle.json"
     assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
     assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
     assert abi["external_subject"]["path"] == "generated/eval_report_index.min.json"
