@@ -13,5 +13,6 @@ checks.
   portable runner, local provenance, SBOM/ML-BOM, SLSA/in-toto,
   Sigstore/Cosign, C2PA, and deferred TUF/SCITT policy by artifact class. The
   `abyss-machine artifacts build-sidecars`, `sign`, `verify`, and
-  `release-check` commands consume this policy for the `public_source_seed`
-  and OS Abyss local provenance bundle roundtrips.
+  `release-check` commands consume this policy for the `public_source_seed`,
+  external package subjects such as `aoa_sdk_python_distribution`, and OS Abyss
+  local provenance bundle roundtrips.

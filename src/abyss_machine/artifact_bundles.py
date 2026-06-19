@@ -3,6 +3,8 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import tomllib
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -17,13 +19,17 @@ PROVENANCE_SIDECAR = "artifact.provenance.json"
 LOCAL_PROVENANCE_SIDECAR = "artifact.local-provenance.json"
 SIGNATURE_DECISION_SIDECAR = "artifact.signature-decision.json"
 VERIFY_SIDECAR = "artifact.verify.json"
+SUBJECTS_SIDECAR = "artifact.subjects.json"
+SBOM_CYCLONEDX_SIDECAR = "artifact.sbom.cdx.json"
+SBOM_SPDX_SIDECAR = "artifact.sbom.spdx.json"
+SLSA_INTOTO_SIDECAR = "artifact.provenance.intoto.jsonl"
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
 CONTROL_FILES = {
     "abi_signature": [ABI_SIDECAR],
     "local_provenance": [LOCAL_PROVENANCE_SIDECAR],
-    "sbom": ["artifact.sbom.cdx.json", "artifact.sbom.spdx.json"],
+    "sbom": [SBOM_CYCLONEDX_SIDECAR, SBOM_SPDX_SIDECAR],
     "ml_bom": ["artifact.mlbom.cdx.json"],
-    "slsa_in_toto": ["artifact.provenance.intoto.jsonl", "artifact.provenance.json"],
+    "slsa_in_toto": [SLSA_INTOTO_SIDECAR],
     "sigstore_cosign": ["artifact.cosign.bundle", "artifact.sigstore.json"],
     "c2pa": ["artifact.c2pa", "artifact.c2pa.json"],
 }
@@ -53,6 +59,10 @@ def _stable_digest(payload: Any) -> str:
 
 def _file_digest(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _file_digest_hex(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def load_policy(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
@@ -245,19 +255,51 @@ def _json_pointer_get(payload: Any, pointer: str) -> Any:
     return current
 
 
-def build_external_abi_subject(manifest: dict[str, Any]) -> dict[str, Any] | None:
-    subject = manifest.get("abi_subject")
-    if not isinstance(subject, dict):
-        return None
+def _subject_repo_root(manifest: dict[str, Any]) -> Path:
     manifest_path = Path(str(manifest.get("_manifest_path") or ""))
     subject_root = Path(str(manifest.get("subject_repo_root") or "."))
     if not subject_root.is_absolute():
         subject_root = (manifest_path.parent / subject_root).resolve()
+    return subject_root.resolve()
+
+
+def _public_subject_root_ref(manifest: dict[str, Any]) -> str:
+    subject_root_ref = str(manifest.get("subject_repo_root") or ".")
+    if Path(subject_root_ref).is_absolute():
+        return "absolute-subject-root"
+    return subject_root_ref
+
+
+def _public_manifest_ref(manifest: dict[str, Any] | None, manifest_ref: str | Path | None = None) -> str | None:
+    if manifest_ref is not None:
+        candidate = Path(str(manifest_ref))
+        if not candidate.is_absolute():
+            return candidate.as_posix()
+    if not isinstance(manifest, dict) or not manifest.get("_manifest_path"):
+        return None
+    manifest_path = Path(str(manifest["_manifest_path"])).resolve()
+    try:
+        return manifest_path.relative_to(_subject_repo_root(manifest)).as_posix()
+    except ValueError:
+        return manifest_path.name
+
+
+def _safe_repo_relative_path(path_text: str, *, field: str) -> Path:
+    path = Path(path_text)
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"{field} must be repo-relative and safe: {path_text}")
+    return path
+
+
+def build_external_abi_subject(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    subject = manifest.get("abi_subject")
+    if not isinstance(subject, dict):
+        return None
+    subject_root = _subject_repo_root(manifest)
     subject_path_text = str(subject.get("path") or "")
     if not subject_path_text:
         raise ValueError("abi_subject.path is required")
-    if Path(subject_path_text).is_absolute() or ".." in Path(subject_path_text).parts:
-        raise ValueError(f"abi_subject.path must be repo-relative and safe: {subject_path_text}")
+    _safe_repo_relative_path(subject_path_text, field="abi_subject.path")
     subject_path = subject_root / subject_path_text
     if not subject_path.is_file():
         raise ValueError(f"abi_subject.path does not exist: {subject_path}")
@@ -266,7 +308,7 @@ def build_external_abi_subject(manifest: dict[str, Any]) -> dict[str, Any] | Non
         "schema": "abyss_machine_external_abi_subject_v1",
         "artifact_class": manifest.get("artifact_class"),
         "owner_repo": manifest.get("owner_repo"),
-        "repo_root": str(subject_root),
+        "repo_root_ref": _public_subject_root_ref(manifest),
         "path": subject_path_text,
         "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
         "bytes": len(raw),
@@ -280,6 +322,263 @@ def build_external_abi_subject(manifest: dict[str, Any]) -> dict[str, Any] | Non
         external["artifact_identity_pointer"] = pointer
         external["artifact_identity"] = artifact_identity
     return external
+
+
+def build_artifact_subjects(manifest: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(manifest, dict):
+        return None
+    specs = manifest.get("artifact_subjects")
+    if not isinstance(specs, list):
+        return None
+    subject_root = _subject_repo_root(manifest)
+    files: dict[str, dict[str, Any]] = {}
+    for idx, spec in enumerate(specs):
+        if not isinstance(spec, dict):
+            raise ValueError(f"artifact_subjects[{idx}] must be an object")
+        role = str(spec.get("role") or "artifact")
+        candidates: list[Path] = []
+        if spec.get("path"):
+            path_text = str(spec["path"])
+            _safe_repo_relative_path(path_text, field=f"artifact_subjects[{idx}].path")
+            candidates = [subject_root / path_text]
+        elif spec.get("glob"):
+            pattern = str(spec["glob"])
+            _safe_repo_relative_path(pattern, field=f"artifact_subjects[{idx}].glob")
+            candidates = sorted(path for path in subject_root.glob(pattern) if path.is_file())
+        else:
+            raise ValueError(f"artifact_subjects[{idx}] must define path or glob")
+        if not candidates:
+            raise ValueError(f"artifact_subjects[{idx}] matched no files")
+        for path in candidates:
+            resolved = path.resolve()
+            try:
+                rel = resolved.relative_to(subject_root).as_posix()
+            except ValueError as exc:
+                raise ValueError(f"artifact subject escapes subject_repo_root: {path}") from exc
+            if not resolved.is_file():
+                raise ValueError(f"artifact subject does not exist: {resolved}")
+            digest = _file_digest_hex(resolved)
+            files[rel] = {
+                "path": rel,
+                "role": role,
+                "bytes": resolved.stat().st_size,
+                "sha256": f"sha256:{digest}",
+                "sha256_hex": digest,
+            }
+    entries = [files[key] for key in sorted(files)]
+    return {
+        "schema": "abyss_machine_artifact_subjects_v1",
+        "bundle_layout": BUNDLE_LAYOUT,
+        "owner_repo": manifest.get("owner_repo"),
+        "artifact_class": manifest.get("artifact_class"),
+        "repo_root_ref": _public_subject_root_ref(manifest),
+        "path_basis": "repo_relative",
+        "files": entries,
+        "aggregate_digest": _stable_digest(entries),
+    }
+
+
+def _package_metadata_from_manifest(manifest: dict[str, Any] | None, subjects: dict[str, Any] | None) -> dict[str, Any]:
+    package = manifest.get("package") if isinstance(manifest, dict) else None
+    package = package if isinstance(package, dict) else {}
+    subject_root = _subject_repo_root(manifest) if isinstance(manifest, dict) else None
+    pyproject_data: dict[str, Any] = {}
+    pyproject_ref = str(package.get("pyproject") or "")
+    if subject_root is not None and pyproject_ref:
+        _safe_repo_relative_path(pyproject_ref, field="package.pyproject")
+        pyproject_path = subject_root / pyproject_ref
+        if pyproject_path.is_file():
+            pyproject_data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    project = pyproject_data.get("project") if isinstance(pyproject_data.get("project"), dict) else {}
+    fallback_name = manifest.get("owner_repo") if isinstance(manifest, dict) else "artifact"
+    name = str(package.get("name") or project.get("name") or fallback_name)
+    version = str(package.get("version") or project.get("version") or "0")
+    dependencies = project.get("dependencies") if isinstance(project.get("dependencies"), list) else []
+    license_value = project.get("license")
+    if isinstance(license_value, dict):
+        license_text = str(license_value.get("text") or "NOASSERTION")
+    elif isinstance(license_value, str):
+        license_text = license_value
+    else:
+        license_text = str(package.get("license") or "NOASSERTION")
+    subject_files = subjects.get("files") if isinstance(subjects, dict) and isinstance(subjects.get("files"), list) else []
+    return {
+        "name": name,
+        "version": version,
+        "purl": str(package.get("purl") or f"pkg:pypi/{name}@{version}"),
+        "ecosystem": str(package.get("ecosystem") or "python"),
+        "license": license_text,
+        "dependencies": [str(item) for item in dependencies],
+        "subject_count": len(subject_files),
+    }
+
+
+def _dependency_name(requirement: str) -> str:
+    for marker in (";", "[", "<", ">", "=", "~", "!"):
+        requirement = requirement.split(marker, 1)[0]
+    return requirement.strip()
+
+
+def build_sbom_sidecars(
+    *,
+    manifest: dict[str, Any] | None,
+    identity: dict[str, Any],
+    subjects: dict[str, Any],
+    policy: dict[str, Any],
+    created_at: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    package = _package_metadata_from_manifest(manifest, subjects)
+    subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
+    serial = uuid.uuid5(uuid.NAMESPACE_URL, str(subjects.get("aggregate_digest") or _stable_digest(subjects)))
+    cdx_components: list[dict[str, Any]] = [
+        {
+            "type": "file",
+            "name": str(item["path"]),
+            "bom-ref": f"file:{item['path']}",
+            "hashes": [{"alg": "SHA-256", "content": str(item["sha256_hex"])}],
+            "properties": [{"name": "abyss:artifactRole", "value": str(item.get("role") or "artifact")}],
+        }
+        for item in subject_files
+    ]
+    for dependency in package["dependencies"]:
+        dep_name = _dependency_name(dependency)
+        if dep_name:
+            cdx_components.append(
+                {
+                    "type": "library",
+                    "name": dep_name,
+                    "bom-ref": f"dependency:{dep_name}",
+                    "properties": [{"name": "abyss:requirement", "value": dependency}],
+                }
+            )
+    cdx = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.7",
+        "serialNumber": f"urn:uuid:{serial}",
+        "version": 1,
+        "metadata": {
+            "timestamp": created_at,
+            "tools": {
+                "components": [
+                    {
+                        "type": "application",
+                        "name": "abyss-machine",
+                        "version": str(policy.get("policy_version") or "unknown"),
+                    }
+                ]
+            },
+            "component": {
+                "type": "library",
+                "name": package["name"],
+                "version": package["version"],
+                "purl": package["purl"],
+                "bom-ref": package["purl"],
+            },
+        },
+        "components": cdx_components,
+        "properties": [
+            {"name": "abyss:artifactClass", "value": str(identity.get("artifact_class"))},
+            {"name": "abyss:policyRef", "value": POLICY_REF},
+            {"name": "abyss:subjectAggregateDigest", "value": str(subjects.get("aggregate_digest"))},
+        ],
+    }
+
+    spdx_packages = [
+        {
+            "name": package["name"],
+            "SPDXID": "SPDXRef-Package",
+            "versionInfo": package["version"],
+            "downloadLocation": "NOASSERTION",
+            "filesAnalyzed": False,
+            "licenseConcluded": "NOASSERTION",
+            "licenseDeclared": package["license"],
+            "externalRefs": [{"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl", "referenceLocator": package["purl"]}],
+        }
+    ]
+    relationships = []
+    for idx, item in enumerate(subject_files, start=1):
+        spdx_id = f"SPDXRef-Artifact-{idx}"
+        spdx_packages.append(
+            {
+                "name": str(item["path"]),
+                "SPDXID": spdx_id,
+                "downloadLocation": "NOASSERTION",
+                "filesAnalyzed": False,
+                "licenseConcluded": "NOASSERTION",
+                "licenseDeclared": "NOASSERTION",
+                "checksums": [{"algorithm": "SHA256", "checksumValue": str(item["sha256_hex"])}],
+            }
+        )
+        relationships.append(
+            {
+                "spdxElementId": "SPDXRef-Package",
+                "relationshipType": "CONTAINS",
+                "relatedSpdxElement": spdx_id,
+            }
+        )
+    spdx = {
+        "spdxVersion": "SPDX-2.3",
+        "dataLicense": "CC0-1.0",
+        "SPDXID": "SPDXRef-DOCUMENT",
+        "name": f"{package['name']}-{package['version']}-sbom",
+        "documentNamespace": f"https://abyss.local/spdx/{serial}",
+        "creationInfo": {
+            "created": created_at,
+            "creators": ["Tool: abyss-machine"],
+        },
+        "packages": spdx_packages,
+        "relationships": relationships,
+    }
+    return cdx, spdx
+
+
+def build_slsa_statement(
+    *,
+    manifest: dict[str, Any] | None,
+    identity: dict[str, Any],
+    subjects: dict[str, Any],
+    created_at: str,
+    producer_command: str,
+) -> dict[str, Any]:
+    subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
+    source_refs = [POLICY_REF]
+    if isinstance(manifest, dict):
+        source_refs.append(str(_public_manifest_ref(manifest) or ""))
+    aggregate_digest = str(subjects.get("aggregate_digest") or "").removeprefix("sha256:")
+    return {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+            {"name": str(item["path"]), "digest": {"sha256": str(item["sha256_hex"])}}
+            for item in subject_files
+        ],
+        "predicateType": "https://slsa.dev/provenance/v1",
+        "predicate": {
+            "buildDefinition": {
+                "buildType": "https://abyssos.local/buildtypes/python-distribution/v1",
+                "externalParameters": {
+                    "artifact_class": identity.get("artifact_class"),
+                    "mode": identity.get("mode"),
+                    "producer_command": producer_command,
+                    "bundle_manifest_ref": identity.get("bundle_manifest_ref"),
+                },
+                "internalParameters": {},
+                "resolvedDependencies": [
+                    {"uri": ref, "digest": {}} for ref in source_refs if ref
+                ],
+            },
+            "runDetails": {
+                "builder": {"id": "https://abyssos.local/builders/abyss-machine-artifacts"},
+                "metadata": {
+                    "invocationId": str(subjects.get("aggregate_digest")),
+                    "startedOn": created_at,
+                    "finishedOn": created_at,
+                },
+                "byproducts": [
+                    {"name": SUBJECTS_SIDECAR, "digest": {"sha256": aggregate_digest}}
+                ],
+            },
+        },
+    }
 
 
 def build_sidecars(
@@ -302,6 +601,9 @@ def build_sidecars(
     rule = artifact_class_rule(artifact_class, repo_root=repo_root)
     required = required_controls_for_rule(rule)
     deferred = deferred_controls_for_rule(rule)
+    artifact_subjects = build_artifact_subjects(manifest)
+    if any(control in required for control in ("sbom", "slsa_in_toto", "sigstore_cosign")) and artifact_subjects is None:
+        raise ValueError(f"{artifact_class} requires artifact_subjects in the bundle manifest")
     surface: dict[str, Any] | None = None
     external_subject: dict[str, Any] | None = None
     if "abi_signature" in required:
@@ -315,6 +617,7 @@ def build_sidecars(
                 raise
     bundle = Path(bundle_dir)
     bundle.mkdir(parents=True, exist_ok=True)
+    bundle_manifest_public_ref = _public_manifest_ref(manifest, manifest_ref)
 
     identity = dict(rule["identity"])
     identity.update(
@@ -323,7 +626,7 @@ def build_sidecars(
             "bundle_layout": BUNDLE_LAYOUT,
             "policy_ref": POLICY_REF,
             "policy_version": policy.get("policy_version"),
-            "bundle_manifest_ref": str(manifest_ref) if manifest_ref else None,
+            "bundle_manifest_ref": bundle_manifest_public_ref,
             "contract_surface_id": surface.get("id") if surface else None,
             "mode": mode,
             "required_controls": required,
@@ -335,10 +638,11 @@ def build_sidecars(
         source_refs.append(ABI_REF)
     if external_subject:
         source_refs.append(str(external_subject.get("path")))
-    if manifest_ref:
-        source_refs.append(str(manifest_ref))
+    if bundle_manifest_public_ref:
+        source_refs.append(bundle_manifest_public_ref)
     if surface:
         source_refs.extend(str(item) for item in surface.get("source_paths", []))
+    created_at = _utc_now()
     provenance = {
         "schema": "abyss_machine_minimal_provenance_v1",
         "bundle_layout": BUNDLE_LAYOUT,
@@ -347,7 +651,7 @@ def build_sidecars(
         "activity": "build_artifact_bundle_sidecars",
         "agent_or_tool": "abyss-machine",
         "producer_command": producer_command,
-        "created_at": _utc_now(),
+        "created_at": created_at,
         "source_refs": source_refs,
         "subject": {
             "contract_surface_id": surface.get("id") if surface else None,
@@ -364,6 +668,9 @@ def build_sidecars(
         "public_repo_content": artifact_class != "host_local_evidence",
         "not_slsa_release_provenance": "minimal OS Abyss bundle provenance; SLSA/in-toto is required only when policy triggers a publishable release artifact",
     }
+    if artifact_subjects is not None:
+        provenance["artifact_subjects_ref"] = SUBJECTS_SIDECAR
+        provenance["artifact_subjects_digest"] = artifact_subjects.get("aggregate_digest")
 
     written = [IDENTITY_SIDECAR, PROVENANCE_SIDECAR]
     _write_json(bundle / IDENTITY_SIDECAR, identity)
@@ -382,6 +689,33 @@ def build_sidecars(
         _write_json(bundle / ABI_SIDECAR, abi_sidecar)
         written.append(ABI_SIDECAR)
     _write_json(bundle / PROVENANCE_SIDECAR, provenance)
+    if artifact_subjects is not None:
+        _write_json(bundle / SUBJECTS_SIDECAR, artifact_subjects)
+        written.append(SUBJECTS_SIDECAR)
+    if "sbom" in required:
+        cdx, spdx = build_sbom_sidecars(
+            manifest=manifest,
+            identity=identity,
+            subjects=artifact_subjects or {},
+            policy=policy,
+            created_at=created_at,
+        )
+        _write_json(bundle / SBOM_CYCLONEDX_SIDECAR, cdx)
+        _write_json(bundle / SBOM_SPDX_SIDECAR, spdx)
+        written.extend([SBOM_CYCLONEDX_SIDECAR, SBOM_SPDX_SIDECAR])
+    if "slsa_in_toto" in required:
+        statement = build_slsa_statement(
+            manifest=manifest,
+            identity=identity,
+            subjects=artifact_subjects or {},
+            created_at=created_at,
+            producer_command=producer_command,
+        )
+        (bundle / SLSA_INTOTO_SIDECAR).write_text(
+            json.dumps(statement, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        written.append(SLSA_INTOTO_SIDECAR)
     if "local_provenance" in required:
         local_packet = build_local_provenance_packet(
             identity,
@@ -518,6 +852,114 @@ def _validate_local_provenance_packet(
             errors.append(f"artifact.local-provenance.json {key} must be a non-empty string list")
 
 
+def _subject_digest_hexes(subjects: dict[str, Any], errors: list[str]) -> set[str]:
+    files = subjects.get("files")
+    if not isinstance(files, list) or not files:
+        errors.append("artifact.subjects.json must define non-empty files")
+        return set()
+    digests: set[str] = set()
+    for idx, item in enumerate(files):
+        if not isinstance(item, dict):
+            errors.append(f"artifact.subjects.json files[{idx}] must be an object")
+            continue
+        path = item.get("path")
+        digest = str(item.get("sha256_hex") or str(item.get("sha256") or "").removeprefix("sha256:"))
+        if not isinstance(path, str) or not path:
+            errors.append(f"artifact.subjects.json files[{idx}] must define path")
+        if len(digest) != 64:
+            errors.append(f"artifact.subjects.json files[{idx}] must define sha256")
+        else:
+            digests.add(digest)
+    return digests
+
+
+def _validate_sbom_sidecars(bundle: Path, subjects: dict[str, Any], errors: list[str]) -> None:
+    expected = _subject_digest_hexes(subjects, errors)
+    if not expected:
+        return
+    seen: set[str] = set()
+    cdx_path = bundle / SBOM_CYCLONEDX_SIDECAR
+    if cdx_path.is_file():
+        cdx = _read_json(cdx_path)
+        if cdx.get("bomFormat") != "CycloneDX":
+            errors.append("artifact.sbom.cdx.json bomFormat must be CycloneDX")
+        if not cdx.get("specVersion"):
+            errors.append("artifact.sbom.cdx.json must define specVersion")
+        components = cdx.get("components")
+        if not isinstance(components, list):
+            errors.append("artifact.sbom.cdx.json must define components")
+        else:
+            for component in components:
+                if not isinstance(component, dict):
+                    continue
+                for digest in component.get("hashes", []) if isinstance(component.get("hashes"), list) else []:
+                    if isinstance(digest, dict) and str(digest.get("alg") or "").upper() == "SHA-256":
+                        seen.add(str(digest.get("content") or ""))
+    spdx_path = bundle / SBOM_SPDX_SIDECAR
+    if spdx_path.is_file():
+        spdx = _read_json(spdx_path)
+        if not str(spdx.get("spdxVersion") or "").startswith("SPDX-"):
+            errors.append("artifact.sbom.spdx.json must define spdxVersion")
+        packages = spdx.get("packages")
+        if not isinstance(packages, list):
+            errors.append("artifact.sbom.spdx.json must define packages")
+        else:
+            for package in packages:
+                if not isinstance(package, dict):
+                    continue
+                for checksum in package.get("checksums", []) if isinstance(package.get("checksums"), list) else []:
+                    if isinstance(checksum, dict) and str(checksum.get("algorithm") or "").upper() == "SHA256":
+                        seen.add(str(checksum.get("checksumValue") or ""))
+    missing = sorted(expected - seen)
+    if missing:
+        errors.append("SBOM sidecars do not cover artifact subject digests: " + ", ".join(missing))
+
+
+def _load_slsa_statement(bundle: Path) -> dict[str, Any]:
+    path = bundle / SLSA_INTOTO_SIDECAR
+    if not path.is_file():
+        return {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError(f"{SLSA_INTOTO_SIDECAR} must contain JSON objects")
+            return payload
+    return {}
+
+
+def _validate_slsa_sidecar(bundle: Path, subjects: dict[str, Any], errors: list[str]) -> None:
+    expected = _subject_digest_hexes(subjects, errors)
+    if not expected:
+        return
+    statement = _load_slsa_statement(bundle)
+    if not statement:
+        errors.append(f"{SLSA_INTOTO_SIDECAR} must contain an in-toto statement")
+        return
+    if statement.get("_type") != "https://in-toto.io/Statement/v1":
+        errors.append(f"{SLSA_INTOTO_SIDECAR} _type must be https://in-toto.io/Statement/v1")
+    if statement.get("predicateType") != "https://slsa.dev/provenance/v1":
+        errors.append(f"{SLSA_INTOTO_SIDECAR} predicateType must be https://slsa.dev/provenance/v1")
+    predicate = statement.get("predicate") if isinstance(statement.get("predicate"), dict) else {}
+    build_definition = predicate.get("buildDefinition") if isinstance(predicate.get("buildDefinition"), dict) else {}
+    run_details = predicate.get("runDetails") if isinstance(predicate.get("runDetails"), dict) else {}
+    if not build_definition.get("buildType"):
+        errors.append(f"{SLSA_INTOTO_SIDECAR} predicate.buildDefinition.buildType is required")
+    builder = run_details.get("builder") if isinstance(run_details.get("builder"), dict) else {}
+    if not builder.get("id"):
+        errors.append(f"{SLSA_INTOTO_SIDECAR} predicate.runDetails.builder.id is required")
+    seen: set[str] = set()
+    for subject in statement.get("subject", []) if isinstance(statement.get("subject"), list) else []:
+        if not isinstance(subject, dict):
+            continue
+        digest = subject.get("digest") if isinstance(subject.get("digest"), dict) else {}
+        if digest.get("sha256"):
+            seen.add(str(digest["sha256"]))
+    missing = sorted(expected - seen)
+    if missing:
+        errors.append("SLSA/in-toto sidecar does not cover artifact subject digests: " + ", ".join(missing))
+
+
 def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write: bool = True) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     missing: list[str] = []
@@ -531,6 +973,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
     provenance = _read_json(bundle / PROVENANCE_SIDECAR) if (bundle / PROVENANCE_SIDECAR).is_file() else {}
     local_provenance = _read_json(bundle / LOCAL_PROVENANCE_SIDECAR) if (bundle / LOCAL_PROVENANCE_SIDECAR).is_file() else {}
     signature = _read_json(bundle / SIGNATURE_DECISION_SIDECAR) if (bundle / SIGNATURE_DECISION_SIDECAR).is_file() else {}
+    subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
     artifact_class = str(identity.get("artifact_class") or "")
 
     required_controls: list[str] = []
@@ -579,6 +1022,10 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
         errors.append("artifact.provenance.json subject digest is required")
     if "local_provenance" in required_controls:
         _validate_local_provenance_packet(local_provenance, identity, policy, errors)
+    if "sbom" in required_controls:
+        _validate_sbom_sidecars(bundle, subjects, errors)
+    if "slsa_in_toto" in required_controls:
+        _validate_slsa_sidecar(bundle, subjects, errors)
     if signature.get("required") is False and signature.get("status") != "not_required":
         errors.append("artifact.signature-decision.json optional signature must use status=not_required")
     if signature.get("required") is True and signature.get("ok") is not True:

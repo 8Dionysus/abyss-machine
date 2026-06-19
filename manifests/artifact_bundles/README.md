@@ -10,3 +10,8 @@ verify. They do not define signing doctrine; controls come from
 - `host_local_evidence.sample.bundle.json`: public-safe OS Abyss local
   provenance sample. It proves the private evidence packet verifier path
   without carrying real `/var/lib/abyss-machine` payloads.
+
+External repo manifests may also provide `artifact_subjects` entries. For
+package artifacts, those entries bind built wheel/sdist files to generated SBOM
+and SLSA/in-toto sidecars without moving the distribution files into the public
+source repository.

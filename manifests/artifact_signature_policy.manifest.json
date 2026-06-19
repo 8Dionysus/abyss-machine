@@ -1,6 +1,6 @@
 {
   "schema": "abyss_machine_artifact_signature_policy_manifest_v1",
-  "policy_version": "0.2.2",
+  "policy_version": "0.2.3",
   "purpose": "Declare how abyss-machine public seed contracts, release bundles, runtime artifacts, local evidence, and public media exports are fingerprinted, attested, or signed without publishing private host state.",
   "abi_signature": {
     "algorithm": "sha256-tree-v1",
@@ -144,7 +144,7 @@
         "privacy_boundary": "public; must not include live host facts, private captures, secrets, caches, models, or local indexes",
         "content_identity": "git tree plus generated contract ABI sha256-tree-v1",
         "abi_epoch": "v1 via public-seed-scaffold",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.2#public_source_seed",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#public_source_seed",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/ci_gate.py --mode source-fast"],
         "action": "KEEP"
@@ -168,7 +168,7 @@
         "privacy_boundary": "public-derived; rendered host-local values stay outside the repo",
         "content_identity": "release artifact digest plus ABI source tree hash",
         "abi_epoch": "v1 via bootstrap-install-seed",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.2#bootstrap_install_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#bootstrap_install_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact", "scripts/abyss-machine-bootstrap doctor --dry-run --json"],
         "action": "KEEP"
@@ -192,7 +192,7 @@
         "privacy_boundary": "publishable only after excluding local model caches, compile blobs, private benchmarks, and /srv runtime state",
         "content_identity": "artifact digest plus release sidecar digests",
         "abi_epoch": "v1 via host-runtime-artifact-route",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.2#runtime_or_container_artifact",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#runtime_or_container_artifact",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -216,7 +216,7 @@
         "privacy_boundary": "publishable only after excluding local prompts, private traces, benchmark scratch, compile caches, and host-specific /srv state",
         "content_identity": "model/runtime bundle digest plus model, dataset, conversion, and framework-config identities",
         "abi_epoch": "v1 via host-ai-runtime-route",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.2#ai_model_or_runtime_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#ai_model_or_runtime_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "ADD_ML_BOM"
@@ -240,7 +240,7 @@
         "privacy_boundary": "package contains code only; typed text, browser captures, and local histories stay private",
         "content_identity": "zip/xpi digest plus ABI source tree hash",
         "abi_epoch": "v1 via typing-extension-package",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.2#browser_extension_package",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#browser_extension_package",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -264,7 +264,7 @@
         "privacy_boundary": "public-safe generated export metadata and digests only; no secrets, host runtime state, downstream adoption truth, or private workspace evidence",
         "content_identity": "generated/release_manifest.json digest plus artifact_identity from the owning aoa-skills repository",
         "abi_epoch": "aoa_skills_release_manifest_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.2#aoa_skills_release_manifest",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#aoa_skills_release_manifest",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["abyss-machine artifacts verify BUNDLE_DIR --json", "python scripts/lanes/ci_gate.py --mode release"],
         "action": "KEEP"
@@ -274,6 +274,30 @@
       "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
       "slsa_in_toto": {"required": false, "trigger": "minimal bundle provenance is carried until aoa-skills publishes an external release artifact"},
       "sigstore_cosign": {"required": false, "trigger": "not required until release assets are signed"},
+      "c2pa": {"required": false, "trigger": "not public media"}
+    },
+    "aoa_sdk_python_distribution": {
+      "description": "Built aoa-sdk Python wheel and sdist distribution artifacts consumed as package release outputs.",
+      "identity": {
+        "artifact_class": "aoa_sdk_python_distribution",
+        "surface_state": "publishable_python_distribution",
+        "owner_repo": "aoa-sdk",
+        "authority_ref": ["pyproject.toml", "sdk/distribution/package-contract/README.md", "mechanics/release-support/README.md", ".github/workflows/release-artifacts.yml"],
+        "producer": "aoa-sdk Python build backend from tracked SDK source and package metadata",
+        "consumer_expectation": "package consumers verify wheel/sdist digests, ABI identity, SBOM package/dependency inventory, and SLSA/in-toto provenance before trusting built SDK distributions",
+        "privacy_boundary": "public package artifacts only; no host runtime state, private workspace evidence, session traces, caches, or local /srv data",
+        "content_identity": "wheel and sdist digests plus repo-local aoa-sdk artifact identity manifest",
+        "abi_epoch": "aoa_sdk_python_distribution_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#aoa_sdk_python_distribution",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
+        "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "wheel or sdist distribution artifacts are built"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "wheel or sdist distribution artifacts are built"},
+      "sigstore_cosign": {"required": false, "trigger": "required when aoa-sdk publishes signed GitHub Release, PyPI, blob, or other release assets"},
       "c2pa": {"required": false, "trigger": "not public media"}
     },
     "host_local_evidence": {
@@ -288,7 +312,7 @@
         "privacy_boundary": "private host evidence; not public repo content and not release-signed by default",
         "content_identity": "local packet path, sha256 or tree_hash, size, mtime, and producer refs",
         "abi_epoch": "local packet schema v1",
-        "contract_version": "abyss_machine_local_provenance_packet_v1@artifact_signature_policy.manifest.json@0.2.2",
+        "contract_version": "abyss_machine_local_provenance_packet_v1@artifact_signature_policy.manifest.json@0.2.3",
         "trust_layer": ["local_provenance", "w3c_prov_lineage"],
         "verification": ["abyss-machine artifacts validate --json", "subsystem-specific local validator"],
         "action": "ADD_LOCAL_PROVENANCE"
@@ -313,7 +337,7 @@
         "privacy_boundary": "public only after review; private host evidence keeps its local provenance and does not become public automatically",
         "content_identity": "media digest plus C2PA manifest or sidecar",
         "abi_epoch": "not_applicable_content_credential",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.2#public_media_export",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.3#public_media_export",
         "trust_layer": ["c2pa"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -407,6 +431,18 @@
         "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
         "slsa_in_toto": [".intoto.jsonl", ".provenance.json"],
         "sigstore_cosign": [".sigstore.json", ".cosign.bundle"]
+      }
+    },
+    {
+      "id": "aoa-sdk-python-distribution-release",
+      "artifact_class": "aoa_sdk_python_distribution",
+      "artifact_patterns": ["dist/aoa_sdk-*.whl", "dist/aoa_sdk-*.tar.gz"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-sdk",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
       }
     },
     {
