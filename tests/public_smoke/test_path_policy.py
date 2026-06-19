@@ -31,6 +31,7 @@ def test_path_policy_renders_install_contract_roots() -> None:
     assert policy.render_vars()["ABYSS_MACHINE_SRV"] == "/x/srv"
     assert policy.render_vars()["ABYSS_MACHINE_RUN"] == "/x/run"
     assert policy.render_vars()["ABYSS_BACKUP_ROOT"] == "/x/vault/Backups"
+    assert policy.cli_defaults()["systemd_user_dir"] == "/home/agent/.config/systemd/user"
 
     assert {str(path) for path in policy.install_roots} == {
         "/x/etc",

@@ -7,8 +7,9 @@
 The source-fast lane is defined in `docs/validation/validation_lanes.json` and
 loads through `scripts/validation_lanes.py`. It checks repo topology,
 mechanics topology, manifests, schemas, bootstrap dry-runs, shared path policy,
-public boundary, artifact signature policy, contract ABI signature freshness,
-generated scaffold index freshness, compileall, and public smoke tests.
+typing/nervous organ policy, public boundary, artifact signature policy,
+contract ABI signature freshness, generated scaffold index freshness,
+compileall, and public smoke tests.
 
 ## Runner Contexts
 
@@ -58,6 +59,7 @@ not build or sign artifacts.
 ## Path Policy Lane
 
 - `python scripts/validators/path_policy.py`
+- `python scripts/validators/typing_nervous_policy.py`
 
 The path-policy validator checks that bootstrap and CLI imports share the same
 root contract for `/etc/abyss-machine`, `/var/lib/abyss-machine`,
@@ -65,6 +67,12 @@ root contract for `/etc/abyss-machine`, `/var/lib/abyss-machine`,
 typing/nervous state paths. It also verifies that CLI constants honor
 environment overrides at import time, so a fresh machine or test harness can
 render the same organ shape without editing source.
+
+The typing/nervous policy validator keeps the first subsystem split honest:
+private nervous captures, search and semantic indexes, browser/tool adapters,
+typing tmp/cache paths, and user-level systemd unit paths must derive from the
+shared path policy while the CLI preserves the historical `TYPING_*` and
+`NERVOUS_*` constants for installed-host compatibility.
 
 ## Publication Smoke
 

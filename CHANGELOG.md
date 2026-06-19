@@ -18,6 +18,8 @@
 - Extract the shared host root path policy into a tested module used by
   bootstrap and CLI imports, and add a source-fast validator for the path
   contract.
+- Extract typing/nervous path and service policy into a tested module while
+  preserving CLI constants for installed-host compatibility.
 
 ## 0.1.0
 
