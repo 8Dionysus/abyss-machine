@@ -291,6 +291,18 @@ def _safe_repo_relative_path(path_text: str, *, field: str) -> Path:
     return path
 
 
+def _portable_path_ref(path: Path) -> str:
+    if not path.is_absolute():
+        return path.as_posix()
+    resolved = path.resolve()
+    for root in (Path.cwd().resolve(), REPO_ROOT.resolve()):
+        try:
+            return resolved.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return resolved.name
+
+
 def build_external_abi_subject(manifest: dict[str, Any]) -> dict[str, Any] | None:
     subject = manifest.get("abi_subject")
     if not isinstance(subject, dict):
@@ -1046,7 +1058,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
     payload = {
         "ok": ok,
         "schema": "abyss_machine_artifact_bundle_verify_v1",
-        "bundle_dir": str(bundle),
+        "bundle_dir": _portable_path_ref(bundle),
         "bundle_layout": BUNDLE_LAYOUT,
         "artifact_class": artifact_class,
         "required_controls": required_controls,
@@ -1075,7 +1087,7 @@ def release_check(
     return {
         "ok": allowed_by_enforcement,
         "schema": "abyss_machine_artifact_bundle_release_check_v1",
-        "bundle_dir": str(Path(bundle_dir)),
+        "bundle_dir": _portable_path_ref(Path(bundle_dir)),
         "enforcement": enforcement,
         "verification_ok": bool(verification.get("ok")),
         "verification": verification,

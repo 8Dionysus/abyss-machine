@@ -159,6 +159,7 @@ def test_aoa_sdk_python_distribution_generates_sbom_and_slsa_subject_controls(tm
     identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
     provenance = json.loads((bundle / artifact_bundles.PROVENANCE_SIDECAR).read_text(encoding="utf-8"))
     abi = json.loads((bundle / artifact_bundles.ABI_SIDECAR).read_text(encoding="utf-8"))
+    verify_sidecar = json.loads((bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8"))
     subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
     cdx = json.loads((bundle / artifact_bundles.SBOM_CYCLONEDX_SIDECAR).read_text(encoding="utf-8"))
     slsa_line = (bundle / artifact_bundles.SLSA_INTOTO_SIDECAR).read_text(encoding="utf-8").splitlines()[0]
@@ -169,6 +170,7 @@ def test_aoa_sdk_python_distribution_generates_sbom_and_slsa_subject_controls(tm
     assert sign["status"] == "not_required"
     assert verify["ok"] is True
     assert identity["bundle_manifest_ref"] == "sdk/distribution/manifests/python_distribution.bundle.json"
+    assert verify_sidecar["bundle_dir"] == "bundle"
     assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
     assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
     assert len(subjects["files"]) == 2
@@ -184,10 +186,12 @@ def test_aoa_sdk_python_distribution_generates_sbom_and_slsa_subject_controls(tm
             "abi": abi,
             "subjects": subjects,
             "slsa": slsa,
+            "verify": verify_sidecar,
         },
         sort_keys=True,
     )
     assert str(sibling) not in public_payload
+    assert str(bundle) not in public_payload
 
 
 def test_verify_requires_explicit_signature_decision(tmp_path: Path) -> None:
