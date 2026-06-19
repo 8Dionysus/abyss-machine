@@ -372,6 +372,30 @@
       "sigstore_cosign": {"required": false, "trigger": "required only when ToS publishes signed release assets or release bundles"},
       "c2pa": {"required": false, "trigger": "use public_media_export for public PDFs, visualizations, images, or media/content credential exports; not JSON readmodels"}
     },
+    "dionysus_seed_route_readmodel_bundle": {
+      "description": "Generated Dionysus public seed route/readmodel bundle for low-context seed navigation while preserving authored seed ownership boundaries.",
+      "identity": {
+        "artifact_class": "dionysus_seed_route_readmodel_bundle",
+        "surface_state": "public_generated_seed_route_readmodel",
+        "owner_repo": "Dionysus",
+        "authority_ref": ["generated/AGENTS.md", "generated/seed_route_map.min.json", "schemas/seed-route-map.schema.json", "docs/codex/planting-protocol.md", "docs/SEED_SURFACE_MAP.md"],
+        "producer": "Dionysus seed route map builder from seed registry, planting protocol, generated quest surfaces, and seed route validators",
+        "consumer_expectation": "seed consumers verify generated route-map digests, ABI identity, schema/seed-surface validators, and the archive/transport boundary before trusting navigation exports",
+        "privacy_boundary": "public-safe generated seed navigation only; no private host/runtime/session evidence, unpublished owner evidence, seed-pack media credentials, or canonical seed meaning",
+        "content_identity": "generated seed route map digest plus repo-local Dionysus artifact identity",
+        "abi_epoch": "dionysus_seed_route_map_v2",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#dionysus_seed_route_readmodel_bundle",
+        "trust_layer": ["abi_contract_signature"],
+        "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "DEFINE_ABI"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "not a software distribution artifact; add SBOM only if Dionysus publishes a packaged software or release bundle with dependency inventory"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": false, "trigger": "required only when Dionysus generated route/readmodel surfaces are packaged as an external release/export or planting artifact bundle"},
+      "sigstore_cosign": {"required": false, "trigger": "required only when Dionysus publishes signed release assets or release bundles"},
+      "c2pa": {"required": false, "trigger": "use public_media_export or a future Dionysus seed-pack credential class for public seed packs, PDFs, media, docs, or content credentials; not JSON route readmodels"}
+    },
     "host_local_evidence": {
       "description": "Private local reports, histories, snapshots, traces, typed events, nervous captures, and host facts created on an installed machine.",
       "identity": {

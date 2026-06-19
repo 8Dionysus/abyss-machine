@@ -72,6 +72,7 @@ def test_every_artifact_class_has_identity_posture() -> None:
             "abyss_stack_runtime_config_bundle",
             "aoa_evals_generated_report_index_bundle",
             "tree_of_sophia_generated_readmodel_bundle",
+            "dionysus_seed_route_readmodel_bundle",
         }:
             expected_owner = {
                 "aoa_skills_release_manifest": "aoa-skills",
@@ -79,6 +80,7 @@ def test_every_artifact_class_has_identity_posture() -> None:
                 "abyss_stack_runtime_config_bundle": "abyss-stack",
                 "aoa_evals_generated_report_index_bundle": "aoa-evals",
                 "tree_of_sophia_generated_readmodel_bundle": "Tree-of-Sophia",
+                "dionysus_seed_route_readmodel_bundle": "Dionysus",
             }[class_id]
             assert identity["owner_repo"] == expected_owner
         else:
@@ -204,3 +206,18 @@ def test_tree_of_sophia_generated_readmodel_requires_abi_without_premature_media
     assert tos_rule["c2pa"]["required"] is False
     assert "external release/export bundle" in tos_rule["slsa_in_toto"]["trigger"]
     assert "PDFs" in tos_rule["c2pa"]["trigger"]
+
+
+def test_dionysus_seed_route_readmodel_requires_abi_without_premature_seed_pack_credentials() -> None:
+    policy = load_policy()
+    dionysus_rule = policy["artifact_classes"]["dionysus_seed_route_readmodel_bundle"]
+    assert dionysus_rule["identity"]["owner_repo"] == "Dionysus"
+    assert dionysus_rule["identity"]["abi_epoch"] == "dionysus_seed_route_map_v2"
+    assert dionysus_rule["identity"]["trust_layer"] == ["abi_contract_signature"]
+    assert dionysus_rule["abi_signature"]["required"] is True
+    assert dionysus_rule["sbom"]["required"] is False
+    assert dionysus_rule["slsa_in_toto"]["required"] is False
+    assert dionysus_rule["sigstore_cosign"]["required"] is False
+    assert dionysus_rule["c2pa"]["required"] is False
+    assert "planting artifact bundle" in dionysus_rule["slsa_in_toto"]["trigger"]
+    assert "future Dionysus seed-pack credential class" in dionysus_rule["c2pa"]["trigger"]
