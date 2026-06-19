@@ -48,13 +48,17 @@ ML-BOM, SLSA/in-toto, Sigstore/Cosign, or C2PA sidecars.
 
 - `python scripts/ci_gate.py --mode release-artifact`
 - `python scripts/validators/release_artifact_policy.py`
+- `python scripts/validators/artifact_bundle_roundtrip.py`
 
 This lane validates the policy consequences for publishable artifacts. It checks
 that wheel/sdist, runtime/container, AI model/runtime bundle,
 browser-extension, and public media export classes declare the expected ABI,
 SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, or C2PA requirements, and that
-publishable artifacts are not tracked as ordinary public source files. It does
-not build or sign artifacts.
+publishable artifacts are not tracked as ordinary public source files. It also
+builds and verifies the first public-source-seed bundle sidecars plus the
+public-safe host-local-evidence provenance sample, so the policy is exercised as
+an executable verifier while still avoiding private keys, release signing, and
+private host payloads in ordinary CI.
 
 ## Path Policy Lane
 
@@ -84,9 +88,14 @@ paths before pushing public changes.
 - `python scripts/validators/artifact_signature_policy.py`
 - `python scripts/generate_contract_abi_signatures.py --check`
 - `python scripts/validators/release_artifact_policy.py`
+- `python scripts/validators/artifact_bundle_roundtrip.py`
 
 The policy validator keeps artifact identity posture, ABI, local provenance,
 SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, C2PA, and deferred TUF/SCITT
 posture explicit by artifact class. The ABI signature generator publishes a
 deterministic compatibility read model for public contract surfaces. It is not a
-release signature and does not sign live host evidence.
+release signature and does not sign live host evidence. The bundle roundtrip is
+the first executable consumer route: it creates ABI/provenance/signature-decision
+sidecars for `public_source_seed`, local provenance sidecars for the
+`host_local_evidence` sample, and verifies both with the same policy-driven
+bundle verifier exposed by `abyss-machine artifacts verify`.

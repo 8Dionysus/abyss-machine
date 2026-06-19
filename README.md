@@ -85,6 +85,24 @@ python scripts/release_check.py
 python scripts/release_check.py --include-host-contracts
 ```
 
+First executable ABI/signs bundle slice:
+
+```bash
+abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_source_seed.bundle.json --bundle-dir /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
+```
+
+OS Abyss local provenance verifier sample:
+
+```bash
+abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
+```
+
 ## Current Status
 
 The installed CLI remains mostly monolithic, but shared root policy and the

@@ -1,0 +1,22 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "public-source-seed",
+  "artifact_class": "public_source_seed",
+  "contract_surface_id": "public-seed-scaffold",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "First executable ABI/signs bundle slice for the public abyss-machine source seed.",
+  "artifact_source": {
+    "kind": "repo_source_tree",
+    "content_identity_ref": "generated/contract_abi_signatures.min.json",
+    "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/public-seed-scaffold/source_paths"
+  },
+  "consumer_command": [
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_source_seed.bundle.json --bundle-dir BUNDLE_DIR",
+    "abyss-machine artifacts sign BUNDLE_DIR",
+    "abyss-machine artifacts verify BUNDLE_DIR",
+    "abyss-machine artifacts release-check BUNDLE_DIR"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "host-local-evidence-sample",
+  "artifact_class": "host_local_evidence",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Public-safe sample of the OS Abyss local provenance packet shape for private host evidence bundles.",
+  "artifact_source": {
+    "kind": "local_private_evidence_sample",
+    "content_identity_ref": "manifests/artifact_signature_policy.manifest.json#/local_provenance_packet",
+    "private_payload_included": false
+  },
+  "local_provenance": {
+    "producer_command": "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir BUNDLE_DIR",
+    "source_refs": [
+      "manifests/artifact_signature_policy.manifest.json",
+      "schemas/local-provenance-packet.schema.json",
+      "manifests/artifact_bundles/host_local_evidence.sample.bundle.json"
+    ],
+    "activity": {
+      "type": "sample_local_evidence_bundle",
+      "private_payload_included": false
+    },
+    "agent_or_tool": "abyss-machine",
+    "content_identity": {
+      "path": "/var/lib/abyss-machine/artifacts/example/latest.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "sample": true
+    },
+    "verification": [
+      "abyss-machine artifacts verify BUNDLE_DIR --json"
+    ],
+    "promotion_status": "sample_contract_only_not_public_evidence"
+  },
+  "consumer_command": [
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir BUNDLE_DIR",
+    "abyss-machine artifacts sign BUNDLE_DIR",
+    "abyss-machine artifacts verify BUNDLE_DIR",
+    "abyss-machine artifacts release-check BUNDLE_DIR"
+  ]
+}

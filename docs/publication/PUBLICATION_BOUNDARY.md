@@ -62,6 +62,48 @@ without requiring private keys or producing signatures during ordinary CI.
 The runner contexts live in `docs/validation/validation_lanes.json`; the CLI
 entrypoints live under `scripts/`.
 
+## Artifact Bundle Verification
+
+The first executable bundle layout is `abyss_machine_artifact_bundle_v1`.
+For the public source seed it creates:
+
+- `artifact.identity.json`: policy-derived artifact identity, required
+  controls, deferred controls, ABI epoch, owner, and privacy boundary.
+- `artifact.abi.json`: the matching contract ABI surface from
+  `generated/contract_abi_signatures.min.json`.
+- `artifact.provenance.json`: minimal OS Abyss bundle provenance for the
+  sidecar build, not a SLSA release attestation.
+- `artifact.local-provenance.json`: required only for `host_local_evidence`;
+  it carries the private evidence packet contract without publishing the
+  evidence payload.
+- `artifact.signature-decision.json`: either a real signature result later, or
+  an explicit policy reason that a cryptographic signature is not required for
+  this artifact class.
+- `artifact.verify.json`: machine-readable verifier output.
+
+Consumer route:
+
+```bash
+abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_source_seed.bundle.json --bundle-dir /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
+```
+
+For `public_source_seed`, policy requires the ABI sidecar. SBOM, ML-BOM,
+SLSA/in-toto, Sigstore/Cosign, and C2PA remain explicit not-required controls
+until a publishable artifact class triggers them.
+
+The OS Abyss local sample uses the same verifier path for the local provenance
+packet shape without carrying real private host payloads:
+
+```bash
+abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
+```
+
 ## Lifecycle On A New Machine
 
 ```text

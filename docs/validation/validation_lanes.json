@@ -91,7 +91,8 @@
     "release_artifact": [
       {"label": "artifact signature policy", "command": ["python", "scripts/validators/artifact_signature_policy.py"]},
       {"label": "contract ABI signatures", "command": ["python", "scripts/generate_contract_abi_signatures.py", "--check"]},
-      {"label": "release artifact policy", "command": ["python", "scripts/validators/release_artifact_policy.py"]}
+      {"label": "release artifact policy", "command": ["python", "scripts/validators/release_artifact_policy.py"]},
+      {"label": "artifact bundle roundtrip", "command": ["python", "scripts/validators/artifact_bundle_roundtrip.py"]}
     ],
     "release_full": [
       {"label": "source fast gate", "command": ["python", "scripts/ci_gate.py", "--mode", "source-fast"]},
