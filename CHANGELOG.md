@@ -11,6 +11,9 @@
 - Add the first policy-driven artifact bundle verifier roundtrip for the
   public source seed: ABI sidecar, minimal provenance sidecar, explicit
   signature-not-required decision, verify, and release-check.
+- Add package-subject artifact bundle support for external Python
+  distributions, including CycloneDX/SPDX SBOM sidecars and SLSA/in-toto
+  provenance sidecars checked against wheel/sdist digests.
 - Add the OS Abyss local provenance sample bundle so the same verifier path
   checks private-host-evidence packet shape without publishing private payloads.
 - Add a portable OS Abyss runner contract so local CLI, host scheduler, release

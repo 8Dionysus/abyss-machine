@@ -66,8 +66,12 @@ def test_every_artifact_class_has_identity_posture() -> None:
         identity = class_rule["identity"]
         assert REQUIRED_IDENTITY_FIELDS <= set(identity)
         assert identity["artifact_class"] == class_id
-        if class_id == "aoa_skills_release_manifest":
-            assert identity["owner_repo"] == "aoa-skills"
+        if class_id in {"aoa_skills_release_manifest", "aoa_sdk_python_distribution"}:
+            expected_owner = {
+                "aoa_skills_release_manifest": "aoa-skills",
+                "aoa_sdk_python_distribution": "aoa-sdk",
+            }[class_id]
+            assert identity["owner_repo"] == expected_owner
         else:
             assert identity["owner_repo"] == "abyss-machine"
         assert policy_version in identity["contract_version"]
@@ -130,3 +134,18 @@ def test_release_sidecar_expectations_cover_required_controls() -> None:
     assert "signer identity" in " ".join(expectations["sigstore_cosign"]["consumer_checks"]).lower()
     assert "artifact digest" in " ".join(expectations["sbom"]["consumer_checks"]).lower()
     assert "privacy review" in " ".join(expectations["c2pa"]["consumer_checks"]).lower()
+
+
+def test_aoa_sdk_python_distribution_requires_sbom_and_slsa_without_premature_cosign() -> None:
+    policy = load_policy()
+    sdk_rule = policy["artifact_classes"]["aoa_sdk_python_distribution"]
+    assert sdk_rule["identity"]["owner_repo"] == "aoa-sdk"
+    assert sdk_rule["abi_signature"]["required"] is True
+    assert sdk_rule["sbom"]["required"] is True
+    assert sdk_rule["slsa_in_toto"]["required"] is True
+    assert sdk_rule["sigstore_cosign"]["required"] is False
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    sdk_release = release_rules["aoa-sdk-python-distribution-release"]
+    assert sdk_release["artifact_class"] == "aoa_sdk_python_distribution"
+    assert sdk_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]

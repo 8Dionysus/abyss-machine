@@ -102,6 +102,94 @@ def test_external_release_manifest_subject_roundtrip(tmp_path: Path) -> None:
     assert abi["external_subject"]["artifact_identity"]["abi_epoch"] == "aoa_skills_release_manifest_v1"
 
 
+def test_aoa_sdk_python_distribution_generates_sbom_and_slsa_subject_controls(tmp_path: Path) -> None:
+    sibling = tmp_path / "aoa-sdk"
+    manifest_dir = sibling / "sdk" / "distribution" / "manifests"
+    dist = sibling / "dist"
+    manifest_dir.mkdir(parents=True)
+    dist.mkdir(parents=True)
+    (sibling / "pyproject.toml").write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "aoa-sdk"',
+                'version = "0.4.0"',
+                'license = {text = "Apache-2.0"}',
+                'dependencies = ["pydantic>=2.8", "typer>=0.12"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (dist / "aoa_sdk-0.4.0-py3-none-any.whl").write_bytes(b"fake wheel")
+    (dist / "aoa_sdk-0.4.0.tar.gz").write_bytes(b"fake sdist")
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "aoa-sdk-python-distribution",
+        "artifact_class": "aoa_sdk_python_distribution",
+        "owner_repo": "aoa-sdk",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "mode": "github_release",
+        "subject_repo_root": "../../..",
+        "artifact_identity": {
+            "artifact_class": "aoa_sdk_python_distribution",
+            "abi_epoch": "aoa_sdk_python_distribution_v1",
+        },
+        "abi_subject": {
+            "path": "sdk/distribution/manifests/python_distribution.bundle.json",
+            "artifact_identity_pointer": "/artifact_identity",
+        },
+        "artifact_subjects": [
+            {"glob": "dist/aoa_sdk-*.whl", "role": "wheel"},
+            {"glob": "dist/aoa_sdk-*.tar.gz", "role": "sdist"},
+        ],
+        "package": {
+            "ecosystem": "python",
+            "pyproject": "pyproject.toml",
+            "name": "aoa-sdk",
+        },
+    }
+    manifest_path = manifest_dir / "python_distribution.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+
+    build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    sign = artifact_bundles.sign_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle)
+    identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
+    provenance = json.loads((bundle / artifact_bundles.PROVENANCE_SIDECAR).read_text(encoding="utf-8"))
+    abi = json.loads((bundle / artifact_bundles.ABI_SIDECAR).read_text(encoding="utf-8"))
+    subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+    cdx = json.loads((bundle / artifact_bundles.SBOM_CYCLONEDX_SIDECAR).read_text(encoding="utf-8"))
+    slsa_line = (bundle / artifact_bundles.SLSA_INTOTO_SIDECAR).read_text(encoding="utf-8").splitlines()[0]
+    slsa = json.loads(slsa_line)
+
+    assert build["ok"] is True
+    assert sign["ok"] is True
+    assert sign["status"] == "not_required"
+    assert verify["ok"] is True
+    assert identity["bundle_manifest_ref"] == "sdk/distribution/manifests/python_distribution.bundle.json"
+    assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert len(subjects["files"]) == 2
+    assert subjects["path_basis"] == "repo_relative"
+    assert "repo_root" not in subjects
+    assert cdx["bomFormat"] == "CycloneDX"
+    assert slsa["_type"] == "https://in-toto.io/Statement/v1"
+    assert slsa["predicateType"] == "https://slsa.dev/provenance/v1"
+    public_payload = json.dumps(
+        {
+            "identity": identity,
+            "provenance": provenance,
+            "abi": abi,
+            "subjects": subjects,
+            "slsa": slsa,
+        },
+        sort_keys=True,
+    )
+    assert str(sibling) not in public_payload
+
+
 def test_verify_requires_explicit_signature_decision(tmp_path: Path) -> None:
     bundle = tmp_path / "unsigned-public-source-seed"
 
