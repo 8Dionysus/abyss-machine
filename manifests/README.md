@@ -14,5 +14,6 @@ checks.
   Sigstore/Cosign, C2PA, and deferred TUF/SCITT policy by artifact class. The
   `abyss-machine artifacts build-sidecars`, `sign`, `verify`, and
   `release-check` commands consume this policy for the `public_source_seed`,
-  external package subjects such as `aoa_sdk_python_distribution`, and OS Abyss
-  local provenance bundle roundtrips.
+  external package subjects such as `aoa_sdk_python_distribution`, external
+  runtime config subjects such as `abyss_stack_runtime_config_bundle`, and OS
+  Abyss local provenance bundle roundtrips.

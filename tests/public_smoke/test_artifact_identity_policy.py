@@ -66,10 +66,11 @@ def test_every_artifact_class_has_identity_posture() -> None:
         identity = class_rule["identity"]
         assert REQUIRED_IDENTITY_FIELDS <= set(identity)
         assert identity["artifact_class"] == class_id
-        if class_id in {"aoa_skills_release_manifest", "aoa_sdk_python_distribution"}:
+        if class_id in {"aoa_skills_release_manifest", "aoa_sdk_python_distribution", "abyss_stack_runtime_config_bundle"}:
             expected_owner = {
                 "aoa_skills_release_manifest": "aoa-skills",
                 "aoa_sdk_python_distribution": "aoa-sdk",
+                "abyss_stack_runtime_config_bundle": "abyss-stack",
             }[class_id]
             assert identity["owner_repo"] == expected_owner
         else:
@@ -149,3 +150,18 @@ def test_aoa_sdk_python_distribution_requires_sbom_and_slsa_without_premature_co
     sdk_release = release_rules["aoa-sdk-python-distribution-release"]
     assert sdk_release["artifact_class"] == "aoa_sdk_python_distribution"
     assert sdk_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_abyss_stack_runtime_config_bundle_requires_sbom_and_slsa_without_premature_cosign() -> None:
+    policy = load_policy()
+    stack_rule = policy["artifact_classes"]["abyss_stack_runtime_config_bundle"]
+    assert stack_rule["identity"]["owner_repo"] == "abyss-stack"
+    assert stack_rule["abi_signature"]["required"] is True
+    assert stack_rule["sbom"]["required"] is True
+    assert stack_rule["slsa_in_toto"]["required"] is True
+    assert stack_rule["sigstore_cosign"]["required"] is False
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    stack_release = release_rules["abyss-stack-runtime-config-bundle-release"]
+    assert stack_release["artifact_class"] == "abyss_stack_runtime_config_bundle"
+    assert stack_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]

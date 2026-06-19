@@ -14,6 +14,9 @@
 - Add package-subject artifact bundle support for external Python
   distributions, including CycloneDX/SPDX SBOM sidecars and SLSA/in-toto
   provenance sidecars checked against wheel/sdist digests.
+- Add runtime-config artifact bundle policy support for public-safe
+  `abyss-stack` rendered config bundles with ABI, SBOM, and SLSA/in-toto
+  controls.
 - Add the OS Abyss local provenance sample bundle so the same verifier path
   checks private-host-evidence packet shape without publishing private payloads.
 - Add a portable OS Abyss runner contract so local CLI, host scheduler, release

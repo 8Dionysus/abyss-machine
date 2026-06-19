@@ -194,6 +194,77 @@ def test_aoa_sdk_python_distribution_generates_sbom_and_slsa_subject_controls(tm
     assert str(bundle) not in public_payload
 
 
+def test_abyss_stack_runtime_config_bundle_generates_runtime_config_controls(tmp_path: Path) -> None:
+    sibling = tmp_path / "abyss-stack"
+    manifest_dir = sibling / "mechanics" / "release-support" / "manifests"
+    dist = sibling / "dist" / "abyss-stack-runtime-config"
+    manifest_dir.mkdir(parents=True)
+    dist.mkdir(parents=True)
+    (dist / "substrate.rendered.yml").write_text(
+        "\n".join(
+            [
+                "services:",
+                "  qdrant:",
+                "    image: docker.io/qdrant/qdrant:v1.18.1@sha256:45f8e3ddc2570a4d029877e1b5ec1045c19b3852b4e22a55c7f43b05aea0ca89",
+                "    ports:",
+                "      - 127.0.0.1:6333:6333",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "abyss-stack-runtime-config-bundle",
+        "artifact_class": "abyss_stack_runtime_config_bundle",
+        "owner_repo": "abyss-stack",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "mode": "github_release",
+        "subject_repo_root": "../../..",
+        "build_type": "https://abyssos.local/buildtypes/runtime-config-bundle/v1",
+        "artifact_identity": {
+            "artifact_class": "abyss_stack_runtime_config_bundle",
+            "abi_epoch": "abyss_stack_runtime_config_bundle_v1",
+        },
+        "abi_subject": {
+            "path": "mechanics/release-support/manifests/runtime_config.bundle.json",
+            "artifact_identity_pointer": "/artifact_identity",
+        },
+        "artifact_subjects": [
+            {"glob": "dist/abyss-stack-runtime-config/*.yml", "role": "rendered_runtime_config"},
+        ],
+        "package": {
+            "ecosystem": "compose",
+            "name": "abyss-stack-runtime-config",
+            "purl": "pkg:generic/abyss-stack-runtime-config@0",
+        },
+    }
+    manifest_path = manifest_dir / "runtime_config.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+
+    build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    sign = artifact_bundles.sign_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle)
+    identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
+    subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+    slsa = json.loads((bundle / artifact_bundles.SLSA_INTOTO_SIDECAR).read_text(encoding="utf-8").splitlines()[0])
+    verify_sidecar = json.loads((bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8"))
+
+    assert build["ok"] is True
+    assert sign["status"] == "not_required"
+    assert verify["ok"] is True
+    assert identity["bundle_manifest_ref"] == "mechanics/release-support/manifests/runtime_config.bundle.json"
+    assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert subjects["files"][0]["role"] == "rendered_runtime_config"
+    assert slsa["predicate"]["buildDefinition"]["buildType"] == "https://abyssos.local/buildtypes/runtime-config-bundle/v1"
+    assert verify_sidecar["bundle_dir"] == "bundle"
+    public_payload = json.dumps({"identity": identity, "subjects": subjects, "slsa": slsa, "verify": verify_sidecar}, sort_keys=True)
+    assert str(sibling) not in public_payload
+    assert str(bundle) not in public_payload
+
+
 def test_verify_requires_explicit_signature_decision(tmp_path: Path) -> None:
     bundle = tmp_path / "unsigned-public-source-seed"
 
