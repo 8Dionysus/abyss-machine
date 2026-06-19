@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +13,12 @@ from typing import Any
 SCHEMA = "abyss_machine_bootstrap_v1"
 VERSION = "0.1.0"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from abyss_machine.path_policy import AbyssMachinePathPolicy, DEFAULT_PATH_POLICY  # noqa: E402
+
 CONFIG_TEMPLATE_ROOT = REPO_ROOT / "config-templates" / "etc" / "abyss-machine"
 SYSTEMD_TEMPLATE_ROOT = REPO_ROOT / "systemd"
 
@@ -77,29 +82,25 @@ PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
 }
 
 
+def path_policy_from_args(args: argparse.Namespace) -> AbyssMachinePathPolicy:
+    return AbyssMachinePathPolicy.from_values(
+        user=args.user,
+        home=args.home,
+        etc_root=args.etc_root,
+        state_root=args.state_root,
+        srv_root=args.srv_root,
+        run_root=args.run_root,
+        abyss_os_root=args.abyss_os_root,
+        vault_mount=args.vault_mount,
+        local_bin_dir=args.local_bin_dir,
+        local_libexec_dir=args.local_libexec_dir,
+        systemd_system_dir=args.systemd_system_dir,
+        systemd_user_dir=args.systemd_user_dir,
+    )
+
+
 def default_vars(args: argparse.Namespace) -> dict[str, str]:
-    user = args.user or os.environ.get("USER") or "abyss"
-    home = Path(args.home or os.environ.get("HOME") or f"/home/{user}")
-    srv = Path(args.srv_root)
-    etc = Path(args.etc_root)
-    state = Path(args.state_root)
-    local_bin = Path(args.local_bin_dir)
-    local_libexec = Path(args.local_libexec_dir)
-    vault_mount = Path(args.vault_mount)
-    return {
-        "ABYSS_USER": user,
-        "ABYSS_USER_HOME": str(home),
-        "ABYSS_OS_ROOT": args.abyss_os_root,
-        "ABYSS_MACHINE_ETC": str(etc),
-        "ABYSS_MACHINE_STATE": str(state),
-        "ABYSS_MACHINE_SRV": str(srv),
-        "ABYSS_MACHINE_RUN": args.run_root,
-        "ABYSS_LOCAL_BIN_DIR": str(local_bin),
-        "ABYSS_LOCAL_LIBEXEC_DIR": str(local_libexec),
-        "ABYSS_VAULT_MOUNT": str(vault_mount),
-        "ABYSS_BACKUP_ROOT": str(vault_mount / "Backups"),
-        "ABYSS_BACKUP_SECRET_ROOT": str(vault_mount / "Backups" / "secrets"),
-    }
+    return path_policy_from_args(args).render_vars()
 
 
 def render_text(text: str, values: dict[str, str]) -> str:
@@ -142,18 +143,22 @@ def copy_tree(
 
 
 def ensure_roots(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
-    roots = [
-        values["ABYSS_MACHINE_ETC"],
-        values["ABYSS_MACHINE_STATE"],
-        values["ABYSS_MACHINE_SRV"],
-        str(Path(values["ABYSS_MACHINE_SRV"]) / "cache"),
-        str(Path(values["ABYSS_MACHINE_SRV"]) / "runtimes"),
-        str(Path(values["ABYSS_MACHINE_SRV"]) / "storage"),
-        str(Path(values["ABYSS_MACHINE_SRV"]) / "tmp"),
-    ]
-    for root in roots:
+    policy = AbyssMachinePathPolicy.from_values(
+        user=values["ABYSS_USER"],
+        home=values["ABYSS_USER_HOME"],
+        etc_root=values["ABYSS_MACHINE_ETC"],
+        state_root=values["ABYSS_MACHINE_STATE"],
+        srv_root=values["ABYSS_MACHINE_SRV"],
+        run_root=values["ABYSS_MACHINE_RUN"],
+        abyss_os_root=values["ABYSS_OS_ROOT"],
+        vault_mount=values["ABYSS_VAULT_MOUNT"],
+        local_bin_dir=values["ABYSS_LOCAL_BIN_DIR"],
+        local_libexec_dir=values["ABYSS_LOCAL_LIBEXEC_DIR"],
+    )
+    for root_path in policy.install_roots:
+        root = str(root_path)
         if apply:
-            Path(root).mkdir(parents=True, exist_ok=True)
+            root_path.mkdir(parents=True, exist_ok=True)
         actions.append({"action": "ensure_root", "path": root})
 
 
@@ -256,19 +261,20 @@ def cmd_enable_profile(args: argparse.Namespace) -> int:
 
 
 def add_common_options(parser: argparse.ArgumentParser) -> None:
+    defaults = DEFAULT_PATH_POLICY.cli_defaults()
     parser.add_argument("--profile", default="linux-systemd-core", choices=sorted(PROFILE_UNITS))
-    parser.add_argument("--user")
-    parser.add_argument("--home")
-    parser.add_argument("--etc-root", default="/etc/abyss-machine")
-    parser.add_argument("--state-root", default="/var/lib/abyss-machine")
-    parser.add_argument("--srv-root", default="/srv/abyss-machine")
-    parser.add_argument("--run-root", default="/run/abyss-machine")
-    parser.add_argument("--abyss-os-root", default="/srv/AbyssOS")
-    parser.add_argument("--vault-mount", default="/abyss")
-    parser.add_argument("--local-bin-dir", default="/usr/local/bin")
-    parser.add_argument("--local-libexec-dir", default="/usr/local/libexec")
-    parser.add_argument("--systemd-system-dir", default="/etc/systemd/system")
-    parser.add_argument("--systemd-user-dir", default=str(Path.home() / ".config/systemd/user"))
+    parser.add_argument("--user", default=defaults["user"])
+    parser.add_argument("--home", default=defaults["home"])
+    parser.add_argument("--etc-root", default=defaults["etc_root"])
+    parser.add_argument("--state-root", default=defaults["state_root"])
+    parser.add_argument("--srv-root", default=defaults["srv_root"])
+    parser.add_argument("--run-root", default=defaults["run_root"])
+    parser.add_argument("--abyss-os-root", default=defaults["abyss_os_root"])
+    parser.add_argument("--vault-mount", default=defaults["vault_mount"])
+    parser.add_argument("--local-bin-dir", default=defaults["local_bin_dir"])
+    parser.add_argument("--local-libexec-dir", default=defaults["local_libexec_dir"])
+    parser.add_argument("--systemd-system-dir", default=defaults["systemd_system_dir"])
+    parser.add_argument("--systemd-user-dir", default=defaults["systemd_user_dir"])
     parser.add_argument("--json", action="store_true")
 
 

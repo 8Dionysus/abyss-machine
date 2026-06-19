@@ -9,8 +9,8 @@ from _common import REPO_ROOT, fail, load_json, ok, require
 
 
 POLICY = REPO_ROOT / "manifests" / "artifact_signature_policy.manifest.json"
-ALLOWED_CONTROLS = {"abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign", "c2pa"}
-PUBLISHABLE_REQUIRED_CONTROLS = {"sbom", "slsa_in_toto", "sigstore_cosign", "c2pa"}
+ALLOWED_CONTROLS = {"abi_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign", "c2pa"}
+PUBLISHABLE_REQUIRED_CONTROLS = {"sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign", "c2pa"}
 VALID_PUBLIC_REPO_POLICIES = {"not_tracked", "source_review_required"}
 NON_PUBLISHABLE_CLASSES = {"host_local_evidence"}
 

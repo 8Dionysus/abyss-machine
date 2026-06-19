@@ -6,9 +6,9 @@
 
 The source-fast lane is defined in `docs/validation/validation_lanes.json` and
 loads through `scripts/validation_lanes.py`. It checks repo topology,
-mechanics topology, manifests, schemas, bootstrap dry-runs, public boundary,
-artifact signature policy, contract ABI signature freshness, generated scaffold
-index freshness, compileall, and public smoke tests.
+mechanics topology, manifests, schemas, bootstrap dry-runs, shared path policy,
+public boundary, artifact signature policy, contract ABI signature freshness,
+generated scaffold index freshness, compileall, and public smoke tests.
 
 ## Runner Contexts
 
@@ -41,7 +41,7 @@ manual dispatch, and a weekly public-seed canary schedule.
 `release-public` runs the source-fast gate and the release-artifact gate.
 `release-full` adds the fixture-backed host-contract gate.
 Release pipelines should call the same CLI gates before publishing SBOM,
-SLSA/in-toto, Sigstore/Cosign, or C2PA sidecars.
+ML-BOM, SLSA/in-toto, Sigstore/Cosign, or C2PA sidecars.
 
 ## Release Artifact Lane
 
@@ -49,10 +49,22 @@ SLSA/in-toto, Sigstore/Cosign, or C2PA sidecars.
 - `python scripts/validators/release_artifact_policy.py`
 
 This lane validates the policy consequences for publishable artifacts. It checks
-that wheel/sdist, runtime/container, browser-extension, and public media export
-classes declare the expected ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, or C2PA
-requirements, and that publishable artifacts are not tracked as ordinary public
-source files. It does not build or sign artifacts.
+that wheel/sdist, runtime/container, AI model/runtime bundle,
+browser-extension, and public media export classes declare the expected ABI,
+SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, or C2PA requirements, and that
+publishable artifacts are not tracked as ordinary public source files. It does
+not build or sign artifacts.
+
+## Path Policy Lane
+
+- `python scripts/validators/path_policy.py`
+
+The path-policy validator checks that bootstrap and CLI imports share the same
+root contract for `/etc/abyss-machine`, `/var/lib/abyss-machine`,
+`/srv/abyss-machine`, `/run/abyss-machine`, install roots, and opt-in
+typing/nervous state paths. It also verifies that CLI constants honor
+environment overrides at import time, so a fresh machine or test harness can
+render the same organ shape without editing source.
 
 ## Publication Smoke
 
@@ -65,7 +77,8 @@ paths before pushing public changes.
 - `python scripts/generate_contract_abi_signatures.py --check`
 - `python scripts/validators/release_artifact_policy.py`
 
-The policy validator keeps ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, and C2PA
-requirements explicit by artifact class. The ABI signature generator publishes a
+The policy validator keeps artifact identity posture, ABI, local provenance,
+SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, C2PA, and deferred TUF/SCITT
+posture explicit by artifact class. The ABI signature generator publishes a
 deterministic compatibility read model for public contract surfaces. It is not a
 release signature and does not sign live host evidence.

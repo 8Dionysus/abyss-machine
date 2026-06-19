@@ -9,6 +9,6 @@ checks.
 - `public_boundary.manifest.json`: publication-blocking path and token rules.
 - `schema_inventory.manifest.json`: schema files that must remain present and
   valid JSON.
-- `artifact_signature_policy.manifest.json`: ABI, portable runner,
-  provenance, SBOM, SLSA/in-toto, Sigstore/Cosign, and C2PA policy by artifact
-  class.
+- `artifact_signature_policy.manifest.json`: artifact identity posture, ABI,
+  portable runner, local provenance, SBOM/ML-BOM, SLSA/in-toto,
+  Sigstore/Cosign, C2PA, and deferred TUF/SCITT policy by artifact class.

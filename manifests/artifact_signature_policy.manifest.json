@@ -1,11 +1,73 @@
 {
   "schema": "abyss_machine_artifact_signature_policy_manifest_v1",
-  "policy_version": "0.1.0",
+  "policy_version": "0.2.0",
   "purpose": "Declare how abyss-machine public seed contracts, release bundles, runtime artifacts, local evidence, and public media exports are fingerprinted, attested, or signed without publishing private host state.",
   "abi_signature": {
     "algorithm": "sha256-tree-v1",
     "generated_surface": "generated/contract_abi_signatures.min.json",
     "meaning": "A deterministic digest over tracked source files that define a public contract surface. It is a compatibility signal for agents and canaries, not a cryptographic release signature."
+  },
+  "identity_fields": [
+    "artifact_class",
+    "surface_state",
+    "owner_repo",
+    "authority_ref",
+    "producer",
+    "consumer_expectation",
+    "privacy_boundary",
+    "content_identity",
+    "abi_epoch",
+    "trust_layer",
+    "verification",
+    "action"
+  ],
+  "local_provenance_packet": {
+    "schema": "abyss_machine_local_provenance_packet_v1",
+    "applies_to_artifact_classes": ["host_local_evidence"],
+    "surface_state": "host_private_generated",
+    "storage_route": "/var/lib/abyss-machine/<subsystem>/...",
+    "not_public_repo_content": true,
+    "required_fields": [
+      "schema",
+      "artifact_class",
+      "surface_state",
+      "owner_repo",
+      "authority_ref",
+      "producer",
+      "producer_command",
+      "source_refs",
+      "activity",
+      "agent_or_tool",
+      "created_at",
+      "privacy_boundary",
+      "content_identity",
+      "consumer_expectation",
+      "verification",
+      "promotion_status"
+    ],
+    "content_identity": {
+      "file_minimum": ["path", "size_bytes", "mtime_ns", "sha256"],
+      "directory_minimum": ["path", "tree_hash", "file_count"],
+      "hash_algorithm": "sha256"
+    },
+    "lineage_mapping": {
+      "entity": "the generated fact, report, trace, snapshot, session packet, or host evidence object",
+      "activity": "the command, timer, service, or agent action that produced it",
+      "agent": "the local tool, service, human operator, or agent session responsible for the activity"
+    },
+    "consumer_checks": [
+      "schema and artifact_class match the expected local evidence contract",
+      "authority_ref resolves to /etc/abyss-machine or the nearest local route card",
+      "producer_command or service identity is present",
+      "privacy_boundary forbids public publication unless reviewed",
+      "content_identity is present before cleanup, promotion, or export decisions",
+      "verification names the local validator or restore/probe check used by the consumer"
+    ],
+    "promotion_controls": [
+      "public export requires privacy review and a new public artifact identity",
+      "release signing requires conversion to a publishable artifact class",
+      "cleanup decisions require restore, usage, or quarantine evidence rather than age or path alone"
+    ]
   },
   "portable_runner_contract": {
     "entrypoint_sources": [
@@ -28,49 +90,162 @@
   "artifact_classes": {
     "public_source_seed": {
       "description": "The public repository seed: source, templates, manifests, schemas, validators, tests, and docs that can be published safely.",
+      "identity": {
+        "artifact_class": "public_source_seed",
+        "surface_state": "public_source",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["AGENTS.md", "DESIGN.md", "BOUNDARIES.md", "docs/publication/PUBLICATION_BOUNDARY.md", "manifests/artifact_signature_policy.manifest.json"],
+        "producer": "tracked source edits plus deterministic generated read models",
+        "consumer_expectation": "agents and canaries verify public boundary, manifest integrity, and contract ABI freshness before consuming the seed",
+        "privacy_boundary": "public; must not include live host facts, private captures, secrets, caches, models, or local indexes",
+        "content_identity": "git tree plus generated contract ABI sha256-tree-v1",
+        "abi_epoch": "v1 via public-seed-scaffold",
+        "trust_layer": ["abi_contract_signature"],
+        "verification": ["python scripts/ci_gate.py --mode source-fast"],
+        "action": "KEEP"
+      },
       "abi_signature": {"required": true},
       "sbom": {"required": false, "trigger": "only when a package or release bundle is produced"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
       "slsa_in_toto": {"required": false, "trigger": "minimal release provenance when a release artifact is built"},
       "sigstore_cosign": {"required": false, "trigger": "release assets or OCI artifacts only"},
       "c2pa": {"required": false, "trigger": "not a media/content credential artifact"}
     },
     "bootstrap_install_bundle": {
       "description": "Rendered or packaged bootstrap/install material derived from the public seed.",
+      "identity": {
+        "artifact_class": "bootstrap_install_bundle",
+        "surface_state": "derived_install_material",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["scripts/abyss-machine-bootstrap", "config-templates/README.md", "systemd/README.md", "manifests/bootstrap_profiles.manifest.json"],
+        "producer": "bootstrap scripts and release packaging from tracked public seed inputs",
+        "consumer_expectation": "install consumers verify ABI epoch, bootstrap profile, SBOM, SLSA/in-toto provenance, and release signature when distributed",
+        "privacy_boundary": "public-derived; rendered host-local values stay outside the repo",
+        "content_identity": "release artifact digest plus ABI source tree hash",
+        "abi_epoch": "v1 via bootstrap-install-seed",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "verification": ["python scripts/ci_gate.py --mode release-artifact", "scripts/abyss-machine-bootstrap doctor --dry-run --json"],
+        "action": "KEEP"
+      },
       "abi_signature": {"required": true},
       "sbom": {"required": true, "trigger": "when distributed as wheel, archive, installer, or release bundle"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
       "slsa_in_toto": {"required": true, "trigger": "minimal release provenance for published install artifacts"},
       "sigstore_cosign": {"required": true, "trigger": "published release assets"},
       "c2pa": {"required": false, "trigger": "not media"}
     },
     "runtime_or_container_artifact": {
       "description": "Install/runtime/container deliverables for host-managed services or deployable helpers.",
+      "identity": {
+        "artifact_class": "runtime_or_container_artifact",
+        "surface_state": "publishable_runtime_bundle",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["mechanics/local-ai-runtime/README.md", "tools/ai/AGENTS.md", "config-templates/etc/abyss-machine/storage-policy.json"],
+        "producer": "runtime packaging or container build from tracked runtime helpers and host policy templates",
+        "consumer_expectation": "runtime consumers verify ABI epoch, SBOM, build/install provenance, signer/builder identity, and distribution digest",
+        "privacy_boundary": "publishable only after excluding local model caches, compile blobs, private benchmarks, and /srv runtime state",
+        "content_identity": "artifact digest plus release sidecar digests",
+        "abi_epoch": "v1 via host-runtime-artifact-route",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "verification": ["python scripts/ci_gate.py --mode release-artifact"],
+        "action": "KEEP"
+      },
       "abi_signature": {"required": true},
       "sbom": {"required": true, "trigger": "runtime, container, deployable bundle, or packaged helper"},
+      "ml_bom": {"required": false, "trigger": "use ai_model_or_runtime_bundle when model weights, datasets, conversion metadata, or AI framework config are included"},
       "slsa_in_toto": {"required": true, "trigger": "build or install provenance for published artifacts"},
       "sigstore_cosign": {"required": true, "trigger": "OCI images, release bundles, and published blobs"},
       "c2pa": {"required": false, "trigger": "not media"}
     },
+    "ai_model_or_runtime_bundle": {
+      "description": "Published AI model, dataset, conversion, or framework-config bundle owned by the host-machine runtime route.",
+      "identity": {
+        "artifact_class": "ai_model_or_runtime_bundle",
+        "surface_state": "publishable_ai_runtime_bundle",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["mechanics/local-ai-runtime/README.md", "tools/ai/AGENTS.md", "config-templates/etc/abyss-machine/ai/config.json"],
+        "producer": "model/runtime download, conversion, packaging, or release process from tracked host AI runtime routes",
+        "consumer_expectation": "AI runtime consumers verify ABI epoch, ML-BOM, SBOM when software is bundled, SLSA/in-toto provenance, signer identity, and model/source digests",
+        "privacy_boundary": "publishable only after excluding local prompts, private traces, benchmark scratch, compile caches, and host-specific /srv state",
+        "content_identity": "model/runtime bundle digest plus model, dataset, conversion, and framework-config identities",
+        "abi_epoch": "v1 via host-ai-runtime-route",
+        "trust_layer": ["abi_contract_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"],
+        "verification": ["python scripts/ci_gate.py --mode release-artifact"],
+        "action": "ADD_ML_BOM"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "when software or runtime dependencies are bundled"},
+      "ml_bom": {"required": true, "trigger": "model, dataset, conversion metadata, or AI framework config is distributed"},
+      "slsa_in_toto": {"required": true, "trigger": "published AI model/runtime bundle"},
+      "sigstore_cosign": {"required": true, "trigger": "published release asset, OCI artifact, bundle, or blob"},
+      "c2pa": {"required": false, "trigger": "not public media"}
+    },
     "browser_extension_package": {
       "description": "Uploadable browser extension source zip or signed package for typed-text intake.",
+      "identity": {
+        "artifact_class": "browser_extension_package",
+        "surface_state": "publishable_extension_package",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["tools/typing/AGENTS.md", "tools/typing/firefox-extension/AGENTS.md", "mechanics/typing-intake/README.md"],
+        "producer": "extension packaging from tracked typed-text intake source",
+        "consumer_expectation": "extension consumers verify ABI epoch, package provenance, extension-store signing boundary, and optional detached release signature",
+        "privacy_boundary": "package contains code only; typed text, browser captures, and local histories stay private",
+        "content_identity": "zip/xpi digest plus ABI source tree hash",
+        "abi_epoch": "v1 via typing-extension-package",
+        "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
+        "verification": ["python scripts/ci_gate.py --mode release-artifact"],
+        "action": "KEEP"
+      },
       "abi_signature": {"required": true},
       "sbom": {"required": false, "trigger": "lite dependency inventory if bundled third-party code appears"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
       "slsa_in_toto": {"required": true, "trigger": "package provenance for published source zip or xpi"},
       "sigstore_cosign": {"required": false, "trigger": "optional detached release-asset signature; Mozilla signing remains separate"},
       "c2pa": {"required": false, "trigger": "not media"}
     },
     "host_local_evidence": {
       "description": "Private local reports, histories, snapshots, traces, typed events, nervous captures, and host facts created on an installed machine.",
+      "identity": {
+        "artifact_class": "host_local_evidence",
+        "surface_state": "host_private_generated",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["/etc/abyss-machine/AGENTS.md", "/var/lib/abyss-machine/AGENTS.md", "/var/lib/abyss-machine/artifacts/AGENTS.md"],
+        "producer": "installed abyss-machine commands, timers, services, probes, or local agent sessions",
+        "consumer_expectation": "local agents verify the local provenance packet, route card, privacy boundary, content identity, and subsystem validator before acting on evidence",
+        "privacy_boundary": "private host evidence; not public repo content and not release-signed by default",
+        "content_identity": "local packet path, sha256 or tree_hash, size, mtime, and producer refs",
+        "abi_epoch": "local packet schema v1",
+        "trust_layer": ["local_provenance", "w3c_prov_lineage"],
+        "verification": ["abyss-machine artifacts validate --json", "subsystem-specific local validator"],
+        "action": "ADD_LOCAL_PROVENANCE"
+      },
       "abi_signature": {"required": false},
       "semantic_provenance": {"required": true, "trigger": "local evidence must keep source, command, time, host route, and privacy boundary when promoted into /var/lib"},
       "sbom": {"required": false, "trigger": "not a software distribution artifact"},
+      "ml_bom": {"required": false, "trigger": "local model caches use local provenance until converted to a publishable AI model/runtime bundle"},
       "slsa_in_toto": {"required": false, "trigger": "not published by default"},
       "sigstore_cosign": {"required": false, "trigger": "not published by default"},
       "c2pa": {"required": false, "trigger": "private evidence is not public media"}
     },
     "public_media_export": {
       "description": "Public PDFs, visualizations, images, or content exports produced from host-machine material after privacy review.",
+      "identity": {
+        "artifact_class": "public_media_export",
+        "surface_state": "publishable_content_export",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["docs/publication/PUBLICATION_BOUNDARY.md", "manifests/artifact_signature_policy.manifest.json"],
+        "producer": "reviewed export process from public-safe source or privacy-reviewed host material",
+        "consumer_expectation": "content consumers verify C2PA manifest and, when bundled for release, release asset digest or signature",
+        "privacy_boundary": "public only after review; private host evidence keeps its local provenance and does not become public automatically",
+        "content_identity": "media digest plus C2PA manifest or sidecar",
+        "abi_epoch": "not_applicable_content_credential",
+        "trust_layer": ["c2pa"],
+        "verification": ["python scripts/ci_gate.py --mode release-artifact"],
+        "action": "KEEP"
+      },
       "abi_signature": {"required": false},
       "sbom": {"required": false, "trigger": "not software"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
       "slsa_in_toto": {"required": false, "trigger": "only if released inside a generated export bundle"},
       "sigstore_cosign": {"required": false, "trigger": "optional release bundle signature"},
       "c2pa": {"required": true, "trigger": "public media/content export"}
@@ -92,6 +267,7 @@
         "docs/validation/validation_lanes.json",
         "manifests",
         "schemas",
+        "src/abyss_machine",
         "scripts/generate_contract_abi_signatures.py",
         "scripts/generate_scaffold_index.py",
         "scripts/validators",
@@ -104,6 +280,7 @@
       "artifact_class": "bootstrap_install_bundle",
       "source_paths": [
         "scripts/abyss-machine-bootstrap",
+        "src/abyss_machine",
         "config-templates",
         "env/.env.example",
         "systemd",
@@ -120,6 +297,17 @@
         "mechanics/storage-routing",
         "tools/ai",
         "config-templates/etc/abyss-machine/storage-policy.json"
+      ]
+    },
+    {
+      "id": "host-ai-runtime-route",
+      "epoch": "v1",
+      "artifact_class": "ai_model_or_runtime_bundle",
+      "source_paths": [
+        "mechanics/local-ai-runtime",
+        "tools/ai",
+        "config-templates/etc/abyss-machine/ai",
+        "config-templates/etc/abyss-machine/resource-policy.json"
       ]
     },
     {
@@ -160,6 +348,20 @@
       }
     },
     {
+      "id": "ai-model-runtime-release",
+      "artifact_class": "ai_model_or_runtime_bundle",
+      "artifact_patterns": ["artifacts/ai/**/*.tar.gz", "artifacts/ai/**/*.oci", "artifacts/ai/**/*.bundle"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/ai-runtime",
+      "required_controls": ["abi_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "ml_bom": [".mlbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"],
+        "sigstore_cosign": [".sigstore.json", ".cosign.bundle"]
+      }
+    },
+    {
       "id": "typing-extension-release",
       "artifact_class": "browser_extension_package",
       "artifact_patterns": ["tools/typing/firefox-extension/build/*.zip", "tools/typing/firefox-extension/build/*.xpi"],
@@ -195,8 +397,22 @@
   "implementation_order": [
     "validate this policy in source-fast CI",
     "publish ABI signatures as a deterministic generated read model",
+    "require local provenance packets for promoted host-local evidence",
     "add release-time SBOM and minimal SLSA/in-toto provenance for built artifacts",
+    "add ML-BOM when AI model/runtime bundles are distributed",
     "add Sigstore/Cosign only when release assets, blobs, or OCI artifacts exist",
     "add C2PA only for public media/content exports"
-  ]
+  ],
+  "deferred_trust_layers": {
+    "tuf": {
+      "trigger": "install or update channel metadata exists",
+      "action": "PREPARE_TUF",
+      "reason": "no abyss-machine update channel is declared in this seed yet"
+    },
+    "scitt": {
+      "trigger": "signed statement federation exists across OS Abyss issuers",
+      "action": "PREPARE_SCITT",
+      "reason": "local and release attestations do not yet require a federated transparency receipt plane"
+    }
+  }
 }

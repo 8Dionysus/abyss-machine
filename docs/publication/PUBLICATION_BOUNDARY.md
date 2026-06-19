@@ -39,14 +39,23 @@ signatures:
 
 - Contract ABI signatures are deterministic hashes over tracked public source
   surfaces. They help agents and canaries detect contract drift.
+- Artifact identity posture records what each artifact class is, who owns its
+  meaning, what consumers must check, and which trust layer applies.
+- Host-local evidence uses local provenance packets before any public release
+  claim: source refs, producer command, content identity, privacy boundary,
+  lineage, and the local validator a consumer relied on.
 - SBOM and SLSA/in-toto provenance apply when software, install, runtime,
   container, package, or release artifacts are built for publication.
+- ML-BOM applies when AI model, dataset, conversion, or framework-config
+  bundles are distributed.
 - Sigstore/Cosign applies to published release assets, blobs, OCI artifacts, or
   bundles, not to every source commit.
 - C2PA applies only to public media/content exports.
 - Live host evidence is not published or signed as public source. If local
   evidence is promoted, it keeps semantic provenance inside the host evidence
   plane first.
+- TUF waits until an install/update channel exists. SCITT waits until OS Abyss
+  needs federated transparency receipts for signed statements.
 
 The `release-artifact` validation lane checks these rules before publication
 without requiring private keys or producing signatures during ordinary CI.
