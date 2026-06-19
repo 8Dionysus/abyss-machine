@@ -15,3 +15,6 @@ External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM
 and SLSA/in-toto sidecars without moving the distribution files into the public
 source repository.
+Runtime config artifacts use the same manifest route and may set `build_type`
+so the generated SLSA statement identifies a runtime-config bundle instead of
+the Python distribution default.

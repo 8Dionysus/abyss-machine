@@ -554,8 +554,11 @@ def build_slsa_statement(
 ) -> dict[str, Any]:
     subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
     source_refs = [POLICY_REF]
+    build_type = "https://abyssos.local/buildtypes/python-distribution/v1"
     if isinstance(manifest, dict):
         source_refs.append(str(_public_manifest_ref(manifest) or ""))
+        if manifest.get("build_type"):
+            build_type = str(manifest["build_type"])
     aggregate_digest = str(subjects.get("aggregate_digest") or "").removeprefix("sha256:")
     return {
         "_type": "https://in-toto.io/Statement/v1",
@@ -566,7 +569,7 @@ def build_slsa_statement(
         "predicateType": "https://slsa.dev/provenance/v1",
         "predicate": {
             "buildDefinition": {
-                "buildType": "https://abyssos.local/buildtypes/python-distribution/v1",
+                "buildType": build_type,
                 "externalParameters": {
                     "artifact_class": identity.get("artifact_class"),
                     "mode": identity.get("mode"),
