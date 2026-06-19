@@ -265,6 +265,83 @@ def test_abyss_stack_runtime_config_bundle_generates_runtime_config_controls(tmp
     assert str(bundle) not in public_payload
 
 
+def test_aoa_evals_generated_report_index_bundle_generates_report_index_controls(tmp_path: Path) -> None:
+    sibling = tmp_path / "aoa-evals"
+    manifest_dir = sibling / "mechanics" / "release-support" / "manifests"
+    generated = sibling / "generated"
+    manifest_dir.mkdir(parents=True)
+    generated.mkdir(parents=True)
+    (generated / "eval_report_index.min.json").write_text(
+        json.dumps(
+            {
+                "schema": "aoa_eval_report_index_min_v1",
+                "reports": [
+                    {
+                        "eval": "evals/workflow/aoa-verification-honesty",
+                        "report": "evals/workflow/aoa-verification-honesty/reports/example-report.json",
+                    }
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "aoa-evals-generated-report-index-bundle",
+        "artifact_class": "aoa_evals_generated_report_index_bundle",
+        "owner_repo": "aoa-evals",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "mode": "github_release",
+        "subject_repo_root": "../../..",
+        "build_type": "https://abyssos.local/buildtypes/aoa-evals-generated-report-index/v1",
+        "artifact_identity": {
+            "artifact_class": "aoa_evals_generated_report_index_bundle",
+            "abi_epoch": "aoa_evals_generated_report_index_bundle_v1",
+        },
+        "abi_subject": {
+            "path": "generated/eval_report_index.min.json",
+        },
+        "artifact_subjects": [
+            {"path": "generated/eval_report_index.min.json", "role": "generated_report_index"},
+        ],
+        "package": {
+            "ecosystem": "proof-reader",
+            "name": "aoa-evals-generated-report-index",
+            "purl": "pkg:generic/aoa-evals-generated-report-index@0",
+        },
+    }
+    manifest_path = manifest_dir / "report_index.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+
+    build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    sign = artifact_bundles.sign_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle)
+    identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
+    abi = json.loads((bundle / artifact_bundles.ABI_SIDECAR).read_text(encoding="utf-8"))
+    subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+    slsa = json.loads((bundle / artifact_bundles.SLSA_INTOTO_SIDECAR).read_text(encoding="utf-8").splitlines()[0])
+    verify_sidecar = json.loads((bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8"))
+
+    assert build["ok"] is True
+    assert sign["status"] == "not_required"
+    assert verify["ok"] is True
+    assert identity["bundle_manifest_ref"] == "mechanics/release-support/manifests/report_index.bundle.json"
+    assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert abi["external_subject"]["path"] == "generated/eval_report_index.min.json"
+    assert len(subjects["files"]) == 1
+    assert subjects["files"][0]["path"] == "generated/eval_report_index.min.json"
+    assert subjects["files"][0]["role"] == "generated_report_index"
+    assert slsa["predicate"]["buildDefinition"]["buildType"] == "https://abyssos.local/buildtypes/aoa-evals-generated-report-index/v1"
+    assert verify_sidecar["bundle_dir"] == "bundle"
+    public_payload = json.dumps({"identity": identity, "abi": abi, "subjects": subjects, "slsa": slsa, "verify": verify_sidecar}, sort_keys=True)
+    assert str(sibling) not in public_payload
+    assert str(bundle) not in public_payload
+
+
 def test_verify_requires_explicit_signature_decision(tmp_path: Path) -> None:
     bundle = tmp_path / "unsigned-public-source-seed"
 

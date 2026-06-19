@@ -324,6 +324,30 @@
       "sigstore_cosign": {"required": false, "trigger": "required when abyss-stack publishes OCI images, signed release bundles, or external release assets"},
       "c2pa": {"required": false, "trigger": "not public media"}
     },
+    "aoa_evals_generated_report_index_bundle": {
+      "description": "Generated aoa-evals public report/result index bundle derived from source eval bundles, bundle-local reports, and mechanic-owned report readouts.",
+      "identity": {
+        "artifact_class": "aoa_evals_generated_report_index_bundle",
+        "surface_state": "public_generated_proof_report_index",
+        "owner_repo": "aoa-evals",
+        "authority_ref": ["generated/README.md", "generated/eval_report_index.min.json", "scripts/generate_eval_report_index.py", "reports/README.md", "docs/architecture/PROOF_TOPOLOGY.md"],
+        "producer": "aoa-evals generated report-index builder from source proof bundles, bundle-local reports, and mechanic-owned report readouts",
+        "consumer_expectation": "proof consumers verify generated report-index digests, ABI identity, SBOM-lite subject inventory, and SLSA/in-toto generation provenance before trusting report/result lookup bundles",
+        "privacy_boundary": "public-safe generated proof reader only; no private datasets, hidden telemetry, raw operator traces, secret-bearing fixtures, or unreviewed runtime evidence",
+        "content_identity": "generated report-index digest plus repo-local aoa-evals artifact identity manifest",
+        "abi_epoch": "aoa_evals_generated_report_index_bundle_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#aoa_evals_generated_report_index_bundle",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
+        "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "SBOM-lite subject inventory for generated report/result index bundles"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "generated report/result index bundle artifacts are built"},
+      "sigstore_cosign": {"required": false, "trigger": "required only when aoa-evals publishes signed reports, release bundles, or external release assets"},
+      "c2pa": {"required": false, "trigger": "required only for public PDF/media reports, not JSON report indexes"}
+    },
     "host_local_evidence": {
       "description": "Private local reports, histories, snapshots, traces, typed events, nervous captures, and host facts created on an installed machine.",
       "identity": {
@@ -475,6 +499,18 @@
       "artifact_patterns": ["dist/abyss-stack-runtime-config/*.yml"],
       "public_repo_policy": "not_tracked",
       "staging_route": "/srv/abyss-machine/artifacts/releases/abyss-stack",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
+      "id": "aoa-evals-generated-report-index-bundle-release",
+      "artifact_class": "aoa_evals_generated_report_index_bundle",
+      "artifact_patterns": ["dist/aoa-evals-report-index/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-evals",
       "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
       "sidecar_extensions": {
         "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],

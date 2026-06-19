@@ -66,11 +66,17 @@ def test_every_artifact_class_has_identity_posture() -> None:
         identity = class_rule["identity"]
         assert REQUIRED_IDENTITY_FIELDS <= set(identity)
         assert identity["artifact_class"] == class_id
-        if class_id in {"aoa_skills_release_manifest", "aoa_sdk_python_distribution", "abyss_stack_runtime_config_bundle"}:
+        if class_id in {
+            "aoa_skills_release_manifest",
+            "aoa_sdk_python_distribution",
+            "abyss_stack_runtime_config_bundle",
+            "aoa_evals_generated_report_index_bundle",
+        }:
             expected_owner = {
                 "aoa_skills_release_manifest": "aoa-skills",
                 "aoa_sdk_python_distribution": "aoa-sdk",
                 "abyss_stack_runtime_config_bundle": "abyss-stack",
+                "aoa_evals_generated_report_index_bundle": "aoa-evals",
             }[class_id]
             assert identity["owner_repo"] == expected_owner
         else:
@@ -165,3 +171,20 @@ def test_abyss_stack_runtime_config_bundle_requires_sbom_and_slsa_without_premat
     stack_release = release_rules["abyss-stack-runtime-config-bundle-release"]
     assert stack_release["artifact_class"] == "abyss_stack_runtime_config_bundle"
     assert stack_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_aoa_evals_generated_report_index_requires_sbom_and_slsa_without_premature_cosign_or_c2pa() -> None:
+    policy = load_policy()
+    evals_rule = policy["artifact_classes"]["aoa_evals_generated_report_index_bundle"]
+    assert evals_rule["identity"]["owner_repo"] == "aoa-evals"
+    assert evals_rule["abi_signature"]["required"] is True
+    assert evals_rule["sbom"]["required"] is True
+    assert evals_rule["slsa_in_toto"]["required"] is True
+    assert evals_rule["sigstore_cosign"]["required"] is False
+    assert evals_rule["c2pa"]["required"] is False
+    assert "PDF/media reports" in evals_rule["c2pa"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    evals_release = release_rules["aoa-evals-generated-report-index-bundle-release"]
+    assert evals_release["artifact_class"] == "aoa_evals_generated_report_index_bundle"
+    assert evals_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
