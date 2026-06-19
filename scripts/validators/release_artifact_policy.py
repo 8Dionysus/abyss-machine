@@ -13,6 +13,14 @@ ALLOWED_CONTROLS = {"abi_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore
 PUBLISHABLE_REQUIRED_CONTROLS = {"sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign", "c2pa"}
 VALID_PUBLIC_REPO_POLICIES = {"not_tracked", "source_review_required"}
 NON_PUBLISHABLE_CLASSES = {"host_local_evidence"}
+REQUIRED_EXPECTATION_TERMS = {
+    "abi_signature": ("contract abi", "epoch", "source tree hash"),
+    "sbom": ("sbom", "artifact digest"),
+    "ml_bom": ("ml-bom", "model", "dataset"),
+    "slsa_in_toto": ("subject digest", "builder", "buildtype"),
+    "sigstore_cosign": ("signer identity", "artifact digest"),
+    "c2pa": ("c2pa", "privacy review"),
+}
 
 
 def tracked_files() -> set[str]:
@@ -41,13 +49,37 @@ def main() -> int:
     policy = load_json(POLICY)
     classes = policy.get("artifact_classes")
     rules = policy.get("release_artifact_rules")
+    sidecar_expectations = policy.get("release_sidecar_expectations")
     tracked = tracked_files()
     failures: list[str] = []
 
     require(isinstance(classes, dict) and bool(classes), "artifact signature policy must define artifact_classes", failures)
     require(isinstance(rules, list) and bool(rules), "artifact signature policy must define release_artifact_rules", failures)
+    require(
+        isinstance(sidecar_expectations, dict) and bool(sidecar_expectations),
+        "artifact signature policy must define release_sidecar_expectations",
+        failures,
+    )
     if not isinstance(classes, dict) or not isinstance(rules, list):
         return fail("release artifact policy validation failed", failures)
+    if not isinstance(sidecar_expectations, dict):
+        sidecar_expectations = {}
+
+    for control in sorted(ALLOWED_CONTROLS):
+        expectation = sidecar_expectations.get(control)
+        if not isinstance(expectation, dict):
+            failures.append(f"release_sidecar_expectations must define {control}")
+            continue
+        consumer_checks = expectation.get("consumer_checks")
+        if not isinstance(consumer_checks, list) or not all(isinstance(item, str) and item for item in consumer_checks):
+            failures.append(f"release_sidecar_expectations.{control}.consumer_checks must be a non-empty string list")
+            continue
+        joined = " ".join(consumer_checks).lower()
+        missing_terms = [term for term in REQUIRED_EXPECTATION_TERMS[control] if term not in joined]
+        if missing_terms:
+            failures.append(
+                f"release_sidecar_expectations.{control}.consumer_checks missing terms: {', '.join(missing_terms)}"
+            )
 
     seen_rule_ids: set[str] = set()
     covered_classes: set[str] = set()
@@ -95,6 +127,8 @@ def main() -> int:
             if control not in ALLOWED_CONTROLS:
                 failures.append(f"release artifact rule {rule_id} has unknown control {control}")
                 continue
+            if control not in sidecar_expectations:
+                failures.append(f"release artifact rule {rule_id} requires {control}, but no sidecar expectation exists")
             if not control_required(class_rule, control):
                 failures.append(f"release artifact rule {rule_id} requires {control}, but artifact class {artifact_class} does not")
             if control in PUBLISHABLE_REQUIRED_CONTROLS:

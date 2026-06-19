@@ -6,6 +6,7 @@
     "schemas/storage-policy.schema.json",
     "schemas/typing-policy.schema.json",
     "schemas/nervous-privacy.schema.json",
-    "schemas/artifact-signature-policy.schema.json"
+    "schemas/artifact-signature-policy.schema.json",
+    "schemas/local-provenance-packet.schema.json"
   ]
 }

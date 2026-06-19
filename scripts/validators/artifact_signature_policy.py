@@ -8,6 +8,7 @@ from _common import REPO_ROOT, fail, load_json, ok, rel, require
 
 
 POLICY = REPO_ROOT / "manifests" / "artifact_signature_policy.manifest.json"
+SCHEMA_INVENTORY = REPO_ROOT / "manifests" / "schema_inventory.manifest.json"
 VALIDATION_LANES = REPO_ROOT / "docs" / "validation" / "validation_lanes.json"
 GENERATED_SURFACE = "generated/contract_abi_signatures.min.json"
 REQUIRED_POLICY_KEYS = ("abi_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign", "c2pa")
@@ -21,12 +22,14 @@ REQUIRED_IDENTITY_KEYS = (
     "privacy_boundary",
     "content_identity",
     "abi_epoch",
+    "contract_version",
     "trust_layer",
     "verification",
     "action",
 )
 REQUIRED_LOCAL_PROVENANCE_FIELDS = (
     "schema",
+    "schema_ref",
     "artifact_class",
     "surface_state",
     "owner_repo",
@@ -37,6 +40,7 @@ REQUIRED_LOCAL_PROVENANCE_FIELDS = (
     "activity",
     "agent_or_tool",
     "created_at",
+    "contract_version",
     "privacy_boundary",
     "content_identity",
     "consumer_expectation",
@@ -125,11 +129,14 @@ def tracked_under(path_text: str, tracked: set[str]) -> list[str]:
 
 def main() -> int:
     policy = load_json(POLICY)
+    schema_inventory = load_json(SCHEMA_INVENTORY)
     lanes_manifest = load_json(VALIDATION_LANES)
     failures: list[str] = []
     tracked = tracked_files()
 
     require(policy.get("schema") == "abyss_machine_artifact_signature_policy_manifest_v1", f"{rel(POLICY)} schema mismatch", failures)
+    policy_version = str(policy.get("policy_version") or "")
+    require(bool(policy_version), "artifact signature policy must define policy_version", failures)
     abi = policy.get("abi_signature")
     require(isinstance(abi, dict), "artifact signature policy must define abi_signature", failures)
     if isinstance(abi, dict):
@@ -216,6 +223,13 @@ def main() -> int:
                 failures.append(f"artifact class {class_id}.identity missing keys: {', '.join(missing_identity)}")
             if identity.get("artifact_class") != class_id:
                 failures.append(f"artifact class {class_id}.identity.artifact_class must match class id")
+            contract_version = identity.get("contract_version")
+            if not isinstance(contract_version, str) or not contract_version:
+                failures.append(f"artifact class {class_id}.identity.contract_version must be a non-empty string")
+            elif policy_version and policy_version not in contract_version:
+                failures.append(
+                    f"artifact class {class_id}.identity.contract_version must reference policy_version {policy_version}"
+                )
             authority_ref = identity.get("authority_ref")
             if not isinstance(authority_ref, list) or not all(isinstance(item, str) and item for item in authority_ref):
                 failures.append(f"artifact class {class_id}.identity.authority_ref must be a non-empty string list")
@@ -258,6 +272,16 @@ def main() -> int:
             "local_provenance_packet schema mismatch",
             failures,
         )
+        schema_ref = str(local_packet.get("schema_ref") or "")
+        inventory_schemas = schema_inventory.get("schemas") if isinstance(schema_inventory, dict) else None
+        if not schema_ref:
+            failures.append("local_provenance_packet.schema_ref must be a non-empty string")
+        else:
+            schema_path = REPO_ROOT / schema_ref
+            if not schema_path.is_file():
+                failures.append(f"local_provenance_packet.schema_ref missing schema file: {schema_ref}")
+            if not isinstance(inventory_schemas, list) or schema_ref not in inventory_schemas:
+                failures.append(f"local_provenance_packet.schema_ref must be listed in schema inventory: {schema_ref}")
         applies_to = local_packet.get("applies_to_artifact_classes")
         if not isinstance(applies_to, list) or "host_local_evidence" not in applies_to:
             failures.append("local_provenance_packet must apply to host_local_evidence")

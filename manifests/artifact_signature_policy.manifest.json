@@ -1,6 +1,6 @@
 {
   "schema": "abyss_machine_artifact_signature_policy_manifest_v1",
-  "policy_version": "0.2.0",
+  "policy_version": "0.2.1",
   "purpose": "Declare how abyss-machine public seed contracts, release bundles, runtime artifacts, local evidence, and public media exports are fingerprinted, attested, or signed without publishing private host state.",
   "abi_signature": {
     "algorithm": "sha256-tree-v1",
@@ -17,18 +17,21 @@
     "privacy_boundary",
     "content_identity",
     "abi_epoch",
+    "contract_version",
     "trust_layer",
     "verification",
     "action"
   ],
   "local_provenance_packet": {
     "schema": "abyss_machine_local_provenance_packet_v1",
+    "schema_ref": "schemas/local-provenance-packet.schema.json",
     "applies_to_artifact_classes": ["host_local_evidence"],
     "surface_state": "host_private_generated",
     "storage_route": "/var/lib/abyss-machine/<subsystem>/...",
     "not_public_repo_content": true,
     "required_fields": [
       "schema",
+      "schema_ref",
       "artifact_class",
       "surface_state",
       "owner_repo",
@@ -39,6 +42,7 @@
       "activity",
       "agent_or_tool",
       "created_at",
+      "contract_version",
       "privacy_boundary",
       "content_identity",
       "consumer_expectation",
@@ -57,7 +61,9 @@
     },
     "consumer_checks": [
       "schema and artifact_class match the expected local evidence contract",
+      "schema_ref resolves to the public local provenance packet schema",
       "authority_ref resolves to /etc/abyss-machine or the nearest local route card",
+      "contract_version matches the local packet schema and policy contract expected by the consumer",
       "producer_command or service identity is present",
       "privacy_boundary forbids public publication unless reviewed",
       "content_identity is present before cleanup, promotion, or export decisions",
@@ -87,6 +93,44 @@
       {"id": "release-check", "command": ["python", "scripts/release_check.py"]}
     ]
   },
+  "release_sidecar_expectations": {
+    "abi_signature": {
+      "consumer_checks": [
+        "verify the contract ABI generated/contract_abi_signatures.min.json is current before release",
+        "match the artifact class ABI epoch and source tree hash against the expected contract surface"
+      ]
+    },
+    "sbom": {
+      "consumer_checks": [
+        "parse the SBOM sidecar as SPDX or CycloneDX before trusting it",
+        "verify the SBOM artifact digest or component identity matches the release artifact"
+      ]
+    },
+    "ml_bom": {
+      "consumer_checks": [
+        "parse the ML-BOM sidecar as CycloneDX before trusting an AI bundle",
+        "verify model, dataset, conversion, framework config, and source digests are present for distributed AI artifacts"
+      ]
+    },
+    "slsa_in_toto": {
+      "consumer_checks": [
+        "verify the SLSA/in-toto attestation subject digest matches the release artifact",
+        "verify predicateType, builder identity, canonical source, buildType, and expected externalParameters before install"
+      ]
+    },
+    "sigstore_cosign": {
+      "consumer_checks": [
+        "verify the Sigstore/Cosign signature or bundle against the release artifact digest",
+        "verify signer identity, issuer or key root, and required annotations before trusting a release asset"
+      ]
+    },
+    "c2pa": {
+      "consumer_checks": [
+        "verify the C2PA manifest or sidecar for public media/content exports",
+        "verify claim signature, active asset binding, and privacy review route before publication"
+      ]
+    }
+  },
   "artifact_classes": {
     "public_source_seed": {
       "description": "The public repository seed: source, templates, manifests, schemas, validators, tests, and docs that can be published safely.",
@@ -100,6 +144,7 @@
         "privacy_boundary": "public; must not include live host facts, private captures, secrets, caches, models, or local indexes",
         "content_identity": "git tree plus generated contract ABI sha256-tree-v1",
         "abi_epoch": "v1 via public-seed-scaffold",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.1#public_source_seed",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/ci_gate.py --mode source-fast"],
         "action": "KEEP"
@@ -123,6 +168,7 @@
         "privacy_boundary": "public-derived; rendered host-local values stay outside the repo",
         "content_identity": "release artifact digest plus ABI source tree hash",
         "abi_epoch": "v1 via bootstrap-install-seed",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.1#bootstrap_install_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact", "scripts/abyss-machine-bootstrap doctor --dry-run --json"],
         "action": "KEEP"
@@ -146,6 +192,7 @@
         "privacy_boundary": "publishable only after excluding local model caches, compile blobs, private benchmarks, and /srv runtime state",
         "content_identity": "artifact digest plus release sidecar digests",
         "abi_epoch": "v1 via host-runtime-artifact-route",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.1#runtime_or_container_artifact",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -169,6 +216,7 @@
         "privacy_boundary": "publishable only after excluding local prompts, private traces, benchmark scratch, compile caches, and host-specific /srv state",
         "content_identity": "model/runtime bundle digest plus model, dataset, conversion, and framework-config identities",
         "abi_epoch": "v1 via host-ai-runtime-route",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.1#ai_model_or_runtime_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "ADD_ML_BOM"
@@ -192,6 +240,7 @@
         "privacy_boundary": "package contains code only; typed text, browser captures, and local histories stay private",
         "content_identity": "zip/xpi digest plus ABI source tree hash",
         "abi_epoch": "v1 via typing-extension-package",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.1#browser_extension_package",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -215,6 +264,7 @@
         "privacy_boundary": "private host evidence; not public repo content and not release-signed by default",
         "content_identity": "local packet path, sha256 or tree_hash, size, mtime, and producer refs",
         "abi_epoch": "local packet schema v1",
+        "contract_version": "abyss_machine_local_provenance_packet_v1@artifact_signature_policy.manifest.json@0.2.1",
         "trust_layer": ["local_provenance", "w3c_prov_lineage"],
         "verification": ["abyss-machine artifacts validate --json", "subsystem-specific local validator"],
         "action": "ADD_LOCAL_PROVENANCE"
@@ -239,6 +289,7 @@
         "privacy_boundary": "public only after review; private host evidence keeps its local provenance and does not become public automatically",
         "content_identity": "media digest plus C2PA manifest or sidecar",
         "abi_epoch": "not_applicable_content_credential",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.1#public_media_export",
         "trust_layer": ["c2pa"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
