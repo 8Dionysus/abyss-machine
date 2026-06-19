@@ -250,6 +250,9 @@ def main() -> int:
             if identity.get("action") not in ALLOWED_ACTIONS:
                 failures.append(f"artifact class {class_id}.identity.action must be one of the allowed actions")
             if class_id == "host_local_evidence":
+                local_provenance = item.get("local_provenance")
+                if not isinstance(local_provenance, dict) or local_provenance.get("required") is not True:
+                    failures.append("host_local_evidence must require local_provenance")
                 if isinstance(trust_layer, list) and not {"local_provenance", "w3c_prov_lineage"} <= set(trust_layer):
                     failures.append("host_local_evidence identity must use local_provenance and w3c_prov_lineage")
                 privacy = str(identity.get("privacy_boundary") or "")

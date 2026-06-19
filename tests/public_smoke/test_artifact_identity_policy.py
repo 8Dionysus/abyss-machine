@@ -66,7 +66,10 @@ def test_every_artifact_class_has_identity_posture() -> None:
         identity = class_rule["identity"]
         assert REQUIRED_IDENTITY_FIELDS <= set(identity)
         assert identity["artifact_class"] == class_id
-        assert identity["owner_repo"] == "abyss-machine"
+        if class_id == "aoa_skills_release_manifest":
+            assert identity["owner_repo"] == "aoa-skills"
+        else:
+            assert identity["owner_repo"] == "abyss-machine"
         assert policy_version in identity["contract_version"]
         assert identity["authority_ref"]
         assert identity["trust_layer"]
@@ -86,6 +89,7 @@ def test_host_local_evidence_uses_private_local_provenance_packet() -> None:
     assert packet["schema_ref"] in inventory["schemas"]
 
     host_identity = policy["artifact_classes"]["host_local_evidence"]["identity"]
+    assert policy["artifact_classes"]["host_local_evidence"]["local_provenance"]["required"] is True
     assert {"local_provenance", "w3c_prov_lineage"} <= set(host_identity["trust_layer"])
     assert "private" in host_identity["privacy_boundary"].lower()
 

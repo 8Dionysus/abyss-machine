@@ -8,6 +8,11 @@
   source-safe CI/canary compatibility checks.
 - Add a release-artifact policy lane for publishable artifact provenance and
   sidecar requirements without requiring signing keys in ordinary CI.
+- Add the first policy-driven artifact bundle verifier roundtrip for the
+  public source seed: ABI sidecar, minimal provenance sidecar, explicit
+  signature-not-required decision, verify, and release-check.
+- Add the OS Abyss local provenance sample bundle so the same verifier path
+  checks private-host-evidence packet shape without publishing private payloads.
 - Add a portable OS Abyss runner contract so local CLI, host scheduler, release
   pipeline, and GitHub Actions adapters share the same validation entrypoints.
 - Add the family-standard GitHub landing workflow to the root route card and

@@ -11,4 +11,7 @@ checks.
   valid JSON.
 - `artifact_signature_policy.manifest.json`: artifact identity posture, ABI,
   portable runner, local provenance, SBOM/ML-BOM, SLSA/in-toto,
-  Sigstore/Cosign, C2PA, and deferred TUF/SCITT policy by artifact class.
+  Sigstore/Cosign, C2PA, and deferred TUF/SCITT policy by artifact class. The
+  `abyss-machine artifacts build-sidecars`, `sign`, `verify`, and
+  `release-check` commands consume this policy for the `public_source_seed`
+  and OS Abyss local provenance bundle roundtrips.
