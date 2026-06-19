@@ -11,6 +11,8 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_REF = "manifests/artifact_signature_policy.manifest.json"
+POLICY_REF_REPO_QUALIFIED = f"repo:abyss-machine/{POLICY_REF}"
+POLICY_REF_ALIASES = frozenset({POLICY_REF, POLICY_REF_REPO_QUALIFIED})
 ABI_REF = "generated/contract_abi_signatures.min.json"
 BUNDLE_LAYOUT = "abyss_machine_artifact_bundle_v1"
 IDENTITY_SIDECAR = "artifact.identity.json"
@@ -92,8 +94,9 @@ def load_bundle_manifest(manifest_ref: str | Path, *, repo_root: Path = REPO_ROO
     manifest = _read_json(path)
     if manifest.get("schema") != "abyss_machine_artifact_bundle_manifest_v1":
         raise ValueError(f"{path} must use schema abyss_machine_artifact_bundle_manifest_v1")
-    if manifest.get("policy_ref") != POLICY_REF:
-        raise ValueError(f"{path} policy_ref must be {POLICY_REF}")
+    if manifest.get("policy_ref") not in POLICY_REF_ALIASES:
+        allowed = ", ".join(sorted(POLICY_REF_ALIASES))
+        raise ValueError(f"{path} policy_ref must be one of: {allowed}")
     if not manifest.get("artifact_class"):
         raise ValueError(f"{path} must define artifact_class")
     manifest["_manifest_path"] = str(path)

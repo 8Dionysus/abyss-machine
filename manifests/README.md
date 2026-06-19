@@ -18,4 +18,5 @@ checks.
   runtime config subjects such as `abyss_stack_runtime_config_bundle`,
   generated proof reader subjects such as
   `aoa_evals_generated_report_index_bundle`, and OS Abyss local provenance
-  bundle roundtrips.
+  bundle roundtrips. External repo bundle manifests may use the repo-qualified
+  policy reference `repo:abyss-machine/manifests/artifact_signature_policy.manifest.json`.
