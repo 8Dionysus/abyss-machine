@@ -342,6 +342,80 @@ def test_aoa_evals_generated_report_index_bundle_generates_report_index_controls
     assert str(bundle) not in public_payload
 
 
+def test_tree_of_sophia_generated_readmodel_bundle_generates_abi_only_controls(tmp_path: Path) -> None:
+    sibling = tmp_path / "Tree-of-Sophia"
+    manifest_dir = sibling / "mechanics" / "release-support" / "parts" / "artifact-bundles" / "manifests"
+    generated = sibling / "ToS" / "derived-exports"
+    manifest_dir.mkdir(parents=True)
+    generated.mkdir(parents=True)
+    root_entry_map = {
+        "schema_version": "tos_root_entry_map_v1",
+        "artifact_identity": {
+            "artifact_class": "tree_of_sophia_generated_readmodel_bundle",
+            "abi_epoch": "tree_of_sophia_generated_readmodel_bundle_v1",
+        },
+    }
+    (generated / "root_entry_map.min.json").write_text(
+        json.dumps(root_entry_map, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (generated / "kag_export.min.json").write_text(
+        json.dumps({"schema": "tos_kag_export_v1", "kind": "source_node"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (generated / "tos_corpus_index.min.json").write_text(
+        json.dumps({"schema_version": "tos_corpus_index_v1", "counts": {"nodes": 1}}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "tree-of-sophia-generated-readmodel-bundle",
+        "artifact_class": "tree_of_sophia_generated_readmodel_bundle",
+        "owner_repo": "Tree-of-Sophia",
+        "policy_ref": artifact_bundles.POLICY_REF_REPO_QUALIFIED,
+        "mode": "os_abyss_local",
+        "subject_repo_root": "../../../../..",
+        "artifact_identity": {
+            "artifact_class": "tree_of_sophia_generated_readmodel_bundle",
+            "abi_epoch": "tree_of_sophia_generated_readmodel_bundle_v1",
+        },
+        "abi_subject": {
+            "path": "ToS/derived-exports/root_entry_map.min.json",
+            "artifact_identity_pointer": "/artifact_identity",
+        },
+        "artifact_subjects": [
+            {"path": "ToS/derived-exports/root_entry_map.min.json", "role": "root_entry_map"},
+            {"path": "ToS/derived-exports/kag_export.min.json", "role": "kag_export"},
+            {"path": "ToS/derived-exports/tos_corpus_index.min.json", "role": "corpus_index"},
+        ],
+    }
+    manifest_path = manifest_dir / "generated_readmodel.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+
+    build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    sign = artifact_bundles.sign_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle)
+    identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
+    abi = json.loads((bundle / artifact_bundles.ABI_SIDECAR).read_text(encoding="utf-8"))
+    subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+    verify_sidecar = json.loads((bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8"))
+
+    assert build["ok"] is True
+    assert sign["status"] == "not_required"
+    assert verify["ok"] is True
+    assert verify["required_controls"] == ["abi_signature"]
+    assert verify["verified_controls"] == ["abi_signature"]
+    assert identity["deferred_controls"]["c2pa"]["reason"].startswith("use public_media_export")
+    assert identity["deferred_controls"]["slsa_in_toto"]["reason"].startswith("required only when generated ToS readmodels")
+    assert abi["external_subject"]["artifact_identity"]["abi_epoch"] == "tree_of_sophia_generated_readmodel_bundle_v1"
+    assert [item["role"] for item in subjects["files"]] == ["kag_export", "root_entry_map", "corpus_index"]
+    assert verify_sidecar["bundle_dir"] == "bundle"
+    public_payload = json.dumps({"identity": identity, "abi": abi, "subjects": subjects, "verify": verify_sidecar}, sort_keys=True)
+    assert str(sibling) not in public_payload
+    assert str(bundle) not in public_payload
+
+
 def test_verify_requires_explicit_signature_decision(tmp_path: Path) -> None:
     bundle = tmp_path / "unsigned-public-source-seed"
 

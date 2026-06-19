@@ -71,12 +71,14 @@ def test_every_artifact_class_has_identity_posture() -> None:
             "aoa_sdk_python_distribution",
             "abyss_stack_runtime_config_bundle",
             "aoa_evals_generated_report_index_bundle",
+            "tree_of_sophia_generated_readmodel_bundle",
         }:
             expected_owner = {
                 "aoa_skills_release_manifest": "aoa-skills",
                 "aoa_sdk_python_distribution": "aoa-sdk",
                 "abyss_stack_runtime_config_bundle": "abyss-stack",
                 "aoa_evals_generated_report_index_bundle": "aoa-evals",
+                "tree_of_sophia_generated_readmodel_bundle": "Tree-of-Sophia",
             }[class_id]
             assert identity["owner_repo"] == expected_owner
         else:
@@ -188,3 +190,17 @@ def test_aoa_evals_generated_report_index_requires_sbom_and_slsa_without_prematu
     evals_release = release_rules["aoa-evals-generated-report-index-bundle-release"]
     assert evals_release["artifact_class"] == "aoa_evals_generated_report_index_bundle"
     assert evals_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_tree_of_sophia_generated_readmodel_requires_abi_without_premature_media_or_release_controls() -> None:
+    policy = load_policy()
+    tos_rule = policy["artifact_classes"]["tree_of_sophia_generated_readmodel_bundle"]
+    assert tos_rule["identity"]["owner_repo"] == "Tree-of-Sophia"
+    assert tos_rule["identity"]["trust_layer"] == ["abi_contract_signature"]
+    assert tos_rule["abi_signature"]["required"] is True
+    assert tos_rule["sbom"]["required"] is False
+    assert tos_rule["slsa_in_toto"]["required"] is False
+    assert tos_rule["sigstore_cosign"]["required"] is False
+    assert tos_rule["c2pa"]["required"] is False
+    assert "external release/export bundle" in tos_rule["slsa_in_toto"]["trigger"]
+    assert "PDFs" in tos_rule["c2pa"]["trigger"]
