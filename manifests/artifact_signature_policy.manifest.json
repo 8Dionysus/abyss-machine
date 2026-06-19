@@ -348,6 +348,30 @@
       "sigstore_cosign": {"required": false, "trigger": "required only when aoa-evals publishes signed reports, release bundles, or external release assets"},
       "c2pa": {"required": false, "trigger": "required only for public PDF/media reports, not JSON report indexes"}
     },
+    "tree_of_sophia_generated_readmodel_bundle": {
+      "description": "Generated Tree-of-Sophia public JSON readmodel bundle for downstream orientation surfaces that remain subordinate to authored ToS meaning.",
+      "identity": {
+        "artifact_class": "tree_of_sophia_generated_readmodel_bundle",
+        "surface_state": "public_generated_readmodel_bundle",
+        "owner_repo": "Tree-of-Sophia",
+        "authority_ref": ["ToS/derived-exports/AGENTS.md", "ToS/derived-exports/root_entry_map.min.json", "ToS/contracts/root-entry-map.schema.json", "mechanics/boundary-bridge/parts/derived-kag-seam/docs/KAG_EXPORT.md"],
+        "producer": "Tree-of-Sophia generated readmodel builders from authored ToS, public compatibility, and derived export route surfaces",
+        "consumer_expectation": "downstream consumers verify generated readmodel digests, ABI identity, schema/export validators, and the source-first boundary before trusting orientation exports",
+        "privacy_boundary": "public-safe generated JSON readmodels only; no private host/runtime/session evidence, unreviewed source expansion, local graph cache, or media credential material",
+        "content_identity": "root_entry_map, KAG export, and ToS corpus index digests plus repo-local Tree-of-Sophia artifact identity",
+        "abi_epoch": "tree_of_sophia_generated_readmodel_bundle_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#tree_of_sophia_generated_readmodel_bundle",
+        "trust_layer": ["abi_contract_signature"],
+        "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "DEFINE_ABI"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "not a software distribution artifact; add SBOM only if ToS publishes a packaged software or release bundle with dependency inventory"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": false, "trigger": "required only when generated ToS readmodels are packaged as an external release/export bundle"},
+      "sigstore_cosign": {"required": false, "trigger": "required only when ToS publishes signed release assets or release bundles"},
+      "c2pa": {"required": false, "trigger": "use public_media_export for public PDFs, visualizations, images, or media/content credential exports; not JSON readmodels"}
+    },
     "host_local_evidence": {
       "description": "Private local reports, histories, snapshots, traces, typed events, nervous captures, and host facts created on an installed machine.",
       "identity": {
