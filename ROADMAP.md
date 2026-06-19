@@ -9,7 +9,8 @@
 
 ## Next Hardening
 
-- Extract path policy from the monolithic CLI into tested modules.
+- Extract remaining subsystem-specific policy and command glue from the
+  monolithic CLI into tested modules.
 - Add stricter schema validation after real bootstrap reports converge.
 - Move mature helper tools into owning mechanic parts.
 - Add release checks that combine public smoke, bootstrap dry-runs, path scans,

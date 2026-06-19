@@ -4,7 +4,18 @@
   "title": "abyss-machine artifact signature policy",
   "type": "object",
   "additionalProperties": true,
-  "required": ["schema", "policy_version", "abi_signature", "portable_runner_contract", "artifact_classes", "contract_surfaces", "release_artifact_rules"],
+  "required": [
+    "schema",
+    "policy_version",
+    "abi_signature",
+    "identity_fields",
+    "local_provenance_packet",
+    "portable_runner_contract",
+    "artifact_classes",
+    "contract_surfaces",
+    "release_artifact_rules",
+    "deferred_trust_layers"
+  ],
   "properties": {
     "schema": {
       "const": "abyss_machine_artifact_signature_policy_manifest_v1"
@@ -21,11 +32,84 @@
         "generated_surface": {"type": "string"}
       }
     },
+    "identity_fields": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "local_provenance_packet": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "schema",
+        "applies_to_artifact_classes",
+        "storage_route",
+        "not_public_repo_content",
+        "required_fields",
+        "consumer_checks",
+        "promotion_controls"
+      ],
+      "properties": {
+        "schema": {"const": "abyss_machine_local_provenance_packet_v1"},
+        "applies_to_artifact_classes": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "storage_route": {"type": "string"},
+        "not_public_repo_content": {"const": true},
+        "required_fields": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "consumer_checks": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "promotion_controls": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
     "artifact_classes": {
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "additionalProperties": true
+        "additionalProperties": true,
+        "required": ["description", "identity"],
+        "properties": {
+          "identity": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "artifact_class",
+              "surface_state",
+              "owner_repo",
+              "authority_ref",
+              "producer",
+              "consumer_expectation",
+              "privacy_boundary",
+              "content_identity",
+              "abi_epoch",
+              "trust_layer",
+              "verification",
+              "action"
+            ],
+            "properties": {
+              "authority_ref": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "trust_layer": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "verification": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            }
+          }
+        }
       }
     },
     "portable_runner_contract": {
@@ -101,6 +185,14 @@
             }
           }
         }
+      }
+    },
+    "deferred_trust_layers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["trigger", "action", "reason"]
       }
     }
   }

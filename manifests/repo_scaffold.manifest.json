@@ -22,8 +22,8 @@
     "manifests": ["AGENTS.md", "README.md", "artifact_signature_policy.manifest.json"],
     "mechanics": ["AGENTS.md", "README.md"],
     "schemas": ["AGENTS.md", "README.md"],
-    "scripts": ["AGENTS.md", "README.md", "validation_lanes.py", "ci_gate.py", "release_check.py", "generate_contract_abi_signatures.py"],
-    "src": ["abyss_machine/__init__.py", "abyss_machine/cli.py"],
+    "scripts": ["AGENTS.md", "README.md", "validation_lanes.py", "ci_gate.py", "release_check.py", "generate_contract_abi_signatures.py", "validators/path_policy.py"],
+    "src": ["abyss_machine/__init__.py", "abyss_machine/cli.py", "abyss_machine/path_policy.py"],
     "systemd": ["AGENTS.md", "README.md"],
     "tests": ["AGENTS.md", "README.md"],
     "tools": ["AGENTS.md", "README.md", "abyss-machine-test"]

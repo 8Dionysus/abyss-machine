@@ -15,6 +15,9 @@
 - Align the GitHub platform surface with sibling repository landing policy:
   CODEOWNERS, PR template, surface map, protected `Repo Validation` check, and
   auto-deleted merge branches.
+- Extract the shared host root path policy into a tested module used by
+  bootstrap and CLI imports, and add a source-fast validator for the path
+  contract.
 
 ## 0.1.0
 

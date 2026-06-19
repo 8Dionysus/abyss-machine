@@ -30,6 +30,13 @@ scripts/abyss-machine-bootstrap render --profile linux-systemd-core --dry-run --
 scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json
 ```
 
+The bootstrap CLI and installed `abyss-machine` CLI share
+`abyss_machine.path_policy` for root defaults and environment overrides. A fresh
+machine should render `/etc/abyss-machine`, create durable evidence under
+`/var/lib/abyss-machine`, reserve large mutable planes under
+`/srv/abyss-machine`, and keep ephemeral state under `/run/abyss-machine`
+without copying private state from this workstation.
+
 Typing and nervous-system collectors are installed as a first-class organ, but
 real collection is opt-in:
 
@@ -81,7 +88,8 @@ This first public seed intentionally keeps the installed CLI as a monolithic
 module. The next hardening wave should split it into package modules only after
 the public bootstrap and publication boundary are stable.
 
-Known v1 portability debt: the monolithic CLI still contains historical
-workstation defaults and fixture paths. New-machine bootstrap uses rendered
-templates and profiles; modular path-policy extraction is the first follow-up
-before claiming full host-agnostic behavior for every subcommand.
+Known v1 portability debt: the CLI is still largely monolithic and some
+subsystems retain historical workstation defaults or fixture paths. The shared
+path-policy module now owns root/install defaults; the next extraction wave is
+to move subsystem-specific policy and command glue behind smaller modules before
+claiming full host-agnostic behavior for every subcommand.
