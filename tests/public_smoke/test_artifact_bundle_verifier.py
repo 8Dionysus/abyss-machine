@@ -416,6 +416,72 @@ def test_tree_of_sophia_generated_readmodel_bundle_generates_abi_only_controls(t
     assert str(bundle) not in public_payload
 
 
+def test_dionysus_seed_route_readmodel_bundle_generates_abi_only_controls(tmp_path: Path) -> None:
+    sibling = tmp_path / "Dionysus"
+    manifest_dir = sibling / "docs" / "codex" / "artifact-bundles" / "manifests"
+    generated = sibling / "generated"
+    manifest_dir.mkdir(parents=True)
+    generated.mkdir(parents=True)
+    route_map = {
+        "schema": "dionysus_seed_route_map_v2",
+        "artifact_identity": {
+            "artifact_class": "dionysus_seed_route_readmodel_bundle",
+            "abi_epoch": "dionysus_seed_route_map_v2",
+        },
+    }
+    (generated / "seed_route_map.min.json").write_text(
+        json.dumps(route_map, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "dionysus-seed-route-readmodel-bundle",
+        "artifact_class": "dionysus_seed_route_readmodel_bundle",
+        "owner_repo": "Dionysus",
+        "policy_ref": artifact_bundles.POLICY_REF_REPO_QUALIFIED,
+        "mode": "os_abyss_local",
+        "subject_repo_root": "../../../..",
+        "artifact_identity": {
+            "artifact_class": "dionysus_seed_route_readmodel_bundle",
+            "abi_epoch": "dionysus_seed_route_map_v2",
+        },
+        "abi_subject": {
+            "path": "generated/seed_route_map.min.json",
+            "artifact_identity_pointer": "/artifact_identity",
+        },
+        "artifact_subjects": [
+            {"path": "generated/seed_route_map.min.json", "role": "seed_route_map"},
+        ],
+    }
+    manifest_path = manifest_dir / "seed_route_readmodel.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+
+    build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    sign = artifact_bundles.sign_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle)
+    identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
+    abi = json.loads((bundle / artifact_bundles.ABI_SIDECAR).read_text(encoding="utf-8"))
+    subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+    verify_sidecar = json.loads((bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8"))
+
+    assert build["ok"] is True
+    assert sign["status"] == "not_required"
+    assert verify["ok"] is True
+    assert verify["required_controls"] == ["abi_signature"]
+    assert verify["verified_controls"] == ["abi_signature"]
+    assert identity["deferred_controls"]["c2pa"]["reason"].startswith("use public_media_export")
+    assert "future Dionysus seed-pack credential class" in identity["deferred_controls"]["c2pa"]["reason"]
+    assert "planting artifact bundle" in identity["deferred_controls"]["slsa_in_toto"]["reason"]
+    assert abi["external_subject"]["artifact_identity"]["abi_epoch"] == "dionysus_seed_route_map_v2"
+    assert subjects["files"][0]["path"] == "generated/seed_route_map.min.json"
+    assert subjects["files"][0]["role"] == "seed_route_map"
+    assert verify_sidecar["bundle_dir"] == "bundle"
+    public_payload = json.dumps({"identity": identity, "abi": abi, "subjects": subjects, "verify": verify_sidecar}, sort_keys=True)
+    assert str(sibling) not in public_payload
+    assert str(bundle) not in public_payload
+
+
 def test_verify_requires_explicit_signature_decision(tmp_path: Path) -> None:
     bundle = tmp_path / "unsigned-public-source-seed"
 
