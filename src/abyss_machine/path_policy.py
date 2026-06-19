@@ -103,11 +103,14 @@ class AbyssMachinePathPolicy:
         storage_root: str | Path | None = None,
         tmp_root: str | Path | None = None,
         environ: Mapping[str, str] | None = None,
-    ) -> "AbyssMachinePathPolicy":
+        ) -> "AbyssMachinePathPolicy":
         base = cls.from_environment(environ=environ)
         resolved_user = user or base.user
         resolved_home = _value(home, base.home)
         preserve_derived_srv_roots = srv_root is None
+        systemd_user_default = base.systemd_user_dir or (resolved_home / ".config/systemd/user")
+        if home is not None and systemd_user_dir is None:
+            systemd_user_default = resolved_home / ".config/systemd/user"
         return cls(
             user=resolved_user,
             home=resolved_home,
@@ -120,7 +123,7 @@ class AbyssMachinePathPolicy:
             local_bin_dir=_value(local_bin_dir, base.local_bin_dir),
             local_libexec_dir=_value(local_libexec_dir, base.local_libexec_dir),
             systemd_system_dir=_value(systemd_system_dir, base.systemd_system_dir),
-            systemd_user_dir=_value(systemd_user_dir, base.systemd_user_dir or (resolved_home / ".config/systemd/user")),
+            systemd_user_dir=_value(systemd_user_dir, systemd_user_default),
             cache_root_override=_value(cache_root, base.cache_root)
             if cache_root is not None
             else (base.cache_root_override if preserve_derived_srv_roots else None),

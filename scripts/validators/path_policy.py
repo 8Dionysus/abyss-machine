@@ -111,6 +111,11 @@ def main() -> int:
     require(str(custom.runtimes_root) == "/tmp/runtimes", "custom runtimes root mismatch", failures)
     require(str(custom.storage_root) == "/tmp/storage", "custom storage root mismatch", failures)
     require(str(custom.tmp_root) == "/tmp/tmp", "custom tmp root mismatch", failures)
+    require(
+        custom.cli_defaults()["systemd_user_dir"] == "/tmp/agent/.config/systemd/user",
+        "custom home must carry default user systemd dir",
+        failures,
+    )
 
     bootstrap_source = (REPO_ROOT / "scripts" / "abyss-machine-bootstrap").read_text(encoding="utf-8")
     cli_source = (REPO_ROOT / "src" / "abyss_machine" / "cli.py").read_text(encoding="utf-8")

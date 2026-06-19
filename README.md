@@ -31,11 +31,14 @@ scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --j
 ```
 
 The bootstrap CLI and installed `abyss-machine` CLI share
-`abyss_machine.path_policy` for root defaults and environment overrides. A fresh
-machine should render `/etc/abyss-machine`, create durable evidence under
-`/var/lib/abyss-machine`, reserve large mutable planes under
-`/srv/abyss-machine`, and keep ephemeral state under `/run/abyss-machine`
-without copying private state from this workstation.
+`abyss_machine.path_policy` for root defaults and environment overrides.
+Typing/nervous path and service defaults live in
+`abyss_machine.typing_nervous_policy` and are re-exported by the CLI for
+installed-host compatibility. A fresh machine should render
+`/etc/abyss-machine`, create durable evidence under `/var/lib/abyss-machine`,
+reserve large mutable planes under `/srv/abyss-machine`, and keep ephemeral
+state under `/run/abyss-machine` without copying private state from this
+workstation.
 
 Typing and nervous-system collectors are installed as a first-class organ, but
 real collection is opt-in:
@@ -84,12 +87,9 @@ python scripts/release_check.py --include-host-contracts
 
 ## Current Status
 
-This first public seed intentionally keeps the installed CLI as a monolithic
-module. The next hardening wave should split it into package modules only after
-the public bootstrap and publication boundary are stable.
-
-Known v1 portability debt: the CLI is still largely monolithic and some
-subsystems retain historical workstation defaults or fixture paths. The shared
-path-policy module now owns root/install defaults; the next extraction wave is
-to move subsystem-specific policy and command glue behind smaller modules before
-claiming full host-agnostic behavior for every subcommand.
+The installed CLI remains mostly monolithic, but shared root policy and the
+typing/nervous organ policy have been split into package modules with public
+validators. Known v1 portability debt remains in subsystem command glue and
+some historical workstation fixture paths; further hardening should move
+command implementation behind smaller modules before claiming full
+host-agnostic behavior for every subcommand.
