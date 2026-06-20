@@ -19,6 +19,7 @@ from abyss_machine.typing_nervous_refresh import (  # noqa: E402
     typing_nervous_index_resource_gated,
     typing_nervous_refresh_document,
     typing_nervous_refresh_index_action,
+    typing_nervous_refresh_fact_state,
     typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
     typing_nervous_refresh_index_retry_action,
@@ -532,6 +533,57 @@ def main() -> int:
         failures,
     )
 
+    fact_state = typing_nervous_refresh_fact_state(
+        facts_latest={
+            "generated_at": "2026-06-20T05:00:00+00:00",
+            "nested": {
+                "facts": [
+                    {"source_id": "unrelated", "summary": {"records": 99}},
+                    {
+                        "source_id": "typed_text_autolog",
+                        "observed_at": "2026-06-20T04:59:30+00:00",
+                        "summary": {"records": 2},
+                        "process": {"summary": {"processed_records": 2}},
+                        "entries": [
+                            {"generated_at": "2026-06-20T04:58:00+00:00"},
+                            "ignored",
+                            {"generated_at": "2026-06-20T04:59:00+00:00"},
+                        ],
+                    },
+                ]
+            },
+        },
+        facts_error=None,
+        latest_path="/var/lib/abyss-machine/nervous/facts/latest.json",
+    )
+    require(
+        fact_state.get("latest") == "/var/lib/abyss-machine/nervous/facts/latest.json"
+        and fact_state.get("exists") is True
+        and fact_state.get("typed_fact_exists") is True
+        and fact_state.get("typed_observed_at") == "2026-06-20T04:59:30+00:00"
+        and fact_state.get("typed_summary") == {"records": 2}
+        and fact_state.get("typed_process_summary") == {"processed_records": 2}
+        and fact_state.get("typed_latest_entry_generated_at") == "2026-06-20T04:59:00+00:00",
+        "fact-state builder must preserve recursive typed fact shape",
+        failures,
+    )
+    missing_fact_state = typing_nervous_refresh_fact_state(
+        facts_latest=None,
+        facts_error="missing",
+        latest_path="latest.json",
+    )
+    require(
+        missing_fact_state.get("latest") == "latest.json"
+        and missing_fact_state.get("exists") is False
+        and missing_fact_state.get("error") == "missing"
+        and missing_fact_state.get("typed_fact_exists") is False
+        and missing_fact_state.get("typed_summary") == {}
+        and missing_fact_state.get("typed_process_summary") == {}
+        and missing_fact_state.get("typed_latest_entry_generated_at") is None,
+        "fact-state builder must preserve missing facts shape",
+        failures,
+    )
+
     require(
         cli.typing_nervous_index_resource_gated is typing_nervous_index_resource_gated,
         "CLI must re-export module resource-gate helper",
@@ -588,6 +640,11 @@ def main() -> int:
         failures,
     )
     require(
+        cli.build_typing_nervous_refresh_fact_state is typing_nervous_refresh_fact_state,
+        "CLI must import module fact-state builder",
+        failures,
+    )
+    require(
         cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status,
         "CLI must import module latest-status builder",
         failures,
@@ -617,6 +674,19 @@ def main() -> int:
     require(
         "latest_policy" not in status_wrapper_source and "acceptable_latest" not in status_wrapper_source,
         "CLI latest-status wrapper must not keep status classification logic",
+        failures,
+    )
+    fact_state_wrapper_source = inspect.getsource(cli.typing_nervous_refresh_fact_state)
+    require(
+        "build_typing_nervous_refresh_fact_state" in fact_state_wrapper_source,
+        "CLI fact-state wrapper must delegate to module builder",
+        failures,
+    )
+    require(
+        "typing_find_source_facts" not in fact_state_wrapper_source
+        and "typed_facts =" not in fact_state_wrapper_source
+        and "latest_entry = max" not in fact_state_wrapper_source,
+        "CLI fact-state wrapper must not keep typed fact parsing logic",
         failures,
     )
     refresh_source = inspect.getsource(cli.typing_nervous_refresh)

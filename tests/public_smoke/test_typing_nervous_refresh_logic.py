@@ -16,6 +16,7 @@ from abyss_machine.typing_nervous_refresh import (
     typing_nervous_index_resource_gated,
     typing_nervous_refresh_document,
     typing_nervous_refresh_index_action,
+    typing_nervous_refresh_fact_state,
     typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
     typing_nervous_refresh_index_retry_action,
@@ -685,6 +686,64 @@ def test_typing_nervous_refresh_latest_status_flags_timer_policy_and_stale_lates
     assert stale_status["status"] == "stale"
 
 
+def test_typing_nervous_refresh_fact_state_preserves_recursive_fact_shape() -> None:
+    state = typing_nervous_refresh_fact_state(
+        facts_latest={
+            "generated_at": "2026-06-20T05:00:00+00:00",
+            "bundle": {
+                "facts": [
+                    {"source_id": "other_source", "summary": {"records": 99}},
+                    {
+                        "source_id": "typed_text_autolog",
+                        "observed_at": "2026-06-20T04:59:30+00:00",
+                        "summary": {"records": 2, "latest_text_event": "event-2"},
+                        "process": {"summary": {"processed_records": 2, "skipped_records": 0}},
+                        "entries": [
+                            {"generated_at": "2026-06-20T04:58:00+00:00", "event_id": "event-1"},
+                            "ignored",
+                            {"generated_at": "2026-06-20T04:59:00+00:00", "event_id": "event-2"},
+                        ],
+                    },
+                ]
+            },
+        },
+        facts_error=None,
+        latest_path=Path("/var/lib/abyss-machine/nervous/facts/latest.json"),
+    )
+
+    assert state == {
+        "latest": "/var/lib/abyss-machine/nervous/facts/latest.json",
+        "exists": True,
+        "error": None,
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "typed_fact_exists": True,
+        "typed_observed_at": "2026-06-20T04:59:30+00:00",
+        "typed_summary": {"records": 2, "latest_text_event": "event-2"},
+        "typed_process_summary": {"processed_records": 2, "skipped_records": 0},
+        "typed_latest_entry_generated_at": "2026-06-20T04:59:00+00:00",
+    }
+
+
+def test_typing_nervous_refresh_fact_state_preserves_missing_fact_shape() -> None:
+    state = typing_nervous_refresh_fact_state(
+        facts_latest=None,
+        facts_error="missing",
+        latest_path="latest.json",
+    )
+
+    assert state == {
+        "latest": "latest.json",
+        "exists": False,
+        "error": "missing",
+        "generated_at": None,
+        "typed_fact_exists": False,
+        "typed_observed_at": None,
+        "typed_summary": {},
+        "typed_process_summary": {},
+        "typed_latest_entry_generated_at": None,
+    }
+
+
 def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_index_resource_gated is typing_nervous_index_resource_gated
     assert cli.typing_nervous_deferred_recent_index_safe is typing_nervous_deferred_recent_index_safe
@@ -697,4 +756,5 @@ def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_refresh_index_retry_action is typing_nervous_refresh_index_retry_action
     assert cli.typing_nervous_refresh_synthesis_action is typing_nervous_refresh_synthesis_action
     assert cli.typing_nervous_refresh_final_context is typing_nervous_refresh_final_context
+    assert cli.build_typing_nervous_refresh_fact_state is typing_nervous_refresh_fact_state
     assert cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status

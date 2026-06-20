@@ -35,7 +35,7 @@ The bootstrap CLI and installed `abyss-machine` CLI share
 Typing/nervous path and service defaults live in
 `abyss_machine.typing_nervous_policy`; refresh resource-gate and recent-index
 debounce helpers, refresh assessment, latest-status classification, and
-index-attempt, final-status, action-record, and refresh-document builders live in
+fact-state, index-attempt, final-status, action-record, and refresh-document builders live in
 `abyss_machine.typing_nervous_refresh`. These surfaces are re-exported or
 adapted by the CLI for installed-host compatibility. A fresh machine
 should render `/etc/abyss-machine`, create durable evidence under

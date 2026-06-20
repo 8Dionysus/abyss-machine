@@ -15,8 +15,8 @@ shared root contract.
 `typing_nervous_refresh_logic.py` validates the pure refresh decision helpers
 that classify soft resource gates, bounded recent-index debounce windows,
 refresh assessment state, latest-status readmodel health, index-attempt
-debounce plus final status contexts, action-record builders, and the final
-refresh document builder. The CLI must use
+debounce plus final status contexts, fact-state assembly, action-record
+builders, and the final refresh document builder. The CLI must use
 `abyss_machine.typing_nervous_refresh` for this logic instead of redefining it
 in the monolith.
 
