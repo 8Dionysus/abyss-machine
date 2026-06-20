@@ -17,11 +17,15 @@ from abyss_machine.typing_nervous_refresh import (  # noqa: E402
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_index_action,
     typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
+    typing_nervous_refresh_index_retry_action,
     typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
     typing_nervous_refresh_needed,
+    typing_nervous_refresh_snapshot_action,
+    typing_nervous_refresh_synthesis_action,
 )
 
 
@@ -149,6 +153,115 @@ def main() -> int:
         and forced_context.get("debounce_candidate_index_stale") is True
         and forced_context.get("index_deferred_recent_attempt") is False,
         "forced index context must use assessment fallback without deferring",
+        failures,
+    )
+    snapshot_action = typing_nervous_refresh_snapshot_action(
+        snapshot={"ok": True, "generated_at": "2026-06-20T05:00:00+00:00", "summary": {"facts": 3}},
+        force_snapshot=False,
+    )
+    require(
+        snapshot_action.get("action") == "nervous_snapshot"
+        and snapshot_action.get("reason") == "typed_event_or_process_not_in_facts"
+        and snapshot_action.get("summary") == {"facts": 3},
+        "snapshot action builder must preserve public action shape",
+        failures,
+    )
+    require(
+        typing_nervous_refresh_snapshot_action(snapshot=None, force_snapshot=False).get("status") == "not_needed",
+        "snapshot action builder must preserve not-needed shape",
+        failures,
+    )
+    deferred_index_action = typing_nervous_refresh_index_action(
+        action_status="deferred_recent_index_attempt",
+        previous_refresh={"finished_at": "2026-06-20T05:00:15+00:00"},
+        previous_index_attempt_age_sec=225,
+        index_min_interval_sec=900,
+    )
+    require(
+        deferred_index_action.get("reason") == "typing_refresh_index_debounce"
+        and deferred_index_action.get("previous_refresh_finished_at") == "2026-06-20T05:00:15+00:00"
+        and deferred_index_action.get("previous_attempt_age_sec") == 225,
+        "index action builder must preserve recent-attempt debounce action shape",
+        failures,
+    )
+    running_index_action = typing_nervous_refresh_index_action(
+        action_status="deferred_existing_index_build_running",
+        index_service={"active": "active"},
+        dynamic_index_units=["abyss-machine-indexing@1.service"],
+    )
+    require(
+        running_index_action.get("status") == "deferred_existing_index_build_running"
+        and running_index_action.get("service") == {"active": "active"}
+        and running_index_action.get("dynamic_resource_units") == ["abyss-machine-indexing@1.service"],
+        "index action builder must preserve existing-running action shape",
+        failures,
+    )
+    launch_index_action = typing_nervous_refresh_index_action(
+        action_status="launched",
+        index_launch={
+            "ok": False,
+            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "denied_reasons": [],
+            "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
+            "elapsed_sec": 2.5,
+            "execution": {"returncode": 0},
+        },
+        force_index=False,
+        index_launch_already_running=True,
+        index_debounce_bypassed_for_lag=True,
+        debounce_candidate_records_lag=17,
+        debounce_candidate_records_lag_tolerance=4,
+    )
+    require(
+        launch_index_action.get("status") == "deferred_existing_index_lock"
+        and launch_index_action.get("reason") == "facts_or_index_freshness_required_refresh"
+        and launch_index_action.get("resource_decision") == "blocked"
+        and launch_index_action.get("resource_sample_thermal") is False
+        and launch_index_action.get("debounce_bypassed_for_lag") is True,
+        "index action builder must preserve launch action shape",
+        failures,
+    )
+    retry_index_action = typing_nervous_refresh_index_retry_action(
+        {
+            "ok": True,
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "plan": {"decision": "allowed", "request": {"sample_thermal": True}},
+            "elapsed_sec": 4.25,
+            "execution": {"returncode": 0},
+        }
+    )
+    require(
+        retry_index_action.get("status") == "retry_after_typed_fact_changed_during_index"
+        and retry_index_action.get("reason") == "first_index_build_finished_before_latest_typed_fact"
+        and retry_index_action.get("resource_decision") == "allowed"
+        and retry_index_action.get("resource_sample_thermal") is True,
+        "index retry action builder must preserve retry action shape",
+        failures,
+    )
+    synthesis_action = typing_nervous_refresh_synthesis_action(
+        synthesis_needed=True,
+        index_needed=True,
+        final_context={"synthesis_action_status": "unused"},
+        synthesis_refresh={"ok": True, "candidate_id": "candidate-1", "summary": {"facts": 3}},
+        synthesis_validation={"ok": True, "summary": {"checks": 4}},
+    )
+    require(
+        synthesis_action.get("reason") == "typed_facts_index_refresh_completed"
+        and synthesis_action.get("candidate_id") == "candidate-1"
+        and synthesis_action.get("validation_summary") == {"checks": 4},
+        "synthesis action builder must preserve run action shape",
+        failures,
+    )
+    synthesis_deferred = typing_nervous_refresh_synthesis_action(
+        synthesis_needed=False,
+        index_needed=True,
+        final_context={"synthesis_action_status": "deferred_index_pending"},
+    )
+    require(
+        synthesis_deferred.get("status") == "deferred_index_pending"
+        and synthesis_deferred.get("reason") == "index_refresh_not_confirmed_fresh_yet",
+        "synthesis action builder must preserve deferred action shape",
         failures,
     )
     final_context = typing_nervous_refresh_final_context(
@@ -388,6 +501,26 @@ def main() -> int:
         failures,
     )
     require(
+        cli.typing_nervous_refresh_snapshot_action is typing_nervous_refresh_snapshot_action,
+        "CLI must re-export module snapshot action helper",
+        failures,
+    )
+    require(
+        cli.typing_nervous_refresh_index_action is typing_nervous_refresh_index_action,
+        "CLI must re-export module index action helper",
+        failures,
+    )
+    require(
+        cli.typing_nervous_refresh_index_retry_action is typing_nervous_refresh_index_retry_action,
+        "CLI must re-export module index retry action helper",
+        failures,
+    )
+    require(
+        cli.typing_nervous_refresh_synthesis_action is typing_nervous_refresh_synthesis_action,
+        "CLI must re-export module synthesis action helper",
+        failures,
+    )
+    require(
         cli.typing_nervous_refresh_final_context is typing_nervous_refresh_final_context,
         "CLI must re-export module final context helper",
         failures,
@@ -405,6 +538,10 @@ def main() -> int:
         "typing_nervous_recent_index_debounce_safe",
         "typing_nervous_refresh_needed",
         "typing_nervous_refresh_index_attempt_context",
+        "typing_nervous_refresh_snapshot_action",
+        "typing_nervous_refresh_index_action",
+        "typing_nervous_refresh_index_retry_action",
+        "typing_nervous_refresh_synthesis_action",
         "typing_nervous_refresh_final_context",
     ):
         require(f"def {name}" not in cli_source, f"CLI must not redefine {name}", failures)
@@ -435,6 +572,21 @@ def main() -> int:
         "CLI refresh orchestration must delegate final status summary to module helper",
         failures,
     )
+    for name in (
+        "typing_nervous_refresh_snapshot_action",
+        "typing_nervous_refresh_index_action",
+        "typing_nervous_refresh_index_retry_action",
+        "typing_nervous_refresh_synthesis_action",
+    ):
+        require(name in refresh_source, f"CLI refresh orchestration must use {name}", failures)
+    for stale_marker in (
+        '"reason": "typed_event_or_process_not_in_facts"',
+        '"reason": "typing_refresh_index_debounce"',
+        '"reason": "facts_or_index_freshness_required_refresh"',
+        '"status": "retry_after_typed_fact_changed_during_index"',
+        '"reason": "typed_facts_index_refresh_completed"',
+    ):
+        require(stale_marker not in refresh_source, f"CLI refresh must not inline {stale_marker}", failures)
     require(
         "index_resource_launch_attempted = isinstance" not in refresh_source
         and "global_index_records_lag = nested_get(index_after" not in refresh_source,

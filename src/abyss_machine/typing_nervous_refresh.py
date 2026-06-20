@@ -355,6 +355,123 @@ def typing_nervous_refresh_index_attempt_context(
     }
 
 
+def typing_nervous_refresh_snapshot_action(
+    *,
+    snapshot: Any,
+    force_snapshot: bool,
+) -> dict[str, Any]:
+    snapshot_data = snapshot if isinstance(snapshot, dict) else None
+    if snapshot_data is None:
+        return {"action": "nervous_snapshot", "status": "not_needed"}
+    return {
+        "action": "nervous_snapshot",
+        "reason": "forced" if force_snapshot else "typed_event_or_process_not_in_facts",
+        "ok": snapshot_data.get("ok"),
+        "generated_at": snapshot_data.get("generated_at"),
+        "summary": snapshot_data.get("summary") if isinstance(snapshot_data.get("summary"), dict) else {},
+    }
+
+
+def typing_nervous_refresh_index_action(
+    *,
+    action_status: str,
+    previous_refresh: Any = None,
+    previous_index_attempt_age_sec: Any = None,
+    index_min_interval_sec: Any = None,
+    index_service: Any = None,
+    dynamic_index_units: Any = None,
+    index_launch: Any = None,
+    force_index: bool = False,
+    index_launch_already_running: bool = False,
+    index_debounce_bypassed_for_lag: bool = False,
+    debounce_candidate_records_lag: Any = None,
+    debounce_candidate_records_lag_tolerance: Any = None,
+) -> dict[str, Any]:
+    if action_status == "deferred_recent_index_attempt":
+        previous_refresh_data = previous_refresh if isinstance(previous_refresh, dict) else {}
+        return {
+            "action": "nervous_index_build",
+            "status": "deferred_recent_index_attempt",
+            "reason": "typing_refresh_index_debounce",
+            "previous_refresh_finished_at": previous_refresh_data.get("finished_at"),
+            "previous_attempt_age_sec": previous_index_attempt_age_sec,
+            "min_interval_sec": index_min_interval_sec,
+        }
+    if action_status == "deferred_existing_index_build_running":
+        return {
+            "action": "nervous_index_build",
+            "status": "deferred_existing_index_build_running",
+            "service": index_service,
+            "dynamic_resource_units": dynamic_index_units,
+        }
+    if action_status == "launched":
+        launch_data = index_launch if isinstance(index_launch, dict) else {}
+        return {
+            "action": "nervous_index_build",
+            "status": "deferred_existing_index_lock" if index_launch_already_running else None,
+            "reason": "forced" if force_index else "facts_or_index_freshness_required_refresh",
+            "ok": launch_data.get("ok"),
+            "debounce_bypassed_for_lag": index_debounce_bypassed_for_lag,
+            "debounce_candidate_records_lag": debounce_candidate_records_lag,
+            "debounce_candidate_records_lag_tolerance": debounce_candidate_records_lag_tolerance,
+            "blocked_reasons": launch_data.get("blocked_reasons"),
+            "denied_reasons": launch_data.get("denied_reasons"),
+            "resource_decision": _nested_get(launch_data, ["plan", "decision"]),
+            "resource_sample_thermal": _nested_get(launch_data, ["plan", "request", "sample_thermal"]),
+            "elapsed_sec": launch_data.get("elapsed_sec"),
+            "execution": launch_data.get("execution"),
+        }
+    return {"action": "nervous_index_build", "status": "not_needed"}
+
+
+def typing_nervous_refresh_index_retry_action(index_retry_launch: Any) -> dict[str, Any]:
+    retry_data = index_retry_launch if isinstance(index_retry_launch, dict) else {}
+    return {
+        "action": "nervous_index_build",
+        "status": "retry_after_typed_fact_changed_during_index",
+        "reason": "first_index_build_finished_before_latest_typed_fact",
+        "ok": retry_data.get("ok"),
+        "blocked_reasons": retry_data.get("blocked_reasons"),
+        "denied_reasons": retry_data.get("denied_reasons"),
+        "resource_decision": _nested_get(retry_data, ["plan", "decision"]),
+        "resource_sample_thermal": _nested_get(retry_data, ["plan", "request", "sample_thermal"]),
+        "elapsed_sec": retry_data.get("elapsed_sec"),
+        "execution": retry_data.get("execution"),
+    }
+
+
+def typing_nervous_refresh_synthesis_action(
+    *,
+    synthesis_needed: bool,
+    index_needed: bool,
+    final_context: Any,
+    synthesis_refresh: Any = None,
+    synthesis_validation: Any = None,
+) -> dict[str, Any]:
+    if synthesis_needed:
+        synthesis_data = synthesis_refresh if isinstance(synthesis_refresh, dict) else {}
+        validation_data = synthesis_validation if isinstance(synthesis_validation, dict) else {}
+        return {
+            "action": "nervous_synthesis_build",
+            "reason": "typed_facts_index_refresh_completed",
+            "ok": synthesis_data.get("ok"),
+            "candidate_id": synthesis_data.get("candidate_id"),
+            "summary": synthesis_data.get("summary") if isinstance(synthesis_data.get("summary"), dict) else {},
+            "validation_ok": validation_data.get("ok"),
+            "validation_summary": (
+                validation_data.get("summary") if isinstance(validation_data.get("summary"), dict) else {}
+            ),
+        }
+    if index_needed:
+        final_data = final_context if isinstance(final_context, dict) else {}
+        return {
+            "action": "nervous_synthesis_build",
+            "status": final_data.get("synthesis_action_status"),
+            "reason": "index_refresh_not_confirmed_fresh_yet",
+        }
+    return {"action": "nervous_synthesis_build", "status": "not_needed"}
+
+
 def typing_nervous_refresh_final_context(
     *,
     process: Any,

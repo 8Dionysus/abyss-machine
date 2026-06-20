@@ -14,11 +14,15 @@ from abyss_machine.typing_nervous_refresh import (
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_index_action,
     typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
+    typing_nervous_refresh_index_retry_action,
     typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
     typing_nervous_refresh_needed,
+    typing_nervous_refresh_snapshot_action,
+    typing_nervous_refresh_synthesis_action,
 )
 
 
@@ -160,6 +164,156 @@ def test_typing_nervous_refresh_index_attempt_context_falls_back_to_assessment_a
     assert context["recent_index_debounce_candidate"] is False
     assert context["index_deferred_recent_attempt"] is False
     assert context["index_debounce_bypassed_for_lag"] is False
+
+
+def test_typing_nervous_refresh_snapshot_action_records_public_shape() -> None:
+    action = typing_nervous_refresh_snapshot_action(
+        snapshot={
+            "ok": True,
+            "generated_at": "2026-06-20T05:00:00+00:00",
+            "summary": {"facts": 3},
+        },
+        force_snapshot=True,
+    )
+
+    assert action == {
+        "action": "nervous_snapshot",
+        "reason": "forced",
+        "ok": True,
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "summary": {"facts": 3},
+    }
+    assert typing_nervous_refresh_snapshot_action(snapshot=None, force_snapshot=False) == {
+        "action": "nervous_snapshot",
+        "status": "not_needed",
+    }
+
+
+def test_typing_nervous_refresh_index_action_records_defer_launch_and_idle_shapes() -> None:
+    deferred = typing_nervous_refresh_index_action(
+        action_status="deferred_recent_index_attempt",
+        previous_refresh={"finished_at": "2026-06-20T05:00:15+00:00"},
+        previous_index_attempt_age_sec=225,
+        index_min_interval_sec=900,
+    )
+    assert deferred == {
+        "action": "nervous_index_build",
+        "status": "deferred_recent_index_attempt",
+        "reason": "typing_refresh_index_debounce",
+        "previous_refresh_finished_at": "2026-06-20T05:00:15+00:00",
+        "previous_attempt_age_sec": 225,
+        "min_interval_sec": 900,
+    }
+
+    running = typing_nervous_refresh_index_action(
+        action_status="deferred_existing_index_build_running",
+        index_service={"active": "active"},
+        dynamic_index_units=["abyss-machine-indexing@1.service"],
+    )
+    assert running == {
+        "action": "nervous_index_build",
+        "status": "deferred_existing_index_build_running",
+        "service": {"active": "active"},
+        "dynamic_resource_units": ["abyss-machine-indexing@1.service"],
+    }
+
+    launch = typing_nervous_refresh_index_action(
+        action_status="launched",
+        index_launch={
+            "ok": False,
+            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "denied_reasons": [],
+            "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
+            "elapsed_sec": 2.5,
+            "execution": {"returncode": 0},
+        },
+        force_index=False,
+        index_launch_already_running=True,
+        index_debounce_bypassed_for_lag=True,
+        debounce_candidate_records_lag=17,
+        debounce_candidate_records_lag_tolerance=4,
+    )
+    assert launch == {
+        "action": "nervous_index_build",
+        "status": "deferred_existing_index_lock",
+        "reason": "facts_or_index_freshness_required_refresh",
+        "ok": False,
+        "debounce_bypassed_for_lag": True,
+        "debounce_candidate_records_lag": 17,
+        "debounce_candidate_records_lag_tolerance": 4,
+        "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+        "denied_reasons": [],
+        "resource_decision": "blocked",
+        "resource_sample_thermal": False,
+        "elapsed_sec": 2.5,
+        "execution": {"returncode": 0},
+    }
+
+    assert typing_nervous_refresh_index_action(action_status="not_needed") == {
+        "action": "nervous_index_build",
+        "status": "not_needed",
+    }
+
+
+def test_typing_nervous_refresh_index_retry_action_records_public_shape() -> None:
+    action = typing_nervous_refresh_index_retry_action(
+        {
+            "ok": True,
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "plan": {"decision": "allowed", "request": {"sample_thermal": True}},
+            "elapsed_sec": 4.25,
+            "execution": {"returncode": 0},
+        }
+    )
+
+    assert action == {
+        "action": "nervous_index_build",
+        "status": "retry_after_typed_fact_changed_during_index",
+        "reason": "first_index_build_finished_before_latest_typed_fact",
+        "ok": True,
+        "blocked_reasons": [],
+        "denied_reasons": [],
+        "resource_decision": "allowed",
+        "resource_sample_thermal": True,
+        "elapsed_sec": 4.25,
+        "execution": {"returncode": 0},
+    }
+
+
+def test_typing_nervous_refresh_synthesis_action_records_run_defer_and_idle_shapes() -> None:
+    run_action = typing_nervous_refresh_synthesis_action(
+        synthesis_needed=True,
+        index_needed=True,
+        final_context={"synthesis_action_status": "unused"},
+        synthesis_refresh={"ok": True, "candidate_id": "candidate-1", "summary": {"facts": 3}},
+        synthesis_validation={"ok": True, "summary": {"checks": 4}},
+    )
+    assert run_action == {
+        "action": "nervous_synthesis_build",
+        "reason": "typed_facts_index_refresh_completed",
+        "ok": True,
+        "candidate_id": "candidate-1",
+        "summary": {"facts": 3},
+        "validation_ok": True,
+        "validation_summary": {"checks": 4},
+    }
+
+    deferred = typing_nervous_refresh_synthesis_action(
+        synthesis_needed=False,
+        index_needed=True,
+        final_context={"synthesis_action_status": "deferred_index_pending"},
+    )
+    assert deferred == {
+        "action": "nervous_synthesis_build",
+        "status": "deferred_index_pending",
+        "reason": "index_refresh_not_confirmed_fresh_yet",
+    }
+    assert typing_nervous_refresh_synthesis_action(
+        synthesis_needed=False,
+        index_needed=False,
+        final_context={},
+    ) == {"action": "nervous_synthesis_build", "status": "not_needed"}
 
 
 def _final_context(**overrides: object) -> dict[str, object]:
@@ -470,5 +624,9 @@ def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_recent_index_debounce_safe is typing_nervous_recent_index_debounce_safe
     assert cli.typing_nervous_refresh_needed is typing_nervous_refresh_needed
     assert cli.typing_nervous_refresh_index_attempt_context is typing_nervous_refresh_index_attempt_context
+    assert cli.typing_nervous_refresh_snapshot_action is typing_nervous_refresh_snapshot_action
+    assert cli.typing_nervous_refresh_index_action is typing_nervous_refresh_index_action
+    assert cli.typing_nervous_refresh_index_retry_action is typing_nervous_refresh_index_retry_action
+    assert cli.typing_nervous_refresh_synthesis_action is typing_nervous_refresh_synthesis_action
     assert cli.typing_nervous_refresh_final_context is typing_nervous_refresh_final_context
     assert cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status
