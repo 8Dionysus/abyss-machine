@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import datetime as dt
+import inspect
 import sys
 
 from _common import REPO_ROOT, fail, ok, require
@@ -15,6 +17,7 @@ from abyss_machine.typing_nervous_refresh import (  # noqa: E402
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
     typing_nervous_refresh_needed,
 )
@@ -126,6 +129,89 @@ def main() -> int:
     require(stale_assessment.get("index_needed") is True, "stale index or processing must request index", failures)
     require(stale_assessment.get("records_lag") == 7, "records lag must be coerced to int", failures)
 
+    latest_base = {
+        "ok": True,
+        "status": "fresh",
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "finished_at": "2026-06-20T05:00:15+00:00",
+        "summary": {
+            "snapshot_needed": False,
+            "index_needed": False,
+            "nervous_processing_ok": True,
+            "index_records_lag": 0,
+            "index_records_lag_tolerance": 4,
+            "index_stale": False,
+        },
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "widens_capture": False,
+            "automatic_action": False,
+            "internet_access": False,
+        },
+    }
+    timer = {"is_active": True, "is_enabled": True}
+    now = dt.datetime.fromisoformat("2026-06-20T05:01:00+00:00")
+    latest_status = typing_nervous_refresh_latest_status(
+        latest=latest_base,
+        latest_error=None,
+        timer=timer,
+        service={"is_active": False},
+        latest_path="/var/lib/abyss-machine/typing-nervous-refresh/latest.json",
+        max_age_sec=900,
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-20T05:01:00+00:00",
+        now=now,
+    )
+    require(latest_status.get("ok") is True, "fresh latest-status document should be ok", failures)
+    require(latest_status.get("status") == "fresh", "fresh latest-status should remain fresh", failures)
+    require(
+        latest_status.get("summary", {}).get("latest_age_sec") == 45.0,
+        "latest-status age must be computed from finished_at",
+        failures,
+    )
+    deferred_status = typing_nervous_refresh_latest_status(
+        latest={
+            **latest_base,
+            "status": "deferred_recent_index_attempt",
+            "summary": {
+                "index_deferred_recent_attempt": True,
+                "index_previous_attempt_age_sec": 225,
+                "index_min_interval_sec": 900,
+                "index_records_lag": 6,
+                "index_records_lag_tolerance": 4,
+                "global_index_records_lag": 6,
+                "global_index_records_lag_tolerance": 4,
+            },
+        },
+        latest_error=None,
+        timer=timer,
+        service={},
+        latest_path="latest.json",
+        now=now,
+    )
+    require(
+        deferred_status.get("ok") is True
+        and deferred_status.get("status") == "deferred_recent_index_attempt"
+        and deferred_status.get("summary", {}).get("index_deferred_recent_attempt_safe") is True,
+        "bounded deferred recent-index latest-status should remain acceptable",
+        failures,
+    )
+    require(
+        typing_nervous_refresh_latest_status(
+            latest=latest_base,
+            latest_error=None,
+            timer={"is_active": False, "is_enabled": True},
+            service={},
+            latest_path="latest.json",
+            now=now,
+        ).get("status")
+        == "timer_inactive",
+        "inactive timer must be reported by latest-status classifier",
+        failures,
+    )
+
     require(
         cli.typing_nervous_index_resource_gated is typing_nervous_index_resource_gated,
         "CLI must re-export module resource-gate helper",
@@ -146,6 +232,11 @@ def main() -> int:
         "CLI must re-export module refresh assessment helper",
         failures,
     )
+    require(
+        cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status,
+        "CLI must import module latest-status builder",
+        failures,
+    )
 
     cli_source = (REPO_ROOT / "src" / "abyss_machine" / "cli.py").read_text(encoding="utf-8")
     for name in (
@@ -155,6 +246,17 @@ def main() -> int:
         "typing_nervous_refresh_needed",
     ):
         require(f"def {name}" not in cli_source, f"CLI must not redefine {name}", failures)
+    status_wrapper_source = inspect.getsource(cli.typing_nervous_refresh_latest_status)
+    require(
+        "build_typing_nervous_refresh_latest_status" in status_wrapper_source,
+        "CLI latest-status wrapper must delegate to module builder",
+        failures,
+    )
+    require(
+        "latest_policy" not in status_wrapper_source and "acceptable_latest" not in status_wrapper_source,
+        "CLI latest-status wrapper must not keep status classification logic",
+        failures,
+    )
 
     if failures:
         return fail("typing/nervous refresh logic validation failed", failures)

@@ -48,6 +48,25 @@ def _parse_time(value: Any) -> dt.datetime | None:
     return parsed
 
 
+def _now(now: dt.datetime | None = None) -> dt.datetime:
+    if now is not None:
+        if now.tzinfo is None:
+            return now.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+        return now.astimezone()
+    return dt.datetime.now(dt.timezone.utc).astimezone()
+
+
+def _now_iso(now: dt.datetime | None = None) -> str:
+    return _now(now).isoformat(timespec="seconds")
+
+
+def _age_seconds_from_iso(value: Any, *, now: dt.datetime | None = None) -> float | None:
+    parsed = _parse_time(value)
+    if parsed is None:
+        return None
+    return round((_now(now) - parsed).total_seconds(), 1)
+
+
 def typing_nervous_index_resource_gated(index_launch: Any) -> bool:
     if not isinstance(index_launch, dict) or index_launch.get("ok") is True:
         return False
@@ -132,6 +151,124 @@ def typing_nervous_deferred_recent_index_safe(summary: Any) -> bool:
         return False
     allowance = max(tolerance, min(64, max(tolerance + 8, tolerance * 3)))
     return bool(lag <= allowance)
+
+
+def typing_nervous_refresh_latest_status(
+    *,
+    latest: Any,
+    latest_error: Any,
+    timer: Any,
+    service: Any,
+    latest_path: Any,
+    max_age_sec: float = 900.0,
+    schema_prefix: str = "abyss_machine",
+    version: str = "",
+    generated_at: str | None = None,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    latest_data = latest if isinstance(latest, dict) else {}
+    latest_summary = latest_data.get("summary") if isinstance(latest_data.get("summary"), dict) else {}
+    latest_policy = latest_data.get("policy") if isinstance(latest_data.get("policy"), dict) else {}
+    timer_data = timer if isinstance(timer, dict) else {}
+    service_data = service if isinstance(service, dict) else {}
+    latest_age_sec = _age_seconds_from_iso(
+        latest_data.get("finished_at") or latest_data.get("generated_at"),
+        now=now,
+    )
+    latest_status = str(latest_data.get("status") or "missing")
+    deferred_recent_index_safe = typing_nervous_deferred_recent_index_safe(latest_summary)
+    acceptable_latest = bool(
+        isinstance(latest, dict)
+        and latest_data.get("ok") is True
+        and (
+            latest_status in {"fresh", "pending_existing_index_build", "resource_gated_index"}
+            or (latest_status == "deferred_recent_index_attempt" and deferred_recent_index_safe)
+        )
+    )
+    latest_fresh = bool(latest_age_sec is not None and latest_age_sec <= float(max_age_sec))
+    timer_ok = bool(timer_data.get("is_active") and timer_data.get("is_enabled"))
+    policy_ok = bool(
+        latest_policy.get("raw_keylogging") is False
+        and latest_policy.get("password_fields_captured") is False
+        and latest_policy.get("widens_capture") is False
+        and latest_policy.get("automatic_action") is False
+        and latest_policy.get("internet_access") is False
+    )
+    if not isinstance(latest, dict):
+        status = "missing"
+    elif latest_error:
+        status = "unreadable"
+    elif not timer_ok:
+        status = "timer_inactive"
+    elif not policy_ok:
+        status = "policy_violation"
+    elif not acceptable_latest:
+        status = latest_status if latest_status != "missing" else "degraded"
+    elif not latest_fresh:
+        status = "stale"
+    else:
+        status = latest_status
+    return {
+        "schema": f"{schema_prefix}_typing_nervous_refresh_status_v1",
+        "version": version,
+        "generated_at": generated_at or _now_iso(now),
+        "ok": bool(
+            status in {"fresh", "pending_existing_index_build", "resource_gated_index"}
+            or (status == "deferred_recent_index_attempt" and deferred_recent_index_safe)
+        ),
+        "status": status,
+        "summary": {
+            "latest_exists": isinstance(latest, dict),
+            "latest_error": latest_error,
+            "latest_ok": latest_data.get("ok") if isinstance(latest, dict) else None,
+            "latest_status": latest_data.get("status") if isinstance(latest, dict) else None,
+            "latest_generated_at": latest_data.get("generated_at") if isinstance(latest, dict) else None,
+            "latest_finished_at": latest_data.get("finished_at") if isinstance(latest, dict) else None,
+            "latest_age_sec": latest_age_sec,
+            "max_age_sec": float(max_age_sec),
+            "timer_active": timer_data.get("is_active"),
+            "timer_enabled": timer_data.get("is_enabled"),
+            "service_active": service_data.get("is_active"),
+            "snapshot_needed": latest_summary.get("snapshot_needed"),
+            "index_needed": latest_summary.get("index_needed"),
+            "index_deferred_recent_attempt": latest_summary.get("index_deferred_recent_attempt"),
+            "nervous_processing_ok": latest_summary.get("nervous_processing_ok"),
+            "index_resource_launch_attempted": latest_summary.get("index_resource_launch_attempted"),
+            "index_resource_launch_ok": latest_summary.get("index_resource_launch_ok"),
+            "index_resource_allowed": latest_summary.get("index_resource_allowed"),
+            "index_resource_blocked": latest_summary.get("index_resource_blocked"),
+            "index_resource_denied": latest_summary.get("index_resource_denied"),
+            "index_resource_soft_gated": latest_summary.get(
+                "index_resource_soft_gated",
+                latest_summary.get("index_resource_gated"),
+            ),
+            "index_resource_decision": latest_summary.get("index_resource_decision"),
+            "index_resource_sample_thermal": latest_summary.get("index_resource_sample_thermal"),
+            "index_resource_gated": latest_summary.get("index_resource_gated"),
+            "index_launch_blocked_reasons": latest_summary.get("index_launch_blocked_reasons"),
+            "index_records_lag": latest_summary.get("index_records_lag"),
+            "index_records_lag_tolerance": latest_summary.get("index_records_lag_tolerance"),
+            "index_stale": latest_summary.get("index_stale"),
+            "index_deferred_recent_attempt_safe": deferred_recent_index_safe,
+        },
+        "latest": {
+            "path": str(latest_path),
+            "generated_at": latest_data.get("generated_at") if isinstance(latest, dict) else None,
+            "finished_at": latest_data.get("finished_at") if isinstance(latest, dict) else None,
+            "status": latest_data.get("status") if isinstance(latest, dict) else None,
+            "ok": latest_data.get("ok") if isinstance(latest, dict) else None,
+            "summary": latest_summary,
+        },
+        "timer": timer_data,
+        "service": service_data,
+        "policy": {
+            "raw_keylogging": latest_policy.get("raw_keylogging"),
+            "password_fields_captured": latest_policy.get("password_fields_captured"),
+            "widens_capture": latest_policy.get("widens_capture"),
+            "automatic_action": latest_policy.get("automatic_action"),
+            "internet_access": latest_policy.get("internet_access"),
+        },
+    }
 
 
 def typing_nervous_recent_index_debounce_safe(

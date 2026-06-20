@@ -80,9 +80,10 @@ shared path policy while the CLI preserves the historical `TYPING_*` and
 `NERVOUS_*` constants for installed-host compatibility.
 
 The typing/nervous refresh logic validator keeps the next split bounded: soft
-resource-gate, recent-index debounce, and refresh assessment helpers live in
-`abyss_machine.typing_nervous_refresh`, remain re-exported by the CLI, and do
-not read live typing, nervous, capture, or index state.
+resource-gate, recent-index debounce, refresh assessment, and latest-status
+classification helpers live in `abyss_machine.typing_nervous_refresh`, remain
+re-exported or adapted by the CLI, and do not read live typing, nervous,
+capture, or index state.
 
 ## Publication Smoke
 
