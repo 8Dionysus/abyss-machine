@@ -35,6 +35,8 @@
   helpers into a tested module while preserving CLI helper exports.
 - Extract typing/nervous refresh assessment into the same tested module while
   preserving the CLI helper export.
+- Extract typing/nervous refresh latest-status classification into the refresh
+  module while keeping the CLI as the live path/systemd adapter.
 
 ## 0.1.0
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from abyss_machine.typing_nervous_refresh import (
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
     typing_nervous_refresh_needed,
 )
@@ -148,8 +150,137 @@ def test_typing_nervous_refresh_assessment_detects_process_and_index_drift() -> 
     assert assessment["processing_ok"] is False
 
 
+def _fresh_status_latest(**overrides: object) -> dict[str, object]:
+    latest: dict[str, object] = {
+        "ok": True,
+        "status": "fresh",
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "finished_at": "2026-06-20T05:00:15+00:00",
+        "summary": {
+            "snapshot_needed": False,
+            "index_needed": False,
+            "nervous_processing_ok": True,
+            "index_records_lag": 0,
+            "index_records_lag_tolerance": 4,
+            "index_stale": False,
+        },
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "widens_capture": False,
+            "automatic_action": False,
+            "internet_access": False,
+        },
+    }
+    latest.update(overrides)
+    return latest
+
+
+def _active_timer() -> dict[str, object]:
+    return {"is_active": True, "is_enabled": True}
+
+
+def test_typing_nervous_refresh_latest_status_accepts_fresh_latest() -> None:
+    status = typing_nervous_refresh_latest_status(
+        latest=_fresh_status_latest(),
+        latest_error=None,
+        timer=_active_timer(),
+        service={"is_active": False},
+        latest_path="/var/lib/abyss-machine/typing-nervous-refresh/latest.json",
+        max_age_sec=900,
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-20T05:01:00+00:00",
+        now=dt.datetime.fromisoformat("2026-06-20T05:01:00+00:00"),
+    )
+
+    assert status["schema"] == "abyss_machine_typing_nervous_refresh_status_v1"
+    assert status["version"] == "test"
+    assert status["ok"] is True
+    assert status["status"] == "fresh"
+    assert status["summary"]["latest_age_sec"] == 45.0
+    assert status["summary"]["timer_active"] is True
+    assert status["summary"]["index_deferred_recent_attempt_safe"] is False
+
+
+def test_typing_nervous_refresh_latest_status_preserves_deferred_recent_success() -> None:
+    latest = _fresh_status_latest(
+        status="deferred_recent_index_attempt",
+        summary={
+            "index_deferred_recent_attempt": True,
+            "index_previous_attempt_age_sec": 225,
+            "index_min_interval_sec": 900,
+            "index_records_lag": 6,
+            "index_records_lag_tolerance": 4,
+            "global_index_records_lag": 6,
+            "global_index_records_lag_tolerance": 4,
+        },
+    )
+    status = typing_nervous_refresh_latest_status(
+        latest=latest,
+        latest_error=None,
+        timer=_active_timer(),
+        service={"is_active": False},
+        latest_path="latest.json",
+        generated_at="2026-06-20T05:01:00+00:00",
+        now=dt.datetime.fromisoformat("2026-06-20T05:01:00+00:00"),
+    )
+
+    assert status["ok"] is True
+    assert status["status"] == "deferred_recent_index_attempt"
+    assert status["summary"]["index_deferred_recent_attempt_safe"] is True
+
+
+def test_typing_nervous_refresh_latest_status_flags_timer_policy_and_stale_latest() -> None:
+    now = dt.datetime.fromisoformat("2026-06-20T05:30:00+00:00")
+
+    timer_status = typing_nervous_refresh_latest_status(
+        latest=_fresh_status_latest(),
+        latest_error=None,
+        timer={"is_active": False, "is_enabled": True},
+        service={},
+        latest_path="latest.json",
+        now=now,
+    )
+    assert timer_status["ok"] is False
+    assert timer_status["status"] == "timer_inactive"
+
+    unsafe_policy = _fresh_status_latest(
+        policy={
+            "raw_keylogging": True,
+            "password_fields_captured": False,
+            "widens_capture": False,
+            "automatic_action": False,
+            "internet_access": False,
+        }
+    )
+    policy_status = typing_nervous_refresh_latest_status(
+        latest=unsafe_policy,
+        latest_error=None,
+        timer=_active_timer(),
+        service={},
+        latest_path="latest.json",
+        now=now,
+    )
+    assert policy_status["ok"] is False
+    assert policy_status["status"] == "policy_violation"
+
+    stale_status = typing_nervous_refresh_latest_status(
+        latest=_fresh_status_latest(),
+        latest_error=None,
+        timer=_active_timer(),
+        service={},
+        latest_path="latest.json",
+        max_age_sec=60,
+        now=now,
+    )
+    assert stale_status["ok"] is False
+    assert stale_status["status"] == "stale"
+
+
 def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_index_resource_gated is typing_nervous_index_resource_gated
     assert cli.typing_nervous_deferred_recent_index_safe is typing_nervous_deferred_recent_index_safe
     assert cli.typing_nervous_recent_index_debounce_safe is typing_nervous_recent_index_debounce_safe
     assert cli.typing_nervous_refresh_needed is typing_nervous_refresh_needed
+    assert cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status
