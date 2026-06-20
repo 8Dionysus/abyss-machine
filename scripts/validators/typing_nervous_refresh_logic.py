@@ -17,6 +17,7 @@ from abyss_machine.typing_nervous_refresh import (  # noqa: E402
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_index_attempt_context,
     typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
     typing_nervous_refresh_needed,
@@ -97,6 +98,56 @@ def main() -> int:
     require(
         not typing_nervous_recent_index_debounce_safe(**common, index_records_lag=17),
         "large lag should bypass recent-index debounce",
+        failures,
+    )
+    now = dt.datetime.fromisoformat("2026-06-20T05:10:00+00:00")
+    attempt_context = typing_nervous_refresh_index_attempt_context(
+        index_needed=True,
+        force_index=False,
+        previous_refresh={
+            "finished_at": "2026-06-20T05:05:00+00:00",
+            "summary": {
+                "index_deferred_recent_attempt": True,
+                "index_previous_attempt_age_sec": 225,
+            },
+        },
+        index_status={"freshness": {"records_lag": 17, "records_lag_tolerance": 4, "stale": True}},
+        assessment={"records_lag": 2, "index_stale": False},
+        index_min_interval_sec=900,
+        now=now,
+    )
+    require(
+        attempt_context.get("previous_refresh_age_sec") == 300.0
+        and attempt_context.get("previous_index_attempt_age_sec") == 525.0
+        and attempt_context.get("previous_index_attempt_age_basis") == "previous_deferred_attempt_age_plus_refresh_age",
+        "index attempt context must accumulate previous deferred attempt age",
+        failures,
+    )
+    require(
+        attempt_context.get("recent_index_debounce_candidate") is True
+        and attempt_context.get("index_deferred_recent_attempt") is False
+        and attempt_context.get("index_debounce_bypassed_for_lag") is True,
+        "large lag should bypass deferred recent-index attempt in context",
+        failures,
+    )
+    forced_context = typing_nervous_refresh_index_attempt_context(
+        index_needed=True,
+        force_index=True,
+        previous_refresh={
+            "finished_at": "2026-06-20T05:00:00+00:00",
+            "summary": {"index_resource_launch_attempted": True},
+        },
+        index_status={"freshness": {"stale": False}},
+        assessment={"records_lag": 6, "index_stale": True},
+        index_min_interval_sec=900,
+        now=now,
+    )
+    require(
+        forced_context.get("debounce_candidate_records_lag") == 6
+        and forced_context.get("debounce_candidate_records_lag_tolerance") == 4
+        and forced_context.get("debounce_candidate_index_stale") is True
+        and forced_context.get("index_deferred_recent_attempt") is False,
+        "forced index context must use assessment fallback without deferring",
         failures,
     )
     assessment = typing_nervous_refresh_needed(
@@ -233,6 +284,11 @@ def main() -> int:
         failures,
     )
     require(
+        cli.typing_nervous_refresh_index_attempt_context is typing_nervous_refresh_index_attempt_context,
+        "CLI must re-export module index attempt context helper",
+        failures,
+    )
+    require(
         cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status,
         "CLI must import module latest-status builder",
         failures,
@@ -244,6 +300,7 @@ def main() -> int:
         "typing_nervous_deferred_recent_index_safe",
         "typing_nervous_recent_index_debounce_safe",
         "typing_nervous_refresh_needed",
+        "typing_nervous_refresh_index_attempt_context",
     ):
         require(f"def {name}" not in cli_source, f"CLI must not redefine {name}", failures)
     status_wrapper_source = inspect.getsource(cli.typing_nervous_refresh_latest_status)
@@ -255,6 +312,17 @@ def main() -> int:
     require(
         "latest_policy" not in status_wrapper_source and "acceptable_latest" not in status_wrapper_source,
         "CLI latest-status wrapper must not keep status classification logic",
+        failures,
+    )
+    refresh_source = inspect.getsource(cli.typing_nervous_refresh)
+    require(
+        "typing_nervous_refresh_index_attempt_context" in refresh_source,
+        "CLI refresh orchestration must delegate index attempt context to module helper",
+        failures,
+    )
+    require(
+        "previous_refresh_summary" not in refresh_source,
+        "CLI refresh orchestration must not keep previous-refresh debounce context parsing",
         failures,
     )
 

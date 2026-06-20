@@ -14,6 +14,7 @@ from abyss_machine.typing_nervous_refresh import (
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_index_attempt_context,
     typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
     typing_nervous_refresh_needed,
@@ -85,6 +86,79 @@ def test_typing_nervous_recent_index_debounce_bypasses_large_lag() -> None:
 
     forced = dict(common, force_index=True)
     assert not typing_nervous_recent_index_debounce_safe(**forced, index_records_lag=6)
+
+
+def test_typing_nervous_refresh_index_attempt_context_defers_bounded_recent_attempt() -> None:
+    context = typing_nervous_refresh_index_attempt_context(
+        index_needed=True,
+        force_index=False,
+        previous_refresh={
+            "finished_at": "2026-06-20T05:00:00+00:00",
+            "summary": {"index_resource_launch_attempted": True},
+        },
+        index_status={"freshness": {"records_lag": 6, "records_lag_tolerance": 4, "stale": True}},
+        assessment={"records_lag": 9, "index_stale": True},
+        index_min_interval_sec=900,
+        now=dt.datetime.fromisoformat("2026-06-20T05:05:00+00:00"),
+    )
+
+    assert context["previous_refresh_age_sec"] == 300.0
+    assert context["previous_index_launch_attempted"] is True
+    assert context["previous_index_attempt_age_basis"] == "previous_refresh_finished_at"
+    assert context["previous_index_attempt_age_sec"] == 300.0
+    assert context["debounce_candidate_records_lag"] == 6
+    assert context["debounce_candidate_records_lag_tolerance"] == 4
+    assert context["debounce_candidate_index_stale"] is True
+    assert context["recent_index_debounce_candidate"] is True
+    assert context["index_deferred_recent_attempt"] is True
+    assert context["index_debounce_bypassed_for_lag"] is False
+
+
+def test_typing_nervous_refresh_index_attempt_context_bypasses_large_lag_and_accumulates_age() -> None:
+    context = typing_nervous_refresh_index_attempt_context(
+        index_needed=True,
+        force_index=False,
+        previous_refresh={
+            "finished_at": "2026-06-20T05:05:00+00:00",
+            "summary": {
+                "index_deferred_recent_attempt": True,
+                "index_previous_attempt_age_sec": 225,
+            },
+        },
+        index_status={"freshness": {"records_lag": 17, "records_lag_tolerance": 4, "stale": True}},
+        assessment={"records_lag": 2, "index_stale": False},
+        index_min_interval_sec=900,
+        now=dt.datetime.fromisoformat("2026-06-20T05:10:00+00:00"),
+    )
+
+    assert context["previous_refresh_age_sec"] == 300.0
+    assert context["previous_index_attempt_age_basis"] == "previous_deferred_attempt_age_plus_refresh_age"
+    assert context["previous_index_attempt_age_sec"] == 525.0
+    assert context["recent_index_debounce_candidate"] is True
+    assert context["index_deferred_recent_attempt"] is False
+    assert context["index_debounce_bypassed_for_lag"] is True
+
+
+def test_typing_nervous_refresh_index_attempt_context_falls_back_to_assessment_and_honors_force() -> None:
+    context = typing_nervous_refresh_index_attempt_context(
+        index_needed=True,
+        force_index=True,
+        previous_refresh={
+            "finished_at": "2026-06-20T05:00:00+00:00",
+            "summary": {"index_resource_launch_attempted": True},
+        },
+        index_status={"freshness": {"stale": False}},
+        assessment={"records_lag": 6, "index_stale": True},
+        index_min_interval_sec=900,
+        now=dt.datetime.fromisoformat("2026-06-20T05:05:00+00:00"),
+    )
+
+    assert context["debounce_candidate_records_lag"] == 6
+    assert context["debounce_candidate_records_lag_tolerance"] == 4
+    assert context["debounce_candidate_index_stale"] is True
+    assert context["recent_index_debounce_candidate"] is False
+    assert context["index_deferred_recent_attempt"] is False
+    assert context["index_debounce_bypassed_for_lag"] is False
 
 
 def test_typing_nervous_refresh_assessment_skips_snapshot_when_facts_cover_event() -> None:
@@ -283,4 +357,5 @@ def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_deferred_recent_index_safe is typing_nervous_deferred_recent_index_safe
     assert cli.typing_nervous_recent_index_debounce_safe is typing_nervous_recent_index_debounce_safe
     assert cli.typing_nervous_refresh_needed is typing_nervous_refresh_needed
+    assert cli.typing_nervous_refresh_index_attempt_context is typing_nervous_refresh_index_attempt_context
     assert cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status

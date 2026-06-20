@@ -37,6 +37,8 @@
   preserving the CLI helper export.
 - Extract typing/nervous refresh latest-status classification into the refresh
   module while keeping the CLI as the live path/systemd adapter.
+- Extract typing/nervous refresh index-attempt debounce context into the refresh
+  module while keeping live index launch orchestration in the CLI.
 
 ## 0.1.0
 

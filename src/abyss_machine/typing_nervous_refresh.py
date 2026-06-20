@@ -36,6 +36,15 @@ def _safe_float(value: Any, default: float | None = None) -> float | None:
         return default
 
 
+def _nested_get(data: Any, path: list[str]) -> Any:
+    current = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
 def _parse_time(value: Any) -> dt.datetime | None:
     if not value:
         return None
@@ -268,6 +277,81 @@ def typing_nervous_refresh_latest_status(
             "automatic_action": latest_policy.get("automatic_action"),
             "internet_access": latest_policy.get("internet_access"),
         },
+    }
+
+
+def typing_nervous_refresh_index_attempt_context(
+    *,
+    index_needed: bool,
+    force_index: bool,
+    previous_refresh: Any,
+    index_status: Any,
+    assessment: Any,
+    index_min_interval_sec: Any,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    previous_refresh_data = previous_refresh if isinstance(previous_refresh, dict) else {}
+    previous_refresh_summary = (
+        previous_refresh_data.get("summary")
+        if isinstance(previous_refresh_data.get("summary"), dict)
+        else {}
+    )
+    assessment_data = assessment if isinstance(assessment, dict) else {}
+    min_interval = max(0.0, _safe_float(index_min_interval_sec, 900.0) or 0.0)
+    previous_refresh_age_sec = _age_seconds_from_iso(previous_refresh_data.get("finished_at"), now=now)
+    previous_index_launch_attempted = bool(
+        previous_refresh_summary.get("index_resource_launch_attempted")
+        or previous_refresh_summary.get("index_deferred_recent_attempt")
+    )
+    previous_index_attempt_age_basis = "previous_refresh_finished_at"
+    previous_index_attempt_age_sec = previous_refresh_age_sec
+    if previous_refresh_summary.get("index_deferred_recent_attempt"):
+        deferred_age = _safe_float(previous_refresh_summary.get("index_previous_attempt_age_sec"), None)
+        if deferred_age is not None:
+            previous_index_attempt_age_sec = deferred_age + (previous_refresh_age_sec or 0.0)
+            previous_index_attempt_age_basis = "previous_deferred_attempt_age_plus_refresh_age"
+
+    debounce_candidate_records_lag = _nested_get(index_status, ["freshness", "records_lag"])
+    if debounce_candidate_records_lag is None:
+        debounce_candidate_records_lag = assessment_data.get("records_lag")
+    debounce_candidate_records_lag_tolerance = _nested_get(index_status, ["freshness", "records_lag_tolerance"])
+    if debounce_candidate_records_lag_tolerance is None:
+        debounce_candidate_records_lag_tolerance = 4
+    debounce_candidate_index_stale = bool(
+        _nested_get(index_status, ["freshness", "stale"])
+        or assessment_data.get("index_stale")
+    )
+    recent_index_debounce_candidate = bool(
+        index_needed
+        and not force_index
+        and previous_index_launch_attempted
+        and previous_index_attempt_age_sec is not None
+        and previous_index_attempt_age_sec < min_interval
+    )
+    index_deferred_recent_attempt = typing_nervous_recent_index_debounce_safe(
+        index_needed=index_needed,
+        force_index=force_index,
+        previous_index_launch_attempted=previous_index_launch_attempted,
+        previous_index_attempt_age_sec=previous_index_attempt_age_sec,
+        index_min_interval_sec=min_interval,
+        index_records_lag=debounce_candidate_records_lag,
+        index_records_lag_tolerance=debounce_candidate_records_lag_tolerance,
+        index_stale=debounce_candidate_index_stale,
+    )
+    return {
+        "index_min_interval_sec": min_interval,
+        "previous_refresh_age_sec": previous_refresh_age_sec,
+        "previous_index_launch_attempted": previous_index_launch_attempted,
+        "previous_index_attempt_age_basis": previous_index_attempt_age_basis,
+        "previous_index_attempt_age_sec": previous_index_attempt_age_sec,
+        "debounce_candidate_records_lag": debounce_candidate_records_lag,
+        "debounce_candidate_records_lag_tolerance": debounce_candidate_records_lag_tolerance,
+        "debounce_candidate_index_stale": debounce_candidate_index_stale,
+        "recent_index_debounce_candidate": recent_index_debounce_candidate,
+        "index_deferred_recent_attempt": index_deferred_recent_attempt,
+        "index_debounce_bypassed_for_lag": bool(
+            recent_index_debounce_candidate and not index_deferred_recent_attempt
+        ),
     }
 
 
