@@ -35,7 +35,7 @@ The bootstrap CLI and installed `abyss-machine` CLI share
 Typing/nervous path and service defaults live in
 `abyss_machine.typing_nervous_policy`; refresh resource-gate and recent-index
 debounce helpers, refresh assessment, latest-status classification, and
-index-attempt, final-status, and action-record builders live in
+index-attempt, final-status, action-record, and refresh-document builders live in
 `abyss_machine.typing_nervous_refresh`. These surfaces are re-exported or
 adapted by the CLI for installed-host compatibility. A fresh machine
 should render `/etc/abyss-machine`, create durable evidence under
@@ -114,8 +114,9 @@ been split into package modules with public validators. The typing/nervous
 refresh latest-status classifier is also module-owned, with the CLI kept as a
 thin adapter to live `latest.json` and systemd state. Refresh index-attempt
 debounce context, final status/summary context, and snapshot, index, retry, and
-synthesis action-record builders are module-owned, while live index launch and
-synthesis orchestration still stay in the CLI. Known v1
+synthesis action-record builders are module-owned. The final refresh document
+shape is also module-owned, while live index launch, synthesis orchestration,
+and persistence still stay in the CLI. Known v1
 portability debt remains in subsystem command glue and some historical
 workstation fixture paths; further hardening should move command implementation
 behind smaller modules before claiming full host-agnostic behavior for every

@@ -82,7 +82,7 @@ shared path policy while the CLI preserves the historical `TYPING_*` and
 The typing/nervous refresh logic validator keeps the next split bounded: soft
 resource-gate, recent-index debounce, refresh assessment, latest-status
 classification, index-attempt debounce context, and final status/summary
-context plus action-record helpers live in
+context plus action-record and refresh-document helpers live in
 `abyss_machine.typing_nervous_refresh`, remain re-exported or adapted by the
 CLI, and do not read live typing, nervous, capture, or index state.
 

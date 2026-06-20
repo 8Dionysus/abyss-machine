@@ -44,6 +44,8 @@
 - Extract typing/nervous refresh snapshot, index, retry, and synthesis
   action-record builders into the refresh module while keeping live calls in
   the CLI.
+- Extract typing/nervous refresh document assembly into the refresh module
+  while keeping live orchestration and persistence in the CLI.
 
 ## 0.1.0
 

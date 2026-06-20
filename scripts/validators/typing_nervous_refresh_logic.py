@@ -17,6 +17,7 @@ from abyss_machine.typing_nervous_refresh import (  # noqa: E402
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_document,
     typing_nervous_refresh_index_action,
     typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
@@ -264,6 +265,62 @@ def main() -> int:
         "synthesis action builder must preserve deferred action shape",
         failures,
     )
+    refresh_document = typing_nervous_refresh_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-20T05:00:00+00:00",
+        finished_at="2026-06-20T05:00:15+00:00",
+        final_context={
+            "ok": True,
+            "status": "fresh",
+            "summary": {"status": "fresh", "index_needed": False},
+            "synthesis_needed": False,
+        },
+        latest_event={
+            "generated_at": "2026-06-20T04:59:59+00:00",
+            "event_id": "event-1",
+            "source_adapter": "saved_text_snapshot",
+            "status": "committed",
+        },
+        latest_error=None,
+        process={"ok": True, "status": "processed", "generated_at": "now", "summary": {"records": 2}},
+        fact_before={"exists": True},
+        fact_after_snapshot={"exists": True, "typed_fact_exists": True},
+        index_before={"ok": True, "ready": True, "warnings": [], "freshness": {"records_lag": 0}, "counts": {"rows": 2}},
+        index_after={"ok": True, "ready": True, "warnings": [], "freshness": {"records_lag": 0}, "counts": {"rows": 2}},
+        index_service={"active": "inactive"},
+        index_launch=None,
+        index_retry_launch=None,
+        index_launch_already_running=False,
+        index_wait_observations=[],
+        previous_refresh={"status": "fresh", "finished_at": "2026-06-20T04:00:00+00:00"},
+        previous_refresh_error=None,
+        previous_index_launch_attempted=False,
+        synthesis_refresh=None,
+        synthesis_validation=None,
+        processing_before={"ok": True},
+        processing_after_snapshot={"ok": True},
+        processing_after={"ok": True},
+        assessment_before={"snapshot_needed": False},
+        assessment_after_snapshot={"snapshot_needed": False},
+        assessment_after={"snapshot_needed": False},
+        actions=[{"action": "nervous_snapshot", "status": "not_needed"}],
+        latest_path="/var/lib/abyss-machine/typing-nervous-refresh/latest.json",
+        daily_glob_path="/var/lib/abyss-machine/typing-nervous-refresh/YYYY/MM/YYYY-MM-DD.jsonl",
+        typing_process_path="/var/lib/abyss-machine/typing/process/latest.json",
+        nervous_facts_path="/var/lib/abyss-machine/nervous/facts/latest.json",
+        nervous_index_path="/var/lib/abyss-machine/nervous/search-index/latest.json",
+    )
+    require(
+        refresh_document.get("schema") == "abyss_machine_typing_nervous_refresh_v1"
+        and refresh_document.get("ok") is True
+        and refresh_document.get("latest_event", {}).get("event_id") == "event-1"
+        and refresh_document.get("index", {}).get("previous_refresh", {}).get("index_resource_launch_attempted") is False
+        and refresh_document.get("policy", {}).get("raw_keylogging") is False
+        and refresh_document.get("policy", {}).get("resource_gated_index_work") is True,
+        "refresh document builder must preserve public refresh document shape",
+        failures,
+    )
     final_context = typing_nervous_refresh_final_context(
         process={"ok": True, "status": "ok", "summary": {"records_processed": 5, "lanes": 2}},
         latest_event={"generated_at": "2026-06-20T05:00:00+00:00"},
@@ -496,6 +553,11 @@ def main() -> int:
         failures,
     )
     require(
+        cli.typing_nervous_refresh_document is typing_nervous_refresh_document,
+        "CLI must re-export module refresh document helper",
+        failures,
+    )
+    require(
         cli.typing_nervous_refresh_index_attempt_context is typing_nervous_refresh_index_attempt_context,
         "CLI must re-export module index attempt context helper",
         failures,
@@ -537,6 +599,7 @@ def main() -> int:
         "typing_nervous_deferred_recent_index_safe",
         "typing_nervous_recent_index_debounce_safe",
         "typing_nervous_refresh_needed",
+        "typing_nervous_refresh_document",
         "typing_nervous_refresh_index_attempt_context",
         "typing_nervous_refresh_snapshot_action",
         "typing_nervous_refresh_index_action",
@@ -572,6 +635,11 @@ def main() -> int:
         "CLI refresh orchestration must delegate final status summary to module helper",
         failures,
     )
+    require(
+        "typing_nervous_refresh_document" in refresh_source,
+        "CLI refresh orchestration must delegate refresh document shape to module helper",
+        failures,
+    )
     for name in (
         "typing_nervous_refresh_snapshot_action",
         "typing_nervous_refresh_index_action",
@@ -580,6 +648,9 @@ def main() -> int:
     ):
         require(name in refresh_source, f"CLI refresh orchestration must use {name}", failures)
     for stale_marker in (
+        '"schema": f"{SCHEMA_PREFIX}_typing_nervous_refresh_v1"',
+        '"raw_keylogging": False',
+        '"This tick processes already-stored committed-text events',
         '"reason": "typed_event_or_process_not_in_facts"',
         '"reason": "typing_refresh_index_debounce"',
         '"reason": "facts_or_index_freshness_required_refresh"',
