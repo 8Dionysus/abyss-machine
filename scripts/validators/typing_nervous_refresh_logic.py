@@ -16,6 +16,7 @@ from abyss_machine.typing_nervous_refresh import (  # noqa: E402
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
     typing_nervous_recent_index_debounce_safe,
+    typing_nervous_refresh_needed,
 )
 
 
@@ -95,6 +96,35 @@ def main() -> int:
         "large lag should bypass recent-index debounce",
         failures,
     )
+    assessment = typing_nervous_refresh_needed(
+        latest_event={"generated_at": "2026-06-20T05:00:00+00:00"},
+        fact_state={
+            "exists": True,
+            "typed_fact_exists": True,
+            "generated_at": "2026-06-20T05:01:00+00:00",
+            "typed_process_summary": {"records_processed": 4, "lanes": 2},
+        },
+        process={"summary": {"records_processed": 4, "lanes": 2}},
+        index_status={"freshness": {"records_lag": "0", "stale": False}},
+        processing={"ok": True},
+    )
+    require(assessment.get("snapshot_needed") is False, "covered facts must not request snapshot", failures)
+    require(assessment.get("index_needed") is False, "fresh processing must not request index", failures)
+    stale_assessment = typing_nervous_refresh_needed(
+        latest_event={"generated_at": "2026-06-20T05:00:00+00:00"},
+        fact_state={
+            "exists": True,
+            "typed_fact_exists": True,
+            "generated_at": "2026-06-20T04:59:00+00:00",
+            "typed_process_summary": {"records_processed": 4, "lanes": 2},
+        },
+        process={"summary": {"records_processed": 5, "lanes": 3}},
+        index_status={"freshness": {"records_lag": "7", "records_lag_stale": True}},
+        processing={"ok": False},
+    )
+    require(stale_assessment.get("snapshot_needed") is True, "stale facts must request snapshot", failures)
+    require(stale_assessment.get("index_needed") is True, "stale index or processing must request index", failures)
+    require(stale_assessment.get("records_lag") == 7, "records lag must be coerced to int", failures)
 
     require(
         cli.typing_nervous_index_resource_gated is typing_nervous_index_resource_gated,
@@ -111,12 +141,18 @@ def main() -> int:
         "CLI must re-export module recent-index debounce helper",
         failures,
     )
+    require(
+        cli.typing_nervous_refresh_needed is typing_nervous_refresh_needed,
+        "CLI must re-export module refresh assessment helper",
+        failures,
+    )
 
     cli_source = (REPO_ROOT / "src" / "abyss_machine" / "cli.py").read_text(encoding="utf-8")
     for name in (
         "typing_nervous_index_resource_gated",
         "typing_nervous_deferred_recent_index_safe",
         "typing_nervous_recent_index_debounce_safe",
+        "typing_nervous_refresh_needed",
     ):
         require(f"def {name}" not in cli_source, f"CLI must not redefine {name}", failures)
 

@@ -33,6 +33,8 @@
   preserving CLI constants for installed-host compatibility.
 - Extract typing/nervous refresh resource-gate and recent-index debounce
   helpers into a tested module while preserving CLI helper exports.
+- Extract typing/nervous refresh assessment into the same tested module while
+  preserving the CLI helper export.
 
 ## 0.1.0
 

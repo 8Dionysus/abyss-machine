@@ -13,9 +13,10 @@ captures, indexes, browser tooling, tmp/cache, and user-systemd paths from the
 shared root contract.
 
 `typing_nervous_refresh_logic.py` validates the pure refresh decision helpers
-that classify soft resource gates and bounded recent-index debounce windows.
-The CLI must re-export these helpers from `abyss_machine.typing_nervous_refresh`
-instead of redefining them in the monolith.
+that classify soft resource gates, bounded recent-index debounce windows, and
+refresh assessment state. The CLI must re-export these helpers from
+`abyss_machine.typing_nervous_refresh` instead of redefining them in the
+monolith.
 
 `artifact_signature_policy.py` validates the public artifact identity and
 signature policy that feeds contract ABI signatures, local provenance packet
