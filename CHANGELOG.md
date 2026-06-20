@@ -41,6 +41,9 @@
   module while keeping live index launch orchestration in the CLI.
 - Extract typing/nervous refresh final status and summary context into the
   refresh module while keeping live synthesis orchestration in the CLI.
+- Extract typing/nervous refresh snapshot, index, retry, and synthesis
+  action-record builders into the refresh module while keeping live calls in
+  the CLI.
 
 ## 0.1.0
 
