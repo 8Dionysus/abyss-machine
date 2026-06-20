@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 
@@ -35,6 +36,18 @@ def _safe_float(value: Any, default: float | None = None) -> float | None:
         return default
 
 
+def _parse_time(value: Any) -> dt.datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+    return parsed
+
+
 def typing_nervous_index_resource_gated(index_launch: Any) -> bool:
     if not isinstance(index_launch, dict) or index_launch.get("ok") is True:
         return False
@@ -53,6 +66,53 @@ def typing_nervous_index_resource_gated(index_launch: Any) -> bool:
         and blocked.issubset(TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS)
         and not denied
     )
+
+
+def typing_nervous_refresh_needed(
+    latest_event: dict[str, Any],
+    fact_state: dict[str, Any],
+    process: dict[str, Any],
+    index_status: dict[str, Any],
+    processing: dict[str, Any],
+) -> dict[str, Any]:
+    latest_event_at = latest_event.get("generated_at") if isinstance(latest_event, dict) else None
+    facts_at = fact_state.get("generated_at") if isinstance(fact_state, dict) else None
+    latest_event_time = _parse_time(latest_event_at)
+    facts_time = _parse_time(facts_at)
+    facts_cover_latest_event = bool(not latest_event_time or (facts_time and facts_time >= latest_event_time))
+
+    process_summary = process.get("summary") if isinstance(process.get("summary"), dict) else {}
+    fact_process_summary = (
+        fact_state.get("typed_process_summary")
+        if isinstance(fact_state.get("typed_process_summary"), dict)
+        else {}
+    )
+    process_summary_changed = bool(process_summary and process_summary != fact_process_summary)
+    snapshot_needed = bool(
+        latest_event_time
+        and (
+            not fact_state.get("exists")
+            or not fact_state.get("typed_fact_exists")
+            or not facts_cover_latest_event
+            or process_summary_changed
+        )
+    )
+    freshness = index_status.get("freshness") if isinstance(index_status.get("freshness"), dict) else {}
+    records_lag = _safe_int(freshness.get("records_lag"), 0)
+    index_stale = bool(freshness.get("stale")) or bool(freshness.get("records_lag_stale"))
+    index_needed = bool(index_stale or processing.get("ok") is not True)
+    return {
+        "latest_event_generated_at": latest_event_at,
+        "facts_generated_at": facts_at,
+        "facts_cover_latest_event": facts_cover_latest_event,
+        "process_summary_changed_since_fact": process_summary_changed,
+        "snapshot_needed": snapshot_needed,
+        "index_needed": index_needed,
+        "index_stale": index_stale,
+        "records_lag": records_lag,
+        "processing_ok": processing.get("ok"),
+        "index_freshness": freshness,
+    }
 
 
 def typing_nervous_deferred_recent_index_safe(summary: Any) -> bool:
