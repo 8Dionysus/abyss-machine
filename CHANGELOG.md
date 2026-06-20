@@ -46,6 +46,8 @@
   the CLI.
 - Extract typing/nervous refresh document assembly into the refresh module
   while keeping live orchestration and persistence in the CLI.
+- Extract typing/nervous refresh fact-state assembly into the refresh module
+  while keeping live nervous facts reads in the CLI.
 
 ## 0.1.0
 

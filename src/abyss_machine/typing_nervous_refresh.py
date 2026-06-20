@@ -76,6 +76,52 @@ def _age_seconds_from_iso(value: Any, *, now: dt.datetime | None = None) -> floa
     return round((_now(now) - parsed).total_seconds(), 1)
 
 
+def _typing_nervous_source_facts(document: Any, source_id: str) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            if value.get("source_id") == source_id:
+                found.append(value)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(document)
+    return found
+
+
+def typing_nervous_refresh_fact_state(
+    *,
+    facts_latest: Any,
+    facts_error: Any,
+    latest_path: Any,
+    source_id: str = "typed_text_autolog",
+) -> dict[str, Any]:
+    typed_facts = _typing_nervous_source_facts(facts_latest, source_id) if isinstance(facts_latest, dict) else []
+    typed_fact = typed_facts[0] if typed_facts else {}
+    typed_process = typed_fact.get("process") if isinstance(typed_fact.get("process"), dict) else {}
+    entries = typed_fact.get("entries") if isinstance(typed_fact.get("entries"), list) else []
+    latest_entry = max(
+        [item for item in entries if isinstance(item, dict)],
+        key=lambda item: _parse_time(item.get("generated_at")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+        default=None,
+    )
+    return {
+        "latest": str(latest_path),
+        "exists": isinstance(facts_latest, dict),
+        "error": facts_error,
+        "generated_at": facts_latest.get("generated_at") if isinstance(facts_latest, dict) else None,
+        "typed_fact_exists": bool(typed_fact),
+        "typed_observed_at": typed_fact.get("observed_at") if isinstance(typed_fact, dict) else None,
+        "typed_summary": typed_fact.get("summary") if isinstance(typed_fact.get("summary"), dict) else {},
+        "typed_process_summary": typed_process.get("summary") if isinstance(typed_process.get("summary"), dict) else {},
+        "typed_latest_entry_generated_at": latest_entry.get("generated_at") if isinstance(latest_entry, dict) else None,
+    }
+
+
 def typing_nervous_index_resource_gated(index_launch: Any) -> bool:
     if not isinstance(index_launch, dict) or index_launch.get("ok") is True:
         return False
