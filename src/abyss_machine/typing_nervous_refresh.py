@@ -355,6 +355,203 @@ def typing_nervous_refresh_index_attempt_context(
     }
 
 
+def typing_nervous_refresh_final_context(
+    *,
+    process: Any,
+    latest_event: Any,
+    assessment_before: Any,
+    processing_after: Any,
+    fact_after_snapshot: Any,
+    index_after: Any,
+    index_launch: Any,
+    index_needed: bool,
+    force_index: bool,
+    index_deferred_recent_attempt: bool,
+    index_service_running: bool,
+    index_launch_already_running: bool,
+    previous_index_attempt_age_sec: Any,
+    previous_index_attempt_age_basis: Any,
+    previous_refresh_age_sec: Any,
+    index_min_interval_sec: Any,
+    recent_index_debounce_candidate: bool,
+    index_debounce_bypassed_for_lag: bool,
+    debounce_candidate_records_lag: Any,
+    debounce_candidate_records_lag_tolerance: Any,
+    synthesis_refresh: Any = None,
+    synthesis_validation: Any = None,
+) -> dict[str, Any]:
+    process_data = process if isinstance(process, dict) else {}
+    latest_event_data = latest_event if isinstance(latest_event, dict) else {}
+    assessment_data = assessment_before if isinstance(assessment_before, dict) else {}
+    processing_data = processing_after if isinstance(processing_after, dict) else {}
+    fact_data = fact_after_snapshot if isinstance(fact_after_snapshot, dict) else {}
+    index_data = index_after if isinstance(index_after, dict) else {}
+    launch_data = index_launch if isinstance(index_launch, dict) else {}
+    synthesis_data = synthesis_refresh if isinstance(synthesis_refresh, dict) else None
+    synthesis_validation_data = synthesis_validation if isinstance(synthesis_validation, dict) else None
+
+    final_pending = bool(
+        processing_data.get("ok") is not True
+        and index_needed
+        and not index_deferred_recent_attempt
+        and (index_service_running or index_launch_already_running)
+        and not force_index
+    )
+    index_resource_gated = bool(
+        processing_data.get("ok") is not True
+        and index_needed
+        and not index_deferred_recent_attempt
+        and not force_index
+        and typing_nervous_index_resource_gated(index_launch)
+        and process_data.get("ok") is True
+        and fact_data.get("exists") is True
+        and fact_data.get("typed_fact_exists") is True
+    )
+    index_resource_launch_attempted = isinstance(index_launch, dict)
+    index_launch_blocked_reasons = launch_data.get("blocked_reasons") if index_resource_launch_attempted else None
+    index_launch_denied_reasons = launch_data.get("denied_reasons") if index_resource_launch_attempted else None
+    index_resource_blocked = bool(index_launch_blocked_reasons)
+    index_resource_denied = bool(index_launch_denied_reasons)
+    index_resource_launch_ok = bool(index_resource_launch_attempted and launch_data.get("ok") is True)
+    index_resource_allowed = bool(index_resource_launch_ok and not index_resource_blocked and not index_resource_denied)
+    index_resource_decision = _nested_get(launch_data, ["plan", "decision"]) if index_resource_launch_attempted else None
+    index_resource_sample_thermal = (
+        _nested_get(launch_data, ["plan", "request", "sample_thermal"])
+        if index_resource_launch_attempted
+        else None
+    )
+    synthesis_needed = bool(index_needed and processing_data.get("ok") is True and not final_pending)
+    synthesis_action_status = (
+        "deferred_resource_gated_index"
+        if index_resource_gated
+        else (
+            "deferred_recent_index_attempt"
+            if index_deferred_recent_attempt
+            else ("deferred_index_pending" if final_pending else "not_run_index_not_fresh")
+        )
+    )
+    synthesis_ok_for_status = bool(
+        not synthesis_needed
+        or (
+            synthesis_data is not None
+            and synthesis_data.get("ok") is True
+            and synthesis_validation_data is not None
+            and synthesis_validation_data.get("ok") is True
+        )
+    )
+    status = (
+        "fresh"
+        if processing_data.get("ok") is True
+        else (
+            "pending_existing_index_build"
+            if final_pending
+            else (
+                "deferred_recent_index_attempt"
+                if index_deferred_recent_attempt
+                else ("resource_gated_index" if index_resource_gated else "degraded")
+            )
+        )
+    )
+    if status == "fresh" and not synthesis_ok_for_status:
+        status = "degraded"
+
+    global_index_records_lag = _nested_get(index_data, ["freshness", "records_lag"])
+    global_index_stale = _nested_get(index_data, ["freshness", "stale"])
+    global_index_records_lag_tolerance = _nested_get(index_data, ["freshness", "records_lag_tolerance"])
+    typed_index_fresh = bool(processing_data.get("ok") is True)
+    typed_index_records_lag = 0 if typed_index_fresh else global_index_records_lag
+    typed_index_stale = False if typed_index_fresh else global_index_stale
+    index_deferred_recent_attempt_safe = typing_nervous_deferred_recent_index_safe(
+        {
+            "index_deferred_recent_attempt": index_deferred_recent_attempt,
+            "index_previous_attempt_age_sec": previous_index_attempt_age_sec,
+            "index_min_interval_sec": index_min_interval_sec,
+            "index_records_lag": typed_index_records_lag,
+            "index_records_lag_tolerance": global_index_records_lag_tolerance,
+            "index_stale": typed_index_stale,
+            "global_index_records_lag": global_index_records_lag,
+            "global_index_records_lag_tolerance": global_index_records_lag_tolerance,
+            "global_index_stale": global_index_stale,
+        }
+    )
+    summary = {
+        "status": status,
+        "process_status": process_data.get("status"),
+        "process_records": _nested_get(process_data, ["summary", "records_processed"]),
+        "process_lanes": _nested_get(process_data, ["summary", "lanes"]),
+        "latest_event_generated_at": latest_event_data.get("generated_at"),
+        "snapshot_needed": bool(assessment_data.get("snapshot_needed")),
+        "index_needed": index_needed,
+        "index_deferred_recent_attempt": index_deferred_recent_attempt,
+        "index_deferred_recent_attempt_safe": index_deferred_recent_attempt_safe,
+        "index_previous_attempt_age_sec": previous_index_attempt_age_sec,
+        "index_previous_attempt_age_basis": previous_index_attempt_age_basis,
+        "index_previous_refresh_age_sec": previous_refresh_age_sec,
+        "index_min_interval_sec": index_min_interval_sec,
+        "index_recent_debounce_candidate": recent_index_debounce_candidate,
+        "index_debounce_bypassed_for_lag": index_debounce_bypassed_for_lag,
+        "index_debounce_candidate_records_lag": debounce_candidate_records_lag,
+        "index_debounce_candidate_records_lag_tolerance": debounce_candidate_records_lag_tolerance,
+        "nervous_processing_ok": processing_data.get("ok"),
+        "index_resource_launch_attempted": index_resource_launch_attempted,
+        "index_resource_launch_ok": index_resource_launch_ok if index_resource_launch_attempted else None,
+        "index_resource_allowed": index_resource_allowed if index_resource_launch_attempted else None,
+        "index_resource_blocked": index_resource_blocked if index_resource_launch_attempted else None,
+        "index_resource_denied": index_resource_denied if index_resource_launch_attempted else None,
+        "index_resource_soft_gated": index_resource_gated,
+        "index_resource_gated": index_resource_gated,
+        "index_resource_decision": index_resource_decision,
+        "index_resource_sample_thermal": index_resource_sample_thermal,
+        "index_launch_blocked_reasons": index_launch_blocked_reasons,
+        "index_launch_denied_reasons": index_launch_denied_reasons,
+        "index_records_lag": typed_index_records_lag,
+        "index_records_lag_tolerance": global_index_records_lag_tolerance,
+        "index_stale": typed_index_stale,
+        "global_index_records_lag": global_index_records_lag,
+        "global_index_records_lag_tolerance": global_index_records_lag_tolerance,
+        "global_index_stale": global_index_stale,
+        "synthesis_needed": synthesis_needed,
+        "synthesis_ok": synthesis_data.get("ok") if synthesis_data is not None else None,
+        "synthesis_validation_ok": (
+            synthesis_validation_data.get("ok") if synthesis_validation_data is not None else None
+        ),
+    }
+    return {
+        "ok": bool(
+            process_data.get("ok")
+            and (
+                processing_data.get("ok") is True
+                or final_pending
+                or index_resource_gated
+                or index_deferred_recent_attempt_safe
+            )
+            and synthesis_ok_for_status
+        ),
+        "status": status,
+        "summary": summary,
+        "final_pending": final_pending,
+        "index_resource_gated": index_resource_gated,
+        "index_resource_launch_attempted": index_resource_launch_attempted,
+        "index_launch_blocked_reasons": index_launch_blocked_reasons,
+        "index_launch_denied_reasons": index_launch_denied_reasons,
+        "index_resource_blocked": index_resource_blocked,
+        "index_resource_denied": index_resource_denied,
+        "index_resource_launch_ok": index_resource_launch_ok,
+        "index_resource_allowed": index_resource_allowed,
+        "index_resource_decision": index_resource_decision,
+        "index_resource_sample_thermal": index_resource_sample_thermal,
+        "synthesis_needed": synthesis_needed,
+        "synthesis_action_status": synthesis_action_status,
+        "synthesis_ok_for_status": synthesis_ok_for_status,
+        "global_index_records_lag": global_index_records_lag,
+        "global_index_stale": global_index_stale,
+        "global_index_records_lag_tolerance": global_index_records_lag_tolerance,
+        "typed_index_records_lag": typed_index_records_lag,
+        "typed_index_stale": typed_index_stale,
+        "index_deferred_recent_attempt_safe": index_deferred_recent_attempt_safe,
+    }
+
+
 def typing_nervous_recent_index_debounce_safe(
     *,
     index_needed: bool,

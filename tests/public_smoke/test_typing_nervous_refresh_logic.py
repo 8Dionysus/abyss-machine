@@ -14,6 +14,7 @@ from abyss_machine.typing_nervous_refresh import (
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
     typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
@@ -159,6 +160,117 @@ def test_typing_nervous_refresh_index_attempt_context_falls_back_to_assessment_a
     assert context["recent_index_debounce_candidate"] is False
     assert context["index_deferred_recent_attempt"] is False
     assert context["index_debounce_bypassed_for_lag"] is False
+
+
+def _final_context(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "process": {"ok": True, "status": "ok", "summary": {"records_processed": 5, "lanes": 2}},
+        "latest_event": {"generated_at": "2026-06-20T05:00:00+00:00"},
+        "assessment_before": {"snapshot_needed": False},
+        "processing_after": {"ok": True},
+        "fact_after_snapshot": {"exists": True, "typed_fact_exists": True},
+        "index_after": {"freshness": {"records_lag": 9, "records_lag_tolerance": 4, "stale": True}},
+        "index_launch": None,
+        "index_needed": True,
+        "force_index": False,
+        "index_deferred_recent_attempt": False,
+        "index_service_running": False,
+        "index_launch_already_running": False,
+        "previous_index_attempt_age_sec": 225,
+        "previous_index_attempt_age_basis": "previous_refresh_finished_at",
+        "previous_refresh_age_sec": 300.0,
+        "index_min_interval_sec": 900.0,
+        "recent_index_debounce_candidate": True,
+        "index_debounce_bypassed_for_lag": False,
+        "debounce_candidate_records_lag": 6,
+        "debounce_candidate_records_lag_tolerance": 4,
+        "synthesis_refresh": {"ok": True},
+        "synthesis_validation": {"ok": True},
+    }
+    base.update(overrides)
+    return typing_nervous_refresh_final_context(**base)  # type: ignore[arg-type]
+
+
+def test_typing_nervous_refresh_final_context_reports_fresh_with_synthesis_success() -> None:
+    context = _final_context()
+
+    assert context["ok"] is True
+    assert context["status"] == "fresh"
+    assert context["synthesis_needed"] is True
+    assert context["synthesis_ok_for_status"] is True
+    assert context["typed_index_records_lag"] == 0
+    assert context["typed_index_stale"] is False
+    assert context["summary"]["status"] == "fresh"
+    assert context["summary"]["process_records"] == 5
+    assert context["summary"]["index_records_lag"] == 0
+    assert context["summary"]["global_index_records_lag"] == 9
+    assert context["summary"]["synthesis_ok"] is True
+    assert context["summary"]["synthesis_validation_ok"] is True
+
+
+def test_typing_nervous_refresh_final_context_degrades_when_synthesis_fails() -> None:
+    context = _final_context(
+        synthesis_refresh={"ok": True},
+        synthesis_validation={"ok": False},
+    )
+
+    assert context["ok"] is False
+    assert context["status"] == "degraded"
+    assert context["synthesis_needed"] is True
+    assert context["synthesis_ok_for_status"] is False
+    assert context["summary"]["synthesis_ok"] is True
+    assert context["summary"]["synthesis_validation_ok"] is False
+
+
+def test_typing_nervous_refresh_final_context_accepts_soft_resource_gate() -> None:
+    context = _final_context(
+        processing_after={"ok": False, "status": "facts_ready_index_stale"},
+        index_launch={
+            "ok": False,
+            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "denied_reasons": [],
+            "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
+        },
+        synthesis_refresh=None,
+        synthesis_validation=None,
+    )
+
+    assert context["ok"] is True
+    assert context["status"] == "resource_gated_index"
+    assert context["index_resource_gated"] is True
+    assert context["synthesis_needed"] is False
+    assert context["synthesis_action_status"] == "deferred_resource_gated_index"
+    assert context["summary"]["index_resource_launch_attempted"] is True
+    assert context["summary"]["index_resource_blocked"] is True
+    assert context["summary"]["index_resource_denied"] is False
+    assert context["summary"]["index_resource_decision"] == "blocked"
+    assert context["summary"]["index_records_lag"] == 9
+    assert context["summary"]["index_stale"] is True
+
+
+def test_typing_nervous_refresh_final_context_preserves_pending_and_deferred_ok_states() -> None:
+    pending = _final_context(
+        processing_after={"ok": False},
+        index_service_running=True,
+        synthesis_refresh=None,
+        synthesis_validation=None,
+    )
+    assert pending["ok"] is True
+    assert pending["status"] == "pending_existing_index_build"
+    assert pending["final_pending"] is True
+    assert pending["synthesis_action_status"] == "deferred_index_pending"
+
+    deferred = _final_context(
+        processing_after={"ok": False},
+        index_deferred_recent_attempt=True,
+        index_after={"freshness": {"records_lag": 6, "records_lag_tolerance": 4, "stale": True}},
+        synthesis_refresh=None,
+        synthesis_validation=None,
+    )
+    assert deferred["ok"] is True
+    assert deferred["status"] == "deferred_recent_index_attempt"
+    assert deferred["index_deferred_recent_attempt_safe"] is True
+    assert deferred["synthesis_action_status"] == "deferred_recent_index_attempt"
 
 
 def test_typing_nervous_refresh_assessment_skips_snapshot_when_facts_cover_event() -> None:
@@ -358,4 +470,5 @@ def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_recent_index_debounce_safe is typing_nervous_recent_index_debounce_safe
     assert cli.typing_nervous_refresh_needed is typing_nervous_refresh_needed
     assert cli.typing_nervous_refresh_index_attempt_context is typing_nervous_refresh_index_attempt_context
+    assert cli.typing_nervous_refresh_final_context is typing_nervous_refresh_final_context
     assert cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status
