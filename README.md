@@ -34,9 +34,10 @@ The bootstrap CLI and installed `abyss-machine` CLI share
 `abyss_machine.path_policy` for root defaults and environment overrides.
 Typing/nervous path and service defaults live in
 `abyss_machine.typing_nervous_policy`; refresh resource-gate and recent-index
-debounce helpers, refresh assessment, and latest-status classification live in
-`abyss_machine.typing_nervous_refresh`. These surfaces are re-exported or
-adapted by the CLI for installed-host compatibility. A fresh machine
+debounce helpers, refresh assessment, latest-status classification, and
+index-attempt debounce context live in `abyss_machine.typing_nervous_refresh`.
+These surfaces are re-exported or adapted by the CLI for installed-host
+compatibility. A fresh machine
 should render `/etc/abyss-machine`, create durable evidence under
 `/var/lib/abyss-machine`, reserve large mutable planes under
 `/srv/abyss-machine`, and keep ephemeral state under `/run/abyss-machine`
@@ -111,7 +112,9 @@ The installed CLI remains mostly monolithic, but shared root policy,
 typing/nervous organ policy, and typing/nervous refresh decision helpers have
 been split into package modules with public validators. The typing/nervous
 refresh latest-status classifier is also module-owned, with the CLI kept as a
-thin adapter to live `latest.json` and systemd state. Known v1 portability debt
-remains in subsystem command glue and some historical workstation fixture paths;
-further hardening should move command implementation behind smaller modules
-before claiming full host-agnostic behavior for every subcommand.
+thin adapter to live `latest.json` and systemd state. Refresh index-attempt
+debounce context is module-owned, while live index launch and synthesis
+orchestration still stay in the CLI. Known v1 portability debt remains in
+subsystem command glue and some historical workstation fixture paths; further
+hardening should move command implementation behind smaller modules before
+claiming full host-agnostic behavior for every subcommand.
