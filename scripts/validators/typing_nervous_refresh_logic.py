@@ -17,6 +17,7 @@ from abyss_machine.typing_nervous_refresh import (  # noqa: E402
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
     typing_nervous_refresh_latest_status,
     typing_nervous_recent_index_debounce_safe,
@@ -148,6 +149,104 @@ def main() -> int:
         and forced_context.get("debounce_candidate_index_stale") is True
         and forced_context.get("index_deferred_recent_attempt") is False,
         "forced index context must use assessment fallback without deferring",
+        failures,
+    )
+    final_context = typing_nervous_refresh_final_context(
+        process={"ok": True, "status": "ok", "summary": {"records_processed": 5, "lanes": 2}},
+        latest_event={"generated_at": "2026-06-20T05:00:00+00:00"},
+        assessment_before={"snapshot_needed": False},
+        processing_after={"ok": True},
+        fact_after_snapshot={"exists": True, "typed_fact_exists": True},
+        index_after={"freshness": {"records_lag": 9, "records_lag_tolerance": 4, "stale": True}},
+        index_launch=None,
+        index_needed=True,
+        force_index=False,
+        index_deferred_recent_attempt=False,
+        index_service_running=False,
+        index_launch_already_running=False,
+        previous_index_attempt_age_sec=225,
+        previous_index_attempt_age_basis="previous_refresh_finished_at",
+        previous_refresh_age_sec=300.0,
+        index_min_interval_sec=900.0,
+        recent_index_debounce_candidate=True,
+        index_debounce_bypassed_for_lag=False,
+        debounce_candidate_records_lag=6,
+        debounce_candidate_records_lag_tolerance=4,
+        synthesis_refresh={"ok": True},
+        synthesis_validation={"ok": True},
+    )
+    require(
+        final_context.get("ok") is True
+        and final_context.get("status") == "fresh"
+        and final_context.get("summary", {}).get("index_records_lag") == 0
+        and final_context.get("summary", {}).get("global_index_records_lag") == 9,
+        "final context must report fresh typed processing while preserving global lag",
+        failures,
+    )
+    degraded_context = typing_nervous_refresh_final_context(
+        process={"ok": True, "status": "ok", "summary": {"records_processed": 5, "lanes": 2}},
+        latest_event={"generated_at": "2026-06-20T05:00:00+00:00"},
+        assessment_before={"snapshot_needed": False},
+        processing_after={"ok": True},
+        fact_after_snapshot={"exists": True, "typed_fact_exists": True},
+        index_after={"freshness": {"records_lag": 0, "records_lag_tolerance": 4, "stale": False}},
+        index_launch=None,
+        index_needed=True,
+        force_index=False,
+        index_deferred_recent_attempt=False,
+        index_service_running=False,
+        index_launch_already_running=False,
+        previous_index_attempt_age_sec=225,
+        previous_index_attempt_age_basis="previous_refresh_finished_at",
+        previous_refresh_age_sec=300.0,
+        index_min_interval_sec=900.0,
+        recent_index_debounce_candidate=False,
+        index_debounce_bypassed_for_lag=False,
+        debounce_candidate_records_lag=0,
+        debounce_candidate_records_lag_tolerance=4,
+        synthesis_refresh={"ok": True},
+        synthesis_validation={"ok": False},
+    )
+    require(
+        degraded_context.get("ok") is False
+        and degraded_context.get("status") == "degraded"
+        and degraded_context.get("synthesis_ok_for_status") is False,
+        "final context must degrade fresh processing when synthesis validation fails",
+        failures,
+    )
+    gated_context = typing_nervous_refresh_final_context(
+        process={"ok": True, "status": "ok", "summary": {"records_processed": 5, "lanes": 2}},
+        latest_event={"generated_at": "2026-06-20T05:00:00+00:00"},
+        assessment_before={"snapshot_needed": True},
+        processing_after={"ok": False},
+        fact_after_snapshot={"exists": True, "typed_fact_exists": True},
+        index_after={"freshness": {"records_lag": 9, "records_lag_tolerance": 4, "stale": True}},
+        index_launch={
+            "ok": False,
+            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "denied_reasons": [],
+            "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
+        },
+        index_needed=True,
+        force_index=False,
+        index_deferred_recent_attempt=False,
+        index_service_running=False,
+        index_launch_already_running=False,
+        previous_index_attempt_age_sec=225,
+        previous_index_attempt_age_basis="previous_refresh_finished_at",
+        previous_refresh_age_sec=300.0,
+        index_min_interval_sec=900.0,
+        recent_index_debounce_candidate=False,
+        index_debounce_bypassed_for_lag=False,
+        debounce_candidate_records_lag=9,
+        debounce_candidate_records_lag_tolerance=4,
+    )
+    require(
+        gated_context.get("ok") is True
+        and gated_context.get("status") == "resource_gated_index"
+        and gated_context.get("index_resource_gated") is True
+        and gated_context.get("synthesis_action_status") == "deferred_resource_gated_index",
+        "final context must preserve soft resource-gated index acceptance",
         failures,
     )
     assessment = typing_nervous_refresh_needed(
@@ -289,6 +388,11 @@ def main() -> int:
         failures,
     )
     require(
+        cli.typing_nervous_refresh_final_context is typing_nervous_refresh_final_context,
+        "CLI must re-export module final context helper",
+        failures,
+    )
+    require(
         cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status,
         "CLI must import module latest-status builder",
         failures,
@@ -301,6 +405,7 @@ def main() -> int:
         "typing_nervous_recent_index_debounce_safe",
         "typing_nervous_refresh_needed",
         "typing_nervous_refresh_index_attempt_context",
+        "typing_nervous_refresh_final_context",
     ):
         require(f"def {name}" not in cli_source, f"CLI must not redefine {name}", failures)
     status_wrapper_source = inspect.getsource(cli.typing_nervous_refresh_latest_status)
@@ -323,6 +428,17 @@ def main() -> int:
     require(
         "previous_refresh_summary" not in refresh_source,
         "CLI refresh orchestration must not keep previous-refresh debounce context parsing",
+        failures,
+    )
+    require(
+        "typing_nervous_refresh_final_context" in refresh_source,
+        "CLI refresh orchestration must delegate final status summary to module helper",
+        failures,
+    )
+    require(
+        "index_resource_launch_attempted = isinstance" not in refresh_source
+        and "global_index_records_lag = nested_get(index_after" not in refresh_source,
+        "CLI refresh orchestration must not keep final status summary assembly",
         failures,
     )
 

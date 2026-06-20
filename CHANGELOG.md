@@ -39,6 +39,8 @@
   module while keeping the CLI as the live path/systemd adapter.
 - Extract typing/nervous refresh index-attempt debounce context into the refresh
   module while keeping live index launch orchestration in the CLI.
+- Extract typing/nervous refresh final status and summary context into the
+  refresh module while keeping live synthesis orchestration in the CLI.
 
 ## 0.1.0
 
