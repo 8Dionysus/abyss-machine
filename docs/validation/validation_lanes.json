@@ -74,6 +74,7 @@
       {"label": "bootstrap contract", "command": ["python", "scripts/validators/bootstrap_contract.py"]},
       {"label": "path policy", "command": ["python", "scripts/validators/path_policy.py"]},
       {"label": "typing nervous policy", "command": ["python", "scripts/validators/typing_nervous_policy.py"]},
+      {"label": "typing nervous refresh logic", "command": ["python", "scripts/validators/typing_nervous_refresh_logic.py"]},
       {"label": "public boundary", "command": ["python", "scripts/validators/public_boundary.py"]},
       {"label": "artifact signature policy", "command": ["python", "scripts/validators/artifact_signature_policy.py"]},
       {"label": "contract ABI signatures", "command": ["python", "scripts/generate_contract_abi_signatures.py", "--check"]},

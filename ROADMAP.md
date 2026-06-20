@@ -6,7 +6,7 @@
 - Stabilize the source/install mirror around `config-templates/`, `systemd/`,
   `schemas/`, and validation lanes.
 - Keep typing and nervous intake first-class, opt-in, and backed by a tested
-  organ-specific path/service policy.
+  organ-specific path/service policy plus refresh decision helpers.
 
 ## Next Hardening
 
