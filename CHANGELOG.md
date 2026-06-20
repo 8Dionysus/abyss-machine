@@ -31,6 +31,8 @@
   contract.
 - Extract typing/nervous path and service policy into a tested module while
   preserving CLI constants for installed-host compatibility.
+- Extract typing/nervous refresh resource-gate and recent-index debounce
+  helpers into a tested module while preserving CLI helper exports.
 
 ## 0.1.0
 
