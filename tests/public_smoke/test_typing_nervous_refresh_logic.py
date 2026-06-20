@@ -14,6 +14,7 @@ from abyss_machine.typing_nervous_refresh import (
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_refresh_document,
     typing_nervous_refresh_index_action,
     typing_nervous_refresh_final_context,
     typing_nervous_refresh_index_attempt_context,
@@ -314,6 +315,72 @@ def test_typing_nervous_refresh_synthesis_action_records_run_defer_and_idle_shap
         index_needed=False,
         final_context={},
     ) == {"action": "nervous_synthesis_build", "status": "not_needed"}
+
+
+def test_typing_nervous_refresh_document_records_public_refresh_shape() -> None:
+    document = typing_nervous_refresh_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-20T05:00:00+00:00",
+        finished_at="2026-06-20T05:00:15+00:00",
+        final_context={
+            "ok": True,
+            "status": "fresh",
+            "summary": {"status": "fresh", "index_needed": False},
+            "synthesis_needed": False,
+        },
+        latest_event={
+            "generated_at": "2026-06-20T04:59:59+00:00",
+            "event_id": "event-1",
+            "source_adapter": "saved_text_snapshot",
+            "status": "committed",
+        },
+        latest_error=None,
+        process={"ok": True, "status": "processed", "generated_at": "now", "summary": {"records": 2}},
+        fact_before={"exists": True},
+        fact_after_snapshot={"exists": True, "typed_fact_exists": True},
+        index_before={"ok": True, "ready": True, "warnings": [], "freshness": {"records_lag": 0}, "counts": {"rows": 2}},
+        index_after={"ok": True, "ready": True, "warnings": [], "freshness": {"records_lag": 0}, "counts": {"rows": 2}},
+        index_service={"active": "inactive"},
+        index_launch=None,
+        index_retry_launch=None,
+        index_launch_already_running=False,
+        index_wait_observations=[],
+        previous_refresh={"status": "fresh", "finished_at": "2026-06-20T04:00:00+00:00"},
+        previous_refresh_error=None,
+        previous_index_launch_attempted=False,
+        synthesis_refresh=None,
+        synthesis_validation=None,
+        processing_before={"ok": True},
+        processing_after_snapshot={"ok": True},
+        processing_after={"ok": True},
+        assessment_before={"snapshot_needed": False},
+        assessment_after_snapshot={"snapshot_needed": False},
+        assessment_after={"snapshot_needed": False},
+        actions=[{"action": "nervous_snapshot", "status": "not_needed"}],
+        latest_path="/var/lib/abyss-machine/typing-nervous-refresh/latest.json",
+        daily_glob_path="/var/lib/abyss-machine/typing-nervous-refresh/YYYY/MM/YYYY-MM-DD.jsonl",
+        typing_process_path="/var/lib/abyss-machine/typing/process/latest.json",
+        nervous_facts_path="/var/lib/abyss-machine/nervous/facts/latest.json",
+        nervous_index_path="/var/lib/abyss-machine/nervous/search-index/latest.json",
+    )
+
+    assert document["schema"] == "abyss_machine_typing_nervous_refresh_v1"
+    assert document["version"] == "test"
+    assert document["ok"] is True
+    assert document["status"] == "fresh"
+    assert document["summary"] == {"status": "fresh", "index_needed": False}
+    assert document["latest_event"]["exists"] is True
+    assert document["latest_event"]["event_id"] == "event-1"
+    assert document["process"]["summary"] == {"records": 2}
+    assert document["facts"]["after_snapshot"]["typed_fact_exists"] is True
+    assert document["index"]["previous_refresh"]["index_resource_launch_attempted"] is False
+    assert document["synthesis"]["needed"] is False
+    assert document["actions"] == [{"action": "nervous_snapshot", "status": "not_needed"}]
+    assert document["paths"]["latest"].endswith("/typing-nervous-refresh/latest.json")
+    assert document["policy"]["raw_keylogging"] is False
+    assert document["policy"]["resource_gated_index_work"] is True
+    assert document["non_claims"][0].startswith("This tick processes already-stored committed-text events")
 
 
 def _final_context(**overrides: object) -> dict[str, object]:
@@ -623,6 +690,7 @@ def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_deferred_recent_index_safe is typing_nervous_deferred_recent_index_safe
     assert cli.typing_nervous_recent_index_debounce_safe is typing_nervous_recent_index_debounce_safe
     assert cli.typing_nervous_refresh_needed is typing_nervous_refresh_needed
+    assert cli.typing_nervous_refresh_document is typing_nervous_refresh_document
     assert cli.typing_nervous_refresh_index_attempt_context is typing_nervous_refresh_index_attempt_context
     assert cli.typing_nervous_refresh_snapshot_action is typing_nervous_refresh_snapshot_action
     assert cli.typing_nervous_refresh_index_action is typing_nervous_refresh_index_action

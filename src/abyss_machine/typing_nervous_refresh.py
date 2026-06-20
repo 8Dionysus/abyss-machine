@@ -472,6 +472,146 @@ def typing_nervous_refresh_synthesis_action(
     return {"action": "nervous_synthesis_build", "status": "not_needed"}
 
 
+def typing_nervous_refresh_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    finished_at: str,
+    final_context: Any,
+    latest_event: Any,
+    latest_error: Any,
+    process: Any,
+    fact_before: Any,
+    fact_after_snapshot: Any,
+    index_before: Any,
+    index_after: Any,
+    index_service: Any,
+    index_launch: Any,
+    index_retry_launch: Any,
+    index_launch_already_running: bool,
+    index_wait_observations: Any,
+    previous_refresh: Any,
+    previous_refresh_error: Any,
+    previous_index_launch_attempted: bool,
+    synthesis_refresh: Any,
+    synthesis_validation: Any,
+    processing_before: Any,
+    processing_after_snapshot: Any,
+    processing_after: Any,
+    assessment_before: Any,
+    assessment_after_snapshot: Any,
+    assessment_after: Any,
+    actions: Any,
+    latest_path: Any,
+    daily_glob_path: Any,
+    typing_process_path: Any,
+    nervous_facts_path: Any,
+    nervous_index_path: Any,
+) -> dict[str, Any]:
+    final_data = final_context if isinstance(final_context, dict) else {}
+    latest_event_data = latest_event if isinstance(latest_event, dict) else {}
+    process_data = process if isinstance(process, dict) else {}
+    index_before_data = index_before if isinstance(index_before, dict) else {}
+    index_after_data = index_after if isinstance(index_after, dict) else {}
+    previous_refresh_data = previous_refresh if isinstance(previous_refresh, dict) else {}
+    return {
+        "schema": f"{schema_prefix}_typing_nervous_refresh_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "finished_at": finished_at,
+        "ok": final_data.get("ok"),
+        "status": final_data.get("status"),
+        "summary": final_data.get("summary") if isinstance(final_data.get("summary"), dict) else {},
+        "latest_event": {
+            "exists": isinstance(latest_event, dict),
+            "error": latest_error,
+            "generated_at": latest_event_data.get("generated_at"),
+            "event_id": latest_event_data.get("event_id"),
+            "source_adapter": latest_event_data.get("source_adapter"),
+            "status": latest_event_data.get("status"),
+        },
+        "process": {
+            "ok": process_data.get("ok"),
+            "status": process_data.get("status"),
+            "generated_at": process_data.get("generated_at"),
+            "summary": process_data.get("summary") if isinstance(process_data.get("summary"), dict) else {},
+        },
+        "facts": {
+            "before": fact_before,
+            "after_snapshot": fact_after_snapshot,
+        },
+        "index": {
+            "before": {
+                "ok": index_before_data.get("ok"),
+                "ready": index_before_data.get("ready"),
+                "warnings": index_before_data.get("warnings"),
+                "freshness": index_before_data.get("freshness"),
+                "counts": index_before_data.get("counts"),
+            },
+            "after": {
+                "ok": index_after_data.get("ok"),
+                "ready": index_after_data.get("ready"),
+                "warnings": index_after_data.get("warnings"),
+                "freshness": index_after_data.get("freshness"),
+                "counts": index_after_data.get("counts"),
+            },
+            "service": index_service,
+            "launch": index_launch,
+            "retry_launch": index_retry_launch,
+            "launch_already_running": index_launch_already_running,
+            "wait_observations": index_wait_observations if isinstance(index_wait_observations, list) else [],
+            "previous_refresh": {
+                "exists": isinstance(previous_refresh, dict),
+                "error": previous_refresh_error,
+                "status": previous_refresh_data.get("status"),
+                "finished_at": previous_refresh_data.get("finished_at"),
+                "index_resource_launch_attempted": previous_index_launch_attempted,
+            },
+        },
+        "synthesis": {
+            "needed": final_data.get("synthesis_needed"),
+            "refresh": synthesis_refresh,
+            "validation": synthesis_validation,
+        },
+        "processing": {
+            "before": processing_before,
+            "after_snapshot": processing_after_snapshot,
+            "after": processing_after,
+        },
+        "assessment": {
+            "before": assessment_before,
+            "after_snapshot": assessment_after_snapshot,
+            "after": assessment_after,
+        },
+        "actions": actions if isinstance(actions, list) else [],
+        "paths": {
+            "latest": str(latest_path),
+            "daily_glob": str(daily_glob_path),
+            "typing_process": str(typing_process_path),
+            "nervous_facts": str(nervous_facts_path),
+            "nervous_index": str(nervous_index_path),
+        },
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "widens_capture": False,
+            "automatic_action": False,
+            "privileged_access_required": False,
+            "internet_access": False,
+            "resource_gated_index_work": True,
+            "snapshot_only_when_needed": True,
+            "index_only_when_needed": True,
+            "synthesis_after_index_refresh": True,
+        },
+        "non_claims": [
+            "This tick processes already-stored committed-text events; it does not capture new text.",
+            "It may refresh nervous facts, local FTS, and derived synthesis when freshness checks require it.",
+            "It does not activate the Firefox release-profile WebExtension.",
+        ],
+    }
+
+
 def typing_nervous_refresh_final_context(
     *,
     process: Any,
