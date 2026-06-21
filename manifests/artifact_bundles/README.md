@@ -38,6 +38,10 @@ machine-readable decision plus inspected claims for agent audit trails.
 Registries created before the durable evidence fields use
 `bundle-registry-upgrade` as an explicit host-managed migration; the trust gate
 does not silently allow those legacy records.
+Use `requirements` before producing a bundle to inspect producer profile,
+required controls, trust-root expectations, and owner/source route. Use
+`affected` before consuming or landing changes to detect stale source,
+manifest, policy, ABI, or sibling-owner evidence.
 
 External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM

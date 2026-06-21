@@ -51,6 +51,16 @@ def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_cla
         consumer_intent="agent",
         expected_trust_root_mode="host_managed",
     )
+    requirements = artifact_bundles.artifact_requirements(
+        artifact_class,
+        registry_dir=registry_dir,
+    )
+    affected = artifact_bundles.artifact_affected(
+        ["src/abyss_machine/artifact_bundles.py"],
+        artifact_class=artifact_class,
+        registry_dir=registry_dir,
+    )
+    affected_row = affected.get("rows", [{}])[0] if affected.get("rows") else {}
     revoked = artifact_bundles.promote_bundle_evidence(
         bundle_dir,
         registry_dir,
@@ -105,6 +115,10 @@ def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_cla
             and allow_gate.get("decision", {}).get("model") == "fail_closed_consumer_admission"
             and allow_claims.get("registry_latest", {}).get("selected_record_is_latest") is True
             and allow_claims.get("controls", {}).get("required_controls_missing") == []
+            and requirements.get("ok")
+            and requirements.get("rows", [{}])[0].get("source_route", {}).get("contract_surface_status") == "local_contract_surface"
+            and affected_row.get("verdict") == "needs_rebuild"
+            and affected_row.get("freshness") == "stale"
             and revoked.get("ok")
             and deny_gate.get("verdict") == "deny"
             and deny_gate.get("decision", {}).get("allow") is False
@@ -119,6 +133,8 @@ def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_cla
         "registered": registered,
         "latest": latest,
         "allow_gate": allow_gate,
+        "requirements": requirements,
+        "affected": affected,
         "revoked": revoked,
         "deny_gate": deny_gate,
         "after_revoke": after_revoke,

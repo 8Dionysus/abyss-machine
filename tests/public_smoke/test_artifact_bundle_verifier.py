@@ -184,6 +184,98 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
     assert any("asset hash mismatch" in error for error in invalid["errors"])
 
 
+def test_artifact_requirements_reports_sibling_producer_profile() -> None:
+    requirements = artifact_bundles.artifact_requirements("aoa_sdk_python_distribution")
+    row = requirements["rows"][0]
+
+    assert requirements["ok"] is True
+    assert requirements["schema"] == "abyss_machine_artifact_requirements_v1"
+    assert row["owner_repo"] == "aoa-sdk"
+    assert row["producer_profile"]["producer"]
+    assert row["source_route"]["contract_surface_status"] == "external_subject_or_owner_bundle_required"
+    assert row["controls"]["required"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert row["controls"]["deferred"]["sigstore_cosign"]["required"] is False
+    assert row["trust_roots"]["local_dev"]["production_consumer_result"] == "manual_review_required"
+    assert "affected" in row["agent_loop"]
+    assert "GitHub OIDC is one producer adapter" in row["claim_limits"][2]
+
+
+def test_artifact_affected_marks_contract_source_as_stale(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        ["src/abyss_machine/artifact_bundles.py"],
+        artifact_class="public_source_seed",
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["ok"] is True
+    assert affected["schema"] == "abyss_machine_artifact_affected_v1"
+    assert affected["summary"]["status_counts"] == {"needs_rebuild": 1}
+    assert row["affected"] is True
+    assert row["verdict"] == "needs_rebuild"
+    assert row["freshness"] == "stale"
+    assert row["registry"]["has_latest"] is True
+    assert row["trust_gate"]["verdict"] == "allow"
+    assert row["matches"][0]["matched_ref"] == "src/abyss_machine"
+
+
+def test_artifact_affected_marks_missing_registry_latest_as_stale(tmp_path: Path) -> None:
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="public_source_seed",
+        registry_dir=tmp_path / "empty-registry",
+    )
+    row = affected["rows"][0]
+
+    assert affected["ok"] is True
+    assert row["affected"] is True
+    assert row["verdict"] == "needs_rebuild"
+    assert row["freshness"] == "stale"
+    assert row["reasons"] == []
+    assert row["registry"]["has_latest"] is False
+
+
+def test_artifact_affected_policy_change_requires_all_classes_to_reverify() -> None:
+    affected = artifact_bundles.artifact_affected(["manifests/artifact_signature_policy.manifest.json"])
+
+    assert affected["ok"] is True
+    assert affected["summary"]["artifact_classes"] == 20
+    assert affected["summary"]["status_counts"] == {"needs_reverify": 20}
+    assert all(row["freshness"] == "stale" for row in affected["rows"])
+    assert all(row["reasons"] == ["policy_manifest_changed"] for row in affected["rows"])
+
+
+def test_artifact_affected_distinguishes_sibling_lag() -> None:
+    blocked = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_repo="aoa-sdk",
+    )
+    accepted = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_repo="aoa-sdk",
+        accept_sibling_lag=True,
+    )
+
+    assert blocked["rows"][0]["verdict"] == "blocked_by_missing_sibling"
+    assert blocked["rows"][0]["next_actions"][1] == "run the producer profile in owner repo aoa-sdk"
+    assert accepted["rows"][0]["verdict"] == "accepted_lag"
+    assert accepted["accept_sibling_lag"] is True
+
+
 def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> None:
     bundle = tmp_path / "public-source-seed"
     registry = tmp_path / "registry"

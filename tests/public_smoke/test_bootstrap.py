@@ -133,6 +133,8 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "bundle-registry" in help_result.stdout
     assert "bundle-registry-upgrade" in help_result.stdout
     assert "evidence-promote" in help_result.stdout
+    assert "requirements" in help_result.stdout
+    assert "affected" in help_result.stdout
     assert "trust-gate" in help_result.stdout
     assert "trust-tools" in help_result.stdout
     assert "trust-coverage" in help_result.stdout
@@ -259,6 +261,60 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert trust_gate_data["verdict"] == "allow"
     assert trust_gate_data["decision"]["model"] == "fail_closed_consumer_admission"
     assert trust_gate_data["inspected_claims"]["registry_latest"]["selected_record_is_latest"] is True
+
+    requirements_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "requirements",
+            "--registry-dir",
+            str(registry),
+            "--artifact-class",
+            "public_source_seed",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert requirements_result.returncode == 0, requirements_result.stderr[-1000:]
+    requirements_data = json.loads(requirements_result.stdout)
+    requirements_row = requirements_data["rows"][0]
+    assert requirements_data["schema"] == "abyss_machine_artifact_requirements_v1"
+    assert requirements_row["source_route"]["contract_surface_status"] == "local_contract_surface"
+    assert requirements_row["registry_status"]["has_latest"] is True
+    assert requirements_row["trust_gate_status"]["verdict"] == "allow"
+
+    affected_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "affected",
+            "--registry-dir",
+            str(registry),
+            "--artifact-class",
+            "public_source_seed",
+            "--changed-path",
+            "src/abyss_machine/artifact_bundles.py",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert affected_result.returncode == 0, affected_result.stderr[-1000:]
+    affected_data = json.loads(affected_result.stdout)
+    affected_row = affected_data["rows"][0]
+    assert affected_data["schema"] == "abyss_machine_artifact_affected_v1"
+    assert affected_row["verdict"] == "needs_rebuild"
+    assert affected_row["freshness"] == "stale"
+    assert affected_row["trust_gate"]["verdict"] == "allow"
 
     registry_upgrade_result = subprocess.run(
         [
