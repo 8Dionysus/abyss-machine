@@ -814,6 +814,7 @@ def test_materialized_artifact_subject_store_supports_installed_verification(
     assert materialized["ok"] is True
     assert verify["ok"] is True
     assert verify["artifact_subject_resolution"][0]["source"] == "artifact_subject_store"
+    assert str(tmp_path.resolve()) not in (bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8")
     assert registered["ok"] is True
     assert registered["record"]["artifact_subject_store"]["ok"] is True
 
