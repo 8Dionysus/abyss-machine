@@ -69,6 +69,20 @@ TRUST_ROOT_MODES = (
 )
 TRUST_GATE_VERDICTS = ("allow", "deny", "warn", "unknown", "manual_review_required")
 PRODUCTION_CONSUMER_INTENTS = frozenset({"installer", "runtime", "release_consumer", "update_client", "public_release"})
+PUBLIC_PRIVACY_BOUNDARY_PREFIXES = (
+    "public",
+    "public-safe",
+    "public-derived",
+    "publishable",
+    "package contains code only",
+)
+PRIVATE_PRIVACY_BOUNDARY_MARKERS = (
+    "private host evidence",
+    "not public",
+    "must not publish",
+    "must not be published",
+    "not release-signed",
+)
 ARTIFACT_AFFECTED_VERDICTS = (
     "fresh",
     "stale",
@@ -431,6 +445,21 @@ def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> d
             "role": "public release asset with publishable attestations or signatures",
         },
     }
+
+
+def production_privacy_boundary_review_reason(privacy_boundary: object) -> str:
+    normalized = " ".join(str(privacy_boundary or "").lower().split())
+    if not normalized:
+        return "production_consumer_requires_privacy_boundary"
+    if normalized.startswith(PUBLIC_PRIVACY_BOUNDARY_PREFIXES):
+        return ""
+    if "public-safe" in normalized or "publishable" in normalized:
+        return ""
+    if any(marker in normalized for marker in PRIVATE_PRIVACY_BOUNDARY_MARKERS):
+        return "production_consumer_requires_public_privacy_boundary"
+    if "private" in normalized:
+        return "production_consumer_requires_public_privacy_boundary"
+    return "production_consumer_requires_public_privacy_boundary"
 
 
 def artifact_requirement_row(
@@ -3073,6 +3102,8 @@ def _trust_gate_inspected_claims(
     latest_record_id = str(latest.get("record_id") or "") if isinstance(latest, dict) else ""
     selected_record_id = str(selected.get("record_id") or "")
     digest_values = _record_digest_values(selected)
+    privacy_boundary = selected.get("privacy_boundary")
+    privacy_review_reason = production_privacy_boundary_review_reason(privacy_boundary)
     return {
         "registry_latest": {
             "required": require_latest,
@@ -3122,6 +3153,11 @@ def _trust_gate_inspected_claims(
             "trust_root_mode_matched": bool(
                 not expected_trust_root_mode or str(selected.get("trust_root_mode") or "") == expected_trust_root_mode
             ),
+        },
+        "privacy_boundary": {
+            "value": privacy_boundary,
+            "production_review_reason": privacy_review_reason or None,
+            "production_public_ready": not privacy_review_reason,
         },
         "artifact_subject_store": selected.get("artifact_subject_store"),
         "consumer_contract": selected.get("consumer_contract"),
@@ -3245,9 +3281,9 @@ def trust_gate(
             manual_review.append("production_consumer_requires_non_local_trust_root")
         if lifecycle_state not in {"release-ready", "published"}:
             manual_review.append("production_consumer_requires_release_lifecycle")
-        privacy_boundary = str(selected.get("privacy_boundary") or "").lower()
-        if "private" in privacy_boundary and "public-safe" not in privacy_boundary:
-            manual_review.append("production_consumer_requires_public_privacy_boundary")
+        privacy_review_reason = production_privacy_boundary_review_reason(selected.get("privacy_boundary"))
+        if privacy_review_reason:
+            manual_review.append(privacy_review_reason)
 
     if selected.get("verification_warnings"):
         warnings.extend(str(item) for item in selected.get("verification_warnings", []))
