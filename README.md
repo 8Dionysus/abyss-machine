@@ -34,15 +34,15 @@ The bootstrap CLI and installed `abyss-machine` CLI share
 `abyss_machine.path_policy` for root defaults and environment overrides.
 Bootstrap installs the CLI entrypoint together with its `abyss_machine` package
 modules and a compact public seed projection under
-`/usr/local/share/abyss-machine` so installed artifact-bundle verification does
-not depend on a live source checkout.
+`/usr/local/share/abyss-machine` so installed validators and read models do not
+depend on a live source checkout.
 Typing/nervous path and service defaults live in
 `abyss_machine.typing_nervous_policy`; refresh resource-gate and recent-index
 debounce helpers, refresh assessment, latest-status classification, and
-fact-state, index-attempt, final-status, action-record, and refresh-document builders live in
-`abyss_machine.typing_nervous_refresh`. These surfaces are re-exported or
-adapted by the CLI for installed-host compatibility. A fresh machine
-should render `/etc/abyss-machine`, create durable evidence under
+fact-state, index-attempt, final-status, action-record, and refresh-document
+builders live in `abyss_machine.typing_nervous_refresh`. These surfaces are
+re-exported or adapted by the CLI for installed-host compatibility. A fresh
+machine should render `/etc/abyss-machine`, create durable evidence under
 `/var/lib/abyss-machine`, reserve large mutable planes under
 `/srv/abyss-machine`, and keep ephemeral state under `/run/abyss-machine`
 without copying private state from this workstation.
@@ -62,8 +62,8 @@ before adding files. The short rule is:
 
 - publish source, contracts, config templates, schemas, validators, and tests;
 - do not publish generated evidence or private local state.
-- keep artifact signing policy explicit: ABI fingerprints for public contract
-  surfaces, release provenance/signatures only for publishable artifacts.
+- keep release/artifact trust details in their manifest and validation homes,
+  not as the first route through the repository.
 
 ## Test Lanes
 
@@ -92,53 +92,21 @@ python scripts/release_check.py
 python scripts/release_check.py --include-host-contracts
 ```
 
-First executable ABI/signs bundle slice:
-
-```bash
-abyss-machine artifacts requirements --artifact-class public_source_seed --json
-abyss-machine artifacts affected --artifact-class public_source_seed --json
-abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_source_seed.bundle.json --bundle-dir /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts evidence-promote /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
-abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json
-abyss-machine artifacts trust-gate --artifact-class public_source_seed --consumer-intent agent --json
-abyss-machine artifacts trust-coverage --json
-```
-
-For a host that already has bundle-registry records created before the durable
-trust-gate fields, inspect and apply the explicit migration:
-
-```bash
-abyss-machine artifacts bundle-registry-upgrade --dry-run --json
-abyss-machine artifacts bundle-registry-upgrade --json
-```
-
-OS Abyss local provenance verifier sample:
-
-```bash
-abyss-machine artifacts requirements --artifact-class host_local_evidence --json
-abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts evidence-promote /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
-abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json
-abyss-machine artifacts trust-gate --artifact-class host_local_evidence --consumer-intent agent --json
-```
+Artifact and release-trust command routes are real, but they are not the primary
+orientation path for this repo. Use
+[manifests/artifact_bundles/README.md](manifests/artifact_bundles/README.md)
+and [docs/validation/VALIDATOR_TOPOLOGY.md](docs/validation/VALIDATOR_TOPOLOGY.md)
+when working on that lane.
 
 ## Current Status
 
 The installed CLI is still a large entrypoint, but it is no longer a lone script
 projection. Bootstrap carries the package modules needed by installed-host
-compatibility, including artifact bundle verification and typing/nervous helper
-logic. Shared root policy, typing/nervous organ policy, typing/nervous refresh
-decision helpers, the refresh latest-status classifier, action-record builders,
-and the final refresh document shape are now module-owned with public
-validators. The public seed projection also carries `manifests/` and
-`generated/` read models for installed ABI/provenance checks. Live index launch,
-synthesis orchestration, subsystem command glue, and some historical workstation
-fixture paths remain v1 portability debt; further hardening should keep moving
-command implementation behind smaller modules before claiming full
-host-agnostic behavior for every subcommand.
+compatibility, including typing/nervous helper logic and source-backed public
+read models. Shared root policy, typing/nervous organ policy, typing/nervous
+refresh decision helpers, the refresh latest-status classifier, action-record
+builders, and the final refresh document shape are now module-owned with public
+validators. Live index launch, synthesis orchestration, subsystem command glue,
+and some historical workstation fixture paths remain v1 portability debt;
+further hardening should keep moving command implementation behind smaller
+modules before claiming full host-agnostic behavior for every subcommand.
