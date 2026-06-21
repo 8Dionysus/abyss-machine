@@ -81,6 +81,11 @@ For the public source seed it creates:
   this artifact class.
 - `artifact.verify.json`: machine-readable verifier output.
 
+The local bundle registry is the consumer read-model for lifecycle state. A
+bundle can become `latest` only through `bundle-register` after verification
+succeeds. Terminal states such as `revoked`, `superseded`, `deprecated`, or
+`quarantined` remain recorded but are never selected as latest.
+
 Consumer route:
 
 ```bash
@@ -88,7 +93,15 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/pub
 abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts bundle-register /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
+abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json
 ```
+
+For release artifacts with real blob subjects, `materialize-subjects` copies the
+verified files into the local subject store under
+`/var/lib/abyss-machine/artifacts/subjects`. This lets installed consumers find
+the blob by the signed subject manifest digest without making the public bundle
+manifest depend on one workstation path.
 
 For `public_source_seed`, policy requires the ABI sidecar. SBOM, ML-BOM,
 SLSA/in-toto, Sigstore/Cosign, and C2PA remain explicit not-required controls
@@ -102,6 +115,8 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/hos
 abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts bundle-register /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
+abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json
 ```
 
 ## Lifecycle On A New Machine

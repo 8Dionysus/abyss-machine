@@ -13,10 +13,33 @@
     "content_identity_ref": "generated/contract_abi_signatures.min.json",
     "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/public-seed-scaffold/source_paths"
   },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "published",
+      "superseded"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready",
+      "published"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json",
+    "consumer_expectation": "Consumers select a public_source_seed bundle from the registry latest read-model only after bundle verification has succeeded.",
+    "registry_required": true
+  },
   "consumer_command": [
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_source_seed.bundle.json --bundle-dir BUNDLE_DIR",
     "abyss-machine artifacts sign BUNDLE_DIR",
     "abyss-machine artifacts verify BUNDLE_DIR",
-    "abyss-machine artifacts release-check BUNDLE_DIR"
+    "abyss-machine artifacts release-check BUNDLE_DIR",
+    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class public_source_seed"
   ]
 }

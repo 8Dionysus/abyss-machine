@@ -34,10 +34,31 @@
     ],
     "promotion_status": "sample_contract_only_not_public_evidence"
   },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "revoked"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json",
+    "consumer_expectation": "Consumers select a host_local_evidence bundle from the local registry latest read-model only after private local provenance verification has succeeded.",
+    "registry_required": true
+  },
   "consumer_command": [
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir BUNDLE_DIR",
     "abyss-machine artifacts sign BUNDLE_DIR",
     "abyss-machine artifacts verify BUNDLE_DIR",
-    "abyss-machine artifacts release-check BUNDLE_DIR"
+    "abyss-machine artifacts release-check BUNDLE_DIR",
+    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class host_local_evidence"
   ]
 }

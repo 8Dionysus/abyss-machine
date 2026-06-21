@@ -68,17 +68,31 @@ def test_every_artifact_class_has_identity_posture() -> None:
         assert identity["artifact_class"] == class_id
         if class_id in {
             "aoa_skills_release_manifest",
+            "role_contract_registry",
+            "source_owned_kag_export_capsule",
+            "derived_kag_registry_readmodel_bundle",
+            "derived_memory_object_readmodel_family",
+            "thin_routing_readmodel_bundle",
+            "playbook_registry_bundle",
             "aoa_sdk_python_distribution",
             "abyss_stack_runtime_config_bundle",
             "aoa_evals_generated_report_index_bundle",
+            "derived_observability_readmodel_catalog",
             "tree_of_sophia_generated_readmodel_bundle",
             "dionysus_seed_route_readmodel_bundle",
         }:
             expected_owner = {
                 "aoa_skills_release_manifest": "aoa-skills",
+                "role_contract_registry": "aoa-agents",
+                "source_owned_kag_export_capsule": "aoa-techniques",
+                "derived_kag_registry_readmodel_bundle": "aoa-kag",
+                "derived_memory_object_readmodel_family": "aoa-memo",
+                "thin_routing_readmodel_bundle": "aoa-routing",
+                "playbook_registry_bundle": "aoa-playbooks",
                 "aoa_sdk_python_distribution": "aoa-sdk",
                 "abyss_stack_runtime_config_bundle": "abyss-stack",
                 "aoa_evals_generated_report_index_bundle": "aoa-evals",
+                "derived_observability_readmodel_catalog": "aoa-stats",
                 "tree_of_sophia_generated_readmodel_bundle": "Tree-of-Sophia",
                 "dionysus_seed_route_readmodel_bundle": "Dionysus",
             }[class_id]
@@ -192,6 +206,159 @@ def test_aoa_evals_generated_report_index_requires_sbom_and_slsa_without_prematu
     evals_release = release_rules["aoa-evals-generated-report-index-bundle-release"]
     assert evals_release["artifact_class"] == "aoa_evals_generated_report_index_bundle"
     assert evals_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_aoa_stats_summary_surface_catalog_requires_abi_and_sbom_lite_without_premature_release_provenance() -> None:
+    policy = load_policy()
+    stats_rule = policy["artifact_classes"]["derived_observability_readmodel_catalog"]
+    assert stats_rule["identity"]["owner_repo"] == "aoa-stats"
+    assert stats_rule["identity"]["trust_layer"] == ["abi_contract_signature", "sbom"]
+    assert stats_rule["abi_signature"]["required"] is True
+    assert stats_rule["sbom"]["required"] is True
+    assert stats_rule["slsa_in_toto"]["required"] is False
+    assert stats_rule["sigstore_cosign"]["required"] is False
+    assert stats_rule["c2pa"]["required"] is False
+    assert "external release/export bundle" in stats_rule["slsa_in_toto"]["trigger"]
+    assert "public media" in stats_rule["c2pa"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    stats_release = release_rules["aoa-stats-summary-surface-catalog-release"]
+    assert stats_release["artifact_class"] == "derived_observability_readmodel_catalog"
+    assert stats_release["required_controls"] == ["abi_signature", "sbom"]
+
+
+def test_aoa_agents_role_registry_requires_abi_and_slsa_without_premature_sbom_or_cosign() -> None:
+    policy = load_policy()
+    agents_rule = policy["artifact_classes"]["role_contract_registry"]
+    assert agents_rule["identity"]["owner_repo"] == "aoa-agents"
+    assert agents_rule["identity"]["trust_layer"] == ["abi_contract_signature", "slsa_in_toto"]
+    assert agents_rule["abi_signature"]["required"] is True
+    assert agents_rule["sbom"]["required"] is False
+    assert agents_rule["slsa_in_toto"]["required"] is True
+    assert agents_rule["sigstore_cosign"]["required"] is False
+    assert agents_rule["c2pa"]["required"] is False
+    assert "distribution or release bundle" in agents_rule["sbom"]["trigger"]
+    assert "signed release assets" in agents_rule["sigstore_cosign"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    agents_release = release_rules["aoa-agents-role-contract-registry-release"]
+    assert agents_release["artifact_class"] == "role_contract_registry"
+    assert agents_release["required_controls"] == ["abi_signature", "slsa_in_toto"]
+
+
+def test_aoa_techniques_kag_export_requires_abi_and_slsa_without_premature_sbom_or_cosign() -> None:
+    policy = load_policy()
+    techniques_rule = policy["artifact_classes"]["source_owned_kag_export_capsule"]
+    assert techniques_rule["identity"]["owner_repo"] == "aoa-techniques"
+    assert techniques_rule["identity"]["trust_layer"] == ["abi_contract_signature", "slsa_in_toto"]
+    assert techniques_rule["abi_signature"]["required"] is True
+    assert techniques_rule["sbom"]["required"] is False
+    assert techniques_rule["slsa_in_toto"]["required"] is True
+    assert techniques_rule["sigstore_cosign"]["required"] is False
+    assert techniques_rule["c2pa"]["required"] is False
+    assert "distribution or release bundle" in techniques_rule["sbom"]["trigger"]
+    assert "signed release assets" in techniques_rule["sigstore_cosign"]["trigger"]
+    assert "PDF/media/content exports" in techniques_rule["c2pa"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    techniques_release = release_rules["aoa-techniques-kag-export-capsule-release"]
+    assert techniques_release["artifact_class"] == "source_owned_kag_export_capsule"
+    assert techniques_release["required_controls"] == ["abi_signature", "slsa_in_toto"]
+
+
+def test_aoa_skills_release_manifest_uses_local_release_provenance_without_false_slsa() -> None:
+    policy = load_policy()
+    skills_rule = policy["artifact_classes"]["aoa_skills_release_manifest"]
+    assert skills_rule["identity"]["owner_repo"] == "aoa-skills"
+    assert skills_rule["identity"]["trust_layer"] == [
+        "abi_contract_signature",
+        "local_release_provenance",
+        "w3c_prov_lineage",
+    ]
+    assert skills_rule["abi_signature"]["required"] is True
+    assert skills_rule["slsa_in_toto"]["required"] is False
+    assert skills_rule["sigstore_cosign"]["required"] is False
+    assert "external release artifact" in skills_rule["slsa_in_toto"]["trigger"]
+
+
+def test_aoa_kag_registry_readmodel_requires_abi_sbom_and_slsa_without_premature_cosign_or_c2pa() -> None:
+    policy = load_policy()
+    kag_rule = policy["artifact_classes"]["derived_kag_registry_readmodel_bundle"]
+    assert kag_rule["identity"]["owner_repo"] == "aoa-kag"
+    assert kag_rule["identity"]["trust_layer"] == ["abi_contract_signature", "sbom", "slsa_in_toto"]
+    assert kag_rule["abi_signature"]["required"] is True
+    assert kag_rule["sbom"]["required"] is True
+    assert kag_rule["slsa_in_toto"]["required"] is True
+    assert kag_rule["sigstore_cosign"]["required"] is False
+    assert kag_rule["c2pa"]["required"] is False
+    assert "subject inventory" in kag_rule["sbom"]["trigger"]
+    assert "signed release assets" in kag_rule["sigstore_cosign"]["trigger"]
+    assert "PDF/media/content exports" in kag_rule["c2pa"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    kag_release = release_rules["aoa-kag-registry-readmodel-release"]
+    assert kag_release["artifact_class"] == "derived_kag_registry_readmodel_bundle"
+    assert kag_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_aoa_memo_memory_object_readmodels_require_abi_and_slsa_without_premature_sbom_or_cosign() -> None:
+    policy = load_policy()
+    memo_rule = policy["artifact_classes"]["derived_memory_object_readmodel_family"]
+    assert memo_rule["identity"]["owner_repo"] == "aoa-memo"
+    assert memo_rule["identity"]["trust_layer"] == ["abi_contract_signature", "slsa_in_toto"]
+    assert memo_rule["abi_signature"]["required"] is True
+    assert memo_rule["sbom"]["required"] is False
+    assert memo_rule["slsa_in_toto"]["required"] is True
+    assert memo_rule["sigstore_cosign"]["required"] is False
+    assert memo_rule["c2pa"]["required"] is False
+    assert "distribution or release bundle" in memo_rule["sbom"]["trigger"]
+    assert "signed release assets" in memo_rule["sigstore_cosign"]["trigger"]
+    assert "PDF/media/content exports" in memo_rule["c2pa"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    memo_release = release_rules["aoa-memo-memory-object-readmodels-release"]
+    assert memo_release["artifact_class"] == "derived_memory_object_readmodel_family"
+    assert memo_release["required_controls"] == ["abi_signature", "slsa_in_toto"]
+
+
+def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_cosign_or_c2pa() -> None:
+    policy = load_policy()
+    routing_rule = policy["artifact_classes"]["thin_routing_readmodel_bundle"]
+    assert routing_rule["identity"]["owner_repo"] == "aoa-routing"
+    assert routing_rule["identity"]["trust_layer"] == ["abi_contract_signature", "sbom", "slsa_in_toto"]
+    assert routing_rule["abi_signature"]["required"] is True
+    assert routing_rule["sbom"]["required"] is True
+    assert routing_rule["slsa_in_toto"]["required"] is True
+    assert routing_rule["sigstore_cosign"]["required"] is False
+    assert routing_rule["c2pa"]["required"] is False
+    assert "subject inventory" in routing_rule["sbom"]["trigger"]
+    assert "release assets" in routing_rule["sigstore_cosign"]["trigger"]
+    assert "PDF/media/content exports" in routing_rule["c2pa"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    routing_release = release_rules["aoa-routing-thin-router-release"]
+    assert routing_release["artifact_class"] == "thin_routing_readmodel_bundle"
+    assert routing_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_aoa_playbooks_registry_requires_abi_and_slsa_without_premature_sbom_or_cosign() -> None:
+    policy = load_policy()
+    playbooks_rule = policy["artifact_classes"]["playbook_registry_bundle"]
+    assert playbooks_rule["identity"]["owner_repo"] == "aoa-playbooks"
+    assert playbooks_rule["identity"]["trust_layer"] == ["abi_contract_signature", "slsa_in_toto"]
+    assert playbooks_rule["abi_signature"]["required"] is True
+    assert playbooks_rule["sbom"]["required"] is False
+    assert playbooks_rule["slsa_in_toto"]["required"] is True
+    assert playbooks_rule["sigstore_cosign"]["required"] is False
+    assert playbooks_rule["c2pa"]["required"] is False
+    assert "distribution or release bundle" in playbooks_rule["sbom"]["trigger"]
+    assert "signed release assets" in playbooks_rule["sigstore_cosign"]["trigger"]
+    assert "PDF/media/content exports" in playbooks_rule["c2pa"]["trigger"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    playbooks_release = release_rules["aoa-playbooks-registry-bundle-release"]
+    assert playbooks_release["artifact_class"] == "playbook_registry_bundle"
+    assert playbooks_release["required_controls"] == ["abi_signature", "slsa_in_toto"]
 
 
 def test_tree_of_sophia_generated_readmodel_requires_abi_without_premature_media_or_release_controls() -> None:

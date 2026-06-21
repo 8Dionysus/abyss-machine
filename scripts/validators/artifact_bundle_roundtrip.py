@@ -33,6 +33,38 @@ def run_bundle(bundle_dir: Path, *, manifest_ref: str, artifact_class: str) -> d
     }
 
 
+def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_class: str) -> dict:
+    registered = artifact_bundles.write_bundle_registry_record(
+        bundle_dir,
+        registry_dir,
+        lifecycle_state="manually-verified",
+        consumer_refs=["validator:artifact_bundle_roundtrip"],
+        evidence_refs=["validator:manual-positive-synthetic"],
+    )
+    latest = artifact_bundles.read_bundle_registry(registry_dir, artifact_class=artifact_class)
+    latest_record = latest.get("latest_by_artifact_class", {}).get(artifact_class)
+    revoked = artifact_bundles.write_bundle_registry_record(
+        bundle_dir,
+        registry_dir,
+        lifecycle_state="revoked",
+        revocation_reason="validator terminal-state negative",
+    )
+    after_revoke = artifact_bundles.read_bundle_registry(registry_dir, artifact_class=artifact_class)
+    return {
+        "ok": bool(
+            registered.get("ok")
+            and isinstance(latest_record, dict)
+            and latest_record.get("record_id") == registered.get("record", {}).get("record_id")
+            and revoked.get("ok")
+            and not after_revoke.get("latest_by_artifact_class")
+        ),
+        "registered": registered,
+        "latest": latest,
+        "revoked": revoked,
+        "after_revoke": after_revoke,
+    }
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="abyss-machine-artifact-bundle-") as tmp:
         public_seed = run_bundle(
@@ -45,13 +77,21 @@ def main() -> int:
             manifest_ref="manifests/artifact_bundles/host_local_evidence.sample.bundle.json",
             artifact_class="host_local_evidence",
         )
+        public_seed_registry = run_registry_roundtrip(
+            Path(tmp) / "public-source-seed",
+            Path(tmp) / "registry",
+            artifact_class="public_source_seed",
+        )
         payload = {
-            "ok": bool(public_seed.get("ok") and host_local.get("ok")),
+            "ok": bool(public_seed.get("ok") and host_local.get("ok") and public_seed_registry.get("ok")),
             "schema": "abyss_machine_artifact_bundle_roundtrip_v1",
             "bundle_layout": artifact_bundles.BUNDLE_LAYOUT,
             "bundles": {
                 "public_source_seed": public_seed,
                 "host_local_evidence": host_local,
+            },
+            "registry_roundtrip": {
+                "public_source_seed": public_seed_registry,
             },
         }
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))

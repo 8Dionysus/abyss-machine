@@ -56,9 +56,11 @@ browser-extension, and public media export classes declare the expected ABI,
 SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, or C2PA requirements, and that
 publishable artifacts are not tracked as ordinary public source files. It also
 builds and verifies the first public-source-seed bundle sidecars plus the
-public-safe host-local-evidence provenance sample, so the policy is exercised as
-an executable verifier while still avoiding private keys, release signing, and
-private host payloads in ordinary CI.
+public-safe host-local-evidence provenance sample. It also writes a synthetic
+bundle registry record, verifies that it becomes `latest`, then writes a
+terminal `revoked` state and verifies that it disappears from `latest`. This
+keeps lifecycle/read-model behavior executable while still avoiding private
+keys, release signing, and private host payloads in ordinary CI.
 
 ## Path Policy Lane
 
@@ -105,5 +107,6 @@ deterministic compatibility read model for public contract surfaces. It is not a
 release signature and does not sign live host evidence. The bundle roundtrip is
 the first executable consumer route: it creates ABI/provenance/signature-decision
 sidecars for `public_source_seed`, local provenance sidecars for the
-`host_local_evidence` sample, and verifies both with the same policy-driven
-bundle verifier exposed by `abyss-machine artifacts verify`.
+`host_local_evidence` sample, verifies both with the same policy-driven bundle
+verifier exposed by `abyss-machine artifacts verify`, and exercises
+`bundle-register`/`bundle-registry` latest and terminal-state behavior.

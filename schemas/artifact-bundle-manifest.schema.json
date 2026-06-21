@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/artifact-bundle-manifest.schema.json",
+  "title": "abyss-machine artifact bundle manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "id",
+    "artifact_class",
+    "owner_repo",
+    "policy_ref",
+    "mode",
+    "public_safe",
+    "artifact_source",
+    "consumer_command"
+  ],
+  "properties": {
+    "schema": {
+      "const": "abyss_machine_artifact_bundle_manifest_v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_class": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contract_surface_id": {
+      "type": "string"
+    },
+    "owner_repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_ref": {
+      "enum": [
+        "manifests/artifact_signature_policy.manifest.json",
+        "repo:abyss-machine/manifests/artifact_signature_policy.manifest.json"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "os_abyss_local",
+        "github_release"
+      ]
+    },
+    "public_safe": {
+      "type": "boolean"
+    },
+    "artifact_source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_identity_ref": {
+          "type": "string"
+        },
+        "source_paths_ref": {
+          "type": "string"
+        },
+        "private_payload_included": {
+          "type": "boolean"
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["initial_state", "promotion_path"],
+      "properties": {
+        "initial_state": {
+          "enum": [
+            "candidate",
+            "built-local",
+            "manually-verified",
+            "release-ready",
+            "published",
+            "superseded",
+            "deprecated",
+            "revoked",
+            "quarantined"
+          ]
+        },
+        "promotion_path": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "candidate",
+              "built-local",
+              "manually-verified",
+              "release-ready",
+              "published",
+              "superseded",
+              "deprecated",
+              "revoked",
+              "quarantined"
+            ]
+          }
+        },
+        "latest_eligible_states": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "manually-verified",
+              "release-ready",
+              "published"
+            ]
+          }
+        }
+      }
+    },
+    "consumer_contract": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "stable_interface": {
+          "type": "string"
+        },
+        "consumer_expectation": {
+          "type": "string"
+        },
+        "registry_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "consumer_command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "abi_subject": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_identity_pointer": {
+          "type": "string"
+        }
+      }
+    },
+    "artifact_subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "glob": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "oneOf": [
+          {
+            "required": ["path"]
+          },
+          {
+            "required": ["glob"]
+          }
+        ]
+      }
+    }
+  }
+}
