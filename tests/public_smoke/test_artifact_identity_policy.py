@@ -77,6 +77,7 @@ def test_every_artifact_class_has_identity_posture() -> None:
             "aoa_sdk_python_distribution",
             "abyss_stack_runtime_config_bundle",
             "aoa_evals_generated_report_index_bundle",
+            "aoa_session_memory_portable_bundle",
             "derived_observability_readmodel_catalog",
             "tree_of_sophia_generated_readmodel_bundle",
             "dionysus_seed_route_readmodel_bundle",
@@ -92,6 +93,7 @@ def test_every_artifact_class_has_identity_posture() -> None:
                 "aoa_sdk_python_distribution": "aoa-sdk",
                 "abyss_stack_runtime_config_bundle": "abyss-stack",
                 "aoa_evals_generated_report_index_bundle": "aoa-evals",
+                "aoa_session_memory_portable_bundle": "aoa-session-memory",
                 "derived_observability_readmodel_catalog": "aoa-stats",
                 "tree_of_sophia_generated_readmodel_bundle": "Tree-of-Sophia",
                 "dionysus_seed_route_readmodel_bundle": "Dionysus",
@@ -206,6 +208,27 @@ def test_aoa_evals_generated_report_index_requires_sbom_and_slsa_without_prematu
     evals_release = release_rules["aoa-evals-generated-report-index-bundle-release"]
     assert evals_release["artifact_class"] == "aoa_evals_generated_report_index_bundle"
     assert evals_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_aoa_session_memory_portable_bundle_requires_abi_sbom_slsa_and_update_lane() -> None:
+    policy = load_policy()
+    session_rule = policy["artifact_classes"]["aoa_session_memory_portable_bundle"]
+    assert session_rule["identity"]["owner_repo"] == "aoa-session-memory"
+    assert session_rule["identity"]["abi_epoch"] == "aoa_session_memory_portable_bundle_v1"
+    assert session_rule["identity"]["trust_layer"] == ["abi_contract_signature", "sbom", "slsa_in_toto"]
+    assert session_rule["abi_signature"]["required"] is True
+    assert session_rule["sbom"]["required"] is True
+    assert session_rule["slsa_in_toto"]["required"] is True
+    assert session_rule["sigstore_cosign"]["required"] is False
+    assert session_rule["c2pa"]["required"] is False
+    assert "raw transcripts" in session_rule["identity"]["privacy_boundary"]
+    assert "raw .aoa evidence never becomes trust authority" in session_rule["identity"]["consumer_expectation"]
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    session_release = release_rules["aoa-session-memory-portable-bundle-release"]
+    assert session_release["artifact_class"] == "aoa_session_memory_portable_bundle"
+    assert session_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert "aoa_session_memory_portable_bundle" in policy["update_transparency_lane"]["tuf"]["applies_to_artifact_classes"]
 
 
 def test_aoa_stats_summary_surface_catalog_requires_abi_and_sbom_lite_without_premature_release_provenance() -> None:

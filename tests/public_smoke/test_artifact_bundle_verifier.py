@@ -251,8 +251,8 @@ def test_artifact_affected_policy_change_requires_all_classes_to_reverify() -> N
     affected = artifact_bundles.artifact_affected(["manifests/artifact_signature_policy.manifest.json"])
 
     assert affected["ok"] is True
-    assert affected["summary"]["artifact_classes"] == 20
-    assert affected["summary"]["status_counts"] == {"needs_reverify": 20}
+    assert affected["summary"]["artifact_classes"] == 21
+    assert affected["summary"]["status_counts"] == {"needs_reverify": 21}
     assert all(row["freshness"] == "stale" for row in affected["rows"])
     assert all(row["reasons"] == ["policy_manifest_changed"] for row in affected["rows"])
 
@@ -302,6 +302,7 @@ def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
     assert status["summary"]["tuf_status"] == "prepared_v1"
     assert status["summary"]["blocking_v1"] is False
     assert "bootstrap_install_bundle" in [row["artifact_class"] for row in status["rows"]]
+    assert "aoa_session_memory_portable_bundle" in [row["artifact_class"] for row in status["rows"]]
     assert status["tuf"]["metadata_sidecar"] == artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
     assert "not a full external TUF repository" in status["claim_limits"][0]
     assert "external transparency integration point" in status["claim_limits"][1]
@@ -1846,9 +1847,175 @@ def test_aoa_evals_generated_report_index_bundle_generates_report_index_controls
     assert subjects["files"][0]["role"] == "generated_report_index"
     assert slsa["predicate"]["buildDefinition"]["buildType"] == "https://abyssos.local/buildtypes/aoa-evals-generated-report-index/v1"
     assert verify_sidecar["bundle_dir"] == "bundle"
-    public_payload = json.dumps({"identity": identity, "abi": abi, "subjects": subjects, "slsa": slsa, "verify": verify_sidecar}, sort_keys=True)
+
+
+def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sibling = tmp_path / "aoa-session-memory"
+    manifest_dir = sibling / "manifests" / "artifact_bundles"
+    scripts = sibling / "scripts"
+    schemas = sibling / "schemas"
+    config = sibling / "config"
+    hooks = sibling / "hooks"
+    tests = sibling / "tests"
+    skill = sibling / "skills" / "aoa-session-memory-audit"
+    for path in (manifest_dir, scripts, schemas, config, hooks, tests, skill):
+        path.mkdir(parents=True)
+    for filename in ("AGENTS.md", "DESIGN.md", "DESIGN.AGENTS.md", "PIPELINE.md", "INSTALL.md", "READINESS.md", "README.md"):
+        (sibling / filename).write_text(f"# {filename}\n", encoding="utf-8")
+    (scripts / "aoa_session_memory.py").write_text("# portable session-memory CLI\n", encoding="utf-8")
+    (schemas / "session.manifest.schema.json").write_text("{}\n", encoding="utf-8")
+    (schemas / "segment.index.schema.json").write_text("{}\n", encoding="utf-8")
+    (config / "event-taxonomy.json").write_text("{}\n", encoding="utf-8")
+    (config / "search-providers.json").write_text("{}\n", encoding="utf-8")
+    (hooks / "codex-hooks.user.example.json").write_text("{}\n", encoding="utf-8")
+    (tests / "test_session_memory.py").write_text("# session memory tests\n", encoding="utf-8")
+    (skill / "SKILL.md").write_text("# audit skill\n", encoding="utf-8")
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "aoa-session-memory-portable-bundle",
+        "artifact_class": "aoa_session_memory_portable_bundle",
+        "owner_repo": "aoa-session-memory",
+        "policy_ref": artifact_bundles.POLICY_REF_REPO_QUALIFIED,
+        "mode": "os_abyss_local",
+        "public_safe": True,
+        "subject_repo_root": "../..",
+        "artifact_identity": {
+            "artifact_class": "aoa_session_memory_portable_bundle",
+            "abi_epoch": "aoa_session_memory_portable_bundle_v1",
+        },
+        "abi_subject": {
+            "path": "manifests/artifact_bundles/portable_bundle.bundle.json",
+            "artifact_identity_pointer": "/artifact_identity",
+        },
+        "artifact_subjects": [
+            {"path": "manifests/artifact_bundles/portable_bundle.bundle.json", "role": "bundle_manifest"},
+            {"path": "AGENTS.md", "role": "route_doc"},
+            {"path": "DESIGN.md", "role": "design_doc"},
+            {"path": "DESIGN.AGENTS.md", "role": "agent_design_doc"},
+            {"path": "PIPELINE.md", "role": "pipeline_doc"},
+            {"path": "INSTALL.md", "role": "install_doc"},
+            {"path": "READINESS.md", "role": "readiness_doc"},
+            {"path": "README.md", "role": "readme"},
+            {"path": "scripts/aoa_session_memory.py", "role": "portable_cli"},
+            {"path": "schemas/session.manifest.schema.json", "role": "schema"},
+            {"path": "schemas/segment.index.schema.json", "role": "schema"},
+            {"path": "config/event-taxonomy.json", "role": "config"},
+            {"path": "config/search-providers.json", "role": "config"},
+            {"path": "hooks/codex-hooks.user.example.json", "role": "hook_example"},
+            {"path": "tests/test_session_memory.py", "role": "test"},
+            {"path": "skills/aoa-session-memory-audit/SKILL.md", "role": "skill_route"},
+        ],
+        "build_type": "https://abyssos.local/buildtypes/aoa-session-memory-portable-bundle/v1",
+        "package": {
+            "ecosystem": "portable-kernel",
+            "name": "aoa-session-memory-portable-bundle",
+            "purl": "pkg:generic/aoa-session-memory-portable-bundle@0",
+        },
+        "lifecycle": {
+            "initial_state": "built-local",
+            "promotion_path": ["built-local", "manually-verified", "release-ready", "published", "superseded", "revoked"],
+            "latest_eligible_states": ["release-ready", "published"],
+        },
+        "consumer_contract": {
+            "stable_interface": "abyss-machine artifacts trust-gate --artifact-class aoa_session_memory_portable_bundle --consumer-intent update_client --json",
+            "consumer_expectation": "Workspace installers select the portable session-memory bundle only after registry latest selection, ABI/SBOM/SLSA verification, portable audit evidence, and update-client trust-gate allow or warn.",
+        },
+    }
+    manifest_path = manifest_dir / "portable_bundle.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+    store_root = tmp_path / "subject-store"
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT", str(store_root))
+
+    build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    sign = artifact_bundles.sign_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle)
+    materialized = artifact_bundles.materialize_artifact_subjects(
+        bundle,
+        store_root=store_root,
+        manifest_ref=manifest_path,
+    )
+    verify_from_store = artifact_bundles.verify_bundle(bundle)
+    identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
+    abi = json.loads((bundle / artifact_bundles.ABI_SIDECAR).read_text(encoding="utf-8"))
+    subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+    cdx = json.loads((bundle / artifact_bundles.SBOM_CYCLONEDX_SIDECAR).read_text(encoding="utf-8"))
+    slsa = json.loads((bundle / artifact_bundles.SLSA_INTOTO_SIDECAR).read_text(encoding="utf-8").splitlines()[0])
+    registry = tmp_path / "registry"
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        source_repo="aoa-session-memory",
+        source_ref="manifests/artifact_bundles/portable_bundle.bundle.json",
+        producer="pytest aoa-session-memory export-bundle",
+        trust_root_mode="host_managed",
+    )
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_session_memory_portable_bundle",
+        consumer_intent="update_client",
+        expected_source_repo="aoa-session-memory",
+        expected_trust_root_mode="host_managed",
+    )
+    requirements = artifact_bundles.artifact_requirements(
+        "aoa_session_memory_portable_bundle",
+        registry_dir=registry,
+    )
+
+    assert build["ok"] is True
+    assert sign["status"] == "not_required"
+    assert verify["ok"] is True
+    assert materialized["ok"] is True
+    assert verify_from_store["ok"] is True
+    assert {row["source"] for row in verify_from_store["artifact_subject_resolution"]} == {"artifact_subject_store"}
+    assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+    assert identity["bundle_manifest_ref"] == "manifests/artifact_bundles/portable_bundle.bundle.json"
+    assert identity["deferred_controls"]["c2pa"]["reason"].startswith("not public media")
+    assert abi["external_subject"]["artifact_class"] == "aoa_session_memory_portable_bundle"
+    assert abi["external_subject"]["artifact_identity"]["abi_epoch"] == "aoa_session_memory_portable_bundle_v1"
+    assert len(subjects["files"]) == 16
+    assert len(cdx["components"]) == 16
+    assert slsa["predicate"]["buildDefinition"]["buildType"] == "https://abyssos.local/buildtypes/aoa-session-memory-portable-bundle/v1"
+    assert len(slsa["subject"]) == 16
+    assert promoted["ok"] is True
+    assert promoted["record"]["artifact_subject_store"]["ok"] is True
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["decision"]["consumer_intent"] == "update_client"
+    assert gate["inspected_claims"]["controls"]["required_controls_missing"] == []
+    assert gate["inspected_claims"]["source"]["source_repo_matched"] is True
+    assert gate["inspected_claims"]["trust_root"]["trust_root_mode_matched"] is True
+    assert requirements["rows"][0]["consumer"]["intent"] == "update_client"
+    assert requirements["rows"][0]["registry_status"]["has_latest"] is True
+
+    public_payload = json.dumps({"identity": identity, "abi": abi, "subjects": subjects, "cdx": cdx, "slsa": slsa}, sort_keys=True)
     assert str(sibling) not in public_payload
     assert str(bundle) not in public_payload
+    assert "sessions/" not in public_payload
+    assert "raw/" not in public_payload
+
+    record_path = (
+        registry
+        / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+        / f"{promoted['record']['record_id'].removeprefix('sha256:')}.json"
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["verified_controls"] = ["abi_signature", "slsa_in_toto"]
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    denied = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_session_memory_portable_bundle",
+        consumer_intent="update_client",
+    )
+
+    assert denied["ok"] is False
+    assert denied["verdict"] == "deny"
+    assert "required_controls_not_verified:sbom" in denied["blockers"]
 
 
 def test_tree_of_sophia_generated_readmodel_bundle_generates_abi_only_controls(tmp_path: Path) -> None:

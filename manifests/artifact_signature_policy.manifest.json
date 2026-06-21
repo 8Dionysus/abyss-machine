@@ -276,6 +276,30 @@
       "sigstore_cosign": {"required": false, "trigger": "not required until release assets are signed"},
       "c2pa": {"required": false, "trigger": "not public media"}
     },
+    "aoa_session_memory_portable_bundle": {
+      "description": "Clean .aoa / aoa-session-memory portable kernel export bundle consumed by workspaces and agents as installable session-memory infrastructure.",
+      "identity": {
+        "artifact_class": "aoa_session_memory_portable_bundle",
+        "surface_state": "public_portable_session_memory_kernel_bundle",
+        "owner_repo": "aoa-session-memory",
+        "authority_ref": ["AGENTS.md", "DESIGN.md", "DESIGN.AGENTS.md", "PIPELINE.md", "INSTALL.md", "READINESS.md", "scripts/aoa_session_memory.py"],
+        "producer": "aoa-session-memory export-bundle from portable kernel source, with clean export excluding raw sessions and host-local runtime evidence by default",
+        "consumer_expectation": "workspace and agent installers verify portable bundle digests, ABI identity, SBOM-lite source inventory, SLSA/in-toto export provenance, portable audit readiness, and trust-gate allow/warn verdict before install or use; raw .aoa evidence never becomes trust authority",
+        "privacy_boundary": "public-safe portable kernel, route docs, schemas, scripts, skills, hook examples, tests, and compact export metadata only; no raw transcripts, session archives, hook receipts, diagnostics payloads, search databases, graph sidecars, secrets, or private workspace evidence",
+        "content_identity": "clean portable export bundle digest plus aoa-session-memory portable kernel subject inventory",
+        "abi_epoch": "aoa_session_memory_portable_bundle_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#aoa_session_memory_portable_bundle",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
+        "verification": ["python3 scripts/aoa_session_memory.py audit --workspace-root /srv/AbyssOS --aoa-root /srv/AbyssOS/bundles/aoa-session-memory --portable-bundle", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "SBOM-lite subject inventory for portable session-memory kernel bundles consumed by workspaces, agents, or update clients"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "clean portable session-memory kernel export bundles are installed, updated, or published"},
+      "sigstore_cosign": {"required": false, "trigger": "required only when aoa-session-memory publishes signed release assets or external release bundles"},
+      "c2pa": {"required": false, "trigger": "not public media; raw sessions, PDFs, or visualizations require their own reviewed artifact class"}
+    },
     "role_contract_registry": {
       "description": "Generated aoa-agents public role-contract registry bundle derived from source-authored role profiles.",
       "identity": {
@@ -734,6 +758,18 @@
       }
     },
     {
+      "id": "aoa-session-memory-portable-bundle-release",
+      "artifact_class": "aoa_session_memory_portable_bundle",
+      "artifact_patterns": ["dist/aoa-session-memory-portable-bundle/**/*", "dist/aoa-session-memory/*.tar.gz"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-session-memory",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
       "id": "runtime-or-container-release",
       "artifact_class": "runtime_or_container_artifact",
       "artifact_patterns": ["artifacts/**/*.tar.gz", "artifacts/**/*.oci", "artifacts/**/*.bundle"],
@@ -895,6 +931,7 @@
         "browser_extension_package",
         "aoa_sdk_python_distribution",
         "aoa_skills_release_manifest",
+        "aoa_session_memory_portable_bundle",
         "playbook_registry_bundle",
         "role_contract_registry",
         "source_owned_kag_export_capsule"

@@ -131,4 +131,7 @@ verifier exposed by `abyss-machine artifacts verify`, and exercises
 `requirements`/`affected` preflight read-models,
 `evidence-promote`/`bundle-registry` latest behavior, positive `trust-gate`
 selection, terminal-state revocation, negative `trust-gate` denial, legacy
-registry upgrade, and the gate's explicit decision/claims explanation.
+registry upgrade, and the gate's explicit decision/claims explanation. Public
+smoke tests also cover external sibling subjects, including the
+`aoa_session_memory_portable_bundle` update-client path with ABI, SBOM,
+SLSA/in-toto, registry promotion, and a negative missing-control gate.

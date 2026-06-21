@@ -21,6 +21,8 @@ checks.
   external package subjects such as `aoa_sdk_python_distribution`, external
   runtime config subjects such as `abyss_stack_runtime_config_bundle`,
   generated proof reader subjects such as
-  `aoa_evals_generated_report_index_bundle`, and OS Abyss local provenance
-  bundle roundtrips. External repo bundle manifests may use the repo-qualified
-  policy reference `repo:abyss-machine/manifests/artifact_signature_policy.manifest.json`.
+  `aoa_evals_generated_report_index_bundle`, clean portable session-memory
+  exports such as `aoa_session_memory_portable_bundle`, and OS Abyss local
+  provenance bundle roundtrips. External repo bundle manifests may use the
+  repo-qualified policy reference
+  `repo:abyss-machine/manifests/artifact_signature_policy.manifest.json`.

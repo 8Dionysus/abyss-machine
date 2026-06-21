@@ -374,7 +374,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert coverage_result.returncode == 0, coverage_result.stderr[-1000:]
     coverage_data = json.loads(coverage_result.stdout)
     assert coverage_data["schema"] == "abyss_machine_artifacts_trust_coverage_v1"
-    assert coverage_data["summary"]["artifact_classes"] == 20
+    assert coverage_data["summary"]["artifact_classes"] == 21
     assert coverage_data["summary"]["fully_covered"] == 1
     coverage_rows = {row["artifact_class"]: row for row in coverage_data["rows"]}
     assert coverage_rows["public_source_seed"]["status"] == "FULLY_COVERED"
