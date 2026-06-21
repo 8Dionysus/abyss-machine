@@ -99,6 +99,12 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--trust-root-mode",
         "--json",
     },
+    ("artifacts", "trust-coverage"): {
+        "--registry-dir",
+        "--manual-evidence-root",
+        "--durable-only",
+        "--json",
+    },
 }
 
 

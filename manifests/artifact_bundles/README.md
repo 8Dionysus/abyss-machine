@@ -42,6 +42,10 @@ Use `requirements` before producing a bundle to inspect producer profile,
 required controls, trust-root expectations, and owner/source route. Use
 `affected` before consuming or landing changes to detect stale source,
 manifest, policy, ABI, or sibling-owner evidence.
+Use `trust-coverage --durable-only` when the question is whether persistent
+registry latest records and consumer `trust-gate` verdicts still work after the
+tmp/manual evidence layer is ignored; the default coverage mode still requires
+manual positive and negative evidence before claiming `FULLY_COVERED`.
 Use `update-lane` and `update-verify` for updateable/installable artifacts
 before update-client consumption. The sidecar name is
 `artifact.update.tuf.json`; the verifier blocks rollback, expired metadata, and
