@@ -131,6 +131,9 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "release-check" in help_result.stdout
     assert "bundle-register" in help_result.stdout
     assert "bundle-registry" in help_result.stdout
+    assert "bundle-registry-upgrade" in help_result.stdout
+    assert "evidence-promote" in help_result.stdout
+    assert "trust-gate" in help_result.stdout
     assert "trust-tools" in help_result.stdout
     assert "trust-coverage" in help_result.stdout
 
@@ -229,6 +232,58 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert registry_result.returncode == 0, registry_result.stderr[-1000:]
     registry_data = json.loads(registry_result.stdout)
     assert registry_data["latest_by_artifact_class"]["public_source_seed"]["record_id"] == register_data["record"]["record_id"]
+
+    trust_gate_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "trust-gate",
+            "--registry-dir",
+            str(registry),
+            "--artifact-class",
+            "public_source_seed",
+            "--consumer-intent",
+            "agent",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert trust_gate_result.returncode == 0, trust_gate_result.stderr[-1000:]
+    trust_gate_data = json.loads(trust_gate_result.stdout)
+    assert trust_gate_data["schema"] == "abyss_machine_artifact_trust_gate_v1"
+    assert trust_gate_data["verdict"] == "allow"
+    assert trust_gate_data["decision"]["model"] == "fail_closed_consumer_admission"
+    assert trust_gate_data["inspected_claims"]["registry_latest"]["selected_record_is_latest"] is True
+
+    registry_upgrade_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "bundle-registry-upgrade",
+            "--registry-dir",
+            str(registry),
+            "--dry-run",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert registry_upgrade_result.returncode == 0, registry_upgrade_result.stderr[-1000:]
+    registry_upgrade_data = json.loads(registry_upgrade_result.stdout)
+    assert registry_upgrade_data["schema"] == "abyss_machine_artifact_bundle_registry_upgrade_v1"
+    assert registry_upgrade_data["dry_run"] is True
+    assert registry_upgrade_data["summary"]["upgraded"] == 0
+    assert registry_upgrade_data["summary"]["unchanged"] == 1
+    assert registry_upgrade_data["written"] == []
 
     manual_root = srv_root / "tmp" / "pytest-manual-artifact-trust-20260620"
     manual_root.mkdir(parents=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -200,6 +201,11 @@ def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> Non
 
     assert registered["ok"] is True
     assert registered["record"]["latest_eligible"] is True
+    assert registered["record"]["source_repo"] == "abyss-machine"
+    assert registered["record"]["source_ref"] == artifact_bundles.DEFAULT_BUNDLE_MANIFEST_REF
+    assert registered["record"]["producer"]
+    assert registered["record"]["trust_root_mode"] == "local_dev"
+    assert registered["record"]["verifier_versions"]["artifact_bundle_verifier"]["schema"] == "abyss_machine_artifact_bundle_verify_v1"
     assert len(registered["written"]) == 2
 
     index = artifact_bundles.read_bundle_registry(registry, artifact_class="public_source_seed")
@@ -224,6 +230,179 @@ def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> Non
     after_revoke = artifact_bundles.read_bundle_registry(registry, artifact_class="public_source_seed")
     assert after_revoke["latest_by_artifact_class"] == {}
     assert after_revoke["summary"]["state_counts"] == {"revoked": 1}
+
+
+def test_evidence_promotion_trust_gate_survives_tmp_bundle_removal(tmp_path: Path) -> None:
+    bundle = tmp_path / "scratch-public-source-seed"
+    registry = tmp_path / "durable-registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="manually-verified",
+        consumer_refs=["pytest:agent-consumer"],
+        evidence_refs=["pytest:manual-positive"],
+        source_ref="pytest-source-ref",
+        producer="pytest artifact producer",
+        trust_root_mode="host_managed",
+    )
+    subject_digest = promoted["record"]["subject_digest"]
+    shutil.rmtree(bundle)
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        subject_digest=subject_digest,
+        consumer_intent="agent",
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert promoted["ok"] is True
+    assert promoted["schema"] == "abyss_machine_artifact_evidence_promotion_v1"
+    assert not bundle.exists()
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["decision"]["model"] == "fail_closed_consumer_admission"
+    assert gate["decision"]["allow"] is True
+    assert gate["inspected_claims"]["registry_latest"]["selected_record_is_latest"] is True
+    assert gate["inspected_claims"]["subject_identity"]["subject_digest_matched"] is True
+    assert gate["inspected_claims"]["controls"]["required_controls_missing"] == []
+    assert gate["inspected_claims"]["trust_root"]["trust_root_mode_matched"] is True
+    assert gate["record"]["source_ref"] == "pytest-source-ref"
+    assert gate["record"]["producer"] == "pytest artifact producer"
+    assert gate["record"]["trust_root_mode"] == "host_managed"
+
+
+def test_trust_gate_denies_digest_mismatch_and_revoked_records(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="manually-verified",
+        trust_root_mode="host_managed",
+    )
+
+    wrong_digest = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        subject_digest="sha256:" + "0" * 64,
+        consumer_intent="agent",
+    )
+    revoked = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="revoked",
+        revocation_reason="pytest revoked negative",
+        trust_root_mode="host_managed",
+    )
+    revoked_gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        record_id=promoted["record"]["record_id"],
+        consumer_intent="agent",
+    )
+
+    assert wrong_digest["ok"] is False
+    assert wrong_digest["verdict"] == "deny"
+    assert wrong_digest["decision"]["allow"] is False
+    assert wrong_digest["inspected_claims"]["subject_identity"]["subject_digest_matched"] is False
+    assert "subject_digest_mismatch" in wrong_digest["blockers"]
+    assert revoked["ok"] is True
+    assert revoked_gate["ok"] is False
+    assert revoked_gate["verdict"] == "deny"
+    assert revoked_gate["decision"]["allow"] is False
+    assert revoked_gate["inspected_claims"]["lifecycle"]["terminal_state"] is True
+    assert "terminal_lifecycle_state:revoked" in revoked_gate["blockers"]
+
+
+def test_trust_gate_requires_manual_review_for_local_dev_production_consumers(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    artifact_bundles.promote_bundle_evidence(bundle, registry, lifecycle_state="manually-verified")
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        consumer_intent="installer",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "manual_review_required"
+    assert gate["decision"]["allow"] is False
+    assert gate["decision"]["manual_review"] == gate["manual_review"]
+    assert "production_consumer_requires_non_local_trust_root" in gate["manual_review"]
+    assert "production_consumer_requires_release_lifecycle" in gate["manual_review"]
+
+
+def test_trust_gate_fails_closed_when_registry_record_is_absent(tmp_path: Path) -> None:
+    gate = artifact_bundles.trust_gate(
+        tmp_path / "empty-registry",
+        artifact_class="public_source_seed",
+        consumer_intent="agent",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "unknown"
+    assert gate["decision"]["model"] == "fail_closed_consumer_admission"
+    assert gate["decision"]["blocks_on_unknown"] is True
+    assert gate["decision"]["allow"] is False
+    assert gate["reasons"] == ["no_registry_record"]
+    assert gate["decision"]["blockers"] == ["no_registry_record"]
+    assert gate["blockers"] == ["no_registry_record"]
+    assert gate["inspected_claims"]["registry_latest"]["selected_record_id"] is None
+
+
+def test_legacy_registry_upgrade_makes_missing_evidence_fields_explicit(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(bundle, registry, lifecycle_state="manually-verified")
+    record_id = promoted["record"]["record_id"]
+    record_path = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR / f"{record_id.removeprefix('sha256:')}.json"
+    legacy_record = json.loads(record_path.read_text(encoding="utf-8"))
+    for field in artifact_bundles.DURABLE_EVIDENCE_FIELDS:
+        legacy_record.pop(field, None)
+    record_path.write_text(json.dumps(legacy_record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    denied = artifact_bundles.trust_gate(registry, artifact_class="public_source_seed", consumer_intent="agent")
+    dry_run = artifact_bundles.upgrade_legacy_bundle_registry(registry, dry_run=True)
+    still_denied = artifact_bundles.trust_gate(registry, artifact_class="public_source_seed", consumer_intent="agent")
+    upgraded = artifact_bundles.upgrade_legacy_bundle_registry(registry, trust_root_mode="host_managed")
+    allowed = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        consumer_intent="agent",
+        expected_trust_root_mode="host_managed",
+    )
+    missing_blocker = "record_missing_durable_evidence_fields:source_repo,source_ref,producer,trust_root_mode,verifier_versions"
+
+    assert denied["ok"] is False
+    assert denied["verdict"] == "deny"
+    assert denied["blockers"] == [missing_blocker]
+    assert dry_run["ok"] is True
+    assert dry_run["summary"]["upgraded"] == 1
+    assert dry_run["written"] == []
+    assert dry_run["upgrades"][0]["initial_missing_fields"] == list(artifact_bundles.DURABLE_EVIDENCE_FIELDS)
+    assert still_denied["ok"] is False
+    assert upgraded["ok"] is True
+    assert upgraded["summary"]["upgraded"] == 1
+    assert upgraded["upgrades"][0]["remaining_missing_fields"] == []
+    assert allowed["ok"] is True
+    assert allowed["verdict"] == "allow"
+    assert allowed["inspected_claims"]["trust_root"]["trust_root_mode_actual"] == "host_managed"
+    assert allowed["record"]["legacy_evidence_upgrade"]["missing_fields"] == list(artifact_bundles.DURABLE_EVIDENCE_FIELDS)
 
 
 def test_bundle_registry_rejects_unverified_latest_candidate(tmp_path: Path) -> None:

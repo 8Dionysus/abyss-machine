@@ -30,8 +30,8 @@
     ]
   },
   "consumer_contract": {
-    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json",
-    "consumer_expectation": "Consumers select a public_source_seed bundle from the registry latest read-model only after bundle verification has succeeded.",
+    "stable_interface": "abyss-machine artifacts trust-gate --artifact-class public_source_seed --json",
+    "consumer_expectation": "Consumers select a public_source_seed bundle only after durable evidence promotion and a trust-gate allow or warn verdict over registry latest, verification state, digest, source repo, trust root mode, and consumer intent.",
     "registry_required": true
   },
   "consumer_command": [
@@ -39,7 +39,8 @@
     "abyss-machine artifacts sign BUNDLE_DIR",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
-    "abyss-machine artifacts bundle-registry --artifact-class public_source_seed"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class public_source_seed",
+    "abyss-machine artifacts trust-gate --artifact-class public_source_seed --consumer-intent agent"
   ]
 }

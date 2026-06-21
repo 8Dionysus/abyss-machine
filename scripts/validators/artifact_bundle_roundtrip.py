@@ -34,34 +34,100 @@ def run_bundle(bundle_dir: Path, *, manifest_ref: str, artifact_class: str) -> d
 
 
 def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_class: str) -> dict:
-    registered = artifact_bundles.write_bundle_registry_record(
+    registered = artifact_bundles.promote_bundle_evidence(
         bundle_dir,
         registry_dir,
         lifecycle_state="manually-verified",
         consumer_refs=["validator:artifact_bundle_roundtrip"],
         evidence_refs=["validator:manual-positive-synthetic"],
+        trust_root_mode="host_managed",
     )
     latest = artifact_bundles.read_bundle_registry(registry_dir, artifact_class=artifact_class)
     latest_record = latest.get("latest_by_artifact_class", {}).get(artifact_class)
-    revoked = artifact_bundles.write_bundle_registry_record(
+    allow_gate = artifact_bundles.trust_gate(
+        registry_dir,
+        artifact_class=artifact_class,
+        subject_digest=str(registered.get("record", {}).get("subject_digest") or ""),
+        consumer_intent="agent",
+        expected_trust_root_mode="host_managed",
+    )
+    revoked = artifact_bundles.promote_bundle_evidence(
         bundle_dir,
         registry_dir,
         lifecycle_state="revoked",
         revocation_reason="validator terminal-state negative",
+        trust_root_mode="host_managed",
+    )
+    deny_gate = artifact_bundles.trust_gate(
+        registry_dir,
+        artifact_class=artifact_class,
+        record_id=str(registered.get("record", {}).get("record_id") or ""),
+        consumer_intent="agent",
     )
     after_revoke = artifact_bundles.read_bundle_registry(registry_dir, artifact_class=artifact_class)
+    legacy_registry_dir = registry_dir.parent / f"{registry_dir.name}-legacy"
+    legacy_registered = artifact_bundles.promote_bundle_evidence(
+        bundle_dir,
+        legacy_registry_dir,
+        lifecycle_state="manually-verified",
+        trust_root_mode="host_managed",
+    )
+    legacy_record_id = str(legacy_registered.get("record", {}).get("record_id") or "")
+    legacy_record_path = (
+        legacy_registry_dir
+        / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+        / f"{legacy_record_id.removeprefix('sha256:')}.json"
+    )
+    legacy_record = json.loads(legacy_record_path.read_text(encoding="utf-8"))
+    for field in artifact_bundles.DURABLE_EVIDENCE_FIELDS:
+        legacy_record.pop(field, None)
+    legacy_record_path.write_text(
+        json.dumps(legacy_record, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    legacy_denied = artifact_bundles.trust_gate(legacy_registry_dir, artifact_class=artifact_class, consumer_intent="agent")
+    legacy_dry_run = artifact_bundles.upgrade_legacy_bundle_registry(legacy_registry_dir, dry_run=True)
+    legacy_upgrade = artifact_bundles.upgrade_legacy_bundle_registry(legacy_registry_dir, trust_root_mode="host_managed")
+    legacy_allow = artifact_bundles.trust_gate(
+        legacy_registry_dir,
+        artifact_class=artifact_class,
+        consumer_intent="agent",
+        expected_trust_root_mode="host_managed",
+    )
+    allow_claims = allow_gate.get("inspected_claims", {})
+    deny_claims = deny_gate.get("inspected_claims", {})
     return {
         "ok": bool(
             registered.get("ok")
             and isinstance(latest_record, dict)
             and latest_record.get("record_id") == registered.get("record", {}).get("record_id")
+            and allow_gate.get("verdict") == "allow"
+            and allow_gate.get("decision", {}).get("model") == "fail_closed_consumer_admission"
+            and allow_claims.get("registry_latest", {}).get("selected_record_is_latest") is True
+            and allow_claims.get("controls", {}).get("required_controls_missing") == []
             and revoked.get("ok")
+            and deny_gate.get("verdict") == "deny"
+            and deny_gate.get("decision", {}).get("allow") is False
+            and deny_claims.get("lifecycle", {}).get("terminal_state") is True
             and not after_revoke.get("latest_by_artifact_class")
+            and legacy_denied.get("verdict") == "deny"
+            and legacy_dry_run.get("summary", {}).get("upgraded") == 1
+            and legacy_dry_run.get("written") == []
+            and legacy_upgrade.get("ok")
+            and legacy_allow.get("verdict") == "allow"
         ),
         "registered": registered,
         "latest": latest,
+        "allow_gate": allow_gate,
         "revoked": revoked,
+        "deny_gate": deny_gate,
         "after_revoke": after_revoke,
+        "legacy_upgrade": {
+            "denied": legacy_denied,
+            "dry_run": legacy_dry_run,
+            "applied": legacy_upgrade,
+            "allow": legacy_allow,
+        },
     }
 
 

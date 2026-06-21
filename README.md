@@ -99,9 +99,18 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/pub
 abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts bundle-register /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
+abyss-machine artifacts evidence-promote /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
 abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json
+abyss-machine artifacts trust-gate --artifact-class public_source_seed --consumer-intent agent --json
 abyss-machine artifacts trust-coverage --json
+```
+
+For a host that already has bundle-registry records created before the durable
+trust-gate fields, inspect and apply the explicit migration:
+
+```bash
+abyss-machine artifacts bundle-registry-upgrade --dry-run --json
+abyss-machine artifacts bundle-registry-upgrade --json
 ```
 
 OS Abyss local provenance verifier sample:
@@ -111,8 +120,9 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/hos
 abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts bundle-register /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
+abyss-machine artifacts evidence-promote /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
 abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json
+abyss-machine artifacts trust-gate --artifact-class host_local_evidence --consumer-intent agent --json
 ```
 
 ## Current Status

@@ -48,6 +48,12 @@
   while keeping live orchestration and persistence in the CLI.
 - Extract typing/nervous refresh fact-state assembly into the refresh module
   while keeping live nervous facts reads in the CLI.
+- Add explicit fail-closed decision and inspected-claims fields to the
+  artifact trust gate so agents can audit why bundle consumption was allowed,
+  denied, or routed to manual review.
+- Add a legacy bundle-registry upgrade route so existing host-managed registry
+  records can be made explicit under the new durable evidence contract instead
+  of weakening the fail-closed trust gate.
 
 ## 0.1.0
 

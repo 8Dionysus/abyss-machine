@@ -81,10 +81,24 @@ For the public source seed it creates:
   this artifact class.
 - `artifact.verify.json`: machine-readable verifier output.
 
-The local bundle registry is the consumer read-model for lifecycle state. A
-bundle can become `latest` only through `bundle-register` after verification
-succeeds. Terminal states such as `revoked`, `superseded`, `deprecated`, or
-`quarantined` remain recorded but are never selected as latest.
+The local bundle registry is the durable consumer read-model for lifecycle
+state. A bundle can become `latest` only through `evidence-promote` or the
+lower-level compatible `bundle-register` path after verification succeeds.
+Consumer selection is not complete until `trust-gate` returns an allow or warn
+verdict for the intended artifact class, digest, source repo, trust root mode,
+and consumer intent. The gate is a fail-closed consumer admission decision: it
+returns explicit `decision` and `inspected_claims` fields so agents can explain
+which registry, lifecycle, verification, controls, source, trust-root, and
+subject-store claims were inspected. Terminal states such as `revoked`,
+`superseded`, `deprecated`, or `quarantined` remain recorded but are never
+selected as latest.
+
+Existing host registries that predate the durable evidence fields are not
+implicitly trusted. Use `bundle-registry-upgrade --dry-run` to inspect the
+legacy records, then apply `bundle-registry-upgrade` to write an explicit
+host-managed `legacy_evidence_upgrade` assertion. This keeps the gate
+fail-closed for unknown records while giving already verified local registries a
+maintained migration path.
 
 Consumer route:
 
@@ -93,8 +107,9 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/pub
 abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts bundle-register /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
+abyss-machine artifacts evidence-promote /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
 abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json
+abyss-machine artifacts trust-gate --artifact-class public_source_seed --consumer-intent agent --json
 ```
 
 For release artifacts with real blob subjects, `materialize-subjects` copies the
@@ -115,8 +130,9 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/hos
 abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts bundle-register /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
+abyss-machine artifacts evidence-promote /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
 abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json
+abyss-machine artifacts trust-gate --artifact-class host_local_evidence --consumer-intent agent --json
 ```
 
 ## Lifecycle On A New Machine

@@ -30,8 +30,14 @@ verify. They do not define signing doctrine; controls come from
 
 Bundle manifests may declare lifecycle and consumer-contract fields. The
 registry read-model is local state: verified, latest-eligible records can be
-selected by consumers, while terminal states remain evidence and are excluded
-from latest.
+selected by `trust-gate` consumers, while terminal states remain evidence and
+are excluded from latest. `evidence-promote` is the preferred durable promotion
+entrypoint; `bundle-register` remains the lower-level compatible registry write.
+`trust-gate` is the fail-closed consumer admission surface and returns
+machine-readable decision plus inspected claims for agent audit trails.
+Registries created before the durable evidence fields use
+`bundle-registry-upgrade` as an explicit host-managed migration; the trust gate
+does not silently allow those legacy records.
 
 External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM

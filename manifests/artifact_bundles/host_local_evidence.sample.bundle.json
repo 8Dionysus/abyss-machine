@@ -49,8 +49,8 @@
     ]
   },
   "consumer_contract": {
-    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json",
-    "consumer_expectation": "Consumers select a host_local_evidence bundle from the local registry latest read-model only after private local provenance verification has succeeded.",
+    "stable_interface": "abyss-machine artifacts trust-gate --artifact-class host_local_evidence --json",
+    "consumer_expectation": "Consumers select a host_local_evidence bundle only after durable local evidence promotion and a trust-gate allow or warn verdict over registry latest, local provenance verification, digest, source repo, trust root mode, and consumer intent.",
     "registry_required": true
   },
   "consumer_command": [
@@ -58,7 +58,8 @@
     "abyss-machine artifacts sign BUNDLE_DIR",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
-    "abyss-machine artifacts bundle-registry --artifact-class host_local_evidence"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class host_local_evidence",
+    "abyss-machine artifacts trust-gate --artifact-class host_local_evidence --consumer-intent agent"
   ]
 }
