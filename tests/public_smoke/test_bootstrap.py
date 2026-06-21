@@ -406,6 +406,35 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert coverage_rows["bootstrap_install_bundle"]["status"] == "DEFERRED_WITH_REAL_BLOCKER"
     assert coverage_rows["bootstrap_install_bundle"]["remaining_blocker"]
 
+    durable_coverage_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "trust-coverage",
+            "--registry-dir",
+            str(registry),
+            "--durable-only",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert durable_coverage_result.returncode == 0, durable_coverage_result.stderr[-1000:]
+    durable_coverage_data = json.loads(durable_coverage_result.stdout)
+    assert durable_coverage_data["evidence_mode"] == "durable_registry_only"
+    assert durable_coverage_data["manual_evidence_roots"] == []
+    assert durable_coverage_data["summary"]["fully_covered"] == 0
+    assert durable_coverage_data["summary"]["durable_gate_covered"] == 1
+    durable_rows = {row["artifact_class"]: row for row in durable_coverage_data["rows"]}
+    assert durable_rows["public_source_seed"]["status"] == "DURABLE_GATE_COVERED"
+    assert durable_rows["public_source_seed"]["installed_verification"]["evidence_mode"] == "durable_registry_only"
+    assert durable_rows["public_source_seed"]["manual_positive_evidence"] == []
+    assert durable_rows["public_source_seed"]["manual_negative_evidence"] == []
+
     revoke_result = subprocess.run(
         [
             str(installed),
