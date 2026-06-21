@@ -2375,7 +2375,7 @@ def _validate_artifact_subject_files(
                     {
                         "path": path_text,
                         "source": "manifest_subject_root",
-                        "resolved_path": str(subject_path),
+                        "resolved_path": _portable_path_ref(subject_path),
                         "ok": ok,
                     }
                 )
@@ -2399,7 +2399,7 @@ def _validate_artifact_subject_files(
                 {
                     "path": path_text,
                     "source": "artifact_subject_store",
-                    "resolved_path": str(store_path),
+                    "resolved_path": _portable_path_ref(store_path),
                     "ok": ok,
                 }
             )
