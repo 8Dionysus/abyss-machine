@@ -824,9 +824,17 @@ def artifact_requirements(
     }
 
 
-def _artifact_affected_matches(row: dict[str, Any], changed_paths: list[str]) -> tuple[list[str], list[dict[str, Any]]]:
+def _artifact_affected_matches(
+    row: dict[str, Any],
+    changed_paths: list[str],
+    *,
+    changed_source_repo: str = "",
+) -> tuple[list[str], list[dict[str, Any]]]:
     source_route = row.get("source_route") if isinstance(row.get("source_route"), dict) else {}
     profile = row.get("producer_profile") if isinstance(row.get("producer_profile"), dict) else {}
+    owner_repo = str(row.get("owner_repo") or "")
+    local_policy_scope = not changed_source_repo or changed_source_repo == "abyss-machine"
+    owner_scope = not changed_source_repo or not owner_repo or changed_source_repo == owner_repo
     refs: list[tuple[str, str]] = []
     refs.extend(("contract_source", str(item)) for item in source_route.get("contract_source_paths", []) if str(item))
     refs.extend(("bundle_manifest", str(item)) for item in source_route.get("bundle_manifest_refs", []) if str(item))
@@ -835,13 +843,15 @@ def _artifact_affected_matches(row: dict[str, Any], changed_paths: list[str]) ->
     matches: list[dict[str, Any]] = []
     reasons: set[str] = set()
     for changed in changed_paths:
-        if _path_matches_ref(changed, POLICY_REF):
+        if local_policy_scope and _path_matches_ref(changed, POLICY_REF):
             matches.append({"reason": "policy_manifest_changed", "changed_path": changed, "matched_ref": POLICY_REF})
             reasons.add("policy_manifest_changed")
             continue
-        if _path_matches_ref(changed, ABI_REF):
+        if local_policy_scope and _path_matches_ref(changed, ABI_REF):
             matches.append({"reason": "abi_signature_readmodel_changed", "changed_path": changed, "matched_ref": ABI_REF})
             reasons.add("abi_signature_readmodel_changed")
+            continue
+        if not owner_scope:
             continue
         for ref_kind, ref in refs:
             if _path_matches_ref(changed, ref):
@@ -893,7 +903,11 @@ def artifact_affected(
     for requirement in requirements.get("rows", []):
         if not isinstance(requirement, dict):
             continue
-        reasons, matches = _artifact_affected_matches(requirement, normalized_paths)
+        reasons, matches = _artifact_affected_matches(
+            requirement,
+            normalized_paths,
+            changed_source_repo=changed_source_repo,
+        )
         owner_repo = str(requirement.get("owner_repo") or "")
         owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
         if owner_repo_changed and "owner_repo_changed" not in reasons:
