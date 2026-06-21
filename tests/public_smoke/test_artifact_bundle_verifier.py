@@ -276,6 +276,113 @@ def test_artifact_affected_distinguishes_sibling_lag() -> None:
     assert accepted["accept_sibling_lag"] is True
 
 
+def _update_metadata(**overrides: object) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "schema": "abyss_machine_tuf_update_metadata_v1",
+        "artifact_class": "bootstrap_install_bundle",
+        "target": {
+            "path": "dist/abyss-machine-bootstrap-2026.06.21.tar.gz",
+            "sha256": "sha256:" + ("a" * 64),
+        },
+        "version": 2,
+        "snapshot_version": 2,
+        "timestamp_version": 2,
+        "generated_at": "2026-06-21T00:00:00Z",
+        "expires_at": "2026-06-28T00:00:00Z",
+    }
+    metadata.update(overrides)
+    return metadata
+
+
+def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
+    status = artifact_bundles.update_lane_status()
+
+    assert status["ok"] is True
+    assert status["schema"] == "abyss_machine_update_transparency_lane_status_v1"
+    assert status["summary"]["tuf_status"] == "prepared_v1"
+    assert status["summary"]["blocking_v1"] is False
+    assert "bootstrap_install_bundle" in [row["artifact_class"] for row in status["rows"]]
+    assert status["tuf"]["metadata_sidecar"] == artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
+    assert "not a full external TUF repository" in status["claim_limits"][0]
+    assert "external transparency integration point" in status["claim_limits"][1]
+
+
+def test_update_metadata_verifier_allows_current_update_metadata(tmp_path: Path) -> None:
+    metadata = _update_metadata()
+    previous = {
+        "version": 1,
+        "snapshot_version": 1,
+        "timestamp_version": 1,
+        "metadata_sha256": "sha256:not-this-metadata",
+        "last_seen_at": "2026-06-20T00:00:00Z",
+    }
+    metadata_path = tmp_path / artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
+    previous_path = tmp_path / "previous-trusted.json"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    previous_path.write_text(json.dumps(previous), encoding="utf-8")
+
+    result = artifact_bundles.verify_update_metadata(
+        metadata,
+        previous_trusted=previous,
+        now="2026-06-21T00:00:00Z",
+    )
+    cli_result = cli.artifacts_update_verify(
+        metadata_path,
+        previous_trusted_path=previous_path,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["verdict"] == "allow"
+    assert result["errors"] == []
+    assert cli_result["ok"] is True
+    assert cli_result["metadata_path"] == str(metadata_path)
+    assert cli_result["previous_trusted_path"] == str(previous_path)
+
+
+def test_update_metadata_verifier_denies_rollback_expiry_freeze_and_zero_versions() -> None:
+    rollback = artifact_bundles.verify_update_metadata(
+        _update_metadata(version=1),
+        previous_trusted={"version": 2, "snapshot_version": 1, "timestamp_version": 1},
+        now="2026-06-21T00:00:00Z",
+    )
+    expired = artifact_bundles.verify_update_metadata(
+        _update_metadata(expires_at="2026-06-20T00:00:00Z"),
+        now="2026-06-21T00:00:00Z",
+    )
+    zero_version = artifact_bundles.verify_update_metadata(
+        _update_metadata(version=0),
+        now="2026-06-21T00:00:00Z",
+    )
+    frozen_metadata = _update_metadata()
+    frozen_first_seen = artifact_bundles.verify_update_metadata(
+        frozen_metadata,
+        now="2026-06-21T00:00:00Z",
+    )
+    frozen = artifact_bundles.verify_update_metadata(
+        frozen_metadata,
+        previous_trusted={
+            "version": 2,
+            "snapshot_version": 2,
+            "timestamp_version": 2,
+            "metadata_sha256": frozen_first_seen["metadata_sha256"],
+            "last_seen_at": "2026-06-01T00:00:00Z",
+        },
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert rollback["ok"] is False
+    assert rollback["verdict"] == "deny"
+    assert "rollback_version" in rollback["errors"]
+    assert expired["ok"] is False
+    assert "expired_metadata" in expired["errors"]
+    assert zero_version["ok"] is False
+    assert "version_missing" in zero_version["errors"]
+    assert frozen["ok"] is False
+    assert "freeze_attack_or_stale_metadata" in frozen["errors"]
+
+
 def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> None:
     bundle = tmp_path / "public-source-seed"
     registry = tmp_path / "registry"

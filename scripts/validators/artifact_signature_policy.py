@@ -78,6 +78,13 @@ ALLOWED_TRUST_LAYERS = {
     "tuf",
     "scitt",
 }
+REQUIRED_UPDATE_CLASSES = {
+    "bootstrap_install_bundle",
+    "runtime_or_container_artifact",
+    "ai_model_or_runtime_bundle",
+    "browser_extension_package",
+    "aoa_sdk_python_distribution",
+}
 REQUIRED_ENTRYPOINT_SOURCES = {
     "docs/validation/validation_lanes.json",
     "scripts/validation_lanes.py",
@@ -362,6 +369,47 @@ def main() -> int:
             for key in ("trigger", "reason"):
                 if not isinstance(item.get(key), str) or not item.get(key):
                     failures.append(f"deferred_trust_layers.{layer}.{key} must be a non-empty string")
+
+    update_lane = policy.get("update_transparency_lane")
+    require(isinstance(update_lane, dict), "artifact signature policy must define update_transparency_lane", failures)
+    if isinstance(update_lane, dict):
+        require(
+            update_lane.get("schema") == "abyss_machine_update_transparency_lane_v1",
+            "update_transparency_lane schema mismatch",
+            failures,
+        )
+        tuf = update_lane.get("tuf")
+        if not isinstance(tuf, dict):
+            failures.append("update_transparency_lane.tuf must be an object")
+        else:
+            applies = tuf.get("applies_to_artifact_classes")
+            if not isinstance(applies, list) or not all(isinstance(item, str) and item for item in applies):
+                failures.append("update_transparency_lane.tuf.applies_to_artifact_classes must be a non-empty string list")
+            else:
+                unknown = sorted(set(applies) - set(classes if isinstance(classes, dict) else {}))
+                missing_update = sorted(REQUIRED_UPDATE_CLASSES - set(applies))
+                if unknown:
+                    failures.append(f"update_transparency_lane.tuf references unknown artifact classes: {', '.join(unknown)}")
+                if missing_update:
+                    failures.append(f"update_transparency_lane.tuf missing required update classes: {', '.join(missing_update)}")
+            if tuf.get("metadata_sidecar") != "artifact.update.tuf.json":
+                failures.append("update_transparency_lane.tuf.metadata_sidecar must be artifact.update.tuf.json")
+            if not isinstance(tuf.get("client_checks"), list) or len(tuf.get("client_checks", [])) < 5:
+                failures.append("update_transparency_lane.tuf.client_checks must list rollback/freeze/expiration checks")
+            max_freeze = tuf.get("max_freeze_seconds")
+            if not isinstance(max_freeze, int) or max_freeze <= 0:
+                failures.append("update_transparency_lane.tuf.max_freeze_seconds must be a positive integer")
+            if not isinstance(tuf.get("claim_limit"), str) or not tuf.get("claim_limit"):
+                failures.append("update_transparency_lane.tuf.claim_limit must be a non-empty string")
+        scitt = update_lane.get("scitt")
+        if not isinstance(scitt, dict):
+            failures.append("update_transparency_lane.scitt must be an object")
+        else:
+            if scitt.get("blocking_v1") is not False:
+                failures.append("update_transparency_lane.scitt.blocking_v1 must be false for v1")
+            for key in ("status", "trigger", "required_when", "claim_limit"):
+                if not isinstance(scitt.get(key), str) or not scitt.get(key):
+                    failures.append(f"update_transparency_lane.scitt.{key} must be a non-empty string")
 
     if failures:
         return fail("artifact signature policy validation failed", failures)

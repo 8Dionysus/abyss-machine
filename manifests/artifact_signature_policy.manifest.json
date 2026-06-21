@@ -879,13 +879,53 @@
     "add release-time SBOM and minimal SLSA/in-toto provenance for built artifacts",
     "add ML-BOM when AI model/runtime bundles are distributed",
     "add Sigstore/Cosign only when release assets, blobs, or OCI artifacts exist",
-    "add C2PA only for public media/content exports"
+    "add C2PA only for public media/content exports",
+    "verify updateable/installable artifacts through the OS Abyss TUF-style update lane before update-client consumption"
   ],
+  "update_transparency_lane": {
+    "schema": "abyss_machine_update_transparency_lane_v1",
+    "tuf": {
+      "status": "prepared_v1",
+      "required_when": "artifact is consumed by update_client, installer auto-update, package updater, runtime updater, or browser/tool update route",
+      "metadata_sidecar": "artifact.update.tuf.json",
+      "applies_to_artifact_classes": [
+        "bootstrap_install_bundle",
+        "runtime_or_container_artifact",
+        "ai_model_or_runtime_bundle",
+        "browser_extension_package",
+        "aoa_sdk_python_distribution",
+        "aoa_skills_release_manifest",
+        "playbook_registry_bundle",
+        "role_contract_registry",
+        "source_owned_kag_export_capsule"
+      ],
+      "client_checks": [
+        "artifact_class is updateable by policy",
+        "target digest is sha256-bound",
+        "metadata version is monotonic against previous trusted state",
+        "snapshot_version is monotonic against previous trusted state",
+        "timestamp_version is monotonic against previous trusted state",
+        "expires_at is in the future",
+        "unchanged metadata cannot exceed max_freeze_seconds since previous trusted state",
+        "artifact trust-gate must still allow or warn for the target artifact before consumption"
+      ],
+      "max_freeze_seconds": 604800,
+      "not_full_tuf_repository_yet": true,
+      "claim_limit": "This is the OS Abyss v1 TUF-style update metadata gate; it does not yet define delegated root/targets/snapshot/timestamp keys or publish a full external TUF repository."
+    },
+    "scitt": {
+      "status": "future_external_accountability_layer",
+      "blocking_v1": false,
+      "trigger": "signed statement federation exists across OS Abyss issuers or an external transparency service is introduced",
+      "required_when": "external relying parties require append-only transparency receipts for OS Abyss signed statements",
+      "claim_limit": "SCITT is an integration point for external accountability; local host trust gates and release attestations remain v1 authority until that service exists."
+    }
+  },
   "deferred_trust_layers": {
     "tuf": {
-      "trigger": "install or update channel metadata exists",
+      "trigger": "full external TUF repository, delegated signing keys, or distribution channel metadata exists",
       "action": "PREPARE_TUF",
-      "reason": "no abyss-machine update channel is declared in this seed yet"
+      "reason": "OS Abyss v1 has a TUF-style update metadata gate, but no external delegated TUF repository or key ceremony is declared yet"
     },
     "scitt": {
       "trigger": "signed statement federation exists across OS Abyss issuers",
