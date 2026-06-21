@@ -130,10 +130,11 @@ sidecars for `public_source_seed`, local provenance sidecars for the
 `host_local_evidence` sample, verifies both with the same policy-driven bundle
 verifier exposed by `abyss-machine artifacts verify`, and exercises
 `requirements`/`affected` preflight read-models,
-`evidence-promote`/`bundle-registry` latest behavior, positive `trust-gate`
-selection, terminal-state revocation, negative `trust-gate` denial, legacy
-registry upgrade, durable-only `trust-coverage` without tmp/manual evidence,
-and the gate's explicit decision/claims explanation. Public smoke tests also
-cover external sibling subjects, including the
+`evidence-promote`/`bundle-registry` latest behavior, explicit
+`registry-latest` selection, positive `trust-gate` selection, terminal-state
+revocation, negative `trust-gate` denial, legacy registry upgrade,
+durable-only `trust-coverage` without tmp/manual evidence, and the gate's
+explicit decision/claims explanation. Public smoke tests also cover external
+sibling subjects, including the
 `aoa_session_memory_portable_bundle` update-client path with ABI, SBOM,
 SLSA/in-toto, registry promotion, and a negative missing-control gate.

@@ -80,11 +80,14 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         materialize = commands["artifacts materialize-subjects"]
         trust_gate = commands["artifacts trust-gate"]
         trust_coverage = commands["artifacts trust-coverage"]
+        registry_latest = commands["artifacts registry-latest"]
         assert set(materialize["required_options"]) == materialize_required
         assert materialize["missing_options"] == []
         assert trust_gate["missing_options"] == []
         assert "--durable-only" in trust_coverage["required_options"]
         assert trust_coverage["missing_options"] == []
+        assert "--consumer-intent" in registry_latest["required_options"]
+        assert registry_latest["missing_options"] == []
 
 
 def test_typing_nervous_bootstrap_proof_is_opt_in(projection_payload: dict) -> None:

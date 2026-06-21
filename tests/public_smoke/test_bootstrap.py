@@ -157,6 +157,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "release-check" in help_result.stdout
     assert "bundle-register" in help_result.stdout
     assert "bundle-registry" in help_result.stdout
+    assert "registry-latest" in help_result.stdout
     assert "bundle-registry-upgrade" in help_result.stdout
     assert "evidence-promote" in help_result.stdout
     assert "requirements" in help_result.stdout
@@ -260,6 +261,32 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert registry_result.returncode == 0, registry_result.stderr[-1000:]
     registry_data = json.loads(registry_result.stdout)
     assert registry_data["latest_by_artifact_class"]["public_source_seed"]["record_id"] == register_data["record"]["record_id"]
+
+    registry_latest_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "registry-latest",
+            "--registry-dir",
+            str(registry),
+            "--artifact-class",
+            "public_source_seed",
+            "--consumer-intent",
+            "agent",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert registry_latest_result.returncode == 0, registry_latest_result.stderr[-1000:]
+    registry_latest_data = json.loads(registry_latest_result.stdout)
+    assert registry_latest_data["schema"] == "abyss_machine_artifact_registry_latest_v1"
+    assert registry_latest_data["latest_record_id"] == register_data["record"]["record_id"]
+    assert registry_latest_data["trust_gate"]["verdict"] == "allow"
 
     trust_gate_result = subprocess.run(
         [
@@ -479,3 +506,26 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert revoked_registry_result.returncode == 0, revoked_registry_result.stderr[-1000:]
     revoked_registry_data = json.loads(revoked_registry_result.stdout)
     assert revoked_registry_data["latest_by_artifact_class"] == {}
+
+    revoked_latest_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "registry-latest",
+            "--registry-dir",
+            str(registry),
+            "--artifact-class",
+            "public_source_seed",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert revoked_latest_result.returncode == 1
+    revoked_latest_data = json.loads(revoked_latest_result.stdout)
+    assert revoked_latest_data["has_latest"] is False
+    assert revoked_latest_data["errors"] == ["no_latest_record"]

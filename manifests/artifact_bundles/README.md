@@ -42,6 +42,8 @@ Use `requirements` before producing a bundle to inspect producer profile,
 required controls, trust-root expectations, and owner/source route. Use
 `affected` before consuming or landing changes to detect stale source,
 manifest, policy, ABI, or sibling-owner evidence.
+Use `registry-latest` when an agent needs the selected durable latest record and
+its consumer `trust-gate` verdict without hand-parsing the full registry.
 Use `trust-coverage --durable-only` when the question is whether persistent
 registry latest records and consumer `trust-gate` verdicts still work after the
 tmp/manual evidence layer is ignored; the default coverage mode still requires
