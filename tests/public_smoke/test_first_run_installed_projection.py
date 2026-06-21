@@ -59,6 +59,31 @@ def test_first_run_projection_keeps_cli_surfaces_in_parity(projection_payload: d
     assert payload["host_installed_cli"].get("required") is False
 
 
+def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_payload: dict) -> None:
+    payload = projection_payload
+    source_options = payload["source_critical_help_options"]["commands"]
+    installed_options = payload["temp_installed_critical_help_options"]["commands"]
+    for report in (payload["source_critical_help_options"], payload["temp_installed_critical_help_options"]):
+        assert report["status"] == "ok"
+        assert report["failures"] == []
+
+    materialize_required = {
+        "--registry-dir",
+        "--consumer-intent",
+        "--source-repo",
+        "--trust-root-mode",
+        "--record-id",
+        "--allow-non-latest",
+        "--json",
+    }
+    for commands in (source_options, installed_options):
+        materialize = commands["artifacts materialize-subjects"]
+        trust_gate = commands["artifacts trust-gate"]
+        assert set(materialize["required_options"]) == materialize_required
+        assert materialize["missing_options"] == []
+        assert trust_gate["missing_options"] == []
+
+
 def test_typing_nervous_bootstrap_proof_is_opt_in(projection_payload: dict) -> None:
     payload = projection_payload
     proof = payload["typing_nervous"]
