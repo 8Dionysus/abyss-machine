@@ -281,12 +281,13 @@ def cmd_render(args: argparse.Namespace) -> int:
 
 def cmd_install(args: argparse.Namespace) -> int:
     actions: list[dict[str, Any]] = []
-    values = default_vars(args)
+    policy = path_policy_from_args(args)
+    values = policy.render_vars()
     apply = bool(args.apply)
     ensure_roots(values, apply=apply, actions=actions)
     copy_tree(CONFIG_TEMPLATE_ROOT, Path(args.etc_root), values=values, apply=apply, actions=actions)
-    copy_tree(SYSTEMD_TEMPLATE_ROOT / "system", Path(args.systemd_system_dir), values=values, apply=apply, actions=actions)
-    copy_tree(SYSTEMD_TEMPLATE_ROOT / "user", Path(args.systemd_user_dir), values=values, apply=apply, actions=actions)
+    copy_tree(SYSTEMD_TEMPLATE_ROOT / "system", policy.systemd_system_dir, values=values, apply=apply, actions=actions)
+    copy_tree(SYSTEMD_TEMPLATE_ROOT / "user", policy.systemd_user_dir or policy.home / ".config/systemd/user", values=values, apply=apply, actions=actions)
     install_cli(values, apply=apply, actions=actions)
     install_public_seed(values, apply=apply, actions=actions)
     payload = command_payload("install", True, actions, profile=args.profile, dry_run=not apply)
@@ -329,7 +330,7 @@ def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--local-bin-dir", default=defaults["local_bin_dir"])
     parser.add_argument("--local-libexec-dir", default=defaults["local_libexec_dir"])
     parser.add_argument("--systemd-system-dir", default=defaults["systemd_system_dir"])
-    parser.add_argument("--systemd-user-dir", default=defaults["systemd_user_dir"])
+    parser.add_argument("--systemd-user-dir", default=None)
     parser.add_argument("--json", action="store_true")
 
 

@@ -11,12 +11,13 @@ ROOT = Path(__file__).resolve().parents[2]
 BOOTSTRAP = ROOT / "scripts" / "abyss-machine-bootstrap"
 
 
-def run_bootstrap(*args: str) -> dict:
+def run_bootstrap(*args: str, env: dict[str, str] | None = None) -> dict:
     result = subprocess.run(
         [sys.executable, str(BOOTSTRAP), *args, "--json"],
         text=True,
         capture_output=True,
         check=False,
+        env={**os.environ, **(env or {})},
         timeout=30,
     )
     assert result.returncode == 0, result.stderr[-1000:]
@@ -40,6 +41,29 @@ def test_bootstrap_render_dry_run_uses_render_actions() -> None:
     payload = run_bootstrap("render", "--profile", "linux-systemd-core", "--dry-run")
     assert payload["dry_run"] is True
     assert any(action["action"] == "render" for action in payload["actions"])
+
+
+def test_bootstrap_install_derives_user_systemd_dir_from_explicit_home_under_root_env(tmp_path: Path) -> None:
+    home = tmp_path / "home" / "agent"
+    payload = run_bootstrap(
+        "install",
+        "--profile",
+        "linux-systemd-core",
+        "--dry-run",
+        "--user",
+        "agent",
+        "--home",
+        str(home),
+        env={"USER": "root", "HOME": "/root"},
+    )
+    user_targets = [
+        action["target"]
+        for action in payload["actions"]
+        if action.get("action") == "render" and "/systemd/user/" in action.get("source", "")
+    ]
+    assert user_targets
+    assert all(target.startswith(str(home / ".config/systemd/user")) for target in user_targets)
+    assert not any(target.startswith("/root/.config/systemd/user") for target in user_targets)
 
 
 def test_typing_profile_is_opt_in() -> None:
