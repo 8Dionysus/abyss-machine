@@ -13,8 +13,7 @@ workstation.
 - Bootstrap scripts that render host-local paths and create empty local roots.
 - Public smoke tests and host contract tests.
 - Route docs, permissive v1 schemas, and mechanics package contracts.
-- Artifact signature policy and deterministic contract ABI signatures for
-  public contract surfaces.
+- Release/artifact trust policy manifests for publishable outputs.
 - Runner-neutral validation lanes that OS Abyss local CLI, host schedulers,
   release pipelines, and GitHub Actions can consume.
 
@@ -32,111 +31,25 @@ workstation.
 - Installed binary archives, `.bak` files, signed extension packages, compiled
   caches, and one-off probe output.
 
-## Signatures And Provenance
+## Release And Artifact Trust
 
-`abyss-machine` distinguishes compatibility fingerprints from release
-signatures:
+Release/artifact trust is a publication guardrail, not the main reading route
+for this repository. Keep detailed command walkthroughs and sidecar rules in
+their source homes:
 
-- Contract ABI signatures are deterministic hashes over tracked public source
-  surfaces. They help agents and canaries detect contract drift.
-- Artifact identity posture records what each artifact class is, who owns its
-  meaning, what consumers must check, and which trust layer applies.
-- Host-local evidence uses local provenance packets before any public release
-  claim: source refs, producer command, content identity, privacy boundary,
-  lineage, and the local validator a consumer relied on.
-- SBOM and SLSA/in-toto provenance apply when software, install, runtime,
-  container, package, or release artifacts are built for publication.
-- ML-BOM applies when AI model, dataset, conversion, or framework-config
-  bundles are distributed.
-- Sigstore/Cosign applies to published release assets, blobs, OCI artifacts, or
-  bundles, not to every source commit.
-- C2PA applies only to public media/content exports.
-- Live host evidence is not published or signed as public source. If local
-  evidence is promoted, it keeps semantic provenance inside the host evidence
-  plane first.
-- TUF waits until an install/update channel exists. SCITT waits until OS Abyss
-  needs federated transparency receipts for signed statements.
+- `manifests/artifact_signature_policy.manifest.json`
+- `manifests/artifact_bundles/README.md`
+- `docs/validation/VALIDATOR_TOPOLOGY.md`
 
-The `release-artifact` validation lane checks these rules before publication
-without requiring private keys or producing signatures during ordinary CI.
-The runner contexts live in `docs/validation/validation_lanes.json`; the CLI
-entrypoints live under `scripts/`.
+The boundary here is simpler:
 
-## Artifact Bundle Verification
-
-The first executable bundle layout is `abyss_machine_artifact_bundle_v1`.
-For the public source seed it creates:
-
-- `artifact.identity.json`: policy-derived artifact identity, required
-  controls, deferred controls, ABI epoch, owner, and privacy boundary.
-- `artifact.abi.json`: the matching contract ABI surface from
-  `generated/contract_abi_signatures.min.json`.
-- `artifact.provenance.json`: minimal OS Abyss bundle provenance for the
-  sidecar build, not a SLSA release attestation.
-- `artifact.local-provenance.json`: required only for `host_local_evidence`;
-  it carries the private evidence packet contract without publishing the
-  evidence payload.
-- `artifact.signature-decision.json`: either a real signature result later, or
-  an explicit policy reason that a cryptographic signature is not required for
-  this artifact class.
-- `artifact.verify.json`: machine-readable verifier output.
-
-The local bundle registry is the durable consumer read-model for lifecycle
-state. A bundle can become `latest` only through `evidence-promote` or the
-lower-level compatible `bundle-register` path after verification succeeds.
-Consumer selection is not complete until `trust-gate` returns an allow or warn
-verdict for the intended artifact class, digest, source repo, trust root mode,
-and consumer intent. The gate is a fail-closed consumer admission decision: it
-returns explicit `decision` and `inspected_claims` fields so agents can explain
-which registry, lifecycle, verification, controls, source, trust-root, and
-subject-store claims were inspected. Terminal states such as `revoked`,
-`superseded`, `deprecated`, or `quarantined` remain recorded but are never
-selected as latest.
-
-Existing host registries that predate the durable evidence fields are not
-implicitly trusted. Use `bundle-registry-upgrade --dry-run` to inspect the
-legacy records, then apply `bundle-registry-upgrade` to write an explicit
-host-managed `legacy_evidence_upgrade` assertion. This keeps the gate
-fail-closed for unknown records while giving already verified local registries a
-maintained migration path.
-
-Consumer route:
-
-```bash
-abyss-machine artifacts requirements --artifact-class public_source_seed --json
-abyss-machine artifacts affected --artifact-class public_source_seed --json
-abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_source_seed.bundle.json --bundle-dir /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
-abyss-machine artifacts evidence-promote /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
-abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json
-abyss-machine artifacts trust-gate --artifact-class public_source_seed --consumer-intent agent --json
-```
-
-For release artifacts with real blob subjects, `materialize-subjects` copies the
-verified files into the local subject store under
-`/var/lib/abyss-machine/artifacts/subjects`. This lets installed consumers find
-the blob by the signed subject manifest digest without making the public bundle
-manifest depend on one workstation path.
-
-For `public_source_seed`, policy requires the ABI sidecar. SBOM, ML-BOM,
-SLSA/in-toto, Sigstore/Cosign, and C2PA remain explicit not-required controls
-until a publishable artifact class triggers them.
-
-The OS Abyss local sample uses the same verifier path for the local provenance
-packet shape without carrying real private host payloads:
-
-```bash
-abyss-machine artifacts requirements --artifact-class host_local_evidence --json
-abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
-abyss-machine artifacts evidence-promote /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
-abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json
-abyss-machine artifacts trust-gate --artifact-class host_local_evidence --consumer-intent agent --json
-```
+- ordinary public CI must not require private keys, live host state, or private
+  payloads;
+- host-local evidence is not published as source;
+- release artifacts are checked by the release validation lane before
+  publication;
+- generated publication read models remain subordinate to tracked source,
+  manifests, schemas, and validators.
 
 ## Lifecycle On A New Machine
 
