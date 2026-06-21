@@ -45,8 +45,8 @@
     ]
   },
   "consumer_contract": {
-    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class bootstrap_install_bundle --json",
-    "consumer_expectation": "Install consumers select a bootstrap_install_bundle registry latest only after ABI, SBOM, SLSA/in-toto, and Sigstore/Cosign verification succeed against the packaged archive digest.",
+    "stable_interface": "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer --json",
+    "consumer_expectation": "Install consumers select a bootstrap_install_bundle only after durable evidence promotion and a trust-gate allow or warn verdict over registry latest, ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, digest, source repo, trust root mode, and installer intent.",
     "registry_required": true
   },
   "consumer_command": [
@@ -55,7 +55,8 @@
     "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
-    "abyss-machine artifacts bundle-registry --artifact-class bootstrap_install_bundle"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class bootstrap_install_bundle",
+    "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer"
   ]
 }

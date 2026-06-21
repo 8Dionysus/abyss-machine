@@ -45,8 +45,8 @@
     ]
   },
   "consumer_contract": {
-    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class runtime_or_container_artifact --json",
-    "consumer_expectation": "Runtime consumers select a runtime_or_container_artifact registry latest only after ABI, SBOM, SLSA/in-toto, and Sigstore/Cosign verification succeed against the runtime bundle digest.",
+    "stable_interface": "abyss-machine artifacts trust-gate --artifact-class runtime_or_container_artifact --consumer-intent runtime --json",
+    "consumer_expectation": "Runtime consumers select a runtime_or_container_artifact only after durable evidence promotion and a trust-gate allow or warn verdict over registry latest, ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, digest, source repo, trust root mode, and runtime intent.",
     "registry_required": true
   },
   "consumer_command": [
@@ -55,7 +55,8 @@
     "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
-    "abyss-machine artifacts bundle-registry --artifact-class runtime_or_container_artifact"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class runtime_or_container_artifact",
+    "abyss-machine artifacts trust-gate --artifact-class runtime_or_container_artifact --consumer-intent runtime"
   ]
 }

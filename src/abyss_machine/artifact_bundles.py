@@ -59,6 +59,16 @@ BUNDLE_LIFECYCLE_STATES = (
 BUNDLE_LATEST_ELIGIBLE_STATES = frozenset({"manually-verified", "release-ready", "published"})
 BUNDLE_TERMINAL_STATES = frozenset({"superseded", "deprecated", "revoked", "quarantined"})
 BUNDLE_LATEST_STATE_RANK = {"manually-verified": 10, "release-ready": 20, "published": 30}
+TRUST_ROOT_MODES = (
+    "local_dev",
+    "host_managed",
+    "github_oidc",
+    "oci_registry",
+    "public_release",
+)
+TRUST_GATE_VERDICTS = ("allow", "deny", "warn", "unknown", "manual_review_required")
+PRODUCTION_CONSUMER_INTENTS = frozenset({"installer", "runtime", "release_consumer", "update_client", "public_release"})
+DURABLE_EVIDENCE_FIELDS = ("source_repo", "source_ref", "producer", "trust_root_mode", "verifier_versions")
 BUNDLE_REGISTRY_INDEX = "index.json"
 BUNDLE_REGISTRY_RECORDS_DIR = "records"
 DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT = Path("/var/lib/abyss-machine/artifacts/subjects")
@@ -2026,6 +2036,43 @@ def _registry_record_id(artifact_class: str, subject_digest: str, bundle_manifes
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def _verifier_versions(verification: dict[str, Any], override: dict[str, Any] | None = None) -> dict[str, Any]:
+    base = {
+        "artifact_bundle_verifier": {
+            "id": "abyss-machine.artifact_bundles.verify_bundle",
+            "schema": str(verification.get("schema") or "unknown"),
+            "bundle_layout": BUNDLE_LAYOUT,
+        },
+        "policy": {"ref": POLICY_REF},
+        "abi": {"ref": ABI_REF},
+    }
+    if override:
+        base.update(override)
+    return base
+
+
+def _source_ref_from_evidence(
+    *,
+    explicit: str,
+    identity: dict[str, Any],
+    provenance: dict[str, Any],
+    manifest: dict[str, Any],
+) -> str:
+    if explicit:
+        return explicit
+    bundle_manifest_ref = str(identity.get("bundle_manifest_ref") or "")
+    if bundle_manifest_ref:
+        return bundle_manifest_ref
+    source_refs = provenance.get("source_refs") if isinstance(provenance.get("source_refs"), list) else []
+    for item in source_refs:
+        if str(item):
+            return str(item)
+    manifest_path = str(manifest.get("_manifest_path") or "")
+    if manifest_path:
+        return _portable_path_ref(Path(manifest_path))
+    return ""
+
+
 def _registry_record_path(registry_dir: Path, record_id: str) -> Path:
     filename = record_id.removeprefix("sha256:") + ".json"
     return registry_dir / BUNDLE_REGISTRY_RECORDS_DIR / filename
@@ -2039,10 +2086,17 @@ def bundle_registry_record(
     evidence_refs: list[str] | None = None,
     supersedes: list[str] | None = None,
     revocation_reason: str = "",
+    source_repo: str = "",
+    source_ref: str = "",
+    producer: str = "",
+    trust_root_mode: str = "local_dev",
+    verifier_versions: dict[str, Any] | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     if lifecycle_state not in BUNDLE_LIFECYCLE_STATES:
         raise ValueError(f"unknown lifecycle_state: {lifecycle_state}")
+    if trust_root_mode not in TRUST_ROOT_MODES:
+        raise ValueError(f"unknown trust_root_mode: {trust_root_mode}")
     bundle = Path(bundle_dir)
     verification = verify_bundle(bundle, repo_root=repo_root, write=True)
     identity = _read_json(bundle / IDENTITY_SIDECAR) if (bundle / IDENTITY_SIDECAR).is_file() else {}
@@ -2065,6 +2119,7 @@ def bundle_registry_record(
     record_id = _registry_record_id(artifact_class, subject_digest, bundle_manifest_ref)
     terminal_state = lifecycle_state in BUNDLE_TERMINAL_STATES
     latest_eligible = lifecycle_state in BUNDLE_LATEST_ELIGIBLE_STATES and bool(verification.get("ok"))
+    source_refs = [str(item) for item in provenance.get("source_refs", []) if str(item)] if isinstance(provenance.get("source_refs"), list) else []
 
     errors: list[str] = []
     if not artifact_class:
@@ -2087,14 +2142,34 @@ def bundle_registry_record(
         "verification_ok": bool(verification.get("ok")),
         "required_controls": verification.get("required_controls", []),
         "verified_controls": verification.get("verified_controls", []),
+        "present_controls": verification.get("present_controls", []),
+        "controls": {
+            "required": verification.get("required_controls", []),
+            "verified": verification.get("verified_controls", []),
+            "present": verification.get("present_controls", []),
+        },
         "verification_errors": verification.get("errors", []),
         "verification_missing": verification.get("missing", []),
+        "verification_warnings": verification.get("warnings", []),
         "signature_status": signature.get("status"),
         "signature_required": bool(signature.get("required")),
         "bundle_ref": _portable_path_ref(bundle),
         "bundle_manifest_ref": bundle_manifest_ref,
         "contract_surface_id": identity.get("contract_surface_id"),
         "subject_digest": subject_digest,
+        "source_repo": str(source_repo or identity.get("owner_repo") or manifest.get("owner_repo") or ""),
+        "source_ref": _source_ref_from_evidence(
+            explicit=str(source_ref or ""),
+            identity=identity,
+            provenance=provenance,
+            manifest=manifest,
+        ),
+        "source_refs": source_refs,
+        "producer": str(producer or identity.get("producer") or provenance.get("agent_or_tool") or ""),
+        "producer_command": str(provenance.get("producer_command") or ""),
+        "trust_root_mode": trust_root_mode,
+        "verifier_versions": _verifier_versions(verification, verifier_versions),
+        "privacy_boundary": identity.get("privacy_boundary"),
         "artifact_subjects_digest": provenance.get("artifact_subjects_digest") or subjects.get("aggregate_digest"),
         "artifact_subject_store": _artifact_subject_store_status(subjects),
         "abi_subject_digest": subject.get("digest"),
@@ -2193,6 +2268,11 @@ def write_bundle_registry_record(
     evidence_refs: list[str] | None = None,
     supersedes: list[str] | None = None,
     revocation_reason: str = "",
+    source_repo: str = "",
+    source_ref: str = "",
+    producer: str = "",
+    trust_root_mode: str = "local_dev",
+    verifier_versions: dict[str, Any] | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     root = Path(registry_dir)
@@ -2203,6 +2283,11 @@ def write_bundle_registry_record(
         evidence_refs=evidence_refs,
         supersedes=supersedes,
         revocation_reason=revocation_reason,
+        source_repo=source_repo,
+        source_ref=source_ref,
+        producer=producer,
+        trust_root_mode=trust_root_mode,
+        verifier_versions=verifier_versions,
         repo_root=repo_root,
     )
     if not payload.get("ok"):
@@ -2225,6 +2310,544 @@ def write_bundle_registry_record(
             _registry_path_ref(root, root / BUNDLE_REGISTRY_INDEX),
         ],
         "registry": index,
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item)]
+
+
+def _manifest_for_registry_record(record: dict[str, Any], *, repo_root: Path) -> dict[str, Any]:
+    manifest_ref = str(record.get("bundle_manifest_ref") or "")
+    if not manifest_ref:
+        return {}
+    try:
+        return load_bundle_manifest(manifest_ref, repo_root=repo_root)
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _policy_identity_for_registry_record(record: dict[str, Any], *, repo_root: Path) -> dict[str, Any]:
+    artifact_class = str(record.get("artifact_class") or "")
+    if not artifact_class:
+        return {}
+    try:
+        rule = artifact_class_rule(artifact_class, repo_root=repo_root)
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        return {}
+    identity = rule.get("identity")
+    return identity if isinstance(identity, dict) else {}
+
+
+def _legacy_registry_upgrade_record(
+    record: dict[str, Any],
+    *,
+    source_repo: str,
+    producer: str,
+    trust_root_mode: str,
+    upgraded_at: str,
+    repo_root: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    upgraded = json.loads(json.dumps(record, ensure_ascii=False))
+    manifest = _manifest_for_registry_record(record, repo_root=repo_root)
+    policy_identity = _policy_identity_for_registry_record(record, repo_root=repo_root)
+    missing = [field for field in DURABLE_EVIDENCE_FIELDS if not upgraded.get(field)]
+
+    if not upgraded.get("source_repo"):
+        upgraded["source_repo"] = str(source_repo or manifest.get("owner_repo") or policy_identity.get("owner_repo") or "")
+    if not upgraded.get("source_ref"):
+        source_refs = _string_list(upgraded.get("source_refs"))
+        upgraded["source_ref"] = str(upgraded.get("bundle_manifest_ref") or (source_refs[0] if source_refs else "") or upgraded.get("bundle_ref") or "")
+    if not upgraded.get("producer"):
+        upgraded["producer"] = str(producer or policy_identity.get("producer") or "abyss-machine legacy registry evidence upgrade")
+    if not upgraded.get("producer_command"):
+        upgraded["producer_command"] = "abyss-machine artifacts bundle-registry-upgrade"
+    if not upgraded.get("trust_root_mode"):
+        upgraded["trust_root_mode"] = trust_root_mode
+    if not upgraded.get("verifier_versions"):
+        upgraded["verifier_versions"] = _verifier_versions(
+            {"schema": "legacy_registry_record_without_durable_evidence_fields"},
+            {
+                "legacy_registry_record": {
+                    "schema": str(upgraded.get("schema") or "unknown"),
+                    "upgraded_from": "pre_durable_evidence_fields",
+                }
+            },
+        )
+    if "verification_warnings" not in upgraded:
+        upgraded["verification_warnings"] = []
+    if "present_controls" not in upgraded:
+        controls = upgraded.get("controls") if isinstance(upgraded.get("controls"), dict) else {}
+        upgraded["present_controls"] = _string_list(controls.get("present")) or _string_list(upgraded.get("verified_controls"))
+    if "controls" not in upgraded or not isinstance(upgraded.get("controls"), dict):
+        upgraded["controls"] = {
+            "required": _string_list(upgraded.get("required_controls")),
+            "verified": _string_list(upgraded.get("verified_controls")),
+            "present": _string_list(upgraded.get("present_controls")),
+        }
+    if not upgraded.get("privacy_boundary") and policy_identity.get("privacy_boundary"):
+        upgraded["privacy_boundary"] = policy_identity.get("privacy_boundary")
+    if not upgraded.get("consumer_expectation") and policy_identity.get("consumer_expectation"):
+        upgraded["consumer_expectation"] = policy_identity.get("consumer_expectation")
+    consumer_contract = upgraded.get("consumer_contract")
+    manifest_contract = manifest.get("consumer_contract")
+    if (not isinstance(consumer_contract, dict) or not consumer_contract) and isinstance(manifest_contract, dict):
+        upgraded["consumer_contract"] = manifest_contract
+
+    source_refs = _string_list(upgraded.get("source_refs"))
+    for ref in (POLICY_REF, str(upgraded.get("bundle_manifest_ref") or ""), str(upgraded.get("source_ref") or "")):
+        if ref and ref not in source_refs:
+            source_refs.append(ref)
+    upgraded["source_refs"] = source_refs
+
+    evidence_refs = _string_list(upgraded.get("evidence_refs"))
+    evidence_ref = f"abyss-machine:legacy-registry-upgrade:{upgraded_at}"
+    if evidence_ref not in evidence_refs:
+        evidence_refs.append(evidence_ref)
+    upgraded["evidence_refs"] = evidence_refs
+    upgraded["legacy_evidence_upgrade"] = {
+        "schema": "abyss_machine_artifact_registry_legacy_evidence_upgrade_v1",
+        "upgraded_at": upgraded_at,
+        "reason": "registry record predates durable consumer trust-gate evidence fields",
+        "missing_fields": missing,
+        "method": "host-managed assertion over an already verified local registry record",
+        "trust_root_mode": upgraded.get("trust_root_mode"),
+        "source_repo": upgraded.get("source_repo"),
+        "source_ref": upgraded.get("source_ref"),
+        "producer": upgraded.get("producer"),
+    }
+    return upgraded, missing
+
+
+def upgrade_legacy_bundle_registry(
+    registry_dir: str | Path,
+    *,
+    artifact_class: str = "",
+    source_repo: str = "",
+    producer: str = "",
+    trust_root_mode: str = "host_managed",
+    dry_run: bool = False,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    if trust_root_mode not in TRUST_ROOT_MODES:
+        raise ValueError(f"unknown trust_root_mode: {trust_root_mode}")
+    root = Path(registry_dir)
+    registry = read_bundle_registry(root, artifact_class=artifact_class or None)
+    upgraded_at = _utc_now()
+    upgrades: list[dict[str, Any]] = []
+    written: list[str] = []
+    unchanged = 0
+    errors: list[str] = []
+
+    for record in registry.get("records", []):
+        if not isinstance(record, dict):
+            continue
+        missing = [field for field in DURABLE_EVIDENCE_FIELDS if not record.get(field)]
+        if not missing:
+            unchanged += 1
+            continue
+        record_id = str(record.get("record_id") or "")
+        if not record_id:
+            errors.append("legacy registry record without record_id cannot be upgraded")
+            continue
+        upgraded, initial_missing = _legacy_registry_upgrade_record(
+            record,
+            source_repo=source_repo,
+            producer=producer,
+            trust_root_mode=trust_root_mode,
+            upgraded_at=upgraded_at,
+            repo_root=repo_root,
+        )
+        remaining_missing = [field for field in DURABLE_EVIDENCE_FIELDS if not upgraded.get(field)]
+        record_path = _registry_record_path(root, record_id)
+        upgrade = {
+            "record_id": record_id,
+            "artifact_class": upgraded.get("artifact_class"),
+            "lifecycle_state": upgraded.get("lifecycle_state"),
+            "initial_missing_fields": initial_missing,
+            "remaining_missing_fields": remaining_missing,
+            "record_ref": _registry_path_ref(root, record_path),
+            "write_ready": not remaining_missing,
+            "source_repo": upgraded.get("source_repo"),
+            "source_ref": upgraded.get("source_ref"),
+            "producer": upgraded.get("producer"),
+            "trust_root_mode": upgraded.get("trust_root_mode"),
+        }
+        upgrades.append(upgrade)
+        if remaining_missing:
+            errors.append(f"{record_id} still lacks durable evidence fields: {', '.join(remaining_missing)}")
+            continue
+        if not dry_run:
+            _write_json(record_path, upgraded)
+            written.append(_registry_path_ref(root, record_path))
+
+    if not dry_run and written:
+        index = read_bundle_registry(root)
+        _write_json(root / BUNDLE_REGISTRY_INDEX, index)
+        written.append(_registry_path_ref(root, root / BUNDLE_REGISTRY_INDEX))
+
+    return {
+        "ok": not errors,
+        "schema": "abyss_machine_artifact_bundle_registry_upgrade_v1",
+        "registry_dir": _registry_path_ref(root, root),
+        "artifact_class_filter": artifact_class or None,
+        "dry_run": dry_run,
+        "upgraded_at": upgraded_at,
+        "summary": {
+            "records_seen": len(registry.get("records", [])),
+            "upgraded": len(upgrades),
+            "unchanged": unchanged,
+            "errors": len(errors),
+        },
+        "upgrades": upgrades,
+        "written": written,
+        "errors": errors,
+    }
+
+
+def promote_bundle_evidence(
+    bundle_dir: str | Path,
+    registry_dir: str | Path,
+    *,
+    lifecycle_state: str = "manually-verified",
+    consumer_refs: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    supersedes: list[str] | None = None,
+    revocation_reason: str = "",
+    source_repo: str = "",
+    source_ref: str = "",
+    producer: str = "",
+    trust_root_mode: str = "local_dev",
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    registry_write = write_bundle_registry_record(
+        bundle_dir,
+        registry_dir,
+        lifecycle_state=lifecycle_state,
+        consumer_refs=consumer_refs,
+        evidence_refs=evidence_refs,
+        supersedes=supersedes,
+        revocation_reason=revocation_reason,
+        source_repo=source_repo,
+        source_ref=source_ref,
+        producer=producer,
+        trust_root_mode=trust_root_mode,
+        repo_root=repo_root,
+    )
+    record = registry_write.get("record") if isinstance(registry_write.get("record"), dict) else {}
+    return {
+        "ok": bool(registry_write.get("ok")),
+        "schema": "abyss_machine_artifact_evidence_promotion_v1",
+        "bundle_layout": BUNDLE_LAYOUT,
+        "bundle_dir": _portable_path_ref(Path(bundle_dir)),
+        "registry_dir": registry_write.get("registry_dir"),
+        "record_ref": registry_write.get("record_ref"),
+        "written": registry_write.get("written", []),
+        "promotion": {
+            "record_id": record.get("record_id"),
+            "artifact_class": record.get("artifact_class"),
+            "subject_digest": record.get("subject_digest"),
+            "lifecycle_state": record.get("lifecycle_state"),
+            "source_repo": record.get("source_repo"),
+            "source_ref": record.get("source_ref"),
+            "producer": record.get("producer"),
+            "trust_root_mode": record.get("trust_root_mode"),
+            "durable_registry": bool(registry_write.get("ok")),
+        },
+        "record": record,
+        "registry": registry_write.get("registry"),
+        "verification": registry_write.get("verification"),
+        "errors": registry_write.get("errors", []),
+    }
+
+
+def _record_digest_values(record: dict[str, Any]) -> set[str]:
+    digests: set[str] = set()
+    for key in ("subject_digest", "artifact_subjects_digest", "abi_subject_digest", "record_id"):
+        value = str(record.get(key) or "")
+        if value:
+            digests.add(value)
+    return digests
+
+
+def _find_registry_record(
+    records: list[dict[str, Any]],
+    *,
+    record_id: str,
+    subject_digest: str,
+) -> dict[str, Any] | None:
+    if record_id:
+        for record in records:
+            if str(record.get("record_id") or "") == record_id:
+                return record
+    if subject_digest:
+        matches = [record for record in records if subject_digest in _record_digest_values(record)]
+        if matches:
+            return sorted(matches, key=_latest_sort_key)[-1]
+    return None
+
+
+def _trust_gate_decision(
+    *,
+    verdict: str,
+    consumer_intent: str,
+    blockers: list[str],
+    manual_review: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    return {
+        "model": "fail_closed_consumer_admission",
+        "allowed_verdicts": ["allow", "warn"],
+        "verdict": verdict,
+        "allow": verdict in {"allow", "warn"},
+        "consumer_intent": consumer_intent,
+        "blocks_on_unknown": True,
+        "blockers": blockers,
+        "manual_review": manual_review,
+        "warnings": warnings,
+    }
+
+
+def _trust_gate_inspected_claims(
+    selected: dict[str, Any],
+    *,
+    latest: dict[str, Any] | None,
+    artifact_class: str,
+    subject_digest: str,
+    record_id: str,
+    expected_source_repo: str,
+    expected_trust_root_mode: str,
+    require_latest: bool,
+) -> dict[str, Any]:
+    required_controls = [str(item) for item in selected.get("required_controls", [])]
+    verified_controls = [str(item) for item in selected.get("verified_controls", [])]
+    latest_record_id = str(latest.get("record_id") or "") if isinstance(latest, dict) else ""
+    selected_record_id = str(selected.get("record_id") or "")
+    digest_values = _record_digest_values(selected)
+    return {
+        "registry_latest": {
+            "required": require_latest,
+            "latest_record_id": latest_record_id or None,
+            "selected_record_id": selected_record_id or None,
+            "selected_record_is_latest": bool(latest_record_id and selected_record_id == latest_record_id),
+        },
+        "record_identity": {
+            "artifact_class_expected": artifact_class,
+            "artifact_class_actual": selected.get("artifact_class"),
+            "record_id_expected": record_id or None,
+            "record_id_actual": selected_record_id or None,
+            "record_id_matched": bool(not record_id or selected_record_id == record_id),
+        },
+        "subject_identity": {
+            "subject_digest_expected": subject_digest or None,
+            "known_digests": sorted(digest_values),
+            "subject_digest_matched": bool(not subject_digest or subject_digest in digest_values),
+        },
+        "lifecycle": {
+            "state": selected.get("lifecycle_state"),
+            "latest_eligible": bool(selected.get("latest_eligible")),
+            "terminal_state": bool(selected.get("terminal_state")),
+        },
+        "verification": {
+            "ok": bool(selected.get("verification_ok")),
+            "errors": selected.get("verification_errors", []),
+            "missing": selected.get("verification_missing", []),
+            "warnings": selected.get("verification_warnings", []),
+        },
+        "controls": {
+            "required": required_controls,
+            "verified": verified_controls,
+            "present": [str(item) for item in selected.get("present_controls", [])],
+            "required_controls_missing": sorted(set(required_controls) - set(verified_controls)),
+        },
+        "source": {
+            "source_repo_expected": expected_source_repo or None,
+            "source_repo_actual": selected.get("source_repo"),
+            "source_repo_matched": bool(not expected_source_repo or str(selected.get("source_repo") or "") == expected_source_repo),
+            "source_ref": selected.get("source_ref"),
+            "producer": selected.get("producer"),
+        },
+        "trust_root": {
+            "trust_root_mode_expected": expected_trust_root_mode or None,
+            "trust_root_mode_actual": selected.get("trust_root_mode"),
+            "trust_root_mode_matched": bool(
+                not expected_trust_root_mode or str(selected.get("trust_root_mode") or "") == expected_trust_root_mode
+            ),
+        },
+        "artifact_subject_store": selected.get("artifact_subject_store"),
+        "consumer_contract": selected.get("consumer_contract"),
+    }
+
+
+def trust_gate(
+    registry_dir: str | Path,
+    *,
+    artifact_class: str,
+    subject_digest: str = "",
+    record_id: str = "",
+    consumer_intent: str = "agent",
+    expected_source_repo: str = "",
+    expected_trust_root_mode: str = "",
+    require_latest: bool = True,
+) -> dict[str, Any]:
+    registry = read_bundle_registry(registry_dir, artifact_class=artifact_class)
+    records = [record for record in registry.get("records", []) if isinstance(record, dict)]
+    latest = registry.get("latest_by_artifact_class", {}).get(artifact_class)
+    selected = _find_registry_record(records, record_id=record_id, subject_digest=subject_digest)
+    if selected is None and isinstance(latest, dict):
+        selected = latest
+
+    if selected is None:
+        blockers = ["no_registry_record"]
+        manual_review: list[str] = []
+        warnings: list[str] = []
+        verdict = "unknown"
+        return {
+            "ok": False,
+            "schema": "abyss_machine_artifact_trust_gate_v1",
+            "verdict": verdict,
+            "decision": _trust_gate_decision(
+                verdict=verdict,
+                consumer_intent=consumer_intent,
+                blockers=blockers,
+                manual_review=manual_review,
+                warnings=warnings,
+            ),
+            "artifact_class": artifact_class,
+            "consumer_intent": consumer_intent,
+            "subject_digest": subject_digest or None,
+            "record_id": record_id or None,
+            "require_latest": require_latest,
+            "registry_dir": registry.get("registry_dir"),
+            "latest_record_id": latest.get("record_id") if isinstance(latest, dict) else None,
+            "reasons": blockers,
+            "blockers": blockers,
+            "manual_review": [],
+            "warnings": [],
+            "inspected_claims": {
+                "registry_latest": {
+                    "required": require_latest,
+                    "latest_record_id": latest.get("record_id") if isinstance(latest, dict) else None,
+                    "selected_record_id": None,
+                    "selected_record_is_latest": False,
+                },
+                "record_identity": {
+                    "artifact_class_expected": artifact_class,
+                    "record_id_expected": record_id or None,
+                    "record_id_actual": None,
+                    "record_id_matched": False if record_id else None,
+                },
+                "subject_identity": {
+                    "subject_digest_expected": subject_digest or None,
+                    "known_digests": [],
+                    "subject_digest_matched": False if subject_digest else None,
+                },
+            },
+            "record": None,
+            "registry_summary": registry.get("summary", {}),
+        }
+
+    blockers: list[str] = []
+    manual_review: list[str] = []
+    warnings: list[str] = []
+
+    if selected.get("artifact_class") != artifact_class:
+        blockers.append("artifact_class_mismatch")
+    if subject_digest and subject_digest not in _record_digest_values(selected):
+        blockers.append("subject_digest_mismatch")
+    if record_id and str(selected.get("record_id") or "") != record_id:
+        blockers.append("record_id_mismatch")
+    if require_latest:
+        if not isinstance(latest, dict):
+            blockers.append("no_latest_record")
+        elif str(latest.get("record_id") or "") != str(selected.get("record_id") or ""):
+            blockers.append("record_not_latest")
+    if selected.get("terminal_state") or selected.get("lifecycle_state") in BUNDLE_TERMINAL_STATES:
+        blockers.append(f"terminal_lifecycle_state:{selected.get('lifecycle_state')}")
+    if not selected.get("verification_ok"):
+        blockers.append("verification_not_ok")
+    if selected.get("verification_errors"):
+        blockers.append("verification_errors_present")
+    if selected.get("verification_missing"):
+        blockers.append("verification_missing_required_sidecars")
+
+    required_controls = {str(item) for item in selected.get("required_controls", [])}
+    verified_controls = {str(item) for item in selected.get("verified_controls", [])}
+    missing_verified = sorted(required_controls - verified_controls)
+    if missing_verified:
+        blockers.append("required_controls_not_verified:" + ",".join(missing_verified))
+
+    required_record_fields = DURABLE_EVIDENCE_FIELDS
+    missing_record_fields = [field for field in required_record_fields if not selected.get(field)]
+    if missing_record_fields:
+        blockers.append("record_missing_durable_evidence_fields:" + ",".join(missing_record_fields))
+
+    trust_root_mode = str(selected.get("trust_root_mode") or "")
+    if trust_root_mode and trust_root_mode not in TRUST_ROOT_MODES:
+        blockers.append(f"unknown_trust_root_mode:{trust_root_mode}")
+    if expected_source_repo and str(selected.get("source_repo") or "") != expected_source_repo:
+        blockers.append("source_repo_mismatch")
+    if expected_trust_root_mode and trust_root_mode != expected_trust_root_mode:
+        blockers.append("trust_root_mode_mismatch")
+
+    lifecycle_state = str(selected.get("lifecycle_state") or "")
+    if consumer_intent in PRODUCTION_CONSUMER_INTENTS:
+        if trust_root_mode == "local_dev":
+            manual_review.append("production_consumer_requires_non_local_trust_root")
+        if lifecycle_state not in {"release-ready", "published"}:
+            manual_review.append("production_consumer_requires_release_lifecycle")
+        privacy_boundary = str(selected.get("privacy_boundary") or "").lower()
+        if "private" in privacy_boundary and "public-safe" not in privacy_boundary:
+            manual_review.append("production_consumer_requires_public_privacy_boundary")
+
+    if selected.get("verification_warnings"):
+        warnings.extend(str(item) for item in selected.get("verification_warnings", []))
+
+    if blockers:
+        verdict = "deny"
+    elif manual_review:
+        verdict = "manual_review_required"
+    elif warnings:
+        verdict = "warn"
+    else:
+        verdict = "allow"
+
+    return {
+        "ok": verdict in {"allow", "warn"},
+        "schema": "abyss_machine_artifact_trust_gate_v1",
+        "verdict": verdict,
+        "decision": _trust_gate_decision(
+            verdict=verdict,
+            consumer_intent=consumer_intent,
+            blockers=blockers,
+            manual_review=manual_review,
+            warnings=warnings,
+        ),
+        "artifact_class": artifact_class,
+        "consumer_intent": consumer_intent,
+        "subject_digest": subject_digest or None,
+        "record_id": str(selected.get("record_id") or "") or None,
+        "require_latest": require_latest,
+        "registry_dir": registry.get("registry_dir"),
+        "latest_record_id": latest.get("record_id") if isinstance(latest, dict) else None,
+        "reasons": [*blockers, *manual_review, *warnings],
+        "blockers": blockers,
+        "manual_review": manual_review,
+        "warnings": warnings,
+        "inspected_claims": _trust_gate_inspected_claims(
+            selected,
+            latest=latest if isinstance(latest, dict) else None,
+            artifact_class=artifact_class,
+            subject_digest=subject_digest,
+            record_id=record_id,
+            expected_source_repo=expected_source_repo,
+            expected_trust_root_mode=expected_trust_root_mode,
+            require_latest=require_latest,
+        ),
+        "record": selected,
+        "registry_summary": registry.get("summary", {}),
     }
 
 

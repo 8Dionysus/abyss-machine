@@ -56,11 +56,20 @@ browser-extension, and public media export classes declare the expected ABI,
 SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, or C2PA requirements, and that
 publishable artifacts are not tracked as ordinary public source files. It also
 builds and verifies the first public-source-seed bundle sidecars plus the
-public-safe host-local-evidence provenance sample. It also writes a synthetic
-bundle registry record, verifies that it becomes `latest`, then writes a
-terminal `revoked` state and verifies that it disappears from `latest`. This
-keeps lifecycle/read-model behavior executable while still avoiding private
-keys, release signing, and private host payloads in ordinary CI.
+public-safe host-local-evidence provenance sample. It also promotes a synthetic
+durable evidence record, verifies that it becomes `latest`, runs a positive
+consumer `trust-gate`, then writes a terminal `revoked` state and verifies that
+the gate denies consumption and the record disappears from `latest`. This keeps
+lifecycle/read-model and fail-closed consumer-gate behavior executable,
+including the gate's explicit decision and inspected-claims contract, while
+still avoiding private keys, release signing, and private host payloads in
+ordinary CI.
+
+The same lane covers legacy registry migration: an old registry record with
+missing durable evidence fields must be denied by `trust-gate`, reported by
+`bundle-registry-upgrade --dry-run`, upgraded with an explicit
+`legacy_evidence_upgrade` assertion, and then admitted only when the upgraded
+claims satisfy the same gate.
 
 ## Path Policy Lane
 
@@ -109,4 +118,6 @@ the first executable consumer route: it creates ABI/provenance/signature-decisio
 sidecars for `public_source_seed`, local provenance sidecars for the
 `host_local_evidence` sample, verifies both with the same policy-driven bundle
 verifier exposed by `abyss-machine artifacts verify`, and exercises
-`bundle-register`/`bundle-registry` latest and terminal-state behavior.
+`evidence-promote`/`bundle-registry` latest behavior, positive `trust-gate`
+selection, terminal-state revocation, negative `trust-gate` denial, legacy
+registry upgrade, and the gate's explicit decision/claims explanation.
