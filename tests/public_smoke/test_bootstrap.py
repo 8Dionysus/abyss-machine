@@ -46,6 +46,7 @@ def test_typing_profile_is_opt_in() -> None:
     payload = run_bootstrap("enable-profile", "--profile", "typing-intake", "--dry-run")
     units = {action["unit"] for action in payload["actions"]}
     assert "abyss-machine-typing-atspi-text-events.service" in units
+    assert "abyss-machine-typing-nervous-refresh.timer" in units
     assert payload["dry_run"] is True
 
 
@@ -85,6 +86,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "install_public_seed" in actions
     assert (libexec_dir / "abyss-machine").is_file()
     assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
+    assert run_root.is_dir()
     assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
     assert (tmp_path / "share" / "abyss-machine" / "generated" / "contract_abi_signatures.min.json").is_file()
 

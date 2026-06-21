@@ -92,6 +92,7 @@ def main() -> int:
         "/srv/abyss-machine/runtimes",
         "/srv/abyss-machine/storage",
         "/srv/abyss-machine/tmp",
+        "/run/abyss-machine",
     ):
         require(path in install_roots, f"install roots missing {path}", failures)
 

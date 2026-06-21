@@ -7,9 +7,10 @@
 The source-fast lane is defined in `docs/validation/validation_lanes.json` and
 loads through `scripts/validation_lanes.py`. It checks repo topology,
 mechanics topology, manifests, schemas, bootstrap dry-runs, shared path policy,
-typing/nervous organ policy, typing/nervous refresh logic, public boundary,
-artifact signature policy, contract ABI signature freshness, generated scaffold
-index freshness, compileall, and public smoke tests.
+the first-run installed projection, typing/nervous organ policy,
+typing/nervous refresh logic, public boundary, artifact signature policy,
+contract ABI signature freshness, generated scaffold index freshness,
+compileall, and public smoke tests.
 
 ## Runner Contexts
 
@@ -74,6 +75,7 @@ claims satisfy the same gate.
 ## Path Policy Lane
 
 - `python scripts/validators/path_policy.py`
+- `python scripts/validators/first_run_installed_projection.py`
 - `python scripts/validators/typing_nervous_policy.py`
 - `python scripts/validators/typing_nervous_refresh_logic.py`
 
@@ -83,6 +85,14 @@ root contract for `/etc/abyss-machine`, `/var/lib/abyss-machine`,
 typing/nervous state paths. It also verifies that CLI constants honor
 environment overrides at import time, so a fresh machine or test harness can
 render the same organ shape without editing source.
+
+The first-run installed projection validator performs a real
+`install --apply` into isolated temporary roots, then runs the installed CLI
+without `PYTHONPATH=src`. It enforces source-vs-temp-installed command parity,
+package-module projection, public seed share projection, `/run` root creation,
+typing/nervous config and unit projection, and opt-in profile dry-runs. The
+live `/usr/local/bin/abyss-machine` comparison is read-only and advisory by
+default; use `--require-host-installed` during a real host install closeout.
 
 The typing/nervous policy validator keeps the first subsystem split honest:
 private nervous captures, search and semantic indexes, browser/tool adapters,

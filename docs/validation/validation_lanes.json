@@ -72,6 +72,7 @@
       {"label": "manifest integrity", "command": ["python", "scripts/validators/manifest_integrity.py"]},
       {"label": "schema integrity", "command": ["python", "scripts/validators/schema_integrity.py"]},
       {"label": "bootstrap contract", "command": ["python", "scripts/validators/bootstrap_contract.py"]},
+      {"label": "first-run installed projection", "command": ["python", "scripts/validators/first_run_installed_projection.py"]},
       {"label": "path policy", "command": ["python", "scripts/validators/path_policy.py"]},
       {"label": "typing nervous policy", "command": ["python", "scripts/validators/typing_nervous_policy.py"]},
       {"label": "typing nervous refresh logic", "command": ["python", "scripts/validators/typing_nervous_refresh_logic.py"]},

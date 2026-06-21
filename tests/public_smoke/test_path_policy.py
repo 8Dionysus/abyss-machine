@@ -41,6 +41,7 @@ def test_path_policy_renders_install_contract_roots() -> None:
         "/x/srv/runtimes",
         "/x/srv/storage",
         "/x/srv/tmp",
+        "/x/run",
     }
 
 

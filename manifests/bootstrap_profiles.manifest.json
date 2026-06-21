@@ -19,6 +19,7 @@
       "system": [],
       "user": [
         "abyss-machine-typing-focused-snapshot.timer",
+        "abyss-machine-typing-nervous-refresh.timer",
         "abyss-machine-typing-saved-text-scan.timer",
         "abyss-machine-typing-atspi-text-events.service",
         "abyss-machine-typing-codex-session-tail.service"
