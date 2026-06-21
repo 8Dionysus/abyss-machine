@@ -337,6 +337,8 @@ def classify_artifact(
 def consumer_intent_for_artifact_class(artifact_class: str) -> str:
     if artifact_class == "bootstrap_install_bundle":
         return "installer"
+    if artifact_class == "aoa_session_memory_portable_bundle":
+        return "update_client"
     if artifact_class in {"runtime_or_container_artifact", "ai_model_or_runtime_bundle"}:
         return "runtime"
     if artifact_class in {"browser_extension_package", "public_media_export"}:
@@ -1311,23 +1313,34 @@ def materialize_artifact_subjects(
     bundle_dir: str | Path,
     *,
     store_root: Path | None = None,
+    manifest_ref: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     identity = _read_json(bundle / IDENTITY_SIDECAR) if (bundle / IDENTITY_SIDECAR).is_file() else {}
     subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
-    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
     subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
     errors: list[str] = []
+    manifest: dict[str, Any] = {}
+    if manifest_ref:
+        try:
+            manifest = load_bundle_manifest(manifest_ref, repo_root=repo_root)
+        except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"explicit bundle manifest did not resolve: {exc}")
+    else:
+        manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
     if not subject_files:
         errors.append("artifact.subjects.json must define files before materialization")
     if not manifest:
-        errors.append("artifact.identity.json bundle_manifest_ref must resolve before materialization")
+        errors.append("artifact.identity.json bundle_manifest_ref must resolve before materialization or --manifest must be supplied")
+    if manifest and identity.get("artifact_class") and manifest.get("artifact_class") != identity.get("artifact_class"):
+        errors.append("explicit bundle manifest artifact_class does not match artifact.identity.json")
     if errors:
         return {
             "ok": False,
             "schema": "abyss_machine_artifact_subject_materialize_v1",
             "bundle_dir": _portable_path_ref(bundle),
+            "manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
             "errors": errors,
             "written": [],
         }
@@ -1362,6 +1375,7 @@ def materialize_artifact_subjects(
             "ok": False,
             "schema": "abyss_machine_artifact_subject_materialize_v1",
             "bundle_dir": _portable_path_ref(bundle),
+            "manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
             "store_dir": str(target_dir),
             "errors": errors,
             "written": [],
@@ -1382,6 +1396,7 @@ def materialize_artifact_subjects(
         "store_dir": str(target_dir),
         "bundle_ref": _portable_path_ref(bundle),
         "bundle_manifest_ref": identity.get("bundle_manifest_ref"),
+        "source_manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
         "materialized_at": _utc_now(),
         "files": subject_files,
     }
@@ -1392,6 +1407,7 @@ def materialize_artifact_subjects(
         "ok": bool(status.get("ok")),
         "schema": "abyss_machine_artifact_subject_materialize_v1",
         "bundle_dir": _portable_path_ref(bundle),
+        "manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
         "store_dir": str(target_dir),
         "artifact_class": subjects.get("artifact_class"),
         "aggregate_digest": subjects.get("aggregate_digest"),
