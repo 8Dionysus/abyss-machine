@@ -436,6 +436,67 @@ def test_trust_gate_requires_manual_review_for_local_dev_production_consumers(tm
     assert "production_consumer_requires_release_lifecycle" in gate["manual_review"]
 
 
+def test_trust_gate_allows_public_boundary_with_private_exclusions_for_release_consumers(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        consumer_intent="public_release",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["manual_review"] == []
+    assert "private captures" in gate["inspected_claims"]["privacy_boundary"]["value"]
+    assert gate["inspected_claims"]["privacy_boundary"]["production_public_ready"] is True
+
+
+def test_trust_gate_requires_manual_review_for_private_production_boundary(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+    record_path = (
+        registry
+        / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+        / f"{promoted['record']['record_id'].removeprefix('sha256:')}.json"
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["privacy_boundary"] = "private host evidence; not public repo content and not release-signed by default"
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        consumer_intent="public_release",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "manual_review_required"
+    assert gate["manual_review"] == ["production_consumer_requires_public_privacy_boundary"]
+    assert gate["inspected_claims"]["privacy_boundary"]["production_public_ready"] is False
+
+
 def test_trust_gate_fails_closed_when_registry_record_is_absent(tmp_path: Path) -> None:
     gate = artifact_bundles.trust_gate(
         tmp_path / "empty-registry",
