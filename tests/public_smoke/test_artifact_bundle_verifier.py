@@ -276,6 +276,97 @@ def test_artifact_affected_distinguishes_sibling_lag() -> None:
     assert accepted["accept_sibling_lag"] is True
 
 
+def _write_verified_registry_record(registry: Path, *, evidence_refs: list[str]) -> None:
+    record = {
+        "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+        "record_id": "sha256:" + "a" * 64,
+        "artifact_class": "aoa_sdk_python_distribution",
+        "bundle_layout": "abyss_machine_artifact_bundle_v1",
+        "bundle_ref": "aoa-sdk/dist/abyss-artifact-bundle",
+        "bundle_manifest_ref": "sdk/distribution/manifests/python_distribution.bundle.json",
+        "subject_digest": "sha256:" + "b" * 64,
+        "lifecycle_state": "release-ready",
+        "latest_eligible": True,
+        "terminal_state": False,
+        "verification_ok": True,
+        "verification_errors": [],
+        "verification_missing": [],
+        "verification_warnings": [],
+        "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+        "verified_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+        "present_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+        "source_repo": "aoa-sdk",
+        "source_ref": "sdk/distribution/manifests/python_distribution.bundle.json",
+        "source_refs": [
+            "sdk/distribution/manifests/python_distribution.bundle.json",
+            *evidence_refs,
+        ],
+        "producer": "aoa-sdk:release-audit-publish-helper@commit:current",
+        "producer_command": "python mechanics/release-support/parts/release-audit-publish-helper/scripts/validate_abyss_machine_package_artifact_bundle.py --json",
+        "trust_root_mode": "host_managed",
+        "verifier_versions": {"test": "source-ref-freshness"},
+        "evidence_refs": evidence_refs,
+        "created_at": "2026-06-21T00:00:00Z",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "abi_ref": artifact_bundles.ABI_REF,
+    }
+    records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+    records.mkdir(parents=True)
+    (records / "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json").write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_artifact_affected_source_ref_closes_sibling_lag_after_promotion(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(registry, evidence_refs=["commit:current"])
+
+    affected = artifact_bundles.artifact_affected(
+        ["sdk/distribution/manifests/python_distribution.bundle.json"],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_repo="aoa-sdk",
+        changed_source_ref="commit:current",
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["freshness"] == "fresh"
+    assert row["source_ref_status"]["matched"] is True
+    assert row["source_ref_status"]["matched_ref"] == "commit:current"
+    assert row["registry"]["latest_record_id"] == "sha256:" + "a" * 64
+    assert row["trust_gate"]["verdict"] == "allow"
+    assert row["next_actions"] == [
+        "abyss-machine artifacts requirements --artifact-class aoa_sdk_python_distribution --json"
+    ]
+
+
+def test_artifact_affected_wrong_source_ref_keeps_sibling_blocked(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(registry, evidence_refs=["commit:previous"])
+
+    affected = artifact_bundles.artifact_affected(
+        ["sdk/distribution/manifests/python_distribution.bundle.json"],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_repo="aoa-sdk",
+        changed_source_ref="commit:current",
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert row["affected"] is True
+    assert row["verdict"] == "blocked_by_missing_sibling"
+    assert row["freshness"] == "stale"
+    assert row["reasons"] == ["owner_repo_changed"]
+    assert row["source_ref_status"]["matched"] is False
+    assert row["source_ref_status"]["expected"] == "commit:current"
+    assert row["source_ref_status"]["known_refs"]
+    assert row["next_actions"][1] == "run the producer profile in owner repo aoa-sdk"
+
+
 def test_artifact_affected_scopes_sibling_paths_to_matching_owner_repo() -> None:
     local = artifact_bundles.artifact_affected(
         ["manifests/artifact_bundles/portable_bundle.bundle.json"],
