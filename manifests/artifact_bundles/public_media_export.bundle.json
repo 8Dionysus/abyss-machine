@@ -1,0 +1,48 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "public-media-export",
+  "artifact_class": "public_media_export",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Local release-candidate route for public media/content exports that require C2PA asset binding before publication.",
+  "artifact_source": {
+    "kind": "local_release_candidate",
+    "content_identity_ref": "manifests/artifact_signature_policy.manifest.json#/artifact_classes/public_media_export/identity/content_identity",
+    "private_payload_included": false,
+    "privacy_review": "required before publication; synthetic probes must not contain host-private evidence"
+  },
+  "subject_repo_root": "../..",
+  "artifact_subjects": [
+    {
+      "glob": "dist/abyss-machine-public-media-c2pa-probe-*.png",
+      "role": "public_media_export"
+    }
+  ],
+  "c2pa": {
+    "manifest_sidecar": "artifact.c2pa",
+    "validation_report": "artifact.c2pa.json",
+    "required_validation_state": "Valid",
+    "claim_limit": "Local c2patool validation proves asset binding and claim signature integrity; production publication still needs an accepted signing credential and privacy review."
+  },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": ["candidate", "built-local", "manually-verified", "release-ready", "published"],
+    "latest_eligible_states": ["manually-verified", "release-ready", "published"]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class public_media_export --json",
+    "consumer_expectation": "Content consumers select a public_media_export registry latest only after C2PA validation proves the media asset binding, claim signature integrity, and publication privacy route.",
+    "registry_required": true
+  },
+  "consumer_command": [
+    "c2patool MEDIA.png --manifest C2PA_MANIFEST.json --create empty --sidecar --output MEDIA.public.png --force",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_media_export.bundle.json --bundle-dir BUNDLE_DIR",
+    "cp MEDIA.public.c2pa BUNDLE_DIR/artifact.c2pa",
+    "c2patool MEDIA.public.png --external-manifest MEDIA.public.c2pa > BUNDLE_DIR/artifact.c2pa.json",
+    "abyss-machine artifacts verify BUNDLE_DIR",
+    "abyss-machine artifacts release-check BUNDLE_DIR",
+    "abyss-machine artifacts bundle-registry --artifact-class public_media_export"
+  ]
+}

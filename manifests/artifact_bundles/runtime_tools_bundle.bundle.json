@@ -1,0 +1,61 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "runtime-tools-bundle",
+  "artifact_class": "runtime_or_container_artifact",
+  "contract_surface_id": "host-runtime-artifact-route",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Local release-candidate route for host runtime helper scripts, runtime mechanics docs, and storage policy inputs.",
+  "artifact_source": {
+    "kind": "ignored_dist_release_candidate",
+    "content_identity_ref": "artifact.subjects.json",
+    "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/host-runtime-artifact-route/source_paths",
+    "private_payload_included": false
+  },
+  "subject_repo_root": "../..",
+  "artifact_subjects": [
+    {
+      "glob": "dist/abyss-machine-runtime-tools-*.tar.gz",
+      "role": "runtime_tools_bundle"
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:abyss-machine-runtime-tools-bundle:v1",
+  "package": {
+    "ecosystem": "runtime-tools",
+    "name": "abyss-machine-runtime-tools",
+    "version": "0",
+    "purl": "pkg:generic/abyss-machine-runtime-tools@0"
+  },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "published",
+      "superseded"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready",
+      "published"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class runtime_or_container_artifact --json",
+    "consumer_expectation": "Runtime consumers select a runtime_or_container_artifact registry latest only after ABI, SBOM, SLSA/in-toto, and Sigstore/Cosign verification succeed against the runtime bundle digest.",
+    "registry_required": true
+  },
+  "consumer_command": [
+    "tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -czf dist/abyss-machine-runtime-tools-VERSION.tar.gz mechanics/local-ai-runtime mechanics/storage-routing tools/ai config-templates/etc/abyss-machine/storage-policy.json",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/runtime_tools_bundle.bundle.json --bundle-dir BUNDLE_DIR",
+    "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
+    "abyss-machine artifacts verify BUNDLE_DIR",
+    "abyss-machine artifacts release-check BUNDLE_DIR",
+    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class runtime_or_container_artifact"
+  ]
+}

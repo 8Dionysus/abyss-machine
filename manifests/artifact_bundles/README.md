@@ -10,6 +10,28 @@ verify. They do not define signing doctrine; controls come from
 - `host_local_evidence.sample.bundle.json`: public-safe OS Abyss local
   provenance sample. It proves the private evidence packet verifier path
   without carrying real `/var/lib/abyss-machine` payloads.
+- `bootstrap_install_bundle.bundle.json`: local release-candidate route for an
+  ignored `dist/abyss-machine-bootstrap-*.tar.gz` archive. It requires ABI,
+  SBOM, SLSA/in-toto, and Sigstore/Cosign verification before registry latest
+  selection.
+- `runtime_tools_bundle.bundle.json`: local release-candidate route for an
+  ignored `dist/abyss-machine-runtime-tools-*.tar.gz` archive containing host
+  runtime helper scripts, runtime mechanics docs, and storage policy inputs.
+- `ai_runtime_config_bundle.bundle.json`: local release-candidate route for an
+  ignored `dist/abyss-machine-ai-runtime-config-*.tar.gz` archive. It is an
+  AI framework-config bundle with ML-BOM identities for referenced models and
+  conversions, not a model-weights publication.
+- `browser_extension_package.bundle.json`: local release-candidate route for
+  the Firefox typed-text intake source package under
+  `tools/typing/firefox-extension/build/`. Mozilla store signing remains a
+  separate external boundary.
+- `public_media_export.bundle.json`: local release-candidate route for public
+  media/content exports that carry C2PA asset binding before publication.
+
+Bundle manifests may declare lifecycle and consumer-contract fields. The
+registry read-model is local state: verified, latest-eligible records can be
+selected by consumers, while terminal states remain evidence and are excluded
+from latest.
 
 External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM
@@ -18,3 +40,9 @@ source repository.
 Runtime config artifacts use the same manifest route and may set `build_type`
 so the generated SLSA statement identifies a runtime-config bundle instead of
 the Python distribution default.
+
+Release-artifact subjects can be materialized into the local host subject store
+with `abyss-machine artifacts materialize-subjects BUNDLE_DIR --json`. The
+public manifest stays repo-relative; installed consumers verify the signed
+`artifact.subjects.json` against `/var/lib/abyss-machine/artifacts/subjects`
+when the source artifact path is not available.

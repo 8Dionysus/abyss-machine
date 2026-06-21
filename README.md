@@ -32,6 +32,10 @@ scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --j
 
 The bootstrap CLI and installed `abyss-machine` CLI share
 `abyss_machine.path_policy` for root defaults and environment overrides.
+Bootstrap installs the CLI entrypoint together with its `abyss_machine` package
+modules and a compact public seed projection under
+`/usr/local/share/abyss-machine` so installed artifact-bundle verification does
+not depend on a live source checkout.
 Typing/nervous path and service defaults live in
 `abyss_machine.typing_nervous_policy`; refresh resource-gate and recent-index
 debounce helpers, refresh assessment, latest-status classification, and
@@ -95,6 +99,9 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/pub
 abyss-machine artifacts sign /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts verify /tmp/abyss-machine-public-source-seed --json
 abyss-machine artifacts release-check /tmp/abyss-machine-public-source-seed --json
+abyss-machine artifacts bundle-register /tmp/abyss-machine-public-source-seed --lifecycle-state manually-verified --json
+abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json
+abyss-machine artifacts trust-coverage --json
 ```
 
 OS Abyss local provenance verifier sample:
@@ -104,20 +111,21 @@ abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/hos
 abyss-machine artifacts sign /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts verify /tmp/abyss-machine-host-local-evidence --json
 abyss-machine artifacts release-check /tmp/abyss-machine-host-local-evidence --json
+abyss-machine artifacts bundle-register /tmp/abyss-machine-host-local-evidence --lifecycle-state manually-verified --json
+abyss-machine artifacts bundle-registry --artifact-class host_local_evidence --json
 ```
 
 ## Current Status
 
-The installed CLI remains mostly monolithic, but shared root policy,
-typing/nervous organ policy, and typing/nervous refresh decision helpers have
-been split into package modules with public validators. The typing/nervous
-refresh latest-status classifier is also module-owned, with the CLI kept as a
-thin adapter to live `latest.json` and systemd state. Refresh index-attempt
-debounce context, final status/summary context, and snapshot, index, retry, and
-synthesis action-record builders are module-owned. The final refresh document
-shape is also module-owned, while live index launch, synthesis orchestration,
-and persistence still stay in the CLI. Known v1
-portability debt remains in subsystem command glue and some historical
-workstation fixture paths; further hardening should move command implementation
-behind smaller modules before claiming full host-agnostic behavior for every
-subcommand.
+The installed CLI is still a large entrypoint, but it is no longer a lone script
+projection. Bootstrap carries the package modules needed by installed-host
+compatibility, including artifact bundle verification and typing/nervous helper
+logic. Shared root policy, typing/nervous organ policy, typing/nervous refresh
+decision helpers, the refresh latest-status classifier, action-record builders,
+and the final refresh document shape are now module-owned with public
+validators. The public seed projection also carries `manifests/` and
+`generated/` read models for installed ABI/provenance checks. Live index launch,
+synthesis orchestration, subsystem command glue, and some historical workstation
+fixture paths remain v1 portability debt; further hardening should keep moving
+command implementation behind smaller modules before claiming full
+host-agnostic behavior for every subcommand.

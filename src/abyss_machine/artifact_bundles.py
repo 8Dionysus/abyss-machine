@@ -3,13 +3,15 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
+import shutil
+import subprocess
 import tomllib
 import uuid
 from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_REF = "manifests/artifact_signature_policy.manifest.json"
 POLICY_REF_REPO_QUALIFIED = f"repo:abyss-machine/{POLICY_REF}"
 POLICY_REF_ALIASES = frozenset({POLICY_REF, POLICY_REF_REPO_QUALIFIED})
@@ -25,17 +27,80 @@ SUBJECTS_SIDECAR = "artifact.subjects.json"
 SBOM_CYCLONEDX_SIDECAR = "artifact.sbom.cdx.json"
 SBOM_SPDX_SIDECAR = "artifact.sbom.spdx.json"
 SLSA_INTOTO_SIDECAR = "artifact.provenance.intoto.jsonl"
+COSIGN_SIGNATURE_SIDECAR = "artifact.cosign.signature"
+COSIGN_PUBLIC_KEY_SIDECAR = "artifact.cosign.pub"
+SIGSTORE_BUNDLE_SIDECAR = "artifact.sigstore.json"
+MLBOM_CYCLONEDX_SIDECAR = "artifact.mlbom.cdx.json"
+C2PA_MANIFEST_SIDECAR = "artifact.c2pa"
+C2PA_REPORT_SIDECAR = "artifact.c2pa.json"
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
 CONTROL_FILES = {
     "abi_signature": [ABI_SIDECAR],
     "local_provenance": [LOCAL_PROVENANCE_SIDECAR],
     "sbom": [SBOM_CYCLONEDX_SIDECAR, SBOM_SPDX_SIDECAR],
-    "ml_bom": ["artifact.mlbom.cdx.json"],
+    "ml_bom": [MLBOM_CYCLONEDX_SIDECAR],
     "slsa_in_toto": [SLSA_INTOTO_SIDECAR],
-    "sigstore_cosign": ["artifact.cosign.bundle", "artifact.sigstore.json"],
-    "c2pa": ["artifact.c2pa", "artifact.c2pa.json"],
+    "sigstore_cosign": [SIGSTORE_BUNDLE_SIDECAR, COSIGN_SIGNATURE_SIDECAR, COSIGN_PUBLIC_KEY_SIDECAR],
+    "c2pa": [C2PA_MANIFEST_SIDECAR, C2PA_REPORT_SIDECAR],
 }
+ML_BOM_CATEGORIES = ("models", "datasets", "conversions", "framework_configs")
 RELEASE_ENFORCEMENT_LEVELS = {"warn", "required-for-release", "blocking", "consumer-blocking"}
+BUNDLE_LIFECYCLE_STATES = (
+    "candidate",
+    "built-local",
+    "manually-verified",
+    "release-ready",
+    "published",
+    "superseded",
+    "deprecated",
+    "revoked",
+    "quarantined",
+)
+BUNDLE_LATEST_ELIGIBLE_STATES = frozenset({"manually-verified", "release-ready", "published"})
+BUNDLE_TERMINAL_STATES = frozenset({"superseded", "deprecated", "revoked", "quarantined"})
+BUNDLE_LATEST_STATE_RANK = {"manually-verified": 10, "release-ready": 20, "published": 30}
+BUNDLE_REGISTRY_INDEX = "index.json"
+BUNDLE_REGISTRY_RECORDS_DIR = "records"
+DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT = Path("/var/lib/abyss-machine/artifacts/subjects")
+ARTIFACT_SUBJECT_STORE_META = "subject-store.json"
+
+
+def _root_has_artifact_policy(root: Path) -> bool:
+    return (root / POLICY_REF).is_file() and (root / ABI_REF).is_file()
+
+
+def _candidate_public_seed_roots() -> list[Path]:
+    module_path = Path(__file__).resolve()
+    candidates: list[Path] = []
+    env_root = os.environ.get("ABYSS_MACHINE_PUBLIC_SEED_ROOT") or os.environ.get("ABYSS_MACHINE_REPO_ROOT")
+    if env_root:
+        candidates.append(Path(env_root))
+    for root in [Path.cwd(), *Path.cwd().parents]:
+        candidates.append(root)
+    for root in module_path.parents:
+        candidates.append(root)
+        candidates.append(root / "share" / "abyss-machine")
+    candidates.append(Path("/usr/local/share/abyss-machine"))
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def resolve_public_seed_root() -> Path:
+    for root in _candidate_public_seed_roots():
+        if _root_has_artifact_policy(root):
+            return root
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT = resolve_public_seed_root()
 
 
 def _utc_now() -> str:
@@ -86,6 +151,38 @@ def artifact_class_rule(artifact_class: str, *, repo_root: Path = REPO_ROOT) -> 
     return rule
 
 
+def validate_bundle_lifecycle(lifecycle: Any, *, manifest_ref: str) -> dict[str, Any] | None:
+    if lifecycle is None:
+        return None
+    if not isinstance(lifecycle, dict):
+        raise ValueError(f"{manifest_ref} lifecycle must be an object")
+    initial_state = str(lifecycle.get("initial_state") or "")
+    if initial_state not in BUNDLE_LIFECYCLE_STATES:
+        raise ValueError(f"{manifest_ref} lifecycle.initial_state has unknown state: {initial_state}")
+    promotion_path = lifecycle.get("promotion_path")
+    if not isinstance(promotion_path, list) or not promotion_path:
+        raise ValueError(f"{manifest_ref} lifecycle.promotion_path must be a non-empty list")
+    normalized_path = [str(item) for item in promotion_path]
+    unknown_path = sorted(set(normalized_path) - set(BUNDLE_LIFECYCLE_STATES))
+    if unknown_path:
+        raise ValueError(f"{manifest_ref} lifecycle.promotion_path has unknown states: {', '.join(unknown_path)}")
+    if initial_state not in normalized_path:
+        raise ValueError(f"{manifest_ref} lifecycle.initial_state must appear in lifecycle.promotion_path")
+    latest_states = lifecycle.get("latest_eligible_states", sorted(BUNDLE_LATEST_ELIGIBLE_STATES))
+    if not isinstance(latest_states, list):
+        raise ValueError(f"{manifest_ref} lifecycle.latest_eligible_states must be a list")
+    normalized_latest = [str(item) for item in latest_states]
+    unknown_latest = sorted(set(normalized_latest) - BUNDLE_LATEST_ELIGIBLE_STATES)
+    if unknown_latest:
+        raise ValueError(f"{manifest_ref} lifecycle.latest_eligible_states has non-latest states: {', '.join(unknown_latest)}")
+    return {
+        **lifecycle,
+        "initial_state": initial_state,
+        "promotion_path": normalized_path,
+        "latest_eligible_states": normalized_latest,
+    }
+
+
 def load_bundle_manifest(manifest_ref: str | Path, *, repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     path = Path(manifest_ref)
     if not path.is_absolute():
@@ -99,6 +196,11 @@ def load_bundle_manifest(manifest_ref: str | Path, *, repo_root: Path = REPO_ROO
         raise ValueError(f"{path} policy_ref must be one of: {allowed}")
     if not manifest.get("artifact_class"):
         raise ValueError(f"{path} must define artifact_class")
+    if "lifecycle" in manifest:
+        manifest["lifecycle"] = validate_bundle_lifecycle(manifest.get("lifecycle"), manifest_ref=str(path))
+    consumer_contract = manifest.get("consumer_contract")
+    if consumer_contract is not None and not isinstance(consumer_contract, dict):
+        raise ValueError(f"{path} consumer_contract must be an object")
     manifest["_manifest_path"] = str(path)
     return manifest
 
@@ -294,6 +396,48 @@ def _safe_repo_relative_path(path_text: str, *, field: str) -> Path:
     return path
 
 
+def _safe_store_token(value: str, *, field: str) -> str:
+    token = str(value)
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    if not token or any(ch not in allowed for ch in token):
+        raise ValueError(f"{field} must be a safe artifact-store token: {value}")
+    return token
+
+
+def _artifact_subject_store_roots() -> list[Path]:
+    raw_roots: list[str] = []
+    for name in ("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOTS", "ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT"):
+        raw = os.environ.get(name)
+        if not raw:
+            continue
+        if name.endswith("_ROOTS"):
+            raw_roots.extend(item for item in raw.split(os.pathsep) if item)
+        else:
+            raw_roots.append(raw)
+    raw_roots.append(str(DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT))
+
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for raw in raw_roots:
+        path = Path(raw).expanduser()
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(path)
+    return roots
+
+
+def artifact_subject_store_dir(subjects: dict[str, Any], *, store_root: Path | None = None) -> Path:
+    artifact_class = _safe_store_token(str(subjects.get("artifact_class") or "unknown"), field="artifact_class")
+    digest = str(subjects.get("aggregate_digest") or "")
+    if not digest.startswith("sha256:"):
+        raise ValueError("artifact.subjects.json aggregate_digest must be a sha256 digest")
+    digest_token = _safe_store_token(digest.removeprefix("sha256:"), field="aggregate_digest")
+    root = store_root if store_root is not None else _artifact_subject_store_roots()[0]
+    return root / artifact_class / digest_token
+
+
 def _portable_path_ref(path: Path) -> str:
     if not path.is_absolute():
         return path.as_posix()
@@ -304,6 +448,25 @@ def _portable_path_ref(path: Path) -> str:
         except ValueError:
             continue
     return resolved.name
+
+
+def _registry_path_ref(registry_dir: Path, path: Path) -> str:
+    if not path.is_absolute():
+        return path.as_posix()
+    resolved = path.resolve()
+    for root in (Path.cwd().resolve(), REPO_ROOT.resolve()):
+        try:
+            return resolved.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    registry_root = registry_dir.resolve()
+    try:
+        relative = resolved.relative_to(registry_root)
+    except ValueError:
+        return resolved.name
+    if str(relative) == ".":
+        return registry_root.name
+    return (Path(registry_root.name) / relative).as_posix()
 
 
 def build_external_abi_subject(manifest: dict[str, Any]) -> dict[str, Any] | None:
@@ -390,6 +553,161 @@ def build_artifact_subjects(manifest: dict[str, Any] | None) -> dict[str, Any] |
         "path_basis": "repo_relative",
         "files": entries,
         "aggregate_digest": _stable_digest(entries),
+    }
+
+
+def _artifact_subject_store_status(subjects: dict[str, Any]) -> dict[str, Any]:
+    subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
+    if not subject_files:
+        return {"required": False, "ok": True}
+    candidates: list[dict[str, Any]] = []
+    for root in _artifact_subject_store_roots():
+        try:
+            store_dir = artifact_subject_store_dir(subjects, store_root=root)
+        except ValueError as exc:
+            candidates.append({"root": str(root), "ok": False, "error": str(exc)})
+            continue
+        missing: list[str] = []
+        mismatched: list[str] = []
+        present = 0
+        for idx, item in enumerate(subject_files):
+            if not isinstance(item, dict):
+                continue
+            path_text = str(item.get("path") or "")
+            if not path_text:
+                continue
+            try:
+                safe_path = _safe_repo_relative_path(path_text, field=f"artifact.subjects.json files[{idx}].path")
+            except ValueError as exc:
+                mismatched.append(str(exc))
+                continue
+            path = store_dir / safe_path
+            if not path.is_file():
+                missing.append(path_text)
+                continue
+            expected = str(item.get("sha256") or "")
+            actual = _file_digest(path)
+            if actual != expected:
+                mismatched.append(path_text)
+                continue
+            present += 1
+        candidate = {
+            "root": str(root),
+            "path": str(store_dir),
+            "ok": not missing and not mismatched,
+            "present_files": present,
+            "missing": missing[:8],
+            "mismatched": mismatched[:8],
+        }
+        if candidate["ok"]:
+            return {
+                "required": True,
+                "ok": True,
+                "path": str(store_dir),
+                "path_basis": "local_host_state",
+                "aggregate_digest": subjects.get("aggregate_digest"),
+                "files": present,
+            }
+        candidates.append(candidate)
+    return {
+        "required": True,
+        "ok": False,
+        "aggregate_digest": subjects.get("aggregate_digest"),
+        "candidates": candidates[:4],
+    }
+
+
+def materialize_artifact_subjects(
+    bundle_dir: str | Path,
+    *,
+    store_root: Path | None = None,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    bundle = Path(bundle_dir)
+    identity = _read_json(bundle / IDENTITY_SIDECAR) if (bundle / IDENTITY_SIDECAR).is_file() else {}
+    subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
+    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
+    errors: list[str] = []
+    if not subject_files:
+        errors.append("artifact.subjects.json must define files before materialization")
+    if not manifest:
+        errors.append("artifact.identity.json bundle_manifest_ref must resolve before materialization")
+    if errors:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_artifact_subject_materialize_v1",
+            "bundle_dir": _portable_path_ref(bundle),
+            "errors": errors,
+            "written": [],
+        }
+
+    subject_root = _subject_repo_root(manifest)
+    target_dir = artifact_subject_store_dir(subjects, store_root=store_root)
+    copy_plan: list[tuple[Path, Path, dict[str, Any]]] = []
+    for idx, item in enumerate(subject_files):
+        if not isinstance(item, dict):
+            continue
+        path_text = str(item.get("path") or "")
+        if not path_text:
+            continue
+        try:
+            safe_path = _safe_repo_relative_path(path_text, field=f"artifact.subjects.json files[{idx}].path")
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        source = subject_root / safe_path
+        if not source.is_file():
+            errors.append(f"artifact subject source file is missing: {path_text}")
+            continue
+        expected = str(item.get("sha256") or "")
+        actual = _file_digest(source)
+        if expected != actual:
+            errors.append(f"artifact subject source digest mismatch: {path_text}")
+            continue
+        copy_plan.append((source, target_dir / safe_path, item))
+
+    if errors:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_artifact_subject_materialize_v1",
+            "bundle_dir": _portable_path_ref(bundle),
+            "store_dir": str(target_dir),
+            "errors": errors,
+            "written": [],
+        }
+
+    written: list[str] = []
+    for source, target, _item in copy_plan:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        written.append(str(target))
+    meta = {
+        "schema": "abyss_machine_artifact_subject_store_v1",
+        "bundle_layout": BUNDLE_LAYOUT,
+        "artifact_class": subjects.get("artifact_class"),
+        "owner_repo": subjects.get("owner_repo"),
+        "aggregate_digest": subjects.get("aggregate_digest"),
+        "path_basis": "local_host_state",
+        "store_dir": str(target_dir),
+        "bundle_ref": _portable_path_ref(bundle),
+        "bundle_manifest_ref": identity.get("bundle_manifest_ref"),
+        "materialized_at": _utc_now(),
+        "files": subject_files,
+    }
+    _write_json(target_dir / ARTIFACT_SUBJECT_STORE_META, meta)
+    written.append(str(target_dir / ARTIFACT_SUBJECT_STORE_META))
+    status = _artifact_subject_store_status(subjects)
+    return {
+        "ok": bool(status.get("ok")),
+        "schema": "abyss_machine_artifact_subject_materialize_v1",
+        "bundle_dir": _portable_path_ref(bundle),
+        "store_dir": str(target_dir),
+        "artifact_class": subjects.get("artifact_class"),
+        "aggregate_digest": subjects.get("aggregate_digest"),
+        "written": written,
+        "status": status,
+        "errors": [] if status.get("ok") else ["materialized artifact subject store did not verify"],
     }
 
 
@@ -547,6 +865,107 @@ def build_sbom_sidecars(
     return cdx, spdx
 
 
+def build_ml_bom_sidecar(
+    *,
+    manifest: dict[str, Any] | None,
+    identity: dict[str, Any],
+    subjects: dict[str, Any],
+    created_at: str,
+) -> dict[str, Any]:
+    ml_bom = manifest.get("ml_bom") if isinstance(manifest, dict) else None
+    if not isinstance(ml_bom, dict):
+        raise ValueError("ml_bom is required in the bundle manifest when policy requires ML-BOM")
+    subject_by_path = {
+        str(item.get("path")): item
+        for item in subjects.get("files", [])
+        if isinstance(item, dict) and item.get("path")
+    }
+    subject_by_role = {
+        str(item.get("role")): item
+        for item in subjects.get("files", [])
+        if isinstance(item, dict) and item.get("role")
+    }
+    not_applicable = ml_bom.get("not_applicable") if isinstance(ml_bom.get("not_applicable"), dict) else {}
+    components: list[dict[str, Any]] = []
+    type_by_category = {
+        "models": "machine-learning-model",
+        "datasets": "data",
+        "conversions": "application",
+        "framework_configs": "configuration",
+    }
+    for category in ML_BOM_CATEGORIES:
+        entries = ml_bom.get(category)
+        if entries is None:
+            entries = []
+        if not isinstance(entries, list):
+            raise ValueError(f"ml_bom.{category} must be a list")
+        for idx, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise ValueError(f"ml_bom.{category}[{idx}] must be an object")
+            name = str(entry.get("name") or entry.get("path") or f"{category}-{idx + 1}")
+            version = str(entry.get("version") or "0")
+            component: dict[str, Any] = {
+                "type": str(entry.get("type") or type_by_category[category]),
+                "name": name,
+                "version": version,
+                "bom-ref": str(entry.get("bom_ref") or f"ml-bom:{category}:{name}"),
+                "properties": [
+                    {"name": "abyss.ml_bom.category", "value": category},
+                    {"name": "abyss.ml_bom.role", "value": str(entry.get("role") or category.rstrip("s"))},
+                    {"name": "abyss.ml_bom.included", "value": str(bool(entry.get("included", True))).lower()},
+                ],
+            }
+            subject_path = str(entry.get("subject_path") or "")
+            subject_role = str(entry.get("subject_role") or "")
+            if not subject_path and subject_role and subject_role in subject_by_role:
+                subject_path = str(subject_by_role[subject_role].get("path") or "")
+            digest = str(entry.get("sha256") or "")
+            if subject_path and subject_path in subject_by_path:
+                subject = subject_by_path[subject_path]
+                digest = str(subject.get("sha256") or "")
+                component["properties"].append({"name": "abyss.ml_bom.subject_path", "value": subject_path})
+                component["properties"].append({"name": "abyss.ml_bom.subject_digest", "value": digest})
+            if digest.startswith("sha256:"):
+                component["hashes"] = [{"alg": "SHA-256", "content": digest.removeprefix("sha256:")}]
+            for field in ("source_ref", "license", "framework", "format", "precision", "device", "notes"):
+                if entry.get(field) is not None:
+                    component["properties"].append({"name": f"abyss.ml_bom.{field}", "value": str(entry[field])})
+            components.append(component)
+
+    metadata_properties = [
+        {"name": "abyss:artifactClass", "value": str(identity.get("artifact_class"))},
+        {"name": "abyss:subjectAggregateDigest", "value": str(subjects.get("aggregate_digest"))},
+        {"name": "abyss.ml_bom.scope", "value": str(ml_bom.get("scope") or "ai_runtime_bundle")},
+    ]
+    for category in ML_BOM_CATEGORIES:
+        reason = str(not_applicable.get(category) or "")
+        if reason:
+            metadata_properties.append({"name": f"abyss.ml_bom.{category}.not_applicable", "value": reason})
+
+    serial = uuid.uuid5(uuid.NAMESPACE_URL, "ml-bom:" + str(subjects.get("aggregate_digest") or _stable_digest(subjects)))
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.7",
+        "serialNumber": f"urn:uuid:{serial}",
+        "version": 1,
+        "metadata": {
+            "timestamp": created_at,
+            "component": {
+                "type": "application",
+                "name": str(ml_bom.get("name") or identity.get("artifact_class") or "ai-runtime-bundle"),
+                "version": str(ml_bom.get("version") or "0"),
+                "bom-ref": str(ml_bom.get("bom_ref") or "ml-bom:bundle"),
+            },
+            "properties": metadata_properties,
+        },
+        "components": components,
+        "properties": [
+            {"name": "abyss:policyRef", "value": POLICY_REF},
+            {"name": "abyss:bundleLayout", "value": BUNDLE_LAYOUT},
+        ],
+    }
+
+
 def build_slsa_statement(
     *,
     manifest: dict[str, Any] | None,
@@ -620,7 +1039,7 @@ def build_sidecars(
     required = required_controls_for_rule(rule)
     deferred = deferred_controls_for_rule(rule)
     artifact_subjects = build_artifact_subjects(manifest)
-    if any(control in required for control in ("sbom", "slsa_in_toto", "sigstore_cosign")) and artifact_subjects is None:
+    if any(control in required for control in ("sbom", "slsa_in_toto", "sigstore_cosign", "c2pa")) and artifact_subjects is None:
         raise ValueError(f"{artifact_class} requires artifact_subjects in the bundle manifest")
     surface: dict[str, Any] | None = None
     external_subject: dict[str, Any] | None = None
@@ -721,6 +1140,15 @@ def build_sidecars(
         _write_json(bundle / SBOM_CYCLONEDX_SIDECAR, cdx)
         _write_json(bundle / SBOM_SPDX_SIDECAR, spdx)
         written.extend([SBOM_CYCLONEDX_SIDECAR, SBOM_SPDX_SIDECAR])
+    if "ml_bom" in required:
+        ml_bom = build_ml_bom_sidecar(
+            manifest=manifest,
+            identity=identity,
+            subjects=artifact_subjects or {},
+            created_at=created_at,
+        )
+        _write_json(bundle / MLBOM_CYCLONEDX_SIDECAR, ml_bom)
+        written.append(MLBOM_CYCLONEDX_SIDECAR)
     if "slsa_in_toto" in required:
         statement = build_slsa_statement(
             manifest=manifest,
@@ -771,6 +1199,111 @@ def build_sidecars_from_manifest(
     )
 
 
+def _signature_subject_path(bundle: Path) -> Path:
+    for sidecar in (SUBJECTS_SIDECAR, ABI_SIDECAR, LOCAL_PROVENANCE_SIDECAR, IDENTITY_SIDECAR):
+        candidate = bundle / sidecar
+        if candidate.is_file():
+            return candidate
+    return bundle / IDENTITY_SIDECAR
+
+
+def _cosign_binary() -> str | None:
+    env_binary = os.environ.get("ABYSS_MACHINE_COSIGN_BINARY")
+    if env_binary:
+        return env_binary
+    managed_binary = Path("/srv/abyss-machine/runtimes/artifact-trust/bin/cosign")
+    if managed_binary.is_file() and os.access(managed_binary, os.X_OK):
+        return str(managed_binary)
+    return shutil.which("cosign")
+
+
+def _c2patool_binary() -> str | None:
+    env_binary = os.environ.get("ABYSS_MACHINE_C2PATOOL_BINARY")
+    if env_binary:
+        return env_binary
+    managed_binary = Path("/srv/abyss-machine/runtimes/artifact-trust/bin/c2patool")
+    if managed_binary.is_file() and os.access(managed_binary, os.X_OK):
+        return str(managed_binary)
+    return shutil.which("c2patool")
+
+
+def _resolved_artifact_subject_paths(
+    *,
+    bundle: Path,
+    identity: dict[str, Any],
+    subjects: dict[str, Any],
+    repo_root: Path,
+) -> list[tuple[str, Path, str]]:
+    resolved: list[tuple[str, Path, str]] = []
+    subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
+    if not subject_files:
+        return resolved
+    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    subject_root = _subject_repo_root(manifest) if manifest else None
+    for idx, item in enumerate(subject_files):
+        if not isinstance(item, dict):
+            continue
+        path_text = str(item.get("path") or "")
+        if not path_text:
+            continue
+        expected = str(item.get("sha256") or "")
+        try:
+            safe_path = _safe_repo_relative_path(path_text, field=f"artifact.subjects.json files[{idx}].path")
+        except ValueError:
+            continue
+        if subject_root is not None:
+            subject_path = subject_root / safe_path
+            if subject_path.is_file():
+                resolved.append((path_text, subject_path, expected))
+                continue
+        adjacent_path = bundle.parent / safe_path
+        if adjacent_path.is_file():
+            resolved.append((path_text, adjacent_path, expected))
+            continue
+        for store_root in _artifact_subject_store_roots():
+            try:
+                store_dir = artifact_subject_store_dir(subjects, store_root=store_root)
+            except ValueError:
+                continue
+            store_path = store_dir / safe_path
+            if store_path.is_file():
+                resolved.append((path_text, store_path, expected))
+                break
+    return resolved
+
+
+def _cosign_claim_limits(*, backend: str) -> list[str]:
+    return [
+        "The signed blob is the bundle subject manifest, not a keyless public transparency-log release proof.",
+        "Consumers must compare the release artifact digest against artifact.subjects.json before trusting the artifact.",
+        f"{backend} proves possession of the configured local Cosign key at signing time; it does not prove Fulcio/Rekor identity.",
+    ]
+
+
+def _missing_cosign_backend_decision(
+    *,
+    artifact_class: str,
+    backend: str,
+    reason: str,
+    required: bool,
+    subject_path: Path,
+) -> dict[str, Any]:
+    decision: dict[str, Any] = {
+        "ok": False,
+        "schema": "abyss_machine_artifact_signature_decision_v1",
+        "artifact_class": artifact_class,
+        "backend": backend,
+        "status": "missing_backend",
+        "required": required,
+        "reason": reason,
+        "claim_limits": _cosign_claim_limits(backend=backend),
+    }
+    if subject_path.is_file():
+        decision["subject_ref"] = subject_path.name
+        decision["subject_digest"] = _file_digest(subject_path)
+    return decision
+
+
 def sign_bundle(
     bundle_dir: str | Path,
     *,
@@ -783,21 +1316,115 @@ def sign_bundle(
     rule = artifact_class_rule(artifact_class, repo_root=repo_root)
     sigstore_rule = rule.get("sigstore_cosign") if isinstance(rule.get("sigstore_cosign"), dict) else {}
     required = sigstore_rule.get("required") is True
-    subject_path = bundle / ABI_SIDECAR
-    if not subject_path.is_file():
-        for candidate in (bundle / LOCAL_PROVENANCE_SIDECAR, bundle / IDENTITY_SIDECAR):
-            if candidate.is_file():
-                subject_path = candidate
-                break
+    subject_path = _signature_subject_path(bundle)
     if required:
+        if backend != "cosign-local-key":
+            decision = _missing_cosign_backend_decision(
+                artifact_class=artifact_class,
+                backend=backend,
+                reason="sigstore_cosign is required by policy; use backend=cosign-local-key with configured local key material",
+                required=True,
+                subject_path=subject_path,
+            )
+            _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
+            return {
+                **decision,
+                "bundle_dir": str(bundle),
+                "written": [SIGNATURE_DECISION_SIDECAR],
+            }
+        cosign = _cosign_binary()
+        key_path = Path(os.environ.get("ABYSS_MACHINE_COSIGN_KEY") or "")
+        public_key_path = Path(os.environ.get("ABYSS_MACHINE_COSIGN_PUB") or "")
+        if not cosign or not key_path.is_file() or not public_key_path.is_file() or not subject_path.is_file():
+            missing_parts = []
+            if not cosign:
+                missing_parts.append("cosign binary")
+            if not key_path.is_file():
+                missing_parts.append("ABYSS_MACHINE_COSIGN_KEY file")
+            if not public_key_path.is_file():
+                missing_parts.append("ABYSS_MACHINE_COSIGN_PUB file")
+            if not subject_path.is_file():
+                missing_parts.append("signature subject sidecar")
+            decision = _missing_cosign_backend_decision(
+                artifact_class=artifact_class,
+                backend=backend,
+                reason="missing required Cosign signing input: " + ", ".join(missing_parts),
+                required=True,
+                subject_path=subject_path,
+            )
+            _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
+            return {
+                **decision,
+                "bundle_dir": str(bundle),
+                "written": [SIGNATURE_DECISION_SIDECAR],
+            }
+        sigstore_bundle_path = bundle / SIGSTORE_BUNDLE_SIDECAR
+        signature_path = bundle / COSIGN_SIGNATURE_SIDECAR
+        public_key_sidecar_path = bundle / COSIGN_PUBLIC_KEY_SIDECAR
+        proc = subprocess.run(
+            [
+                cosign,
+                "sign-blob",
+                "--yes",
+                "--key",
+                str(key_path),
+                "--bundle",
+                str(sigstore_bundle_path),
+                str(subject_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        if proc.returncode != 0 or not sigstore_bundle_path.is_file():
+            decision = {
+                "ok": False,
+                "schema": "abyss_machine_artifact_signature_decision_v1",
+                "artifact_class": artifact_class,
+                "backend": backend,
+                "status": "signing_failed",
+                "required": True,
+                "reason": "cosign sign-blob failed or did not produce artifact.sigstore.json",
+                "cosign_exit_code": proc.returncode,
+                "subject_ref": subject_path.name,
+                "subject_digest": _file_digest(subject_path),
+                "claim_limits": _cosign_claim_limits(backend=backend),
+            }
+            _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
+            return {
+                **decision,
+                "bundle_dir": str(bundle),
+                "written": [SIGNATURE_DECISION_SIDECAR],
+            }
+        signature_path.write_text(proc.stdout.strip() + "\n", encoding="utf-8")
+        shutil.copyfile(public_key_path, public_key_sidecar_path)
         decision = {
-            "ok": False,
+            "ok": True,
             "schema": "abyss_machine_artifact_signature_decision_v1",
             "artifact_class": artifact_class,
             "backend": backend,
-            "status": "missing_backend",
+            "status": "signed",
             "required": True,
-            "reason": "sigstore_cosign is required by policy, but this slice has not implemented a cryptographic signing backend yet",
+            "reason": "sigstore_cosign is required by policy and was signed with a configured local Cosign key",
+            "subject_ref": subject_path.name,
+            "subject_digest": _file_digest(subject_path),
+            "signature_scope": "bundle_subject_manifest",
+            "signature_ref": COSIGN_SIGNATURE_SIDECAR,
+            "sigstore_bundle_ref": SIGSTORE_BUNDLE_SIDECAR,
+            "public_key_ref": COSIGN_PUBLIC_KEY_SIDECAR,
+            "claim_limits": _cosign_claim_limits(backend=backend),
+        }
+        _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
+        return {
+            **decision,
+            "bundle_dir": str(bundle),
+            "written": [
+                SIGNATURE_DECISION_SIDECAR,
+                COSIGN_SIGNATURE_SIDECAR,
+                SIGSTORE_BUNDLE_SIDECAR,
+                COSIGN_PUBLIC_KEY_SIDECAR,
+            ],
         }
     else:
         decision = {
@@ -808,6 +1435,7 @@ def sign_bundle(
             "status": "not_required",
             "required": False,
             "reason": str(sigstore_rule.get("trigger") or "sigstore/cosign is not required for this artifact class"),
+            "subject_ref": subject_path.name,
             "subject_digest": _file_digest(subject_path),
         }
     _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
@@ -933,6 +1561,51 @@ def _validate_sbom_sidecars(bundle: Path, subjects: dict[str, Any], errors: list
         errors.append("SBOM sidecars do not cover artifact subject digests: " + ", ".join(missing))
 
 
+def _component_properties(component: dict[str, Any]) -> dict[str, str]:
+    properties: dict[str, str] = {}
+    for item in component.get("properties", []) if isinstance(component.get("properties"), list) else []:
+        if isinstance(item, dict) and item.get("name") is not None:
+            properties[str(item["name"])] = str(item.get("value") or "")
+    return properties
+
+
+def _validate_ml_bom_sidecar(bundle: Path, subjects: dict[str, Any], errors: list[str]) -> None:
+    path = bundle / MLBOM_CYCLONEDX_SIDECAR
+    if not path.is_file():
+        return
+    cdx = _read_json(path)
+    if cdx.get("bomFormat") != "CycloneDX":
+        errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} bomFormat must be CycloneDX")
+    if not cdx.get("specVersion"):
+        errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} must define specVersion")
+    components = cdx.get("components")
+    if not isinstance(components, list):
+        errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} must define components")
+        return
+    seen_categories: set[str] = set()
+    seen_hashes: set[str] = set()
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        properties = _component_properties(component)
+        category = properties.get("abyss.ml_bom.category")
+        if category:
+            seen_categories.add(category)
+        for digest in component.get("hashes", []) if isinstance(component.get("hashes"), list) else []:
+            if isinstance(digest, dict) and str(digest.get("alg") or "").upper() == "SHA-256":
+                seen_hashes.add(str(digest.get("content") or ""))
+    metadata = cdx.get("metadata") if isinstance(cdx.get("metadata"), dict) else {}
+    metadata_properties = _component_properties(metadata)
+    for category in ML_BOM_CATEGORIES:
+        if category in seen_categories:
+            continue
+        if not metadata_properties.get(f"abyss.ml_bom.{category}.not_applicable"):
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} lacks {category} identity or not-applicable reason")
+    expected = _subject_digest_hexes(subjects, errors)
+    if expected and not expected.intersection(seen_hashes):
+        errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} does not cover any artifact subject digest")
+
+
 def _load_slsa_statement(bundle: Path) -> dict[str, Any]:
     path = bundle / SLSA_INTOTO_SIDECAR
     if not path.is_file():
@@ -978,6 +1651,234 @@ def _validate_slsa_sidecar(bundle: Path, subjects: dict[str, Any], errors: list[
         errors.append("SLSA/in-toto sidecar does not cover artifact subject digests: " + ", ".join(missing))
 
 
+def _validate_artifact_subject_files(
+    *,
+    identity: dict[str, Any],
+    subjects: dict[str, Any],
+    repo_root: Path,
+    errors: list[str],
+    resolutions: list[dict[str, Any]],
+) -> None:
+    subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
+    if not subject_files:
+        return
+    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    subject_root = _subject_repo_root(manifest) if manifest else None
+    for idx, item in enumerate(subject_files):
+        if not isinstance(item, dict):
+            continue
+        path_text = str(item.get("path") or "")
+        if not path_text:
+            continue
+        try:
+            safe_path = _safe_repo_relative_path(path_text, field=f"artifact.subjects.json files[{idx}].path")
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        expected = str(item.get("sha256") or "")
+        if subject_root is not None:
+            subject_path = subject_root / safe_path
+            if subject_path.is_file():
+                actual = _file_digest(subject_path)
+                ok = expected == actual
+                resolutions.append(
+                    {
+                        "path": path_text,
+                        "source": "manifest_subject_root",
+                        "resolved_path": str(subject_path),
+                        "ok": ok,
+                    }
+                )
+                if not ok:
+                    errors.append(f"artifact subject file digest mismatch: {path_text}")
+                continue
+
+        store_error = ""
+        for store_root in _artifact_subject_store_roots():
+            try:
+                store_dir = artifact_subject_store_dir(subjects, store_root=store_root)
+            except ValueError as exc:
+                store_error = str(exc)
+                continue
+            store_path = store_dir / safe_path
+            if not store_path.is_file():
+                continue
+            actual = _file_digest(store_path)
+            ok = expected == actual
+            resolutions.append(
+                {
+                    "path": path_text,
+                    "source": "artifact_subject_store",
+                    "resolved_path": str(store_path),
+                    "ok": ok,
+                }
+            )
+            if not ok:
+                errors.append(f"artifact subject store digest mismatch: {path_text}")
+            break
+        else:
+            if store_error:
+                errors.append(store_error)
+            if subject_root is None:
+                resolutions.append(
+                    {
+                        "path": path_text,
+                        "source": "bundle_manifest_unresolved",
+                        "ok": True,
+                        "checked": False,
+                    }
+                )
+                continue
+            errors.append(f"artifact subject file is missing: {path_text}")
+            resolutions.append({"path": path_text, "source": "unresolved", "ok": False})
+
+
+def _validate_c2pa_sidecar(
+    *,
+    bundle: Path,
+    identity: dict[str, Any],
+    subjects: dict[str, Any],
+    repo_root: Path,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    c2patool = _c2patool_binary()
+    if not c2patool:
+        errors.append("c2patool binary not found for required C2PA verification")
+        return
+    subject_paths = _resolved_artifact_subject_paths(
+        bundle=bundle,
+        identity=identity,
+        subjects=subjects,
+        repo_root=repo_root,
+    )
+    if not subject_paths:
+        errors.append("C2PA verification requires a resolvable artifact subject")
+        return
+    if len(subject_paths) > 1:
+        errors.append("C2PA verification currently requires exactly one artifact subject")
+        return
+
+    subject_ref, subject_path, expected_digest = subject_paths[0]
+    if expected_digest and _file_digest(subject_path) != expected_digest:
+        errors.append(f"artifact subject digest mismatch before C2PA verification: {subject_ref}")
+        return
+    command = [c2patool, str(subject_path)]
+    sidecar = bundle / C2PA_MANIFEST_SIDECAR
+    if sidecar.is_file():
+        command.extend(["--external-manifest", str(sidecar)])
+    proc = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=os.environ.copy(),
+    )
+    if not proc.stdout.strip():
+        errors.append(f"c2patool produced no JSON report for {subject_ref}")
+        if proc.stderr.strip():
+            errors.append(proc.stderr.strip().splitlines()[-1][:240])
+        return
+    try:
+        report = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        errors.append(f"c2patool report is not valid JSON for {subject_ref}: {exc}")
+        return
+    if not isinstance(report, dict):
+        errors.append(f"c2patool report must be a JSON object for {subject_ref}")
+        return
+    state = str(report.get("validation_state") or "")
+    if state != "Valid":
+        errors.append(f"C2PA validation_state is not Valid for {subject_ref}: {state or 'missing'}")
+    statuses = report.get("validation_status") if isinstance(report.get("validation_status"), list) else []
+    status_codes = [str(item.get("code") or "") for item in statuses if isinstance(item, dict)]
+    if any(code == "assertion.dataHash.mismatch" for code in status_codes):
+        errors.append(f"C2PA asset hash mismatch for {subject_ref}")
+    if any(code == "signingCredential.untrusted" for code in status_codes):
+        warnings.append("C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof")
+    report_path = bundle / C2PA_REPORT_SIDECAR
+    if report_path.is_file():
+        try:
+            recorded = _read_json(report_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(f"{C2PA_REPORT_SIDECAR} must contain a JSON object: {exc}")
+            return
+        recorded_state = str(recorded.get("validation_state") or "")
+        if recorded_state and recorded_state != state:
+            errors.append(f"{C2PA_REPORT_SIDECAR} validation_state does not match c2patool output")
+
+
+def _validate_cosign_signature(
+    bundle: Path,
+    signature: dict[str, Any],
+    missing: list[str],
+    errors: list[str],
+) -> None:
+    if signature.get("required") is not True:
+        return
+    if signature.get("status") != "signed" or signature.get("ok") is not True:
+        errors.append("required cryptographic signature must use status=signed and ok=true")
+        return
+    subject_ref = str(signature.get("subject_ref") or "")
+    if not subject_ref:
+        errors.append("artifact.signature-decision.json signed signature must define subject_ref")
+        return
+    subject_rel = Path(subject_ref)
+    if subject_rel.is_absolute() or ".." in subject_rel.parts:
+        errors.append("artifact.signature-decision.json subject_ref must be a safe bundle-relative path")
+        return
+    subject_path = bundle / subject_rel
+    if not subject_path.is_file():
+        missing.append(subject_ref)
+        return
+    expected_digest = str(signature.get("subject_digest") or "")
+    actual_digest = _file_digest(subject_path)
+    if expected_digest != actual_digest:
+        errors.append(f"artifact.signature-decision.json subject_digest does not match {subject_ref}")
+
+    required_sidecars = {
+        "signature_ref": COSIGN_SIGNATURE_SIDECAR,
+        "sigstore_bundle_ref": SIGSTORE_BUNDLE_SIDECAR,
+        "public_key_ref": COSIGN_PUBLIC_KEY_SIDECAR,
+    }
+    sidecar_paths: dict[str, Path] = {}
+    for field, default_ref in required_sidecars.items():
+        ref = str(signature.get(field) or default_ref)
+        rel = Path(ref)
+        if rel.is_absolute() or ".." in rel.parts:
+            errors.append(f"artifact.signature-decision.json {field} must be a safe bundle-relative path")
+            continue
+        path = bundle / rel
+        sidecar_paths[field] = path
+        if not path.is_file():
+            missing.append(ref)
+    if any(not path.is_file() for path in sidecar_paths.values()):
+        return
+
+    cosign = _cosign_binary()
+    if not cosign:
+        errors.append("cosign binary not found for required sigstore_cosign verification")
+        return
+    proc = subprocess.run(
+        [
+            cosign,
+            "verify-blob",
+            "--key",
+            str(sidecar_paths["public_key_ref"]),
+            "--bundle",
+            str(sidecar_paths["sigstore_bundle_ref"]),
+            str(subject_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+    )
+    if proc.returncode != 0:
+        errors.append("cosign verify-blob failed for required sigstore_cosign signature")
+
+
 def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write: bool = True) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     missing: list[str] = []
@@ -993,6 +1894,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
     signature = _read_json(bundle / SIGNATURE_DECISION_SIDECAR) if (bundle / SIGNATURE_DECISION_SIDECAR).is_file() else {}
     subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
     artifact_class = str(identity.get("artifact_class") or "")
+    subject_resolutions: list[dict[str, Any]] = []
 
     required_controls: list[str] = []
     policy_controls: set[str] = set()
@@ -1042,12 +1944,32 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
         _validate_local_provenance_packet(local_provenance, identity, policy, errors)
     if "sbom" in required_controls:
         _validate_sbom_sidecars(bundle, subjects, errors)
+    if "ml_bom" in required_controls:
+        _validate_ml_bom_sidecar(bundle, subjects, errors)
     if "slsa_in_toto" in required_controls:
         _validate_slsa_sidecar(bundle, subjects, errors)
+    if "c2pa" in required_controls:
+        _validate_c2pa_sidecar(
+            bundle=bundle,
+            identity=identity,
+            subjects=subjects,
+            repo_root=repo_root,
+            errors=errors,
+            warnings=warnings,
+        )
+    _validate_artifact_subject_files(
+        identity=identity,
+        subjects=subjects,
+        repo_root=repo_root,
+        errors=errors,
+        resolutions=subject_resolutions,
+    )
     if signature.get("required") is False and signature.get("status") != "not_required":
         errors.append("artifact.signature-decision.json optional signature must use status=not_required")
     if signature.get("required") is True and signature.get("ok") is not True:
         errors.append("required cryptographic signature was not produced")
+    if "sigstore_cosign" in required_controls:
+        _validate_cosign_signature(bundle, signature, missing, errors)
 
     for control in required_controls:
         if not _has_any(bundle, CONTROL_FILES[control]):
@@ -1061,6 +1983,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
             warnings.append(f"deferred control lacks explicit not-required reason: {control}")
 
     ok = not missing and not errors
+    present_controls = [control for control in required_controls if _has_any(bundle, CONTROL_FILES[control])]
     payload = {
         "ok": ok,
         "schema": "abyss_machine_artifact_bundle_verify_v1",
@@ -1068,16 +1991,241 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
         "bundle_layout": BUNDLE_LAYOUT,
         "artifact_class": artifact_class,
         "required_controls": required_controls,
-        "verified_controls": [control for control in required_controls if _has_any(bundle, CONTROL_FILES[control])],
+        "verified_controls": list(required_controls) if ok else [],
+        "present_controls": present_controls,
         "missing": missing,
         "errors": errors,
         "warnings": warnings,
         "policy_ref": POLICY_REF,
         "abi_ref": ABI_REF,
     }
+    if subject_resolutions:
+        payload["artifact_subject_resolution"] = subject_resolutions
     if write:
         _write_json(bundle / VERIFY_SIDECAR, payload)
     return payload
+
+
+def _bundle_manifest_for_identity(identity: dict[str, Any], *, repo_root: Path) -> dict[str, Any]:
+    manifest_ref = str(identity.get("bundle_manifest_ref") or "")
+    if not manifest_ref:
+        return {}
+    try:
+        return load_bundle_manifest(manifest_ref, repo_root=repo_root)
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _registry_record_id(artifact_class: str, subject_digest: str, bundle_manifest_ref: str) -> str:
+    payload = {
+        "artifact_class": artifact_class,
+        "subject_digest": subject_digest,
+        "bundle_manifest_ref": bundle_manifest_ref,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _registry_record_path(registry_dir: Path, record_id: str) -> Path:
+    filename = record_id.removeprefix("sha256:") + ".json"
+    return registry_dir / BUNDLE_REGISTRY_RECORDS_DIR / filename
+
+
+def bundle_registry_record(
+    bundle_dir: str | Path,
+    *,
+    lifecycle_state: str = "manually-verified",
+    consumer_refs: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    supersedes: list[str] | None = None,
+    revocation_reason: str = "",
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    if lifecycle_state not in BUNDLE_LIFECYCLE_STATES:
+        raise ValueError(f"unknown lifecycle_state: {lifecycle_state}")
+    bundle = Path(bundle_dir)
+    verification = verify_bundle(bundle, repo_root=repo_root, write=True)
+    identity = _read_json(bundle / IDENTITY_SIDECAR) if (bundle / IDENTITY_SIDECAR).is_file() else {}
+    provenance = _read_json(bundle / PROVENANCE_SIDECAR) if (bundle / PROVENANCE_SIDECAR).is_file() else {}
+    signature = _read_json(bundle / SIGNATURE_DECISION_SIDECAR) if (bundle / SIGNATURE_DECISION_SIDECAR).is_file() else {}
+    subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
+    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    consumer_contract = manifest.get("consumer_contract") if isinstance(manifest.get("consumer_contract"), dict) else {}
+
+    artifact_class = str(identity.get("artifact_class") or verification.get("artifact_class") or "")
+    bundle_manifest_ref = str(identity.get("bundle_manifest_ref") or "")
+    subject = provenance.get("subject") if isinstance(provenance.get("subject"), dict) else {}
+    subject_digest = str(
+        signature.get("subject_digest")
+        or provenance.get("artifact_subjects_digest")
+        or subjects.get("aggregate_digest")
+        or subject.get("digest")
+        or ""
+    )
+    record_id = _registry_record_id(artifact_class, subject_digest, bundle_manifest_ref)
+    terminal_state = lifecycle_state in BUNDLE_TERMINAL_STATES
+    latest_eligible = lifecycle_state in BUNDLE_LATEST_ELIGIBLE_STATES and bool(verification.get("ok"))
+
+    errors: list[str] = []
+    if not artifact_class:
+        errors.append("artifact.identity.json must define artifact_class before registry registration")
+    if not subject_digest:
+        errors.append("artifact provenance or signature decision must define a subject digest before registry registration")
+    if lifecycle_state in BUNDLE_LATEST_ELIGIBLE_STATES and not verification.get("ok"):
+        errors.append("latest-eligible lifecycle_state requires successful bundle verification")
+    if lifecycle_state == "revoked" and not revocation_reason:
+        errors.append("revoked lifecycle_state requires revocation_reason")
+
+    record = {
+        "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+        "record_id": record_id,
+        "artifact_class": artifact_class,
+        "bundle_layout": BUNDLE_LAYOUT,
+        "lifecycle_state": lifecycle_state,
+        "latest_eligible": latest_eligible,
+        "terminal_state": terminal_state,
+        "verification_ok": bool(verification.get("ok")),
+        "required_controls": verification.get("required_controls", []),
+        "verified_controls": verification.get("verified_controls", []),
+        "verification_errors": verification.get("errors", []),
+        "verification_missing": verification.get("missing", []),
+        "signature_status": signature.get("status"),
+        "signature_required": bool(signature.get("required")),
+        "bundle_ref": _portable_path_ref(bundle),
+        "bundle_manifest_ref": bundle_manifest_ref,
+        "contract_surface_id": identity.get("contract_surface_id"),
+        "subject_digest": subject_digest,
+        "artifact_subjects_digest": provenance.get("artifact_subjects_digest") or subjects.get("aggregate_digest"),
+        "artifact_subject_store": _artifact_subject_store_status(subjects),
+        "abi_subject_digest": subject.get("digest"),
+        "consumer_expectation": identity.get("consumer_expectation"),
+        "consumer_contract": consumer_contract,
+        "consumer_refs": [str(item) for item in consumer_refs or [] if str(item)],
+        "evidence_refs": [str(item) for item in evidence_refs or [] if str(item)],
+        "supersedes": [str(item) for item in supersedes or [] if str(item)],
+        "revocation_reason": revocation_reason,
+        "created_at": _utc_now(),
+        "policy_ref": POLICY_REF,
+        "abi_ref": ABI_REF,
+    }
+    return {
+        "ok": not errors,
+        "schema": "abyss_machine_artifact_bundle_registry_write_v1",
+        "record": record,
+        "errors": errors,
+        "verification": verification,
+    }
+
+
+def _latest_sort_key(record: dict[str, Any]) -> tuple[int, str, str]:
+    state = str(record.get("lifecycle_state") or "")
+    return (
+        BUNDLE_LATEST_STATE_RANK.get(state, 0),
+        str(record.get("created_at") or ""),
+        str(record.get("record_id") or ""),
+    )
+
+
+def read_bundle_registry(
+    registry_dir: str | Path,
+    *,
+    artifact_class: str | None = None,
+) -> dict[str, Any]:
+    root = Path(registry_dir)
+    records_dir = root / BUNDLE_REGISTRY_RECORDS_DIR
+    records: list[dict[str, Any]] = []
+    if records_dir.is_dir():
+        for path in sorted(records_dir.glob("*.json")):
+            try:
+                record = _read_json(path)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                record = {
+                    "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+                    "record_id": path.stem,
+                    "artifact_class": "",
+                    "lifecycle_state": "invalid",
+                    "latest_eligible": False,
+                    "terminal_state": True,
+                    "verification_ok": False,
+                    "read_error": str(exc),
+                }
+            if artifact_class and record.get("artifact_class") != artifact_class:
+                continue
+            records.append(record)
+
+    latest_by_artifact_class: dict[str, dict[str, Any]] = {}
+    state_counts: dict[str, int] = {}
+    for record in records:
+        state = str(record.get("lifecycle_state") or "unknown")
+        state_counts[state] = state_counts.get(state, 0) + 1
+        if not record.get("latest_eligible") or record.get("terminal_state") or not record.get("verification_ok"):
+            continue
+        class_id = str(record.get("artifact_class") or "")
+        if not class_id:
+            continue
+        current = latest_by_artifact_class.get(class_id)
+        if current is None or _latest_sort_key(record) > _latest_sort_key(current):
+            latest_by_artifact_class[class_id] = record
+
+    return {
+        "ok": True,
+        "schema": "abyss_machine_artifact_bundle_registry_v1",
+        "registry_dir": _registry_path_ref(root, root),
+        "records_dir": _registry_path_ref(root, records_dir),
+        "index_ref": _registry_path_ref(root, root / BUNDLE_REGISTRY_INDEX),
+        "artifact_class_filter": artifact_class,
+        "summary": {
+            "records": len(records),
+            "latest": len(latest_by_artifact_class),
+            "state_counts": state_counts,
+        },
+        "latest_by_artifact_class": latest_by_artifact_class,
+        "records": records,
+    }
+
+
+def write_bundle_registry_record(
+    bundle_dir: str | Path,
+    registry_dir: str | Path,
+    *,
+    lifecycle_state: str = "manually-verified",
+    consumer_refs: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    supersedes: list[str] | None = None,
+    revocation_reason: str = "",
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    root = Path(registry_dir)
+    payload = bundle_registry_record(
+        bundle_dir,
+        lifecycle_state=lifecycle_state,
+        consumer_refs=consumer_refs,
+        evidence_refs=evidence_refs,
+        supersedes=supersedes,
+        revocation_reason=revocation_reason,
+        repo_root=repo_root,
+    )
+    if not payload.get("ok"):
+        return {
+            **payload,
+            "registry_dir": _registry_path_ref(root, root),
+            "written": [],
+        }
+    record = payload["record"]
+    record_path = _registry_record_path(root, str(record["record_id"]))
+    _write_json(record_path, record)
+    index = read_bundle_registry(root)
+    _write_json(root / BUNDLE_REGISTRY_INDEX, index)
+    return {
+        **payload,
+        "registry_dir": _registry_path_ref(root, root),
+        "record_ref": _registry_path_ref(root, record_path),
+        "written": [
+            _registry_path_ref(root, record_path),
+            _registry_path_ref(root, root / BUNDLE_REGISTRY_INDEX),
+        ],
+        "registry": index,
+    }
 
 
 def release_check(

@@ -1,0 +1,48 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "browser-extension-package",
+  "artifact_class": "browser_extension_package",
+  "contract_surface_id": "typing-extension-package",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Local release-candidate route for the Firefox typed-text intake extension source package.",
+  "artifact_source": {
+    "kind": "local_release_candidate",
+    "content_identity_ref": "manifests/artifact_signature_policy.manifest.json#/artifact_classes/browser_extension_package/identity/content_identity",
+    "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/typing-extension-package/source_paths",
+    "private_payload_included": false
+  },
+  "subject_repo_root": "../..",
+  "artifact_subjects": [
+    {
+      "glob": "tools/typing/firefox-extension/build/abyss-machine-typing-firefox-extension-*.zip",
+      "role": "firefox_extension_source_package"
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:browser-extension-source-package:v1",
+  "package": {
+    "ecosystem": "browser-extension",
+    "name": "abyss-machine-typing-firefox-extension",
+    "version": "0",
+    "purl": "pkg:generic/abyss-machine-typing-firefox-extension@0"
+  },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": ["candidate", "built-local", "manually-verified", "release-ready", "published"],
+    "latest_eligible_states": ["manually-verified", "release-ready", "published"]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class browser_extension_package --json",
+    "consumer_expectation": "Extension consumers select a browser_extension_package registry latest only after ABI and SLSA/in-toto package provenance verification succeed; Mozilla extension signing is checked separately.",
+    "registry_required": true
+  },
+  "consumer_command": [
+    "cd tools/typing/firefox-extension && zip -X -r build/abyss-machine-typing-firefox-extension-VERSION.zip manifest.json background.js content.js",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/browser_extension_package.bundle.json --bundle-dir BUNDLE_DIR",
+    "abyss-machine artifacts verify BUNDLE_DIR",
+    "abyss-machine artifacts release-check BUNDLE_DIR",
+    "abyss-machine artifacts bundle-registry --artifact-class browser_extension_package"
+  ]
+}

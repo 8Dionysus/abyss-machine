@@ -12,8 +12,9 @@ checks.
 - `artifact_signature_policy.manifest.json`: artifact identity posture, ABI,
   portable runner, local provenance, SBOM/ML-BOM, SLSA/in-toto,
   Sigstore/Cosign, C2PA, and deferred TUF/SCITT policy by artifact class. The
-  `abyss-machine artifacts build-sidecars`, `sign`, `verify`, and
-  `release-check` commands consume this policy for the `public_source_seed`,
+  `abyss-machine artifacts build-sidecars`, `sign`, `verify`,
+  `release-check`, `bundle-register`, `bundle-registry`, and
+  `trust-coverage` commands consume this policy for the `public_source_seed`,
   external package subjects such as `aoa_sdk_python_distribution`, external
   runtime config subjects such as `abyss_stack_runtime_config_bundle`,
   generated proof reader subjects such as

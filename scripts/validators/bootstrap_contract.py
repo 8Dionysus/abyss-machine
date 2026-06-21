@@ -70,7 +70,14 @@ def main() -> int:
     doctor = run_bootstrap("doctor", "--dry-run")
     require(doctor.get("ok") is True, "doctor dry-run must be ok", failures)
     checks = doctor.get("checks") if isinstance(doctor.get("checks"), dict) else {}
-    for key in ["config_templates_exist", "systemd_templates_exist", "cli_source_exists"]:
+    for key in [
+        "config_templates_exist",
+        "systemd_templates_exist",
+        "cli_source_exists",
+        "package_source_exists",
+        "artifact_policy_exists",
+        "contract_abi_exists",
+    ]:
         require(checks.get(key) is True, f"doctor check {key} must be true", failures)
 
     render = run_bootstrap("render", "--profile", "linux-systemd-core", "--dry-run")
@@ -83,6 +90,8 @@ def main() -> int:
     install_actions = install.get("actions") if isinstance(install.get("actions"), list) else []
     require(any("/systemd/system/" in str(item.get("source", "")) for item in install_actions if isinstance(item, dict)), "install actions must include systemd/system sources", failures)
     require(any("/systemd/user/" in str(item.get("source", "")) for item in install_actions if isinstance(item, dict)), "install actions must include systemd/user sources", failures)
+    require(any(item.get("action") == "install_cli" and item.get("package_target") for item in install_actions if isinstance(item, dict)), "install actions must include CLI package modules", failures)
+    require(any(item.get("action") == "install_public_seed" and item.get("target") for item in install_actions if isinstance(item, dict)), "install actions must include public seed share projection", failures)
 
     if failures:
         return fail("bootstrap contract validation failed", failures)

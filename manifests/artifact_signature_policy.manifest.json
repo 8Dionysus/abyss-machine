@@ -260,13 +260,13 @@
         "owner_repo": "aoa-skills",
         "authority_ref": ["generated/release_manifest.json", "schemas/release_manifest.schema.json", "mechanics/release-support/docs/CODEX_PORTABLE_LAYER.md"],
         "producer": "aoa-skills release manifest builder from generated export surfaces, bundle indexes, install profiles, and release identity",
-        "consumer_expectation": "consumers verify the aoa-skills generated release manifest digest, artifact identity, schema, generated-file digests, skill bundle revisions, and install profile revisions before trusting a portable export handoff",
+        "consumer_expectation": "consumers verify the aoa-skills generated release manifest digest, artifact identity, schema, generated-file digests, local release provenance, skill bundle revisions, and install profile revisions before trusting a portable export handoff",
         "privacy_boundary": "public-safe generated export metadata and digests only; no secrets, host runtime state, downstream adoption truth, or private workspace evidence",
         "content_identity": "generated/release_manifest.json digest plus artifact_identity from the owning aoa-skills repository",
         "abi_epoch": "aoa_skills_release_manifest_v1",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#aoa_skills_release_manifest",
-        "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
-        "verification": ["abyss-machine artifacts verify BUNDLE_DIR --json", "python scripts/lanes/ci_gate.py --mode release"],
+        "trust_layer": ["abi_contract_signature", "local_release_provenance", "w3c_prov_lineage"],
+        "verification": ["abyss-machine artifacts verify BUNDLE_DIR --json", "python scripts/validation/validate_abyss_machine_artifact_bundle.py", "python scripts/lanes/ci_gate.py --mode release"],
         "action": "KEEP"
       },
       "abi_signature": {"required": true},
@@ -275,6 +275,150 @@
       "slsa_in_toto": {"required": false, "trigger": "minimal bundle provenance is carried until aoa-skills publishes an external release artifact"},
       "sigstore_cosign": {"required": false, "trigger": "not required until release assets are signed"},
       "c2pa": {"required": false, "trigger": "not public media"}
+    },
+    "role_contract_registry": {
+      "description": "Generated aoa-agents public role-contract registry bundle derived from source-authored role profiles.",
+      "identity": {
+        "artifact_class": "role_contract_registry",
+        "surface_state": "public_generated_agent_role_registry",
+        "owner_repo": "aoa-agents",
+        "authority_ref": ["generated/AGENTS.md", "generated/agent_registry.min.json", "schemas/agent-registry.schema.json", "agents/roles/AGENTS.md"],
+        "producer": "aoa-agents published-surface builder from source-authored role profiles and agent registry schema",
+        "consumer_expectation": "agent-layer consumers verify generated role registry digests, ABI identity, SLSA/in-toto generation provenance, build_published_surfaces parity, and validate_agents before using role identity orientation; do not treat the registry as skill, proof, memory, routing, playbook, or runtime authority",
+        "privacy_boundary": "public source-authored agent-layer metadata only; no private prompts, session transcripts, secrets, live runtime state, hidden operator traces, or role authority beyond aoa-agents source objects",
+        "content_identity": "generated/agent_registry.min.json digest plus repo-local aoa-agents artifact identity",
+        "abi_epoch": "aoa_agents_role_registry_v2",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#role_contract_registry",
+        "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
+        "verification": ["python scripts/build_published_surfaces.py", "python scripts/validate_agents.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "SBOM-lite only when aoa-agents is packaged as a distribution or release bundle with dependency inventory"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "generated role registry bundle artifacts are exported or prepared for release"},
+      "sigstore_cosign": {"required": false, "trigger": "not required until aoa-agents publishes signed release assets"},
+      "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
+    },
+    "source_owned_kag_export_capsule": {
+      "description": "Generated aoa-techniques public source-owned KAG export capsule derived from authored technique bundles.",
+      "identity": {
+        "artifact_class": "source_owned_kag_export_capsule",
+        "surface_state": "public_generated_source_lift_export",
+        "owner_repo": "aoa-techniques",
+        "authority_ref": ["docs/source-lift/KAG_EXPORT.md", "generated/kag_export.min.json", "scripts/build_kag_export.py", "scripts/validators/projection_kag.py"],
+        "producer": "aoa-techniques KAG export builder from source-authored technique bundles and source-lift relation metadata",
+        "consumer_expectation": "KAG consumers verify generated export digests, ABI identity, SLSA/in-toto generation provenance, build_kag_export parity, validate_repo, and source-lift boundary checks before using this as donor orientation; authored TECHNIQUE.md bundles remain stronger than the capsule",
+        "privacy_boundary": "public technique metadata and source refs only; no private project residue, hidden transcripts, source payload bodies, secrets, machine-local runtime state, or KAG substrate authority",
+        "content_identity": "generated/kag_export.min.json digest plus repo-local aoa-techniques artifact identity",
+        "abi_epoch": "aoa_techniques_kag_export_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#source_owned_kag_export_capsule",
+        "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
+        "verification": ["python scripts/build_kag_export.py", "python scripts/validate_repo.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "SBOM-lite only when aoa-techniques is packaged as a distribution or release bundle with dependency inventory"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "generated KAG export capsule artifacts are exported or prepared for release"},
+      "sigstore_cosign": {"required": false, "trigger": "not required until aoa-techniques publishes signed release assets"},
+      "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
+    },
+    "derived_kag_registry_readmodel_bundle": {
+      "description": "Generated aoa-kag public registry readmodel bundle derived from the source-authored KAG registry manifest.",
+      "identity": {
+        "artifact_class": "derived_kag_registry_readmodel_bundle",
+        "surface_state": "public_generated_kag_registry",
+        "owner_repo": "aoa-kag",
+        "authority_ref": ["docs/KAG_MODEL.md", "generated/kag_registry.min.json", "schemas/kag-registry.schema.json", "docs/artifact-bundles/kag_registry.bundle.json"],
+        "producer": "aoa-kag registry generator from manifests/kag_registry.json and the KAG registry schema",
+        "consumer_expectation": "KAG consumers verify generated registry digests, ABI identity, SBOM-lite subject inventory, SLSA/in-toto generation provenance, validate_kag, generated parity, and source-owner boundaries before using registry orientation; source repositories remain stronger than the registry",
+        "privacy_boundary": "public KAG surface refs and compact summaries only; no private session payloads, memo payload bodies, source corpus bodies, secrets, live runtime state, or local host evidence",
+        "content_identity": "generated/kag_registry.min.json digest plus repo-local aoa-kag artifact identity",
+        "abi_epoch": "aoa_kag_registry_readmodel_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#derived_kag_registry_readmodel_bundle",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
+        "verification": ["python scripts/validate_kag.py", "python scripts/ci_gate.py --mode generated", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "SBOM-lite subject inventory for generated KAG registry readmodel bundles consumed by machine and agent surfaces"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "generated KAG registry readmodel bundle artifacts are exported or prepared for release"},
+      "sigstore_cosign": {"required": false, "trigger": "not required until aoa-kag publishes signed release assets or external release bundles"},
+      "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
+    },
+    "derived_memory_object_readmodel_family": {
+      "description": "Generated aoa-memo public memory-object readmodel family derived from reviewed corpus objects and curated teaching fixtures.",
+      "identity": {
+        "artifact_class": "derived_memory_object_readmodel_family",
+        "surface_state": "public_generated_memory_object_surfaces",
+        "owner_repo": "aoa-memo",
+        "authority_ref": ["MEMORY_INDEX.md", "docs/memory/MEMORY_OBJECT_PROFILES.md", "generated/memory-objects/memory_object_catalog.min.json", "schemas/generated-surfaces/memory_object_catalog.schema.json"],
+        "producer": "aoa-memo memory-object surface generator from reviewed corpus objects, curated generated-surface examples, and memory-object schemas",
+        "consumer_expectation": "memory consumers verify generated memory-object readmodel digests, ABI identity, SLSA/in-toto generation provenance, generate_memory_object_surfaces --check, validate_memory_object_surfaces, and memory-is-not-proof boundaries before using recall readmodels",
+        "privacy_boundary": "public reviewed corpus and teaching fixture refs only; no private session payloads, unreviewed local-port candidates, secrets, live access-plane state, or proof/identity claims",
+        "content_identity": "generated memory-object catalog, compact catalog, capsules, and sections digests plus repo-local aoa-memo artifact identity",
+        "abi_epoch": "aoa_memo_memory_object_surfaces_v2",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#derived_memory_object_readmodel_family",
+        "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
+        "verification": ["python scripts/memory/generate_memory_object_surfaces.py --check", "python scripts/memory/validate_memory_object_surfaces.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "SBOM-lite only when aoa-memo memory surfaces are packaged as a distribution or release bundle with dependency inventory"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "generated memory-object readmodel family artifacts are exported or prepared for release"},
+      "sigstore_cosign": {"required": false, "trigger": "not required until aoa-memo publishes signed release assets"},
+      "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
+    },
+    "thin_routing_readmodel_bundle": {
+      "description": "Generated aoa-routing thin router/readmodel bundle derived from source-owned route schemas, generated route catalogs, and sibling next-hop references.",
+      "identity": {
+        "artifact_class": "thin_routing_readmodel_bundle",
+        "surface_state": "public_generated_routing_surfaces",
+        "owner_repo": "aoa-routing",
+        "authority_ref": ["README.md", "generated/AGENTS.md", "generated/aoa_router.min.json", "routing/core/schemas/aoa-router.schema.json"],
+        "producer": "aoa-routing router builder from routing schemas, bounded mechanics, and sibling generated catalogs referenced by path",
+        "consumer_expectation": "routing consumers verify generated router digests, ABI identity, SBOM-lite subject inventory, SLSA/in-toto generation provenance, build_router --check, validate_router, and source-owned next-hop refs before dispatch; the router remains navigation metadata and not owner truth",
+        "privacy_boundary": "public routing refs and compact generated navigation summaries only; no private payloads, secrets, live runtime state, copied owner corpora, or sibling source authority",
+        "content_identity": "generated aoa router, route hints, recommended paths, and routing schemas digests plus repo-local aoa-routing artifact identity",
+        "abi_epoch": "aoa_routing_thin_router_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#thin_routing_readmodel_bundle",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
+        "verification": ["python scripts/build_router.py --check", "python scripts/validate_router.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "SBOM-lite subject inventory for generated routing readmodel bundles consumed by machine routers and agents"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "generated routing readmodel bundle artifacts are exported or prepared for release"},
+      "sigstore_cosign": {"required": false, "trigger": "not required until aoa-routing publishes signed release assets or external release bundles"},
+      "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
+    },
+    "playbook_registry_bundle": {
+      "description": "Source-authored aoa-playbooks registry and playbook-owned generated readout bundle for scenario/composition consumers.",
+      "identity": {
+        "artifact_class": "playbook_registry_bundle",
+        "surface_state": "public_source_authored_playbook_registry",
+        "owner_repo": "aoa-playbooks",
+        "authority_ref": ["README.md", "generated/AGENTS.md", "generated/playbook_registry.min.json", "schemas/playbook-registry.schema.json"],
+        "producer": "aoa-playbooks source-authored registry plus deterministic playbook-owned surface generators",
+        "consumer_expectation": "playbook consumers verify registry digests, ABI identity, SLSA/in-toto generation provenance, validate_playbooks, generated surface parity, and owner boundaries before using playbook scenario metadata",
+        "privacy_boundary": "public playbook metadata and generated playbook-owned composition/readout refs only; no private run logs, secrets, live runtime state, memo truth, proof verdicts, or routing authority",
+        "content_identity": "generated playbook registry and playbook-owned composition, activation, review, and federation readout digests plus repo-local aoa-playbooks artifact identity",
+        "abi_epoch": "aoa_playbooks_registry_bundle_v1",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#playbook_registry_bundle",
+        "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
+        "verification": ["python scripts/validate_playbooks.py", "python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_RELEASE_PROVENANCE"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": false, "trigger": "SBOM-lite only when aoa-playbooks is packaged as a distribution or release bundle with dependency inventory"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": true, "trigger": "playbook registry/readout bundle artifacts are exported or prepared for release"},
+      "sigstore_cosign": {"required": false, "trigger": "not required until aoa-playbooks publishes signed release assets"},
+      "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
     },
     "aoa_sdk_python_distribution": {
       "description": "Built aoa-sdk Python wheel and sdist distribution artifacts consumed as package release outputs.",
@@ -347,6 +491,30 @@
       "slsa_in_toto": {"required": true, "trigger": "generated report/result index bundle artifacts are built"},
       "sigstore_cosign": {"required": false, "trigger": "required only when aoa-evals publishes signed reports, release bundles, or external release assets"},
       "c2pa": {"required": false, "trigger": "required only for public PDF/media reports, not JSON report indexes"}
+    },
+    "derived_observability_readmodel_catalog": {
+      "description": "Generated aoa-stats public summary-surface catalog bundle derived from source-owned receipts, bounded examples, and stats schemas.",
+      "identity": {
+        "artifact_class": "derived_observability_readmodel_catalog",
+        "surface_state": "public_generated_summary_surface_catalog",
+        "owner_repo": "aoa-stats",
+        "authority_ref": ["generated/AGENTS.md", "generated/summary_surface_catalog.min.json", "schemas/summary-surface-catalog.schema.json", "docs/ARCHITECTURE.md", "docs/SURFACE_STRENGTH_MODEL.md"],
+        "producer": "aoa-stats summary-surface catalog builder from source-owned receipts, bounded examples, schema contracts, and derived-only stats posture",
+        "consumer_expectation": "stats consumers verify generated catalog digests, ABI identity, SBOM-lite subject inventory, build_views --check, validate_repo, and surface-strength boundaries before using observability readmodels",
+        "privacy_boundary": "public derived summary refs only; no raw private receipts, session captures, owner payload bodies, runtime-local evidence, or owner-truth claims",
+        "content_identity": "generated summary surface catalog digest plus repo-local aoa-stats artifact identity",
+        "abi_epoch": "aoa_stats_summary_surface_catalog_v2",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.4#derived_observability_readmodel_catalog",
+        "trust_layer": ["abi_contract_signature", "sbom"],
+        "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "action": "ADD_BOM"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "SBOM-lite subject inventory for generated observability readmodel catalogs"},
+      "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
+      "slsa_in_toto": {"required": false, "trigger": "required later only when generated stats readmodels are packaged as an external release/export bundle"},
+      "sigstore_cosign": {"required": false, "trigger": "required later only when aoa-stats publishes signed release bundles or external release assets"},
+      "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
     },
     "tree_of_sophia_generated_readmodel_bundle": {
       "description": "Generated Tree-of-Sophia public JSON readmodel bundle for downstream orientation surfaces that remain subordinate to authored ToS meaning.",
@@ -603,6 +771,85 @@
         "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
       },
       "external_signing_note": "Mozilla extension signing is separate from Sigstore/Cosign release asset signing."
+    },
+    {
+      "id": "aoa-agents-role-contract-registry-release",
+      "artifact_class": "role_contract_registry",
+      "artifact_patterns": ["dist/aoa-agents-role-registry/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-agents",
+      "required_controls": ["abi_signature", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
+      "id": "aoa-techniques-kag-export-capsule-release",
+      "artifact_class": "source_owned_kag_export_capsule",
+      "artifact_patterns": ["dist/aoa-techniques-kag-export/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-techniques",
+      "required_controls": ["abi_signature", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
+      "id": "aoa-kag-registry-readmodel-release",
+      "artifact_class": "derived_kag_registry_readmodel_bundle",
+      "artifact_patterns": ["dist/aoa-kag-registry-readmodel/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-kag",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
+      "id": "aoa-memo-memory-object-readmodels-release",
+      "artifact_class": "derived_memory_object_readmodel_family",
+      "artifact_patterns": ["dist/aoa-memo-memory-object-readmodels/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-memo",
+      "required_controls": ["abi_signature", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
+      "id": "aoa-routing-thin-router-release",
+      "artifact_class": "thin_routing_readmodel_bundle",
+      "artifact_patterns": ["dist/aoa-routing-thin-router/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-routing",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
+      "id": "aoa-playbooks-registry-bundle-release",
+      "artifact_class": "playbook_registry_bundle",
+      "artifact_patterns": ["dist/aoa-playbooks-registry/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-playbooks",
+      "required_controls": ["abi_signature", "slsa_in_toto"],
+      "sidecar_extensions": {
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"]
+      }
+    },
+    {
+      "id": "aoa-stats-summary-surface-catalog-release",
+      "artifact_class": "derived_observability_readmodel_catalog",
+      "artifact_patterns": ["dist/aoa-stats-summary-surface-catalog/*.json"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-stats",
+      "required_controls": ["abi_signature", "sbom"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"]
+      }
     },
     {
       "id": "public-media-export-release",

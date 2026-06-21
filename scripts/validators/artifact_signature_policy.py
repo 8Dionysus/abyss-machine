@@ -68,6 +68,7 @@ ALLOWED_ACTIONS = {
 ALLOWED_TRUST_LAYERS = {
     "abi_contract_signature",
     "local_provenance",
+    "local_release_provenance",
     "w3c_prov_lineage",
     "sbom",
     "ml_bom",

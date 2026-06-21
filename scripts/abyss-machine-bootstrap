@@ -21,6 +21,11 @@ from abyss_machine.path_policy import AbyssMachinePathPolicy, DEFAULT_PATH_POLIC
 
 CONFIG_TEMPLATE_ROOT = REPO_ROOT / "config-templates" / "etc" / "abyss-machine"
 SYSTEMD_TEMPLATE_ROOT = REPO_ROOT / "systemd"
+SOURCE_PACKAGE_ROOT = REPO_ROOT / "src" / "abyss_machine"
+PUBLIC_SEED_SOURCE_ROOTS = (
+    REPO_ROOT / "manifests",
+    REPO_ROOT / "generated",
+)
 
 PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
     "linux-systemd-core": {
@@ -165,16 +170,61 @@ def ensure_roots(values: dict[str, str], *, apply: bool, actions: list[dict[str,
 def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
     source = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
     libexec = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss-machine"
+    package_target = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss_machine"
     bin_path = Path(values["ABYSS_LOCAL_BIN_DIR"]) / "abyss-machine"
     if apply:
         libexec.parent.mkdir(parents=True, exist_ok=True)
         bin_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, libexec)
         libexec.chmod(0o755)
+        if package_target.exists():
+            shutil.rmtree(package_target)
+        shutil.copytree(
+            SOURCE_PACKAGE_ROOT,
+            package_target,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
         if bin_path.exists() or bin_path.is_symlink():
             bin_path.unlink()
         bin_path.symlink_to(libexec)
-    actions.append({"action": "install_cli", "source": str(source), "target": str(libexec), "symlink": str(bin_path)})
+    modules = sorted(path.name for path in SOURCE_PACKAGE_ROOT.glob("*.py"))
+    actions.append({
+        "action": "install_cli",
+        "source": str(source),
+        "target": str(libexec),
+        "package_source": str(SOURCE_PACKAGE_ROOT),
+        "package_target": str(package_target),
+        "package_modules": modules,
+        "symlink": str(bin_path),
+    })
+
+
+def public_seed_share_root(values: dict[str, str]) -> Path:
+    return Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]).parent / "share" / "abyss-machine"
+
+
+def install_public_seed(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
+    share_root = public_seed_share_root(values)
+    installed_roots: list[str] = []
+    if apply:
+        share_root.mkdir(parents=True, exist_ok=True)
+    for source_root in PUBLIC_SEED_SOURCE_ROOTS:
+        target_root = share_root / source_root.name
+        if apply:
+            if target_root.exists():
+                shutil.rmtree(target_root)
+            shutil.copytree(
+                source_root,
+                target_root,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+        installed_roots.append(str(target_root))
+    actions.append({
+        "action": "install_public_seed",
+        "source_roots": [str(path) for path in PUBLIC_SEED_SOURCE_ROOTS],
+        "target": str(share_root),
+        "installed_roots": installed_roots,
+    })
 
 
 def command_payload(command: str, ok: bool, actions: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -203,8 +253,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     checks = {
         "repo_root_exists": REPO_ROOT.exists(),
         "cli_source_exists": (REPO_ROOT / "src" / "abyss_machine" / "cli.py").exists(),
+        "package_source_exists": SOURCE_PACKAGE_ROOT.is_dir(),
         "config_templates_exist": CONFIG_TEMPLATE_ROOT.exists(),
         "systemd_templates_exist": SYSTEMD_TEMPLATE_ROOT.exists(),
+        "artifact_policy_exists": (REPO_ROOT / "manifests" / "artifact_signature_policy.manifest.json").is_file(),
+        "contract_abi_exists": (REPO_ROOT / "generated" / "contract_abi_signatures.min.json").is_file(),
         "python": sys.version.split()[0],
         "profile_known": args.profile in PROFILE_UNITS,
     }
@@ -234,6 +287,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     copy_tree(SYSTEMD_TEMPLATE_ROOT / "system", Path(args.systemd_system_dir), values=values, apply=apply, actions=actions)
     copy_tree(SYSTEMD_TEMPLATE_ROOT / "user", Path(args.systemd_user_dir), values=values, apply=apply, actions=actions)
     install_cli(values, apply=apply, actions=actions)
+    install_public_seed(values, apply=apply, actions=actions)
     payload = command_payload("install", True, actions, profile=args.profile, dry_run=not apply)
     emit(payload, json_output=args.json)
     return 0

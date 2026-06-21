@@ -1,0 +1,61 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "bootstrap-install-bundle",
+  "artifact_class": "bootstrap_install_bundle",
+  "contract_surface_id": "bootstrap-install-seed",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Local release-candidate route for a packaged abyss-machine bootstrap/install archive.",
+  "artifact_source": {
+    "kind": "ignored_dist_release_candidate",
+    "content_identity_ref": "artifact.subjects.json",
+    "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/bootstrap-install-seed/source_paths",
+    "private_payload_included": false
+  },
+  "subject_repo_root": "../..",
+  "artifact_subjects": [
+    {
+      "glob": "dist/abyss-machine-bootstrap-*.tar.gz",
+      "role": "bootstrap_install_bundle"
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:abyss-machine-bootstrap-install-bundle:v1",
+  "package": {
+    "ecosystem": "bootstrap",
+    "name": "abyss-machine-bootstrap",
+    "version": "0",
+    "purl": "pkg:generic/abyss-machine-bootstrap@0"
+  },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "published",
+      "superseded"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready",
+      "published"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class bootstrap_install_bundle --json",
+    "consumer_expectation": "Install consumers select a bootstrap_install_bundle registry latest only after ABI, SBOM, SLSA/in-toto, and Sigstore/Cosign verification succeed against the packaged archive digest.",
+    "registry_required": true
+  },
+  "consumer_command": [
+    "tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -czf dist/abyss-machine-bootstrap-VERSION.tar.gz scripts/abyss-machine-bootstrap src/abyss_machine config-templates systemd schemas/bootstrap-report.schema.json manifests/bootstrap_profiles.manifest.json",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --bundle-dir BUNDLE_DIR",
+    "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
+    "abyss-machine artifacts verify BUNDLE_DIR",
+    "abyss-machine artifacts release-check BUNDLE_DIR",
+    "abyss-machine artifacts bundle-register BUNDLE_DIR --lifecycle-state manually-verified",
+    "abyss-machine artifacts bundle-registry --artifact-class bootstrap_install_bundle"
+  ]
+}

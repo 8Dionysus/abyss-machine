@@ -1,0 +1,106 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "ai-runtime-config-bundle",
+  "artifact_class": "ai_model_or_runtime_bundle",
+  "contract_surface_id": "host-ai-runtime-route",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Local release-candidate route for a publishable AI runtime framework-config bundle without model weights.",
+  "artifact_source": {
+    "kind": "local_release_candidate",
+    "content_identity_ref": "manifests/artifact_signature_policy.manifest.json#/artifact_classes/ai_model_or_runtime_bundle/identity/content_identity",
+    "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/host-ai-runtime-route/source_paths",
+    "private_payload_included": false
+  },
+  "subject_repo_root": "../..",
+  "artifact_subjects": [
+    {
+      "glob": "dist/abyss-machine-ai-runtime-config-*.tar.gz",
+      "role": "ai_runtime_config_bundle"
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:abyss-machine-ai-runtime-config-bundle:v1",
+  "package": {
+    "ecosystem": "ai-runtime-config",
+    "name": "abyss-machine-ai-runtime-config",
+    "version": "0",
+    "purl": "pkg:generic/abyss-machine-ai-runtime-config@0"
+  },
+  "ml_bom": {
+    "name": "abyss-machine-ai-runtime-config",
+    "version": "0",
+    "scope": "framework_config_bundle_no_model_weights",
+    "models": [
+      {
+        "name": "Qwen3-Embedding-0.6B-int8-ov",
+        "version": "0.6B",
+        "role": "referenced_embedding_model",
+        "included": false,
+        "source_ref": "{{ABYSS_OS_ROOT}}/abyss-stack/Models/ovms/OpenVINO/Qwen3-Embedding-0.6B-int8-ov",
+        "notes": "Model weights are referenced by AI config but are not included in this publishable framework-config bundle."
+      },
+      {
+        "name": "Phi-3.5-mini-instruct-int4-ov",
+        "version": "3.5-mini",
+        "role": "referenced_text_model",
+        "included": false,
+        "source_ref": "{{ABYSS_OS_ROOT}}/abyss-stack/Models/ovms-text-phi35-mini-int4/OpenVINO/Phi-3.5-mini-instruct-int4-ov",
+        "notes": "Model weights are referenced by AI config but are not included in this publishable framework-config bundle."
+      }
+    ],
+    "conversions": [
+      {
+        "name": "Qwen3-TTS CustomVoice OpenVINO fp16 cache",
+        "role": "referenced_openvino_conversion",
+        "included": false,
+        "source_ref": "{{ABYSS_MACHINE_SRV}}/cache/ai/tts/qwen3-openvino/customvoice-1p7b-fp16-ov",
+        "framework": "OpenVINO",
+        "precision": "fp16",
+        "notes": "Conversion cache is host-managed and excluded from this public-safe config bundle."
+      },
+      {
+        "name": "Qwen3-TTS CustomVoice OpenVINO int8-cpfp16 cache",
+        "role": "referenced_openvino_conversion",
+        "included": false,
+        "source_ref": "{{ABYSS_MACHINE_SRV}}/cache/ai/tts/qwen3-openvino/customvoice-1p7b-int8-cpfp16-ov",
+        "framework": "OpenVINO",
+        "precision": "int8-cpfp16",
+        "notes": "Conversion cache is host-managed and excluded from this public-safe config bundle."
+      }
+    ],
+    "framework_configs": [
+      {
+        "name": "abyss-machine-ai-runtime-config",
+        "role": "framework_config_bundle",
+        "subject_role": "ai_runtime_config_bundle",
+        "included": true,
+        "framework": "abyss-machine",
+        "notes": "The signed artifact subject is the framework-config bundle tarball."
+      }
+    ],
+    "datasets": [],
+    "not_applicable": {
+      "datasets": "No dataset artifact is distributed by this framework-config bundle."
+    }
+  },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": ["candidate", "built-local", "manually-verified", "release-ready", "published"],
+    "latest_eligible_states": ["manually-verified", "release-ready", "published"]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class ai_model_or_runtime_bundle --json",
+    "consumer_expectation": "AI runtime consumers select an ai_model_or_runtime_bundle registry latest only after ABI, SBOM, ML-BOM, SLSA/in-toto, and Sigstore/Cosign verification succeed against the bundle digest.",
+    "registry_required": true
+  },
+  "consumer_command": [
+    "tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -czf dist/abyss-machine-ai-runtime-config-VERSION.tar.gz config-templates/etc/abyss-machine/ai config-templates/etc/abyss-machine/resource-policy.json mechanics/local-ai-runtime tools/ai",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/ai_runtime_config_bundle.bundle.json --bundle-dir BUNDLE_DIR",
+    "abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
+    "abyss-machine artifacts verify BUNDLE_DIR",
+    "abyss-machine artifacts release-check BUNDLE_DIR",
+    "abyss-machine artifacts bundle-registry --artifact-class ai_model_or_runtime_bundle"
+  ]
+}
