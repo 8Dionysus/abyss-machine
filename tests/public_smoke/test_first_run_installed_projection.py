@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +12,15 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR = ROOT / "scripts" / "validators" / "first_run_installed_projection.py"
+
+
+def load_validator_module():
+    spec = importlib.util.spec_from_file_location("first_run_installed_projection_under_test", VALIDATOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(VALIDATOR.parent))
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_validator(tmp_path: Path) -> dict:
@@ -45,8 +56,34 @@ def test_first_run_projection_report_is_machine_readable(projection_payload: dic
     assert payload["bootstrap"]["dry_run"] is False
     assert payload["roots"]["status"] == "ok"
     assert payload["package_projection"]["status"] == "ok"
+    assert payload["temp_installed_content_parity"]["status"] == "ok"
+    assert payload["temp_installed_content_parity"]["failures"] == []
     assert payload["module_import"]["status"] == "ok"
     assert payload["module_import"]["uses_source_checkout"] is False
+
+
+def test_content_parity_report_detects_installed_cli_digest_drift(tmp_path: Path) -> None:
+    module = load_validator_module()
+    libexec = tmp_path / "libexec"
+    share_root = tmp_path / "share" / "abyss-machine"
+    libexec.mkdir(parents=True)
+    shutil.copy2(ROOT / "src" / "abyss_machine" / "cli.py", libexec / "abyss-machine")
+    shutil.copytree(ROOT / "src" / "abyss_machine", libexec / "abyss_machine")
+    shutil.copytree(ROOT / "manifests", share_root / "manifests")
+    shutil.copytree(ROOT / "generated", share_root / "generated")
+    with (libexec / "abyss-machine").open("a", encoding="utf-8") as handle:
+        handle.write("\n# installed drift fixture\n")
+
+    report = module.content_parity_report(
+        label="fixture-installed",
+        installed_cli=libexec / "abyss-machine",
+        installed_package_root=libexec / "abyss_machine",
+        installed_share_root=share_root,
+    )
+
+    assert report["status"] == "failed"
+    assert report["cli"]["status"] == "digest_mismatch"
+    assert any("fixture-installed CLI digest mismatch" in failure for failure in report["failures"])
 
 
 def test_first_run_projection_keeps_cli_surfaces_in_parity(projection_payload: dict) -> None:
