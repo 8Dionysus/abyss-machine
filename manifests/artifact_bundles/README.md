@@ -58,7 +58,11 @@ so the generated SLSA statement identifies a runtime-config bundle instead of
 the Python distribution default.
 
 Release-artifact subjects can be materialized into the local host subject store
-with `abyss-machine artifacts materialize-subjects BUNDLE_DIR --json`. The
-public manifest stays repo-relative; installed consumers verify the signed
-`artifact.subjects.json` against `/var/lib/abyss-machine/artifacts/subjects`
-when the source artifact path is not available.
+with `abyss-machine artifacts materialize-subjects BUNDLE_DIR --json` only
+after the matching bundle has a durable registry record that passes
+`trust-gate` for the derived consumer intent. The CLI defaults to the host
+bundle registry root, and test/portable lanes can pass `--registry-dir`
+explicitly. The public manifest stays repo-relative; installed consumers verify
+the signed `artifact.subjects.json` against
+`/var/lib/abyss-machine/artifacts/subjects` when the source artifact path is
+not available.

@@ -1324,12 +1324,13 @@ def build_artifact_subjects(manifest: dict[str, Any] | None) -> dict[str, Any] |
     }
 
 
-def _artifact_subject_store_status(subjects: dict[str, Any]) -> dict[str, Any]:
+def _artifact_subject_store_status(subjects: dict[str, Any], *, store_root: Path | None = None) -> dict[str, Any]:
     subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
     if not subject_files:
         return {"required": False, "ok": True}
     candidates: list[dict[str, Any]] = []
-    for root in _artifact_subject_store_roots():
+    roots = [store_root] if store_root is not None else _artifact_subject_store_roots()
+    for root in roots:
         try:
             store_dir = artifact_subject_store_dir(subjects, store_root=root)
         except ValueError as exc:
@@ -1389,7 +1390,13 @@ def materialize_artifact_subjects(
     bundle_dir: str | Path,
     *,
     store_root: Path | None = None,
+    registry_dir: str | Path | None = None,
     manifest_ref: str | Path | None = None,
+    consumer_intent: str = "",
+    expected_source_repo: str = "",
+    expected_trust_root_mode: str = "",
+    record_id: str = "",
+    require_latest: bool = True,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     bundle = Path(bundle_dir)
@@ -1421,6 +1428,8 @@ def materialize_artifact_subjects(
             "written": [],
         }
 
+    artifact_class = str(subjects.get("artifact_class") or identity.get("artifact_class") or manifest.get("artifact_class") or "")
+    aggregate_digest = str(subjects.get("aggregate_digest") or "")
     subject_root = _subject_repo_root(manifest)
     target_dir = artifact_subject_store_dir(subjects, store_root=store_root)
     copy_plan: list[tuple[Path, Path, dict[str, Any]]] = []
@@ -1457,6 +1466,45 @@ def materialize_artifact_subjects(
             "written": [],
         }
 
+    gate: dict[str, Any] | None = None
+    gate_consumer_intent = str(consumer_intent or consumer_intent_for_artifact_class(artifact_class))
+    gate_expected_source_repo = str(
+        expected_source_repo or manifest.get("owner_repo") or identity.get("owner_repo") or subjects.get("owner_repo") or ""
+    )
+    if registry_dir is None:
+        errors.append("artifact subject materialization requires registry_dir for consumer trust-gate")
+    else:
+        gate = trust_gate(
+            registry_dir,
+            artifact_class=artifact_class,
+            subject_digest=aggregate_digest,
+            record_id=str(record_id or ""),
+            consumer_intent=gate_consumer_intent,
+            expected_source_repo=gate_expected_source_repo,
+            expected_trust_root_mode=str(expected_trust_root_mode or ""),
+            require_latest=require_latest,
+        )
+        if not gate.get("ok"):
+            reasons = [str(item) for item in gate.get("reasons", []) if str(item)]
+            reason_text = ",".join(reasons) or str(gate.get("verdict") or "unknown")
+            errors.append(f"consumer trust-gate did not allow artifact subject materialization: {reason_text}")
+
+    if errors:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_artifact_subject_materialize_v1",
+            "bundle_dir": _portable_path_ref(bundle),
+            "manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
+            "store_dir": str(target_dir),
+            "artifact_class": artifact_class,
+            "aggregate_digest": aggregate_digest,
+            "consumer_intent": gate_consumer_intent,
+            "registry_dir": str(registry_dir) if registry_dir is not None else None,
+            "trust_gate": gate,
+            "errors": errors,
+            "written": [],
+        }
+
     written: list[str] = []
     for source, target, _item in copy_plan:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1465,28 +1513,35 @@ def materialize_artifact_subjects(
     meta = {
         "schema": "abyss_machine_artifact_subject_store_v1",
         "bundle_layout": BUNDLE_LAYOUT,
-        "artifact_class": subjects.get("artifact_class"),
+        "artifact_class": artifact_class,
         "owner_repo": subjects.get("owner_repo"),
-        "aggregate_digest": subjects.get("aggregate_digest"),
+        "aggregate_digest": aggregate_digest,
         "path_basis": "local_host_state",
         "store_dir": str(target_dir),
         "bundle_ref": _portable_path_ref(bundle),
         "bundle_manifest_ref": identity.get("bundle_manifest_ref"),
         "source_manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
+        "registry_dir": str(registry_dir),
+        "consumer_intent": gate_consumer_intent,
+        "trust_gate_record_id": gate.get("record_id") if isinstance(gate, dict) else None,
+        "trust_gate_verdict": gate.get("verdict") if isinstance(gate, dict) else None,
         "materialized_at": _utc_now(),
         "files": subject_files,
     }
     _write_json(target_dir / ARTIFACT_SUBJECT_STORE_META, meta)
     written.append(str(target_dir / ARTIFACT_SUBJECT_STORE_META))
-    status = _artifact_subject_store_status(subjects)
+    status = _artifact_subject_store_status(subjects, store_root=store_root)
     return {
         "ok": bool(status.get("ok")),
         "schema": "abyss_machine_artifact_subject_materialize_v1",
         "bundle_dir": _portable_path_ref(bundle),
         "manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
         "store_dir": str(target_dir),
-        "artifact_class": subjects.get("artifact_class"),
-        "aggregate_digest": subjects.get("aggregate_digest"),
+        "artifact_class": artifact_class,
+        "aggregate_digest": aggregate_digest,
+        "consumer_intent": gate_consumer_intent,
+        "registry_dir": str(registry_dir),
+        "trust_gate": gate,
         "written": written,
         "status": status,
         "errors": [] if status.get("ok") else ["materialized artifact subject store did not verify"],
