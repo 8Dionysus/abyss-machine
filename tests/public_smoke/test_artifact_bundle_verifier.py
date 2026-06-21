@@ -276,6 +276,32 @@ def test_artifact_affected_distinguishes_sibling_lag() -> None:
     assert accepted["accept_sibling_lag"] is True
 
 
+def test_artifact_affected_scopes_sibling_paths_to_matching_owner_repo() -> None:
+    local = artifact_bundles.artifact_affected(
+        ["manifests/artifact_bundles/portable_bundle.bundle.json"],
+        artifact_class="public_source_seed",
+        changed_source_repo="aoa-session-memory",
+    )
+    sibling = artifact_bundles.artifact_affected(
+        ["manifests/artifact_bundles/portable_bundle.bundle.json"],
+        artifact_class="aoa_session_memory_portable_bundle",
+        changed_source_repo="aoa-session-memory",
+    )
+    local_policy_path_from_sibling = artifact_bundles.artifact_affected(
+        ["manifests/artifact_signature_policy.manifest.json"],
+        artifact_class="public_source_seed",
+        changed_source_repo="aoa-session-memory",
+    )
+
+    assert local["rows"][0]["verdict"] == "fresh"
+    assert local["rows"][0]["reasons"] == []
+    assert local["rows"][0]["matches"] == []
+    assert sibling["rows"][0]["verdict"] == "blocked_by_missing_sibling"
+    assert sibling["rows"][0]["reasons"] == ["owner_repo_changed"]
+    assert local_policy_path_from_sibling["rows"][0]["verdict"] == "fresh"
+    assert local_policy_path_from_sibling["rows"][0]["reasons"] == []
+
+
 def _update_metadata(**overrides: object) -> dict[str, object]:
     metadata: dict[str, object] = {
         "schema": "abyss_machine_tuf_update_metadata_v1",
