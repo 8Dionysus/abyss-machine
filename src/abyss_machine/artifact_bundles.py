@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import fnmatch
 import hashlib
 import json
 import os
@@ -68,6 +69,15 @@ TRUST_ROOT_MODES = (
 )
 TRUST_GATE_VERDICTS = ("allow", "deny", "warn", "unknown", "manual_review_required")
 PRODUCTION_CONSUMER_INTENTS = frozenset({"installer", "runtime", "release_consumer", "update_client", "public_release"})
+ARTIFACT_AFFECTED_VERDICTS = (
+    "fresh",
+    "stale",
+    "needs_rebuild",
+    "needs_reverify",
+    "blocked_by_missing_sibling",
+    "accepted_lag",
+    "manual_review_required",
+)
 DURABLE_EVIDENCE_FIELDS = ("source_repo", "source_ref", "producer", "trust_root_mode", "verifier_versions")
 BUNDLE_REGISTRY_INDEX = "index.json"
 BUNDLE_REGISTRY_RECORDS_DIR = "records"
@@ -290,6 +300,443 @@ def classify_artifact(
         "deferred_controls": deferred,
         "required_sidecars": {control: CONTROL_FILES[control] for control in required},
         "signature_required": "sigstore_cosign" in required,
+    }
+
+
+def consumer_intent_for_artifact_class(artifact_class: str) -> str:
+    if artifact_class == "bootstrap_install_bundle":
+        return "installer"
+    if artifact_class in {"runtime_or_container_artifact", "ai_model_or_runtime_bundle"}:
+        return "runtime"
+    if artifact_class in {"browser_extension_package", "public_media_export"}:
+        return "release_consumer"
+    return "agent"
+
+
+def _release_rules_for_class(policy: dict[str, Any], artifact_class: str) -> list[dict[str, Any]]:
+    rules = policy.get("release_artifact_rules")
+    if not isinstance(rules, list):
+        return []
+    return [
+        dict(rule)
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("artifact_class") or "") == artifact_class
+    ]
+
+
+def _contract_surfaces_for_class(policy: dict[str, Any], artifact_class: str) -> list[dict[str, Any]]:
+    surfaces = policy.get("contract_surfaces")
+    if not isinstance(surfaces, list):
+        return []
+    return [
+        dict(surface)
+        for surface in surfaces
+        if isinstance(surface, dict) and str(surface.get("artifact_class") or "") == artifact_class
+    ]
+
+
+def _generated_contract_surfaces_for_class(repo_root: Path, artifact_class: str) -> list[dict[str, Any]]:
+    try:
+        abi = load_abi_signatures(repo_root)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        return []
+    surfaces = abi.get("contract_surfaces")
+    if not isinstance(surfaces, list):
+        return []
+    return [
+        dict(surface)
+        for surface in surfaces
+        if isinstance(surface, dict) and str(surface.get("artifact_class") or "") == artifact_class
+    ]
+
+
+def _bundle_manifest_refs_for_class(repo_root: Path, artifact_class: str) -> list[str]:
+    bundle_root = repo_root / "manifests" / "artifact_bundles"
+    if not bundle_root.is_dir():
+        return []
+    refs: list[str] = []
+    for path in sorted(bundle_root.glob("*.json")):
+        try:
+            manifest = _read_json(path)
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if str(manifest.get("artifact_class") or "") != artifact_class:
+            continue
+        try:
+            refs.append(path.relative_to(repo_root).as_posix())
+        except ValueError:
+            refs.append(path.as_posix())
+    return refs
+
+
+def _repo_relative_text(path: str | Path, *, repo_root: Path = REPO_ROOT) -> str:
+    text = str(path).replace("\\", "/").strip()
+    if not text:
+        return ""
+    candidate = Path(text)
+    if candidate.is_absolute():
+        try:
+            return candidate.relative_to(repo_root).as_posix()
+        except ValueError:
+            return candidate.as_posix()
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+def _path_matches_ref(path_text: str, ref_text: str) -> bool:
+    path = _repo_relative_text(path_text)
+    ref = _repo_relative_text(ref_text)
+    if not path or not ref:
+        return False
+    if any(char in ref for char in "*?["):
+        return fnmatch.fnmatch(path, ref)
+    ref = ref.rstrip("/")
+    return path == ref or path.startswith(ref + "/")
+
+
+def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> dict[str, Any]:
+    required = set(required_controls_for_rule(rule))
+    artifact_class = str(rule.get("identity", {}).get("artifact_class") or "")
+    release_modes = ["public_release"]
+    if "sigstore_cosign" in required:
+        release_modes.append("github_oidc")
+    if artifact_class in {"runtime_or_container_artifact", "ai_model_or_runtime_bundle"}:
+        release_modes.append("oci_registry")
+    if consumer_intent not in PRODUCTION_CONSUMER_INTENTS:
+        recommended = ["host_managed", "local_dev"]
+    elif artifact_class == "host_local_evidence":
+        recommended = ["host_managed"]
+    else:
+        recommended = release_modes
+    return {
+        "known_modes": list(TRUST_ROOT_MODES),
+        "recommended_for_consumer_intent": sorted(dict.fromkeys(recommended)),
+        "local_dev": {
+            "allowed_for_local_development": True,
+            "production_consumer_result": "manual_review_required",
+        },
+        "host_managed": {
+            "role": "durable OS Abyss host registry assertion or local host-managed evidence",
+        },
+        "github_oidc": {
+            "role": "GitHub Actions/OIDC producer adapter for release provenance",
+            "adapter_only": True,
+        },
+        "oci_registry": {
+            "role": "OCI/ORAS image or bundle publication by digest",
+            "required_when": "runtime/container/model artifacts are consumed through OCI distribution",
+        },
+        "public_release": {
+            "role": "public release asset with publishable attestations or signatures",
+        },
+    }
+
+
+def artifact_requirement_row(
+    artifact_class: str,
+    *,
+    registry_dir: str | Path | None = None,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    policy = load_policy(repo_root)
+    rule = artifact_class_rule(artifact_class, repo_root=repo_root)
+    identity = rule.get("identity") if isinstance(rule.get("identity"), dict) else {}
+    required = required_controls_for_rule(rule)
+    deferred = deferred_controls_for_rule(rule)
+    release_rules = _release_rules_for_class(policy, artifact_class)
+    policy_surfaces = _contract_surfaces_for_class(policy, artifact_class)
+    generated_surfaces = _generated_contract_surfaces_for_class(repo_root, artifact_class)
+    manifest_refs = _bundle_manifest_refs_for_class(repo_root, artifact_class)
+    consumer_intent = consumer_intent_for_artifact_class(artifact_class)
+    if "abi_signature" not in required:
+        contract_surface_status = "abi_not_required"
+    elif policy_surfaces or generated_surfaces:
+        contract_surface_status = "local_contract_surface"
+    else:
+        contract_surface_status = "external_subject_or_owner_bundle_required"
+
+    registry_status: dict[str, Any] = {"checked": False}
+    trust_gate_status: dict[str, Any] = {"checked": False}
+    if registry_dir is not None:
+        registry = read_bundle_registry(registry_dir, artifact_class=artifact_class)
+        latest = registry.get("latest_by_artifact_class", {}).get(artifact_class)
+        class_records = [
+            record
+            for record in registry.get("records", [])
+            if isinstance(record, dict) and str(record.get("artifact_class") or "") == artifact_class
+        ]
+        registry_status = {
+            "checked": True,
+            "registry_dir": registry.get("registry_dir"),
+            "record_count": len(class_records),
+            "has_latest": isinstance(latest, dict),
+            "latest_record_id": latest.get("record_id") if isinstance(latest, dict) else None,
+            "latest_state": latest.get("lifecycle_state") if isinstance(latest, dict) else None,
+            "latest_source_ref": latest.get("source_ref") if isinstance(latest, dict) else None,
+            "latest_source_repo": latest.get("source_repo") if isinstance(latest, dict) else None,
+            "latest_trust_root_mode": latest.get("trust_root_mode") if isinstance(latest, dict) else None,
+            "latest_verified_controls": latest.get("verified_controls", []) if isinstance(latest, dict) else [],
+        }
+        gate = trust_gate(registry_dir, artifact_class=artifact_class, consumer_intent=consumer_intent) if isinstance(latest, dict) else {}
+        trust_gate_status = {
+            "checked": isinstance(latest, dict),
+            "consumer_intent": consumer_intent,
+            "verdict": gate.get("verdict") if isinstance(gate, dict) else None,
+            "ok": gate.get("ok") if isinstance(gate, dict) else False,
+            "reasons": gate.get("reasons", []) if isinstance(gate, dict) else [],
+        }
+
+    source_paths = sorted({
+        str(path)
+        for surface in policy_surfaces
+        for path in surface.get("source_paths", [])
+        if str(path)
+    })
+    authority_refs = [str(item) for item in identity.get("authority_ref", [])] if isinstance(identity.get("authority_ref"), list) else []
+    release_patterns = [
+        str(pattern)
+        for rule_item in release_rules
+        for pattern in rule_item.get("artifact_patterns", [])
+        if str(pattern)
+    ]
+    return {
+        "schema": "abyss_machine_artifact_requirements_row_v1",
+        "artifact_class": artifact_class,
+        "owner_repo": identity.get("owner_repo"),
+        "producer_profile": {
+            "surface_state": identity.get("surface_state"),
+            "producer": identity.get("producer"),
+            "producer_action": identity.get("action"),
+            "authority_ref": authority_refs,
+            "content_identity": identity.get("content_identity"),
+            "privacy_boundary": identity.get("privacy_boundary"),
+            "consumer_expectation": identity.get("consumer_expectation"),
+            "verification": identity.get("verification", []),
+        },
+        "consumer": {
+            "intent": consumer_intent,
+            "trust_gate": f"abyss-machine artifacts trust-gate --artifact-class {artifact_class} --consumer-intent {consumer_intent} --json",
+            "registry_query": f"abyss-machine artifacts bundle-registry --artifact-class {artifact_class} --json",
+        },
+        "controls": {
+            "required": required,
+            "deferred": deferred,
+            "required_sidecars": {control: CONTROL_FILES[control] for control in required},
+            "signature_required": "sigstore_cosign" in required,
+            "trust_layers": identity.get("trust_layer", []),
+        },
+        "trust_roots": _trust_root_expectations(rule, consumer_intent=consumer_intent),
+        "source_route": {
+            "contract_surface_status": contract_surface_status,
+            "contract_surfaces": policy_surfaces,
+            "generated_contract_surfaces": generated_surfaces,
+            "contract_source_paths": source_paths,
+            "bundle_manifest_refs": manifest_refs,
+            "release_artifact_patterns": release_patterns,
+        },
+        "release_rules": release_rules,
+        "registry_status": registry_status,
+        "trust_gate_status": trust_gate_status,
+        "agent_loop": {
+            "requirements": f"abyss-machine artifacts requirements --artifact-class {artifact_class} --json",
+            "affected": f"abyss-machine artifacts affected --artifact-class {artifact_class} --json",
+            "build_sidecars": f"abyss-machine artifacts build-sidecars --artifact-class {artifact_class} --bundle-dir BUNDLE_DIR --json",
+            "evidence_promote": "abyss-machine artifacts evidence-promote BUNDLE_DIR --json",
+            "trust_gate": f"abyss-machine artifacts trust-gate --artifact-class {artifact_class} --consumer-intent {consumer_intent} --json",
+        },
+        "claim_limits": [
+            "Requirements are a policy/read-model projection; they do not produce evidence or prove an artifact is safe.",
+            "Sibling-owned producer profiles name owner expectations but do not replace owner-repo validators or release decisions.",
+            "GitHub OIDC is one producer adapter, not the OS Abyss trust plane itself.",
+        ],
+    }
+
+
+def artifact_requirements(
+    artifact_class: str = "",
+    *,
+    registry_dir: str | Path | None = None,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    policy = load_policy(repo_root)
+    classes = policy.get("artifact_classes") if isinstance(policy.get("artifact_classes"), dict) else {}
+    selected = [artifact_class] if artifact_class else sorted(str(item) for item in classes)
+    rows = [
+        artifact_requirement_row(class_id, registry_dir=registry_dir, repo_root=repo_root)
+        for class_id in selected
+        if class_id in classes
+    ]
+    missing = [class_id for class_id in selected if class_id not in classes]
+    status_counts: dict[str, int] = {}
+    for row in rows:
+        status = str(row.get("source_route", {}).get("contract_surface_status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return {
+        "ok": not missing,
+        "schema": "abyss_machine_artifact_requirements_v1",
+        "policy_ref": POLICY_REF,
+        "policy_version": policy.get("policy_version"),
+        "abi_ref": ABI_REF,
+        "artifact_class_filter": artifact_class or None,
+        "summary": {
+            "artifact_classes": len(rows),
+            "missing_artifact_classes": missing,
+            "contract_surface_status_counts": status_counts,
+        },
+        "rows": rows,
+        "errors": [f"unknown artifact_class: {class_id}" for class_id in missing],
+    }
+
+
+def _artifact_affected_matches(row: dict[str, Any], changed_paths: list[str]) -> tuple[list[str], list[dict[str, Any]]]:
+    source_route = row.get("source_route") if isinstance(row.get("source_route"), dict) else {}
+    profile = row.get("producer_profile") if isinstance(row.get("producer_profile"), dict) else {}
+    refs: list[tuple[str, str]] = []
+    refs.extend(("contract_source", str(item)) for item in source_route.get("contract_source_paths", []) if str(item))
+    refs.extend(("bundle_manifest", str(item)) for item in source_route.get("bundle_manifest_refs", []) if str(item))
+    refs.extend(("authority_ref", str(item)) for item in profile.get("authority_ref", []) if str(item) and not str(item).startswith("/"))
+    refs.extend(("release_artifact_pattern", str(item)) for item in source_route.get("release_artifact_patterns", []) if str(item))
+    matches: list[dict[str, Any]] = []
+    reasons: set[str] = set()
+    for changed in changed_paths:
+        if _path_matches_ref(changed, POLICY_REF):
+            matches.append({"reason": "policy_manifest_changed", "changed_path": changed, "matched_ref": POLICY_REF})
+            reasons.add("policy_manifest_changed")
+            continue
+        if _path_matches_ref(changed, ABI_REF):
+            matches.append({"reason": "abi_signature_readmodel_changed", "changed_path": changed, "matched_ref": ABI_REF})
+            reasons.add("abi_signature_readmodel_changed")
+            continue
+        for ref_kind, ref in refs:
+            if _path_matches_ref(changed, ref):
+                matches.append({"reason": f"{ref_kind}_changed", "changed_path": changed, "matched_ref": ref})
+                reasons.add(f"{ref_kind}_changed")
+    return sorted(reasons), matches
+
+
+def _artifact_affected_verdict(
+    row: dict[str, Any],
+    *,
+    affected_reasons: list[str],
+    changed_source_repo: str,
+    accept_sibling_lag: bool,
+) -> str:
+    owner_repo = str(row.get("owner_repo") or "")
+    registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
+    gate = row.get("trust_gate_status") if isinstance(row.get("trust_gate_status"), dict) else {}
+    owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
+    if owner_repo_changed and owner_repo != "abyss-machine":
+        return "accepted_lag" if accept_sibling_lag else "blocked_by_missing_sibling"
+    if any(reason in affected_reasons for reason in ("contract_source_changed", "bundle_manifest_changed", "authority_ref_changed", "release_artifact_pattern_changed")):
+        return "needs_rebuild"
+    if any(reason in affected_reasons for reason in ("policy_manifest_changed", "abi_signature_readmodel_changed")):
+        return "needs_reverify"
+    if owner_repo_changed:
+        return "needs_rebuild"
+    if registry.get("checked") and not registry.get("has_latest"):
+        return "needs_rebuild"
+    if gate.get("verdict") == "manual_review_required":
+        return "manual_review_required"
+    if gate.get("checked") and gate.get("verdict") not in {None, "allow", "warn"}:
+        return "needs_reverify"
+    return "fresh"
+
+
+def artifact_affected(
+    changed_paths: list[str] | None = None,
+    *,
+    changed_source_repo: str = "",
+    artifact_class: str = "",
+    registry_dir: str | Path | None = None,
+    accept_sibling_lag: bool = False,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    normalized_paths = sorted({_repo_relative_text(path, repo_root=repo_root) for path in changed_paths or [] if str(path)})
+    requirements = artifact_requirements(artifact_class, registry_dir=registry_dir, repo_root=repo_root)
+    rows: list[dict[str, Any]] = []
+    for requirement in requirements.get("rows", []):
+        if not isinstance(requirement, dict):
+            continue
+        reasons, matches = _artifact_affected_matches(requirement, normalized_paths)
+        owner_repo = str(requirement.get("owner_repo") or "")
+        owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
+        if owner_repo_changed and "owner_repo_changed" not in reasons:
+            reasons.append("owner_repo_changed")
+        verdict = _artifact_affected_verdict(
+            requirement,
+            affected_reasons=reasons,
+            changed_source_repo=changed_source_repo,
+            accept_sibling_lag=accept_sibling_lag,
+        )
+        freshness = "fresh"
+        if verdict in {"needs_rebuild", "needs_reverify", "blocked_by_missing_sibling", "accepted_lag"}:
+            freshness = "stale"
+        source_route = requirement.get("source_route") if isinstance(requirement.get("source_route"), dict) else {}
+        registry = requirement.get("registry_status") if isinstance(requirement.get("registry_status"), dict) else {}
+        gate = requirement.get("trust_gate_status") if isinstance(requirement.get("trust_gate_status"), dict) else {}
+        next_actions = [
+            f"abyss-machine artifacts requirements --artifact-class {requirement.get('artifact_class')} --json",
+        ]
+        if verdict in {"needs_rebuild", "stale"}:
+            next_actions.append("rebuild artifact sidecars in the source owner route")
+            next_actions.append("abyss-machine artifacts evidence-promote BUNDLE_DIR --json")
+        if verdict in {"needs_reverify", "manual_review_required"}:
+            next_actions.append(f"abyss-machine artifacts trust-gate --artifact-class {requirement.get('artifact_class')} --json")
+        if verdict in {"blocked_by_missing_sibling", "accepted_lag"}:
+            next_actions.append(f"run the producer profile in owner repo {owner_repo}")
+            next_actions.append("promote the new owner-produced evidence into the host registry")
+        rows.append({
+            "schema": "abyss_machine_artifact_affected_row_v1",
+            "artifact_class": requirement.get("artifact_class"),
+            "owner_repo": owner_repo,
+            "affected": bool(reasons or verdict not in {"fresh", "manual_review_required"}),
+            "verdict": verdict,
+            "freshness": freshness,
+            "reasons": reasons,
+            "matches": matches,
+            "changed_source_repo": changed_source_repo or None,
+            "contract_surface_status": source_route.get("contract_surface_status"),
+            "registry": {
+                "checked": registry.get("checked"),
+                "has_latest": registry.get("has_latest"),
+                "latest_record_id": registry.get("latest_record_id"),
+                "latest_state": registry.get("latest_state"),
+                "latest_source_repo": registry.get("latest_source_repo"),
+                "latest_source_ref": registry.get("latest_source_ref"),
+            },
+            "trust_gate": {
+                "checked": gate.get("checked"),
+                "verdict": gate.get("verdict"),
+                "reasons": gate.get("reasons", []),
+            },
+            "next_actions": next_actions,
+            "claim_limit": "Affected detects declared source/profile drift; it does not rebuild or consume artifacts by itself.",
+        })
+    status_counts: dict[str, int] = {}
+    affected_count = 0
+    for row in rows:
+        verdict = str(row.get("verdict") or "unknown")
+        status_counts[verdict] = status_counts.get(verdict, 0) + 1
+        if row.get("affected"):
+            affected_count += 1
+    return {
+        "ok": bool(requirements.get("ok")),
+        "schema": "abyss_machine_artifact_affected_v1",
+        "policy_ref": POLICY_REF,
+        "abi_ref": ABI_REF,
+        "artifact_class_filter": artifact_class or None,
+        "changed_paths": normalized_paths,
+        "changed_source_repo": changed_source_repo or None,
+        "accept_sibling_lag": accept_sibling_lag,
+        "known_verdicts": list(ARTIFACT_AFFECTED_VERDICTS),
+        "summary": {
+            "artifact_classes": len(rows),
+            "affected": affected_count,
+            "status_counts": status_counts,
+        },
+        "rows": rows,
+        "errors": requirements.get("errors", []),
     }
 
 

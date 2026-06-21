@@ -118,6 +118,7 @@ the first executable consumer route: it creates ABI/provenance/signature-decisio
 sidecars for `public_source_seed`, local provenance sidecars for the
 `host_local_evidence` sample, verifies both with the same policy-driven bundle
 verifier exposed by `abyss-machine artifacts verify`, and exercises
+`requirements`/`affected` preflight read-models,
 `evidence-promote`/`bundle-registry` latest behavior, positive `trust-gate`
 selection, terminal-state revocation, negative `trust-gate` denial, legacy
 registry upgrade, and the gate's explicit decision/claims explanation.
