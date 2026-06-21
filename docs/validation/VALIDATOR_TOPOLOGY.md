@@ -89,10 +89,11 @@ render the same organ shape without editing source.
 The first-run installed projection validator performs a real
 `install --apply` into isolated temporary roots, then runs the installed CLI
 without `PYTHONPATH=src`. It enforces source-vs-temp-installed command parity,
-package-module projection, public seed share projection, `/run` root creation,
-typing/nervous config and unit projection, and opt-in profile dry-runs. The
-live `/usr/local/bin/abyss-machine` comparison is read-only and advisory by
-default; use `--require-host-installed` during a real host install closeout.
+critical artifact-trust option surfaces, package-module projection, public seed
+share projection, `/run` root creation, typing/nervous config and unit
+projection, and opt-in profile dry-runs. The live
+`/usr/local/bin/abyss-machine` comparison is read-only and advisory by default;
+use `--require-host-installed` during a real host install closeout.
 
 The typing/nervous policy validator keeps the first subsystem split honest:
 private nervous captures, search and semantic indexes, browser/tool adapters,

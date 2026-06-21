@@ -28,7 +28,9 @@ then runs the temp-installed CLI without `PYTHONPATH=src`. It checks:
 - `/run/abyss-machine` ephemeral runtime root;
 - `/usr/local/bin`, `/usr/local/libexec`, and `/usr/local/share` equivalents;
 - system and user unit skeletons;
-- source-vs-temp-installed CLI command parity.
+- source-vs-temp-installed CLI command parity;
+- critical artifact trust CLI option surfaces such as `materialize-subjects`,
+  `trust-gate`, and `evidence-promote`.
 
 For a real host install closeout, run the same validator with
 `--require-host-installed` after the host projection has been applied and the

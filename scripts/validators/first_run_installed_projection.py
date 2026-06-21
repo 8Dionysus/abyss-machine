@@ -69,6 +69,37 @@ REQUIRED_NERVOUS_COMMANDS = {
     "redact-test",
     "index-status",
 }
+CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
+    ("artifacts", "materialize-subjects"): {
+        "--registry-dir",
+        "--consumer-intent",
+        "--source-repo",
+        "--trust-root-mode",
+        "--record-id",
+        "--allow-non-latest",
+        "--json",
+    },
+    ("artifacts", "trust-gate"): {
+        "--registry-dir",
+        "--artifact-class",
+        "--subject-digest",
+        "--record-id",
+        "--consumer-intent",
+        "--source-repo",
+        "--trust-root-mode",
+        "--allow-non-latest",
+        "--json",
+    },
+    ("artifacts", "evidence-promote"): {
+        "--registry-dir",
+        "--lifecycle-state",
+        "--source-repo",
+        "--source-ref",
+        "--producer",
+        "--trust-root-mode",
+        "--json",
+    },
+}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -253,6 +284,55 @@ def installed_help_report(executable: Path, *, cwd: Path, env: dict[str, str], l
         "surfaces": surfaces,
         "failures": failures,
     }
+
+
+def critical_help_option_report(
+    command_prefix: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    label: str,
+) -> dict[str, Any]:
+    commands: dict[str, dict[str, Any]] = {}
+    failures: list[str] = []
+    for surface, required_options in CRITICAL_HELP_OPTIONS.items():
+        command = [*command_prefix, *surface, "--help"]
+        key = " ".join(surface)
+        result = command_result(command, cwd=cwd, env=env, timeout=60)
+        row = {
+            "command": command,
+            "status": "ok" if result["returncode"] == 0 else "failed",
+            "required_options": sorted(required_options),
+            "missing_options": [],
+        }
+        if result["returncode"] != 0:
+            row["stderr_tail"] = str(result["stderr"])[-500:]
+            failures.append(f"{label} critical help failed for {key}: {row['stderr_tail']}")
+        else:
+            help_text = str(result["stdout"])
+            missing = sorted(option for option in required_options if option not in help_text)
+            row["missing_options"] = missing
+            if missing:
+                failures.append(f"{label} critical help for {key} missing options: {', '.join(missing)}")
+        commands[key] = row
+    return {
+        "status": "ok" if not failures else "failed",
+        "commands": commands,
+        "failures": failures,
+    }
+
+
+def source_critical_help_option_report(tmp_root: Path) -> dict[str, Any]:
+    return critical_help_option_report(
+        [sys.executable, "-m", "abyss_machine.cli"],
+        cwd=tmp_root,
+        env=source_env(),
+        label="source",
+    )
+
+
+def installed_critical_help_option_report(executable: Path, *, cwd: Path, env: dict[str, str], label: str) -> dict[str, Any]:
+    return critical_help_option_report([str(executable)], cwd=cwd, env=env, label=label)
 
 
 def compare_required_commands(surfaces: dict[str, list[str]]) -> list[str]:
@@ -500,7 +580,9 @@ def host_installed_report(args: argparse.Namespace, paths: dict[str, Path]) -> d
         return {"status": "unavailable", "reason": f"{host_cli} does not exist", "required": bool(args.require_host_installed)}
     if not os.access(host_cli, os.X_OK):
         return {"status": "unavailable", "reason": f"{host_cli} is not executable", "required": bool(args.require_host_installed)}
-    report = installed_help_report(host_cli, cwd=paths["root"], env=projection_env(paths), label="host-installed")
+    env = projection_env(paths)
+    report = installed_help_report(host_cli, cwd=paths["root"], env=env, label="host-installed")
+    report["critical_help_options"] = installed_critical_help_option_report(host_cli, cwd=paths["root"], env=env, label="host-installed")
     report["required"] = bool(args.require_host_installed)
     report["mode"] = "read_only_help_parity"
     return report
@@ -515,19 +597,26 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
 
     source_help = source_help_report(paths["root"])
     temp_installed_help = installed_help_report(installed, cwd=paths["root"], env=env, label="temp-installed")
+    source_critical_options = source_critical_help_option_report(paths["root"])
+    temp_critical_options = installed_critical_help_option_report(installed, cwd=paths["root"], env=env, label="temp-installed")
     host_installed = host_installed_report(args, paths)
 
     failures: list[str] = []
     failures.extend(source_help.get("failures", []))
     failures.extend(temp_installed_help.get("failures", []))
+    failures.extend(source_critical_options.get("failures", []))
+    failures.extend(temp_critical_options.get("failures", []))
     failures.extend(compare_required_commands(source_help["surfaces"]))
     failures.extend(compare_required_commands(temp_installed_help["surfaces"]))
     failures.extend(compare_parity(source_help["surfaces"], temp_installed_help["surfaces"], "temp-installed"))
     if host_installed.get("status") == "ok":
         host_parity_failures = compare_parity(source_help["surfaces"], host_installed["surfaces"], "host-installed")
+        host_option_failures = host_installed.get("critical_help_options", {}).get("failures", [])
         if args.require_host_installed:
             failures.extend(host_parity_failures)
+            failures.extend(str(item) for item in host_option_failures)
         host_installed["parity_failures"] = host_parity_failures
+        host_installed["option_failures"] = host_option_failures
     elif args.require_host_installed:
         failures.append(f"host installed CLI unavailable: {host_installed.get('reason')}")
 
@@ -556,6 +645,8 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
         "roots": root_report,
         "source_cli": source_help,
         "temp_installed_cli": temp_installed_help,
+        "source_critical_help_options": source_critical_options,
+        "temp_installed_critical_help_options": temp_critical_options,
         "host_installed_cli": host_installed,
         "package_projection": package_report,
         "module_import": import_report,
