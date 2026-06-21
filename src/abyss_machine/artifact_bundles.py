@@ -547,6 +547,43 @@ def _positive_int(value: object) -> int | None:
     return None
 
 
+def _record_source_ref_tokens(record: dict[str, Any] | None) -> list[str]:
+    if not isinstance(record, dict):
+        return []
+    tokens: list[str] = []
+    for key in ("source_ref", "bundle_manifest_ref", "producer", "producer_command"):
+        value = str(record.get(key) or "").strip()
+        if value:
+            tokens.append(value)
+    for key in ("source_refs", "evidence_refs"):
+        values = record.get(key)
+        if isinstance(values, list):
+            tokens.extend(str(item).strip() for item in values if str(item).strip())
+    return sorted(dict.fromkeys(tokens))
+
+
+def _source_ref_status(row: dict[str, Any], changed_source_ref: str) -> dict[str, Any]:
+    expected = str(changed_source_ref or "").strip()
+    registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
+    known_refs = [str(item) for item in registry.get("latest_source_ref_tokens", []) if str(item)]
+    if not expected:
+        return {
+            "required": False,
+            "expected": None,
+            "matched": None,
+            "matched_ref": None,
+            "known_refs": known_refs,
+        }
+    matched = expected in known_refs
+    return {
+        "required": True,
+        "expected": expected,
+        "matched": matched,
+        "matched_ref": expected if matched else None,
+        "known_refs": known_refs,
+    }
+
+
 def verify_update_metadata(
     metadata: dict[str, Any],
     *,
@@ -709,7 +746,12 @@ def artifact_requirement_row(
             "latest_record_id": latest.get("record_id") if isinstance(latest, dict) else None,
             "latest_state": latest.get("lifecycle_state") if isinstance(latest, dict) else None,
             "latest_source_ref": latest.get("source_ref") if isinstance(latest, dict) else None,
+            "latest_source_refs": latest.get("source_refs", []) if isinstance(latest, dict) else [],
             "latest_source_repo": latest.get("source_repo") if isinstance(latest, dict) else None,
+            "latest_producer": latest.get("producer") if isinstance(latest, dict) else None,
+            "latest_producer_command": latest.get("producer_command") if isinstance(latest, dict) else None,
+            "latest_evidence_refs": latest.get("evidence_refs", []) if isinstance(latest, dict) else [],
+            "latest_source_ref_tokens": _record_source_ref_tokens(latest if isinstance(latest, dict) else None),
             "latest_trust_root_mode": latest.get("trust_root_mode") if isinstance(latest, dict) else None,
             "latest_verified_controls": latest.get("verified_controls", []) if isinstance(latest, dict) else [],
         }
@@ -865,13 +907,23 @@ def _artifact_affected_verdict(
     *,
     affected_reasons: list[str],
     changed_source_repo: str,
+    changed_source_ref: str,
     accept_sibling_lag: bool,
 ) -> str:
     owner_repo = str(row.get("owner_repo") or "")
     registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
     gate = row.get("trust_gate_status") if isinstance(row.get("trust_gate_status"), dict) else {}
+    source_status = _source_ref_status(row, changed_source_ref)
     owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
     if owner_repo_changed and owner_repo != "abyss-machine":
+        if source_status.get("matched") is True:
+            if registry.get("checked") and not registry.get("has_latest"):
+                return "needs_rebuild"
+            if gate.get("verdict") == "manual_review_required":
+                return "manual_review_required"
+            if gate.get("checked") and gate.get("verdict") not in {None, "allow", "warn"}:
+                return "needs_reverify"
+            return "fresh"
         return "accepted_lag" if accept_sibling_lag else "blocked_by_missing_sibling"
     if any(reason in affected_reasons for reason in ("contract_source_changed", "bundle_manifest_changed", "authority_ref_changed", "release_artifact_pattern_changed")):
         return "needs_rebuild"
@@ -892,6 +944,7 @@ def artifact_affected(
     changed_paths: list[str] | None = None,
     *,
     changed_source_repo: str = "",
+    changed_source_ref: str = "",
     artifact_class: str = "",
     registry_dir: str | Path | None = None,
     accept_sibling_lag: bool = False,
@@ -910,14 +963,18 @@ def artifact_affected(
         )
         owner_repo = str(requirement.get("owner_repo") or "")
         owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
-        if owner_repo_changed and "owner_repo_changed" not in reasons:
+        source_status = _source_ref_status(requirement, changed_source_ref)
+        if owner_repo_changed and source_status.get("matched") is not True and "owner_repo_changed" not in reasons:
             reasons.append("owner_repo_changed")
         verdict = _artifact_affected_verdict(
             requirement,
             affected_reasons=reasons,
             changed_source_repo=changed_source_repo,
+            changed_source_ref=changed_source_ref,
             accept_sibling_lag=accept_sibling_lag,
         )
+        if verdict == "fresh" and source_status.get("matched") is True:
+            reasons = []
         freshness = "fresh"
         if verdict in {"needs_rebuild", "needs_reverify", "blocked_by_missing_sibling", "accepted_lag"}:
             freshness = "stale"
@@ -953,14 +1010,18 @@ def artifact_affected(
                 "latest_state": registry.get("latest_state"),
                 "latest_source_repo": registry.get("latest_source_repo"),
                 "latest_source_ref": registry.get("latest_source_ref"),
+                "latest_source_refs": registry.get("latest_source_refs", []),
+                "latest_producer": registry.get("latest_producer"),
+                "latest_evidence_refs": registry.get("latest_evidence_refs", []),
             },
             "trust_gate": {
                 "checked": gate.get("checked"),
                 "verdict": gate.get("verdict"),
                 "reasons": gate.get("reasons", []),
             },
+            "source_ref_status": source_status,
             "next_actions": next_actions,
-            "claim_limit": "Affected detects declared source/profile drift; it does not rebuild or consume artifacts by itself.",
+            "claim_limit": "Affected detects declared source/profile drift and closes source-ref drift only when latest durable evidence proves the ref; it does not rebuild or consume artifacts by itself.",
         })
     status_counts: dict[str, int] = {}
     affected_count = 0
@@ -977,6 +1038,7 @@ def artifact_affected(
         "artifact_class_filter": artifact_class or None,
         "changed_paths": normalized_paths,
         "changed_source_repo": changed_source_repo or None,
+        "changed_source_ref": str(changed_source_ref or "") or None,
         "accept_sibling_lag": accept_sibling_lag,
         "known_verdicts": list(ARTIFACT_AFFECTED_VERDICTS),
         "summary": {
