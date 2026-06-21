@@ -7,6 +7,15 @@ validation lane is documented in `docs/validation/VALIDATOR_TOPOLOGY.md`.
 bootstrap, CLI imports, generated state roots, `/srv` storage planes, and
 typing/nervous organs pointed at one policy source.
 
+`first_run_installed_projection.py` validates the fresh-machine installed
+projection. It applies bootstrap into isolated temporary roots, runs the
+temp-installed CLI without source-checkout `PYTHONPATH`, compares critical
+source and installed command surfaces, checks projected package modules and
+public seed read models, proves typing/nervous config and unit skeletons are
+present, and keeps profile activation dry-run/opt-in. The live installed CLI
+comparison is advisory unless `--require-host-installed` is passed for host
+closeout.
+
 `typing_nervous_policy.py` validates the first organ-specific policy split:
 typing and nervous path/service constants remain CLI-compatible while deriving
 captures, indexes, browser tooling, tmp/cache, and user-systemd paths from the

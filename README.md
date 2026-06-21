@@ -28,6 +28,7 @@ python -m pip install -e .
 scripts/abyss-machine-bootstrap doctor --dry-run --json
 scripts/abyss-machine-bootstrap render --profile linux-systemd-core --dry-run --json
 scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json
+python scripts/validators/first_run_installed_projection.py --json
 ```
 
 The bootstrap CLI and installed `abyss-machine` CLI share
@@ -46,6 +47,9 @@ machine should render `/etc/abyss-machine`, create durable evidence under
 `/var/lib/abyss-machine`, reserve large mutable planes under
 `/srv/abyss-machine`, and keep ephemeral state under `/run/abyss-machine`
 without copying private state from this workstation.
+The first-run installed projection validator proves this shape in isolated
+temporary roots and compares the source CLI against the temp-installed CLI
+without relying on a live source checkout.
 
 Typing and nervous-system collectors are installed as a first-class organ, but
 real collection is opt-in:

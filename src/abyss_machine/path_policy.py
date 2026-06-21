@@ -172,6 +172,7 @@ class AbyssMachinePathPolicy:
             self.runtimes_root,
             self.storage_root,
             self.tmp_root,
+            self.run_root,
         )
 
     def etc_file(self, *parts: str) -> Path:

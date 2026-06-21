@@ -54,6 +54,10 @@
 - Add a legacy bundle-registry upgrade route so existing host-managed registry
   records can be made explicit under the new durable evidence contract instead
   of weakening the fail-closed trust gate.
+- Add a first-run installed projection validator that applies bootstrap into
+  isolated temp roots, proves installed CLI parity without source-checkout
+  imports, checks package/public-seed projection, and keeps typing/nervous
+  activation opt-in.
 
 ## 0.1.0
 
