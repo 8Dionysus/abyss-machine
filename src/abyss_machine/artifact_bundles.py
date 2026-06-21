@@ -34,6 +34,7 @@ SIGSTORE_BUNDLE_SIDECAR = "artifact.sigstore.json"
 MLBOM_CYCLONEDX_SIDECAR = "artifact.mlbom.cdx.json"
 C2PA_MANIFEST_SIDECAR = "artifact.c2pa"
 C2PA_REPORT_SIDECAR = "artifact.c2pa.json"
+TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
 CONTROL_FILES = {
     "abi_signature": [ABI_SIDECAR],
@@ -92,6 +93,7 @@ ARTIFACT_AFFECTED_VERDICTS = (
     "accepted_lag",
     "manual_review_required",
 )
+UPDATE_LANE_VERDICTS = ("allow", "deny", "manual_review_required")
 DURABLE_EVIDENCE_FIELDS = ("source_repo", "source_ref", "producer", "trust_root_mode", "verifier_versions")
 BUNDLE_REGISTRY_INDEX = "index.json"
 BUNDLE_REGISTRY_RECORDS_DIR = "records"
@@ -156,6 +158,21 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 def _stable_digest(payload: Any) -> str:
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _parse_time(value: object) -> dt.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
 
 
 def _file_digest(path: Path) -> str:
@@ -444,6 +461,193 @@ def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> d
         "public_release": {
             "role": "public release asset with publishable attestations or signatures",
         },
+    }
+
+
+def update_transparency_lane(*, repo_root: Path = REPO_ROOT) -> dict[str, Any]:
+    policy = load_policy(repo_root)
+    lane = policy.get("update_transparency_lane")
+    if not isinstance(lane, dict):
+        deferred = policy.get("deferred_trust_layers") if isinstance(policy.get("deferred_trust_layers"), dict) else {}
+        lane = {
+            "schema": "abyss_machine_update_transparency_lane_v1",
+            "tuf": {
+                **(deferred.get("tuf") if isinstance(deferred.get("tuf"), dict) else {}),
+                "status": "not_configured",
+                "applies_to_artifact_classes": [],
+            },
+            "scitt": {
+                **(deferred.get("scitt") if isinstance(deferred.get("scitt"), dict) else {}),
+                "status": "future_integration_point",
+                "blocking_v1": False,
+            },
+        }
+    return dict(lane)
+
+
+def update_lane_status(
+    *,
+    artifact_class: str = "",
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    lane = update_transparency_lane(repo_root=repo_root)
+    tuf = lane.get("tuf") if isinstance(lane.get("tuf"), dict) else {}
+    scitt = lane.get("scitt") if isinstance(lane.get("scitt"), dict) else {}
+    classes = load_policy(repo_root).get("artifact_classes")
+    policy_classes = set(classes) if isinstance(classes, dict) else set()
+    applies = [str(item) for item in tuf.get("applies_to_artifact_classes", []) if str(item)]
+    selected = [artifact_class] if artifact_class else applies
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for class_id in selected:
+        if class_id not in policy_classes:
+            errors.append(f"unknown artifact_class: {class_id}")
+            continue
+        applies_to_class = class_id in applies
+        rows.append({
+            "schema": "abyss_machine_update_lane_row_v1",
+            "artifact_class": class_id,
+            "applies": applies_to_class,
+            "consumer_intent": "update_client" if applies_to_class else consumer_intent_for_artifact_class(class_id),
+            "metadata_sidecar": tuf.get("metadata_sidecar"),
+            "required_when": tuf.get("required_when"),
+            "client_checks": tuf.get("client_checks", []),
+            "status": "TUF_REQUIRED_FOR_UPDATE_CLIENT" if applies_to_class else "NOT_UPDATEABLE_BY_POLICY",
+        })
+    return {
+        "ok": not errors,
+        "schema": "abyss_machine_update_transparency_lane_status_v1",
+        "policy_ref": POLICY_REF,
+        "artifact_class_filter": artifact_class or None,
+        "summary": {
+            "tuf_status": tuf.get("status") or "unknown",
+            "scitt_status": scitt.get("status") or "unknown",
+            "updateable_artifact_classes": len(applies),
+            "selected_rows": len(rows),
+            "blocking_v1": bool(scitt.get("blocking_v1")),
+        },
+        "tuf": tuf,
+        "scitt": scitt,
+        "rows": rows,
+        "errors": errors,
+        "claim_limits": [
+            "This lane is a TUF-style OS Abyss metadata gate, not a full external TUF repository implementation.",
+            "SCITT is recorded as an external transparency integration point and is not a v1 blocker until an external transparency service exists.",
+        ],
+    }
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
+def verify_update_metadata(
+    metadata: dict[str, Any],
+    *,
+    previous_trusted: dict[str, Any] | None = None,
+    now: dt.datetime | str | None = None,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    lane = update_transparency_lane(repo_root=repo_root)
+    tuf = lane.get("tuf") if isinstance(lane.get("tuf"), dict) else {}
+    applies = {str(item) for item in tuf.get("applies_to_artifact_classes", []) if str(item)}
+    previous = previous_trusted if isinstance(previous_trusted, dict) else {}
+    now_dt = _parse_time(now) if isinstance(now, str) else now
+    if now_dt is None:
+        now_dt = dt.datetime.now(dt.UTC)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=dt.UTC)
+    now_dt = now_dt.astimezone(dt.UTC)
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    artifact_class = str(metadata.get("artifact_class") or "")
+    target = metadata.get("target") if isinstance(metadata.get("target"), dict) else {}
+    version = _positive_int(metadata.get("version"))
+    snapshot_version = _positive_int(metadata.get("snapshot_version"))
+    timestamp_version = _positive_int(metadata.get("timestamp_version"))
+    expires_at = _parse_time(metadata.get("expires_at"))
+    generated_at = _parse_time(metadata.get("generated_at"))
+    metadata_digest = _stable_digest(metadata)
+
+    if metadata.get("schema") != "abyss_machine_tuf_update_metadata_v1":
+        errors.append("schema_mismatch")
+    if artifact_class not in applies:
+        errors.append("artifact_class_not_updateable")
+    if not target.get("path"):
+        errors.append("target_path_missing")
+    if not str(target.get("sha256") or "").startswith("sha256:"):
+        errors.append("target_digest_missing")
+    if version is None:
+        errors.append("version_missing")
+    if snapshot_version is None:
+        errors.append("snapshot_version_missing")
+    if timestamp_version is None:
+        errors.append("timestamp_version_missing")
+    if expires_at is None:
+        errors.append("expires_at_missing")
+    elif expires_at <= now_dt:
+        errors.append("expired_metadata")
+    if generated_at is None:
+        warnings.append("generated_at_missing")
+
+    previous_version = _positive_int(previous.get("version"))
+    previous_snapshot = _positive_int(previous.get("snapshot_version"))
+    previous_timestamp = _positive_int(previous.get("timestamp_version"))
+    if version is not None and previous_version is not None and version < previous_version:
+        errors.append("rollback_version")
+    if snapshot_version is not None and previous_snapshot is not None and snapshot_version < previous_snapshot:
+        errors.append("rollback_snapshot_version")
+    if timestamp_version is not None and previous_timestamp is not None and timestamp_version < previous_timestamp:
+        errors.append("rollback_timestamp_version")
+
+    last_seen = _parse_time(previous.get("last_seen_at"))
+    max_freeze_seconds = _positive_int(tuf.get("max_freeze_seconds")) or 0
+    if (
+        max_freeze_seconds
+        and last_seen is not None
+        and str(previous.get("metadata_sha256") or "") == metadata_digest
+        and (now_dt - last_seen).total_seconds() > max_freeze_seconds
+    ):
+        errors.append("freeze_attack_or_stale_metadata")
+
+    ok = not errors
+    return {
+        "ok": ok,
+        "schema": "abyss_machine_update_metadata_verify_v1",
+        "policy_ref": POLICY_REF,
+        "artifact_class": artifact_class,
+        "metadata_schema": metadata.get("schema"),
+        "metadata_sha256": metadata_digest,
+        "verdict": "allow" if ok else "deny",
+        "known_verdicts": list(UPDATE_LANE_VERDICTS),
+        "errors": errors,
+        "warnings": warnings,
+        "checked": {
+            "artifact_class_updateable": artifact_class in applies,
+            "target_digest": target.get("sha256"),
+            "version": version,
+            "snapshot_version": snapshot_version,
+            "timestamp_version": timestamp_version,
+            "expires_at": expires_at.isoformat().replace("+00:00", "Z") if expires_at else None,
+            "generated_at": generated_at.isoformat().replace("+00:00", "Z") if generated_at else None,
+            "now": now_dt.isoformat().replace("+00:00", "Z"),
+            "previous": {
+                "version": previous_version,
+                "snapshot_version": previous_snapshot,
+                "timestamp_version": previous_timestamp,
+                "metadata_sha256": previous.get("metadata_sha256"),
+                "last_seen_at": previous.get("last_seen_at"),
+            },
+        },
+        "claim_limits": [
+            "This verifies OS Abyss TUF-style metadata invariants and does not claim a complete external TUF repository or delegated key ceremony.",
+            "A passing result only admits update-client consideration; artifact trust-gate verification is still required for the target artifact.",
+        ],
     }
 
 
