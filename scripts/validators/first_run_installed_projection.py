@@ -41,6 +41,7 @@ REQUIRED_ARTIFACT_COMMANDS = {
     "release-check",
     "bundle-register",
     "bundle-registry",
+    "registry-latest",
     "bundle-registry-upgrade",
     "evidence-promote",
     "requirements",
@@ -103,6 +104,15 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--registry-dir",
         "--manual-evidence-root",
         "--durable-only",
+        "--json",
+    },
+    ("artifacts", "registry-latest"): {
+        "--registry-dir",
+        "--artifact-class",
+        "--consumer-intent",
+        "--subject-digest",
+        "--source-repo",
+        "--trust-root-mode",
         "--json",
     },
 }
