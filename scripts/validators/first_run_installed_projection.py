@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -19,6 +20,11 @@ SCHEMA = "abyss_machine_first_run_installed_projection_v1"
 BOOTSTRAP = REPO_ROOT / "scripts" / "abyss-machine-bootstrap"
 SRC_ROOT = REPO_ROOT / "src"
 PROFILE_MANIFEST = REPO_ROOT / "manifests" / "bootstrap_profiles.manifest.json"
+SOURCE_PACKAGE_ROOT = SRC_ROOT / "abyss_machine"
+SOURCE_PUBLIC_SEED_ROOTS = {
+    "manifests": REPO_ROOT / "manifests",
+    "generated": REPO_ROOT / "generated",
+}
 
 HELP_SURFACES: tuple[tuple[str, ...], ...] = (
     (),
@@ -384,8 +390,113 @@ def compare_parity(source: dict[str, list[str]], installed: dict[str, list[str]]
     return failures
 
 
+def public_file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def relative_file_digests(root: Path) -> dict[str, str]:
+    if not root.is_dir():
+        return {}
+    rows: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+            continue
+        rows[path.relative_to(root).as_posix()] = public_file_digest(path)
+    return rows
+
+
+def compare_digest_maps(
+    source: dict[str, str],
+    installed: dict[str, str],
+    *,
+    label: str,
+    failures: list[str],
+) -> dict[str, Any]:
+    source_keys = set(source)
+    installed_keys = set(installed)
+    missing = sorted(source_keys - installed_keys)
+    extra = sorted(installed_keys - source_keys)
+    digest_mismatches = sorted(
+        path for path in source_keys & installed_keys if source[path] != installed[path]
+    )
+    if missing:
+        failures.append(f"{label} missing files: {', '.join(missing)}")
+    if extra:
+        failures.append(f"{label} extra files: {', '.join(extra)}")
+    if digest_mismatches:
+        failures.append(f"{label} digest mismatches: {', '.join(digest_mismatches)}")
+    return {
+        "source_files": len(source),
+        "installed_files": len(installed),
+        "missing": missing,
+        "extra": extra,
+        "digest_mismatches": digest_mismatches,
+    }
+
+
+def content_parity_report(
+    *,
+    label: str,
+    installed_cli: Path,
+    installed_package_root: Path,
+    installed_share_root: Path,
+) -> dict[str, Any]:
+    failures: list[str] = []
+    cli_row = {
+        "source": str(REPO_ROOT / "src" / "abyss_machine" / "cli.py"),
+        "installed": str(installed_cli),
+        "status": "ok",
+    }
+    source_cli = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
+    if not installed_cli.is_file():
+        cli_row["status"] = "missing"
+        failures.append(f"{label} CLI missing: {installed_cli}")
+    else:
+        source_digest = public_file_digest(source_cli)
+        installed_digest = public_file_digest(installed_cli)
+        cli_row["source_sha256"] = source_digest
+        cli_row["installed_sha256"] = installed_digest
+        if source_digest != installed_digest:
+            cli_row["status"] = "digest_mismatch"
+            failures.append(f"{label} CLI digest mismatch: {installed_cli}")
+
+    package_row = compare_digest_maps(
+        relative_file_digests(SOURCE_PACKAGE_ROOT),
+        relative_file_digests(installed_package_root),
+        label=f"{label} package",
+        failures=failures,
+    )
+    package_row["source"] = str(SOURCE_PACKAGE_ROOT)
+    package_row["installed"] = str(installed_package_root)
+
+    public_seed_rows: dict[str, dict[str, Any]] = {}
+    for root_id, source_root in SOURCE_PUBLIC_SEED_ROOTS.items():
+        row = compare_digest_maps(
+            relative_file_digests(source_root),
+            relative_file_digests(installed_share_root / root_id),
+            label=f"{label} public seed {root_id}",
+            failures=failures,
+        )
+        row["source"] = str(source_root)
+        row["installed"] = str(installed_share_root / root_id)
+        public_seed_rows[root_id] = row
+
+    return {
+        "status": "ok" if not failures else "failed",
+        "label": label,
+        "cli": cli_row,
+        "package": package_row,
+        "public_seed": public_seed_rows,
+        "failures": failures,
+    }
+
+
 def package_projection_report(paths: dict[str, Path]) -> dict[str, Any]:
-    source_modules = sorted(path.name for path in (REPO_ROOT / "src" / "abyss_machine").glob("*.py"))
+    source_modules = sorted(path.name for path in SOURCE_PACKAGE_ROOT.glob("*.py"))
     installed_package = paths["local_libexec_dir"] / "abyss_machine"
     installed_modules = sorted(path.name for path in installed_package.glob("*.py"))
     share_root = paths["share_root"]
@@ -599,8 +710,14 @@ def host_installed_report(args: argparse.Namespace, paths: dict[str, Path]) -> d
     env = projection_env(paths)
     report = installed_help_report(host_cli, cwd=paths["root"], env=env, label="host-installed")
     report["critical_help_options"] = installed_critical_help_option_report(host_cli, cwd=paths["root"], env=env, label="host-installed")
+    report["content_parity"] = content_parity_report(
+        label="host-installed",
+        installed_cli=host_cli,
+        installed_package_root=Path(args.host_libexec_dir) / "abyss_machine",
+        installed_share_root=Path(args.host_share_root),
+    )
     report["required"] = bool(args.require_host_installed)
-    report["mode"] = "read_only_help_parity"
+    report["mode"] = "read_only_help_and_content_parity"
     return report
 
 
@@ -615,6 +732,12 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
     temp_installed_help = installed_help_report(installed, cwd=paths["root"], env=env, label="temp-installed")
     source_critical_options = source_critical_help_option_report(paths["root"])
     temp_critical_options = installed_critical_help_option_report(installed, cwd=paths["root"], env=env, label="temp-installed")
+    temp_content_parity = content_parity_report(
+        label="temp-installed",
+        installed_cli=paths["local_libexec_dir"] / "abyss-machine",
+        installed_package_root=paths["local_libexec_dir"] / "abyss_machine",
+        installed_share_root=paths["share_root"],
+    )
     host_installed = host_installed_report(args, paths)
 
     failures: list[str] = []
@@ -622,17 +745,21 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
     failures.extend(temp_installed_help.get("failures", []))
     failures.extend(source_critical_options.get("failures", []))
     failures.extend(temp_critical_options.get("failures", []))
+    failures.extend(temp_content_parity.get("failures", []))
     failures.extend(compare_required_commands(source_help["surfaces"]))
     failures.extend(compare_required_commands(temp_installed_help["surfaces"]))
     failures.extend(compare_parity(source_help["surfaces"], temp_installed_help["surfaces"], "temp-installed"))
     if host_installed.get("status") == "ok":
         host_parity_failures = compare_parity(source_help["surfaces"], host_installed["surfaces"], "host-installed")
         host_option_failures = host_installed.get("critical_help_options", {}).get("failures", [])
+        host_content_failures = host_installed.get("content_parity", {}).get("failures", [])
         if args.require_host_installed:
             failures.extend(host_parity_failures)
             failures.extend(str(item) for item in host_option_failures)
+            failures.extend(str(item) for item in host_content_failures)
         host_installed["parity_failures"] = host_parity_failures
         host_installed["option_failures"] = host_option_failures
+        host_installed["content_parity_failures"] = host_content_failures
     elif args.require_host_installed:
         failures.append(f"host installed CLI unavailable: {host_installed.get('reason')}")
 
@@ -663,6 +790,7 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
         "temp_installed_cli": temp_installed_help,
         "source_critical_help_options": source_critical_options,
         "temp_installed_critical_help_options": temp_critical_options,
+        "temp_installed_content_parity": temp_content_parity,
         "host_installed_cli": host_installed,
         "package_projection": package_report,
         "module_import": import_report,
@@ -699,6 +827,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tmp-root", help="Parent directory for the temporary projection root.")
     parser.add_argument("--keep-temp", action="store_true", help="Keep the projection root for debugging.")
     parser.add_argument("--host-cli", default="/usr/local/bin/abyss-machine")
+    parser.add_argument("--host-libexec-dir", default="/usr/local/libexec")
+    parser.add_argument("--host-share-root", default="/usr/local/share/abyss-machine")
     parser.add_argument("--require-host-installed", action="store_true")
     return parser
 
