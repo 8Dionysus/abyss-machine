@@ -25,6 +25,17 @@ SOURCE_PUBLIC_SEED_ROOTS = {
     "manifests": REPO_ROOT / "manifests",
     "generated": REPO_ROOT / "generated",
 }
+PORTABILITY_SCAN_EXCLUDED_PARTS = {
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+}
+PORTABILITY_NEEDLES = {
+    "operator_home_path": b"/home/" + b"dionysus",
+    "current_checkout_path": str(REPO_ROOT).encode("utf-8"),
+}
 
 HELP_SURFACES: tuple[tuple[str, ...], ...] = (
     (),
@@ -229,6 +240,7 @@ def projection_env(paths: dict[str, Path]) -> dict[str, str]:
                 paths["srv_root"] / "runtimes" / "artifact-trust"
             ),
             "ABYSS_MACHINE_ARTIFACT_TRUST_CACHE_ROOT": str(paths["srv_root"] / "cache" / "artifact-trust"),
+            "ABYSS_AI_HOME": str(paths["srv_root"] / "runtimes" / "home" / "agent" / "abyss-ai"),
         }
     )
     return env
@@ -701,6 +713,61 @@ def organ_bootstrap_report(installed: Path, paths: dict[str, Path], env: dict[st
     }
 
 
+def portability_scan_report(paths: dict[str, Path]) -> dict[str, Any]:
+    roots = {
+        "source": REPO_ROOT,
+        "temp_projection": paths["root"],
+    }
+    findings: list[dict[str, Any]] = []
+    for root_id, root in roots.items():
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.is_symlink():
+                continue
+            if any(part in PORTABILITY_SCAN_EXCLUDED_PARTS for part in path.parts):
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                findings.append({
+                    "root": root_id,
+                    "path": str(path),
+                    "needle": "read_error",
+                    "detail": str(exc),
+                })
+                continue
+            for needle_id, needle in PORTABILITY_NEEDLES.items():
+                if needle not in data:
+                    continue
+                finding: dict[str, Any] = {
+                    "root": root_id,
+                    "path": str(path),
+                    "needle": needle_id,
+                }
+                try:
+                    text = data.decode("utf-8")
+                except UnicodeDecodeError:
+                    finding["binary_match"] = True
+                else:
+                    needle_text = needle.decode("utf-8")
+                    finding["lines"] = [
+                        lineno
+                        for lineno, line in enumerate(text.splitlines(), 1)
+                        if needle_text in line
+                    ][:20]
+                findings.append(finding)
+    failures = [
+        f"{finding['needle']} found in {finding['root']}:{finding['path']}"
+        for finding in findings
+    ]
+    return {
+        "status": "ok" if not findings else "failed",
+        "roots": {key: str(value) for key, value in roots.items()},
+        "needles": sorted(PORTABILITY_NEEDLES),
+        "findings": findings,
+        "failures": failures,
+    }
+
+
 def host_installed_report(args: argparse.Namespace, paths: dict[str, Path]) -> dict[str, Any]:
     host_cli = Path(args.host_cli)
     if not host_cli.exists():
@@ -768,7 +835,8 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
     import_report = module_import_report(paths)
     unit_report = profile_unit_report(paths)
     organ_report = organ_bootstrap_report(installed, paths, env)
-    for section in (root_report, package_report, import_report, unit_report, organ_report):
+    portability_report = portability_scan_report(paths)
+    for section in (root_report, package_report, import_report, unit_report, organ_report, portability_report):
         failures.extend(section.get("failures", []))
     if import_report.get("status") != "ok" or import_report.get("uses_source_checkout") is True:
         failures.append("installed module import does not prove temp libexec package ownership")
@@ -796,6 +864,7 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
         "module_import": import_report,
         "profile_units": unit_report,
         "typing_nervous": organ_report,
+        "portability_scan": portability_report,
         "host_closeout_route": {
             "preflight": "abyss-machine changes preflight --intent TEXT --surface /usr/local/bin/abyss-machine --json",
             "apply": "scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json",

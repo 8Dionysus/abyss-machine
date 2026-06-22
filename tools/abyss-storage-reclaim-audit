@@ -88,11 +88,12 @@ def operator_account() -> dict[str, Any]:
     if uid is None and os.geteuid() != 0:
         uid = os.geteuid()
         source = "euid"
-    if uid is None and Path("/home/dionysus").exists():
+    fallback_user = os.environ.get("ABYSS_USER") or os.environ.get("SUDO_USER")
+    if uid is None and fallback_user:
         try:
-            entry = pwd.getpwnam("dionysus")
+            entry = pwd.getpwnam(fallback_user)
             uid = entry.pw_uid
-            source = "fallback_dionysus"
+            source = f"fallback_{fallback_user}"
         except KeyError:
             pass
     if uid is None:

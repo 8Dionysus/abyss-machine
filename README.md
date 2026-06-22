@@ -110,7 +110,9 @@ compatibility, including typing/nervous helper logic and source-backed public
 read models. Shared root policy, typing/nervous organ policy, typing/nervous
 refresh decision helpers, the refresh latest-status classifier, action-record
 builders, and the final refresh document shape are now module-owned with public
-validators. Live index launch, synthesis orchestration, subsystem command glue,
-and some historical workstation fixture paths remain v1 portability debt;
-further hardening should keep moving command implementation behind smaller
-modules before claiming full host-agnostic behavior for every subcommand.
+validators. The public cold-start route now checks for private operator path and
+current-checkout leakage across source and temporary installed projections. Live
+index launch, synthesis orchestration, and subsystem command glue remain v1
+portability debt; further hardening should keep moving command implementation
+behind smaller modules before claiming full host-agnostic behavior for every
+subcommand.

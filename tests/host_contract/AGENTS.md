@@ -34,7 +34,7 @@ mutation.
 - Keep live tests explicitly marked `live`.
 - Keep password-prompting or mutating actions out of automated tests.
 - Do not write project-owned state under `/srv/AbyssOS`, `/srv/abyss-stack`,
-  `/home/dionysus/src/abyss-stack`, `/work`, or `/srv/work`.
+  `${HOME}/src/abyss-stack`, `/work`, or `/srv/work`.
 - When a test proves a host contract, point to the exact command or function it
   protects.
 

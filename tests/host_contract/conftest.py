@@ -13,12 +13,15 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "src"
 SOURCE_CLI = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
 ABYSS_MACHINE_BIN = Path(os.environ.get("ABYSS_MACHINE_BIN", str(SOURCE_CLI if SOURCE_CLI.exists() else "/usr/local/libexec/abyss-machine")))
 
 
 @pytest.fixture(scope="session")
 def abyss_machine_module() -> Any:
+    if ABYSS_MACHINE_BIN == SOURCE_CLI and str(SRC_ROOT) not in sys.path:
+        sys.path.insert(0, str(SRC_ROOT))
     loader = importlib.machinery.SourceFileLoader("abyss_machine_under_test", str(ABYSS_MACHINE_BIN))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     if spec is None:

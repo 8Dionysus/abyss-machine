@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from pathlib import Path
 import wave
 
 import pytest
@@ -493,7 +494,7 @@ def _resident_cognitive_replay_fixture() -> dict:
 
 def test_process_game_signal_matcher_bounds_long_cmdline_and_keeps_tail_signal(abyss_machine_module) -> None:
     long_prefix = "x" * (abyss_machine_module.PROCESS_REGEX_MATCH_HEAD_CHARS + 8192)
-    cmdline = f"{long_prefix} /home/dionysus/.steam/steamapps/common/Example/Example.exe"
+    cmdline = f"{long_prefix} {Path.home() / '.steam/steamapps/common/Example/Example.exe'}"
 
     assert abyss_machine_module.process_has_strong_game_signal(cmdline) is True
     assert abyss_machine_module.process_game_role(cmdline, "Example.exe") == "active_game"
@@ -581,7 +582,7 @@ def test_self_awareness_scheduler_timer_events_link_temporal_body(monkeypatch, a
                         "ActiveState=active",
                         "SubState=waiting",
                         "UnitFileState=enabled",
-                        f"FragmentPath=/home/dionysus/.config/systemd/user/{unit}",
+                        f"FragmentPath={Path.home() / '.config/systemd/user' / unit}",
                         f"Triggers={unit.removesuffix('.timer')}.service",
                         "LastTriggerUSec=Thu 2026-01-01 00:00:00 UTC",
                         "NextElapseUSecMonotonic=15min",
@@ -775,7 +776,7 @@ def test_self_awareness_rejects_missing_evidence_unbounded_labels_and_protected_
     protected_write = abyss_machine_module.self_awareness_make_event(
         "process",
         "processes",
-        resource={"service": "stack", "path": "/home/dionysus/src/abyss-stack/runtime.toml", "write": True},
+        resource={"service": "stack", "path": str(Path.home() / "src/abyss-stack/runtime.toml"), "write": True},
         body="would mutate stack",
         evidence_refs=[{"fixture": "protected_write"}],
     )

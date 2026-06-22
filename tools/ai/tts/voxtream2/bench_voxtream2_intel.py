@@ -12,9 +12,11 @@ import time
 from pathlib import Path
 
 
-ROOT = Path("/srv/abyss-machine")
-OVERLAY = ROOT / "runtimes/home/dionysus/abyss-ai/voxtream-0.2.3-xpu-overlay"
-ASSETS = ROOT / "runtimes/home/dionysus/abyss-ai/voxtream-0.2.3-assets"
+ROOT = Path(os.environ.get("ABYSS_MACHINE_ROOT", "/srv/abyss-machine"))
+RUNTIME_USER = os.environ.get("ABYSS_USER") or os.environ.get("USER") or Path.home().name or "abyss"
+AI_HOME = Path(os.environ.get("ABYSS_AI_HOME", str(ROOT / "runtimes" / "home" / RUNTIME_USER / "abyss-ai")))
+OVERLAY = AI_HOME / "voxtream-0.2.3-xpu-overlay"
+ASSETS = AI_HOME / "voxtream-0.2.3-assets"
 EVAL_ROOT = Path("/var/lib/abyss-machine/ai/tts/evals/experimental")
 SYNTH_ROOT = Path("/var/lib/abyss-machine/ai/tts/synth")
 

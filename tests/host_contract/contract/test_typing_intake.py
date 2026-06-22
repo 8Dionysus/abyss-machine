@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 
@@ -220,7 +221,7 @@ def test_codex_prompt_hook_ingests_user_prompt_submit_event(abyss_machine_module
         {
             "session_id": "codex-session-test",
             "turn_id": "codex-turn-test",
-            "cwd": "/home/dionysus",
+            "cwd": str(Path.home()),
             "hook_event_name": "UserPromptSubmit",
             "model": "gpt-test",
             "permission_mode": "test",
