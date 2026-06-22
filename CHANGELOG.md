@@ -54,6 +54,10 @@
 - Add a legacy bundle-registry upgrade route so existing host-managed registry
   records can be made explicit under the new durable evidence contract instead
   of weakening the fail-closed trust gate.
+- Require abyss-machine artifact bundle manifests to declare durable
+  evidence-promotion, materialization, trust-gate, and registry-latest consumer
+  paths, with official-manifest roundtrip tests for install/runtime/AI/extension
+  subjects.
 - Add a first-run installed projection validator that applies bootstrap into
   isolated temp roots, proves installed CLI parity without source-checkout
   imports, checks package/public-seed projection, and keeps typing/nervous

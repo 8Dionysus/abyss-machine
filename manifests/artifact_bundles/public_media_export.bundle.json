@@ -32,8 +32,8 @@
     "latest_eligible_states": ["manually-verified", "release-ready", "published"]
   },
   "consumer_contract": {
-    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class public_media_export --json",
-    "consumer_expectation": "Content consumers select a public_media_export registry latest only after C2PA validation proves the media asset binding, claim signature integrity, and publication privacy route.",
+    "stable_interface": "abyss-machine artifacts registry-latest --artifact-class public_media_export --consumer-intent release_consumer --json",
+    "consumer_expectation": "Content consumers select a public_media_export registry latest only after durable evidence promotion, media subject materialization, and a release-consumer trust-gate allow or warn verdict over C2PA asset binding, claim signature integrity, publication privacy route, source repo, and trust root mode.",
     "registry_required": true
   },
   "consumer_command": [
@@ -43,6 +43,9 @@
     "c2patool MEDIA.public.png --external-manifest MEDIA.public.c2pa > BUNDLE_DIR/artifact.c2pa.json",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts bundle-registry --artifact-class public_media_export"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:public-media-export --evidence-ref manual-positive:public-media-export --source-repo abyss-machine --source-ref manifests/artifact_bundles/public_media_export.bundle.json --producer abyss-machine-public-media-export --trust-root-mode host_managed --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --manifest manifests/artifact_bundles/public_media_export.bundle.json --consumer-intent release_consumer --source-repo abyss-machine --trust-root-mode host_managed --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class public_media_export --consumer-intent release_consumer --source-repo abyss-machine --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class public_media_export --consumer-intent release_consumer --source-repo abyss-machine --trust-root-mode host_managed --json"
   ]
 }

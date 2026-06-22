@@ -34,8 +34,8 @@
     "latest_eligible_states": ["manually-verified", "release-ready", "published"]
   },
   "consumer_contract": {
-    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class browser_extension_package --json",
-    "consumer_expectation": "Extension consumers select a browser_extension_package registry latest only after ABI and SLSA/in-toto package provenance verification succeed; Mozilla extension signing is checked separately.",
+    "stable_interface": "abyss-machine artifacts registry-latest --artifact-class browser_extension_package --consumer-intent release_consumer --json",
+    "consumer_expectation": "Extension consumers select a browser_extension_package registry latest only after durable evidence promotion, source package subject materialization, and a release-consumer trust-gate allow or warn verdict over ABI, SLSA/in-toto package provenance, source repo, trust root mode, and the separate Mozilla extension signing boundary.",
     "registry_required": true
   },
   "consumer_command": [
@@ -43,6 +43,9 @@
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/browser_extension_package.bundle.json --bundle-dir BUNDLE_DIR",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts bundle-registry --artifact-class browser_extension_package"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:browser-extension-package --evidence-ref manual-positive:browser-extension-package --source-repo abyss-machine --source-ref manifests/artifact_bundles/browser_extension_package.bundle.json --producer abyss-machine-browser-extension-packager --trust-root-mode host_managed --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --manifest manifests/artifact_bundles/browser_extension_package.bundle.json --consumer-intent release_consumer --source-repo abyss-machine --trust-root-mode host_managed --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class browser_extension_package --consumer-intent release_consumer --source-repo abyss-machine --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class browser_extension_package --consumer-intent release_consumer --source-repo abyss-machine --trust-root-mode host_managed --json"
   ]
 }

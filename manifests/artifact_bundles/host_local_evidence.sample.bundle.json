@@ -58,8 +58,8 @@
     "abyss-machine artifacts sign BUNDLE_DIR",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts evidence-promote BUNDLE_DIR --lifecycle-state manually-verified",
-    "abyss-machine artifacts bundle-registry --artifact-class host_local_evidence",
-    "abyss-machine artifacts trust-gate --artifact-class host_local_evidence --consumer-intent agent"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state manually-verified --consumer-ref abyss-machine:host-local-evidence-sample --evidence-ref manual-positive:host-local-evidence-sample --source-repo abyss-machine --source-ref manifests/artifact_bundles/host_local_evidence.sample.bundle.json --producer abyss-machine-local-evidence-sample --trust-root-mode host_managed --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class host_local_evidence --consumer-intent agent --source-repo abyss-machine --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class host_local_evidence --consumer-intent agent --source-repo abyss-machine --trust-root-mode host_managed --json"
   ]
 }
