@@ -91,8 +91,8 @@
     "latest_eligible_states": ["manually-verified", "release-ready", "published"]
   },
   "consumer_contract": {
-    "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class ai_model_or_runtime_bundle --json",
-    "consumer_expectation": "AI runtime consumers select an ai_model_or_runtime_bundle registry latest only after ABI, SBOM, ML-BOM, SLSA/in-toto, and Sigstore/Cosign verification succeed against the bundle digest.",
+    "stable_interface": "abyss-machine artifacts registry-latest --artifact-class ai_model_or_runtime_bundle --consumer-intent runtime --json",
+    "consumer_expectation": "AI runtime consumers select an ai_model_or_runtime_bundle registry latest only after durable evidence promotion, subject materialization, and a runtime trust-gate allow or warn verdict over ABI, SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, digest, source repo, and trust root mode.",
     "registry_required": true
   },
   "consumer_command": [
@@ -101,6 +101,9 @@
     "abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts bundle-registry --artifact-class ai_model_or_runtime_bundle"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:ai-runtime-config --evidence-ref manual-positive:ai-runtime-config --source-repo abyss-machine --source-ref manifests/artifact_bundles/ai_runtime_config_bundle.bundle.json --producer abyss-machine-ai-runtime-config-packager --trust-root-mode host_managed --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --manifest manifests/artifact_bundles/ai_runtime_config_bundle.bundle.json --consumer-intent runtime --source-repo abyss-machine --trust-root-mode host_managed --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class ai_model_or_runtime_bundle --consumer-intent runtime --source-repo abyss-machine --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class ai_model_or_runtime_bundle --consumer-intent runtime --source-repo abyss-machine --trust-root-mode host_managed --json"
   ]
 }

@@ -55,8 +55,9 @@
     "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts evidence-promote BUNDLE_DIR --lifecycle-state manually-verified",
-    "abyss-machine artifacts bundle-registry --artifact-class runtime_or_container_artifact",
-    "abyss-machine artifacts trust-gate --artifact-class runtime_or_container_artifact --consumer-intent runtime"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:runtime-tools --evidence-ref manual-positive:runtime-tools --source-repo abyss-machine --source-ref manifests/artifact_bundles/runtime_tools_bundle.bundle.json --producer abyss-machine-runtime-tools-packager --trust-root-mode host_managed --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --manifest manifests/artifact_bundles/runtime_tools_bundle.bundle.json --consumer-intent runtime --source-repo abyss-machine --trust-root-mode host_managed --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo abyss-machine --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo abyss-machine --trust-root-mode host_managed --json"
   ]
 }

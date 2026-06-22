@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from abyss_machine import artifact_bundles  # noqa: E402
+from abyss_machine import cli  # noqa: E402
 
 
 def run_bundle(bundle_dir: Path, *, manifest_ref: str, artifact_class: str) -> dict:
@@ -49,6 +50,14 @@ def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_cla
         artifact_class=artifact_class,
         subject_digest=str(registered.get("record", {}).get("subject_digest") or ""),
         consumer_intent="agent",
+        expected_trust_root_mode="host_managed",
+    )
+    registry_latest = cli.artifacts_registry_latest(
+        artifact_class=artifact_class,
+        registry_dir=registry_dir,
+        consumer_intent="agent",
+        subject_digest=str(registered.get("record", {}).get("subject_digest") or ""),
+        expected_source_repo="abyss-machine",
         expected_trust_root_mode="host_managed",
     )
     requirements = artifact_bundles.artifact_requirements(
@@ -112,6 +121,9 @@ def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_cla
             and isinstance(latest_record, dict)
             and latest_record.get("record_id") == registered.get("record", {}).get("record_id")
             and allow_gate.get("verdict") == "allow"
+            and registry_latest.get("ok")
+            and registry_latest.get("latest_record_id") == registered.get("record", {}).get("record_id")
+            and registry_latest.get("trust_gate", {}).get("verdict") == "allow"
             and allow_gate.get("decision", {}).get("model") == "fail_closed_consumer_admission"
             and allow_claims.get("registry_latest", {}).get("selected_record_is_latest") is True
             and allow_claims.get("controls", {}).get("required_controls_missing") == []
@@ -133,6 +145,7 @@ def run_registry_roundtrip(bundle_dir: Path, registry_dir: Path, *, artifact_cla
         "registered": registered,
         "latest": latest,
         "allow_gate": allow_gate,
+        "registry_latest": registry_latest,
         "requirements": requirements,
         "affected": affected,
         "revoked": revoked,

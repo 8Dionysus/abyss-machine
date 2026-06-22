@@ -104,6 +104,141 @@ def test_public_source_seed_bundle_roundtrip(tmp_path: Path) -> None:
     assert (bundle / artifact_bundles.VERIFY_SIDECAR).is_file()
 
 
+def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
+    manifest_dir = ROOT / "manifests" / "artifact_bundles"
+
+    for manifest_path in sorted(manifest_dir.glob("*.bundle.json")):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        commands = [str(command) for command in manifest["consumer_command"]]
+        command_text = " ".join(commands)
+
+        assert manifest.get("owner_repo") == "abyss-machine", manifest_path
+        assert manifest.get("consumer_contract", {}).get("registry_required") is True, manifest_path
+        assert "bundle-registry --artifact-class" not in command_text, manifest_path
+        assert "evidence-promote BUNDLE_DIR" in command_text, manifest_path
+        assert "--registry-dir REGISTRY_DIR" in command_text, manifest_path
+        assert "--source-repo abyss-machine" in command_text, manifest_path
+        assert "--trust-root-mode host_managed" in command_text, manifest_path
+        assert "trust-gate --registry-dir REGISTRY_DIR" in command_text, manifest_path
+        assert "registry-latest --registry-dir REGISTRY_DIR" in command_text, manifest_path
+        assert "--json" in command_text, manifest_path
+        if manifest.get("artifact_subjects"):
+            assert "materialize-subjects BUNDLE_DIR" in command_text, manifest_path
+        else:
+            assert "materialize-subjects BUNDLE_DIR" not in command_text, manifest_path
+
+
+@pytest.mark.parametrize(
+    ("manifest_ref", "subject_path", "artifact_class", "consumer_intent", "requires_cosign"),
+    [
+        (
+            "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            "dist/abyss-machine-bootstrap-pytest-subject.tar.gz",
+            "bootstrap_install_bundle",
+            "installer",
+            True,
+        ),
+        (
+            "manifests/artifact_bundles/runtime_tools_bundle.bundle.json",
+            "dist/abyss-machine-runtime-tools-pytest-subject.tar.gz",
+            "runtime_or_container_artifact",
+            "runtime",
+            True,
+        ),
+        (
+            "manifests/artifact_bundles/ai_runtime_config_bundle.bundle.json",
+            "dist/abyss-machine-ai-runtime-config-pytest-subject.tar.gz",
+            "ai_model_or_runtime_bundle",
+            "runtime",
+            True,
+        ),
+        (
+            "manifests/artifact_bundles/browser_extension_package.bundle.json",
+            "tools/typing/firefox-extension/build/abyss-machine-typing-firefox-extension-pytest-subject.zip",
+            "browser_extension_package",
+            "release_consumer",
+            False,
+        ),
+    ],
+)
+def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest_ref: str,
+    subject_path: str,
+    artifact_class: str,
+    consumer_intent: str,
+    requires_cosign: bool,
+) -> None:
+    subject = ROOT / subject_path
+    subject.parent.mkdir(parents=True, exist_ok=True)
+    subject.write_text(f"pytest synthetic subject for {artifact_class}\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+    registry = tmp_path / "registry"
+    store_root = tmp_path / "subject-store"
+
+    if requires_cosign:
+        fake_cosign = tmp_path / "cosign"
+        _write_fake_cosign(fake_cosign)
+        key = tmp_path / "local-test.key"
+        public_key = tmp_path / "local-test.pub"
+        key.write_text("fake-private-key\n", encoding="utf-8")
+        public_key.write_text("fake-public-key\n", encoding="utf-8")
+        monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+        monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
+        monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
+
+    try:
+        build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_ref)
+        sign = artifact_bundles.sign_bundle(bundle, backend="cosign-local-key" if requires_cosign else "policy")
+        verify = artifact_bundles.verify_bundle(bundle)
+        release = artifact_bundles.release_check(bundle, enforcement="blocking")
+        promoted = artifact_bundles.promote_bundle_evidence(
+            bundle,
+            registry,
+            lifecycle_state="release-ready",
+            source_repo="abyss-machine",
+            source_ref=manifest_ref,
+            producer=f"pytest official {artifact_class} manifest",
+            trust_root_mode="host_managed",
+        )
+        subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+        materialized = artifact_bundles.materialize_artifact_subjects(
+            bundle,
+            store_root=store_root,
+            registry_dir=registry,
+            manifest_ref=manifest_ref,
+            consumer_intent=consumer_intent,
+            expected_source_repo="abyss-machine",
+            expected_trust_root_mode="host_managed",
+        )
+        latest = cli.artifacts_registry_latest(
+            artifact_class=artifact_class,
+            registry_dir=registry,
+            consumer_intent=consumer_intent,
+            subject_digest=str(subjects["aggregate_digest"]),
+            expected_source_repo="abyss-machine",
+            expected_trust_root_mode="host_managed",
+        )
+
+        assert build["ok"] is True
+        assert sign["ok"] is True
+        assert verify["ok"] is True
+        assert release["ok"] is True
+        assert promoted["ok"] is True
+        assert promoted["record"]["source_ref"] == manifest_ref
+        assert promoted["record"]["source_repo"] == "abyss-machine"
+        assert materialized["ok"] is True
+        assert materialized["consumer_intent"] == consumer_intent
+        assert materialized["trust_gate"]["verdict"] == "allow"
+        assert latest["ok"] is True
+        assert latest["trust_gate"]["verdict"] == "allow"
+        assert any(item["path"] == subject_path for item in subjects["files"])
+        assert (store_root / artifact_class / subjects["aggregate_digest"].removeprefix("sha256:")).is_dir()
+    finally:
+        subject.unlink(missing_ok=True)
+
+
 def test_trust_coverage_collects_package_named_evidence_dirs(tmp_path: Path) -> None:
     evidence_dir = tmp_path / "browser-extension-package-20260621T051601Z"
     negative_dir = evidence_dir / "negative"
