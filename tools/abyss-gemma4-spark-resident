@@ -23,6 +23,14 @@ def env_float(name: str, default: float) -> float:
         return default
 
 
+def machine_user() -> str:
+    return os.environ.get("ABYSS_USER") or os.environ.get("USER") or Path.home().name or "abyss"
+
+
+def machine_cache_root() -> Path:
+    return Path(os.environ.get("ABYSS_MACHINE_CACHE_ROOT", "/srv/abyss-machine/cache"))
+
+
 PROFILE = "gemma4.spark"
 SCHEMA_PREFIX = "abyss_machine_gemma4_spark_resident"
 VERSION = "0.1.18"
@@ -1018,7 +1026,7 @@ def serve(args: argparse.Namespace) -> int:
     write_json(STATUS_LATEST, record)
     append_jsonl(daily_path(EVENT_ROOT), {"event": "serve_start", **record})
     env = os.environ.copy()
-    env.update({"XDG_CACHE_HOME": "/srv/abyss-machine/cache/home/dionysus/cache", "HF_HOME": "/srv/abyss-machine/cache/ai/huggingface", "TOKENIZERS_PARALLELISM": "false", "OMP_NUM_THREADS": "4", "MKL_NUM_THREADS": "4", "OPENBLAS_NUM_THREADS": "4", "NUMEXPR_NUM_THREADS": "4"})
+    env.update({"XDG_CACHE_HOME": str(machine_cache_root() / "home" / machine_user() / "cache"), "HF_HOME": str(machine_cache_root() / "ai/huggingface"), "TOKENIZERS_PARALLELISM": "false", "OMP_NUM_THREADS": "4", "MKL_NUM_THREADS": "4", "OPENBLAS_NUM_THREADS": "4", "NUMEXPR_NUM_THREADS": "4"})
     os.execvpe(cmd[0], cmd, env)
     return 1
 

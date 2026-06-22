@@ -60,6 +60,8 @@ def test_first_run_projection_report_is_machine_readable(projection_payload: dic
     assert payload["temp_installed_content_parity"]["failures"] == []
     assert payload["module_import"]["status"] == "ok"
     assert payload["module_import"]["uses_source_checkout"] is False
+    assert payload["portability_scan"]["status"] == "ok"
+    assert payload["portability_scan"]["findings"] == []
 
 
 def test_content_parity_report_detects_installed_cli_digest_drift(tmp_path: Path) -> None:

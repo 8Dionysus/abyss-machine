@@ -69,3 +69,27 @@ Typing and nervous-system collection are not removed for safety. They are
 installed as opt-in organs: the code, policies, units, state roots, and
 validators exist, while real collectors stay disabled until the operator enables
 the corresponding profile and the selftests pass.
+
+## Cold-Start Proof Route
+
+Public portability is proven from a clean source export, not from the current
+checkout, live `/usr/local/bin/abyss-machine`, or host `/var/lib` evidence.
+
+The proof route is:
+
+```text
+clean exported source copy
+  -> bootstrap doctor --dry-run with isolated roots
+  -> bootstrap render/install --dry-run with isolated roots
+  -> bootstrap install --apply into isolated roots
+  -> run installed CLI help/import/status/path surfaces from isolated libexec
+  -> compare installed CLI/package/public seed files with source using content
+     parity before trusting a validator
+  -> scan the source/projection for private operator paths and current checkout
+     paths
+```
+
+After that manual proof exists, `scripts/validators/first_run_installed_projection.py`
+encodes the same route as a regression check. It creates a temporary installed
+projection, checks help parity, import ownership, content digests, typing and
+nervous organ roots, and portability scans without enabling live collectors.

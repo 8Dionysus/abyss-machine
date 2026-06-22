@@ -13,10 +13,10 @@ pytestmark = [pytest.mark.quick, pytest.mark.safety]
     [
         ("/srv/abyss-machine/cache/model", "allow_candidate"),
         ("/srv/AbyssOS/abyss-stack/Configs", "deny"),
-        ("/home/dionysus/src/abyss-stack", "deny"),
+        (str(Path.home() / "src/abyss-stack"), "deny"),
         ("/srv/work/client", "deny"),
         ("/work/client", "deny"),
-        ("/home/dionysus/.cache/ai-model", "reroute_for_large_generated_data"),
+        (str(Path.home() / ".cache/ai-model"), "reroute_for_large_generated_data"),
     ],
 )
 def test_storage_path_protection_keeps_machine_owned_writes_in_machine_roots(abyss_machine_module, path: str, decision: str) -> None:
@@ -32,7 +32,7 @@ def test_storage_path_protection_keeps_machine_owned_writes_in_machine_roots(aby
         ("/usr/local/libexec/abyss_machine/cli.py", "host_binary"),
         ("/usr/local/share/abyss-machine/manifests/bootstrap_profiles.manifest.json", "host_public_seed"),
         ("/etc/systemd/system/abyss-ai-workload-refresh.timer", "host_system_systemd"),
-        ("/home/dionysus/.config/systemd/user/abyss-machine-heartbeat.timer", "host_user_systemd"),
+        (str(Path.home() / ".config/systemd/user/abyss-machine-heartbeat.timer"), "host_user_systemd"),
         ("/run/abyss-machine", "host_runtime"),
         ("/run/abyss-machine/socket", "host_runtime"),
     ],

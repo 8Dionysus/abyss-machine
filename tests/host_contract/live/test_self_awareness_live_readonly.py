@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,7 +14,7 @@ pytestmark = [pytest.mark.live, pytest.mark.contract]
 PROTECTED_STACK_ROOTS = (
     "/srv/AbyssOS",
     "/srv/abyss-stack",
-    "/home/dionysus/src/abyss-stack",
+    str(Path.home() / "src/abyss-stack"),
 )
 
 FORBIDDEN_LOKI_LABELS = {
