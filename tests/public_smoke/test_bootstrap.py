@@ -164,6 +164,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "affected" in help_result.stdout
     assert "trust-gate" in help_result.stdout
     assert "trust-tools" in help_result.stdout
+    assert "trust-tools-python" in help_result.stdout
     assert "trust-coverage" in help_result.stdout
 
     trust_result = subprocess.run(
