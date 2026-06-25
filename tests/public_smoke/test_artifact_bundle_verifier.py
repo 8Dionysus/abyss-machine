@@ -285,6 +285,72 @@ def test_trust_coverage_collects_package_named_evidence_dirs(tmp_path: Path) -> 
     assert str(negative) in bucket["negative"]
 
 
+def _public_source_seed_registry(tmp_path: Path) -> tuple[Path, Path]:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+
+    assert promoted["ok"] is True
+    return bundle, registry
+
+
+def _rewrite_latest_record(registry: Path, **updates: object) -> dict[str, object]:
+    record_path = next((registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR).glob("*.json"))
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record.update(updates)
+    record_path.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    return record
+
+
+def test_trust_coverage_blocks_stale_abi_registry_latest(tmp_path: Path) -> None:
+    _bundle, registry = _public_source_seed_registry(tmp_path)
+    _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "public_source_seed")
+
+    assert row["installed_verification"]["trust_gate_verdict"] == "allow"
+    assert row["source_freshness"]["freshness"] == "stale"
+    assert row["source_freshness"]["reasons"] == ["abi_subject_digest_stale"]
+    assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
+    assert "stale against current source contracts" in row["remaining_blocker"]
+
+
+def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) -> None:
+    _bundle, registry = _public_source_seed_registry(tmp_path)
+    _rewrite_latest_record(
+        registry,
+        consumer_contract={"stable_interface": "abyss-machine artifacts bundle-registry --artifact-class public_source_seed --json"},
+    )
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "public_source_seed")
+
+    assert row["installed_verification"]["trust_gate_verdict"] == "allow"
+    assert row["source_freshness"]["freshness"] == "stale"
+    assert row["source_freshness"]["reasons"] == ["consumer_contract_stale"]
+    assert row["source_freshness"]["current_consumer_contract"]["admission_gate"] == "fail_closed_consumer_admission"
+    assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
+
+
 def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     asset = tmp_path / "media.png"
     asset.write_bytes(b"not-a-real-png-for-fake-c2pa")
