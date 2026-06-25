@@ -1139,7 +1139,7 @@
   "update_transparency_lane": {
     "schema": "abyss_machine_update_transparency_lane_v1",
     "tuf": {
-      "status": "prepared_v1",
+      "status": "crypto_verifier_v1",
       "required_when": "artifact is consumed by update_client, installer auto-update, package updater, runtime updater, or browser/tool update route",
       "metadata_sidecar": "artifact.update.tuf.json",
       "applies_to_artifact_classes": [
@@ -1165,7 +1165,7 @@
         "artifact trust-gate must still allow or warn for the target artifact before consumption"
       ],
       "external_repository_verifier": {
-        "status": "structural_v1",
+        "status": "crypto_verifier_v1",
         "metadata_dir": "metadata",
         "targets_dir": "targets",
         "roles": [
@@ -1178,18 +1178,23 @@
           "role metadata exists and has matching _type",
           "role versions are positive and monotonic against previous trusted state",
           "role expires values are in the future",
-          "root role thresholds are satisfied by declared signature keyids",
+          "root role thresholds are satisfied by cryptographically valid Ed25519 signatures from declared keyids",
+          "targets, snapshot, and timestamp role signatures verify against root-delegated Ed25519 keys",
           "timestamp references snapshot by version, length, and sha256",
           "snapshot references targets by version, length, and sha256",
           "targets binds target path by length and sha256",
           "unchanged timestamp metadata cannot exceed max_freeze_seconds",
           "artifact trust-gate must still allow or warn when update-client admission is required"
         ],
-        "not_cryptographic_signature_verifier_yet": true
+        "cryptographic_signature_verifier": {
+          "status": "ed25519_v1",
+          "signed_payload": "canonical JSON of the role signed object",
+          "threshold_source": "root.signed.roles[role].threshold and keyids"
+        }
       },
       "max_freeze_seconds": 604800,
       "not_full_tuf_repository_yet": true,
-      "claim_limit": "This is the OS Abyss v1 TUF-style update metadata gate plus structural external repository verifier; it still does not provide production cryptographic TUF signature verification, key ceremony, or a published external TUF repository."
+      "claim_limit": "This is the OS Abyss v1 TUF-style update metadata gate plus cryptographic Ed25519 external repository verifier; it still does not provide production key ceremony, root rotation operations, or a published external TUF repository bootstrap."
     },
     "scitt": {
       "status": "local_stub_fail_closed_external_v1",

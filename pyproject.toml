@@ -16,6 +16,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
+  "cryptography>=42",
   "pytest>=8"
 ]
 yaml = [

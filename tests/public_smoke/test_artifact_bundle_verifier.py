@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1270,6 +1272,10 @@ def _update_metadata(**overrides: object) -> dict[str, object]:
     return metadata
 
 
+def _canonical_tuf_bytes(payload: dict[str, object]) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
 def _write_tuf_json(path: Path, payload: dict[str, object]) -> tuple[str, int]:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1277,14 +1283,24 @@ def _write_tuf_json(path: Path, payload: dict[str, object]) -> tuple[str, int]:
     return hashlib.sha256(raw).hexdigest(), len(raw)
 
 
-def _tuf_role(role: str, signed: dict[str, object]) -> dict[str, object]:
+def _tuf_role(
+    role: str,
+    signed: dict[str, object],
+    signing_keys: dict[str, Ed25519PrivateKey],
+    *,
+    tamper_signature: bool = False,
+) -> dict[str, object]:
+    signed_payload = {
+        "_type": role,
+        "spec_version": "1.0.31",
+        **signed,
+    }
+    signature = signing_keys[role].sign(_canonical_tuf_bytes(signed_payload)).hex()
+    if tamper_signature:
+        signature = ("00" if signature[:2] != "00" else "ff") + signature[2:]
     return {
-        "signed": {
-            "_type": role,
-            "spec_version": "1.0.31",
-            **signed,
-        },
-        "signatures": [{"keyid": f"{role}-key", "sig": f"pytest-{role}-signature"}],
+        "signed": signed_payload,
+        "signatures": [{"keyid": f"{role}-key", "sig": signature}],
     }
 
 
@@ -1294,6 +1310,7 @@ def _write_tuf_repository(
     target_path: str = "dist/abyss-machine-bootstrap-pytest-update-target.tar.gz",
     role_versions: dict[str, int] | None = None,
     role_expires: dict[str, str] | None = None,
+    tamper_signature_role: str = "",
 ) -> dict[str, object]:
     repo = tmp_path / "tuf-repository"
     metadata_dir = repo / "metadata"
@@ -1312,6 +1329,17 @@ def _write_tuf_repository(
     target_file.write_bytes(b"pytest bootstrap update target\n")
     target_hash = hashlib.sha256(target_file.read_bytes()).hexdigest()
     target_length = target_file.stat().st_size
+    signing_keys = {
+        role: Ed25519PrivateKey.generate()
+        for role in ("root", "targets", "snapshot", "timestamp")
+    }
+    public_keys = {
+        role: signing_keys[role].public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        ).hex()
+        for role in signing_keys
+    }
 
     root = _tuf_role(
         "root",
@@ -1322,7 +1350,7 @@ def _write_tuf_repository(
                 f"{role}-key": {
                     "keytype": "ed25519",
                     "scheme": "ed25519",
-                    "keyval": {"public": f"pytest-{role}-public"},
+                    "keyval": {"public": public_keys[role]},
                 }
                 for role in ("root", "targets", "snapshot", "timestamp")
             },
@@ -1331,6 +1359,8 @@ def _write_tuf_repository(
                 for role in ("root", "targets", "snapshot", "timestamp")
             },
         },
+        signing_keys,
+        tamper_signature=tamper_signature_role == "root",
     )
     _write_tuf_json(metadata_dir / "root.json", root)
 
@@ -1346,6 +1376,8 @@ def _write_tuf_repository(
                 }
             },
         },
+        signing_keys,
+        tamper_signature=tamper_signature_role == "targets",
     )
     targets_hash, targets_length = _write_tuf_json(metadata_dir / "targets.json", targets)
 
@@ -1362,6 +1394,8 @@ def _write_tuf_repository(
                 }
             },
         },
+        signing_keys,
+        tamper_signature=tamper_signature_role == "snapshot",
     )
     snapshot_hash, snapshot_length = _write_tuf_json(metadata_dir / "snapshot.json", snapshot)
 
@@ -1378,6 +1412,8 @@ def _write_tuf_repository(
                 }
             },
         },
+        signing_keys,
+        tamper_signature=tamper_signature_role == "timestamp",
     )
     timestamp_hash, _timestamp_length = _write_tuf_json(metadata_dir / "timestamp.json", timestamp)
 
@@ -1517,13 +1553,14 @@ def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
 
     assert status["ok"] is True
     assert status["schema"] == "abyss_machine_update_transparency_lane_status_v1"
-    assert status["summary"]["tuf_status"] == "prepared_v1"
+    assert status["summary"]["tuf_status"] == "crypto_verifier_v1"
     assert status["summary"]["blocking_v1"] is False
     assert "bootstrap_install_bundle" in [row["artifact_class"] for row in status["rows"]]
     assert "aoa_session_memory_portable_bundle" in [row["artifact_class"] for row in status["rows"]]
     assert status["tuf"]["metadata_sidecar"] == artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
-    assert "structural external TUF repository verifier" in status["claim_limits"][0]
-    assert status["tuf"]["external_repository_verifier"]["status"] == "structural_v1"
+    assert "cryptographic Ed25519 external TUF repository verifier" in status["claim_limits"][0]
+    assert status["tuf"]["external_repository_verifier"]["status"] == "crypto_verifier_v1"
+    assert status["tuf"]["external_repository_verifier"]["cryptographic_signature_verifier"]["status"] == "ed25519_v1"
     assert "local statement/receipt binding stub" in status["claim_limits"][1]
     assert status["scitt"]["status"] == "local_stub_fail_closed_external_v1"
 
@@ -1603,7 +1640,7 @@ def test_scitt_receipt_verifier_denies_missing_or_unbound_receipt_for_external_r
     assert "artifact_digest_mismatch" in wrong_artifact["errors"]
 
 
-def test_external_tuf_repository_verifier_allows_structural_repo(tmp_path: Path) -> None:
+def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(tmp_path: Path) -> None:
     tuf_repo = _write_tuf_repository(tmp_path)
     previous = {
         "artifact_class": "bootstrap_install_bundle",
@@ -1637,7 +1674,9 @@ def test_external_tuf_repository_verifier_allows_structural_repo(tmp_path: Path)
     assert result["errors"] == []
     assert result["timestamp_sha256"] == tuf_repo["timestamp_sha256"]
     assert all(item["threshold_met"] for item in result["signature_thresholds"])
-    assert "Cryptographic signature bytes are not verified" in result["claim_limits"][1]
+    assert all(item["valid_signed_keyids"] == [f"{item['role']}-key"] for item in result["signature_thresholds"])
+    assert all(item["cryptographic_signature_verification"] == "ed25519_v1" for item in result["signature_thresholds"])
+    assert "cryptographically valid Ed25519 signatures" in result["claim_limits"][1]
     assert cli_result["ok"] is True
     assert cli_result["previous_trusted_path"] == str(previous_path)
 
@@ -1676,6 +1715,12 @@ def test_external_tuf_repository_verifier_denies_bad_digest_expiry_rollback_free
         },
         now="2026-06-21T00:00:00Z",
     )
+    bad_signature = artifact_bundles.verify_tuf_repository(
+        _write_tuf_repository(tmp_path / "bad-signature", tamper_signature_role="timestamp")["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        now="2026-06-21T00:00:00Z",
+    )
     missing_gate = artifact_bundles.verify_tuf_repository(
         tuf_repo["repo"],
         target_path=str(tuf_repo["target_path"]),
@@ -1692,6 +1737,9 @@ def test_external_tuf_repository_verifier_denies_bad_digest_expiry_rollback_free
     assert "rollback_snapshot_version" in rollback["errors"]
     assert frozen["ok"] is False
     assert "freeze_attack_or_stale_timestamp" in frozen["errors"]
+    assert bad_signature["ok"] is False
+    assert "timestamp_signature_threshold_not_met" in bad_signature["errors"]
+    assert bad_signature["signature_thresholds"][3]["invalid_signatures"][0]["error"] == "signature_invalid"
     assert missing_gate["ok"] is False
     assert "trust_gate_registry_required" in missing_gate["errors"]
 

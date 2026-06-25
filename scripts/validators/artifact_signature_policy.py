@@ -480,10 +480,13 @@ def main() -> int:
                 if roles != ["root", "targets", "snapshot", "timestamp"]:
                     failures.append("update_transparency_lane.tuf.external_repository_verifier.roles must list root/targets/snapshot/timestamp")
                 checks = external.get("checks")
-                if not isinstance(checks, list) or len(checks) < 8:
+                if not isinstance(checks, list) or len(checks) < 9:
                     failures.append("update_transparency_lane.tuf.external_repository_verifier.checks must describe external TUF verifier checks")
-                if external.get("not_cryptographic_signature_verifier_yet") is not True:
-                    failures.append("update_transparency_lane.tuf.external_repository_verifier.not_cryptographic_signature_verifier_yet must be true until production crypto verification lands")
+                crypto = external.get("cryptographic_signature_verifier")
+                if not isinstance(crypto, dict):
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.cryptographic_signature_verifier must be an object")
+                elif crypto.get("status") != "ed25519_v1":
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.cryptographic_signature_verifier.status must be ed25519_v1")
             if not isinstance(tuf.get("claim_limit"), str) or not tuf.get("claim_limit"):
                 failures.append("update_transparency_lane.tuf.claim_limit must be a non-empty string")
         scitt = update_lane.get("scitt")
