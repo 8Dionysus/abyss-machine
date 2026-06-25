@@ -110,12 +110,51 @@ def _write_fake_c2patool(path: Path) -> None:
 import json
 import os
 import sys
+from pathlib import Path
 
 
-if os.environ.get("FAKE_C2PA_STATE") == "invalid":
+capture = os.environ.get("FAKE_C2PA_ARGV_CAPTURE")
+if capture:
+    Path(capture).write_text(json.dumps(sys.argv[1:]) + "\\n", encoding="utf-8")
+
+state = os.environ.get("FAKE_C2PA_STATE")
+if state == "invalid":
     print(json.dumps({
         "validation_state": "Invalid",
         "validation_status": [{"code": "assertion.dataHash.mismatch"}],
+    }))
+    sys.exit(0)
+if state == "trusted":
+    print(json.dumps({
+        "validation_state": "Valid",
+        "validation_results": {
+            "activeManifest": {
+                "success": [{"code": "signingCredential.trusted"}],
+                "failure": [],
+            }
+        },
+        "argv": sys.argv[1:],
+    }))
+    sys.exit(0)
+if state == "expired":
+    print(json.dumps({
+        "validation_state": "Valid",
+        "validation_status": [{"code": "signingCredential.expired"}],
+        "argv": sys.argv[1:],
+    }))
+    sys.exit(0)
+if state == "revoked":
+    print(json.dumps({
+        "validation_state": "Valid",
+        "validation_status": [{"code": "signingCredential.revoked"}],
+        "argv": sys.argv[1:],
+    }))
+    sys.exit(0)
+if state == "no_trust_code":
+    print(json.dumps({
+        "validation_state": "Valid",
+        "validation_status": [],
+        "argv": sys.argv[1:],
     }))
     sys.exit(0)
 print(json.dumps({
@@ -582,7 +621,15 @@ def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) 
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
 
 
-def test_trust_coverage_keeps_untrusted_c2pa_credential_as_production_blocker() -> None:
+@pytest.mark.parametrize(
+    "warning",
+    [
+        "C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof",
+        "C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof",
+        "C2PA production trust anchors are not configured; set ABYSS_MACHINE_C2PA_TRUST_ANCHORS or C2PATOOL_TRUST_ANCHORS before production publication",
+    ],
+)
+def test_trust_coverage_keeps_c2pa_credential_trust_gap_as_production_blocker(warning: str) -> None:
     status, blocker = cli.artifact_trust_coverage_row_status(
         "public_media_export",
         latest={
@@ -596,9 +643,7 @@ def test_trust_coverage_keeps_untrusted_c2pa_credential_as_production_blocker() 
         gate={
             "ok": True,
             "verdict": "warn",
-            "warnings": [
-                "C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof"
-            ],
+            "warnings": [warning],
         },
     )
 
@@ -731,7 +776,14 @@ def test_trust_coverage_blocks_unresolved_cross_repo_manifest(tmp_path: Path) ->
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
 
 
-def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _build_public_media_export_test_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fake_state: str | None = None,
+    trust_anchors: str | None = None,
+    capture_argv: bool = False,
+) -> tuple[Path, Path | None]:
     asset = tmp_path / "media.png"
     asset.write_bytes(b"not-a-real-png-for-fake-c2pa")
     manifest = tmp_path / "public_media_export.bundle.json"
@@ -754,6 +806,22 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
     fake_c2pa = tmp_path / "c2patool"
     _write_fake_c2patool(fake_c2pa)
     monkeypatch.setenv("ABYSS_MACHINE_C2PATOOL_BINARY", str(fake_c2pa))
+    if fake_state:
+        monkeypatch.setenv("FAKE_C2PA_STATE", fake_state)
+    else:
+        monkeypatch.delenv("FAKE_C2PA_STATE", raising=False)
+    if trust_anchors is not None:
+        anchors = tmp_path / "c2pa-trust-anchors.pem"
+        anchors.write_text(trust_anchors, encoding="utf-8")
+        monkeypatch.setenv(artifact_bundles.C2PA_TRUST_ANCHORS_ENV, str(anchors))
+    else:
+        monkeypatch.delenv(artifact_bundles.C2PA_TRUST_ANCHORS_ENV, raising=False)
+        monkeypatch.delenv("C2PATOOL_TRUST_ANCHORS", raising=False)
+    argv_capture = tmp_path / "c2pa-argv.json" if capture_argv else None
+    if argv_capture is not None:
+        monkeypatch.setenv("FAKE_C2PA_ARGV_CAPTURE", str(argv_capture))
+    else:
+        monkeypatch.delenv("FAKE_C2PA_ARGV_CAPTURE", raising=False)
     bundle = tmp_path / "bundle"
 
     artifact_bundles.build_sidecars(bundle, manifest_ref=manifest)
@@ -763,11 +831,19 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
         json.dumps({"validation_state": "Valid"}),
         encoding="utf-8",
     )
+    return bundle, argv_capture
+
+
+def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bundle, argv_capture = _build_public_media_export_test_bundle(tmp_path, monkeypatch, capture_argv=True)
 
     verify = artifact_bundles.verify_bundle(bundle)
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
     assert any("untrusted" in warning for warning in verify["warnings"])
+    assert argv_capture is not None
+    argv = json.loads(argv_capture.read_text(encoding="utf-8"))
+    assert "trust" in argv
 
     monkeypatch.setenv("FAKE_C2PA_STATE", "invalid")
     invalid = artifact_bundles.verify_bundle(bundle)
@@ -775,6 +851,75 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
     assert invalid["verified_controls"] == []
     assert "c2pa" in invalid["present_controls"]
     assert any("asset hash mismatch" in error for error in invalid["errors"])
+
+
+def test_public_media_export_passes_without_production_warning_when_c2pa_credential_trusted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, argv_capture = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="trusted",
+        trust_anchors="-----BEGIN CERTIFICATE-----\\npytest\\n-----END CERTIFICATE-----\\n",
+        capture_argv=True,
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle)
+
+    assert verify["ok"] is True
+    assert "c2pa" in verify["verified_controls"]
+    assert not any("production trust-list proof" in warning for warning in verify["warnings"])
+    assert not any("production trust anchors are not configured" in warning for warning in verify["warnings"])
+    assert argv_capture is not None
+    argv = json.loads(argv_capture.read_text(encoding="utf-8"))
+    assert "trust" in argv
+    assert "--trust_anchors" in argv
+    assert str(tmp_path / "c2pa-trust-anchors.pem") in argv
+
+
+def test_public_media_export_warns_when_c2pa_credential_trust_is_not_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _ = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="no_trust_code",
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle)
+
+    assert verify["ok"] is True
+    assert any("trust was not proven by trust-list validation" in warning for warning in verify["warnings"])
+    assert any("production trust anchors are not configured" in warning for warning in verify["warnings"])
+
+
+@pytest.mark.parametrize(
+    ("fake_state", "expected_error"),
+    [
+        ("expired", "signing credential is expired"),
+        ("revoked", "signing credential is revoked"),
+    ],
+)
+def test_public_media_export_rejects_expired_or_revoked_c2pa_credential(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_state: str,
+    expected_error: str,
+) -> None:
+    bundle, _ = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state=fake_state,
+        trust_anchors="-----BEGIN CERTIFICATE-----\\npytest\\n-----END CERTIFICATE-----\\n",
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle)
+
+    assert verify["ok"] is False
+    assert "c2pa" in verify["present_controls"]
+    assert any(expected_error in error for error in verify["errors"])
 
 
 def test_artifact_requirements_reports_sibling_producer_profile() -> None:

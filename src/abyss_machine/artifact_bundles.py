@@ -34,6 +34,9 @@ SIGSTORE_BUNDLE_SIDECAR = "artifact.sigstore.json"
 MLBOM_CYCLONEDX_SIDECAR = "artifact.mlbom.cdx.json"
 C2PA_MANIFEST_SIDECAR = "artifact.c2pa"
 C2PA_REPORT_SIDECAR = "artifact.c2pa.json"
+C2PA_TRUST_ANCHORS_ENV = "ABYSS_MACHINE_C2PA_TRUST_ANCHORS"
+C2PA_ALLOWED_LIST_ENV = "ABYSS_MACHINE_C2PA_ALLOWED_LIST"
+C2PA_TRUST_CONFIG_ENV = "ABYSS_MACHINE_C2PA_TRUST_CONFIG"
 TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
 TUF_REPOSITORY_TARGETS_DIR = "targets"
@@ -3152,6 +3155,49 @@ def _c2patool_binary() -> str | None:
     return shutil.which("c2patool")
 
 
+def _c2pa_trust_args(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
+    args: list[str] = []
+    sources: dict[str, str] = {}
+    for option, abyss_env, native_env in (
+        ("trust_anchors", C2PA_TRUST_ANCHORS_ENV, "C2PATOOL_TRUST_ANCHORS"),
+        ("allowed_list", C2PA_ALLOWED_LIST_ENV, "C2PATOOL_ALLOWED_LIST"),
+        ("trust_config", C2PA_TRUST_CONFIG_ENV, "C2PATOOL_TRUST_CONFIG"),
+    ):
+        source = ""
+        value = str(env.get(abyss_env) or "").strip()
+        if value:
+            source = abyss_env
+        else:
+            value = str(env.get(native_env) or "").strip()
+            if value:
+                source = native_env
+        if not value:
+            continue
+        args.extend([f"--{option}", value])
+        sources[option] = source
+    return args, sources
+
+
+def _c2pa_status_codes(report: dict[str, Any]) -> list[str]:
+    codes: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            code = value.get("code")
+            if isinstance(code, str) and code:
+                codes.append(code)
+            for child in value.values():
+                visit(child)
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(report.get("validation_status"))
+    visit(report.get("validation_results"))
+    return codes
+
+
 def _resolved_artifact_subject_paths(
     *,
     bundle: Path,
@@ -3688,17 +3734,21 @@ def _validate_c2pa_sidecar(
     if expected_digest and _file_digest(subject_path) != expected_digest:
         errors.append(f"artifact subject digest mismatch before C2PA verification: {subject_ref}")
         return
+    env = os.environ.copy()
+    trust_args, trust_sources = _c2pa_trust_args(env)
     command = [c2patool, str(subject_path)]
     sidecar = bundle / C2PA_MANIFEST_SIDECAR
     if sidecar.is_file():
         command.extend(["--external-manifest", str(sidecar)])
+    command.append("trust")
+    command.extend(trust_args)
     proc = subprocess.run(
         command,
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
-        env=os.environ.copy(),
+        env=env,
     )
     if not proc.stdout.strip():
         errors.append(f"c2patool produced no JSON report for {subject_ref}")
@@ -3716,12 +3766,22 @@ def _validate_c2pa_sidecar(
     state = str(report.get("validation_state") or "")
     if state != "Valid":
         errors.append(f"C2PA validation_state is not Valid for {subject_ref}: {state or 'missing'}")
-    statuses = report.get("validation_status") if isinstance(report.get("validation_status"), list) else []
-    status_codes = [str(item.get("code") or "") for item in statuses if isinstance(item, dict)]
+    status_codes = _c2pa_status_codes(report)
     if any(code == "assertion.dataHash.mismatch" for code in status_codes):
         errors.append(f"C2PA asset hash mismatch for {subject_ref}")
+    if any(code == "signingCredential.expired" for code in status_codes):
+        errors.append(f"C2PA signing credential is expired for {subject_ref}")
+    if any(code == "signingCredential.revoked" for code in status_codes):
+        errors.append(f"C2PA signing credential is revoked for {subject_ref}")
     if any(code == "signingCredential.untrusted" for code in status_codes):
         warnings.append("C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof")
+    elif not any(code == "signingCredential.trusted" for code in status_codes):
+        warnings.append("C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof")
+    if not trust_sources and not any(code == "signingCredential.trusted" for code in status_codes):
+        warnings.append(
+            "C2PA production trust anchors are not configured; set "
+            f"{C2PA_TRUST_ANCHORS_ENV} or C2PATOOL_TRUST_ANCHORS before production publication"
+        )
     report_path = bundle / C2PA_REPORT_SIDECAR
     if report_path.is_file():
         try:

@@ -43,7 +43,7 @@
     "c2patool MEDIA.png --manifest C2PA_MANIFEST.json --create empty --sidecar --output MEDIA.public.png --force",
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_media_export.bundle.json --bundle-dir BUNDLE_DIR",
     "cp MEDIA.public.c2pa BUNDLE_DIR/artifact.c2pa",
-    "c2patool MEDIA.public.png --external-manifest MEDIA.public.c2pa > BUNDLE_DIR/artifact.c2pa.json",
+    "ABYSS_MACHINE_C2PA_TRUST_ANCHORS=TRUST_ANCHORS_PEM_OR_URL c2patool MEDIA.public.png --external-manifest MEDIA.public.c2pa trust --trust_anchors TRUST_ANCHORS_PEM_OR_URL > BUNDLE_DIR/artifact.c2pa.json",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
     "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:public-media-export --evidence-ref manual-positive:public-media-export --source-repo abyss-machine --source-ref manifests/artifact_bundles/public_media_export.bundle.json --producer abyss-machine-public-media-export --trust-root-mode public_release --trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON --json",
