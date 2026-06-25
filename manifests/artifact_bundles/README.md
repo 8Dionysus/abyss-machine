@@ -57,9 +57,11 @@ manual positive and negative evidence before claiming `FULLY_COVERED`.
 Use `update-lane` and `update-verify` for updateable/installable artifacts
 before update-client consumption. The sidecar name is
 `artifact.update.tuf.json`; the verifier blocks rollback, expired metadata, and
-unchanged metadata beyond the configured freeze window. This is the OS Abyss v1
-TUF-style gate. It does not claim a complete external TUF repository or SCITT
-transparency service.
+unchanged metadata beyond the configured freeze window. Consumer use must pass
+`update-verify --require-trust-gate` with registry, subject digest, source repo,
+and trust-root mode so metadata freshness cannot bypass artifact `trust-gate`.
+This is the OS Abyss v1 TUF-style gate. It does not claim a complete external
+TUF repository or SCITT transparency service.
 
 External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM

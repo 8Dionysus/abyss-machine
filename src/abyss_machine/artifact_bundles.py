@@ -679,6 +679,11 @@ def verify_update_metadata(
     *,
     previous_trusted: dict[str, Any] | None = None,
     now: dt.datetime | str | None = None,
+    registry_dir: str | Path | None = None,
+    subject_digest: str = "",
+    expected_source_repo: str = "",
+    expected_trust_root_mode: str = "",
+    require_trust_gate: bool = False,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     lane = update_transparency_lane(repo_root=repo_root)
@@ -744,7 +749,35 @@ def verify_update_metadata(
     ):
         errors.append("freeze_attack_or_stale_metadata")
 
+    metadata_ok = not errors
+    consumer_admission_required = bool(require_trust_gate or registry_dir is not None)
+    trust_gate_result: dict[str, Any] | None = None
+    consumer_admission_errors: list[str] = []
+    if consumer_admission_required:
+        if registry_dir is None:
+            consumer_admission_errors.append("trust_gate_registry_required")
+        else:
+            gate_subject_digest = str(subject_digest or target.get("sha256") or "")
+            trust_gate_result = trust_gate(
+                registry_dir,
+                artifact_class=artifact_class,
+                subject_digest=gate_subject_digest,
+                consumer_intent="update_client",
+                expected_source_repo=expected_source_repo,
+                expected_trust_root_mode=expected_trust_root_mode,
+                require_latest=True,
+            )
+            if not trust_gate_result.get("ok"):
+                consumer_admission_errors.append("trust_gate_not_allowed")
+    errors.extend(consumer_admission_errors)
     ok = not errors
+    if consumer_admission_required:
+        if trust_gate_result and trust_gate_result.get("ok"):
+            consumer_verdict = str(trust_gate_result.get("verdict") or "allow")
+        else:
+            consumer_verdict = "deny"
+    else:
+        consumer_verdict = "not_checked"
     return {
         "ok": ok,
         "schema": "abyss_machine_update_metadata_verify_v1",
@@ -753,6 +786,19 @@ def verify_update_metadata(
         "metadata_schema": metadata.get("schema"),
         "metadata_sha256": metadata_digest,
         "verdict": "allow" if ok else "deny",
+        "metadata_ok": metadata_ok,
+        "consumer_admission": {
+            "required": consumer_admission_required,
+            "verdict": consumer_verdict,
+            "consumer_intent": "update_client",
+            "registry_dir": str(registry_dir) if registry_dir is not None else None,
+            "subject_digest": str(subject_digest or target.get("sha256") or "") or None,
+            "expected_source_repo": expected_source_repo or None,
+            "expected_trust_root_mode": expected_trust_root_mode or None,
+            "errors": consumer_admission_errors,
+            "trust_gate": trust_gate_result,
+            "claim_limit": "Update-client consumption requires an artifact trust-gate allow or warn verdict when require_trust_gate is set.",
+        },
         "known_verdicts": list(UPDATE_LANE_VERDICTS),
         "errors": errors,
         "warnings": warnings,

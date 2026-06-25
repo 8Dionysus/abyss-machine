@@ -120,6 +120,7 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         trust_gate = commands["artifacts trust-gate"]
         trust_coverage = commands["artifacts trust-coverage"]
         registry_latest = commands["artifacts registry-latest"]
+        update_verify = commands["artifacts update-verify"]
         assert set(materialize["required_options"]) == materialize_required
         assert materialize["missing_options"] == []
         assert trust_gate["missing_options"] == []
@@ -127,6 +128,10 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         assert trust_coverage["missing_options"] == []
         assert "--consumer-intent" in registry_latest["required_options"]
         assert registry_latest["missing_options"] == []
+        assert "--require-trust-gate" in update_verify["required_options"]
+        assert "--registry-dir" in update_verify["required_options"]
+        assert "--subject-digest" in update_verify["required_options"]
+        assert update_verify["missing_options"] == []
 
 
 def test_typing_nervous_bootstrap_proof_is_opt_in(projection_payload: dict) -> None:

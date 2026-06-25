@@ -133,6 +133,16 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--trust-root-mode",
         "--json",
     },
+    ("artifacts", "update-verify"): {
+        "--previous-trusted",
+        "--now",
+        "--registry-dir",
+        "--subject-digest",
+        "--source-repo",
+        "--trust-root-mode",
+        "--require-trust-gate",
+        "--json",
+    },
 }
 
 

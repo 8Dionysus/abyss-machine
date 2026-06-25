@@ -249,6 +249,10 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
         assert (store_root / artifact_class / subjects["aggregate_digest"].removeprefix("sha256:")).is_dir()
     finally:
         subject.unlink(missing_ok=True)
+        try:
+            subject.parent.rmdir()
+        except OSError:
+            pass
 
 
 def test_trust_coverage_collects_package_named_evidence_dirs(tmp_path: Path) -> None:
@@ -885,6 +889,61 @@ def _update_metadata(**overrides: object) -> dict[str, object]:
     return metadata
 
 
+def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
+    fake_cosign = tmp_path / "cosign"
+    _write_fake_cosign(fake_cosign)
+    key = tmp_path / "local-test.key"
+    public_key = tmp_path / "local-test.pub"
+    key.write_text("fake-private-key\n", encoding="utf-8")
+    public_key.write_text("fake-public-key\n", encoding="utf-8")
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
+
+    subject = ROOT / "dist" / "abyss-machine-bootstrap-pytest-update-target.tar.gz"
+    subject.parent.mkdir(parents=True, exist_ok=True)
+    subject.write_text("bootstrap update target\n", encoding="utf-8")
+    bundle = tmp_path / "bootstrap-update-bundle"
+    registry = tmp_path / "registry"
+    try:
+        build = artifact_bundles.build_sidecars(
+            bundle,
+            manifest_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+        )
+        sign = artifact_bundles.sign_bundle(bundle, backend="cosign-local-key")
+        verify = artifact_bundles.verify_bundle(bundle)
+        subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+        promoted = artifact_bundles.promote_bundle_evidence(
+            bundle,
+            registry,
+            lifecycle_state="release-ready",
+            source_repo="abyss-machine",
+            source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            producer="pytest bootstrap update publisher",
+            trust_root_mode="host_managed",
+        )
+    finally:
+        subject.unlink(missing_ok=True)
+
+    subject_digest = str(subjects["aggregate_digest"])
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        consumer_intent="update_client",
+        subject_digest=subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert build["ok"] is True
+    assert sign["ok"] is True
+    assert verify["ok"] is True
+    assert promoted["ok"] is True
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    return registry, subject_digest
+
+
 def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
     status = artifact_bundles.update_lane_status()
 
@@ -931,6 +990,103 @@ def test_update_metadata_verifier_allows_current_update_metadata(tmp_path: Path)
     assert cli_result["ok"] is True
     assert cli_result["metadata_path"] == str(metadata_path)
     assert cli_result["previous_trusted_path"] == str(previous_path)
+
+
+def test_update_metadata_consumption_requires_trust_gate_when_requested() -> None:
+    result = artifact_bundles.verify_update_metadata(
+        _update_metadata(),
+        now="2026-06-21T00:00:00Z",
+        require_trust_gate=True,
+    )
+
+    assert result["ok"] is False
+    assert result["metadata_ok"] is True
+    assert result["consumer_admission"]["required"] is True
+    assert result["consumer_admission"]["verdict"] == "deny"
+    assert "trust_gate_registry_required" in result["errors"]
+
+
+def test_update_metadata_consumption_allows_after_trust_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, subject_digest = _bootstrap_update_registry(tmp_path, monkeypatch)
+    metadata = _update_metadata(target={
+        "path": "dist/abyss-machine-bootstrap-pytest-update-target.tar.gz",
+        "sha256": subject_digest,
+    })
+    previous = {
+        "version": 1,
+        "snapshot_version": 1,
+        "timestamp_version": 1,
+        "metadata_sha256": "sha256:not-this-metadata",
+        "last_seen_at": "2026-06-20T00:00:00Z",
+    }
+    metadata_path = tmp_path / artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
+    previous_path = tmp_path / "previous-trusted.json"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    previous_path.write_text(json.dumps(previous), encoding="utf-8")
+
+    result = artifact_bundles.verify_update_metadata(
+        metadata,
+        previous_trusted=previous,
+        now="2026-06-21T00:00:00Z",
+        registry_dir=registry,
+        subject_digest=subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="host_managed",
+        require_trust_gate=True,
+    )
+    cli_result = cli.artifacts_update_verify(
+        metadata_path,
+        previous_trusted_path=previous_path,
+        now="2026-06-21T00:00:00Z",
+        registry_dir=registry,
+        subject_digest=subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="host_managed",
+        require_trust_gate=True,
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["verdict"] == "allow"
+    assert result["metadata_ok"] is True
+    assert result["consumer_admission"]["verdict"] == "allow"
+    assert result["consumer_admission"]["trust_gate"]["verdict"] == "allow"
+    assert cli_result["ok"] is True
+    assert cli_result["consumer_admission"]["verdict"] == "allow"
+
+
+def test_update_metadata_consumption_preserves_warn_trust_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, subject_digest = _bootstrap_update_registry(tmp_path, monkeypatch)
+    record_paths = sorted((registry / "records").glob("*.json"))
+    assert record_paths
+    record = json.loads(record_paths[0].read_text(encoding="utf-8"))
+    record["verification_warnings"] = ["pytest advisory warning"]
+    record_paths[0].write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    metadata = _update_metadata(target={
+        "path": "dist/abyss-machine-bootstrap-pytest-update-target.tar.gz",
+        "sha256": subject_digest,
+    })
+
+    result = artifact_bundles.verify_update_metadata(
+        metadata,
+        now="2026-06-21T00:00:00Z",
+        registry_dir=registry,
+        subject_digest=subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="host_managed",
+        require_trust_gate=True,
+    )
+
+    assert result["ok"] is True
+    assert result["verdict"] == "allow"
+    assert result["consumer_admission"]["verdict"] == "warn"
+    assert result["consumer_admission"]["trust_gate"]["verdict"] == "warn"
 
 
 def test_update_metadata_verifier_denies_rollback_expiry_freeze_and_zero_versions() -> None:
