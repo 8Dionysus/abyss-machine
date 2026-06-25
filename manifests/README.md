@@ -15,8 +15,9 @@ checks.
   policy by artifact class. The
   `abyss-machine artifacts build-sidecars`, `sign`, `verify`,
   `release-check`, `evidence-promote`, `bundle-register`, `bundle-registry`,
-  `registry-latest`, `bundle-registry-upgrade`, `requirements`, `affected`,
-  `update-lane`, `update-verify`, `trust-gate`, and `trust-coverage` commands
+  `registry-latest`, `bundle-registry-upgrade`, `requirements`,
+  `producer-profiles`, `scenarios`, `affected`, `update-lane`,
+  `update-verify`, `trust-gate`, and `trust-coverage` commands
   consume this
   policy for the `public_source_seed`,
   external package subjects such as `aoa_sdk_python_distribution`, external
