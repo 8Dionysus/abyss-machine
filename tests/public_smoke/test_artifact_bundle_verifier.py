@@ -310,6 +310,79 @@ def _rewrite_latest_record(registry: Path, **updates: object) -> dict[str, objec
     return record
 
 
+def _write_role_registry_source_manifest(workspace: Path, *, consumer_contract: dict[str, object]) -> Path:
+    manifest_dir = workspace / "aoa-agents" / "manifests" / "artifact_bundles"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "role_contract_registry.bundle.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema": "abyss_machine_artifact_bundle_manifest_v1",
+                "id": "aoa-agents-role-contract-registry",
+                "artifact_class": "role_contract_registry",
+                "owner_repo": "aoa-agents",
+                "policy_ref": artifact_bundles.POLICY_REF,
+                "mode": "os_abyss_local",
+                "public_safe": True,
+                "subject_repo_root": "../..",
+                "abi_subject": {
+                    "path": "generated/agent_registry.min.json",
+                    "artifact_identity_pointer": "/artifact_identity",
+                },
+                "consumer_contract": consumer_contract,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _write_role_registry_latest(
+    registry: Path,
+    *,
+    consumer_contract: dict[str, object],
+    source_repo: str = "aoa-agents",
+) -> None:
+    record = {
+        "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+        "record_id": "sha256:" + "c" * 64,
+        "artifact_class": "role_contract_registry",
+        "bundle_layout": "abyss_machine_artifact_bundle_v1",
+        "bundle_ref": "aoa-agents/dist/abyss-artifact-bundle/aoa-agents-role-registry",
+        "bundle_manifest_ref": "manifests/artifact_bundles/role_contract_registry.bundle.json",
+        "subject_digest": "sha256:" + "d" * 64,
+        "lifecycle_state": "release-ready",
+        "latest_eligible": True,
+        "terminal_state": False,
+        "verification_ok": True,
+        "verification_errors": [],
+        "verification_missing": [],
+        "verification_warnings": [],
+        "required_controls": ["abi_signature", "slsa_in_toto"],
+        "verified_controls": ["abi_signature", "slsa_in_toto"],
+        "present_controls": ["abi_signature", "slsa_in_toto"],
+        "source_repo": source_repo,
+        "source_ref": "manifests/artifact_bundles/role_contract_registry.bundle.json",
+        "source_refs": ["manifests/artifact_bundles/role_contract_registry.bundle.json", "commit:current"],
+        "producer": "aoa-agents-role-registry-builder",
+        "producer_command": "python scripts/validate_abyss_machine_role_registry_bundle.py --json",
+        "trust_root_mode": "host_managed",
+        "verifier_versions": {"test": "cross-repo-source-freshness"},
+        "consumer_contract": consumer_contract,
+        "created_at": "2026-06-25T00:00:00Z",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "abi_ref": artifact_bundles.ABI_REF,
+    }
+    records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+    records.mkdir(parents=True)
+    (records / "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.json").write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_trust_coverage_blocks_stale_abi_registry_latest(tmp_path: Path) -> None:
     _bundle, registry = _public_source_seed_registry(tmp_path)
     _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
@@ -348,6 +421,96 @@ def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) 
     assert row["source_freshness"]["freshness"] == "stale"
     assert row["source_freshness"]["reasons"] == ["consumer_contract_stale"]
     assert row["source_freshness"]["current_consumer_contract"]["admission_gate"] == "fail_closed_consumer_admission"
+    assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
+
+
+def test_trust_coverage_checks_cross_repo_manifest_consumer_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "registry"
+    workspace = tmp_path / "workspace"
+    consumer_contract = {
+        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class role_contract_registry --consumer-intent agent --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    _write_role_registry_source_manifest(workspace, consumer_contract=consumer_contract)
+    _write_role_registry_latest(registry, consumer_contract=consumer_contract)
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "role_contract_registry")
+
+    assert row["source_freshness"]["checked"] is True
+    assert row["source_freshness"]["freshness"] == "fresh"
+    assert row["source_freshness"]["source_repo"] == "aoa-agents"
+    assert row["source_freshness"]["manifest_resolution"]["resolved"] is True
+    assert row["source_freshness"]["manifest_resolution"]["path"].endswith(
+        "aoa-agents/manifests/artifact_bundles/role_contract_registry.bundle.json"
+    )
+    assert row["status"] == "DURABLE_GATE_COVERED"
+
+
+def test_trust_coverage_blocks_stale_cross_repo_manifest_consumer_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "registry"
+    workspace = tmp_path / "workspace"
+    current_contract = {
+        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class role_contract_registry --consumer-intent agent --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    stale_contract = {
+        "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class role_contract_registry --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    _write_role_registry_source_manifest(workspace, consumer_contract=current_contract)
+    _write_role_registry_latest(registry, consumer_contract=stale_contract)
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "role_contract_registry")
+
+    assert row["source_freshness"]["freshness"] == "stale"
+    assert row["source_freshness"]["reasons"] == ["consumer_contract_stale"]
+    assert row["source_freshness"]["current_consumer_contract"] == current_contract
+    assert row["source_freshness"]["latest_consumer_contract"] == stale_contract
+    assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
+
+
+def test_trust_coverage_blocks_unresolved_cross_repo_manifest(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    consumer_contract = {
+        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class role_contract_registry --consumer-intent agent --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    _write_role_registry_latest(registry, consumer_contract=consumer_contract, source_repo="aoa-agents-missing")
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "role_contract_registry")
+
+    assert row["source_freshness"]["freshness"] == "stale"
+    assert row["source_freshness"]["reasons"] == ["source_manifest_unresolved"]
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
 
 
