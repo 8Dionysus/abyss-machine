@@ -70,6 +70,7 @@ TRUST_ROOT_MODES = (
 )
 TRUST_GATE_VERDICTS = ("allow", "deny", "warn", "unknown", "manual_review_required")
 PRODUCTION_CONSUMER_INTENTS = frozenset({"installer", "runtime", "release_consumer", "update_client", "public_release"})
+REQUIRED_SUBJECT_STORE_BLOCKER = "required_artifact_subject_store_not_verified"
 PUBLIC_PRIVACY_BOUNDARY_PREFIXES = (
     "public",
     "public-safe",
@@ -1567,6 +1568,47 @@ def _artifact_subject_store_status(subjects: dict[str, Any], *, store_root: Path
     }
 
 
+def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(gate, dict):
+        return {
+            "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
+            "allow": False,
+            "verdict": "deny",
+            "reason": "trust_gate_missing",
+            "raw_trust_gate_verdict": None,
+            "blockers": ["trust_gate_missing"],
+        }
+    raw_verdict = str(gate.get("verdict") or "unknown")
+    blockers = [str(item) for item in gate.get("blockers", []) if str(item)]
+    hard_blockers = [item for item in blockers if item != REQUIRED_SUBJECT_STORE_BLOCKER]
+    if raw_verdict in {"allow", "warn"}:
+        return {
+            "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
+            "allow": True,
+            "verdict": "allow",
+            "reason": "consumer_trust_gate_already_allows",
+            "raw_trust_gate_verdict": raw_verdict,
+            "blockers": blockers,
+        }
+    if REQUIRED_SUBJECT_STORE_BLOCKER in blockers and not hard_blockers:
+        return {
+            "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
+            "allow": True,
+            "verdict": "allow",
+            "reason": "only_required_subject_store_missing",
+            "raw_trust_gate_verdict": raw_verdict,
+            "blockers": blockers,
+        }
+    return {
+        "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
+        "allow": False,
+        "verdict": "deny",
+        "reason": "consumer_trust_gate_has_hard_blockers",
+        "raw_trust_gate_verdict": raw_verdict,
+        "blockers": blockers,
+    }
+
+
 def materialize_artifact_subjects(
     bundle_dir: str | Path,
     *,
@@ -1648,6 +1690,7 @@ def materialize_artifact_subjects(
         }
 
     gate: dict[str, Any] | None = None
+    materialization_admission: dict[str, Any] | None = None
     gate_consumer_intent = str(consumer_intent or consumer_intent_for_artifact_class(artifact_class))
     gate_expected_source_repo = str(
         expected_source_repo or manifest.get("owner_repo") or identity.get("owner_repo") or subjects.get("owner_repo") or ""
@@ -1665,7 +1708,8 @@ def materialize_artifact_subjects(
             expected_trust_root_mode=str(expected_trust_root_mode or ""),
             require_latest=require_latest,
         )
-        if not gate.get("ok"):
+        materialization_admission = _subject_store_materialization_admission(gate)
+        if not materialization_admission.get("allow"):
             reasons = [str(item) for item in gate.get("reasons", []) if str(item)]
             reason_text = ",".join(reasons) or str(gate.get("verdict") or "unknown")
             errors.append(f"consumer trust-gate did not allow artifact subject materialization: {reason_text}")
@@ -1682,6 +1726,7 @@ def materialize_artifact_subjects(
             "consumer_intent": gate_consumer_intent,
             "registry_dir": str(registry_dir) if registry_dir is not None else None,
             "trust_gate": gate,
+            "materialization_admission": materialization_admission,
             "errors": errors,
             "written": [],
         }
@@ -1723,6 +1768,7 @@ def materialize_artifact_subjects(
         "consumer_intent": gate_consumer_intent,
         "registry_dir": str(registry_dir),
         "trust_gate": gate,
+        "materialization_admission": materialization_admission,
         "written": written,
         "status": status,
         "errors": [] if status.get("ok") else ["materialized artifact subject store did not verify"],
@@ -2088,6 +2134,8 @@ def build_sidecars(
             "deferred_controls": deferred,
         }
     )
+    if isinstance(manifest, dict) and isinstance(manifest.get("consumer_contract"), dict):
+        identity["consumer_contract"] = manifest["consumer_contract"]
     source_refs = [POLICY_REF]
     if surface:
         source_refs.append(ABI_REF)
@@ -3034,6 +3082,23 @@ def _bundle_manifest_for_identity(identity: dict[str, Any], *, repo_root: Path) 
         return {}
 
 
+def _bundle_manifest_for_registry_write(
+    identity: dict[str, Any],
+    *,
+    source_ref: str,
+    repo_root: Path,
+) -> dict[str, Any]:
+    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    if manifest:
+        return manifest
+    if not source_ref:
+        return {}
+    try:
+        return load_bundle_manifest(source_ref, repo_root=repo_root)
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        return {}
+
+
 def _registry_record_id(artifact_class: str, subject_digest: str, bundle_manifest_ref: str) -> str:
     payload = {
         "artifact_class": artifact_class,
@@ -3111,8 +3176,10 @@ def bundle_registry_record(
     provenance = _read_json(bundle / PROVENANCE_SIDECAR) if (bundle / PROVENANCE_SIDECAR).is_file() else {}
     signature = _read_json(bundle / SIGNATURE_DECISION_SIDECAR) if (bundle / SIGNATURE_DECISION_SIDECAR).is_file() else {}
     subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
-    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    manifest = _bundle_manifest_for_registry_write(identity, source_ref=str(source_ref or ""), repo_root=repo_root)
     consumer_contract = manifest.get("consumer_contract") if isinstance(manifest.get("consumer_contract"), dict) else {}
+    if not consumer_contract and isinstance(identity.get("consumer_contract"), dict):
+        consumer_contract = identity["consumer_contract"]
 
     artifact_class = str(identity.get("artifact_class") or verification.get("artifact_class") or "")
     bundle_manifest_ref = str(identity.get("bundle_manifest_ref") or "")
@@ -3798,6 +3865,10 @@ def trust_gate(
     missing_record_fields = [field for field in required_record_fields if not selected.get(field)]
     if missing_record_fields:
         blockers.append("record_missing_durable_evidence_fields:" + ",".join(missing_record_fields))
+    consumer_contract = selected.get("consumer_contract") if isinstance(selected.get("consumer_contract"), dict) else {}
+    subject_store = selected.get("artifact_subject_store") if isinstance(selected.get("artifact_subject_store"), dict) else {}
+    if consumer_contract.get("subject_store_required") is True and subject_store.get("ok") is not True:
+        blockers.append(REQUIRED_SUBJECT_STORE_BLOCKER)
 
     trust_root_mode = str(selected.get("trust_root_mode") or "")
     if trust_root_mode and trust_root_mode not in TRUST_ROOT_MODES:
