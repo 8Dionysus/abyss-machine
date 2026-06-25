@@ -38,6 +38,13 @@ TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
 TUF_REPOSITORY_TARGETS_DIR = "targets"
 TUF_REPOSITORY_ROLES = ("root", "targets", "snapshot", "timestamp")
+SCITT_SIGNED_STATEMENT_SCHEMA = "abyss_machine_scitt_signed_statement_v1"
+SCITT_RECEIPT_SCHEMA = "abyss_machine_scitt_receipt_v1"
+SCITT_STATEMENT_CLASSES = (
+    "release_update_artifact",
+    "artifact_evidence_record",
+    "eval_report_result",
+)
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
 CONTROL_FILES = {
     "abi_signature": [ABI_SIDECAR],
@@ -1120,6 +1127,115 @@ def verify_tuf_repository(
             "This verifies external TUF repository role layout, expiration, versions, threshold keyid presence, cross-role hashes, target binding, rollback, freeze, and optional OS Abyss trust-gate admission.",
             "Cryptographic signature bytes are not verified in this source-level slice; threshold_met means signed keyids satisfy root role thresholds, not that signatures are mathematically valid.",
             "A full production TUF lane still requires a key ceremony, real signature verification, root rotation policy, and published repository bootstrap trust root.",
+        ],
+    }
+
+
+def verify_scitt_receipt(
+    statement: dict[str, Any],
+    *,
+    receipt: dict[str, Any] | None = None,
+    external_relying_party: bool = False,
+    require_receipt: bool = False,
+    expected_statement_class: str = "",
+    expected_artifact_digest: str = "",
+    expected_issuer: str = "",
+    expected_transparency_service: str = "",
+    now: dt.datetime | str | None = None,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    lane = update_transparency_lane(repo_root=repo_root)
+    scitt = lane.get("scitt") if isinstance(lane.get("scitt"), dict) else {}
+    now_dt = _parse_time(now) if isinstance(now, str) else now
+    if now_dt is None:
+        now_dt = dt.datetime.now(dt.UTC)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=dt.UTC)
+    now_dt = now_dt.astimezone(dt.UTC)
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    receipt_required = bool(require_receipt or external_relying_party)
+    statement_class = str(statement.get("statement_class") or "")
+    issuer = str(statement.get("issuer") or "")
+    subject = statement.get("subject") if isinstance(statement.get("subject"), dict) else {}
+    statement_digest = _stable_digest(statement)
+
+    if statement.get("schema") != SCITT_SIGNED_STATEMENT_SCHEMA:
+        errors.append("statement_schema_mismatch")
+    if statement_class not in SCITT_STATEMENT_CLASSES:
+        errors.append("statement_class_unknown")
+    if expected_statement_class and statement_class != expected_statement_class:
+        errors.append("statement_class_mismatch")
+    if not issuer:
+        errors.append("issuer_missing")
+    if expected_issuer and issuer != expected_issuer:
+        errors.append("issuer_mismatch")
+    artifact_digest = str(subject.get("artifact_digest") or subject.get("subject_digest") or subject.get("digest") or "")
+    if not artifact_digest.startswith("sha256:"):
+        errors.append("artifact_digest_missing")
+    if expected_artifact_digest and artifact_digest != expected_artifact_digest:
+        errors.append("artifact_digest_mismatch")
+    if not subject.get("artifact_class"):
+        warnings.append("artifact_class_missing")
+    if not statement.get("issued_at"):
+        warnings.append("issued_at_missing")
+
+    receipt_payload = receipt if isinstance(receipt, dict) else {}
+    receipt_ok = False
+    transparency_service_id = ""
+    if receipt_required and not receipt_payload:
+        errors.append("scitt_receipt_required")
+    if receipt_payload:
+        if receipt_payload.get("schema") != SCITT_RECEIPT_SCHEMA:
+            errors.append("receipt_schema_mismatch")
+        receipt_statement_digest = str(receipt_payload.get("statement_digest") or "")
+        if receipt_statement_digest != statement_digest:
+            errors.append("receipt_statement_digest_mismatch")
+        ts = receipt_payload.get("transparency_service") if isinstance(receipt_payload.get("transparency_service"), dict) else {}
+        transparency_service_id = str(ts.get("id") or receipt_payload.get("transparency_service_id") or "")
+        if not transparency_service_id:
+            errors.append("transparency_service_missing")
+        if expected_transparency_service and transparency_service_id != expected_transparency_service:
+            errors.append("transparency_service_mismatch")
+        if not receipt_payload.get("registered_at"):
+            errors.append("receipt_registered_at_missing")
+        if not (receipt_payload.get("receipt_ref") or receipt_payload.get("log_entry_id") or receipt_payload.get("inclusion_proof")):
+            errors.append("receipt_inclusion_reference_missing")
+        receipt_ok = not any(error.startswith("receipt_") or error.startswith("transparency_service") for error in errors)
+
+    ok = not errors
+    return {
+        "ok": ok,
+        "schema": "abyss_machine_scitt_receipt_verify_v1",
+        "policy_ref": POLICY_REF,
+        "statement_schema": statement.get("schema"),
+        "receipt_schema": receipt_payload.get("schema") if receipt_payload else None,
+        "statement_digest": statement_digest,
+        "statement_class": statement_class,
+        "issuer": issuer or None,
+        "artifact_digest": artifact_digest or None,
+        "external_relying_party": bool(external_relying_party),
+        "receipt_required": receipt_required,
+        "receipt_present": bool(receipt_payload),
+        "receipt_ok": receipt_ok,
+        "transparency_service": transparency_service_id or None,
+        "verdict": "allow" if ok else "deny",
+        "known_statement_classes": list(SCITT_STATEMENT_CLASSES),
+        "scitt_policy": scitt,
+        "checked": {
+            "now": now_dt.isoformat().replace("+00:00", "Z"),
+            "expected_statement_class": expected_statement_class or None,
+            "expected_artifact_digest": expected_artifact_digest or None,
+            "expected_issuer": expected_issuer or None,
+            "expected_transparency_service": expected_transparency_service or None,
+        },
+        "errors": errors,
+        "warnings": warnings,
+        "claim_limits": [
+            "This is an OS Abyss SCITT-style local verifier/stub: it checks statement/receipt binding and fail-closed external relying-party policy.",
+            "It does not claim a live external transparency service, COSE signature verification, Merkle inclusion verification, or global append-only log consistency.",
+            "External relying-party mode requires a receipt and denies consumption when the receipt is missing or not bound to the signed statement digest.",
         ],
     }
 

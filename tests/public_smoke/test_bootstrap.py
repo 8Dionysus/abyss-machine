@@ -166,6 +166,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "trust-tools" in help_result.stdout
     assert "trust-tools-python" in help_result.stdout
     assert "update-repo-verify" in help_result.stdout
+    assert "scitt-verify" in help_result.stdout
     assert "trust-coverage" in help_result.stdout
 
     trust_result = subprocess.run(

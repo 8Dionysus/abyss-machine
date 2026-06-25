@@ -1192,11 +1192,24 @@
       "claim_limit": "This is the OS Abyss v1 TUF-style update metadata gate plus structural external repository verifier; it still does not provide production cryptographic TUF signature verification, key ceremony, or a published external TUF repository."
     },
     "scitt": {
-      "status": "future_external_accountability_layer",
+      "status": "local_stub_fail_closed_external_v1",
       "blocking_v1": false,
       "trigger": "signed statement federation exists across OS Abyss issuers or an external transparency service is introduced",
       "required_when": "external relying parties require append-only transparency receipts for OS Abyss signed statements",
-      "claim_limit": "SCITT is an integration point for external accountability; local host trust gates and release attestations remain v1 authority until that service exists."
+      "statement_schema": "abyss_machine_scitt_signed_statement_v1",
+      "receipt_schema": "abyss_machine_scitt_receipt_v1",
+      "statement_classes": [
+        "release_update_artifact",
+        "artifact_evidence_record",
+        "eval_report_result"
+      ],
+      "external_relying_party_mode": {
+        "receipt_required": true,
+        "missing_receipt_verdict": "deny",
+        "binding": "receipt.statement_digest must equal canonical signed statement digest",
+        "not_external_service_yet": true
+      },
+      "claim_limit": "SCITT is implemented as an OS Abyss local verifier/stub for statement/receipt binding and fail-closed external relying-party mode; live external transparency service, COSE signature verification, and Merkle receipt verification remain future production layers."
     }
   },
   "deferred_trust_layers": {

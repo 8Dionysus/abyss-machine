@@ -1110,6 +1110,39 @@ def _write_tuf_repository(
     }
 
 
+def _scitt_statement(*, digest: str = "sha256:" + ("a" * 64)) -> dict[str, object]:
+    return {
+        "schema": artifact_bundles.SCITT_SIGNED_STATEMENT_SCHEMA,
+        "statement_class": "release_update_artifact",
+        "issuer": "did:web:abyss.example:issuer:release",
+        "issued_at": "2026-06-21T00:00:00Z",
+        "subject": {
+            "artifact_class": "bootstrap_install_bundle",
+            "artifact_digest": digest,
+            "source_repo": "abyss-machine",
+            "source_ref": "release:test",
+        },
+        "statement": {
+            "predicate_type": "https://abyss.example/scitt/release-update-artifact/v1",
+            "verdict": "release-ready",
+        },
+    }
+
+
+def _scitt_receipt(statement: dict[str, object], *, digest: str | None = None) -> dict[str, object]:
+    return {
+        "schema": artifact_bundles.SCITT_RECEIPT_SCHEMA,
+        "statement_digest": digest or artifact_bundles._stable_digest(statement),
+        "registered_at": "2026-06-21T00:01:00Z",
+        "transparency_service": {
+            "id": "did:web:transparency.abyss.example",
+            "issuer": "did:web:transparency.abyss.example",
+        },
+        "log_entry_id": "pytest-entry-1",
+        "receipt_ref": "scitt://transparency.abyss.example/entries/pytest-entry-1",
+    }
+
+
 def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
     fake_cosign = tmp_path / "cosign"
     _write_fake_cosign(fake_cosign)
@@ -1212,6 +1245,81 @@ def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
     assert "structural external TUF repository verifier" in status["claim_limits"][0]
     assert status["tuf"]["external_repository_verifier"]["status"] == "structural_v1"
     assert "external transparency integration point" in status["claim_limits"][1]
+
+
+def test_scitt_receipt_verifier_allows_external_relying_party_with_bound_receipt(tmp_path: Path) -> None:
+    statement = _scitt_statement()
+    receipt = _scitt_receipt(statement)
+    statement_path = tmp_path / "statement.json"
+    receipt_path = tmp_path / "receipt.json"
+    statement_path.write_text(json.dumps(statement), encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    subject = statement["subject"]
+    assert isinstance(subject, dict)
+    artifact_digest = str(subject["artifact_digest"])
+
+    result = artifact_bundles.verify_scitt_receipt(
+        statement,
+        receipt=receipt,
+        external_relying_party=True,
+        expected_statement_class="release_update_artifact",
+        expected_artifact_digest=artifact_digest,
+        expected_issuer="did:web:abyss.example:issuer:release",
+        expected_transparency_service="did:web:transparency.abyss.example",
+        now="2026-06-21T00:00:00Z",
+    )
+    cli_result = cli.artifacts_scitt_verify(
+        statement_path,
+        receipt_path=receipt_path,
+        external_relying_party=True,
+        expected_statement_class="release_update_artifact",
+        expected_artifact_digest=artifact_digest,
+        expected_issuer="did:web:abyss.example:issuer:release",
+        expected_transparency_service="did:web:transparency.abyss.example",
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["verdict"] == "allow"
+    assert result["receipt_required"] is True
+    assert result["receipt_ok"] is True
+    assert result["errors"] == []
+    assert cli_result["ok"] is True
+    assert cli_result["verdict"] == "allow"
+
+
+def test_scitt_receipt_verifier_denies_missing_or_unbound_receipt_for_external_relying_party() -> None:
+    statement = _scitt_statement()
+
+    missing = artifact_bundles.verify_scitt_receipt(
+        statement,
+        external_relying_party=True,
+        now="2026-06-21T00:00:00Z",
+    )
+    wrong_receipt = artifact_bundles.verify_scitt_receipt(
+        statement,
+        receipt=_scitt_receipt(statement, digest="sha256:" + ("b" * 64)),
+        external_relying_party=True,
+        now="2026-06-21T00:00:00Z",
+    )
+    wrong_artifact = artifact_bundles.verify_scitt_receipt(
+        statement,
+        receipt=_scitt_receipt(statement),
+        external_relying_party=True,
+        expected_artifact_digest="sha256:" + ("c" * 64),
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert missing["ok"] is False
+    assert missing["verdict"] == "deny"
+    assert "scitt_receipt_required" in missing["errors"]
+    assert wrong_receipt["ok"] is False
+    assert wrong_receipt["verdict"] == "deny"
+    assert "receipt_statement_digest_mismatch" in wrong_receipt["errors"]
+    assert wrong_artifact["ok"] is False
+    assert wrong_artifact["verdict"] == "deny"
+    assert "artifact_digest_mismatch" in wrong_artifact["errors"]
 
 
 def test_external_tuf_repository_verifier_allows_structural_repo(tmp_path: Path) -> None:
