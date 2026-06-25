@@ -345,7 +345,7 @@
     "c2pa": {
       "consumer_checks": [
         "verify the C2PA manifest or sidecar for public media/content exports",
-        "verify claim signature, active asset binding, and privacy review route before publication"
+        "verify claim signature, active asset binding, accepted trust-list credential, and privacy review route before publication"
       ]
     }
   },
