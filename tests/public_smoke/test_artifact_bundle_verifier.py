@@ -55,6 +55,54 @@ sys.exit(2)
     path.chmod(0o755)
 
 
+def _trust_root_evidence(mode: str, *, subject_digest: str, source_repo: str, source_ref: str) -> dict[str, str]:
+    base = {
+        "schema": "pytest_artifact_trust_root_evidence_v1",
+        "mode": mode,
+        "source_repo": source_repo,
+        "source_ref": source_ref,
+        "subject_digest": subject_digest,
+        "verifier": f"pytest-{mode}-verifier",
+        "evidence_ref": f"pytest:{mode}:{subject_digest}",
+    }
+    if mode == "github_oidc":
+        return {
+            **base,
+            "issuer": "https://token.actions.githubusercontent.com",
+            "subject": f"repo:8Dionysus/{source_repo}:ref:refs/heads/main",
+            "workflow_ref": f"8Dionysus/{source_repo}/.github/workflows/release.yml@refs/heads/main",
+        }
+    if mode == "oci_registry":
+        return {
+            **base,
+            "registry_ref": f"ghcr.io/8dionysus/{source_repo}/{source_ref.replace('/', '-')}",
+            "digest": subject_digest,
+        }
+    if mode == "public_release":
+        return {
+            **base,
+            "release_ref": f"https://github.com/8Dionysus/{source_repo}/releases/tag/pytest",
+            "asset_ref": source_ref.rsplit("/", 1)[-1] or "pytest-artifact",
+            "asset_digest": subject_digest,
+        }
+    raise AssertionError(f"unsupported test trust root mode: {mode}")
+
+
+def _bundle_subject_digest(bundle: Path) -> str:
+    signature_path = bundle / artifact_bundles.SIGNATURE_DECISION_SIDECAR
+    if signature_path.is_file():
+        signature = json.loads(signature_path.read_text(encoding="utf-8"))
+        if signature.get("subject_digest"):
+            return str(signature["subject_digest"])
+    subjects_path = bundle / artifact_bundles.SUBJECTS_SIDECAR
+    if subjects_path.is_file():
+        subjects = json.loads(subjects_path.read_text(encoding="utf-8"))
+        if subjects.get("aggregate_digest"):
+            return str(subjects["aggregate_digest"])
+    provenance = json.loads((bundle / artifact_bundles.PROVENANCE_SIDECAR).read_text(encoding="utf-8"))
+    return str(provenance["subject"]["digest"])
+
+
 def _write_fake_c2patool(path: Path) -> None:
     path.write_text(
         """#!/usr/bin/env python3
@@ -106,11 +154,20 @@ def test_public_source_seed_bundle_roundtrip(tmp_path: Path) -> None:
 
 def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
     manifest_dir = ROOT / "manifests" / "artifact_bundles"
+    production_trust_root_modes = {
+        "bootstrap_install_bundle": "github_oidc",
+        "runtime_or_container_artifact": "oci_registry",
+        "ai_model_or_runtime_bundle": "oci_registry",
+        "browser_extension_package": "public_release",
+        "public_media_export": "public_release",
+    }
 
     for manifest_path in sorted(manifest_dir.glob("*.bundle.json")):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         commands = [str(command) for command in manifest["consumer_command"]]
         command_text = " ".join(commands)
+        artifact_class = str(manifest.get("artifact_class") or "")
+        expected_trust_root_mode = production_trust_root_modes.get(artifact_class, "host_managed")
 
         assert manifest.get("owner_repo") == "abyss-machine", manifest_path
         assert manifest.get("consumer_contract", {}).get("registry_required") is True, manifest_path
@@ -126,7 +183,11 @@ def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
         assert "evidence-promote BUNDLE_DIR" in command_text, manifest_path
         assert "--registry-dir REGISTRY_DIR" in command_text, manifest_path
         assert "--source-repo abyss-machine" in command_text, manifest_path
-        assert "--trust-root-mode host_managed" in command_text, manifest_path
+        assert f"--trust-root-mode {expected_trust_root_mode}" in command_text, manifest_path
+        if expected_trust_root_mode in artifact_bundles.PRODUCTION_RELEASE_TRUST_ROOT_MODES:
+            assert "--trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON" in command_text, manifest_path
+        else:
+            assert "--trust-root-evidence-json" not in command_text, manifest_path
         assert "trust-gate --registry-dir REGISTRY_DIR" in command_text, manifest_path
         assert "registry-latest --registry-dir REGISTRY_DIR" in command_text, manifest_path
         assert "--json" in command_text, manifest_path
@@ -206,6 +267,20 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
         sign = artifact_bundles.sign_bundle(bundle, backend="cosign-local-key" if requires_cosign else "policy")
         verify = artifact_bundles.verify_bundle(bundle)
         release = artifact_bundles.release_check(bundle, enforcement="blocking")
+        subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+        trust_root_mode = (
+            "oci_registry"
+            if artifact_class in {"runtime_or_container_artifact", "ai_model_or_runtime_bundle"}
+            else "github_oidc"
+            if requires_cosign
+            else "public_release"
+        )
+        trust_root_evidence = _trust_root_evidence(
+            trust_root_mode,
+            subject_digest=str(subjects["aggregate_digest"]),
+            source_repo="abyss-machine",
+            source_ref=manifest_ref,
+        )
         promoted = artifact_bundles.promote_bundle_evidence(
             bundle,
             registry,
@@ -213,9 +288,9 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
             source_repo="abyss-machine",
             source_ref=manifest_ref,
             producer=f"pytest official {artifact_class} manifest",
-            trust_root_mode="host_managed",
+            trust_root_mode=trust_root_mode,
+            trust_root_evidence=trust_root_evidence,
         )
-        subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
         materialized = artifact_bundles.materialize_artifact_subjects(
             bundle,
             store_root=store_root,
@@ -223,7 +298,7 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
             manifest_ref=manifest_ref,
             consumer_intent=consumer_intent,
             expected_source_repo="abyss-machine",
-            expected_trust_root_mode="host_managed",
+            expected_trust_root_mode=trust_root_mode,
         )
         registered = artifact_bundles.promote_bundle_evidence(
             bundle,
@@ -232,7 +307,8 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
             source_repo="abyss-machine",
             source_ref=manifest_ref,
             producer=f"pytest official {artifact_class} manifest",
-            trust_root_mode="host_managed",
+            trust_root_mode=trust_root_mode,
+            trust_root_evidence=trust_root_evidence,
         )
         latest = cli.artifacts_registry_latest(
             artifact_class=artifact_class,
@@ -240,7 +316,7 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
             consumer_intent=consumer_intent,
             subject_digest=str(subjects["aggregate_digest"]),
             expected_source_repo="abyss-machine",
-            expected_trust_root_mode="host_managed",
+            expected_trust_root_mode=trust_root_mode,
         )
 
         assert build["ok"] is True
@@ -261,6 +337,7 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
         assert registered["record"]["artifact_subject_store"]["ok"] is True
         assert latest["ok"] is True
         assert latest["trust_gate"]["verdict"] == "allow"
+        assert latest["trust_gate"]["inspected_claims"]["trust_root_evidence"]["ok"] is True
         assert any(item["path"] == subject_path for item in subjects["files"])
         assert (store_root / artifact_class / subjects["aggregate_digest"].removeprefix("sha256:")).is_dir()
     finally:
@@ -938,6 +1015,13 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         sign = artifact_bundles.sign_bundle(bundle, backend="cosign-local-key")
         verify = artifact_bundles.verify_bundle(bundle)
         subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
+        trust_root_mode = "github_oidc"
+        trust_root_evidence = _trust_root_evidence(
+            trust_root_mode,
+            subject_digest=str(subjects["aggregate_digest"]),
+            source_repo="abyss-machine",
+            source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+        )
         promoted = artifact_bundles.promote_bundle_evidence(
             bundle,
             registry,
@@ -945,7 +1029,8 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             source_repo="abyss-machine",
             source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
             producer="pytest bootstrap update publisher",
-            trust_root_mode="host_managed",
+            trust_root_mode=trust_root_mode,
+            trust_root_evidence=trust_root_evidence,
         )
         materialized = artifact_bundles.materialize_artifact_subjects(
             bundle,
@@ -954,7 +1039,7 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             manifest_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
             consumer_intent="update_client",
             expected_source_repo="abyss-machine",
-            expected_trust_root_mode="host_managed",
+            expected_trust_root_mode=trust_root_mode,
         )
         registered = artifact_bundles.promote_bundle_evidence(
             bundle,
@@ -963,7 +1048,8 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             source_repo="abyss-machine",
             source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
             producer="pytest bootstrap update publisher",
-            trust_root_mode="host_managed",
+            trust_root_mode=trust_root_mode,
+            trust_root_evidence=trust_root_evidence,
         )
     finally:
         subject.unlink(missing_ok=True)
@@ -975,7 +1061,7 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         consumer_intent="update_client",
         subject_digest=subject_digest,
         expected_source_repo="abyss-machine",
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode="github_oidc",
     )
 
     assert build["ok"] is True
@@ -1082,7 +1168,7 @@ def test_update_metadata_consumption_allows_after_trust_gate(
         registry_dir=registry,
         subject_digest=subject_digest,
         expected_source_repo="abyss-machine",
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode="github_oidc",
         require_trust_gate=True,
     )
     cli_result = cli.artifacts_update_verify(
@@ -1092,7 +1178,7 @@ def test_update_metadata_consumption_allows_after_trust_gate(
         registry_dir=registry,
         subject_digest=subject_digest,
         expected_source_repo="abyss-machine",
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode="github_oidc",
         require_trust_gate=True,
         write_latest=False,
     )
@@ -1127,7 +1213,7 @@ def test_update_metadata_consumption_preserves_warn_trust_gate(
         registry_dir=registry,
         subject_digest=subject_digest,
         expected_source_repo="abyss-machine",
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode="github_oidc",
         require_trust_gate=True,
     )
 
@@ -1402,6 +1488,44 @@ def test_trust_gate_allows_public_boundary_with_private_exclusions_for_release_c
 
     artifact_bundles.build_sidecars_from_manifest(bundle)
     artifact_bundles.sign_bundle(bundle)
+    subject_digest = _bundle_subject_digest(bundle)
+    artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        producer="pytest public seed publisher",
+        trust_root_mode="public_release",
+        trust_root_evidence=_trust_root_evidence(
+            "public_release",
+            subject_digest=subject_digest,
+            source_repo="abyss-machine",
+            source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        ),
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["manual_review"] == []
+    assert "private captures" in gate["inspected_claims"]["privacy_boundary"]["value"]
+    assert gate["inspected_claims"]["privacy_boundary"]["production_public_ready"] is True
+    assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is True
+
+
+def test_trust_gate_requires_manual_review_for_host_managed_public_release_consumers(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
     artifact_bundles.promote_bundle_evidence(
         bundle,
         registry,
@@ -1413,14 +1537,41 @@ def test_trust_gate_allows_public_boundary_with_private_exclusions_for_release_c
         registry,
         artifact_class="public_source_seed",
         consumer_intent="public_release",
-        expected_trust_root_mode="host_managed",
     )
 
-    assert gate["ok"] is True
-    assert gate["verdict"] == "allow"
-    assert gate["manual_review"] == []
-    assert "private captures" in gate["inspected_claims"]["privacy_boundary"]["value"]
-    assert gate["inspected_claims"]["privacy_boundary"]["production_public_ready"] is True
+    assert gate["ok"] is False
+    assert gate["verdict"] == "manual_review_required"
+    assert "production_consumer_requires_release_trust_root" in gate["manual_review"]
+    assert gate["inspected_claims"]["trust_root"]["production_trust_root_ready"] is False
+
+
+def test_trust_gate_denies_public_release_without_trust_root_evidence(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        producer="pytest public seed publisher",
+        trust_root_mode="public_release",
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "production_trust_root_evidence_missing" in gate["blockers"]
+    assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is False
 
 
 def test_trust_gate_requires_manual_review_for_private_production_boundary(tmp_path: Path) -> None:
@@ -1429,11 +1580,21 @@ def test_trust_gate_requires_manual_review_for_private_production_boundary(tmp_p
 
     artifact_bundles.build_sidecars_from_manifest(bundle)
     artifact_bundles.sign_bundle(bundle)
+    subject_digest = _bundle_subject_digest(bundle)
     promoted = artifact_bundles.promote_bundle_evidence(
         bundle,
         registry,
         lifecycle_state="release-ready",
-        trust_root_mode="host_managed",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        producer="pytest public seed publisher",
+        trust_root_mode="public_release",
+        trust_root_evidence=_trust_root_evidence(
+            "public_release",
+            subject_digest=subject_digest,
+            source_repo="abyss-machine",
+            source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        ),
     )
     record_path = (
         registry
@@ -1448,7 +1609,7 @@ def test_trust_gate_requires_manual_review_for_private_production_boundary(tmp_p
         registry,
         artifact_class="public_source_seed",
         consumer_intent="public_release",
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode="public_release",
     )
 
     assert gate["ok"] is False
@@ -1668,6 +1829,13 @@ def test_materialized_artifact_subject_store_supports_installed_verification(
 
     artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
     artifact_bundles.sign_bundle(bundle, backend="cosign-local-key")
+    trust_root_mode = "github_oidc"
+    trust_root_evidence = _trust_root_evidence(
+        trust_root_mode,
+        subject_digest=_bundle_subject_digest(bundle),
+        source_repo="abyss-machine",
+        source_ref=str(manifest_path),
+    )
     pre_materialize_promotion = artifact_bundles.promote_bundle_evidence(
         bundle,
         registry,
@@ -1675,14 +1843,15 @@ def test_materialized_artifact_subject_store_supports_installed_verification(
         source_repo="abyss-machine",
         source_ref=str(manifest_path),
         producer="pytest bootstrap bundle",
-        trust_root_mode="host_managed",
+        trust_root_mode=trust_root_mode,
+        trust_root_evidence=trust_root_evidence,
     )
     materialized = artifact_bundles.materialize_artifact_subjects(
         bundle,
         store_root=store_root,
         registry_dir=registry,
         manifest_ref=manifest_path,
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode=trust_root_mode,
     )
     artifact.unlink()
 
@@ -1694,7 +1863,8 @@ def test_materialized_artifact_subject_store_supports_installed_verification(
         source_repo="abyss-machine",
         source_ref=str(manifest_path),
         producer="pytest bootstrap bundle",
-        trust_root_mode="host_managed",
+        trust_root_mode=trust_root_mode,
+        trust_root_evidence=trust_root_evidence,
     )
 
     assert pre_materialize_promotion["ok"] is True
@@ -2882,6 +3052,13 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
     build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
     sign = artifact_bundles.sign_bundle(bundle)
     verify = artifact_bundles.verify_bundle(bundle)
+    trust_root_mode = "public_release"
+    trust_root_evidence = _trust_root_evidence(
+        trust_root_mode,
+        subject_digest=_bundle_subject_digest(bundle),
+        source_repo="aoa-session-memory",
+        source_ref="manifests/artifact_bundles/portable_bundle.bundle.json",
+    )
     pre_materialize_promotion = artifact_bundles.promote_bundle_evidence(
         bundle,
         registry,
@@ -2889,7 +3066,8 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
         source_repo="aoa-session-memory",
         source_ref="manifests/artifact_bundles/portable_bundle.bundle.json",
         producer="pytest aoa-session-memory export-bundle",
-        trust_root_mode="host_managed",
+        trust_root_mode=trust_root_mode,
+        trust_root_evidence=trust_root_evidence,
     )
     materialized = artifact_bundles.materialize_artifact_subjects(
         bundle,
@@ -2897,7 +3075,7 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
         registry_dir=registry,
         manifest_ref=manifest_path,
         expected_source_repo="aoa-session-memory",
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode=trust_root_mode,
     )
     verify_from_store = artifact_bundles.verify_bundle(bundle)
     identity = json.loads((bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8"))
@@ -2912,14 +3090,15 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
         source_repo="aoa-session-memory",
         source_ref="manifests/artifact_bundles/portable_bundle.bundle.json",
         producer="pytest aoa-session-memory export-bundle",
-        trust_root_mode="host_managed",
+        trust_root_mode=trust_root_mode,
+        trust_root_evidence=trust_root_evidence,
     )
     gate = artifact_bundles.trust_gate(
         registry,
         artifact_class="aoa_session_memory_portable_bundle",
         consumer_intent="update_client",
         expected_source_repo="aoa-session-memory",
-        expected_trust_root_mode="host_managed",
+        expected_trust_root_mode=trust_root_mode,
     )
     requirements = artifact_bundles.artifact_requirements(
         "aoa_session_memory_portable_bundle",
@@ -2956,6 +3135,7 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
     assert gate["inspected_claims"]["controls"]["required_controls_missing"] == []
     assert gate["inspected_claims"]["source"]["source_repo_matched"] is True
     assert gate["inspected_claims"]["trust_root"]["trust_root_mode_matched"] is True
+    assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is True
     assert requirements["rows"][0]["consumer"]["intent"] == "update_client"
     assert requirements["rows"][0]["registry_status"]["has_latest"] is True
 

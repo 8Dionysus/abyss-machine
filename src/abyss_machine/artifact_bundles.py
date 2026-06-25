@@ -68,6 +68,12 @@ TRUST_ROOT_MODES = (
     "oci_registry",
     "public_release",
 )
+PRODUCTION_RELEASE_TRUST_ROOT_MODES = frozenset({"github_oidc", "oci_registry", "public_release"})
+TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS = {
+    "github_oidc": ("issuer", "subject", "source_repo", "source_ref", "subject_digest", "verifier"),
+    "oci_registry": ("registry_ref", "digest", "source_repo", "source_ref", "subject_digest", "verifier"),
+    "public_release": ("release_ref", "asset_ref", "asset_digest", "source_repo", "source_ref", "subject_digest", "verifier"),
+}
 TRUST_GATE_VERDICTS = ("allow", "deny", "warn", "unknown", "manual_review_required")
 PRODUCTION_CONSUMER_INTENTS = frozenset({"installer", "runtime", "release_consumer", "update_client", "public_release"})
 REQUIRED_SUBJECT_STORE_BLOCKER = "required_artifact_subject_store_not_verified"
@@ -519,14 +525,20 @@ def _path_matches_ref(path_text: str, ref_text: str) -> bool:
     return path == ref or path.startswith(ref + "/")
 
 
+def production_release_trust_root_modes(artifact_class: str, required_controls: list[str] | set[str]) -> list[str]:
+    required = {str(item) for item in required_controls}
+    modes = ["public_release"]
+    if "sigstore_cosign" in required:
+        modes.append("github_oidc")
+    if artifact_class in {"runtime_or_container_artifact", "ai_model_or_runtime_bundle"}:
+        modes.append("oci_registry")
+    return list(dict.fromkeys(modes))
+
+
 def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> dict[str, Any]:
     required = set(required_controls_for_rule(rule))
     artifact_class = str(rule.get("identity", {}).get("artifact_class") or "")
-    release_modes = ["public_release"]
-    if "sigstore_cosign" in required:
-        release_modes.append("github_oidc")
-    if artifact_class in {"runtime_or_container_artifact", "ai_model_or_runtime_bundle"}:
-        release_modes.append("oci_registry")
+    release_modes = production_release_trust_root_modes(artifact_class, required)
     if consumer_intent not in PRODUCTION_CONSUMER_INTENTS:
         recommended = ["host_managed", "local_dev"]
     elif artifact_class == "host_local_evidence":
@@ -541,18 +553,22 @@ def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> d
             "production_consumer_result": "manual_review_required",
         },
         "host_managed": {
-            "role": "durable OS Abyss host registry assertion or local host-managed evidence",
+            "role": "durable OS Abyss host registry assertion or local host-managed evidence; not an external public release trust root",
+            "production_consumer_result": "manual_review_required unless the artifact class is host-local evidence",
         },
         "github_oidc": {
             "role": "GitHub Actions/OIDC producer adapter for release provenance",
             "adapter_only": True,
+            "required_evidence_fields": list(TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS["github_oidc"]),
         },
         "oci_registry": {
             "role": "OCI/ORAS image or bundle publication by digest",
             "required_when": "runtime/container/model artifacts are consumed through OCI distribution",
+            "required_evidence_fields": list(TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS["oci_registry"]),
         },
         "public_release": {
             "role": "public release asset with publishable attestations or signatures",
+            "required_evidence_fields": list(TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS["public_release"]),
         },
     }
 
@@ -1580,6 +1596,7 @@ def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dic
         }
     raw_verdict = str(gate.get("verdict") or "unknown")
     blockers = [str(item) for item in gate.get("blockers", []) if str(item)]
+    manual_review = [str(item) for item in gate.get("manual_review", []) if str(item)]
     hard_blockers = [item for item in blockers if item != REQUIRED_SUBJECT_STORE_BLOCKER]
     if raw_verdict in {"allow", "warn"}:
         return {
@@ -1590,7 +1607,7 @@ def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dic
             "raw_trust_gate_verdict": raw_verdict,
             "blockers": blockers,
         }
-    if REQUIRED_SUBJECT_STORE_BLOCKER in blockers and not hard_blockers:
+    if REQUIRED_SUBJECT_STORE_BLOCKER in blockers and not hard_blockers and not manual_review:
         return {
             "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
             "allow": True,
@@ -1598,6 +1615,16 @@ def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dic
             "reason": "only_required_subject_store_missing",
             "raw_trust_gate_verdict": raw_verdict,
             "blockers": blockers,
+        }
+    if manual_review:
+        return {
+            "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
+            "allow": False,
+            "verdict": "deny",
+            "reason": "consumer_trust_gate_requires_manual_review",
+            "raw_trust_gate_verdict": raw_verdict,
+            "blockers": blockers,
+            "manual_review": manual_review,
         }
     return {
         "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
@@ -3163,6 +3190,7 @@ def bundle_registry_record(
     source_ref: str = "",
     producer: str = "",
     trust_root_mode: str = "local_dev",
+    trust_root_evidence: dict[str, Any] | None = None,
     verifier_versions: dict[str, Any] | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
@@ -3243,6 +3271,7 @@ def bundle_registry_record(
         "producer": str(producer or identity.get("producer") or provenance.get("agent_or_tool") or ""),
         "producer_command": str(provenance.get("producer_command") or ""),
         "trust_root_mode": trust_root_mode,
+        "trust_root_evidence": trust_root_evidence if isinstance(trust_root_evidence, dict) else {},
         "verifier_versions": _verifier_versions(verification, verifier_versions),
         "privacy_boundary": identity.get("privacy_boundary"),
         "artifact_subjects_digest": provenance.get("artifact_subjects_digest") or subjects.get("aggregate_digest"),
@@ -3347,6 +3376,7 @@ def write_bundle_registry_record(
     source_ref: str = "",
     producer: str = "",
     trust_root_mode: str = "local_dev",
+    trust_root_evidence: dict[str, Any] | None = None,
     verifier_versions: dict[str, Any] | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
@@ -3362,6 +3392,7 @@ def write_bundle_registry_record(
         source_ref=source_ref,
         producer=producer,
         trust_root_mode=trust_root_mode,
+        trust_root_evidence=trust_root_evidence,
         verifier_versions=verifier_versions,
         repo_root=repo_root,
     )
@@ -3595,6 +3626,7 @@ def promote_bundle_evidence(
     source_ref: str = "",
     producer: str = "",
     trust_root_mode: str = "local_dev",
+    trust_root_evidence: dict[str, Any] | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     registry_write = write_bundle_registry_record(
@@ -3609,6 +3641,7 @@ def promote_bundle_evidence(
         source_ref=source_ref,
         producer=producer,
         trust_root_mode=trust_root_mode,
+        trust_root_evidence=trust_root_evidence,
         repo_root=repo_root,
     )
     record = registry_write.get("record") if isinstance(registry_write.get("record"), dict) else {}
@@ -3664,6 +3697,88 @@ def _find_registry_record(
     return None
 
 
+def _trust_root_evidence_digest_values(evidence: dict[str, Any]) -> set[str]:
+    digests: set[str] = set()
+    for key in ("subject_digest", "asset_digest", "digest", "artifact_digest"):
+        value = str(evidence.get(key) or "")
+        if value:
+            digests.add(value)
+    return digests
+
+
+def _production_trust_root_expected_modes(
+    selected: dict[str, Any],
+    *,
+    artifact_class: str,
+    consumer_intent: str,
+) -> list[str]:
+    if consumer_intent not in PRODUCTION_CONSUMER_INTENTS:
+        return []
+    if artifact_class == "host_local_evidence":
+        return ["host_managed"]
+    required_controls = [str(item) for item in selected.get("required_controls", []) if str(item)]
+    return production_release_trust_root_modes(artifact_class, required_controls)
+
+
+def _trust_root_evidence_verification(
+    selected: dict[str, Any],
+    *,
+    artifact_class: str,
+    consumer_intent: str,
+) -> dict[str, Any]:
+    trust_root_mode = str(selected.get("trust_root_mode") or "")
+    expected_modes = _production_trust_root_expected_modes(
+        selected,
+        artifact_class=artifact_class,
+        consumer_intent=consumer_intent,
+    )
+    required = trust_root_mode in PRODUCTION_RELEASE_TRUST_ROOT_MODES
+    evidence = selected.get("trust_root_evidence")
+    evidence = evidence if isinstance(evidence, dict) else {}
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if required:
+        if not evidence:
+            errors.append("production_trust_root_evidence_missing")
+        required_fields = TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS.get(trust_root_mode, ())
+        missing_fields = [field for field in required_fields if not evidence.get(field)]
+        if missing_fields:
+            errors.append("production_trust_root_evidence_missing_fields:" + ",".join(missing_fields))
+        evidence_mode = str(evidence.get("mode") or trust_root_mode)
+        if evidence_mode != trust_root_mode:
+            errors.append("production_trust_root_evidence_mode_mismatch")
+        record_digests = _record_digest_values(selected)
+        evidence_digests = _trust_root_evidence_digest_values(evidence)
+        if not evidence_digests:
+            errors.append("production_trust_root_evidence_digest_missing")
+        elif record_digests.isdisjoint(evidence_digests):
+            errors.append("production_trust_root_evidence_digest_mismatch")
+        source_repo = str(selected.get("source_repo") or "")
+        source_ref = str(selected.get("source_ref") or "")
+        evidence_source_repo = str(evidence.get("source_repo") or "")
+        evidence_source_ref = str(evidence.get("source_ref") or "")
+        if source_repo and evidence_source_repo and evidence_source_repo != source_repo:
+            errors.append("production_trust_root_evidence_source_repo_mismatch")
+        if source_ref and evidence_source_ref and evidence_source_ref != source_ref:
+            errors.append("production_trust_root_evidence_source_ref_mismatch")
+    elif evidence:
+        warnings.append("trust_root_evidence_present_for_non_release_trust_root")
+
+    return {
+        "schema": "abyss_machine_artifact_trust_root_evidence_verification_v1",
+        "required": required,
+        "ok": required and not errors if required else not errors,
+        "trust_root_mode": trust_root_mode or None,
+        "consumer_intent": consumer_intent,
+        "expected_modes": expected_modes,
+        "evidence_schema": evidence.get("schema") if evidence else None,
+        "evidence_ref": evidence.get("evidence_ref") if evidence else None,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
 def _trust_gate_decision(
     *,
     verdict: str,
@@ -3690,6 +3805,7 @@ def _trust_gate_inspected_claims(
     *,
     latest: dict[str, Any] | None,
     artifact_class: str,
+    consumer_intent: str,
     subject_digest: str,
     record_id: str,
     expected_source_repo: str,
@@ -3703,6 +3819,16 @@ def _trust_gate_inspected_claims(
     digest_values = _record_digest_values(selected)
     privacy_boundary = selected.get("privacy_boundary")
     privacy_review_reason = production_privacy_boundary_review_reason(privacy_boundary)
+    expected_trust_root_modes = _production_trust_root_expected_modes(
+        selected,
+        artifact_class=artifact_class,
+        consumer_intent=consumer_intent,
+    )
+    trust_root_evidence = _trust_root_evidence_verification(
+        selected,
+        artifact_class=artifact_class,
+        consumer_intent=consumer_intent,
+    )
     return {
         "registry_latest": {
             "required": require_latest,
@@ -3752,7 +3878,15 @@ def _trust_gate_inspected_claims(
             "trust_root_mode_matched": bool(
                 not expected_trust_root_mode or str(selected.get("trust_root_mode") or "") == expected_trust_root_mode
             ),
+            "production_consumer": consumer_intent in PRODUCTION_CONSUMER_INTENTS,
+            "production_expected_modes": expected_trust_root_modes,
+            "production_trust_root_ready": bool(
+                consumer_intent not in PRODUCTION_CONSUMER_INTENTS
+                or str(selected.get("trust_root_mode") or "") in expected_trust_root_modes
+            ),
+            "host_managed_role": "local OS Abyss registry assertion; not external public release trust",
         },
+        "trust_root_evidence": trust_root_evidence,
         "privacy_boundary": {
             "value": privacy_boundary,
             "production_review_reason": privacy_review_reason or None,
@@ -3879,9 +4013,27 @@ def trust_gate(
         blockers.append("trust_root_mode_mismatch")
 
     lifecycle_state = str(selected.get("lifecycle_state") or "")
+    trust_root_evidence = _trust_root_evidence_verification(
+        selected,
+        artifact_class=artifact_class,
+        consumer_intent=consumer_intent,
+    )
+    if trust_root_evidence.get("errors"):
+        blockers.extend(str(item) for item in trust_root_evidence.get("errors", []))
+    if trust_root_evidence.get("warnings"):
+        warnings.extend(str(item) for item in trust_root_evidence.get("warnings", []))
     if consumer_intent in PRODUCTION_CONSUMER_INTENTS:
+        expected_modes = _production_trust_root_expected_modes(
+            selected,
+            artifact_class=artifact_class,
+            consumer_intent=consumer_intent,
+        )
         if trust_root_mode == "local_dev":
             manual_review.append("production_consumer_requires_non_local_trust_root")
+        elif trust_root_mode == "host_managed" and trust_root_mode not in expected_modes:
+            manual_review.append("production_consumer_requires_release_trust_root")
+        elif expected_modes and trust_root_mode not in expected_modes:
+            manual_review.append("production_consumer_requires_artifact_specific_trust_root")
         if lifecycle_state not in {"release-ready", "published"}:
             manual_review.append("production_consumer_requires_release_lifecycle")
         privacy_review_reason = production_privacy_boundary_review_reason(selected.get("privacy_boundary"))
@@ -3926,6 +4078,7 @@ def trust_gate(
             selected,
             latest=latest if isinstance(latest, dict) else None,
             artifact_class=artifact_class,
+            consumer_intent=consumer_intent,
             subject_digest=subject_digest,
             record_id=record_id,
             expected_source_repo=expected_source_repo,

@@ -58,9 +58,9 @@
     "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
-    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:bootstrap-install --evidence-ref manual-positive:bootstrap-install --source-repo abyss-machine --source-ref manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --producer abyss-machine-bootstrap-packager --trust-root-mode host_managed --json",
-    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --consumer-intent installer --source-repo abyss-machine --trust-root-mode host_managed --json",
-    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class bootstrap_install_bundle --consumer-intent installer --source-repo abyss-machine --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
-    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class bootstrap_install_bundle --consumer-intent installer --source-repo abyss-machine --trust-root-mode host_managed --json"
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:bootstrap-install --evidence-ref manual-positive:bootstrap-install --source-repo abyss-machine --source-ref manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --producer abyss-machine-bootstrap-packager --trust-root-mode github_oidc --trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --consumer-intent installer --source-repo abyss-machine --trust-root-mode github_oidc --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class bootstrap_install_bundle --consumer-intent installer --source-repo abyss-machine --trust-root-mode github_oidc --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class bootstrap_install_bundle --consumer-intent installer --source-repo abyss-machine --trust-root-mode github_oidc --json"
   ]
 }
