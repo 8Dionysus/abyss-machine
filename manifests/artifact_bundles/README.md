@@ -35,6 +35,12 @@ are excluded from latest. `evidence-promote` is the preferred durable promotion
 entrypoint; `bundle-register` remains the lower-level compatible registry write.
 `trust-gate` is the fail-closed consumer admission surface and returns
 machine-readable decision plus inspected claims for agent audit trails.
+Official `abyss-machine` manifests must declare fail-closed admission and an
+explicit allow/deny verdict requirement. Manifests that emit artifact subjects
+must also require subject-store materialization with an explicit `--store-root`;
+source-tree or provenance-sample manifests that do not emit materializable
+subjects must say why subject-store admission is deferred instead of silently
+omitting the lane.
 Registries created before the durable evidence fields use
 `bundle-registry-upgrade` as an explicit host-managed migration; the trust gate
 does not silently allow those legacy records.

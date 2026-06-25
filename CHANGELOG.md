@@ -58,6 +58,10 @@
   evidence-promotion, materialization, trust-gate, and registry-latest consumer
   paths, with official-manifest roundtrip tests for install/runtime/AI/extension
   subjects.
+- Require official artifact bundle manifests to declare fail-closed consumer
+  admission, explicit allow/deny verdicts, and either subject-store
+  materialization with a `--store-root` or an explicit subject-store deferral
+  reason for subjectless source/evidence samples.
 - Add a first-run installed projection validator that applies bootstrap into
   isolated temp roots, proves installed CLI parity without source-checkout
   imports, checks package/public-seed projection, and keeps typing/nervous

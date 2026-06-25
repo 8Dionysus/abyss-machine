@@ -32,7 +32,11 @@
   "consumer_contract": {
     "stable_interface": "abyss-machine artifacts trust-gate --artifact-class public_source_seed --json",
     "consumer_expectation": "Consumers select a public_source_seed bundle only after durable evidence promotion and a trust-gate allow or warn verdict over registry latest, verification state, digest, source repo, trust root mode, and consumer intent.",
-    "registry_required": true
+    "registry_required": true,
+    "subject_store_required": false,
+    "subject_store_deferred_reason": "The public source seed currently emits ABI/source-tree identity rather than materializable artifact subjects; source-tree subject-store materialization is a separate producer upgrade before subject-store admission can be required.",
+    "admission_gate": "fail_closed_consumer_admission",
+    "consumer_verdict": "allow_or_deny_required_before_use"
   },
   "consumer_command": [
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_source_seed.bundle.json --bundle-dir BUNDLE_DIR",

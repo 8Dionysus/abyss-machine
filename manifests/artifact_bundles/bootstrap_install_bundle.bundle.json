@@ -46,8 +46,11 @@
   },
   "consumer_contract": {
     "stable_interface": "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer --json",
-    "consumer_expectation": "Install consumers select a bootstrap_install_bundle only after durable evidence promotion and a trust-gate allow or warn verdict over registry latest, ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, digest, source repo, trust root mode, and installer intent.",
-    "registry_required": true
+    "consumer_expectation": "Install consumers select a bootstrap_install_bundle only after durable evidence promotion, subject-store materialization, and a trust-gate allow or warn verdict over registry latest, ABI, SBOM, SLSA/in-toto, Sigstore/Cosign, digest, source repo, trust root mode, and installer intent.",
+    "registry_required": true,
+    "subject_store_required": true,
+    "admission_gate": "fail_closed_consumer_admission",
+    "consumer_verdict": "allow_or_deny_required_before_use"
   },
   "consumer_command": [
     "tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -czf dist/abyss-machine-bootstrap-VERSION.tar.gz scripts/abyss-machine-bootstrap src/abyss_machine config-templates systemd schemas/bootstrap-report.schema.json manifests/bootstrap_profiles.manifest.json",
@@ -56,7 +59,7 @@
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
     "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:bootstrap-install --evidence-ref manual-positive:bootstrap-install --source-repo abyss-machine --source-ref manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --producer abyss-machine-bootstrap-packager --trust-root-mode host_managed --json",
-    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --manifest manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --consumer-intent installer --source-repo abyss-machine --trust-root-mode host_managed --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --consumer-intent installer --source-repo abyss-machine --trust-root-mode host_managed --json",
     "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class bootstrap_install_bundle --consumer-intent installer --source-repo abyss-machine --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
     "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class bootstrap_install_bundle --consumer-intent installer --source-repo abyss-machine --trust-root-mode host_managed --json"
   ]
