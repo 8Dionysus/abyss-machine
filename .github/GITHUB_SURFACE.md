@@ -9,6 +9,8 @@ source-checkout front door.
 
 - [workflows/repo-validation.yml](workflows/repo-validation.yml): protected
   repository validation check for public seed landing.
+- [workflows/artifact-production-evidence.yml](workflows/artifact-production-evidence.yml):
+  manual public-safe producer for GitHub OIDC/Sigstore artifact evidence.
 - [pull_request_template.md](pull_request_template.md): PR closeout template.
 - [CODEOWNERS](CODEOWNERS): ownership routing for review.
 
