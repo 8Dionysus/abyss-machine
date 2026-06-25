@@ -71,6 +71,7 @@ REQUIRED_ARTIFACT_COMMANDS = {
     "update-lane",
     "update-verify",
     "update-repo-verify",
+    "scitt-verify",
 }
 REQUIRED_TYPING_COMMANDS = {
     "paths",
@@ -158,6 +159,17 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--source-repo",
         "--trust-root-mode",
         "--require-trust-gate",
+        "--json",
+    },
+    ("artifacts", "scitt-verify"): {
+        "--receipt",
+        "--external-relying-party",
+        "--require-receipt",
+        "--statement-class",
+        "--artifact-digest",
+        "--issuer",
+        "--transparency-service",
+        "--now",
         "--json",
     },
 }

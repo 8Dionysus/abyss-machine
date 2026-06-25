@@ -492,9 +492,24 @@ def main() -> int:
         else:
             if scitt.get("blocking_v1") is not False:
                 failures.append("update_transparency_lane.scitt.blocking_v1 must be false for v1")
-            for key in ("status", "trigger", "required_when", "claim_limit"):
+            for key in ("status", "trigger", "required_when", "statement_schema", "receipt_schema", "claim_limit"):
                 if not isinstance(scitt.get(key), str) or not scitt.get(key):
                     failures.append(f"update_transparency_lane.scitt.{key} must be a non-empty string")
+            classes_value = scitt.get("statement_classes")
+            if not isinstance(classes_value, list) or not all(isinstance(item, str) and item for item in classes_value):
+                failures.append("update_transparency_lane.scitt.statement_classes must be a non-empty string list")
+            external_mode = scitt.get("external_relying_party_mode")
+            if not isinstance(external_mode, dict):
+                failures.append("update_transparency_lane.scitt.external_relying_party_mode must be an object")
+            else:
+                if external_mode.get("receipt_required") is not True:
+                    failures.append("update_transparency_lane.scitt.external_relying_party_mode.receipt_required must be true")
+                if external_mode.get("missing_receipt_verdict") != "deny":
+                    failures.append("update_transparency_lane.scitt.external_relying_party_mode.missing_receipt_verdict must be deny")
+                if not isinstance(external_mode.get("binding"), str) or "statement_digest" not in external_mode.get("binding", ""):
+                    failures.append("update_transparency_lane.scitt.external_relying_party_mode.binding must describe statement_digest binding")
+                if external_mode.get("not_external_service_yet") is not True:
+                    failures.append("update_transparency_lane.scitt.external_relying_party_mode.not_external_service_yet must be true until live SCITT service lands")
 
     if failures:
         return fail("artifact signature policy validation failed", failures)
