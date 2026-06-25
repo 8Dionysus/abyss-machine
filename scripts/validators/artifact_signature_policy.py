@@ -468,6 +468,22 @@ def main() -> int:
             max_freeze = tuf.get("max_freeze_seconds")
             if not isinstance(max_freeze, int) or max_freeze <= 0:
                 failures.append("update_transparency_lane.tuf.max_freeze_seconds must be a positive integer")
+            external = tuf.get("external_repository_verifier")
+            if not isinstance(external, dict):
+                failures.append("update_transparency_lane.tuf.external_repository_verifier must be an object")
+            else:
+                if external.get("metadata_dir") != "metadata":
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.metadata_dir must be metadata")
+                if external.get("targets_dir") != "targets":
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.targets_dir must be targets")
+                roles = external.get("roles")
+                if roles != ["root", "targets", "snapshot", "timestamp"]:
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.roles must list root/targets/snapshot/timestamp")
+                checks = external.get("checks")
+                if not isinstance(checks, list) or len(checks) < 8:
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.checks must describe external TUF verifier checks")
+                if external.get("not_cryptographic_signature_verifier_yet") is not True:
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.not_cryptographic_signature_verifier_yet must be true until production crypto verification lands")
             if not isinstance(tuf.get("claim_limit"), str) or not tuf.get("claim_limit"):
                 failures.append("update_transparency_lane.tuf.claim_limit must be a non-empty string")
         scitt = update_lane.get("scitt")

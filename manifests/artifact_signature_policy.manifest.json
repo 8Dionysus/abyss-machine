@@ -1164,9 +1164,32 @@
         "unchanged metadata cannot exceed max_freeze_seconds since previous trusted state",
         "artifact trust-gate must still allow or warn for the target artifact before consumption"
       ],
+      "external_repository_verifier": {
+        "status": "structural_v1",
+        "metadata_dir": "metadata",
+        "targets_dir": "targets",
+        "roles": [
+          "root",
+          "targets",
+          "snapshot",
+          "timestamp"
+        ],
+        "checks": [
+          "role metadata exists and has matching _type",
+          "role versions are positive and monotonic against previous trusted state",
+          "role expires values are in the future",
+          "root role thresholds are satisfied by declared signature keyids",
+          "timestamp references snapshot by version, length, and sha256",
+          "snapshot references targets by version, length, and sha256",
+          "targets binds target path by length and sha256",
+          "unchanged timestamp metadata cannot exceed max_freeze_seconds",
+          "artifact trust-gate must still allow or warn when update-client admission is required"
+        ],
+        "not_cryptographic_signature_verifier_yet": true
+      },
       "max_freeze_seconds": 604800,
       "not_full_tuf_repository_yet": true,
-      "claim_limit": "This is the OS Abyss v1 TUF-style update metadata gate; it does not yet define delegated root/targets/snapshot/timestamp keys or publish a full external TUF repository."
+      "claim_limit": "This is the OS Abyss v1 TUF-style update metadata gate plus structural external repository verifier; it still does not provide production cryptographic TUF signature verification, key ceremony, or a published external TUF repository."
     },
     "scitt": {
       "status": "future_external_accountability_layer",
