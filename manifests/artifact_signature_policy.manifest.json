@@ -93,6 +93,224 @@
       {"id": "release-check", "command": ["python", "scripts/release_check.py"]}
     ]
   },
+  "producer_profiles": {
+    "abyss-machine": {
+      "profile_id": "abyss-machine",
+      "owner_repo": "abyss-machine",
+      "owner_route_refs": ["AGENTS.md", "BOUNDARIES.md", "docs/publication/PUBLICATION_BOUNDARY.md", "mechanics/local-ai-runtime/README.md"],
+      "artifact_classes": [
+        "public_source_seed",
+        "bootstrap_install_bundle",
+        "runtime_or_container_artifact",
+        "ai_model_or_runtime_bundle",
+        "browser_extension_package",
+        "host_local_evidence",
+        "public_media_export"
+      ],
+      "release_export_triggers": [
+        "public seed or bootstrap release is cut",
+        "host-managed runtime, AI runtime, extension, or install bundle is built",
+        "host-local evidence is promoted into durable registry",
+        "privacy-reviewed host material becomes public media"
+      ],
+      "validator_commands": [
+        "python -m pytest -q",
+        "python scripts/release_check.py",
+        "abyss-machine artifacts validate --json",
+        "abyss-machine artifacts trust-coverage --durable-only --json"
+      ],
+      "produced_sidecars": [
+        "artifact.identity.json",
+        "artifact.abi.json",
+        "artifact.provenance.json",
+        "artifact.subjects.json",
+        "artifact.verify.json",
+        "artifact.sbom.cdx.json",
+        "artifact.provenance.intoto.jsonl",
+        "artifact.sigstore.json",
+        "artifact.c2pa"
+      ],
+      "consumer_expectations": [
+        "agents, installers, runtimes, and update clients consume only after durable registry promotion and trust-gate verdict",
+        "host-local evidence stays private until converted to a reviewed public artifact class",
+        "GitHub Actions/OIDC is only a release producer adapter; OS Abyss host trust-gates remain authoritative for local consumption"
+      ],
+      "owner_boundaries": [
+        "owns host enforcement, durable registry, trust gates, trust roots, update lane, and public bootstrap seed",
+        "does not own sibling repo doctrine, private workspace state, or abyss-stack runtime source truth"
+      ],
+      "trust_root_modes": ["local_dev", "host_managed", "github_oidc", "oci_registry", "public_release"]
+    },
+    "aoa-sdk": {
+      "profile_id": "aoa-sdk",
+      "owner_repo": "aoa-sdk",
+      "owner_route_refs": ["AGENTS.md", "pyproject.toml", "sdk/distribution/package-contract/README.md", "mechanics/release-support/README.md"],
+      "artifact_classes": ["aoa_sdk_python_distribution"],
+      "release_export_triggers": ["wheel or sdist is built", "SDK package is published or handed to an installer/runtime consumer"],
+      "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["package consumers verify wheel/sdist digest, SBOM, provenance, ABI identity, and trust-gate verdict before use"],
+      "owner_boundaries": ["aoa-sdk owns typed SDK/API package truth; abyss-machine records evidence and gates consumption without rewriting SDK source"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "abyss-stack": {
+      "profile_id": "abyss-stack",
+      "owner_repo": "abyss-stack",
+      "owner_route_refs": ["AGENTS.md", "compose/AGENTS.md", "compose/profiles/substrate.txt", "docs/runtime/ARCHITECTURE.md"],
+      "artifact_classes": ["abyss_stack_runtime_config_bundle"],
+      "release_export_triggers": ["runtime config bundle is rendered", "deployable config bundle is exported or released"],
+      "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["runtime consumers verify rendered config digest, SBOM-lite inventory, render provenance, source boundary, and trust-gate verdict"],
+      "owner_boundaries": ["abyss-stack owns runtime/deployable stack source truth; abyss-machine may consume read-only evidence and enforce host gates"],
+      "trust_root_modes": ["local_dev", "host_managed", "github_oidc", "oci_registry", "public_release"]
+    },
+    "Tree-of-Sophia": {
+      "profile_id": "Tree-of-Sophia",
+      "owner_repo": "Tree-of-Sophia",
+      "owner_route_refs": ["AGENTS.md", "ToS/AGENTS.md", "ToS/derived-exports", "docs/validation/validation_lanes.json"],
+      "artifact_classes": ["tree_of_sophia_generated_readmodel_bundle", "public_media_export"],
+      "release_export_triggers": ["derived JSON readmodel is exported", "public PDF, visualization, image, or other media export is published"],
+      "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.verify.json", "artifact.c2pa"],
+      "consumer_expectations": ["orientation consumers verify generated readmodel digests and source-first boundary; media consumers verify C2PA before public use"],
+      "owner_boundaries": ["Tree-of-Sophia authored meaning remains stronger than generated readmodels; abyss-machine gates artifacts but does not become ToS doctrine"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "Dionysus": {
+      "profile_id": "Dionysus",
+      "owner_repo": "Dionysus",
+      "owner_route_refs": ["AGENTS.md", "docs/codex/planting-protocol.md", "docs/SEED_SURFACE_MAP.md", "generated"],
+      "artifact_classes": ["dionysus_seed_route_readmodel_bundle", "public_media_export"],
+      "release_export_triggers": ["seed route readmodel is generated", "public seed pack, media, PDF, or doc export is published"],
+      "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.verify.json", "artifact.c2pa"],
+      "consumer_expectations": ["seed consumers verify generated route-map digest and owner boundary; public media/seed packs require content credentials when published"],
+      "owner_boundaries": ["Dionysus owns seed meaning and planting route; generated maps are navigation, not canonical seed authority"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-evals": {
+      "profile_id": "aoa-evals",
+      "owner_repo": "aoa-evals",
+      "owner_route_refs": ["AGENTS.md", "reports", "generated", "docs/architecture/PROOF_TOPOLOGY.md"],
+      "artifact_classes": ["aoa_evals_generated_report_index_bundle", "public_media_export"],
+      "release_export_triggers": ["eval report/result index is generated", "public PDF/media report is published"],
+      "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json", "artifact.c2pa"],
+      "consumer_expectations": ["proof consumers verify report-index digest, SBOM-lite inventory, generation provenance, and trust-gate verdict; PDF/media reports add C2PA"],
+      "owner_boundaries": ["aoa-evals owns proof scenarios and regression claims; abyss-machine gates artifact consumption but does not fabricate proof verdicts"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-routing": {
+      "profile_id": "aoa-routing",
+      "owner_repo": "aoa-routing",
+      "owner_route_refs": ["AGENTS.md", "README.md", "generated", "routing/core/schemas/aoa-router.schema.json"],
+      "artifact_classes": ["thin_routing_readmodel_bundle"],
+      "release_export_triggers": ["router/readmodel bundle is generated or exported for machine/agent dispatch"],
+      "validator_commands": ["python scripts/build_router.py --check", "python scripts/validate_router.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["routing consumers verify generated router digests, source-owned next-hop refs, and trust-gate verdict before dispatch"],
+      "owner_boundaries": ["aoa-routing owns navigation metadata only; it does not become sibling source truth"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-kag": {
+      "profile_id": "aoa-kag",
+      "owner_repo": "aoa-kag",
+      "owner_route_refs": ["AGENTS.md", "docs/KAG_MODEL.md", "generated", "schemas/kag-registry.schema.json"],
+      "artifact_classes": ["derived_kag_registry_readmodel_bundle"],
+      "release_export_triggers": ["KAG registry readmodel is generated or exported for machine/agent consumers"],
+      "validator_commands": ["python scripts/validate_kag.py", "python scripts/ci_gate.py --mode generated", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["KAG consumers verify generated registry digest, SBOM-lite inventory, generation provenance, and source-owner boundaries"],
+      "owner_boundaries": ["aoa-kag owns KAG registry/readmodel boundaries; source repositories remain stronger than derived registry data"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-stats": {
+      "profile_id": "aoa-stats",
+      "owner_repo": "aoa-stats",
+      "owner_route_refs": ["AGENTS.md", "docs/ARCHITECTURE.md", "docs/SURFACE_STRENGTH_MODEL.md", "generated"],
+      "artifact_classes": ["derived_observability_readmodel_catalog"],
+      "release_export_triggers": ["summary-surface catalog is generated or exported for machine/agent consumers"],
+      "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.verify.json"],
+      "consumer_expectations": ["stats consumers verify catalog digest, SBOM-lite inventory, and surface-strength boundary before using observability readmodels"],
+      "owner_boundaries": ["aoa-stats owns derived observability summaries, not raw owner payload bodies or proof authority"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-agents": {
+      "profile_id": "aoa-agents",
+      "owner_repo": "aoa-agents",
+      "owner_route_refs": ["AGENTS.md", "agents/roles", "generated", "schemas/agent-registry.schema.json"],
+      "artifact_classes": ["role_contract_registry"],
+      "release_export_triggers": ["role-contract registry is generated or exported for agent-layer consumers"],
+      "validator_commands": ["python scripts/build_published_surfaces.py", "python scripts/validate_agents.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["agent consumers verify generated role registry digest, generation provenance, and role-boundary claims before using role identity orientation"],
+      "owner_boundaries": ["aoa-agents owns agent role profiles; registry output is not skill, proof, memory, routing, playbook, or runtime authority"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-memo": {
+      "profile_id": "aoa-memo",
+      "owner_repo": "aoa-memo",
+      "owner_route_refs": ["AGENTS.md", "MEMORY_INDEX.md", "docs/memory/MEMORY_OBJECT_PROFILES.md", "generated"],
+      "artifact_classes": ["derived_memory_object_readmodel_family"],
+      "release_export_triggers": ["memory-object readmodel family is generated or exported for recall consumers"],
+      "validator_commands": ["python scripts/memory/generate_memory_object_surfaces.py --check", "python scripts/memory/validate_memory_object_surfaces.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["memory consumers verify generated readmodel digests, generation provenance, and memory-is-not-proof boundaries"],
+      "owner_boundaries": ["aoa-memo owns reviewed memory-object surfaces; memory readmodels do not become proof, policy, or access authority"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-skills": {
+      "profile_id": "aoa-skills",
+      "owner_repo": "aoa-skills",
+      "owner_route_refs": ["AGENTS.md", "generated/release_manifest.json", "schemas/release_manifest.schema.json", "mechanics/release-support/docs/CODEX_PORTABLE_LAYER.md"],
+      "artifact_classes": ["aoa_skills_release_manifest"],
+      "release_export_triggers": ["skill release manifest or portable export handoff is generated"],
+      "validator_commands": ["python scripts/validation/validate_abyss_machine_artifact_bundle.py", "python scripts/lanes/ci_gate.py --mode release", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.provenance.json", "artifact.verify.json"],
+      "consumer_expectations": ["skill consumers verify release manifest digest, generated-file digests, local release provenance, and trust-gate verdict"],
+      "owner_boundaries": ["aoa-skills owns skill package/export truth; abyss-machine records and gates artifact evidence"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-techniques": {
+      "profile_id": "aoa-techniques",
+      "owner_repo": "aoa-techniques",
+      "owner_route_refs": ["AGENTS.md", "docs/source-lift/KAG_EXPORT.md", "generated/kag_export.min.json", "scripts/build_kag_export.py"],
+      "artifact_classes": ["source_owned_kag_export_capsule"],
+      "release_export_triggers": ["source-owned KAG export capsule is generated or exported"],
+      "validator_commands": ["python scripts/build_kag_export.py", "python scripts/validate_repo.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["KAG/source-lift consumers verify generated export digest, source-lift boundary, generation provenance, and trust-gate verdict"],
+      "owner_boundaries": ["aoa-techniques owns authored techniques and source-lift metadata; generated capsule is donor orientation, not copied source authority"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-playbooks": {
+      "profile_id": "aoa-playbooks",
+      "owner_repo": "aoa-playbooks",
+      "owner_route_refs": ["AGENTS.md", "README.md", "generated", "schemas/playbook-registry.schema.json"],
+      "artifact_classes": ["playbook_registry_bundle"],
+      "release_export_triggers": ["playbook registry/readout bundle is generated or exported for scenario consumers"],
+      "validator_commands": ["python scripts/validate_playbooks.py", "python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["playbook consumers verify registry digest, generation provenance, owner boundaries, and trust-gate verdict"],
+      "owner_boundaries": ["aoa-playbooks owns scenario/playbook metadata; it does not become memory, proof, routing, or runtime authority"],
+      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+    },
+    "aoa-session-memory": {
+      "profile_id": "aoa-session-memory",
+      "owner_repo": "aoa-session-memory",
+      "workspace_aliases": [".aoa", "bundles/aoa-session-memory"],
+      "owner_route_refs": ["AGENTS.md", "DESIGN.md", "DESIGN.AGENTS.md", "PIPELINE.md", "INSTALL.md", "READINESS.md"],
+      "artifact_classes": ["aoa_session_memory_portable_bundle"],
+      "release_export_triggers": ["clean portable session-memory kernel bundle is exported, installed, updated, or published"],
+      "validator_commands": ["python3 scripts/aoa_session_memory.py audit --workspace-root /srv/AbyssOS --aoa-root /srv/AbyssOS/bundles/aoa-session-memory --portable-bundle", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+      "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
+      "consumer_expectations": ["workspace and agent installers verify portable bundle digest, SBOM-lite inventory, export provenance, and trust-gate verdict; raw sessions never become trust authority"],
+      "owner_boundaries": [".aoa provides session evidence, routing, and rehydration; it is not OS trust law or policy authority"],
+      "trust_root_modes": ["local_dev", "host_managed", "github_oidc", "public_release"]
+    }
+  },
   "release_sidecar_expectations": {
     "abi_signature": {
       "consumer_checks": [

@@ -101,6 +101,30 @@ REQUIRED_ENTRYPOINTS = {
     "release-artifact": ("python", "scripts/ci_gate.py", "--mode", "release-artifact"),
     "release-check": ("python", "scripts/release_check.py"),
 }
+REQUIRED_PRODUCER_PROFILES = {
+    "abyss-machine",
+    "abyss-stack",
+    "aoa-agents",
+    "aoa-evals",
+    "aoa-kag",
+    "aoa-memo",
+    "aoa-playbooks",
+    "aoa-routing",
+    "aoa-sdk",
+    "aoa-session-memory",
+    "aoa-skills",
+    "aoa-stats",
+    "aoa-techniques",
+    "Dionysus",
+    "Tree-of-Sophia",
+}
+ALLOWED_TRUST_ROOT_MODES = {
+    "local_dev",
+    "host_managed",
+    "github_oidc",
+    "oci_registry",
+    "public_release",
+}
 FORBIDDEN_SOURCE_PREFIXES = (
     "/var/lib/abyss-machine",
     "/srv/abyss-machine/cache",
@@ -266,6 +290,51 @@ def main() -> int:
                 privacy = str(identity.get("privacy_boundary") or "")
                 if "private" not in privacy.lower():
                     failures.append("host_local_evidence identity must state a private privacy boundary")
+
+    producer_profiles = policy.get("producer_profiles")
+    require(isinstance(producer_profiles, dict), "artifact signature policy must define producer_profiles", failures)
+    profile_class_refs: dict[str, list[str]] = {}
+    if isinstance(producer_profiles, dict):
+        missing_profiles = sorted(REQUIRED_PRODUCER_PROFILES - set(producer_profiles))
+        if missing_profiles:
+            failures.append(f"producer_profiles missing required profiles: {', '.join(missing_profiles)}")
+        for profile_id, profile in sorted(producer_profiles.items()):
+            if not isinstance(profile, dict):
+                failures.append(f"producer profile {profile_id} must be an object")
+                continue
+            if profile.get("profile_id") != profile_id:
+                failures.append(f"producer profile {profile_id}.profile_id must match the profile key")
+            owner_repo = profile.get("owner_repo")
+            if not isinstance(owner_repo, str) or not owner_repo:
+                failures.append(f"producer profile {profile_id}.owner_repo must be a non-empty string")
+            for key in (
+                "owner_route_refs",
+                "artifact_classes",
+                "release_export_triggers",
+                "validator_commands",
+                "produced_sidecars",
+                "consumer_expectations",
+                "owner_boundaries",
+                "trust_root_modes",
+            ):
+                values = profile.get(key)
+                if not isinstance(values, list) or not values or not all(isinstance(value, str) and value for value in values):
+                    failures.append(f"producer profile {profile_id}.{key} must be a non-empty string list")
+                    continue
+                if key == "artifact_classes" and isinstance(classes, dict):
+                    unknown_classes = sorted(set(values) - set(classes))
+                    if unknown_classes:
+                        failures.append(f"producer profile {profile_id} references unknown artifact_classes: {', '.join(unknown_classes)}")
+                    for class_ref in values:
+                        profile_class_refs.setdefault(class_ref, []).append(profile_id)
+                if key == "trust_root_modes":
+                    unknown_modes = sorted(set(values) - ALLOWED_TRUST_ROOT_MODES)
+                    if unknown_modes:
+                        failures.append(f"producer profile {profile_id}.trust_root_modes has unknown modes: {', '.join(unknown_modes)}")
+        if isinstance(classes, dict):
+            uncovered = sorted(set(classes) - set(profile_class_refs))
+            if uncovered:
+                failures.append(f"producer_profiles do not cover artifact classes: {', '.join(uncovered)}")
 
     identity_fields = policy.get("identity_fields")
     if not isinstance(identity_fields, list) or not all(isinstance(item, str) and item for item in identity_fields):

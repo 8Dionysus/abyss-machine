@@ -603,12 +603,60 @@ def test_artifact_requirements_reports_sibling_producer_profile() -> None:
     assert requirements["schema"] == "abyss_machine_artifact_requirements_v1"
     assert row["owner_repo"] == "aoa-sdk"
     assert row["producer_profile"]["producer"]
+    assert row["producer_profile"]["automation_profile_ids"] == ["aoa-sdk"]
+    assert row["producer_profiles"][0]["owner_repo"] == "aoa-sdk"
+    assert row["producer_profiles"][0]["release_export_triggers"]
     assert row["source_route"]["contract_surface_status"] == "external_subject_or_owner_bundle_required"
     assert row["controls"]["required"] == ["abi_signature", "sbom", "slsa_in_toto"]
     assert row["controls"]["deferred"]["sigstore_cosign"]["required"] is False
     assert row["trust_roots"]["local_dev"]["production_consumer_result"] == "manual_review_required"
+    assert "producer_profiles" in row["agent_loop"]
     assert "affected" in row["agent_loop"]
     assert "GitHub OIDC is one producer adapter" in row["claim_limits"][2]
+
+
+def test_artifact_producer_profiles_cover_os_abyss_owner_repos() -> None:
+    profiles = artifact_bundles.artifact_producer_profiles()
+    rows = profiles["rows"]
+    owners = {row["owner_repo"] for row in rows}
+
+    assert profiles["ok"] is True
+    assert profiles["schema"] == "abyss_machine_artifact_producer_profiles_v1"
+    assert {
+        "abyss-machine",
+        "abyss-stack",
+        "aoa-agents",
+        "aoa-evals",
+        "aoa-kag",
+        "aoa-memo",
+        "aoa-playbooks",
+        "aoa-routing",
+        "aoa-sdk",
+        "aoa-session-memory",
+        "aoa-skills",
+        "aoa-stats",
+        "aoa-techniques",
+        "Dionysus",
+        "Tree-of-Sophia",
+    } <= owners
+    assert profiles["summary"]["artifact_class_count"] == 21
+    assert "producer_profiles" in profiles["agent_loop"]
+    assert all(row["validator_commands"] for row in rows)
+    assert all(row["produced_sidecars"] for row in rows)
+    assert all(row["consumer_expectations"] for row in rows)
+    assert all(row["owner_boundaries"] for row in rows)
+
+
+def test_artifact_producer_profiles_filter_by_artifact_class() -> None:
+    profiles = artifact_bundles.artifact_producer_profiles(artifact_class="public_media_export")
+
+    assert profiles["ok"] is True
+    assert {row["owner_repo"] for row in profiles["rows"]} >= {
+        "abyss-machine",
+        "Tree-of-Sophia",
+        "Dionysus",
+        "aoa-evals",
+    }
 
 
 def test_artifact_affected_marks_contract_source_as_stale(tmp_path: Path) -> None:
@@ -685,6 +733,21 @@ def test_artifact_affected_distinguishes_sibling_lag() -> None:
     assert blocked["rows"][0]["next_actions"][1] == "run the producer profile in owner repo aoa-sdk"
     assert accepted["rows"][0]["verdict"] == "accepted_lag"
     assert accepted["accept_sibling_lag"] is True
+
+
+def test_artifact_affected_detects_profile_owner_for_shared_media_class() -> None:
+    affected = artifact_bundles.artifact_affected(
+        ["ToS/derived-exports/root_entry_map.min.json"],
+        artifact_class="public_media_export",
+        changed_source_repo="Tree-of-Sophia",
+    )
+    row = affected["rows"][0]
+
+    assert row["verdict"] == "blocked_by_missing_sibling"
+    assert row["freshness"] == "stale"
+    assert "producer_profile_owner_changed" in row["reasons"]
+    assert row["matches"][0]["reason"] == "producer_profile_route_changed"
+    assert row["next_actions"][1] == "run the producer profile in owner repo Tree-of-Sophia"
 
 
 def _write_verified_registry_record(registry: Path, *, evidence_refs: list[str]) -> None:

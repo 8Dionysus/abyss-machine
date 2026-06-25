@@ -202,6 +202,96 @@ def artifact_class_rule(artifact_class: str, *, repo_root: Path = REPO_ROOT) -> 
     return rule
 
 
+def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
+    profiles = policy.get("producer_profiles")
+    if not isinstance(profiles, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for profile_id, profile in sorted(profiles.items()):
+        if not isinstance(profile, dict):
+            continue
+        row = {**profile}
+        row["profile_id"] = str(row.get("profile_id") or profile_id)
+        row["owner_repo"] = str(row.get("owner_repo") or "")
+        row["artifact_classes"] = [str(item) for item in row.get("artifact_classes", []) if str(item)]
+        row["owner_route_refs"] = [str(item) for item in row.get("owner_route_refs", []) if str(item)]
+        row["release_export_triggers"] = [str(item) for item in row.get("release_export_triggers", []) if str(item)]
+        row["validator_commands"] = [str(item) for item in row.get("validator_commands", []) if str(item)]
+        row["produced_sidecars"] = [str(item) for item in row.get("produced_sidecars", []) if str(item)]
+        row["consumer_expectations"] = [str(item) for item in row.get("consumer_expectations", []) if str(item)]
+        row["owner_boundaries"] = [str(item) for item in row.get("owner_boundaries", []) if str(item)]
+        row["trust_root_modes"] = [str(item) for item in row.get("trust_root_modes", []) if str(item)]
+        rows.append(row)
+    return rows
+
+
+def _producer_profiles_for_artifact_class(policy: dict[str, Any], artifact_class: str) -> list[dict[str, Any]]:
+    return [
+        profile
+        for profile in _producer_profile_rows(policy)
+        if artifact_class in set(profile.get("artifact_classes", []))
+    ]
+
+
+def artifact_producer_profiles(
+    *,
+    profile_id: str = "",
+    owner_repo: str = "",
+    artifact_class: str = "",
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    policy = load_policy(repo_root)
+    classes = policy.get("artifact_classes") if isinstance(policy.get("artifact_classes"), dict) else {}
+    rows = _producer_profile_rows(policy)
+    errors: list[str] = []
+    if profile_id:
+        rows = [row for row in rows if row.get("profile_id") == profile_id]
+        if not rows:
+            errors.append(f"unknown producer profile: {profile_id}")
+    if owner_repo:
+        rows = [row for row in rows if row.get("owner_repo") == owner_repo]
+        if not rows:
+            errors.append(f"unknown producer owner_repo: {owner_repo}")
+    if artifact_class:
+        if artifact_class not in classes:
+            errors.append(f"unknown artifact_class: {artifact_class}")
+        rows = [row for row in rows if artifact_class in set(row.get("artifact_classes", []))]
+    artifact_classes = sorted({class_id for row in rows for class_id in row.get("artifact_classes", [])})
+    owner_repos = sorted({str(row.get("owner_repo")) for row in rows if row.get("owner_repo")})
+    return {
+        "ok": not errors,
+        "schema": "abyss_machine_artifact_producer_profiles_v1",
+        "policy_ref": POLICY_REF,
+        "policy_version": policy.get("policy_version"),
+        "abi_ref": ABI_REF,
+        "profile_filter": profile_id or None,
+        "owner_repo_filter": owner_repo or None,
+        "artifact_class_filter": artifact_class or None,
+        "summary": {
+            "profiles": len(rows),
+            "owner_repos": owner_repos,
+            "artifact_classes": artifact_classes,
+            "artifact_class_count": len(artifact_classes),
+        },
+        "rows": rows,
+        "agent_loop": {
+            "classify": "abyss-machine artifacts classify --artifact-class ARTIFACT_CLASS --json",
+            "requirements": "abyss-machine artifacts requirements --artifact-class ARTIFACT_CLASS --json",
+            "producer_profiles": "abyss-machine artifacts producer-profiles --artifact-class ARTIFACT_CLASS --json",
+            "build_sidecars": "abyss-machine artifacts build-sidecars --artifact-class ARTIFACT_CLASS --bundle-dir BUNDLE_DIR --json",
+            "evidence_promote": "abyss-machine artifacts evidence-promote BUNDLE_DIR --json",
+            "trust_gate": "abyss-machine artifacts trust-gate --artifact-class ARTIFACT_CLASS --json",
+            "affected": "abyss-machine artifacts affected --source-repo OWNER_REPO --source-ref SOURCE_REF --json",
+        },
+        "claim_limits": [
+            "Producer profiles are OS Abyss policy/read-model data; they do not run owner validators or produce sidecars by themselves.",
+            "A profile names expected owner routes and controls; the owning repo remains authoritative for its source truth.",
+            "GitHub Actions/OIDC is one producer adapter, not the whole OS Abyss trust plane.",
+        ],
+        "errors": errors,
+    }
+
+
 def validate_bundle_lifecycle(lifecycle: Any, *, manifest_ref: str) -> dict[str, Any] | None:
     if lifecycle is None:
         return None
@@ -720,6 +810,7 @@ def artifact_requirement_row(
     policy_surfaces = _contract_surfaces_for_class(policy, artifact_class)
     generated_surfaces = _generated_contract_surfaces_for_class(repo_root, artifact_class)
     manifest_refs = _bundle_manifest_refs_for_class(repo_root, artifact_class)
+    automation_profiles = _producer_profiles_for_artifact_class(policy, artifact_class)
     consumer_intent = consumer_intent_for_artifact_class(artifact_class)
     if "abi_signature" not in required:
         contract_surface_status = "abi_not_required"
@@ -790,7 +881,9 @@ def artifact_requirement_row(
             "privacy_boundary": identity.get("privacy_boundary"),
             "consumer_expectation": identity.get("consumer_expectation"),
             "verification": identity.get("verification", []),
+            "automation_profile_ids": [profile.get("profile_id") for profile in automation_profiles],
         },
+        "producer_profiles": automation_profiles,
         "consumer": {
             "intent": consumer_intent,
             "trust_gate": f"abyss-machine artifacts trust-gate --artifact-class {artifact_class} --consumer-intent {consumer_intent} --json",
@@ -816,6 +909,7 @@ def artifact_requirement_row(
         "registry_status": registry_status,
         "trust_gate_status": trust_gate_status,
         "agent_loop": {
+            "producer_profiles": f"abyss-machine artifacts producer-profiles --artifact-class {artifact_class} --json",
             "requirements": f"abyss-machine artifacts requirements --artifact-class {artifact_class} --json",
             "affected": f"abyss-machine artifacts affected --artifact-class {artifact_class} --json",
             "build_sidecars": f"abyss-machine artifacts build-sidecars --artifact-class {artifact_class} --bundle-dir BUNDLE_DIR --json",
@@ -874,13 +968,27 @@ def _artifact_affected_matches(
 ) -> tuple[list[str], list[dict[str, Any]]]:
     source_route = row.get("source_route") if isinstance(row.get("source_route"), dict) else {}
     profile = row.get("producer_profile") if isinstance(row.get("producer_profile"), dict) else {}
+    automation_profiles = [
+        item for item in row.get("producer_profiles", []) if isinstance(item, dict)
+    ] if isinstance(row.get("producer_profiles"), list) else []
+    profile_owner_repos = {
+        str(item.get("owner_repo"))
+        for item in automation_profiles
+        if str(item.get("owner_repo") or "")
+    }
     owner_repo = str(row.get("owner_repo") or "")
     local_policy_scope = not changed_source_repo or changed_source_repo == "abyss-machine"
-    owner_scope = not changed_source_repo or not owner_repo or changed_source_repo == owner_repo
+    owner_scope = not changed_source_repo or not owner_repo or changed_source_repo == owner_repo or changed_source_repo in profile_owner_repos
     refs: list[tuple[str, str]] = []
     refs.extend(("contract_source", str(item)) for item in source_route.get("contract_source_paths", []) if str(item))
     refs.extend(("bundle_manifest", str(item)) for item in source_route.get("bundle_manifest_refs", []) if str(item))
     refs.extend(("authority_ref", str(item)) for item in profile.get("authority_ref", []) if str(item) and not str(item).startswith("/"))
+    for automation_profile in automation_profiles:
+        refs.extend(
+            ("producer_profile_route", str(item))
+            for item in automation_profile.get("owner_route_refs", [])
+            if str(item) and not str(item).startswith("/")
+        )
     refs.extend(("release_artifact_pattern", str(item)) for item in source_route.get("release_artifact_patterns", []) if str(item))
     matches: list[dict[str, Any]] = []
     reasons: set[str] = set()
@@ -911,11 +1019,21 @@ def _artifact_affected_verdict(
     accept_sibling_lag: bool,
 ) -> str:
     owner_repo = str(row.get("owner_repo") or "")
+    automation_profiles = [
+        item for item in row.get("producer_profiles", []) if isinstance(item, dict)
+    ] if isinstance(row.get("producer_profiles"), list) else []
+    profile_owner_repos = {
+        str(item.get("owner_repo"))
+        for item in automation_profiles
+        if str(item.get("owner_repo") or "")
+    }
     registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
     gate = row.get("trust_gate_status") if isinstance(row.get("trust_gate_status"), dict) else {}
     source_status = _source_ref_status(row, changed_source_ref)
     owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
-    if owner_repo_changed and owner_repo != "abyss-machine":
+    profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
+    external_owner_changed = bool(changed_source_repo and changed_source_repo != "abyss-machine" and (owner_repo_changed or profile_owner_changed))
+    if external_owner_changed:
         if source_status.get("matched") is True:
             if registry.get("checked") and not registry.get("has_latest"):
                 return "needs_rebuild"
@@ -925,7 +1043,7 @@ def _artifact_affected_verdict(
                 return "needs_reverify"
             return "fresh"
         return "accepted_lag" if accept_sibling_lag else "blocked_by_missing_sibling"
-    if any(reason in affected_reasons for reason in ("contract_source_changed", "bundle_manifest_changed", "authority_ref_changed", "release_artifact_pattern_changed")):
+    if any(reason in affected_reasons for reason in ("contract_source_changed", "bundle_manifest_changed", "authority_ref_changed", "producer_profile_route_changed", "release_artifact_pattern_changed")):
         return "needs_rebuild"
     if any(reason in affected_reasons for reason in ("policy_manifest_changed", "abi_signature_readmodel_changed")):
         return "needs_reverify"
@@ -962,10 +1080,26 @@ def artifact_affected(
             changed_source_repo=changed_source_repo,
         )
         owner_repo = str(requirement.get("owner_repo") or "")
+        automation_profiles = [
+            item for item in requirement.get("producer_profiles", []) if isinstance(item, dict)
+        ] if isinstance(requirement.get("producer_profiles"), list) else []
+        profile_owner_repos = {
+            str(item.get("owner_repo"))
+            for item in automation_profiles
+            if str(item.get("owner_repo") or "")
+        }
         owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
+        profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
         source_status = _source_ref_status(requirement, changed_source_ref)
         if owner_repo_changed and source_status.get("matched") is not True and "owner_repo_changed" not in reasons:
             reasons.append("owner_repo_changed")
+        if (
+            profile_owner_changed
+            and not owner_repo_changed
+            and source_status.get("matched") is not True
+            and "producer_profile_owner_changed" not in reasons
+        ):
+            reasons.append("producer_profile_owner_changed")
         verdict = _artifact_affected_verdict(
             requirement,
             affected_reasons=reasons,
@@ -990,7 +1124,8 @@ def artifact_affected(
         if verdict in {"needs_reverify", "manual_review_required"}:
             next_actions.append(f"abyss-machine artifacts trust-gate --artifact-class {requirement.get('artifact_class')} --json")
         if verdict in {"blocked_by_missing_sibling", "accepted_lag"}:
-            next_actions.append(f"run the producer profile in owner repo {owner_repo}")
+            producer_owner = changed_source_repo if profile_owner_changed else owner_repo
+            next_actions.append(f"run the producer profile in owner repo {producer_owner}")
             next_actions.append("promote the new owner-produced evidence into the host registry")
         rows.append({
             "schema": "abyss_machine_artifact_affected_row_v1",
