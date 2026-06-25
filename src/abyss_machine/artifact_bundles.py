@@ -168,6 +168,15 @@ ARTIFACT_AFFECTED_VERDICTS = (
     "accepted_lag",
     "manual_review_required",
 )
+ARTIFACT_DRIFT_STATUSES = (
+    "fresh",
+    "missing_durable_evidence",
+    "rebuild_required",
+    "reverify_required",
+    "blocked_missing_sibling",
+    "accepted_lag",
+    "manual_review_required",
+)
 UPDATE_LANE_VERDICTS = ("allow", "deny", "manual_review_required")
 DURABLE_EVIDENCE_FIELDS = ("source_repo", "source_ref", "producer", "trust_root_mode", "verifier_versions")
 BUNDLE_REGISTRY_INDEX = "index.json"
@@ -751,6 +760,106 @@ def _path_matches_ref(path_text: str, ref_text: str) -> bool:
         return fnmatch.fnmatch(path, ref)
     ref = ref.rstrip("/")
     return path == ref or path.startswith(ref + "/")
+
+
+def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
+    profiles = policy.get("producer_profiles")
+    if isinstance(profiles, dict):
+        return [item for item in profiles.values() if isinstance(item, dict)]
+    if isinstance(profiles, list):
+        return [item for item in profiles if isinstance(item, dict)]
+    return []
+
+
+def _source_repo_aliases(policy: dict[str, Any]) -> dict[str, list[str]]:
+    aliases: dict[str, list[str]] = {"abyss-machine": ["abyss-machine"]}
+    for profile in _producer_profile_rows(policy):
+        owner = str(profile.get("owner_repo") or "")
+        if not owner:
+            continue
+        values = [owner]
+        if isinstance(profile.get("workspace_aliases"), list):
+            values.extend(str(item) for item in profile["workspace_aliases"] if str(item))
+        aliases[owner] = sorted(dict.fromkeys(values), key=lambda item: (-len(item), item))
+    return aliases
+
+
+def _path_contains_repo_alias(path_text: str, alias: str) -> tuple[bool, str | None]:
+    path = str(path_text).replace("\\", "/").strip()
+    alias_text = str(alias).replace("\\", "/").strip().strip("/")
+    if not path or not alias_text:
+        return False, None
+    marker = f"/{alias_text}/"
+    if marker in path:
+        return True, path.split(marker, 1)[1]
+    suffix = f"/{alias_text}"
+    if path.endswith(suffix):
+        return True, ""
+    if path == alias_text:
+        return True, ""
+    if path.startswith(alias_text + "/"):
+        return True, path[len(alias_text) + 1:]
+    return False, None
+
+
+def _infer_changed_source_repo(
+    changed_paths: list[str],
+    *,
+    policy: dict[str, Any],
+    repo_root: Path = REPO_ROOT,
+) -> str:
+    hits: set[str] = set()
+    aliases = _source_repo_aliases(policy)
+    for raw in changed_paths:
+        normalized = _repo_relative_text(raw, repo_root=repo_root)
+        if normalized != str(raw).replace("\\", "/").strip():
+            hits.add("abyss-machine")
+            continue
+        for owner, owner_aliases in aliases.items():
+            for alias in owner_aliases:
+                matched, _relative = _path_contains_repo_alias(normalized, alias)
+                if matched:
+                    hits.add(owner)
+                    break
+    return next(iter(hits)) if len(hits) == 1 else ""
+
+
+def _source_relative_changed_path(
+    raw_path: str,
+    *,
+    changed_source_repo: str,
+    policy: dict[str, Any],
+    repo_root: Path = REPO_ROOT,
+) -> str:
+    normalized = _repo_relative_text(raw_path, repo_root=repo_root)
+    if not changed_source_repo or changed_source_repo == "abyss-machine":
+        return normalized
+    aliases = _source_repo_aliases(policy).get(changed_source_repo, [changed_source_repo])
+    for alias in aliases:
+        matched, relative = _path_contains_repo_alias(normalized, alias)
+        if matched and relative is not None:
+            return relative
+    return normalized
+
+
+def _changed_path_analysis(
+    raw_paths: list[str],
+    *,
+    normalized_paths: list[str],
+    changed_source_repo: str,
+    inferred_source_repo: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_paths):
+        normalized = normalized_paths[index] if index < len(normalized_paths) else _repo_relative_text(raw)
+        rows.append({
+            "raw": str(raw),
+            "normalized": normalized,
+            "source_repo": changed_source_repo or None,
+            "source_repo_inferred": bool(inferred_source_repo),
+            "scope": "source_repo_relative" if changed_source_repo else "abyss_machine_or_unknown",
+        })
+    return rows
 
 
 def production_release_trust_root_modes(artifact_class: str, required_controls: list[str] | set[str]) -> list[str]:
@@ -1736,6 +1845,77 @@ def _artifact_affected_verdict(
     return "fresh"
 
 
+def _artifact_drift_status(
+    verdict: str,
+    *,
+    affected_reasons: list[str],
+    registry: dict[str, Any],
+    source_status: dict[str, Any],
+    accept_sibling_lag: bool,
+) -> dict[str, Any]:
+    if verdict == "accepted_lag":
+        status = "accepted_lag"
+    elif verdict == "blocked_by_missing_sibling":
+        status = "blocked_missing_sibling"
+    elif verdict == "manual_review_required":
+        status = "manual_review_required"
+    elif verdict == "needs_reverify":
+        status = "reverify_required"
+    elif verdict == "needs_rebuild":
+        status = "missing_durable_evidence" if registry.get("checked") and not registry.get("has_latest") else "rebuild_required"
+    else:
+        status = "fresh"
+
+    if source_status.get("required"):
+        if source_status.get("matched") is True:
+            source_ref_state = "proved_current"
+        else:
+            source_ref_state = "missing_current_proof"
+    else:
+        source_ref_state = "not_requested"
+    if registry.get("checked"):
+        evidence_state = "durable_latest_present" if registry.get("has_latest") else "durable_latest_missing"
+    else:
+        evidence_state = "not_checked"
+    if verdict == "accepted_lag":
+        lag_policy = "accepted"
+    elif verdict == "blocked_by_missing_sibling":
+        lag_policy = "blocked"
+    elif accept_sibling_lag:
+        lag_policy = "accepted_if_sibling_drift_detected"
+    else:
+        lag_policy = "not_accepted"
+    operational_blocking = status in {
+        "missing_durable_evidence",
+        "rebuild_required",
+        "reverify_required",
+        "blocked_missing_sibling",
+        "manual_review_required",
+    }
+    explanations = {
+        "fresh": "latest durable evidence is current for the requested source-ref scope, or no drift input affects this artifact class",
+        "missing_durable_evidence": "no latest durable registry record exists for this artifact class; consumers must not treat it as covered",
+        "rebuild_required": "a declared source, manifest, profile, owner, or release pattern changed and owner-produced evidence must be rebuilt",
+        "reverify_required": "policy or ABI read-model changed; existing durable evidence must be reverified before consumption",
+        "blocked_missing_sibling": "a sibling owner changed and the latest durable registry evidence does not prove the requested source ref",
+        "accepted_lag": "sibling owner drift is explicitly accepted for now; this is not a green proof of current evidence",
+        "manual_review_required": "trust-gate state requires manual review before production consumption",
+    }
+    return {
+        "status": status,
+        "known_statuses": list(ARTIFACT_DRIFT_STATUSES),
+        "operationally_blocking": operational_blocking,
+        "needs_rebuild": status in {"missing_durable_evidence", "rebuild_required", "blocked_missing_sibling"},
+        "needs_reverify": status == "reverify_required",
+        "accepted_lag": status == "accepted_lag",
+        "lag_policy": lag_policy,
+        "source_ref_state": source_ref_state,
+        "evidence_state": evidence_state,
+        "reason_count": len(affected_reasons),
+        "explanation": explanations[status],
+    }
+
+
 def artifact_affected(
     changed_paths: list[str] | None = None,
     *,
@@ -1746,7 +1926,24 @@ def artifact_affected(
     accept_sibling_lag: bool = False,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
-    normalized_paths = sorted({_repo_relative_text(path, repo_root=repo_root) for path in changed_paths or [] if str(path)})
+    policy = load_policy(repo_root)
+    raw_paths = [str(path) for path in changed_paths or [] if str(path)]
+    inferred_source_repo = "" if changed_source_repo else _infer_changed_source_repo(
+        raw_paths,
+        policy=policy,
+        repo_root=repo_root,
+    )
+    effective_source_repo = str(changed_source_repo or inferred_source_repo or "")
+    normalized_path_rows = [
+        _source_relative_changed_path(
+            path,
+            changed_source_repo=effective_source_repo,
+            policy=policy,
+            repo_root=repo_root,
+        )
+        for path in raw_paths
+    ]
+    normalized_paths = sorted(set(normalized_path_rows))
     requirements = artifact_requirements(artifact_class, registry_dir=registry_dir, repo_root=repo_root)
     rows: list[dict[str, Any]] = []
     for requirement in requirements.get("rows", []):
@@ -1755,7 +1952,7 @@ def artifact_affected(
         reasons, matches = _artifact_affected_matches(
             requirement,
             normalized_paths,
-            changed_source_repo=changed_source_repo,
+            changed_source_repo=effective_source_repo,
         )
         owner_repo = str(requirement.get("owner_repo") or "")
         automation_profiles = [
@@ -1766,8 +1963,8 @@ def artifact_affected(
             for item in automation_profiles
             if str(item.get("owner_repo") or "")
         }
-        owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
-        profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
+        owner_repo_changed = bool(effective_source_repo and owner_repo and effective_source_repo == owner_repo)
+        profile_owner_changed = bool(effective_source_repo and effective_source_repo in profile_owner_repos)
         source_status = _source_ref_status(requirement, changed_source_ref)
         if owner_repo_changed and source_status.get("matched") is not True and "owner_repo_changed" not in reasons:
             reasons.append("owner_repo_changed")
@@ -1781,7 +1978,7 @@ def artifact_affected(
         verdict = _artifact_affected_verdict(
             requirement,
             affected_reasons=reasons,
-            changed_source_repo=changed_source_repo,
+            changed_source_repo=effective_source_repo,
             changed_source_ref=changed_source_ref,
             accept_sibling_lag=accept_sibling_lag,
         )
@@ -1793,6 +1990,13 @@ def artifact_affected(
         source_route = requirement.get("source_route") if isinstance(requirement.get("source_route"), dict) else {}
         registry = requirement.get("registry_status") if isinstance(requirement.get("registry_status"), dict) else {}
         gate = requirement.get("trust_gate_status") if isinstance(requirement.get("trust_gate_status"), dict) else {}
+        drift = _artifact_drift_status(
+            verdict,
+            affected_reasons=reasons,
+            registry=registry,
+            source_status=source_status,
+            accept_sibling_lag=accept_sibling_lag,
+        )
         next_actions = [
             f"abyss-machine artifacts requirements --artifact-class {requirement.get('artifact_class')} --json",
         ]
@@ -1814,8 +2018,10 @@ def artifact_affected(
             "freshness": freshness,
             "reasons": reasons,
             "matches": matches,
-            "changed_source_repo": changed_source_repo or None,
+            "changed_source_repo": effective_source_repo or None,
+            "changed_source_repo_inferred": inferred_source_repo or None,
             "contract_surface_status": source_route.get("contract_surface_status"),
+            "drift": drift,
             "registry": {
                 "checked": registry.get("checked"),
                 "has_latest": registry.get("has_latest"),
@@ -1850,14 +2056,25 @@ def artifact_affected(
         "abi_ref": ABI_REF,
         "artifact_class_filter": artifact_class or None,
         "changed_paths": normalized_paths,
-        "changed_source_repo": changed_source_repo or None,
+        "raw_changed_paths": raw_paths,
+        "changed_path_analysis": _changed_path_analysis(
+            raw_paths,
+            normalized_paths=normalized_path_rows,
+            changed_source_repo=effective_source_repo,
+            inferred_source_repo=inferred_source_repo,
+        ),
+        "changed_source_repo": effective_source_repo or None,
+        "changed_source_repo_inferred": inferred_source_repo or None,
         "changed_source_ref": str(changed_source_ref or "") or None,
         "accept_sibling_lag": accept_sibling_lag,
         "known_verdicts": list(ARTIFACT_AFFECTED_VERDICTS),
+        "known_drift_statuses": list(ARTIFACT_DRIFT_STATUSES),
         "summary": {
             "artifact_classes": len(rows),
             "affected": affected_count,
             "status_counts": status_counts,
+            "operationally_blocking": sum(1 for row in rows if row.get("drift", {}).get("operationally_blocking") is True),
+            "accepted_lag": sum(1 for row in rows if row.get("drift", {}).get("accepted_lag") is True),
         },
         "rows": rows,
         "errors": requirements.get("errors", []),
