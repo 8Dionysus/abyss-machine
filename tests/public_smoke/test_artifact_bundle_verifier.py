@@ -1288,6 +1288,8 @@ def _tuf_role(
     signed: dict[str, object],
     signing_keys: dict[str, Ed25519PrivateKey],
     *,
+    keyid: str | None = None,
+    extra_signatures: dict[str, Ed25519PrivateKey] | None = None,
     tamper_signature: bool = False,
 ) -> dict[str, object]:
     signed_payload = {
@@ -1298,9 +1300,12 @@ def _tuf_role(
     signature = signing_keys[role].sign(_canonical_tuf_bytes(signed_payload)).hex()
     if tamper_signature:
         signature = ("00" if signature[:2] != "00" else "ff") + signature[2:]
+    signatures = [{"keyid": keyid or f"{role}-key", "sig": signature}]
+    for extra_keyid, extra_key in (extra_signatures or {}).items():
+        signatures.append({"keyid": extra_keyid, "sig": extra_key.sign(_canonical_tuf_bytes(signed_payload)).hex()})
     return {
         "signed": signed_payload,
-        "signatures": [{"keyid": f"{role}-key", "sig": signature}],
+        "signatures": signatures,
     }
 
 
@@ -1310,6 +1315,8 @@ def _write_tuf_repository(
     target_path: str = "dist/abyss-machine-bootstrap-pytest-update-target.tar.gz",
     role_versions: dict[str, int] | None = None,
     role_expires: dict[str, str] | None = None,
+    key_prefix: str = "",
+    extra_root_signatures: dict[str, Ed25519PrivateKey] | None = None,
     tamper_signature_role: str = "",
 ) -> dict[str, object]:
     repo = tmp_path / "tuf-repository"
@@ -1347,7 +1354,7 @@ def _write_tuf_repository(
             "version": versions["root"],
             "expires": expires["root"],
             "keys": {
-                f"{role}-key": {
+                f"{key_prefix}{role}-key": {
                     "keytype": "ed25519",
                     "scheme": "ed25519",
                     "keyval": {"public": public_keys[role]},
@@ -1355,11 +1362,13 @@ def _write_tuf_repository(
                 for role in ("root", "targets", "snapshot", "timestamp")
             },
             "roles": {
-                role: {"keyids": [f"{role}-key"], "threshold": 1}
+                role: {"keyids": [f"{key_prefix}{role}-key"], "threshold": 1}
                 for role in ("root", "targets", "snapshot", "timestamp")
             },
         },
         signing_keys,
+        keyid=f"{key_prefix}root-key",
+        extra_signatures=extra_root_signatures,
         tamper_signature=tamper_signature_role == "root",
     )
     _write_tuf_json(metadata_dir / "root.json", root)
@@ -1377,6 +1386,7 @@ def _write_tuf_repository(
             },
         },
         signing_keys,
+        keyid=f"{key_prefix}targets-key",
         tamper_signature=tamper_signature_role == "targets",
     )
     targets_hash, targets_length = _write_tuf_json(metadata_dir / "targets.json", targets)
@@ -1395,6 +1405,7 @@ def _write_tuf_repository(
             },
         },
         signing_keys,
+        keyid=f"{key_prefix}snapshot-key",
         tamper_signature=tamper_signature_role == "snapshot",
     )
     snapshot_hash, snapshot_length = _write_tuf_json(metadata_dir / "snapshot.json", snapshot)
@@ -1413,6 +1424,7 @@ def _write_tuf_repository(
             },
         },
         signing_keys,
+        keyid=f"{key_prefix}timestamp-key",
         tamper_signature=tamper_signature_role == "timestamp",
     )
     timestamp_hash, _timestamp_length = _write_tuf_json(metadata_dir / "timestamp.json", timestamp)
@@ -1423,6 +1435,9 @@ def _write_tuf_repository(
         "target_digest": f"sha256:{target_hash}",
         "timestamp_sha256": f"sha256:{timestamp_hash}",
         "role_versions": versions,
+        "root_metadata": root,
+        "signing_keys": signing_keys,
+        "key_prefix": key_prefix,
     }
 
 
@@ -1649,14 +1664,18 @@ def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(t
         "last_seen_at": "2026-06-20T00:00:00Z",
     }
     previous_path = tmp_path / "previous-tuf-client-state.json"
+    trusted_root_path = tmp_path / "trusted-root.json"
     previous_path.write_text(json.dumps(previous), encoding="utf-8")
+    trusted_root_path.write_text(json.dumps(tuf_repo["root_metadata"]), encoding="utf-8")
 
     result = artifact_bundles.verify_tuf_repository(
         tuf_repo["repo"],
         target_path=str(tuf_repo["target_path"]),
         artifact_class="bootstrap_install_bundle",
         target_digest=str(tuf_repo["target_digest"]),
+        trusted_root=tuf_repo["root_metadata"],
         previous_trusted=previous,
+        require_trusted_root=True,
         now="2026-06-21T00:00:00Z",
     )
     cli_result = cli.artifacts_update_repo_verify(
@@ -1664,7 +1683,9 @@ def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(t
         target_path=str(tuf_repo["target_path"]),
         artifact_class="bootstrap_install_bundle",
         target_digest=str(tuf_repo["target_digest"]),
+        trusted_root_path=trusted_root_path,
         previous_trusted_path=previous_path,
+        require_trusted_root=True,
         now="2026-06-21T00:00:00Z",
         write_latest=False,
     )
@@ -1676,8 +1697,11 @@ def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(t
     assert all(item["threshold_met"] for item in result["signature_thresholds"])
     assert all(item["valid_signed_keyids"] == [f"{item['role']}-key"] for item in result["signature_thresholds"])
     assert all(item["cryptographic_signature_verification"] == "ed25519_v1" for item in result["signature_thresholds"])
+    assert result["trusted_root"]["trusted_root_match"] is True
+    assert result["trusted_root"]["rotation"] is False
     assert "cryptographically valid Ed25519 signatures" in result["claim_limits"][1]
     assert cli_result["ok"] is True
+    assert cli_result["trusted_root_path"] == str(trusted_root_path)
     assert cli_result["previous_trusted_path"] == str(previous_path)
 
 
@@ -1721,6 +1745,13 @@ def test_external_tuf_repository_verifier_denies_bad_digest_expiry_rollback_free
         artifact_class="bootstrap_install_bundle",
         now="2026-06-21T00:00:00Z",
     )
+    missing_trusted_root = artifact_bundles.verify_tuf_repository(
+        tuf_repo["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        require_trusted_root=True,
+        now="2026-06-21T00:00:00Z",
+    )
     missing_gate = artifact_bundles.verify_tuf_repository(
         tuf_repo["repo"],
         target_path=str(tuf_repo["target_path"]),
@@ -1740,8 +1771,61 @@ def test_external_tuf_repository_verifier_denies_bad_digest_expiry_rollback_free
     assert bad_signature["ok"] is False
     assert "timestamp_signature_threshold_not_met" in bad_signature["errors"]
     assert bad_signature["signature_thresholds"][3]["invalid_signatures"][0]["error"] == "signature_invalid"
+    assert missing_trusted_root["ok"] is False
+    assert "trusted_root_required" in missing_trusted_root["errors"]
     assert missing_gate["ok"] is False
     assert "trust_gate_registry_required" in missing_gate["errors"]
+
+
+def test_external_tuf_repository_verifier_allows_root_rotation_with_old_and_new_thresholds(
+    tmp_path: Path,
+) -> None:
+    old_repo = _write_tuf_repository(tmp_path / "old", key_prefix="old-")
+    rotated_repo = _write_tuf_repository(
+        tmp_path / "rotated",
+        key_prefix="new-",
+        role_versions={"root": 3, "targets": 3, "snapshot": 3, "timestamp": 3},
+        extra_root_signatures={"old-root-key": old_repo["signing_keys"]["root"]},
+    )
+    bad_rotation = _write_tuf_repository(
+        tmp_path / "bad-rotation",
+        key_prefix="bad-",
+        role_versions={"root": 3, "targets": 3, "snapshot": 3, "timestamp": 3},
+    )
+
+    result = artifact_bundles.verify_tuf_repository(
+        rotated_repo["repo"],
+        target_path=str(rotated_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        target_digest=str(rotated_repo["target_digest"]),
+        trusted_root=old_repo["root_metadata"],
+        previous_trusted={
+            "artifact_class": "bootstrap_install_bundle",
+            "role_versions": old_repo["role_versions"],
+            "timestamp_sha256": "sha256:not-this-timestamp",
+            "last_seen_at": "2026-06-20T00:00:00Z",
+        },
+        require_trusted_root=True,
+        now="2026-06-21T00:00:00Z",
+    )
+    denied = artifact_bundles.verify_tuf_repository(
+        bad_rotation["repo"],
+        target_path=str(bad_rotation["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        target_digest=str(bad_rotation["target_digest"]),
+        trusted_root=old_repo["root_metadata"],
+        require_trusted_root=True,
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert result["ok"] is True
+    assert result["trusted_root"]["trusted_root_match"] is False
+    assert result["trusted_root"]["rotation"] is True
+    assert result["trusted_root"]["old_root_threshold"]["threshold_met"] is True
+    assert result["trusted_root"]["old_root_threshold"]["valid_signed_keyids"] == ["old-root-key"]
+    assert result["signature_thresholds"][0]["valid_signed_keyids"] == ["new-root-key"]
+    assert denied["ok"] is False
+    assert "root_rotation_old_threshold_not_met" in denied["errors"]
 
 
 def test_update_metadata_verifier_allows_current_update_metadata(tmp_path: Path) -> None:

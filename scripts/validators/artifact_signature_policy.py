@@ -487,6 +487,8 @@ def main() -> int:
                     failures.append("update_transparency_lane.tuf.external_repository_verifier.cryptographic_signature_verifier must be an object")
                 elif crypto.get("status") != "ed25519_v1":
                     failures.append("update_transparency_lane.tuf.external_repository_verifier.cryptographic_signature_verifier.status must be ed25519_v1")
+                elif not isinstance(crypto.get("trusted_root_bootstrap"), str) or not crypto.get("trusted_root_bootstrap"):
+                    failures.append("update_transparency_lane.tuf.external_repository_verifier.cryptographic_signature_verifier.trusted_root_bootstrap must be a non-empty string")
             if not isinstance(tuf.get("claim_limit"), str) or not tuf.get("claim_limit"):
                 failures.append("update_transparency_lane.tuf.claim_limit must be a non-empty string")
         scitt = update_lane.get("scitt")

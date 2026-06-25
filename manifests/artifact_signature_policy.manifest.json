@@ -1179,6 +1179,8 @@
           "role versions are positive and monotonic against previous trusted state",
           "role expires values are in the future",
           "root role thresholds are satisfied by cryptographically valid Ed25519 signatures from declared keyids",
+          "repository root matches an out-of-band trusted root for client bootstrap or satisfies root rotation checks",
+          "root rotation verifies the new root through both old-root and new-root Ed25519 thresholds",
           "targets, snapshot, and timestamp role signatures verify against root-delegated Ed25519 keys",
           "timestamp references snapshot by version, length, and sha256",
           "snapshot references targets by version, length, and sha256",
@@ -1189,7 +1191,8 @@
         "cryptographic_signature_verifier": {
           "status": "ed25519_v1",
           "signed_payload": "canonical JSON of the role signed object",
-          "threshold_source": "root.signed.roles[role].threshold and keyids"
+          "threshold_source": "root.signed.roles[role].threshold and keyids",
+          "trusted_root_bootstrap": "required for external update-client consumption"
         }
       },
       "max_freeze_seconds": 604800,
