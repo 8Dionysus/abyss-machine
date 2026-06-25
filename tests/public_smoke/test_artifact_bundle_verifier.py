@@ -582,6 +582,30 @@ def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) 
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
 
 
+def test_trust_coverage_keeps_untrusted_c2pa_credential_as_production_blocker() -> None:
+    status, blocker = cli.artifact_trust_coverage_row_status(
+        "public_media_export",
+        latest={
+            "verification_ok": True,
+            "verified_controls": ["c2pa"],
+        },
+        records=[],
+        required_controls=["c2pa"],
+        manual_positive=["public-media.verify.json"],
+        manual_negative=["public-media.tampered-c2pa.verify.json"],
+        gate={
+            "ok": True,
+            "verdict": "warn",
+            "warnings": [
+                "C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof"
+            ],
+        },
+    )
+
+    assert status == "DEFERRED_WITH_REAL_BLOCKER"
+    assert "C2PA signing credential is not production trust-list trusted" in blocker
+
+
 def test_trust_coverage_checks_cross_repo_manifest_consumer_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
