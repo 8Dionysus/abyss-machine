@@ -62,6 +62,8 @@
   isolated temp roots, proves installed CLI parity without source-checkout
   imports, checks package/public-seed projection, and keeps typing/nervous
   activation opt-in.
+- Keep materialized artifact subject-store `AGENTS.md` files out of the host
+  docs mesh so promoted external evidence cannot masquerade as host route law.
 
 ## 0.1.0
 
