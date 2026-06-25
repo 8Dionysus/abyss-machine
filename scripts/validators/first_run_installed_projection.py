@@ -66,7 +66,11 @@ REQUIRED_ARTIFACT_COMMANDS = {
     "affected",
     "trust-gate",
     "trust-tools",
+    "trust-tools-python",
     "trust-coverage",
+    "update-lane",
+    "update-verify",
+    "update-repo-verify",
 }
 REQUIRED_TYPING_COMMANDS = {
     "paths",
@@ -134,6 +138,19 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--json",
     },
     ("artifacts", "update-verify"): {
+        "--previous-trusted",
+        "--now",
+        "--registry-dir",
+        "--subject-digest",
+        "--source-repo",
+        "--trust-root-mode",
+        "--require-trust-gate",
+        "--json",
+    },
+    ("artifacts", "update-repo-verify"): {
+        "--target-path",
+        "--artifact-class",
+        "--target-digest",
         "--previous-trusted",
         "--now",
         "--registry-dir",

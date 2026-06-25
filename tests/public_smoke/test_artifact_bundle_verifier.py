@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sys
@@ -989,6 +990,126 @@ def _update_metadata(**overrides: object) -> dict[str, object]:
     return metadata
 
 
+def _write_tuf_json(path: Path, payload: dict[str, object]) -> tuple[str, int]:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    return hashlib.sha256(raw).hexdigest(), len(raw)
+
+
+def _tuf_role(role: str, signed: dict[str, object]) -> dict[str, object]:
+    return {
+        "signed": {
+            "_type": role,
+            "spec_version": "1.0.31",
+            **signed,
+        },
+        "signatures": [{"keyid": f"{role}-key", "sig": f"pytest-{role}-signature"}],
+    }
+
+
+def _write_tuf_repository(
+    tmp_path: Path,
+    *,
+    target_path: str = "dist/abyss-machine-bootstrap-pytest-update-target.tar.gz",
+    role_versions: dict[str, int] | None = None,
+    role_expires: dict[str, str] | None = None,
+) -> dict[str, object]:
+    repo = tmp_path / "tuf-repository"
+    metadata_dir = repo / "metadata"
+    targets_dir = repo / "targets"
+    versions = {"root": 2, "targets": 2, "snapshot": 2, "timestamp": 2}
+    versions.update(role_versions or {})
+    expires = {
+        "root": "2027-06-21T00:00:00Z",
+        "targets": "2027-06-21T00:00:00Z",
+        "snapshot": "2026-06-28T00:00:00Z",
+        "timestamp": "2026-06-28T00:00:00Z",
+    }
+    expires.update(role_expires or {})
+    target_file = targets_dir / target_path
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    target_file.write_bytes(b"pytest bootstrap update target\n")
+    target_hash = hashlib.sha256(target_file.read_bytes()).hexdigest()
+    target_length = target_file.stat().st_size
+
+    root = _tuf_role(
+        "root",
+        {
+            "version": versions["root"],
+            "expires": expires["root"],
+            "keys": {
+                f"{role}-key": {
+                    "keytype": "ed25519",
+                    "scheme": "ed25519",
+                    "keyval": {"public": f"pytest-{role}-public"},
+                }
+                for role in ("root", "targets", "snapshot", "timestamp")
+            },
+            "roles": {
+                role: {"keyids": [f"{role}-key"], "threshold": 1}
+                for role in ("root", "targets", "snapshot", "timestamp")
+            },
+        },
+    )
+    _write_tuf_json(metadata_dir / "root.json", root)
+
+    targets = _tuf_role(
+        "targets",
+        {
+            "version": versions["targets"],
+            "expires": expires["targets"],
+            "targets": {
+                target_path: {
+                    "length": target_length,
+                    "hashes": {"sha256": target_hash},
+                }
+            },
+        },
+    )
+    targets_hash, targets_length = _write_tuf_json(metadata_dir / "targets.json", targets)
+
+    snapshot = _tuf_role(
+        "snapshot",
+        {
+            "version": versions["snapshot"],
+            "expires": expires["snapshot"],
+            "meta": {
+                "targets.json": {
+                    "version": versions["targets"],
+                    "length": targets_length,
+                    "hashes": {"sha256": targets_hash},
+                }
+            },
+        },
+    )
+    snapshot_hash, snapshot_length = _write_tuf_json(metadata_dir / "snapshot.json", snapshot)
+
+    timestamp = _tuf_role(
+        "timestamp",
+        {
+            "version": versions["timestamp"],
+            "expires": expires["timestamp"],
+            "meta": {
+                "snapshot.json": {
+                    "version": versions["snapshot"],
+                    "length": snapshot_length,
+                    "hashes": {"sha256": snapshot_hash},
+                }
+            },
+        },
+    )
+    timestamp_hash, _timestamp_length = _write_tuf_json(metadata_dir / "timestamp.json", timestamp)
+
+    return {
+        "repo": repo,
+        "target_path": target_path,
+        "target_digest": f"sha256:{target_hash}",
+        "timestamp_sha256": f"sha256:{timestamp_hash}",
+        "role_versions": versions,
+    }
+
+
 def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
     fake_cosign = tmp_path / "cosign"
     _write_fake_cosign(fake_cosign)
@@ -1088,8 +1209,102 @@ def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
     assert "bootstrap_install_bundle" in [row["artifact_class"] for row in status["rows"]]
     assert "aoa_session_memory_portable_bundle" in [row["artifact_class"] for row in status["rows"]]
     assert status["tuf"]["metadata_sidecar"] == artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
-    assert "not a full external TUF repository" in status["claim_limits"][0]
+    assert "structural external TUF repository verifier" in status["claim_limits"][0]
+    assert status["tuf"]["external_repository_verifier"]["status"] == "structural_v1"
     assert "external transparency integration point" in status["claim_limits"][1]
+
+
+def test_external_tuf_repository_verifier_allows_structural_repo(tmp_path: Path) -> None:
+    tuf_repo = _write_tuf_repository(tmp_path)
+    previous = {
+        "artifact_class": "bootstrap_install_bundle",
+        "role_versions": {"root": 1, "targets": 1, "snapshot": 1, "timestamp": 1},
+        "timestamp_sha256": "sha256:not-this-timestamp",
+        "last_seen_at": "2026-06-20T00:00:00Z",
+    }
+    previous_path = tmp_path / "previous-tuf-client-state.json"
+    previous_path.write_text(json.dumps(previous), encoding="utf-8")
+
+    result = artifact_bundles.verify_tuf_repository(
+        tuf_repo["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        target_digest=str(tuf_repo["target_digest"]),
+        previous_trusted=previous,
+        now="2026-06-21T00:00:00Z",
+    )
+    cli_result = cli.artifacts_update_repo_verify(
+        tuf_repo["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        target_digest=str(tuf_repo["target_digest"]),
+        previous_trusted_path=previous_path,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["verdict"] == "allow"
+    assert result["errors"] == []
+    assert result["timestamp_sha256"] == tuf_repo["timestamp_sha256"]
+    assert all(item["threshold_met"] for item in result["signature_thresholds"])
+    assert "Cryptographic signature bytes are not verified" in result["claim_limits"][1]
+    assert cli_result["ok"] is True
+    assert cli_result["previous_trusted_path"] == str(previous_path)
+
+
+def test_external_tuf_repository_verifier_denies_bad_digest_expiry_rollback_freeze_and_missing_gate(
+    tmp_path: Path,
+) -> None:
+    tuf_repo = _write_tuf_repository(tmp_path)
+    bad_digest = artifact_bundles.verify_tuf_repository(
+        tuf_repo["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        target_digest="sha256:" + ("b" * 64),
+        now="2026-06-21T00:00:00Z",
+    )
+    expired = artifact_bundles.verify_tuf_repository(
+        _write_tuf_repository(tmp_path / "expired", role_expires={"timestamp": "2026-06-20T00:00:00Z"})["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        now="2026-06-21T00:00:00Z",
+    )
+    rollback = artifact_bundles.verify_tuf_repository(
+        _write_tuf_repository(tmp_path / "rollback", role_versions={"snapshot": 1})["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        previous_trusted={"role_versions": {"snapshot": 2}},
+        now="2026-06-21T00:00:00Z",
+    )
+    frozen = artifact_bundles.verify_tuf_repository(
+        tuf_repo["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        previous_trusted={
+            "timestamp_sha256": tuf_repo["timestamp_sha256"],
+            "last_seen_at": "2026-06-01T00:00:00Z",
+        },
+        now="2026-06-21T00:00:00Z",
+    )
+    missing_gate = artifact_bundles.verify_tuf_repository(
+        tuf_repo["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        require_trust_gate=True,
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert bad_digest["ok"] is False
+    assert "target_digest_mismatch" in bad_digest["errors"]
+    assert expired["ok"] is False
+    assert "timestamp_expired" in expired["errors"]
+    assert rollback["ok"] is False
+    assert "rollback_snapshot_version" in rollback["errors"]
+    assert frozen["ok"] is False
+    assert "freeze_attack_or_stale_timestamp" in frozen["errors"]
+    assert missing_gate["ok"] is False
+    assert "trust_gate_registry_required" in missing_gate["errors"]
 
 
 def test_update_metadata_verifier_allows_current_update_metadata(tmp_path: Path) -> None:

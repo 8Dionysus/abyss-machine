@@ -35,6 +35,9 @@ MLBOM_CYCLONEDX_SIDECAR = "artifact.mlbom.cdx.json"
 C2PA_MANIFEST_SIDECAR = "artifact.c2pa"
 C2PA_REPORT_SIDECAR = "artifact.c2pa.json"
 TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
+TUF_REPOSITORY_METADATA_DIR = "metadata"
+TUF_REPOSITORY_TARGETS_DIR = "targets"
+TUF_REPOSITORY_ROLES = ("root", "targets", "snapshot", "timestamp")
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
 CONTROL_FILES = {
     "abi_signature": [ABI_SIDECAR],
@@ -640,7 +643,7 @@ def update_lane_status(
         "rows": rows,
         "errors": errors,
         "claim_limits": [
-            "This lane is a TUF-style OS Abyss metadata gate, not a full external TUF repository implementation.",
+            "This lane includes an OS Abyss TUF-style sidecar gate and a structural external TUF repository verifier, not a full production cryptographic TUF implementation.",
             "SCITT is recorded as an external transparency integration point and is not a v1 blocker until an external transparency service exists.",
         ],
     }
@@ -839,6 +842,284 @@ def verify_update_metadata(
         "claim_limits": [
             "This verifies OS Abyss TUF-style metadata invariants and does not claim a complete external TUF repository or delegated key ceremony.",
             "A passing result only admits update-client consideration; artifact trust-gate verification is still required for the target artifact.",
+        ],
+    }
+
+
+def _tuf_role_path(metadata_dir: Path, role: str) -> Path:
+    return metadata_dir / f"{role}.json"
+
+
+def _tuf_role_signed(metadata: dict[str, Any], role: str, errors: list[str]) -> dict[str, Any]:
+    signed = metadata.get("signed") if isinstance(metadata.get("signed"), dict) else {}
+    signatures = metadata.get("signatures")
+    if not signed:
+        errors.append(f"{role}_signed_missing")
+    if not isinstance(signatures, list):
+        errors.append(f"{role}_signatures_missing")
+    role_type = str(signed.get("_type") or "")
+    if role_type != role:
+        errors.append(f"{role}_type_mismatch")
+    return signed
+
+
+def _tuf_role_threshold(root_signed: dict[str, Any], role: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    roles = root_signed.get("roles") if isinstance(root_signed.get("roles"), dict) else {}
+    role_spec = roles.get(role) if isinstance(roles.get(role), dict) else {}
+    keyids = {str(item) for item in role_spec.get("keyids", []) if str(item)}
+    threshold = _positive_int(role_spec.get("threshold")) or 0
+    signatures = metadata.get("signatures") if isinstance(metadata.get("signatures"), list) else []
+    signed_keyids = {
+        str(item.get("keyid"))
+        for item in signatures
+        if isinstance(item, dict) and str(item.get("keyid") or "") in keyids and item.get("sig")
+    }
+    return {
+        "role": role,
+        "declared_keyids": sorted(keyids),
+        "signed_keyids": sorted(signed_keyids),
+        "threshold": threshold,
+        "threshold_met": bool(threshold and len(signed_keyids) >= threshold),
+        "cryptographic_signature_verification": "not_implemented",
+    }
+
+
+def _tuf_meta_entry_hashes(entry: dict[str, Any]) -> dict[str, str]:
+    hashes = entry.get("hashes") if isinstance(entry.get("hashes"), dict) else {}
+    return {str(key).lower(): str(value) for key, value in hashes.items() if str(value)}
+
+
+def _tuf_hash_matches(path: Path, entry: dict[str, Any]) -> bool:
+    sha256 = _tuf_meta_entry_hashes(entry).get("sha256")
+    if not sha256:
+        return False
+    return _file_digest_hex(path) == sha256.removeprefix("sha256:")
+
+
+def _tuf_length_matches(path: Path, entry: dict[str, Any]) -> bool:
+    length = _positive_int(entry.get("length"))
+    return length is None or path.stat().st_size == length
+
+
+def verify_tuf_repository(
+    repository_dir: str | Path,
+    *,
+    target_path: str,
+    artifact_class: str = "",
+    target_digest: str = "",
+    previous_trusted: dict[str, Any] | None = None,
+    now: dt.datetime | str | None = None,
+    registry_dir: str | Path | None = None,
+    subject_digest: str = "",
+    expected_source_repo: str = "",
+    expected_trust_root_mode: str = "",
+    require_trust_gate: bool = False,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    repo = Path(repository_dir)
+    metadata_dir = repo / TUF_REPOSITORY_METADATA_DIR
+    targets_dir = repo / TUF_REPOSITORY_TARGETS_DIR
+    previous = previous_trusted if isinstance(previous_trusted, dict) else {}
+    now_dt = _parse_time(now) if isinstance(now, str) else now
+    if now_dt is None:
+        now_dt = dt.datetime.now(dt.UTC)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=dt.UTC)
+    now_dt = now_dt.astimezone(dt.UTC)
+    errors: list[str] = []
+    warnings: list[str] = []
+    role_metadata: dict[str, dict[str, Any]] = {}
+    role_signed: dict[str, dict[str, Any]] = {}
+    role_files: dict[str, Path] = {}
+
+    for role in TUF_REPOSITORY_ROLES:
+        path = _tuf_role_path(metadata_dir, role)
+        role_files[role] = path
+        if not path.is_file():
+            errors.append(f"{role}_metadata_missing")
+            continue
+        try:
+            metadata = _read_json(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            errors.append(f"{role}_metadata_unreadable")
+            continue
+        role_metadata[role] = metadata
+        signed = _tuf_role_signed(metadata, role, errors)
+        role_signed[role] = signed
+        version = _positive_int(signed.get("version"))
+        expires = _parse_time(signed.get("expires"))
+        if version is None:
+            errors.append(f"{role}_version_missing")
+        if expires is None:
+            errors.append(f"{role}_expires_missing")
+        elif expires <= now_dt:
+            errors.append(f"{role}_expired")
+
+    root_signed = role_signed.get("root", {})
+    thresholds = [
+        _tuf_role_threshold(root_signed, role, role_metadata.get(role, {}))
+        for role in TUF_REPOSITORY_ROLES
+    ]
+    for threshold in thresholds:
+        if not threshold.get("threshold_met"):
+            errors.append(f"{threshold['role']}_signature_threshold_not_met")
+
+    snapshot_entry: dict[str, Any] = {}
+    timestamp_signed = role_signed.get("timestamp", {})
+    timestamp_meta = timestamp_signed.get("meta") if isinstance(timestamp_signed.get("meta"), dict) else {}
+    if timestamp_signed:
+        snapshot_entry = timestamp_meta.get("snapshot.json") if isinstance(timestamp_meta.get("snapshot.json"), dict) else {}
+        if not snapshot_entry:
+            errors.append("timestamp_snapshot_meta_missing")
+        elif "snapshot" in role_files and role_files["snapshot"].is_file():
+            if not _tuf_hash_matches(role_files["snapshot"], snapshot_entry):
+                errors.append("timestamp_snapshot_hash_mismatch")
+            if not _tuf_length_matches(role_files["snapshot"], snapshot_entry):
+                errors.append("timestamp_snapshot_length_mismatch")
+            expected_version = _positive_int(snapshot_entry.get("version"))
+            actual_version = _positive_int(role_signed.get("snapshot", {}).get("version"))
+            if expected_version is not None and actual_version is not None and expected_version != actual_version:
+                errors.append("timestamp_snapshot_version_mismatch")
+
+    targets_entry: dict[str, Any] = {}
+    snapshot_signed = role_signed.get("snapshot", {})
+    snapshot_meta = snapshot_signed.get("meta") if isinstance(snapshot_signed.get("meta"), dict) else {}
+    if snapshot_signed:
+        targets_entry = snapshot_meta.get("targets.json") if isinstance(snapshot_meta.get("targets.json"), dict) else {}
+        if not targets_entry:
+            errors.append("snapshot_targets_meta_missing")
+        elif "targets" in role_files and role_files["targets"].is_file():
+            if not _tuf_hash_matches(role_files["targets"], targets_entry):
+                errors.append("snapshot_targets_hash_mismatch")
+            if not _tuf_length_matches(role_files["targets"], targets_entry):
+                errors.append("snapshot_targets_length_mismatch")
+            expected_version = _positive_int(targets_entry.get("version"))
+            actual_version = _positive_int(role_signed.get("targets", {}).get("version"))
+            if expected_version is not None and actual_version is not None and expected_version != actual_version:
+                errors.append("snapshot_targets_version_mismatch")
+
+    normalized_target = str(target_path).lstrip("/")
+    target_file = targets_dir / normalized_target
+    target_entry: dict[str, Any] = {}
+    targets_signed = role_signed.get("targets", {})
+    targets = targets_signed.get("targets") if isinstance(targets_signed.get("targets"), dict) else {}
+    if targets_signed:
+        target_entry = targets.get(normalized_target) if isinstance(targets.get(normalized_target), dict) else {}
+        if not target_entry:
+            errors.append("target_metadata_missing")
+        elif not target_file.is_file():
+            errors.append("target_file_missing")
+        else:
+            target_sha256 = _tuf_meta_entry_hashes(target_entry).get("sha256")
+            if not target_sha256:
+                errors.append("target_sha256_missing")
+            elif _file_digest_hex(target_file) != target_sha256.removeprefix("sha256:"):
+                errors.append("target_hash_mismatch")
+            if not _tuf_length_matches(target_file, target_entry):
+                errors.append("target_length_mismatch")
+            expected_digest = str(target_digest or "").removeprefix("sha256:")
+            if expected_digest and target_sha256 and expected_digest != target_sha256.removeprefix("sha256:"):
+                errors.append("target_digest_mismatch")
+
+    previous_versions = previous.get("role_versions") if isinstance(previous.get("role_versions"), dict) else {}
+    for role in TUF_REPOSITORY_ROLES:
+        current = _positive_int(role_signed.get(role, {}).get("version"))
+        prev = _positive_int(previous_versions.get(role))
+        if current is not None and prev is not None and current < prev:
+            errors.append(f"rollback_{role}_version")
+
+    timestamp_digest = _file_digest(role_files["timestamp"]) if role_files.get("timestamp", Path()).is_file() else ""
+    last_seen = _parse_time(previous.get("last_seen_at"))
+    previous_timestamp_digest = str(previous.get("timestamp_sha256") or "")
+    lane = update_transparency_lane(repo_root=repo_root)
+    tuf = lane.get("tuf") if isinstance(lane.get("tuf"), dict) else {}
+    max_freeze_seconds = _positive_int(tuf.get("max_freeze_seconds")) or 0
+    if (
+        max_freeze_seconds
+        and timestamp_digest
+        and last_seen is not None
+        and previous_timestamp_digest == timestamp_digest
+        and (now_dt - last_seen).total_seconds() > max_freeze_seconds
+    ):
+        errors.append("freeze_attack_or_stale_timestamp")
+
+    consumer_admission_required = bool(require_trust_gate or registry_dir is not None)
+    trust_gate_result: dict[str, Any] | None = None
+    consumer_admission_errors: list[str] = []
+    if consumer_admission_required:
+        if registry_dir is None:
+            consumer_admission_errors.append("trust_gate_registry_required")
+        else:
+            gate_subject = str(subject_digest or target_digest or _tuf_meta_entry_hashes(target_entry).get("sha256") or "")
+            trust_gate_result = trust_gate(
+                registry_dir,
+                artifact_class=str(artifact_class or previous.get("artifact_class") or ""),
+                subject_digest=gate_subject,
+                consumer_intent="update_client",
+                expected_source_repo=expected_source_repo,
+                expected_trust_root_mode=expected_trust_root_mode,
+                require_latest=True,
+            )
+            if not trust_gate_result.get("ok"):
+                consumer_admission_errors.append("trust_gate_not_allowed")
+    errors.extend(consumer_admission_errors)
+
+    ok = not errors
+    return {
+        "ok": ok,
+        "schema": "abyss_machine_tuf_repository_verify_v1",
+        "policy_ref": POLICY_REF,
+        "repository_dir": str(repo),
+        "metadata_dir": str(metadata_dir),
+        "targets_dir": str(targets_dir),
+        "target_path": normalized_target,
+        "artifact_class": artifact_class or previous.get("artifact_class") or None,
+        "target_file": str(target_file),
+        "target_digest": _tuf_meta_entry_hashes(target_entry).get("sha256") or target_digest or None,
+        "timestamp_sha256": timestamp_digest or None,
+        "verdict": "allow" if ok else "deny",
+        "metadata_ok": not errors,
+        "role_versions": {
+            role: _positive_int(role_signed.get(role, {}).get("version"))
+            for role in TUF_REPOSITORY_ROLES
+        },
+        "role_expirations": {
+            role: role_signed.get(role, {}).get("expires")
+            for role in TUF_REPOSITORY_ROLES
+        },
+        "signature_thresholds": thresholds,
+        "cross_role_links": {
+            "timestamp_snapshot": snapshot_entry,
+            "snapshot_targets": targets_entry,
+        },
+        "consumer_admission": {
+            "required": consumer_admission_required,
+            "verdict": "allow" if trust_gate_result and trust_gate_result.get("ok") else ("deny" if consumer_admission_required else "not_checked"),
+            "consumer_intent": "update_client",
+            "registry_dir": str(registry_dir) if registry_dir is not None else None,
+            "subject_digest": str(subject_digest or target_digest or _tuf_meta_entry_hashes(target_entry).get("sha256") or "") or None,
+            "expected_source_repo": expected_source_repo or None,
+            "expected_trust_root_mode": expected_trust_root_mode or None,
+            "errors": consumer_admission_errors,
+            "trust_gate": trust_gate_result,
+        },
+        "previous_trusted": {
+            "role_versions": previous_versions,
+            "timestamp_sha256": previous_timestamp_digest or None,
+            "last_seen_at": previous.get("last_seen_at"),
+        },
+        "checked": {
+            "roles": list(TUF_REPOSITORY_ROLES),
+            "now": now_dt.isoformat().replace("+00:00", "Z"),
+            "max_freeze_seconds": max_freeze_seconds,
+            "target_sha256": _tuf_meta_entry_hashes(target_entry).get("sha256"),
+        },
+        "errors": errors,
+        "warnings": warnings,
+        "claim_limits": [
+            "This verifies external TUF repository role layout, expiration, versions, threshold keyid presence, cross-role hashes, target binding, rollback, freeze, and optional OS Abyss trust-gate admission.",
+            "Cryptographic signature bytes are not verified in this source-level slice; threshold_met means signed keyids satisfy root role thresholds, not that signatures are mathematically valid.",
+            "A full production TUF lane still requires a key ceremony, real signature verification, root rotation policy, and published repository bootstrap trust root.",
         ],
     }
 
