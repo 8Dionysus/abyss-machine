@@ -202,6 +202,59 @@ def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
             assert "materialize-subjects BUNDLE_DIR" not in command_text, manifest_path
 
 
+def test_artifact_scenario_matrix_covers_required_os_trust_loop() -> None:
+    matrix = artifact_bundles.artifact_scenario_matrix()
+
+    assert matrix["ok"] is True
+    assert matrix["schema"] == "abyss_machine_artifact_scenario_matrix_v1"
+    assert matrix["summary"]["scenarios"] == 8
+    rows = {row["scenario_id"]: row for row in matrix["rows"]}
+    assert set(rows) == {
+        "bootstrap_install",
+        "runtime_container",
+        "ai_runtime_model",
+        "public_source_seed",
+        "public_media_export",
+        "eval_report",
+        "browser_extension",
+        "host_local_evidence",
+    }
+    assert rows["bootstrap_install"]["artifact_class"] == "bootstrap_install_bundle"
+    assert rows["runtime_container"]["consumer_intent"] == "runtime"
+    assert rows["ai_runtime_model"]["update_lane_applies"] is True
+    assert rows["public_source_seed"]["coverage_tier"] == "synthetic_executable"
+    assert rows["host_local_evidence"]["required_controls"] == ["local_provenance"]
+    assert rows["eval_report"]["artifact_class"] == "aoa_evals_generated_report_index_bundle"
+    assert rows["eval_report"]["coverage_tier"] == "policy_or_owner_declared"
+    assert rows["eval_report"]["manual_or_owner_evidence_required"] is True
+    assert rows["public_media_export"]["coverage_status"] == "policy_declared_c2pa_binding_tests"
+    assert rows["public_media_export"]["manual_or_owner_evidence_required"] is True
+    for row in rows.values():
+        assert row["agent_loop"]["trust_gate"].startswith("abyss-machine artifacts trust-gate")
+        assert row["agent_loop"]["inspect_requirements"].endswith("--json")
+        assert row["claim_limit"]
+    assert "run trust-gate before any consumer use" in matrix["agent_loop"]
+    assert matrix["summary"]["owner_or_manual_evidence_required"] == 2
+
+
+def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    scenarios_root = tmp_path / "scenarios"
+    monkeypatch.setattr(cli, "ARTIFACTS_SCENARIOS_ROOT", scenarios_root)
+    monkeypatch.setattr(cli, "ARTIFACTS_SCENARIOS_LATEST_PATH", scenarios_root / "latest.json")
+    monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
+
+    rc = cli.main(["artifacts", "scenarios", "--scenario-id", "eval_report", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert rc == 0
+    assert data["schema"] == "abyss_machine_artifact_scenario_matrix_v1"
+    assert data["scenario_filter"] == "eval_report"
+    assert data["rows"][0]["manual_or_owner_evidence_required"] is True
+    latest = json.loads((scenarios_root / "latest.json").read_text(encoding="utf-8"))
+    assert latest["rows"][0]["scenario_id"] == "eval_report"
+
+
 @pytest.mark.parametrize(
     ("manifest_ref", "subject_path", "artifact_class", "consumer_intent", "requires_cosign"),
     [

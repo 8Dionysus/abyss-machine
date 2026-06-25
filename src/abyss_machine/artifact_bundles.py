@@ -46,6 +46,64 @@ SCITT_STATEMENT_CLASSES = (
     "eval_report_result",
 )
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
+OS_ARTIFACT_SCENARIOS = (
+    {
+        "scenario_id": "bootstrap_install",
+        "artifact_class": "bootstrap_install_bundle",
+        "required_owner_route": "abyss-machine bootstrap/install projection",
+        "coverage_status": "executable_synthetic_bundle_roundtrip",
+        "coverage_ref": "tests/public_smoke/test_artifact_bundle_verifier.py::test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize",
+    },
+    {
+        "scenario_id": "runtime_container",
+        "artifact_class": "runtime_or_container_artifact",
+        "required_owner_route": "abyss-stack runtime/deployable artifacts or abyss-machine host runtime tools",
+        "coverage_status": "executable_synthetic_bundle_roundtrip",
+        "coverage_ref": "tests/public_smoke/test_artifact_bundle_verifier.py::test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize",
+    },
+    {
+        "scenario_id": "ai_runtime_model",
+        "artifact_class": "ai_model_or_runtime_bundle",
+        "required_owner_route": "host-managed AI runtime/model bundle",
+        "coverage_status": "executable_synthetic_bundle_roundtrip",
+        "coverage_ref": "tests/public_smoke/test_artifact_bundle_verifier.py::test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize",
+    },
+    {
+        "scenario_id": "public_source_seed",
+        "artifact_class": "public_source_seed",
+        "required_owner_route": "abyss-machine public seed release",
+        "coverage_status": "executable_public_seed_roundtrip",
+        "coverage_ref": "scripts/validators/artifact_bundle_roundtrip.py",
+    },
+    {
+        "scenario_id": "public_media_export",
+        "artifact_class": "public_media_export",
+        "required_owner_route": "Tree-of-Sophia/Dionysus public media export owner route",
+        "coverage_status": "policy_declared_c2pa_binding_tests",
+        "coverage_ref": "tests/public_smoke/test_artifact_bundle_verifier.py::test_public_media_export_verifies_c2pa_asset_binding",
+    },
+    {
+        "scenario_id": "eval_report",
+        "artifact_class": "aoa_evals_generated_report_index_bundle",
+        "required_owner_route": "aoa-evals report/result proof route",
+        "coverage_status": "owner_required_no_synthetic_roundtrip",
+        "coverage_ref": "aoa-evals owns report verdict/proof; abyss-machine owns consumer artifact gate",
+    },
+    {
+        "scenario_id": "browser_extension",
+        "artifact_class": "browser_extension_package",
+        "required_owner_route": "browser extension package/release route",
+        "coverage_status": "executable_synthetic_bundle_roundtrip",
+        "coverage_ref": "tests/public_smoke/test_artifact_bundle_verifier.py::test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize",
+    },
+    {
+        "scenario_id": "host_local_evidence",
+        "artifact_class": "host_local_evidence",
+        "required_owner_route": "abyss-machine host-local evidence lane",
+        "coverage_status": "executable_local_provenance_sample_roundtrip",
+        "coverage_ref": "scripts/validators/artifact_bundle_roundtrip.py",
+    },
+)
 CONTROL_FILES = {
     "abi_signature": [ABI_SIDECAR],
     "local_provenance": [LOCAL_PROVENANCE_SIDECAR],
@@ -304,6 +362,166 @@ def artifact_producer_profiles(
             "Producer profiles are OS Abyss policy/read-model data; they do not run owner validators or produce sidecars by themselves.",
             "A profile names expected owner routes and controls; the owning repo remains authoritative for its source truth.",
             "GitHub Actions/OIDC is one producer adapter, not the whole OS Abyss trust plane.",
+        ],
+        "errors": errors,
+    }
+
+
+def artifact_scenario_matrix(
+    *,
+    scenario_id: str = "",
+    artifact_class: str = "",
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    policy = load_policy(repo_root)
+    classes = policy.get("artifact_classes") if isinstance(policy.get("artifact_classes"), dict) else {}
+    lane = update_transparency_lane(repo_root=repo_root)
+    tuf = lane.get("tuf") if isinstance(lane.get("tuf"), dict) else {}
+    updateable = {str(item) for item in tuf.get("applies_to_artifact_classes", []) if str(item)}
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    selected = [dict(item) for item in OS_ARTIFACT_SCENARIOS]
+    if scenario_id:
+        selected = [item for item in selected if item.get("scenario_id") == scenario_id]
+        if not selected:
+            errors.append(f"unknown scenario_id: {scenario_id}")
+    if artifact_class:
+        selected = [item for item in selected if item.get("artifact_class") == artifact_class]
+        if not selected:
+            errors.append(f"unknown or non-scenario artifact_class: {artifact_class}")
+
+    for spec in selected:
+        class_id = str(spec.get("artifact_class") or "")
+        rule = classes.get(class_id) if isinstance(classes.get(class_id), dict) else None
+        if rule is None:
+            errors.append(f"scenario {spec.get('scenario_id')} references unknown artifact_class: {class_id}")
+            continue
+        required_controls = required_controls_for_rule(rule)
+        manifest_refs = _bundle_manifest_refs_for_class(repo_root, class_id)
+        bundle_manifests: list[dict[str, Any]] = []
+        manifest_errors: list[str] = []
+        for ref in manifest_refs:
+            try:
+                manifest = load_bundle_manifest(ref, repo_root=repo_root)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                manifest_errors.append(f"{ref}: {exc}")
+                continue
+            consumer_contract = manifest.get("consumer_contract")
+            bundle_manifests.append({
+                "ref": ref,
+                "consumer_contract": consumer_contract if isinstance(consumer_contract, dict) else {},
+                "consumer_commands": [str(item) for item in manifest.get("consumer_command", []) if str(item)],
+                "artifact_subjects_declared": bool(manifest.get("artifact_subjects")),
+            })
+        subject_store_required = any(
+            item.get("consumer_contract", {}).get("subject_store_required") is True
+            for item in bundle_manifests
+        )
+        coverage_status = str(spec.get("coverage_status") or "")
+        executable = coverage_status.startswith("executable_")
+        consumer_intent = consumer_intent_for_artifact_class(class_id)
+        trust_root_modes = _trust_root_expectations(rule, consumer_intent=consumer_intent).get(
+            "recommended_for_consumer_intent",
+            [],
+        )
+        row = {
+            "schema": "abyss_machine_artifact_scenario_matrix_row_v1",
+            "scenario_id": str(spec.get("scenario_id") or ""),
+            "artifact_class": class_id,
+            "owner_repo": str(rule.get("identity", {}).get("owner_repo") or ""),
+            "required_owner_route": str(spec.get("required_owner_route") or ""),
+            "consumer_intent": consumer_intent,
+            "required_controls": required_controls,
+            "deferred_controls": deferred_controls_for_rule(rule),
+            "recommended_trust_root_modes": trust_root_modes,
+            "producer_profiles": [row.get("profile_id") for row in _producer_profiles_for_artifact_class(policy, class_id)],
+            "bundle_manifest_refs": manifest_refs,
+            "bundle_manifests": bundle_manifests,
+            "manifest_errors": manifest_errors,
+            "subject_store_required": subject_store_required,
+            "update_lane_applies": class_id in updateable,
+            "coverage_status": coverage_status,
+            "coverage_ref": str(spec.get("coverage_ref") or ""),
+            "coverage_tier": "synthetic_executable" if executable else "policy_or_owner_declared",
+            "manual_or_owner_evidence_required": not executable,
+            "agent_loop": {
+                "detect_artifact_class": f"abyss-machine artifacts classify --artifact-class {class_id} --json",
+                "inspect_requirements": f"abyss-machine artifacts requirements --artifact-class {class_id} --json",
+                "inspect_producer_profile": f"abyss-machine artifacts producer-profiles --artifact-class {class_id} --json",
+                "produce_evidence": (
+                    f"abyss-machine artifacts build-sidecars --manifest {manifest_refs[0]} --bundle-dir BUNDLE_DIR --json"
+                    if manifest_refs
+                    else "owner repo produces artifact bundle sidecars before abyss-machine consumption"
+                ),
+                "promote_durable_evidence": (
+                    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR "
+                    f"--lifecycle-state release-ready --source-repo {rule.get('identity', {}).get('owner_repo') or 'OWNER_REPO'} --json"
+                ),
+                "materialize_subject_store": (
+                    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR "
+                    f"--consumer-intent {consumer_intent} --json"
+                    if subject_store_required
+                    else None
+                ),
+                "trust_gate": (
+                    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR "
+                    f"--artifact-class {class_id} --consumer-intent {consumer_intent} --json"
+                ),
+                "registry_latest": (
+                    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR "
+                    f"--artifact-class {class_id} --consumer-intent {consumer_intent} --json"
+                ),
+                "affected_drift": f"abyss-machine artifacts affected --artifact-class {class_id} --changed-path PATH --json",
+                "update_lane": f"abyss-machine artifacts update-lane --artifact-class {class_id} --json"
+                if class_id in updateable
+                else None,
+            },
+            "claim_limit": (
+                "Synthetic executable coverage proves the OS Abyss bundle/gate route shape, not a published production artifact."
+                if executable
+                else "Owner/manual evidence must still land in a durable registry before consumers treat this scenario as covered."
+            ),
+        }
+        rows.append(row)
+
+    missing_artifact_classes = [
+        str(spec.get("artifact_class") or "")
+        for spec in selected
+        if str(spec.get("artifact_class") or "") not in classes
+    ]
+    executable_rows = [row for row in rows if row.get("coverage_tier") == "synthetic_executable"]
+    owner_required_rows = [row for row in rows if row.get("manual_or_owner_evidence_required") is True]
+    return {
+        "ok": not errors and not missing_artifact_classes,
+        "schema": "abyss_machine_artifact_scenario_matrix_v1",
+        "policy_ref": POLICY_REF,
+        "policy_version": policy.get("policy_version"),
+        "abi_ref": ABI_REF,
+        "scenario_filter": scenario_id or None,
+        "artifact_class_filter": artifact_class or None,
+        "summary": {
+            "scenarios": len(rows),
+            "artifact_classes": sorted({str(row.get("artifact_class")) for row in rows}),
+            "executable_synthetic_coverage": len(executable_rows),
+            "owner_or_manual_evidence_required": len(owner_required_rows),
+            "update_lane_applicable": sum(1 for row in rows if row.get("update_lane_applies") is True),
+            "missing_artifact_classes": missing_artifact_classes,
+        },
+        "agent_loop": [
+            "detect artifact class",
+            "inspect requirements and producer profile",
+            "produce sidecars/evidence in the owner route",
+            "promote durable evidence with source/trust-root metadata",
+            "materialize subject store when required",
+            "run trust-gate before any consumer use",
+            "run update/SCITT gates for updateable or external relying-party artifacts",
+            "land only after local and OS gates pass",
+        ],
+        "rows": rows,
+        "claim_limits": [
+            "Scenario matrix is a read-model over policy, manifests, and known validator coverage; it does not build, verify, promote, or consume artifacts.",
+            "Rows marked synthetic_executable prove route mechanics in CI; production publication still requires real owner artifacts and trust-root evidence.",
+            "Rows marked policy_or_owner_declared are deliberately not full coverage until durable evidence and trust-gate allow/warn exist.",
         ],
         "errors": errors,
     }

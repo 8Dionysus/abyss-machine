@@ -134,7 +134,10 @@ verifier exposed by `abyss-machine artifacts verify`, and exercises
 `registry-latest` selection, positive `trust-gate` selection, terminal-state
 revocation, negative `trust-gate` denial, legacy registry upgrade,
 durable-only `trust-coverage` without tmp/manual evidence, and the gate's
-explicit decision/claims explanation. Public smoke tests also cover external
-sibling subjects, including the
+explicit decision/claims explanation. The `artifacts scenarios` read-model
+collects the required OS artifact scenarios and marks which rows are synthetic
+executable coverage versus owner/manual evidence still required; it does not
+build, verify, promote, or consume artifacts. Public smoke tests also cover
+external sibling subjects, including the
 `aoa_session_memory_portable_bundle` update-client path with ABI, SBOM,
 SLSA/in-toto, registry promotion, and a negative missing-control gate.

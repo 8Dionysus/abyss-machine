@@ -63,6 +63,7 @@ REQUIRED_ARTIFACT_COMMANDS = {
     "evidence-promote",
     "requirements",
     "producer-profiles",
+    "scenarios",
     "affected",
     "trust-gate",
     "trust-tools",
@@ -136,6 +137,11 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--subject-digest",
         "--source-repo",
         "--trust-root-mode",
+        "--json",
+    },
+    ("artifacts", "scenarios"): {
+        "--scenario-id",
+        "--artifact-class",
         "--json",
     },
     ("artifacts", "update-verify"): {

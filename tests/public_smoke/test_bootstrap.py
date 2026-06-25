@@ -161,6 +161,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "bundle-registry-upgrade" in help_result.stdout
     assert "evidence-promote" in help_result.stdout
     assert "requirements" in help_result.stdout
+    assert "scenarios" in help_result.stdout
     assert "affected" in help_result.stdout
     assert "trust-gate" in help_result.stdout
     assert "trust-tools" in help_result.stdout
