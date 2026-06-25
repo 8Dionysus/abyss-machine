@@ -62,6 +62,7 @@ REQUIRED_ARTIFACT_COMMANDS = {
     "bundle-registry-upgrade",
     "evidence-promote",
     "requirements",
+    "producer-profiles",
     "affected",
     "trust-gate",
     "trust-tools",

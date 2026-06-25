@@ -11,6 +11,7 @@
     "identity_fields",
     "local_provenance_packet",
     "portable_runner_contract",
+    "producer_profiles",
     "release_sidecar_expectations",
     "artifact_classes",
     "contract_surfaces",
@@ -142,6 +143,69 @@
                 "items": {"type": "string"}
               }
             }
+          }
+        }
+      }
+    },
+    "producer_profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "profile_id",
+          "owner_repo",
+          "owner_route_refs",
+          "artifact_classes",
+          "release_export_triggers",
+          "validator_commands",
+          "produced_sidecars",
+          "consumer_expectations",
+          "owner_boundaries",
+          "trust_root_modes"
+        ],
+        "properties": {
+          "profile_id": {"type": "string"},
+          "owner_repo": {"type": "string"},
+          "owner_route_refs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "artifact_classes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "release_export_triggers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "validator_commands": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "produced_sidecars": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "consumer_expectations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "owner_boundaries": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "trust_root_modes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
           }
         }
       }
