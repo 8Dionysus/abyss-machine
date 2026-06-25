@@ -18,7 +18,9 @@ checks.
   `registry-latest`, `bundle-registry-upgrade`, `requirements`,
   `producer-profiles`, `scenarios`, `affected`, `update-lane`,
   `update-verify`, `trust-gate`, and `trust-coverage` commands
-  consume this
+  consume this. The `affected` read-model reports repo/source-ref drift with
+  explicit blocking versus accepted-lag state and can infer sibling owner repos
+  from absolute OS Abyss paths before matching owner-relative source refs. This
   policy for the `public_source_seed`,
   external package subjects such as `aoa_sdk_python_distribution`, external
   runtime config subjects such as `abyss_stack_runtime_config_bundle`,

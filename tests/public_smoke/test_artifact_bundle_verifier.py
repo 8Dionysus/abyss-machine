@@ -862,6 +862,9 @@ def test_artifact_affected_marks_missing_registry_latest_as_stale(tmp_path: Path
     assert row["freshness"] == "stale"
     assert row["reasons"] == []
     assert row["registry"]["has_latest"] is False
+    assert row["drift"]["status"] == "missing_durable_evidence"
+    assert row["drift"]["operationally_blocking"] is True
+    assert row["drift"]["evidence_state"] == "durable_latest_missing"
 
 
 def test_artifact_affected_policy_change_requires_all_classes_to_reverify() -> None:
@@ -889,8 +892,60 @@ def test_artifact_affected_distinguishes_sibling_lag() -> None:
 
     assert blocked["rows"][0]["verdict"] == "blocked_by_missing_sibling"
     assert blocked["rows"][0]["next_actions"][1] == "run the producer profile in owner repo aoa-sdk"
+    assert blocked["rows"][0]["drift"]["status"] == "blocked_missing_sibling"
+    assert blocked["rows"][0]["drift"]["operationally_blocking"] is True
+    assert blocked["rows"][0]["drift"]["lag_policy"] == "blocked"
     assert accepted["rows"][0]["verdict"] == "accepted_lag"
     assert accepted["accept_sibling_lag"] is True
+    assert accepted["rows"][0]["drift"]["status"] == "accepted_lag"
+    assert accepted["rows"][0]["drift"]["operationally_blocking"] is False
+    assert accepted["rows"][0]["drift"]["lag_policy"] == "accepted"
+    assert accepted["summary"]["accepted_lag"] == 1
+
+
+def test_artifact_affected_infers_sibling_repo_from_absolute_path() -> None:
+    affected = artifact_bundles.artifact_affected(
+        ["/srv/AbyssOS/bundles/aoa-session-memory/src/aoa_session_memory.py"],
+        artifact_class="aoa_session_memory_portable_bundle",
+    )
+    row = affected["rows"][0]
+
+    assert affected["changed_source_repo"] == "aoa-session-memory"
+    assert affected["changed_source_repo_inferred"] == "aoa-session-memory"
+    assert affected["changed_paths"] == ["src/aoa_session_memory.py"]
+    assert affected["changed_path_analysis"][0]["source_repo_inferred"] is True
+    assert row["changed_source_repo"] == "aoa-session-memory"
+    assert row["changed_source_repo_inferred"] == "aoa-session-memory"
+    assert row["verdict"] == "blocked_by_missing_sibling"
+    assert row["drift"]["status"] == "blocked_missing_sibling"
+    assert row["drift"]["source_ref_state"] == "not_requested"
+    assert row["drift"]["operationally_blocking"] is True
+
+
+def test_artifact_affected_keeps_raw_to_normalized_path_mapping_for_sibling_paths() -> None:
+    affected = artifact_bundles.artifact_affected(
+        [
+            "/srv/AbyssOS/aoa-sdk/pyproject.toml",
+            "/srv/AbyssOS/aoa-sdk/sdk/distribution/package-contract/README.md",
+        ],
+        artifact_class="aoa_sdk_python_distribution",
+    )
+
+    assert affected["changed_source_repo"] == "aoa-sdk"
+    assert affected["changed_paths"] == [
+        "pyproject.toml",
+        "sdk/distribution/package-contract/README.md",
+    ]
+    assert [
+        (row["raw"], row["normalized"])
+        for row in affected["changed_path_analysis"]
+    ] == [
+        ("/srv/AbyssOS/aoa-sdk/pyproject.toml", "pyproject.toml"),
+        (
+            "/srv/AbyssOS/aoa-sdk/sdk/distribution/package-contract/README.md",
+            "sdk/distribution/package-contract/README.md",
+        ),
+    ]
 
 
 def test_artifact_affected_detects_profile_owner_for_shared_media_class() -> None:
@@ -969,6 +1024,9 @@ def test_artifact_affected_source_ref_closes_sibling_lag_after_promotion(tmp_pat
     assert row["freshness"] == "fresh"
     assert row["source_ref_status"]["matched"] is True
     assert row["source_ref_status"]["matched_ref"] == "commit:current"
+    assert row["drift"]["status"] == "fresh"
+    assert row["drift"]["operationally_blocking"] is False
+    assert row["drift"]["source_ref_state"] == "proved_current"
     assert row["registry"]["latest_record_id"] == "sha256:" + "a" * 64
     assert row["trust_gate"]["verdict"] == "allow"
     assert row["next_actions"] == [

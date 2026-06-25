@@ -134,7 +134,11 @@ verifier exposed by `abyss-machine artifacts verify`, and exercises
 `registry-latest` selection, positive `trust-gate` selection, terminal-state
 revocation, negative `trust-gate` denial, legacy registry upgrade,
 durable-only `trust-coverage` without tmp/manual evidence, and the gate's
-explicit decision/claims explanation. The `artifacts scenarios` read-model
+explicit decision/claims explanation. The `affected` read-model also exposes
+drift status, operational blocking, accepted sibling lag, source-ref proof
+state, durable-evidence state, and inferred sibling source repositories for
+absolute OS Abyss paths, so agents can distinguish real rebuild/reverify needs
+from explicitly accepted lag. The `artifacts scenarios` read-model
 collects the required OS artifact scenarios and marks which rows are synthetic
 executable coverage versus owner/manual evidence still required; it does not
 build, verify, promote, or consume artifacts. Public smoke tests also cover
