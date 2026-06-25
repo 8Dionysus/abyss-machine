@@ -1317,12 +1317,14 @@ def verify_tuf_repository(
     target_path: str,
     artifact_class: str = "",
     target_digest: str = "",
+    trusted_root: dict[str, Any] | None = None,
     previous_trusted: dict[str, Any] | None = None,
     now: dt.datetime | str | None = None,
     registry_dir: str | Path | None = None,
     subject_digest: str = "",
     expected_source_repo: str = "",
     expected_trust_root_mode: str = "",
+    require_trusted_root: bool = False,
     require_trust_gate: bool = False,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
@@ -1373,6 +1375,44 @@ def verify_tuf_repository(
     for threshold in thresholds:
         if not threshold.get("threshold_met"):
             errors.append(f"{threshold['role']}_signature_threshold_not_met")
+
+    root_digest = _file_digest(role_files["root"]) if role_files.get("root", Path()).is_file() else ""
+    root_canonical_digest = _stable_digest(role_metadata["root"]) if "root" in role_metadata else ""
+    trusted_root_result: dict[str, Any] = {
+        "required": bool(require_trusted_root),
+        "provided": isinstance(trusted_root, dict),
+        "trusted_root_match": False,
+        "rotation": False,
+        "trusted_root_sha256": None,
+        "repository_root_sha256": root_digest or None,
+        "repository_root_canonical_sha256": root_canonical_digest or None,
+        "old_root_threshold": None,
+        "errors": [],
+        "claim_limit": "TUF client bootstrap must start from an out-of-band trusted root; root rotation requires the new root to satisfy both old and new root thresholds.",
+    }
+    if require_trusted_root and not isinstance(trusted_root, dict):
+        trusted_root_result["errors"].append("trusted_root_required")
+    if isinstance(trusted_root, dict):
+        trusted_errors: list[str] = []
+        trusted_signed = _tuf_role_signed(trusted_root, "root", trusted_errors)
+        trusted_root_digest = _stable_digest(trusted_root)
+        trusted_root_result["trusted_root_sha256"] = trusted_root_digest
+        trusted_root_result["trusted_root_parse_errors"] = trusted_errors
+        if trusted_errors:
+            trusted_root_result["errors"].extend(f"trusted_root_{item}" for item in trusted_errors)
+        elif root_canonical_digest and trusted_root_digest == root_canonical_digest:
+            trusted_root_result["trusted_root_match"] = True
+        elif root_signed:
+            trusted_root_result["rotation"] = True
+            trusted_version = _positive_int(trusted_signed.get("version"))
+            current_version = _positive_int(root_signed.get("version"))
+            if trusted_version is not None and current_version is not None and current_version <= trusted_version:
+                trusted_root_result["errors"].append("root_rotation_version_not_increased")
+            old_threshold = _tuf_role_threshold(trusted_signed, "root", role_metadata.get("root", {}))
+            trusted_root_result["old_root_threshold"] = old_threshold
+            if not old_threshold.get("threshold_met"):
+                trusted_root_result["errors"].append("root_rotation_old_threshold_not_met")
+    errors.extend(str(item) for item in trusted_root_result["errors"])
 
     snapshot_entry: dict[str, Any] = {}
     timestamp_signed = role_signed.get("timestamp", {})
@@ -1498,6 +1538,7 @@ def verify_tuf_repository(
             for role in TUF_REPOSITORY_ROLES
         },
         "signature_thresholds": thresholds,
+        "trusted_root": trusted_root_result,
         "cross_role_links": {
             "timestamp_snapshot": snapshot_entry,
             "snapshot_targets": targets_entry,
