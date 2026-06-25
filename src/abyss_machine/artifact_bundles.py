@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import base64
+import binascii
 import fnmatch
 import hashlib
 import json
@@ -11,6 +13,13 @@ import tomllib
 import uuid
 from pathlib import Path
 from typing import Any
+
+try:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+except Exception:  # pragma: no cover - optional production verifier dependency.
+    InvalidSignature = None  # type: ignore[assignment]
+    Ed25519PublicKey = None  # type: ignore[assignment]
 
 
 POLICY_REF = "manifests/artifact_signature_policy.manifest.json"
@@ -242,9 +251,12 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
+def _canonical_json_bytes(payload: Any) -> bytes:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
 def _stable_digest(payload: Any) -> str:
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+    return "sha256:" + hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
 
 
 def _parse_time(value: object) -> dt.datetime | None:
@@ -980,7 +992,7 @@ def update_lane_status(
         "rows": rows,
         "errors": errors,
         "claim_limits": [
-            "This lane includes an OS Abyss TUF-style sidecar gate and a structural external TUF repository verifier, not a full production cryptographic TUF implementation.",
+            "This lane includes an OS Abyss TUF-style sidecar gate and a cryptographic Ed25519 external TUF repository verifier, but not a complete published production TUF repository lifecycle.",
             "SCITT is implemented as a local statement/receipt binding stub for fail-closed external relying-party mode; it is not a live external transparency service yet.",
         ],
     }
@@ -1200,24 +1212,85 @@ def _tuf_role_signed(metadata: dict[str, Any], role: str, errors: list[str]) -> 
     return signed
 
 
+def _decode_tuf_bytes(value: object) -> bytes | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = "".join(value.strip().split())
+    try:
+        if len(text) % 2 == 0:
+            return bytes.fromhex(text)
+    except ValueError:
+        pass
+    try:
+        return base64.b64decode(text, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def _verify_tuf_signature(
+    key: dict[str, Any],
+    signature: dict[str, Any],
+    signed: dict[str, Any],
+) -> tuple[bool, str]:
+    if Ed25519PublicKey is None or InvalidSignature is None:
+        return False, "crypto_verifier_unavailable"
+    keytype = str(key.get("keytype") or "").lower()
+    scheme = str(key.get("scheme") or "").lower()
+    if keytype != "ed25519" or scheme != "ed25519":
+        return False, "unsupported_key_scheme"
+    keyval = key.get("keyval") if isinstance(key.get("keyval"), dict) else {}
+    public_bytes = _decode_tuf_bytes(keyval.get("public"))
+    signature_bytes = _decode_tuf_bytes(signature.get("sig"))
+    if public_bytes is None:
+        return False, "public_key_unreadable"
+    if signature_bytes is None:
+        return False, "signature_unreadable"
+    try:
+        verifier = Ed25519PublicKey.from_public_bytes(public_bytes)
+        verifier.verify(signature_bytes, _canonical_json_bytes(signed))
+    except InvalidSignature:
+        return False, "signature_invalid"
+    except (ValueError, TypeError):
+        return False, "signature_verifier_error"
+    return True, ""
+
+
 def _tuf_role_threshold(root_signed: dict[str, Any], role: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    keys = root_signed.get("keys") if isinstance(root_signed.get("keys"), dict) else {}
     roles = root_signed.get("roles") if isinstance(root_signed.get("roles"), dict) else {}
     role_spec = roles.get(role) if isinstance(roles.get(role), dict) else {}
     keyids = {str(item) for item in role_spec.get("keyids", []) if str(item)}
     threshold = _positive_int(role_spec.get("threshold")) or 0
     signatures = metadata.get("signatures") if isinstance(metadata.get("signatures"), list) else []
-    signed_keyids = {
-        str(item.get("keyid"))
-        for item in signatures
-        if isinstance(item, dict) and str(item.get("keyid") or "") in keyids and item.get("sig")
-    }
+    signed = metadata.get("signed") if isinstance(metadata.get("signed"), dict) else {}
+    signed_keyids: set[str] = set()
+    valid_signed_keyids: set[str] = set()
+    invalid_signatures: list[dict[str, str]] = []
+    for item in signatures:
+        if not isinstance(item, dict):
+            continue
+        keyid = str(item.get("keyid") or "")
+        if keyid not in keyids or not item.get("sig"):
+            continue
+        signed_keyids.add(keyid)
+        key = keys.get(keyid) if isinstance(keys.get(keyid), dict) else {}
+        if not key:
+            invalid_signatures.append({"keyid": keyid, "error": "declared_key_missing"})
+            continue
+        ok, error = _verify_tuf_signature(key, item, signed)
+        if ok:
+            valid_signed_keyids.add(keyid)
+        else:
+            invalid_signatures.append({"keyid": keyid, "error": error})
     return {
         "role": role,
         "declared_keyids": sorted(keyids),
         "signed_keyids": sorted(signed_keyids),
+        "valid_signed_keyids": sorted(valid_signed_keyids),
+        "invalid_signatures": invalid_signatures,
         "threshold": threshold,
-        "threshold_met": bool(threshold and len(signed_keyids) >= threshold),
-        "cryptographic_signature_verification": "not_implemented",
+        "threshold_met": bool(threshold and len(valid_signed_keyids) >= threshold),
+        "cryptographic_signature_verification": "ed25519_v1" if Ed25519PublicKey is not None else "unavailable",
     }
 
 
@@ -1454,9 +1527,9 @@ def verify_tuf_repository(
         "errors": errors,
         "warnings": warnings,
         "claim_limits": [
-            "This verifies external TUF repository role layout, expiration, versions, threshold keyid presence, cross-role hashes, target binding, rollback, freeze, and optional OS Abyss trust-gate admission.",
-            "Cryptographic signature bytes are not verified in this source-level slice; threshold_met means signed keyids satisfy root role thresholds, not that signatures are mathematically valid.",
-            "A full production TUF lane still requires a key ceremony, real signature verification, root rotation policy, and published repository bootstrap trust root.",
+            "This verifies external TUF repository role layout, expiration, versions, Ed25519 role signature thresholds, cross-role hashes, target binding, rollback, freeze, and optional OS Abyss trust-gate admission.",
+            "threshold_met means the role has enough cryptographically valid Ed25519 signatures from keyids delegated by the root role.",
+            "A full production TUF lane still requires key ceremony policy, root rotation, and published repository bootstrap trust-root distribution.",
         ],
     }
 
