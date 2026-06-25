@@ -51,7 +51,11 @@
   "consumer_contract": {
     "stable_interface": "abyss-machine artifacts trust-gate --artifact-class host_local_evidence --json",
     "consumer_expectation": "Consumers select a host_local_evidence bundle only after durable local evidence promotion and a trust-gate allow or warn verdict over registry latest, local provenance verification, digest, source repo, trust root mode, and consumer intent.",
-    "registry_required": true
+    "registry_required": true,
+    "subject_store_required": false,
+    "subject_store_deferred_reason": "This public-safe sample validates local provenance packet shape and does not emit materializable private host evidence subjects; real host-local evidence producers must add artifact_subjects before requiring subject-store admission.",
+    "admission_gate": "fail_closed_consumer_admission",
+    "consumer_verdict": "allow_or_deny_required_before_use"
   },
   "consumer_command": [
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/host_local_evidence.sample.bundle.json --bundle-dir BUNDLE_DIR",

@@ -114,6 +114,14 @@ def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
 
         assert manifest.get("owner_repo") == "abyss-machine", manifest_path
         assert manifest.get("consumer_contract", {}).get("registry_required") is True, manifest_path
+        assert (
+            manifest.get("consumer_contract", {}).get("admission_gate")
+            == "fail_closed_consumer_admission"
+        ), manifest_path
+        assert (
+            manifest.get("consumer_contract", {}).get("consumer_verdict")
+            == "allow_or_deny_required_before_use"
+        ), manifest_path
         assert "bundle-registry --artifact-class" not in command_text, manifest_path
         assert "evidence-promote BUNDLE_DIR" in command_text, manifest_path
         assert "--registry-dir REGISTRY_DIR" in command_text, manifest_path
@@ -123,8 +131,12 @@ def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
         assert "registry-latest --registry-dir REGISTRY_DIR" in command_text, manifest_path
         assert "--json" in command_text, manifest_path
         if manifest.get("artifact_subjects"):
+            assert manifest.get("consumer_contract", {}).get("subject_store_required") is True, manifest_path
             assert "materialize-subjects BUNDLE_DIR" in command_text, manifest_path
+            assert "--store-root SUBJECT_STORE_ROOT" in command_text, manifest_path
         else:
+            assert manifest.get("consumer_contract", {}).get("subject_store_required") is False, manifest_path
+            assert manifest.get("consumer_contract", {}).get("subject_store_deferred_reason"), manifest_path
             assert "materialize-subjects BUNDLE_DIR" not in command_text, manifest_path
 
 
