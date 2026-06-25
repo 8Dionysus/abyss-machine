@@ -1244,7 +1244,8 @@ def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
     assert status["tuf"]["metadata_sidecar"] == artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
     assert "structural external TUF repository verifier" in status["claim_limits"][0]
     assert status["tuf"]["external_repository_verifier"]["status"] == "structural_v1"
-    assert "external transparency integration point" in status["claim_limits"][1]
+    assert "local statement/receipt binding stub" in status["claim_limits"][1]
+    assert status["scitt"]["status"] == "local_stub_fail_closed_external_v1"
 
 
 def test_scitt_receipt_verifier_allows_external_relying_party_with_bound_receipt(tmp_path: Path) -> None:

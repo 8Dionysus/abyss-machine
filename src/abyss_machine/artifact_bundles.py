@@ -651,7 +651,7 @@ def update_lane_status(
         "errors": errors,
         "claim_limits": [
             "This lane includes an OS Abyss TUF-style sidecar gate and a structural external TUF repository verifier, not a full production cryptographic TUF implementation.",
-            "SCITT is recorded as an external transparency integration point and is not a v1 blocker until an external transparency service exists.",
+            "SCITT is implemented as a local statement/receipt binding stub for fail-closed external relying-party mode; it is not a live external transparency service yet.",
         ],
     }
 
