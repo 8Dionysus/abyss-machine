@@ -457,6 +457,41 @@ def test_trust_coverage_checks_cross_repo_manifest_consumer_contract(
     assert row["status"] == "DURABLE_GATE_COVERED"
 
 
+def test_trust_coverage_falls_back_to_durable_source_ref_for_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "registry"
+    workspace = tmp_path / "workspace"
+    consumer_contract = {
+        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class role_contract_registry --consumer-intent agent --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    manifest_path = _write_role_registry_source_manifest(workspace, consumer_contract=consumer_contract)
+    _write_role_registry_latest(registry, consumer_contract=consumer_contract)
+    _rewrite_latest_record(
+        registry,
+        bundle_manifest_ref="ephemeral/role_contract_registry.bundle.json",
+        source_ref=str(manifest_path),
+    )
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "role_contract_registry")
+
+    assert row["source_freshness"]["checked"] is True
+    assert row["source_freshness"]["freshness"] == "fresh"
+    assert row["source_freshness"]["manifest_resolution"]["resolved"] is True
+    assert row["source_freshness"]["manifest_resolution"]["path"] == str(manifest_path)
+    assert row["status"] == "DURABLE_GATE_COVERED"
+
+
 def test_trust_coverage_blocks_stale_cross_repo_manifest_consumer_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
