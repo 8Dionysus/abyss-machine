@@ -188,6 +188,7 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
     bundle = tmp_path / "bundle"
     registry = tmp_path / "registry"
     store_root = tmp_path / "subject-store"
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT", str(store_root))
 
     if requires_cosign:
         fake_cosign = tmp_path / "cosign"
@@ -224,6 +225,15 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
             expected_source_repo="abyss-machine",
             expected_trust_root_mode="host_managed",
         )
+        registered = artifact_bundles.promote_bundle_evidence(
+            bundle,
+            registry,
+            lifecycle_state="release-ready",
+            source_repo="abyss-machine",
+            source_ref=manifest_ref,
+            producer=f"pytest official {artifact_class} manifest",
+            trust_root_mode="host_managed",
+        )
         latest = cli.artifacts_registry_latest(
             artifact_class=artifact_class,
             registry_dir=registry,
@@ -240,9 +250,15 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
         assert promoted["ok"] is True
         assert promoted["record"]["source_ref"] == manifest_ref
         assert promoted["record"]["source_repo"] == "abyss-machine"
+        assert promoted["record"]["artifact_subject_store"]["ok"] is False
         assert materialized["ok"] is True
         assert materialized["consumer_intent"] == consumer_intent
-        assert materialized["trust_gate"]["verdict"] == "allow"
+        assert materialized["materialization_admission"]["verdict"] == "allow"
+        assert materialized["materialization_admission"]["reason"] == "only_required_subject_store_missing"
+        assert materialized["trust_gate"]["verdict"] == "deny"
+        assert artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER in materialized["trust_gate"]["blockers"]
+        assert registered["ok"] is True
+        assert registered["record"]["artifact_subject_store"]["ok"] is True
         assert latest["ok"] is True
         assert latest["trust_gate"]["verdict"] == "allow"
         assert any(item["path"] == subject_path for item in subjects["files"])
@@ -349,6 +365,7 @@ def _write_role_registry_latest(
     consumer_contract: dict[str, object],
     source_repo: str = "aoa-agents",
 ) -> None:
+    subject_store_required = consumer_contract.get("subject_store_required") is True
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
         "record_id": "sha256:" + "c" * 64,
@@ -375,6 +392,12 @@ def _write_role_registry_latest(
         "trust_root_mode": "host_managed",
         "verifier_versions": {"test": "cross-repo-source-freshness"},
         "consumer_contract": consumer_contract,
+        "artifact_subject_store": {
+            "required": subject_store_required,
+            "ok": True,
+            "aggregate_digest": "sha256:" + "d" * 64,
+            "path_basis": "synthetic_test_evidence",
+        },
         "created_at": "2026-06-25T00:00:00Z",
         "policy_ref": artifact_bundles.POLICY_REF,
         "abi_ref": artifact_bundles.ABI_REF,
@@ -905,6 +928,8 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     subject.write_text("bootstrap update target\n", encoding="utf-8")
     bundle = tmp_path / "bootstrap-update-bundle"
     registry = tmp_path / "registry"
+    store_root = tmp_path / "subject-store"
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT", str(store_root))
     try:
         build = artifact_bundles.build_sidecars(
             bundle,
@@ -914,6 +939,24 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         verify = artifact_bundles.verify_bundle(bundle)
         subjects = json.loads((bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8"))
         promoted = artifact_bundles.promote_bundle_evidence(
+            bundle,
+            registry,
+            lifecycle_state="release-ready",
+            source_repo="abyss-machine",
+            source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            producer="pytest bootstrap update publisher",
+            trust_root_mode="host_managed",
+        )
+        materialized = artifact_bundles.materialize_artifact_subjects(
+            bundle,
+            store_root=store_root,
+            registry_dir=registry,
+            manifest_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            consumer_intent="update_client",
+            expected_source_repo="abyss-machine",
+            expected_trust_root_mode="host_managed",
+        )
+        registered = artifact_bundles.promote_bundle_evidence(
             bundle,
             registry,
             lifecycle_state="release-ready",
@@ -939,6 +982,11 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert sign["ok"] is True
     assert verify["ok"] is True
     assert promoted["ok"] is True
+    assert promoted["record"]["artifact_subject_store"]["ok"] is False
+    assert materialized["ok"] is True
+    assert materialized["materialization_admission"]["verdict"] == "allow"
+    assert registered["ok"] is True
+    assert registered["record"]["artifact_subject_store"]["ok"] is True
     assert gate["ok"] is True
     assert gate["verdict"] == "allow"
     return registry, subject_digest
@@ -1269,6 +1317,63 @@ def test_trust_gate_denies_digest_mismatch_and_revoked_records(tmp_path: Path) -
     assert "terminal_lifecycle_state:revoked" in revoked_gate["blockers"]
 
 
+def test_trust_gate_denies_missing_required_subject_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = tmp_path / "bootstrap-install"
+    registry = tmp_path / "registry"
+    fake_cosign = tmp_path / "cosign"
+    _write_fake_cosign(fake_cosign)
+    key = tmp_path / "local-test.key"
+    public_key = tmp_path / "local-test.pub"
+    key.write_text("fake-private-key\n", encoding="utf-8")
+    public_key.write_text("fake-public-key\n", encoding="utf-8")
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
+    subject = ROOT / "dist" / "abyss-machine-bootstrap-pytest-subject-store.tar.gz"
+    subject.parent.mkdir(parents=True, exist_ok=True)
+    subject.write_text("bootstrap subject-store gate\n", encoding="utf-8")
+    try:
+        artifact_bundles.build_sidecars(
+            bundle,
+            manifest_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+        )
+        sign = artifact_bundles.sign_bundle(bundle, backend="cosign-local-key")
+        verify = artifact_bundles.verify_bundle(bundle)
+        promoted = artifact_bundles.promote_bundle_evidence(
+            bundle,
+            registry,
+            lifecycle_state="release-ready",
+            trust_root_mode="host_managed",
+        )
+    finally:
+        subject.unlink(missing_ok=True)
+        try:
+            subject.parent.rmdir()
+        except OSError:
+            pass
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="installer",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert sign["ok"] is True
+    assert verify["ok"] is True
+    assert promoted["ok"] is True
+    assert promoted["record"]["consumer_contract"]["subject_store_required"] is True
+    assert promoted["record"]["artifact_subject_store"]["ok"] is False
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "required_artifact_subject_store_not_verified" in gate["blockers"]
+    assert gate["inspected_claims"]["artifact_subject_store"]["ok"] is False
+
+
 def test_trust_gate_requires_manual_review_for_local_dev_production_consumers(tmp_path: Path) -> None:
     bundle = tmp_path / "public-source-seed"
     registry = tmp_path / "registry"
@@ -1466,6 +1571,11 @@ def test_required_cosign_bundle_roundtrip_and_tamper_check(
             "name": "abyss-machine-bootstrap",
             "purl": "pkg:generic/abyss-machine-bootstrap@0",
         },
+        "consumer_contract": {
+            "stable_interface": "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer --json",
+            "admission_gate": "fail_closed_consumer_admission",
+            "subject_store_required": True,
+        },
     }
     manifest_path = tmp_path / "bootstrap_install.bundle.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
@@ -1545,6 +1655,11 @@ def test_materialized_artifact_subject_store_supports_installed_verification(
             "name": "abyss-machine-bootstrap",
             "purl": "pkg:generic/abyss-machine-bootstrap@0",
         },
+        "consumer_contract": {
+            "stable_interface": "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer --json",
+            "admission_gate": "fail_closed_consumer_admission",
+            "subject_store_required": True,
+        },
     }
     manifest_path = tmp_path / "bootstrap_install.bundle.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
@@ -1585,7 +1700,10 @@ def test_materialized_artifact_subject_store_supports_installed_verification(
     assert pre_materialize_promotion["ok"] is True
     assert materialized["ok"] is True
     assert materialized["consumer_intent"] == "installer"
-    assert materialized["trust_gate"]["verdict"] == "allow"
+    assert materialized["materialization_admission"]["verdict"] == "allow"
+    assert materialized["materialization_admission"]["reason"] == "only_required_subject_store_missing"
+    assert materialized["trust_gate"]["verdict"] == "deny"
+    assert artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER in materialized["trust_gate"]["blockers"]
     assert verify["ok"] is True
     assert verify["artifact_subject_resolution"][0]["source"] == "artifact_subject_store"
     assert str(tmp_path.resolve()) not in (bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8")
@@ -2750,6 +2868,8 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
         "consumer_contract": {
             "stable_interface": "abyss-machine artifacts trust-gate --artifact-class aoa_session_memory_portable_bundle --consumer-intent update_client --json",
             "consumer_expectation": "Workspace installers select the portable session-memory bundle only after registry latest selection, ABI/SBOM/SLSA verification, portable audit evidence, and update-client trust-gate allow or warn.",
+            "admission_gate": "fail_closed_consumer_admission",
+            "subject_store_required": True,
         },
     }
     manifest_path = manifest_dir / "portable_bundle.bundle.json"
@@ -2812,7 +2932,10 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
     assert pre_materialize_promotion["ok"] is True
     assert materialized["ok"] is True
     assert materialized["consumer_intent"] == "update_client"
-    assert materialized["trust_gate"]["verdict"] == "allow"
+    assert materialized["materialization_admission"]["verdict"] == "allow"
+    assert materialized["materialization_admission"]["reason"] == "only_required_subject_store_missing"
+    assert materialized["trust_gate"]["verdict"] == "deny"
+    assert artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER in materialized["trust_gate"]["blockers"]
     assert verify_from_store["ok"] is True
     assert {row["source"] for row in verify_from_store["artifact_subject_resolution"]} == {"artifact_subject_store"}
     assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
