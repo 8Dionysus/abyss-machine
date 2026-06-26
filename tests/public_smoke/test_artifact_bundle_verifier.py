@@ -296,6 +296,66 @@ def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pyte
     assert latest["rows"][0]["scenario_id"] == "eval_report"
 
 
+def test_artifacts_affected_cli_fails_on_operational_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    affected_root = tmp_path / "affected"
+    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
+    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
+    monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
+
+    rc = cli.main(
+        [
+            "artifacts",
+            "affected",
+            "--registry-dir",
+            str(tmp_path / "empty-registry"),
+            "--artifact-class",
+            "public_source_seed",
+            "--fail-on-blocking",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert rc == 2
+    assert data["summary"]["operationally_blocking"] == 1
+    assert data["gate"]["enabled"] is True
+    assert data["gate"]["allowed"] is False
+    assert data["gate"]["reasons"] == ["operationally_blocking:1"]
+    latest = json.loads((affected_root / "latest.json").read_text(encoding="utf-8"))
+    assert latest["gate"]["exit_code"] == 2
+
+
+def test_artifacts_affected_cli_can_fail_on_accepted_sibling_lag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    affected_root = tmp_path / "affected"
+    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
+    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
+    monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
+
+    rc = cli.main(
+        [
+            "artifacts",
+            "affected",
+            "--artifact-class",
+            "aoa_sdk_python_distribution",
+            "--source-repo",
+            "aoa-sdk",
+            "--accept-sibling-lag",
+            "--fail-on-accepted-lag",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert rc == 2
+    assert data["summary"]["operationally_blocking"] == 0
+    assert data["summary"]["accepted_lag"] == 1
+    assert data["rows"][0]["drift"]["status"] == "accepted_lag"
+    assert data["gate"]["allowed"] is False
+    assert data["gate"]["reasons"] == ["accepted_lag:1"]
+
+
 @pytest.mark.parametrize(
     ("manifest_ref", "subject_path", "artifact_class", "consumer_intent", "requires_cosign"),
     [
