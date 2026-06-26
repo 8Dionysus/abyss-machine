@@ -1549,6 +1549,36 @@ def test_artifact_affected_policy_change_requires_all_classes_to_reverify() -> N
     assert all(row["reasons"] == ["policy_manifest_changed"] for row in affected["rows"])
 
 
+def test_artifact_affected_source_repo_only_explains_owner_rebuild(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="public_source_seed",
+        changed_source_repo="abyss-machine",
+        changed_source_ref=artifact_bundles.POLICY_REF,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["ok"] is True
+    assert affected["summary"]["status_counts"] == {"needs_rebuild": 1}
+    assert row["verdict"] == "needs_rebuild"
+    assert row["source_ref_status"]["matched"] is True
+    assert row["reasons"] == ["owner_repo_changed"]
+    assert row["drift"]["reason_count"] == 1
+
+
 def test_artifact_affected_distinguishes_sibling_lag() -> None:
     blocked = artifact_bundles.artifact_affected(
         [],
