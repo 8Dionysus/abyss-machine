@@ -17,7 +17,7 @@ python scripts/validators/first_run_installed_projection.py --json
 For an actual host projection, close the loop explicitly:
 
 1. Run `abyss-machine changes preflight` for the host surfaces that will change.
-2. Apply `scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json`.
+2. Apply `scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json`; this fails closed unless the durable `bootstrap_install_bundle` trust-gate admits the selected registry latest.
 3. Run system and user `daemon-reload` for the unit skeletons that were
    projected.
 4. Run `python scripts/validators/first_run_installed_projection.py --require-host-installed --json`.

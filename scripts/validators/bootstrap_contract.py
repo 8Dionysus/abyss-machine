@@ -85,7 +85,13 @@ def main() -> int:
     render_actions = render.get("actions") if isinstance(render.get("actions"), list) else []
     require(any("config-templates/etc/abyss-machine" in str(item.get("source", "")) for item in render_actions if isinstance(item, dict)), "render actions must use config-templates source root", failures)
 
-    install = run_bootstrap("install", "--profile", "linux-systemd-core", "--dry-run")
+    install = run_bootstrap(
+        "install",
+        "--profile",
+        "linux-systemd-core",
+        "--dry-run",
+        "--skip-artifact-trust-gate",
+    )
     require(install.get("ok") is True and install.get("dry_run") is True, "install dry-run must be ok and dry_run", failures)
     install_actions = install.get("actions") if isinstance(install.get("actions"), list) else []
     require(any("/systemd/system/" in str(item.get("source", "")) for item in install_actions if isinstance(item, dict)), "install actions must include systemd/system sources", failures)

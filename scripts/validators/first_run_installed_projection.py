@@ -353,6 +353,7 @@ def bootstrap_args(paths: dict[str, Path]) -> list[str]:
         str(paths["systemd_system_dir"]),
         "--systemd-user-dir",
         str(paths["systemd_user_dir"]),
+        "--skip-artifact-trust-gate",
         "--json",
     ]
 
