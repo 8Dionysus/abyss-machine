@@ -2733,12 +2733,11 @@ def artifact_affected(
         owner_repo_changed = bool(effective_source_repo and owner_repo and effective_source_repo == owner_repo)
         profile_owner_changed = bool(effective_source_repo and effective_source_repo in profile_owner_repos)
         source_status = _source_ref_status(requirement, changed_source_ref)
-        if owner_repo_changed and source_status.get("matched") is not True and "owner_repo_changed" not in reasons:
+        if owner_repo_changed and "owner_repo_changed" not in reasons:
             reasons.append("owner_repo_changed")
         if (
             profile_owner_changed
             and not owner_repo_changed
-            and source_status.get("matched") is not True
             and "producer_profile_owner_changed" not in reasons
         ):
             reasons.append("producer_profile_owner_changed")
