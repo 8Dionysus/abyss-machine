@@ -614,6 +614,35 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert affected_row["verdict"] == "needs_rebuild"
     assert affected_row["freshness"] == "stale"
     assert affected_row["trust_gate"]["verdict"] == "allow"
+    assert affected_data["gate"]["enabled"] is False
+    assert affected_data["gate"]["exit_code"] == 0
+
+    affected_gate_result = subprocess.run(
+        [
+            str(installed),
+            "artifacts",
+            "affected",
+            "--registry-dir",
+            str(registry),
+            "--artifact-class",
+            "public_source_seed",
+            "--changed-path",
+            "src/abyss_machine/artifact_bundles.py",
+            "--fail-on-blocking",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert affected_gate_result.returncode == 2, affected_gate_result.stderr[-1000:]
+    affected_gate_data = json.loads(affected_gate_result.stdout)
+    assert affected_gate_data["gate"]["enabled"] is True
+    assert affected_gate_data["gate"]["allowed"] is False
+    assert affected_gate_data["gate"]["reasons"] == ["operationally_blocking:1"]
 
     registry_upgrade_result = subprocess.run(
         [
