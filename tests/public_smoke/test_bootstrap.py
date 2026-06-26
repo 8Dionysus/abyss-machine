@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -9,10 +10,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BOOTSTRAP = ROOT / "scripts" / "abyss-machine-bootstrap"
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from abyss_machine import artifact_bundles
 
 
-def run_bootstrap(*args: str, env: dict[str, str] | None = None) -> dict:
-    result = subprocess.run(
+def run_bootstrap_process(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, str(BOOTSTRAP), *args, "--json"],
         text=True,
         capture_output=True,
@@ -20,11 +26,99 @@ def run_bootstrap(*args: str, env: dict[str, str] | None = None) -> dict:
         env={**os.environ, **(env or {})},
         timeout=30,
     )
+
+
+def run_bootstrap(*args: str, env: dict[str, str] | None = None) -> dict:
+    result = run_bootstrap_process(*args, env=env)
     assert result.returncode == 0, result.stderr[-1000:]
     payload = json.loads(result.stdout)
     assert payload["schema"] == "abyss_machine_bootstrap_v1"
     assert payload["ok"] is True
     return payload
+
+
+def _bootstrap_install_registry_record(
+    tmp_path: Path,
+    *,
+    lifecycle_state: str = "release-ready",
+    subject_digest: str = "sha256:" + ("1" * 64),
+    trust_root_mode: str = "github_oidc",
+    privacy_boundary: str = "public-safe bootstrap install material",
+) -> tuple[Path, str, str]:
+    registry = tmp_path / "bundle-registry"
+    records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+    records.mkdir(parents=True)
+    source_ref = "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json"
+    record_id = "sha256:" + hashlib.sha256(f"bootstrap_install_bundle:{subject_digest}:{lifecycle_state}".encode()).hexdigest()
+    trust_root_evidence = {
+        "schema": "pytest_bootstrap_trust_root_evidence_v1",
+        "mode": trust_root_mode,
+        "issuer": "https://token.actions.githubusercontent.com",
+        "subject": "repo:8Dionysus/abyss-machine:ref:refs/heads/main",
+        "source_repo": "abyss-machine",
+        "source_ref": source_ref,
+        "subject_digest": subject_digest,
+        "verifier": "pytest-github-oidc-verifier",
+        "evidence_ref": f"pytest:github_oidc:{subject_digest}",
+    }
+    record = {
+        "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+        "record_id": record_id,
+        "artifact_class": "bootstrap_install_bundle",
+        "bundle_layout": artifact_bundles.BUNDLE_LAYOUT,
+        "bundle_ref": "pytest/bootstrap-install-bundle",
+        "bundle_manifest_ref": source_ref,
+        "subject_digest": subject_digest,
+        "artifact_subjects_digest": subject_digest,
+        "abi_subject_digest": "sha256:" + ("2" * 64),
+        "lifecycle_state": lifecycle_state,
+        "latest_eligible": lifecycle_state == "release-ready",
+        "terminal_state": lifecycle_state in artifact_bundles.BUNDLE_TERMINAL_STATES,
+        "verification_ok": True,
+        "required_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "verified_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "present_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "controls": {
+            "required": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+            "verified": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+            "present": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        },
+        "verification_errors": [],
+        "verification_missing": [],
+        "verification_warnings": [],
+        "source_repo": "abyss-machine",
+        "source_ref": source_ref,
+        "source_refs": [source_ref],
+        "producer": "pytest bootstrap install publisher",
+        "producer_command": "pytest",
+        "trust_root_mode": trust_root_mode,
+        "trust_root_evidence": trust_root_evidence,
+        "verifier_versions": {"pytest": "bootstrap-install-admission"},
+        "privacy_boundary": privacy_boundary,
+        "artifact_subject_store": {
+            "required": True,
+            "ok": True,
+            "aggregate_digest": subject_digest,
+            "path_basis": "pytest",
+        },
+        "consumer_contract": {
+            "stable_interface": "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer --json",
+            "admission_gate": "fail_closed_consumer_admission",
+            "subject_store_required": True,
+        },
+        "consumer_refs": ["pytest:bootstrap-install"],
+        "evidence_refs": ["pytest:bootstrap-install-admission"],
+        "supersedes": [],
+        "revocation_reason": "pytest revoked install material" if lifecycle_state == "revoked" else "",
+        "created_at": "2026-06-25T00:00:00Z",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "abi_ref": artifact_bundles.ABI_REF,
+    }
+    (records / f"{record_id.removeprefix('sha256:')}.json").write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return registry, subject_digest, record_id
 
 
 def test_bootstrap_doctor_dry_run() -> None:
@@ -64,6 +158,154 @@ def test_bootstrap_install_derives_user_systemd_dir_from_explicit_home_under_roo
     assert user_targets
     assert all(target.startswith(str(home / ".config/systemd/user")) for target in user_targets)
     assert not any(target.startswith("/root/.config/systemd/user") for target in user_targets)
+
+
+def test_bootstrap_install_can_require_artifact_trust_gate(tmp_path: Path) -> None:
+    registry, subject_digest, record_id = _bootstrap_install_registry_record(tmp_path)
+
+    payload = run_bootstrap(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(registry),
+        "--artifact-subject-digest",
+        subject_digest,
+        "--artifact-record-id",
+        record_id,
+        "--artifact-trust-root-mode",
+        "github_oidc",
+    )
+
+    admission = payload["artifact_admission"]
+    assert admission["ok"] is True
+    assert admission["verdict"] == "allow"
+    assert admission["trust_gate"]["decision"]["model"] == "fail_closed_consumer_admission"
+    assert admission["trust_gate"]["inspected_claims"]["source"]["source_repo_matched"] is True
+    assert admission["trust_gate"]["inspected_claims"]["trust_root"]["trust_root_mode_matched"] is True
+    assert payload["actions"][0]["action"] == "artifact_trust_gate"
+    assert payload["actions"][0]["verdict"] == "allow"
+    assert any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_fails_closed_when_required_registry_is_missing(tmp_path: Path) -> None:
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(tmp_path / "missing-registry"),
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["artifact_admission"]["verdict"] == "unknown"
+    assert payload["artifact_admission"]["errors"] == ["no_registry_record"]
+    assert payload["actions"] == [
+        {
+            "action": "artifact_trust_gate",
+            "artifact_class": "bootstrap_install_bundle",
+            "consumer_intent": "installer",
+            "latest_record_id": None,
+            "record_id": None,
+            "registry_dir": str(tmp_path / "missing-registry"),
+            "required": True,
+            "verdict": "unknown",
+        }
+    ]
+
+
+def test_bootstrap_install_fails_closed_on_wrong_artifact_digest(tmp_path: Path) -> None:
+    registry, _subject_digest, record_id = _bootstrap_install_registry_record(tmp_path)
+    wrong_digest = "sha256:" + ("f" * 64)
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(registry),
+        "--artifact-record-id",
+        record_id,
+        "--artifact-subject-digest",
+        wrong_digest,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["artifact_admission"]["verdict"] == "deny"
+    assert "subject_digest_mismatch" in payload["artifact_admission"]["errors"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_fails_closed_on_revoked_record(tmp_path: Path) -> None:
+    registry, subject_digest, record_id = _bootstrap_install_registry_record(tmp_path, lifecycle_state="revoked")
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(registry),
+        "--artifact-record-id",
+        record_id,
+        "--artifact-subject-digest",
+        subject_digest,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["artifact_admission"]["verdict"] == "deny"
+    assert "terminal_lifecycle_state:revoked" in payload["artifact_admission"]["errors"]
+    assert "no_latest_record" in payload["artifact_admission"]["errors"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_fails_closed_on_wrong_trust_root(tmp_path: Path) -> None:
+    registry, subject_digest, record_id = _bootstrap_install_registry_record(tmp_path)
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(registry),
+        "--artifact-record-id",
+        record_id,
+        "--artifact-subject-digest",
+        subject_digest,
+        "--artifact-trust-root-mode",
+        "public_release",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["artifact_admission"]["verdict"] == "deny"
+    assert "trust_root_mode_mismatch" in payload["artifact_admission"]["errors"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_fails_closed_on_private_public_boundary(tmp_path: Path) -> None:
+    registry, subject_digest, record_id = _bootstrap_install_registry_record(
+        tmp_path,
+        privacy_boundary="private host evidence; not public repo content",
+    )
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(registry),
+        "--artifact-record-id",
+        record_id,
+        "--artifact-subject-digest",
+        subject_digest,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["artifact_admission"]["verdict"] == "manual_review_required"
+    assert "production_consumer_requires_public_privacy_boundary" in payload["artifact_admission"]["errors"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
 
 
 def test_typing_profile_is_opt_in() -> None:
