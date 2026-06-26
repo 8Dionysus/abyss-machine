@@ -132,6 +132,12 @@ CONTROL_FILES = {
     "c2pa": [C2PA_MANIFEST_SIDECAR, C2PA_REPORT_SIDECAR],
 }
 ML_BOM_CATEGORIES = ("models", "datasets", "conversions", "framework_configs")
+ML_BOM_COMPONENT_TYPES = {
+    "models": "machine-learning-model",
+    "datasets": "data",
+    "conversions": "application",
+    "framework_configs": "configuration",
+}
 RELEASE_ENFORCEMENT_LEVELS = {"warn", "required-for-release", "blocking", "consumer-blocking"}
 BUNDLE_LIFECYCLE_STATES = (
     "candidate",
@@ -3184,6 +3190,7 @@ def build_ml_bom_sidecar(
     identity: dict[str, Any],
     subjects: dict[str, Any],
     created_at: str,
+    policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ml_bom = manifest.get("ml_bom") if isinstance(manifest, dict) else None
     if not isinstance(ml_bom, dict):
@@ -3200,12 +3207,8 @@ def build_ml_bom_sidecar(
     }
     not_applicable = ml_bom.get("not_applicable") if isinstance(ml_bom.get("not_applicable"), dict) else {}
     components: list[dict[str, Any]] = []
-    type_by_category = {
-        "models": "machine-learning-model",
-        "datasets": "data",
-        "conversions": "application",
-        "framework_configs": "configuration",
-    }
+    component_refs: list[str] = []
+    component_refs_by_category: dict[str, list[str]] = {category: [] for category in ML_BOM_CATEGORIES}
     for category in ML_BOM_CATEGORIES:
         entries = ml_bom.get(category)
         if entries is None:
@@ -3217,11 +3220,12 @@ def build_ml_bom_sidecar(
                 raise ValueError(f"ml_bom.{category}[{idx}] must be an object")
             name = str(entry.get("name") or entry.get("path") or f"{category}-{idx + 1}")
             version = str(entry.get("version") or "0")
+            bom_ref = str(entry.get("bom_ref") or f"ml-bom:{category}:{name}")
             component: dict[str, Any] = {
-                "type": str(entry.get("type") or type_by_category[category]),
+                "type": str(entry.get("type") or ML_BOM_COMPONENT_TYPES[category]),
                 "name": name,
                 "version": version,
-                "bom-ref": str(entry.get("bom_ref") or f"ml-bom:{category}:{name}"),
+                "bom-ref": bom_ref,
                 "properties": [
                     {"name": "abyss.ml_bom.category", "value": category},
                     {"name": "abyss.ml_bom.role", "value": str(entry.get("role") or category.rstrip("s"))},
@@ -3244,7 +3248,10 @@ def build_ml_bom_sidecar(
                 if entry.get(field) is not None:
                     component["properties"].append({"name": f"abyss.ml_bom.{field}", "value": str(entry[field])})
             components.append(component)
+            component_refs.append(bom_ref)
+            component_refs_by_category[category].append(bom_ref)
 
+    metadata_component_ref = str(ml_bom.get("bom_ref") or "ml-bom:bundle")
     metadata_properties = [
         {"name": "abyss:artifactClass", "value": str(identity.get("artifact_class"))},
         {"name": "abyss:subjectAggregateDigest", "value": str(subjects.get("aggregate_digest"))},
@@ -3255,6 +3262,27 @@ def build_ml_bom_sidecar(
         if reason:
             metadata_properties.append({"name": f"abyss.ml_bom.{category}.not_applicable", "value": reason})
 
+    dependencies_by_ref: dict[str, list[str]] = {}
+    if component_refs:
+        dependencies_by_ref[metadata_component_ref] = list(component_refs)
+    referenced_runtime_refs = [
+        *component_refs_by_category["models"],
+        *component_refs_by_category["datasets"],
+        *component_refs_by_category["conversions"],
+    ]
+    if referenced_runtime_refs:
+        for ref in component_refs_by_category["framework_configs"]:
+            dependencies_by_ref[ref] = list(referenced_runtime_refs)
+    if component_refs_by_category["datasets"]:
+        for ref in component_refs_by_category["models"]:
+            dependencies_by_ref.setdefault(ref, [])
+            dependencies_by_ref[ref].extend(component_refs_by_category["datasets"])
+    dependencies = [
+        {"ref": ref, "dependsOn": sorted(set(depends_on))}
+        for ref, depends_on in dependencies_by_ref.items()
+        if depends_on
+    ]
+
     serial = uuid.uuid5(uuid.NAMESPACE_URL, "ml-bom:" + str(subjects.get("aggregate_digest") or _stable_digest(subjects)))
     return {
         "bomFormat": "CycloneDX",
@@ -3263,15 +3291,25 @@ def build_ml_bom_sidecar(
         "version": 1,
         "metadata": {
             "timestamp": created_at,
+            "tools": {
+                "components": [
+                    {
+                        "type": "application",
+                        "name": "abyss-machine",
+                        "version": str((policy or {}).get("policy_version") or "unknown"),
+                    }
+                ]
+            },
             "component": {
                 "type": "application",
                 "name": str(ml_bom.get("name") or identity.get("artifact_class") or "ai-runtime-bundle"),
                 "version": str(ml_bom.get("version") or "0"),
-                "bom-ref": str(ml_bom.get("bom_ref") or "ml-bom:bundle"),
+                "bom-ref": metadata_component_ref,
             },
             "properties": metadata_properties,
         },
         "components": components,
+        "dependencies": dependencies,
         "properties": [
             {"name": "abyss:policyRef", "value": POLICY_REF},
             {"name": "abyss:bundleLayout", "value": BUNDLE_LAYOUT},
@@ -3461,6 +3499,7 @@ def build_sidecars(
             identity=identity,
             subjects=artifact_subjects or {},
             created_at=created_at,
+            policy=policy,
         )
         _write_json(bundle / MLBOM_CYCLONEDX_SIDECAR, ml_bom)
         written.append(MLBOM_CYCLONEDX_SIDECAR)
@@ -3927,6 +3966,107 @@ def _component_properties(component: dict[str, Any]) -> dict[str, str]:
     return properties
 
 
+def _component_hashes(component: dict[str, Any]) -> set[str]:
+    hashes: set[str] = set()
+    for digest in component.get("hashes", []) if isinstance(component.get("hashes"), list) else []:
+        if isinstance(digest, dict) and str(digest.get("alg") or "").upper() == "SHA-256":
+            value = str(digest.get("content") or "").removeprefix("sha256:")
+            if value:
+                hashes.add(value)
+    return hashes
+
+
+def _has_dataset_provenance(component: dict[str, Any], properties: dict[str, str]) -> bool:
+    if properties.get("abyss.ml_bom.source_ref") or properties.get("abyss.ml_bom.subject_digest"):
+        return True
+    external_refs = component.get("externalReferences")
+    if isinstance(external_refs, list) and any(isinstance(item, dict) and item.get("url") for item in external_refs):
+        return True
+    data_entries = component.get("data")
+    if not isinstance(data_entries, list):
+        return False
+    for item in data_entries:
+        if not isinstance(item, dict):
+            continue
+        contents = item.get("contents") if isinstance(item.get("contents"), dict) else {}
+        if contents.get("url") or contents.get("attachment") or contents.get("properties"):
+            return True
+    return False
+
+
+def _validate_ml_bom_tool_versions(cdx: dict[str, Any], errors: list[str]) -> None:
+    metadata = cdx.get("metadata") if isinstance(cdx.get("metadata"), dict) else {}
+    tools = metadata.get("tools") if isinstance(metadata.get("tools"), dict) else {}
+    components = tools.get("components") if isinstance(tools.get("components"), list) else []
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        if component.get("name") and component.get("version"):
+            return
+    errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} metadata.tools must identify tool name and version")
+
+
+def _validate_ml_bom_dependency_graph(
+    cdx: dict[str, Any],
+    *,
+    metadata_ref: str,
+    component_refs: set[str],
+    refs_by_category: dict[str, set[str]],
+    errors: list[str],
+) -> None:
+    if not component_refs:
+        return
+    dependencies = cdx.get("dependencies")
+    if not isinstance(dependencies, list):
+        errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} must define a CycloneDX dependency graph")
+        return
+    valid_refs = set(component_refs)
+    if metadata_ref:
+        valid_refs.add(metadata_ref)
+    dependency_map: dict[str, set[str]] = {}
+    for idx, entry in enumerate(dependencies):
+        if not isinstance(entry, dict):
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} dependencies[{idx}] must be an object")
+            continue
+        ref = str(entry.get("ref") or "")
+        if not ref:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} dependencies[{idx}].ref is required")
+            continue
+        if ref not in valid_refs:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} dependency ref is not a known component: {ref}")
+        depends_on = entry.get("dependsOn")
+        if not isinstance(depends_on, list):
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} dependencies[{idx}].dependsOn must be a list")
+            continue
+        refs = {str(item) for item in depends_on if str(item)}
+        unknown = sorted(refs - valid_refs)
+        if unknown:
+            errors.append(
+                f"{MLBOM_CYCLONEDX_SIDECAR} dependency graph references unknown components: "
+                + ", ".join(unknown)
+            )
+        dependency_map.setdefault(ref, set()).update(refs)
+    if metadata_ref:
+        missing = sorted(component_refs - dependency_map.get(metadata_ref, set()))
+        if missing:
+            errors.append(
+                f"{MLBOM_CYCLONEDX_SIDECAR} dependency graph metadata component must depend on ML-BOM components: "
+                + ", ".join(missing)
+            )
+    referenced_runtime_refs = (
+        refs_by_category.get("models", set())
+        | refs_by_category.get("datasets", set())
+        | refs_by_category.get("conversions", set())
+    )
+    framework_refs = refs_by_category.get("framework_configs", set())
+    if framework_refs and referenced_runtime_refs:
+        if not any(dependency_map.get(ref, set()).intersection(referenced_runtime_refs) for ref in framework_refs):
+            errors.append(
+                f"{MLBOM_CYCLONEDX_SIDECAR} dependency graph must link framework config to referenced "
+                "model, dataset, or conversion components"
+            )
+
+
 def _validate_ml_bom_sidecar(bundle: Path, subjects: dict[str, Any], errors: list[str]) -> None:
     path = bundle / MLBOM_CYCLONEDX_SIDECAR
     if not path.is_file():
@@ -3940,25 +4080,104 @@ def _validate_ml_bom_sidecar(bundle: Path, subjects: dict[str, Any], errors: lis
     if not isinstance(components, list):
         errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} must define components")
         return
+    _validate_ml_bom_tool_versions(cdx, errors)
+    metadata = cdx.get("metadata") if isinstance(cdx.get("metadata"), dict) else {}
+    metadata_component = metadata.get("component") if isinstance(metadata.get("component"), dict) else {}
+    metadata_ref = str(metadata_component.get("bom-ref") or "")
+    if not metadata_ref:
+        errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} metadata.component must define bom-ref")
     seen_categories: set[str] = set()
     seen_hashes: set[str] = set()
-    for component in components:
+    component_refs: set[str] = set()
+    refs_by_category: dict[str, set[str]] = {category: set() for category in ML_BOM_CATEGORIES}
+    for idx, component in enumerate(components):
         if not isinstance(component, dict):
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} components[{idx}] must be an object")
             continue
+        ref = str(component.get("bom-ref") or "")
+        if not ref:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} components[{idx}].bom-ref is required")
+        elif ref in component_refs:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} duplicate component bom-ref: {ref}")
+        elif ref == metadata_ref:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} component bom-ref duplicates metadata component: {ref}")
+        else:
+            component_refs.add(ref)
         properties = _component_properties(component)
         category = properties.get("abyss.ml_bom.category")
-        if category:
-            seen_categories.add(category)
-        for digest in component.get("hashes", []) if isinstance(component.get("hashes"), list) else []:
-            if isinstance(digest, dict) and str(digest.get("alg") or "").upper() == "SHA-256":
-                seen_hashes.add(str(digest.get("content") or ""))
-    metadata = cdx.get("metadata") if isinstance(cdx.get("metadata"), dict) else {}
+        if not category:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} lacks abyss.ml_bom.category")
+            continue
+        if category not in ML_BOM_CATEGORIES:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} has unknown category: {category}")
+            continue
+        if ref:
+            refs_by_category[category].add(ref)
+        seen_categories.add(category)
+        if component.get("type") != ML_BOM_COMPONENT_TYPES[category]:
+            errors.append(
+                f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} type must be "
+                f"{ML_BOM_COMPONENT_TYPES[category]}"
+            )
+        if not str(component.get("name") or "").strip():
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} must define name")
+        if not str(component.get("version") or "").strip():
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} must define version")
+        if not properties.get("abyss.ml_bom.role"):
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} must define role")
+        included = properties.get("abyss.ml_bom.included")
+        if included not in {"true", "false"}:
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} must define included=true|false")
+        source_ref = properties.get("abyss.ml_bom.source_ref")
+        subject_digest = properties.get("abyss.ml_bom.subject_digest")
+        component_hashes = _component_hashes(component)
+        seen_hashes.update(component_hashes)
+        if subject_digest:
+            digest_hex = subject_digest.removeprefix("sha256:")
+            if digest_hex not in component_hashes:
+                errors.append(
+                    f"{MLBOM_CYCLONEDX_SIDECAR} component {ref or idx} subject_digest must match SHA-256 hash"
+                )
+        if category == "models" and not (source_ref or subject_digest):
+            errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} model component {ref or idx} must define source_ref or subject_digest")
+        if category == "datasets" and not _has_dataset_provenance(component, properties):
+            errors.append(
+                f"{MLBOM_CYCLONEDX_SIDECAR} dataset component {ref or idx} must define dataset provenance"
+            )
+        if category == "conversions":
+            if not (source_ref or subject_digest):
+                errors.append(
+                    f"{MLBOM_CYCLONEDX_SIDECAR} conversion component {ref or idx} must define source_ref or subject_digest"
+                )
+            if not properties.get("abyss.ml_bom.framework"):
+                errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} conversion component {ref or idx} must define framework")
+            if not (properties.get("abyss.ml_bom.precision") or properties.get("abyss.ml_bom.format")):
+                errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} conversion component {ref or idx} must define precision or format")
+        if category == "framework_configs":
+            if not properties.get("abyss.ml_bom.framework"):
+                errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} framework config component {ref or idx} must define framework")
+            if included == "true" and not (properties.get("abyss.ml_bom.subject_path") and subject_digest):
+                errors.append(
+                    f"{MLBOM_CYCLONEDX_SIDECAR} included framework config component {ref or idx} "
+                    "must define subject_path and subject_digest"
+                )
+            if included == "false" and not source_ref:
+                errors.append(
+                    f"{MLBOM_CYCLONEDX_SIDECAR} external framework config component {ref or idx} must define source_ref"
+                )
     metadata_properties = _component_properties(metadata)
     for category in ML_BOM_CATEGORIES:
         if category in seen_categories:
             continue
         if not metadata_properties.get(f"abyss.ml_bom.{category}.not_applicable"):
             errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} lacks {category} identity or not-applicable reason")
+    _validate_ml_bom_dependency_graph(
+        cdx,
+        metadata_ref=metadata_ref,
+        component_refs=component_refs,
+        refs_by_category=refs_by_category,
+        errors=errors,
+    )
     expected = _subject_digest_hexes(subjects, errors)
     if expected and not expected.intersection(seen_hashes):
         errors.append(f"{MLBOM_CYCLONEDX_SIDECAR} does not cover any artifact subject digest")
