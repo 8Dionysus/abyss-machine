@@ -1508,6 +1508,107 @@ def _write_scitt_registry_record(tmp_path: Path, *, record_id: str, digest: str)
     return registry
 
 
+def _write_oci_runtime_registry_record(tmp_path: Path) -> tuple[Path, str, str]:
+    registry = tmp_path / "oci-registry"
+    records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+    records.mkdir(parents=True, exist_ok=True)
+    record_id = "sha256:" + ("a" * 64)
+    subject_digest = "sha256:" + ("b" * 64)
+    source_ref = "manifests/artifact_bundles/runtime_tools_bundle.bundle.json"
+    trust_root_evidence = _trust_root_evidence(
+        "oci_registry",
+        subject_digest=subject_digest,
+        source_repo="abyss-machine",
+        source_ref=source_ref,
+    )
+    record = {
+        "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+        "record_id": record_id,
+        "artifact_class": "runtime_or_container_artifact",
+        "bundle_layout": "abyss_machine_artifact_bundle_v1",
+        "bundle_ref": "runtime-tools/bundle",
+        "bundle_manifest_ref": source_ref,
+        "subject_digest": subject_digest,
+        "artifact_subjects_digest": "sha256:" + ("c" * 64),
+        "abi_subject_digest": "sha256:" + ("d" * 64),
+        "lifecycle_state": "release-ready",
+        "latest_eligible": True,
+        "terminal_state": False,
+        "verification_ok": True,
+        "verification_errors": [],
+        "verification_missing": [],
+        "verification_warnings": [],
+        "required_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "verified_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "present_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "source_repo": "abyss-machine",
+        "source_ref": source_ref,
+        "producer": "pytest-runtime-oci-publisher",
+        "trust_root_mode": "oci_registry",
+        "trust_root_evidence": trust_root_evidence,
+        "verifier_versions": {"pytest": "oci-publication"},
+        "privacy_boundary": "public-safe runtime helper bundle",
+        "created_at": "2026-06-21T00:00:00Z",
+        "policy_ref": artifact_bundles.POLICY_REF,
+    }
+    (records / f"{record_id.removeprefix('sha256:')}.json").write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return registry, record_id, subject_digest
+
+
+def _oci_publication_evidence(
+    *,
+    registry_ref: str = "ghcr.io/8dionysus/abyss-machine/runtime-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    subject_digest: str = "sha256:" + ("1" * 64),
+    record_id: str = "",
+    record_subject_digest: str = "",
+    discovery_method: str = "v1.1-referrers-api",
+    fallback_verified: bool | None = None,
+    referrers: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    discovery: dict[str, object] = {
+        "method": discovery_method,
+        "status": "verified",
+    }
+    if fallback_verified is not None:
+        discovery["fallback_verified"] = fallback_verified
+    return {
+        "schema": artifact_bundles.OCI_PUBLICATION_EVIDENCE_SCHEMA,
+        "artifact_class": "runtime_or_container_artifact",
+        "registry_ref": registry_ref,
+        "record_id": record_id,
+        "record_subject_digest": record_subject_digest,
+        "subject": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": subject_digest,
+            "reference": registry_ref,
+            "size": 512,
+        },
+        "referrers_discovery": discovery,
+        "referrers": referrers
+        if referrers is not None
+        else [
+            {
+                "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+                "digest": "sha256:" + ("2" * 64),
+                "subject_digest": subject_digest,
+            },
+            {
+                "artifactType": "application/vnd.cyclonedx+json",
+                "digest": "sha256:" + ("3" * 64),
+                "subject_digest": subject_digest,
+            },
+            {
+                "artifactType": "application/vnd.in-toto+jsonl",
+                "digest": "sha256:" + ("4" * 64),
+                "subject_digest": subject_digest,
+            },
+        ],
+    }
+
+
 def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
     fake_cosign = tmp_path / "cosign"
     _write_fake_cosign(fake_cosign)
@@ -1773,6 +1874,132 @@ def test_scitt_receipt_verifier_denies_missing_or_wrong_registry_link(tmp_path: 
     assert "registry_record_id_mismatch" in wrong_record["errors"]
     assert wrong_digest["ok"] is False
     assert "artifact_digest_registry_mismatch" in wrong_digest["errors"]
+
+
+def test_oci_publication_verifier_allows_digest_pinned_referrers_with_trust_gate(tmp_path: Path) -> None:
+    registry, record_id, record_subject_digest = _write_oci_runtime_registry_record(tmp_path)
+    subject_digest = "sha256:" + ("1" * 64)
+    evidence = _oci_publication_evidence(
+        subject_digest=subject_digest,
+        record_id=record_id,
+        record_subject_digest=record_subject_digest,
+    )
+    evidence_path = tmp_path / "oci-publication.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+
+    result = artifact_bundles.verify_oci_publication(
+        evidence,
+        expected_artifact_class="runtime_or_container_artifact",
+        expected_subject_digest=subject_digest,
+        required_referrer_types=[
+            "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "application/vnd.cyclonedx+json",
+            "application/vnd.in-toto+jsonl",
+        ],
+        registry_dir=registry,
+        expected_record_id=record_id,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="oci_registry",
+        require_trust_gate=True,
+    )
+    cli_result = cli.artifacts_oci_verify(
+        evidence_path,
+        artifact_class="runtime_or_container_artifact",
+        subject_digest=subject_digest,
+        required_referrer_types=[
+            "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "application/vnd.cyclonedx+json",
+            "application/vnd.in-toto+jsonl",
+        ],
+        registry_dir=registry,
+        record_id=record_id,
+        source_repo="abyss-machine",
+        trust_root_mode="oci_registry",
+        require_trust_gate=True,
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["verdict"] == "allow"
+    assert result["digest_pinned"] is True
+    assert result["referrers"]["missing_types"] == []
+    assert result["consumer_admission"]["trust_gate"]["verdict"] == "allow"
+    assert cli_result["ok"] is True
+    assert cli_result["consumer_admission"]["trust_gate"]["inspected_claims"]["trust_root_evidence"]["ok"] is True
+
+
+def test_oci_publication_verifier_denies_tag_only_consumption() -> None:
+    tag_only = _oci_publication_evidence(
+        registry_ref="ghcr.io/8dionysus/abyss-machine/runtime-tools:latest",
+    )
+
+    result = artifact_bundles.verify_oci_publication(
+        tag_only,
+        expected_artifact_class="runtime_or_container_artifact",
+        required_referrer_types=["application/vnd.dev.sigstore.bundle.v0.3+json"],
+    )
+
+    assert result["ok"] is False
+    assert result["verdict"] == "deny"
+    assert "tag_only_reference_denied" in result["errors"]
+
+
+def test_oci_publication_verifier_denies_malformed_digest_reference() -> None:
+    malformed = _oci_publication_evidence(
+        registry_ref="ghcr.io/8dionysus/abyss-machine/runtime-tools@sha256:not-a-real-digest",
+    )
+
+    result = artifact_bundles.verify_oci_publication(
+        malformed,
+        expected_artifact_class="runtime_or_container_artifact",
+        required_referrer_types=["application/vnd.dev.sigstore.bundle.v0.3+json"],
+    )
+
+    assert result["ok"] is False
+    assert result["verdict"] == "deny"
+    assert "registry_ref_digest_invalid" in result["errors"]
+
+
+def test_oci_publication_verifier_denies_missing_required_referrer() -> None:
+    evidence = _oci_publication_evidence(
+        referrers=[
+            {
+                "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+                "digest": "sha256:" + ("2" * 64),
+                "subject_digest": "sha256:" + ("1" * 64),
+            }
+        ]
+    )
+
+    result = artifact_bundles.verify_oci_publication(
+        evidence,
+        expected_artifact_class="runtime_or_container_artifact",
+        required_referrer_types=[
+            "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "application/vnd.cyclonedx+json",
+        ],
+    )
+
+    assert result["ok"] is False
+    assert result["verdict"] == "deny"
+    assert "missing_oci_referrer_types:application/vnd.cyclonedx+json" in result["errors"]
+
+
+def test_oci_publication_verifier_warns_for_referrers_tag_fallback() -> None:
+    evidence = _oci_publication_evidence(
+        discovery_method="v1.1-referrers-tag",
+        fallback_verified=True,
+    )
+
+    result = artifact_bundles.verify_oci_publication(
+        evidence,
+        expected_artifact_class="runtime_or_container_artifact",
+        required_referrer_types=["application/vnd.dev.sigstore.bundle.v0.3+json"],
+    )
+
+    assert result["ok"] is True
+    assert result["verdict"] == "warn"
+    assert "oci_referrers_tag_fallback_requires_race_review" in result["warnings"]
 
 
 def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(tmp_path: Path) -> None:

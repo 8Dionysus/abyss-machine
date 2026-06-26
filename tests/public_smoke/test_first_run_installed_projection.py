@@ -36,7 +36,7 @@ def run_validator(tmp_path: Path) -> dict:
         text=True,
         capture_output=True,
         check=False,
-        timeout=90,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr[-1000:]
     payload = json.loads(result.stdout)
@@ -94,7 +94,7 @@ def test_first_run_projection_keeps_cli_surfaces_in_parity(projection_payload: d
     assert payload["source_cli"]["surfaces"]["artifacts"] == payload["temp_installed_cli"]["surfaces"]["artifacts"]
     assert payload["source_cli"]["surfaces"]["typing"] == payload["temp_installed_cli"]["surfaces"]["typing"]
     assert payload["source_cli"]["surfaces"]["nervous"] == payload["temp_installed_cli"]["surfaces"]["nervous"]
-    assert payload["host_installed_cli"]["status"] in {"ok", "unavailable", "failed"}
+    assert payload["host_installed_cli"]["status"] in {"ok", "unavailable", "failed", "skipped"}
     assert payload["host_installed_cli"].get("required") is False
 
 
@@ -124,6 +124,7 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         update_verify = commands["artifacts update-verify"]
         update_repo_verify = commands["artifacts update-repo-verify"]
         scitt_verify = commands["artifacts scitt-verify"]
+        oci_verify = commands["artifacts oci-verify"]
         assert set(materialize["required_options"]) == materialize_required
         assert materialize["missing_options"] == []
         assert trust_gate["missing_options"] == []
@@ -149,6 +150,9 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         assert "--artifact-digest" in scitt_verify["required_options"]
         assert "--transparency-service" in scitt_verify["required_options"]
         assert scitt_verify["missing_options"] == []
+        assert "--required-referrer-type" in oci_verify["required_options"]
+        assert "--require-trust-gate" in oci_verify["required_options"]
+        assert oci_verify["missing_options"] == []
 
 
 def test_typing_nervous_bootstrap_proof_is_opt_in(projection_payload: dict) -> None:

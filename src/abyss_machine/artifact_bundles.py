@@ -57,6 +57,12 @@ SCITT_STATEMENT_CLASSES = (
     "artifact_evidence_record",
     "eval_report_result",
 )
+OCI_PUBLICATION_EVIDENCE_SCHEMA = "abyss_machine_oci_publication_evidence_v1"
+OCI_REFERRER_DISCOVERY_METHODS = (
+    "v1.1-referrers-api",
+    "v1.1-referrers-tag",
+    "oci-layout",
+)
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
 OS_ARTIFACT_SCENARIOS = (
     {
@@ -1743,6 +1749,210 @@ def verify_scitt_receipt(
             "It does not claim a live external transparency service, COSE signature verification, Merkle inclusion verification, or global append-only log consistency.",
             "External relying-party mode requires a receipt and denies consumption when the receipt is missing or not bound to the signed statement digest.",
             "When registry linkage is required, the statement subject must bind to an existing durable artifact record and digest.",
+        ],
+    }
+
+
+def _is_sha256_digest(value: str) -> bool:
+    if not value.startswith("sha256:"):
+        return False
+    suffix = value.removeprefix("sha256:")
+    return len(suffix) == 64 and all(char in "0123456789abcdefABCDEF" for char in suffix)
+
+
+def _oci_referrer_type(referrer: dict[str, Any]) -> str:
+    return str(
+        referrer.get("artifactType")
+        or referrer.get("artifact_type")
+        or referrer.get("type")
+        or referrer.get("mediaType")
+        or ""
+    )
+
+
+def _oci_subject_digest(referrer: dict[str, Any]) -> str:
+    subject = referrer.get("subject") if isinstance(referrer.get("subject"), dict) else {}
+    return str(
+        referrer.get("subject_digest")
+        or referrer.get("subjectDigest")
+        or subject.get("digest")
+        or ""
+    )
+
+
+def verify_oci_publication(
+    evidence: dict[str, Any],
+    *,
+    expected_artifact_class: str = "",
+    expected_registry_ref: str = "",
+    expected_subject_digest: str = "",
+    required_referrer_types: list[str] | tuple[str, ...] | None = None,
+    registry_dir: str | Path | None = None,
+    expected_record_id: str = "",
+    expected_record_subject_digest: str = "",
+    expected_source_repo: str = "",
+    expected_trust_root_mode: str = "",
+    consumer_intent: str = "runtime",
+    require_digest_ref: bool = True,
+    require_referrers: bool = True,
+    require_trust_gate: bool = False,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    manual_review: list[str] = []
+
+    artifact_class = str(evidence.get("artifact_class") or "")
+    subject = evidence.get("subject") if isinstance(evidence.get("subject"), dict) else {}
+    registry_ref = str(evidence.get("registry_ref") or subject.get("registry_ref") or subject.get("reference") or "")
+    subject_digest = str(subject.get("digest") or evidence.get("subject_digest") or "")
+    record_id = str(evidence.get("record_id") or evidence.get("bundle_record_id") or expected_record_id or "")
+    record_subject_digest = str(
+        evidence.get("record_subject_digest")
+        or evidence.get("bundle_subject_digest")
+        or expected_record_subject_digest
+        or ""
+    )
+    discovery = evidence.get("referrers_discovery") if isinstance(evidence.get("referrers_discovery"), dict) else {}
+    discovery_method = str(
+        discovery.get("method")
+        or evidence.get("referrers_method")
+        or evidence.get("distribution_spec")
+        or ""
+    )
+    referrers = evidence.get("referrers") if isinstance(evidence.get("referrers"), list) else []
+    required_types = [str(item) for item in required_referrer_types or [] if str(item)]
+
+    if evidence.get("schema") != OCI_PUBLICATION_EVIDENCE_SCHEMA:
+        errors.append("schema_mismatch")
+    if not artifact_class:
+        errors.append("artifact_class_missing")
+    if expected_artifact_class and artifact_class != expected_artifact_class:
+        errors.append("artifact_class_mismatch")
+    if not registry_ref:
+        errors.append("registry_ref_missing")
+    if expected_registry_ref and registry_ref != expected_registry_ref:
+        errors.append("registry_ref_mismatch")
+    registry_ref_digest = ""
+    if "@sha256:" in registry_ref:
+        registry_ref_digest = "sha256:" + registry_ref.rsplit("@sha256:", 1)[1]
+        if not _is_sha256_digest(registry_ref_digest):
+            errors.append("registry_ref_digest_invalid")
+    elif require_digest_ref:
+        errors.append("tag_only_reference_denied")
+    if not _is_sha256_digest(subject_digest):
+        errors.append("subject_digest_missing")
+    if expected_subject_digest and subject_digest != expected_subject_digest:
+        errors.append("subject_digest_mismatch")
+    if registry_ref_digest and subject_digest:
+        if _is_sha256_digest(registry_ref_digest) and registry_ref_digest != subject_digest:
+            errors.append("registry_ref_digest_mismatch")
+
+    if discovery_method and discovery_method not in OCI_REFERRER_DISCOVERY_METHODS:
+        errors.append("unknown_referrers_discovery_method")
+    if require_referrers and not discovery_method:
+        errors.append("oci_referrers_discovery_missing")
+    if require_referrers and not referrers:
+        errors.append("oci_referrers_missing")
+    if discovery and str(discovery.get("status") or "") not in {"verified", "ok"}:
+        errors.append("oci_referrers_discovery_not_verified")
+    if discovery_method == "v1.1-referrers-tag":
+        if discovery.get("fallback_verified") is True:
+            warnings.append("oci_referrers_tag_fallback_requires_race_review")
+        else:
+            errors.append("oci_referrers_tag_fallback_unverified")
+    if discovery_method == "oci-layout":
+        warnings.append("oci_layout_local_proof_not_external_registry_publication")
+
+    found_types = sorted({_oci_referrer_type(item) for item in referrers if isinstance(item, dict) and _oci_referrer_type(item)})
+    missing_types = sorted(set(required_types) - set(found_types))
+    if missing_types:
+        errors.append("missing_oci_referrer_types:" + ",".join(missing_types))
+
+    referrer_errors: list[str] = []
+    for index, referrer in enumerate(referrers):
+        if not isinstance(referrer, dict):
+            referrer_errors.append(f"referrer_{index}_invalid")
+            continue
+        digest = str(referrer.get("digest") or "")
+        if not _is_sha256_digest(digest):
+            referrer_errors.append(f"referrer_{index}_digest_missing")
+        referrer_subject_digest = _oci_subject_digest(referrer)
+        if referrer_subject_digest and subject_digest and referrer_subject_digest != subject_digest:
+            referrer_errors.append(f"referrer_{index}_subject_digest_mismatch")
+    errors.extend(referrer_errors)
+
+    consumer_admission_required = bool(require_trust_gate or registry_dir is not None or record_id)
+    trust_gate_result: dict[str, Any] | None = None
+    consumer_admission_errors: list[str] = []
+    if consumer_admission_required:
+        if registry_dir is None:
+            consumer_admission_errors.append("trust_gate_registry_required")
+        else:
+            trust_gate_result = trust_gate(
+                registry_dir,
+                artifact_class=artifact_class,
+                subject_digest=record_subject_digest,
+                record_id=record_id,
+                consumer_intent=consumer_intent,
+                expected_source_repo=expected_source_repo,
+                expected_trust_root_mode=expected_trust_root_mode,
+                require_latest=True,
+            )
+            if not trust_gate_result.get("ok"):
+                consumer_admission_errors.append("trust_gate_not_allowed")
+    errors.extend(consumer_admission_errors)
+
+    if errors:
+        verdict = "deny"
+    elif warnings or manual_review:
+        verdict = "warn"
+    else:
+        verdict = "allow"
+
+    return {
+        "ok": verdict in {"allow", "warn"},
+        "schema": "abyss_machine_oci_publication_verify_v1",
+        "policy_ref": POLICY_REF,
+        "evidence_schema": evidence.get("schema"),
+        "artifact_class": artifact_class or None,
+        "registry_ref": registry_ref or None,
+        "subject_digest": subject_digest or None,
+        "digest_pinned": "@sha256:" in registry_ref,
+        "referrers_discovery": {
+            "method": discovery_method or None,
+            "known_methods": list(OCI_REFERRER_DISCOVERY_METHODS),
+            "status": discovery.get("status") if discovery else None,
+            "fallback_verified": discovery.get("fallback_verified") if discovery else None,
+        },
+        "referrers": {
+            "required": bool(require_referrers),
+            "required_types": required_types,
+            "found_types": found_types,
+            "count": len(referrers),
+            "missing_types": missing_types,
+        },
+        "record_link": {
+            "required": consumer_admission_required,
+            "record_id": record_id or None,
+            "record_subject_digest": record_subject_digest or None,
+            "registry_dir": str(registry_dir) if registry_dir is not None else None,
+        },
+        "consumer_admission": {
+            "required": consumer_admission_required,
+            "consumer_intent": consumer_intent,
+            "expected_source_repo": expected_source_repo or None,
+            "expected_trust_root_mode": expected_trust_root_mode or None,
+            "errors": consumer_admission_errors,
+            "trust_gate": trust_gate_result,
+        },
+        "verdict": verdict,
+        "errors": errors,
+        "warnings": warnings,
+        "manual_review": manual_review,
+        "claim_limits": [
+            "This verifier checks an OS Abyss OCI/ORAS publication evidence document; it does not contact a registry itself.",
+            "Digest-pinned subject references are required for automatic consumption; tag-only references are denied.",
+            "The referrers tag-schema fallback can be accepted only as warn because concurrent clients can race when maintaining fallback indexes.",
         ],
     }
 
