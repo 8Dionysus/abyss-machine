@@ -46,6 +46,12 @@ C2PA_REPORT_SIDECAR = "artifact.c2pa.json"
 C2PA_TRUST_ANCHORS_ENV = "ABYSS_MACHINE_C2PA_TRUST_ANCHORS"
 C2PA_ALLOWED_LIST_ENV = "ABYSS_MACHINE_C2PA_ALLOWED_LIST"
 C2PA_TRUST_CONFIG_ENV = "ABYSS_MACHINE_C2PA_TRUST_CONFIG"
+C2PA_TRUST_GAP_WARNINGS = (
+    "C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof",
+    "C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof",
+    "C2PA signing credential is trusted only by configured allowed-list end-entity; this is not production trust-list proof",
+    "C2PA trust verdict is not structured; production trust-list status is unproven",
+)
 TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
 TUF_REPOSITORY_TARGETS_DIR = "targets"
@@ -3624,6 +3630,78 @@ def _c2pa_status_codes(report: dict[str, Any]) -> list[str]:
     return codes
 
 
+def _c2pa_credential_status(status_codes: list[str]) -> str:
+    code_set = set(status_codes)
+    if "signingCredential.expired" in code_set or "signingCredential.invalid" in code_set:
+        return "expired"
+    if "signingCredential.revoked" in code_set or "signingCredential.ocsp.revoked" in code_set:
+        return "revoked"
+    if "signingCredential.untrusted" in code_set:
+        return "untrusted"
+    if "signingCredential.trusted" in code_set:
+        return "trusted"
+    return "not_reported"
+
+
+def _c2pa_trust_verdict(
+    *,
+    report: dict[str, Any],
+    trust_sources: dict[str, str],
+    status_codes: list[str],
+) -> dict[str, Any]:
+    credential_status = _c2pa_credential_status(status_codes)
+    trust_anchors_configured = bool(trust_sources.get("trust_anchors"))
+    allowed_list_configured = bool(trust_sources.get("allowed_list"))
+    trust_config_configured = bool(trust_sources.get("trust_config"))
+    production_trust_list_trusted = bool(
+        credential_status == "trusted"
+        and trust_anchors_configured
+        and not allowed_list_configured
+    )
+    if production_trust_list_trusted:
+        trust_tier = "production_trust_list"
+    elif credential_status == "trusted" and allowed_list_configured:
+        trust_tier = "allowed_list_end_entity"
+    elif credential_status == "trusted":
+        trust_tier = "trusted_without_explicit_trust_list"
+    else:
+        trust_tier = credential_status
+    return {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": str(report.get("validation_state") or ""),
+        "credential_status": credential_status,
+        "trust_tier": trust_tier,
+        "production_trust_list_configured": trust_anchors_configured and not allowed_list_configured,
+        "production_trust_list_trusted": production_trust_list_trusted,
+        "allowed_list_end_entity_configured": allowed_list_configured,
+        "trust_config_configured": trust_config_configured,
+        "trust_sources": dict(sorted(trust_sources.items())),
+        "status_codes": list(status_codes),
+        "claim_limits": [
+            "production_trust_list_trusted requires signingCredential.trusted from c2patool with trust anchors configured and no allowed-list override.",
+            "allowed_list end-entity trust is useful for local acceptance but is not C2PA production trust-list proof.",
+        ],
+    }
+
+
+def _c2pa_trust_gap_warning(c2pa_trust: dict[str, Any]) -> str:
+    if not c2pa_trust:
+        return C2PA_TRUST_GAP_WARNINGS[3]
+    if c2pa_trust.get("production_trust_list_trusted") is True:
+        return ""
+    trust_tier = str(c2pa_trust.get("trust_tier") or "")
+    if trust_tier == "allowed_list_end_entity":
+        return C2PA_TRUST_GAP_WARNINGS[2]
+    if trust_tier == "untrusted":
+        return C2PA_TRUST_GAP_WARNINGS[0]
+    return C2PA_TRUST_GAP_WARNINGS[1]
+
+
+def _append_unique_text(items: list[str], text: str) -> None:
+    if text and text not in items:
+        items.append(text)
+
+
 def _resolved_artifact_subject_paths(
     *,
     bundle: Path,
@@ -4318,11 +4396,11 @@ def _validate_c2pa_sidecar(
     repo_root: Path,
     errors: list[str],
     warnings: list[str],
-) -> None:
+) -> dict[str, Any] | None:
     c2patool = _c2patool_binary()
     if not c2patool:
         errors.append("c2patool binary not found for required C2PA verification")
-        return
+        return None
     subject_paths = _resolved_artifact_subject_paths(
         bundle=bundle,
         identity=identity,
@@ -4331,15 +4409,15 @@ def _validate_c2pa_sidecar(
     )
     if not subject_paths:
         errors.append("C2PA verification requires a resolvable artifact subject")
-        return
+        return None
     if len(subject_paths) > 1:
         errors.append("C2PA verification currently requires exactly one artifact subject")
-        return
+        return None
 
     subject_ref, subject_path, expected_digest = subject_paths[0]
     if expected_digest and _file_digest(subject_path) != expected_digest:
         errors.append(f"artifact subject digest mismatch before C2PA verification: {subject_ref}")
-        return
+        return None
     env = os.environ.copy()
     trust_args, trust_sources = _c2pa_trust_args(env)
     command = [c2patool, str(subject_path)]
@@ -4360,28 +4438,42 @@ def _validate_c2pa_sidecar(
         errors.append(f"c2patool produced no JSON report for {subject_ref}")
         if proc.stderr.strip():
             errors.append(proc.stderr.strip().splitlines()[-1][:240])
-        return
+        return None
     try:
         report = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         errors.append(f"c2patool report is not valid JSON for {subject_ref}: {exc}")
-        return
+        return None
     if not isinstance(report, dict):
         errors.append(f"c2patool report must be a JSON object for {subject_ref}")
-        return
+        return None
     state = str(report.get("validation_state") or "")
     if state != "Valid":
         errors.append(f"C2PA validation_state is not Valid for {subject_ref}: {state or 'missing'}")
     status_codes = _c2pa_status_codes(report)
+    trust_verdict = _c2pa_trust_verdict(
+        report=report,
+        trust_sources=trust_sources,
+        status_codes=status_codes,
+    )
     if any(code == "assertion.dataHash.mismatch" for code in status_codes):
         errors.append(f"C2PA asset hash mismatch for {subject_ref}")
     if any(code == "signingCredential.expired" for code in status_codes):
         errors.append(f"C2PA signing credential is expired for {subject_ref}")
+    if any(code == "signingCredential.invalid" for code in status_codes):
+        errors.append(f"C2PA signing credential is invalid for {subject_ref}")
     if any(code == "signingCredential.revoked" for code in status_codes):
         errors.append(f"C2PA signing credential is revoked for {subject_ref}")
+    if any(code == "signingCredential.ocsp.revoked" for code in status_codes):
+        errors.append(f"C2PA signing credential OCSP status is revoked for {subject_ref}")
     if any(code == "signingCredential.untrusted" for code in status_codes):
         warnings.append("C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof")
-    elif not any(code == "signingCredential.trusted" for code in status_codes):
+    elif trust_verdict.get("trust_tier") == "allowed_list_end_entity":
+        warnings.append(
+            "C2PA signing credential is trusted only by configured allowed-list end-entity; "
+            "this is not production trust-list proof"
+        )
+    elif trust_verdict.get("production_trust_list_trusted") is not True:
         warnings.append("C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof")
     if not trust_sources and not any(code == "signingCredential.trusted" for code in status_codes):
         warnings.append(
@@ -4394,10 +4486,11 @@ def _validate_c2pa_sidecar(
             recorded = _read_json(report_path)
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{C2PA_REPORT_SIDECAR} must contain a JSON object: {exc}")
-            return
+            return trust_verdict
         recorded_state = str(recorded.get("validation_state") or "")
         if recorded_state and recorded_state != state:
             errors.append(f"{C2PA_REPORT_SIDECAR} validation_state does not match c2patool output")
+    return trust_verdict
 
 
 def _validate_cosign_signature(
@@ -4486,6 +4579,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
     subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
     artifact_class = str(identity.get("artifact_class") or "")
     subject_resolutions: list[dict[str, Any]] = []
+    control_evidence: dict[str, Any] = {}
 
     required_controls: list[str] = []
     policy_controls: set[str] = set()
@@ -4540,7 +4634,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
     if "slsa_in_toto" in required_controls:
         _validate_slsa_sidecar(bundle, subjects, errors)
     if "c2pa" in required_controls:
-        _validate_c2pa_sidecar(
+        c2pa_trust = _validate_c2pa_sidecar(
             bundle=bundle,
             identity=identity,
             subjects=subjects,
@@ -4548,6 +4642,8 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
             errors=errors,
             warnings=warnings,
         )
+        if isinstance(c2pa_trust, dict):
+            control_evidence["c2pa"] = {"trust": c2pa_trust}
     _validate_artifact_subject_files(
         identity=identity,
         subjects=subjects,
@@ -4592,6 +4688,8 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
     }
     if subject_resolutions:
         payload["artifact_subject_resolution"] = subject_resolutions
+    if control_evidence:
+        payload["control_evidence"] = control_evidence
     if write:
         _write_json(bundle / VERIFY_SIDECAR, payload)
     return payload
@@ -4698,6 +4796,9 @@ def bundle_registry_record(
         raise ValueError(f"unknown trust_root_mode: {trust_root_mode}")
     bundle = Path(bundle_dir)
     verification = verify_bundle(bundle, repo_root=repo_root, write=True)
+    control_evidence = verification.get("control_evidence") if isinstance(verification.get("control_evidence"), dict) else {}
+    c2pa_evidence = control_evidence.get("c2pa") if isinstance(control_evidence.get("c2pa"), dict) else {}
+    c2pa_trust = c2pa_evidence.get("trust") if isinstance(c2pa_evidence.get("trust"), dict) else {}
     identity = _read_json(bundle / IDENTITY_SIDECAR) if (bundle / IDENTITY_SIDECAR).is_file() else {}
     provenance = _read_json(bundle / PROVENANCE_SIDECAR) if (bundle / PROVENANCE_SIDECAR).is_file() else {}
     signature = _read_json(bundle / SIGNATURE_DECISION_SIDECAR) if (bundle / SIGNATURE_DECISION_SIDECAR).is_file() else {}
@@ -4785,6 +4886,10 @@ def bundle_registry_record(
         "policy_ref": POLICY_REF,
         "abi_ref": ABI_REF,
     }
+    if control_evidence:
+        record["control_evidence"] = control_evidence
+    if c2pa_trust:
+        record["c2pa_trust"] = c2pa_trust
     return {
         "ok": not errors,
         "schema": "abyss_machine_artifact_bundle_registry_write_v1",
@@ -5204,6 +5309,16 @@ def _trust_root_evidence_digest_values(evidence: dict[str, Any]) -> set[str]:
     return digests
 
 
+def _record_c2pa_trust(record: dict[str, Any]) -> dict[str, Any]:
+    trust = record.get("c2pa_trust")
+    if isinstance(trust, dict) and trust:
+        return trust
+    control_evidence = record.get("control_evidence") if isinstance(record.get("control_evidence"), dict) else {}
+    c2pa_evidence = control_evidence.get("c2pa") if isinstance(control_evidence.get("c2pa"), dict) else {}
+    trust = c2pa_evidence.get("trust")
+    return trust if isinstance(trust, dict) else {}
+
+
 def _production_trust_root_expected_modes(
     selected: dict[str, Any],
     *,
@@ -5392,6 +5507,7 @@ def _trust_gate_inspected_claims(
         },
         "artifact_subject_store": selected.get("artifact_subject_store"),
         "consumer_contract": selected.get("consumer_contract"),
+        "c2pa_trust": _record_c2pa_trust(selected) or None,
     }
 
 
@@ -5537,9 +5653,12 @@ def trust_gate(
         privacy_review_reason = production_privacy_boundary_review_reason(selected.get("privacy_boundary"))
         if privacy_review_reason:
             manual_review.append(privacy_review_reason)
+        if artifact_class == "public_media_export" and "c2pa" in required_controls:
+            _append_unique_text(warnings, _c2pa_trust_gap_warning(_record_c2pa_trust(selected)))
 
     if selected.get("verification_warnings"):
-        warnings.extend(str(item) for item in selected.get("verification_warnings", []))
+        for warning in selected.get("verification_warnings", []):
+            _append_unique_text(warnings, str(warning))
 
     if blockers:
         verdict = "deny"
