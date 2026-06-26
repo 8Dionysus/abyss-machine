@@ -338,6 +338,40 @@ def artifact_class_rule(artifact_class: str, *, repo_root: Path = REPO_ROOT) -> 
     return rule
 
 
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item)]
+
+
+def _producer_profile_automation_readiness(row: dict[str, Any]) -> dict[str, Any]:
+    producer_commands = _string_list(row.get("producer_commands"))
+    host_verifier_commands = _string_list(row.get("host_verifier_commands"))
+    deferred_records = [
+        item for item in row.get("deferred_records", []) if isinstance(item, dict)
+    ] if isinstance(row.get("deferred_records"), list) else []
+    errors: list[str] = []
+    if not producer_commands and not deferred_records:
+        errors.append("producer_command_or_deferred_record_required")
+    if not host_verifier_commands:
+        errors.append("host_verifier_command_required")
+    if producer_commands:
+        status = "owner_local_producer_declared"
+    elif deferred_records:
+        status = "deferred_owner_route_declared"
+    else:
+        status = "incomplete"
+    return {
+        "schema": "abyss_machine_producer_profile_automation_readiness_v1",
+        "status": "incomplete" if errors else status,
+        "owner_local_producer_declared": bool(producer_commands),
+        "explicit_deferred_records": bool(deferred_records),
+        "host_verifier_declared": bool(host_verifier_commands),
+        "errors": errors,
+        "claim_limit": "Automation readiness names owner-local commands or explicit deferrals plus host verifier commands; it does not execute sibling validators or move sibling authority into abyss-machine.",
+    }
+
+
 def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
     profiles = policy.get("producer_profiles")
     if not isinstance(profiles, dict):
@@ -349,14 +383,21 @@ def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
         row = {**profile}
         row["profile_id"] = str(row.get("profile_id") or profile_id)
         row["owner_repo"] = str(row.get("owner_repo") or "")
-        row["artifact_classes"] = [str(item) for item in row.get("artifact_classes", []) if str(item)]
-        row["owner_route_refs"] = [str(item) for item in row.get("owner_route_refs", []) if str(item)]
-        row["release_export_triggers"] = [str(item) for item in row.get("release_export_triggers", []) if str(item)]
-        row["validator_commands"] = [str(item) for item in row.get("validator_commands", []) if str(item)]
-        row["produced_sidecars"] = [str(item) for item in row.get("produced_sidecars", []) if str(item)]
-        row["consumer_expectations"] = [str(item) for item in row.get("consumer_expectations", []) if str(item)]
-        row["owner_boundaries"] = [str(item) for item in row.get("owner_boundaries", []) if str(item)]
-        row["trust_root_modes"] = [str(item) for item in row.get("trust_root_modes", []) if str(item)]
+        row["workspace_aliases"] = _string_list(row.get("workspace_aliases"))
+        row["artifact_classes"] = _string_list(row.get("artifact_classes"))
+        row["owner_route_refs"] = _string_list(row.get("owner_route_refs"))
+        row["release_export_triggers"] = _string_list(row.get("release_export_triggers"))
+        row["producer_commands"] = _string_list(row.get("producer_commands"))
+        row["host_verifier_commands"] = _string_list(row.get("host_verifier_commands"))
+        row["validator_commands"] = _string_list(row.get("validator_commands"))
+        row["produced_sidecars"] = _string_list(row.get("produced_sidecars"))
+        row["consumer_expectations"] = _string_list(row.get("consumer_expectations"))
+        row["owner_boundaries"] = _string_list(row.get("owner_boundaries"))
+        row["trust_root_modes"] = _string_list(row.get("trust_root_modes"))
+        row["deferred_records"] = [
+            item for item in row.get("deferred_records", []) if isinstance(item, dict)
+        ] if isinstance(row.get("deferred_records"), list) else []
+        row["automation_readiness"] = _producer_profile_automation_readiness(row)
         rows.append(row)
     return rows
 
@@ -394,6 +435,14 @@ def artifact_producer_profiles(
         rows = [row for row in rows if artifact_class in set(row.get("artifact_classes", []))]
     artifact_classes = sorted({class_id for row in rows for class_id in row.get("artifact_classes", [])})
     owner_repos = sorted({str(row.get("owner_repo")) for row in rows if row.get("owner_repo")})
+    automation_status_counts: dict[str, int] = {}
+    incomplete_profiles: list[str] = []
+    for row in rows:
+        readiness = row.get("automation_readiness") if isinstance(row.get("automation_readiness"), dict) else {}
+        status = str(readiness.get("status") or "unknown")
+        automation_status_counts[status] = automation_status_counts.get(status, 0) + 1
+        if readiness.get("errors"):
+            incomplete_profiles.append(str(row.get("profile_id") or row.get("owner_repo") or "unknown"))
     return {
         "ok": not errors,
         "schema": "abyss_machine_artifact_producer_profiles_v1",
@@ -408,6 +457,8 @@ def artifact_producer_profiles(
             "owner_repos": owner_repos,
             "artifact_classes": artifact_classes,
             "artifact_class_count": len(artifact_classes),
+            "automation_status_counts": automation_status_counts,
+            "incomplete_profiles": incomplete_profiles,
         },
         "rows": rows,
         "agent_loop": {
@@ -818,7 +869,7 @@ def _path_matches_ref(path_text: str, ref_text: str) -> bool:
     return path == ref or path.startswith(ref + "/")
 
 
-def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
+def _raw_producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
     profiles = policy.get("producer_profiles")
     if isinstance(profiles, dict):
         return [item for item in profiles.values() if isinstance(item, dict)]
@@ -829,7 +880,7 @@ def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _source_repo_aliases(policy: dict[str, Any]) -> dict[str, list[str]]:
     aliases: dict[str, list[str]] = {"abyss-machine": ["abyss-machine"]}
-    for profile in _producer_profile_rows(policy):
+    for profile in _raw_producer_profile_rows(policy):
         owner = str(profile.get("owner_repo") or "")
         if not owner:
             continue
