@@ -184,6 +184,9 @@
           },
           "role": {
             "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
           }
         },
         "oneOf": [

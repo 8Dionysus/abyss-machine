@@ -51,9 +51,12 @@ C2PA_TRUST_ANCHORS_PROFILE_ENV = "ABYSS_MACHINE_C2PA_TRUST_ANCHORS_PROFILE"
 C2PA_ALLOWED_LIST_ENV = "ABYSS_MACHINE_C2PA_ALLOWED_LIST"
 C2PA_TRUST_CONFIG_ENV = "ABYSS_MACHINE_C2PA_TRUST_CONFIG"
 C2PA_OFFICIAL_TRUST_LIST_URL = "https://raw.githubusercontent.com/c2pa-org/conformance-public/refs/heads/main/trust-list/C2PA-TRUST-LIST.pem"
+C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL = "https://contentcredentials.org/trust/anchors.pem"
+C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL = "https://contentcredentials.org/trust/store.cfg"
 C2PA_PRODUCTION_TRUST_LIST_PROFILES = frozenset(
     {
         "official_c2pa_trust_list",
+        "official_content_credentials_trust_store",
         "c2pa_conformance_trust_list",
         "production_c2pa_trust_list",
     }
@@ -619,8 +622,12 @@ def validate_bundle_lifecycle(lifecycle: Any, *, manifest_ref: str) -> dict[str,
 def load_bundle_manifest(manifest_ref: str | Path, *, repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     path = Path(manifest_ref)
     if not path.is_absolute():
+        repo_candidate = repo_root / path
         cwd_candidate = Path.cwd() / path
-        path = cwd_candidate if cwd_candidate.is_file() else repo_root / path
+        if repo_root != REPO_ROOT and repo_candidate.is_file():
+            path = repo_candidate
+        else:
+            path = cwd_candidate if cwd_candidate.is_file() else repo_candidate
     manifest = _read_json(path)
     if manifest.get("schema") != "abyss_machine_artifact_bundle_manifest_v1":
         raise ValueError(f"{path} must use schema abyss_machine_artifact_bundle_manifest_v1")
@@ -3083,6 +3090,8 @@ def build_artifact_subjects(manifest: dict[str, Any] | None) -> dict[str, Any] |
         else:
             raise ValueError(f"artifact_subjects[{idx}] must define path or glob")
         if not candidates:
+            if spec.get("glob") and spec.get("optional") is True:
+                continue
             raise ValueError(f"artifact_subjects[{idx}] matched no files")
         for path in candidates:
             resolved = path.resolve()
@@ -3101,6 +3110,8 @@ def build_artifact_subjects(manifest: dict[str, Any] | None) -> dict[str, Any] |
                 "sha256_hex": digest,
             }
     entries = [files[key] for key in sorted(files)]
+    if not entries:
+        raise ValueError("artifact_subjects matched no files")
     return {
         "schema": "abyss_machine_artifact_subjects_v1",
         "bundle_layout": BUNDLE_LAYOUT,
@@ -3960,6 +3971,8 @@ def _c2pa_trust_anchor_profile(value: str, env: dict[str, str]) -> tuple[str, st
         return explicit, C2PA_TRUST_ANCHORS_PROFILE_ENV
     if value.strip() == C2PA_OFFICIAL_TRUST_LIST_URL:
         return "official_c2pa_trust_list", "auto:official_c2pa_trust_list_url"
+    if value.strip() == C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL:
+        return "official_content_credentials_trust_store", "auto:content_credentials_trust_store_url"
     return "custom_trust_anchor_store", "auto:custom_trust_anchor_store"
 
 
@@ -4011,6 +4024,30 @@ def _c2pa_status_codes(report: dict[str, Any]) -> list[str]:
     return codes
 
 
+def _c2pa_active_manifest_status_codes(report: dict[str, Any]) -> list[str]:
+    validation_results = report.get("validation_results")
+    validation_results = validation_results if isinstance(validation_results, dict) else {}
+    active_manifest = validation_results.get("activeManifest")
+    if not isinstance(active_manifest, dict):
+        return []
+    codes: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            code = value.get("code")
+            if isinstance(code, str) and code:
+                codes.append(code)
+            for child in value.values():
+                visit(child)
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(active_manifest)
+    return codes
+
+
 def _c2pa_credential_status(status_codes: list[str]) -> str:
     code_set = set(status_codes)
     if "signingCredential.expired" in code_set or "signingCredential.invalid" in code_set:
@@ -4029,6 +4066,7 @@ def _c2pa_trust_verdict(
     report: dict[str, Any],
     trust_sources: dict[str, str],
     status_codes: list[str],
+    all_status_codes: list[str] | None = None,
 ) -> dict[str, Any]:
     credential_status = _c2pa_credential_status(status_codes)
     trust_anchors_configured = bool(trust_sources.get("trust_anchors"))
@@ -4066,6 +4104,7 @@ def _c2pa_trust_verdict(
         "trust_config_configured": trust_config_configured,
         "trust_sources": dict(sorted(trust_sources.items())),
         "status_codes": list(status_codes),
+        "all_status_codes": list(all_status_codes or status_codes),
         "claim_limits": [
             "production_trust_list_trusted requires signingCredential.trusted from c2patool with an official or explicitly declared production C2PA Trust List profile and no allowed-list override.",
             "allowed_list end-entity trust is useful for local acceptance but is not C2PA production trust-list proof.",
@@ -4821,10 +4860,12 @@ def _validate_c2pa_sidecar(
         errors.append("C2PA manifest_sidecar must be a safe bundle-relative path")
         return None
     sidecar = bundle / sidecar_rel
-    if not sidecar.is_file():
+    allow_embedded_manifest = c2pa_config.get("allow_embedded_manifest") is True
+    if sidecar.is_file():
+        command.extend(["--external-manifest", str(sidecar)])
+    elif not allow_embedded_manifest:
         errors.append(f"C2PA manifest sidecar is missing: {manifest_sidecar}")
         return None
-    command.extend(["--external-manifest", str(sidecar)])
     command.append("trust")
     command.extend(trust_args)
     proc = subprocess.run(
@@ -4849,25 +4890,31 @@ def _validate_c2pa_sidecar(
         errors.append(f"c2patool report must be a JSON object for {subject_ref}")
         return None
     state = str(report.get("validation_state") or "")
-    if state != "Valid":
+    required_state = str(c2pa_config.get("required_validation_state") or "Valid")
+    allowed_states = {required_state}
+    if required_state == "Valid":
+        allowed_states.add("Trusted")
+    if state not in allowed_states:
         errors.append(f"C2PA validation_state is not Valid for {subject_ref}: {state or 'missing'}")
     status_codes = _c2pa_status_codes(report)
+    active_status_codes = _c2pa_active_manifest_status_codes(report) or status_codes
     trust_verdict = _c2pa_trust_verdict(
         report=report,
         trust_sources=trust_sources,
-        status_codes=status_codes,
+        status_codes=active_status_codes,
+        all_status_codes=status_codes,
     )
     if any(code == "assertion.dataHash.mismatch" for code in status_codes):
         errors.append(f"C2PA asset hash mismatch for {subject_ref}")
-    if any(code == "signingCredential.expired" for code in status_codes):
+    if any(code == "signingCredential.expired" for code in active_status_codes):
         errors.append(f"C2PA signing credential is expired for {subject_ref}")
-    if any(code == "signingCredential.invalid" for code in status_codes):
+    if any(code == "signingCredential.invalid" for code in active_status_codes):
         errors.append(f"C2PA signing credential is invalid for {subject_ref}")
-    if any(code == "signingCredential.revoked" for code in status_codes):
+    if any(code == "signingCredential.revoked" for code in active_status_codes):
         errors.append(f"C2PA signing credential is revoked for {subject_ref}")
-    if any(code == "signingCredential.ocsp.revoked" for code in status_codes):
+    if any(code == "signingCredential.ocsp.revoked" for code in active_status_codes):
         errors.append(f"C2PA signing credential OCSP status is revoked for {subject_ref}")
-    if any(code == "signingCredential.untrusted" for code in status_codes):
+    if any(code == "signingCredential.untrusted" for code in active_status_codes):
         warnings.append("C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof")
     elif trust_verdict.get("trust_tier") == "allowed_list_end_entity":
         warnings.append(
@@ -4881,7 +4928,7 @@ def _validate_c2pa_sidecar(
         )
     elif trust_verdict.get("production_trust_list_trusted") is not True:
         warnings.append("C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof")
-    if not trust_sources and not any(code == "signingCredential.trusted" for code in status_codes):
+    if not trust_sources and not any(code == "signingCredential.trusted" for code in active_status_codes):
         warnings.append(
             "C2PA production trust anchors are not configured; set "
             f"{C2PA_TRUST_ANCHORS_ENV} or C2PATOOL_TRUST_ANCHORS before production publication"
