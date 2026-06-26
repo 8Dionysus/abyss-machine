@@ -60,8 +60,11 @@ before update-client consumption. The sidecar name is
 unchanged metadata beyond the configured freeze window. Consumer use must pass
 `update-verify --require-trust-gate` with registry, subject digest, source repo,
 and trust-root mode so metadata freshness cannot bypass artifact `trust-gate`.
-This is the OS Abyss v1 TUF-style gate. It does not claim a complete external
-TUF repository or SCITT transparency service.
+Use `update-repo-build` and `update-repo-verify` when the updateable artifact is
+distributed through an external TUF repository with `root`, `targets`,
+`snapshot`, and `timestamp` metadata plus trusted-root bootstrap. This is the
+OS Abyss external TUF producer/verifier v1; live SCITT transparency service and
+public-channel key ceremony remain separate production layers.
 
 External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM

@@ -15,10 +15,13 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from cryptography.hazmat.primitives import serialization
     from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 except Exception:  # pragma: no cover - optional production verifier dependency.
+    serialization = None  # type: ignore[assignment]
     InvalidSignature = None  # type: ignore[assignment]
+    Ed25519PrivateKey = None  # type: ignore[assignment]
     Ed25519PublicKey = None  # type: ignore[assignment]
 
 
@@ -56,6 +59,8 @@ TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
 TUF_REPOSITORY_TARGETS_DIR = "targets"
 TUF_REPOSITORY_ROLES = ("root", "targets", "snapshot", "timestamp")
+TUF_TRUSTED_ROOT_BOOTSTRAP = "trusted-root.json"
+TUF_CLIENT_STATE = "previous-tuf-client-state.json"
 SCITT_SIGNED_STATEMENT_SCHEMA = "abyss_machine_scitt_signed_statement_v1"
 SCITT_RECEIPT_SCHEMA = "abyss_machine_scitt_receipt_v1"
 SCITT_STATEMENT_CLASSES = (
@@ -1010,7 +1015,7 @@ def update_lane_status(
         "rows": rows,
         "errors": errors,
         "claim_limits": [
-            "This lane includes an OS Abyss TUF-style sidecar gate and a cryptographic Ed25519 external TUF repository verifier, but not a complete published production TUF repository lifecycle.",
+            "This lane includes an OS Abyss TUF-style sidecar gate plus an external TUF repository producer/verifier v1 for root/targets/snapshot/timestamp metadata, client bootstrap, and update-client trust-gate admission.",
             "SCITT is implemented as a local statement/receipt binding stub for fail-closed external relying-party mode; it is not a live external transparency service yet.",
         ],
     }
@@ -1327,6 +1332,348 @@ def _tuf_hash_matches(path: Path, entry: dict[str, Any]) -> bool:
 def _tuf_length_matches(path: Path, entry: dict[str, Any]) -> bool:
     length = _positive_int(entry.get("length"))
     return length is None or path.stat().st_size == length
+
+
+def _write_tuf_metadata_json(path: Path, payload: dict[str, Any]) -> tuple[str, int]:
+    raw = _canonical_json_bytes(payload) + b"\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    return hashlib.sha256(raw).hexdigest(), len(raw)
+
+
+def _normalize_tuf_target_path(target_path: str, fallback: Path) -> tuple[str, list[str]]:
+    raw = str(target_path or fallback.name).strip().replace("\\", "/")
+    parts = [part for part in raw.split("/") if part and part != "."]
+    errors: list[str] = []
+    if not parts:
+        errors.append("target_path_missing")
+    if raw.startswith("/") or any(part == ".." for part in parts):
+        errors.append("target_path_must_be_repo_relative")
+    return "/".join(parts), errors
+
+
+def _path_is_under(child: Path, parent: Path) -> bool:
+    try:
+        child.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _default_tuf_expires(now_dt: dt.datetime, role: str) -> str:
+    if role in {"root", "targets"}:
+        expires = now_dt + dt.timedelta(days=365)
+    else:
+        expires = now_dt + dt.timedelta(days=7)
+    return expires.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _load_tuf_private_key(path: Path) -> Any:
+    if serialization is None or Ed25519PrivateKey is None:
+        raise RuntimeError("cryptography Ed25519 support is unavailable")
+    key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise RuntimeError(f"{path} is not an Ed25519 private key")
+    return key
+
+
+def _write_tuf_private_key(path: Path, key: Any) -> None:
+    if serialization is None:
+        raise RuntimeError("cryptography serialization support is unavailable")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    path.write_bytes(raw)
+    path.chmod(0o600)
+
+
+def _tuf_private_keys(
+    key_dir: Path | None,
+    *,
+    generate_missing_keys: bool,
+) -> tuple[dict[str, Any], dict[str, str], list[str], list[str]]:
+    keys: dict[str, Any] = {}
+    key_sources: dict[str, str] = {}
+    errors: list[str] = []
+    warnings: list[str] = []
+    if Ed25519PrivateKey is None:
+        return keys, key_sources, ["ed25519_signer_unavailable"], warnings
+
+    if key_dir is None and not generate_missing_keys:
+        return keys, key_sources, ["tuf_key_dir_required_or_dev_generate_keys"], warnings
+
+    for role in TUF_REPOSITORY_ROLES:
+        key_path = key_dir / f"{role}.ed25519.pem" if key_dir is not None else None
+        if key_path is not None and key_path.is_file():
+            try:
+                keys[role] = _load_tuf_private_key(key_path)
+            except RuntimeError as exc:
+                errors.append(f"{role}_key_unreadable:{exc}")
+                continue
+            key_sources[role] = str(key_path)
+            continue
+        if not generate_missing_keys:
+            errors.append(f"{role}_key_missing")
+            continue
+        key = Ed25519PrivateKey.generate()
+        keys[role] = key
+        if key_path is not None:
+            _write_tuf_private_key(key_path, key)
+            key_sources[role] = str(key_path)
+            warnings.append(f"{role}_key_generated_in_key_dir")
+        else:
+            key_sources[role] = "ephemeral_dev_generated"
+    if any(source == "ephemeral_dev_generated" for source in key_sources.values()):
+        warnings.append("ephemeral_tuf_signing_keys_generated; use a host-managed key-dir for durable production channels")
+    return keys, key_sources, errors, warnings
+
+
+def _tuf_public_key_hex(key: Any) -> str:
+    if serialization is None:
+        raise RuntimeError("cryptography serialization support is unavailable")
+    return key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ).hex()
+
+
+def _signed_tuf_role(
+    role: str,
+    signed: dict[str, Any],
+    signing_key: Any,
+    *,
+    keyid: str,
+) -> dict[str, Any]:
+    signed_payload = {
+        "_type": role,
+        "spec_version": "1.0.31",
+        **signed,
+    }
+    signature = signing_key.sign(_canonical_json_bytes(signed_payload)).hex()
+    return {
+        "signed": signed_payload,
+        "signatures": [{"keyid": keyid, "sig": signature}],
+    }
+
+
+def build_tuf_repository(
+    repository_dir: str | Path,
+    *,
+    target_file: str | Path,
+    target_path: str = "",
+    artifact_class: str = "",
+    version: int = 1,
+    key_dir: str | Path | None = None,
+    generate_missing_keys: bool = False,
+    root_expires: str = "",
+    targets_expires: str = "",
+    snapshot_expires: str = "",
+    timestamp_expires: str = "",
+    now: dt.datetime | str | None = None,
+) -> dict[str, Any]:
+    repo = Path(repository_dir)
+    source = Path(target_file)
+    now_dt = _parse_time(now) if isinstance(now, str) else now
+    if now_dt is None:
+        now_dt = dt.datetime.now(dt.UTC)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=dt.UTC)
+    now_dt = now_dt.astimezone(dt.UTC)
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    normalized_target, target_errors = _normalize_tuf_target_path(target_path, source)
+    errors.extend(target_errors)
+    if not source.is_file():
+        errors.append("target_file_missing")
+    if _path_is_under(repo, REPO_ROOT):
+        errors.append("tuf_repository_dir_must_be_outside_source_repo")
+    if key_dir is not None and _path_is_under(Path(key_dir), REPO_ROOT):
+        errors.append("tuf_key_dir_must_be_outside_source_repo")
+    role_version = _positive_int(version)
+    if role_version is None:
+        errors.append("version_must_be_positive")
+
+    keys, key_sources, key_errors, key_warnings = _tuf_private_keys(
+        Path(key_dir) if key_dir is not None else None,
+        generate_missing_keys=generate_missing_keys,
+    )
+    errors.extend(key_errors)
+    warnings.extend(key_warnings)
+    if errors:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_tuf_repository_build_v1",
+            "policy_ref": POLICY_REF,
+            "repository_dir": str(repo),
+            "target_file": str(source),
+            "target_path": normalized_target or None,
+            "artifact_class": artifact_class or None,
+            "verdict": "deny",
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+    metadata_dir = repo / TUF_REPOSITORY_METADATA_DIR
+    targets_dir = repo / TUF_REPOSITORY_TARGETS_DIR
+    target_output = targets_dir / normalized_target
+    target_output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target_output)
+    target_hash = _file_digest_hex(target_output)
+    target_length = target_output.stat().st_size
+    versions = {role: int(role_version or 1) for role in TUF_REPOSITORY_ROLES}
+    expirations = {
+        "root": root_expires or _default_tuf_expires(now_dt, "root"),
+        "targets": targets_expires or _default_tuf_expires(now_dt, "targets"),
+        "snapshot": snapshot_expires or _default_tuf_expires(now_dt, "snapshot"),
+        "timestamp": timestamp_expires or _default_tuf_expires(now_dt, "timestamp"),
+    }
+    for role, expires in expirations.items():
+        if _parse_time(expires) is None:
+            errors.append(f"{role}_expires_invalid")
+    if errors:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_tuf_repository_build_v1",
+            "policy_ref": POLICY_REF,
+            "repository_dir": str(repo),
+            "target_file": str(source),
+            "target_path": normalized_target,
+            "artifact_class": artifact_class or None,
+            "verdict": "deny",
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+    keyids = {role: f"{role}-key" for role in TUF_REPOSITORY_ROLES}
+    public_keys = {role: _tuf_public_key_hex(keys[role]) for role in TUF_REPOSITORY_ROLES}
+    root = _signed_tuf_role(
+        "root",
+        {
+            "version": versions["root"],
+            "expires": expirations["root"],
+            "keys": {
+                keyids[role]: {
+                    "keytype": "ed25519",
+                    "scheme": "ed25519",
+                    "keyval": {"public": public_keys[role]},
+                }
+                for role in TUF_REPOSITORY_ROLES
+            },
+            "roles": {role: {"keyids": [keyids[role]], "threshold": 1} for role in TUF_REPOSITORY_ROLES},
+        },
+        keys["root"],
+        keyid=keyids["root"],
+    )
+    root_hash, root_length = _write_tuf_metadata_json(metadata_dir / "root.json", root)
+
+    targets = _signed_tuf_role(
+        "targets",
+        {
+            "version": versions["targets"],
+            "expires": expirations["targets"],
+            "targets": {
+                normalized_target: {
+                    "length": target_length,
+                    "hashes": {"sha256": target_hash},
+                    "custom": {
+                        "artifact_class": artifact_class or None,
+                        "os_abyss_tuf_producer": "abyss_machine_tuf_repository_build_v1",
+                    },
+                }
+            },
+        },
+        keys["targets"],
+        keyid=keyids["targets"],
+    )
+    targets_hash, targets_length = _write_tuf_metadata_json(metadata_dir / "targets.json", targets)
+
+    snapshot = _signed_tuf_role(
+        "snapshot",
+        {
+            "version": versions["snapshot"],
+            "expires": expirations["snapshot"],
+            "meta": {
+                "targets.json": {
+                    "version": versions["targets"],
+                    "length": targets_length,
+                    "hashes": {"sha256": targets_hash},
+                }
+            },
+        },
+        keys["snapshot"],
+        keyid=keyids["snapshot"],
+    )
+    snapshot_hash, snapshot_length = _write_tuf_metadata_json(metadata_dir / "snapshot.json", snapshot)
+
+    timestamp = _signed_tuf_role(
+        "timestamp",
+        {
+            "version": versions["timestamp"],
+            "expires": expirations["timestamp"],
+            "meta": {
+                "snapshot.json": {
+                    "version": versions["snapshot"],
+                    "length": snapshot_length,
+                    "hashes": {"sha256": snapshot_hash},
+                }
+            },
+        },
+        keys["timestamp"],
+        keyid=keyids["timestamp"],
+    )
+    timestamp_hash, timestamp_length = _write_tuf_metadata_json(metadata_dir / "timestamp.json", timestamp)
+
+    trusted_root_path = repo / TUF_TRUSTED_ROOT_BOOTSTRAP
+    client_state_path = repo / TUF_CLIENT_STATE
+    _write_tuf_metadata_json(trusted_root_path, root)
+    client_state = {
+        "schema": "abyss_machine_tuf_client_state_v1",
+        "artifact_class": artifact_class or None,
+        "role_versions": versions,
+        "timestamp_sha256": f"sha256:{timestamp_hash}",
+        "last_seen_at": now_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "trusted_root_sha256": f"sha256:{root_hash}",
+        "target_path": normalized_target,
+        "target_digest": f"sha256:{target_hash}",
+    }
+    _write_json(client_state_path, client_state)
+
+    return {
+        "ok": True,
+        "schema": "abyss_machine_tuf_repository_build_v1",
+        "policy_ref": POLICY_REF,
+        "repository_dir": str(repo),
+        "metadata_dir": str(metadata_dir),
+        "targets_dir": str(targets_dir),
+        "target_file": str(source),
+        "target_path": normalized_target,
+        "target_repository_path": str(target_output),
+        "target_digest": f"sha256:{target_hash}",
+        "target_length": target_length,
+        "artifact_class": artifact_class or None,
+        "trusted_root_path": str(trusted_root_path),
+        "client_state_path": str(client_state_path),
+        "role_versions": versions,
+        "role_expirations": expirations,
+        "role_metadata": {
+            "root": {"sha256": f"sha256:{root_hash}", "length": root_length},
+            "targets": {"sha256": f"sha256:{targets_hash}", "length": targets_length},
+            "snapshot": {"sha256": f"sha256:{snapshot_hash}", "length": snapshot_length},
+            "timestamp": {"sha256": f"sha256:{timestamp_hash}", "length": timestamp_length},
+        },
+        "key_sources": key_sources,
+        "verdict": "allow",
+        "errors": [],
+        "warnings": warnings,
+        "claim_limits": [
+            "This builds a real external TUF repository layout for one OS Abyss target with Ed25519 role signatures and client bootstrap files.",
+            "Ephemeral generated keys are for local/dev proof only; public update channels require host-managed/offline key ceremony and operator-controlled key custody.",
+        ],
+    }
 
 
 def verify_tuf_repository(

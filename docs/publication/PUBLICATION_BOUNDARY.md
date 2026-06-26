@@ -48,10 +48,10 @@ The boundary here is simpler:
 - host-local evidence is not published as source;
 - release artifacts are checked by the release validation lane before
   publication;
-- updateable/installable artifacts pass the OS Abyss TUF-style metadata gate
-  and an artifact `trust-gate` verdict before update-client consumption; a full
-  external TUF repository and SCITT transparency service remain separate future
-  production layers;
+- updateable/installable artifacts pass the OS Abyss TUF-style metadata gate,
+  external TUF repository producer/verifier path, and artifact `trust-gate`
+  verdict before update-client consumption; public-channel TUF key ceremony and
+  live SCITT transparency service remain separate production layers;
 - generated publication read models remain subordinate to tracked source,
   manifests, schemas, and validators.
 

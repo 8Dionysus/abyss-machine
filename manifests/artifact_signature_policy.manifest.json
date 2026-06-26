@@ -1139,7 +1139,7 @@
   "update_transparency_lane": {
     "schema": "abyss_machine_update_transparency_lane_v1",
     "tuf": {
-      "status": "crypto_verifier_v1",
+      "status": "external_repository_producer_v1",
       "required_when": "artifact is consumed by update_client, installer auto-update, package updater, runtime updater, or browser/tool update route",
       "metadata_sidecar": "artifact.update.tuf.json",
       "applies_to_artifact_classes": [
@@ -1195,9 +1195,17 @@
           "trusted_root_bootstrap": "required for external update-client consumption"
         }
       },
+      "external_repository_producer": {
+        "status": "producer_v1",
+        "command": "abyss-machine artifacts update-repo-build REPOSITORY --target-file TARGET_FILE --target-path TARGET --artifact-class ARTIFACT_CLASS --key-dir KEY_DIR --json",
+        "outputs": ["metadata/root.json", "metadata/targets.json", "metadata/snapshot.json", "metadata/timestamp.json", "targets/TARGET", "trusted-root.json", "previous-tuf-client-state.json"],
+        "key_route": "host-managed Ed25519 key directory for production; --dev-generate-keys is local proof only",
+        "client_bootstrap": "trusted-root.json plus previous-tuf-client-state.json feed update-repo-verify --require-trusted-root"
+      },
       "max_freeze_seconds": 604800,
-      "not_full_tuf_repository_yet": true,
-      "claim_limit": "This is the OS Abyss v1 TUF-style update metadata gate plus cryptographic Ed25519 external repository verifier; it still does not provide production key ceremony, root rotation operations, or a published external TUF repository bootstrap."
+      "not_full_tuf_repository_yet": false,
+      "production_key_ceremony_status": "required_for_public_channel_not_embedded_in_repo",
+      "claim_limit": "This is the OS Abyss external TUF repository producer/verifier v1: it builds root/targets/snapshot/timestamp metadata, verifies Ed25519 role thresholds, client bootstrap, rollback/freeze/expiry, target binding, and trust-gate admission. Public-channel key custody and ceremony remain host/operator production policy, not repo-embedded secrets."
     },
     "scitt": {
       "status": "local_stub_fail_closed_external_v1",
