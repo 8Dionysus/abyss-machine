@@ -628,6 +628,8 @@ def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) 
     [
         "C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof",
         "C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof",
+        "C2PA signing credential is trusted only by configured allowed-list end-entity; this is not production trust-list proof",
+        "C2PA trust verdict is not structured; production trust-list status is unproven",
         "C2PA production trust anchors are not configured; set ABYSS_MACHINE_C2PA_TRUST_ANCHORS or C2PATOOL_TRUST_ANCHORS before production publication",
     ],
 )
@@ -646,6 +648,35 @@ def test_trust_coverage_keeps_c2pa_credential_trust_gap_as_production_blocker(wa
             "ok": True,
             "verdict": "warn",
             "warnings": [warning],
+        },
+    )
+
+    assert status == "DEFERRED_WITH_REAL_BLOCKER"
+    assert "C2PA signing credential is not production trust-list trusted" in blocker
+
+
+def test_trust_coverage_keeps_structured_c2pa_trust_gap_as_production_blocker() -> None:
+    status, blocker = cli.artifact_trust_coverage_row_status(
+        "public_media_export",
+        latest={
+            "verification_ok": True,
+            "verified_controls": ["c2pa"],
+        },
+        records=[],
+        required_controls=["c2pa"],
+        manual_positive=["public-media.verify.json"],
+        manual_negative=["public-media.tampered-c2pa.verify.json"],
+        gate={
+            "ok": True,
+            "verdict": "warn",
+            "warnings": [],
+            "inspected_claims": {
+                "c2pa_trust": {
+                    "schema": "abyss_machine_c2pa_trust_verdict_v1",
+                    "trust_tier": "allowed_list_end_entity",
+                    "production_trust_list_trusted": False,
+                },
+            },
         },
     )
 
@@ -784,6 +815,7 @@ def _build_public_media_export_test_bundle(
     *,
     fake_state: str | None = None,
     trust_anchors: str | None = None,
+    allowed_list: str | None = None,
     capture_argv: bool = False,
 ) -> tuple[Path, Path | None]:
     asset = tmp_path / "media.png"
@@ -819,6 +851,13 @@ def _build_public_media_export_test_bundle(
     else:
         monkeypatch.delenv(artifact_bundles.C2PA_TRUST_ANCHORS_ENV, raising=False)
         monkeypatch.delenv("C2PATOOL_TRUST_ANCHORS", raising=False)
+    if allowed_list is not None:
+        allowed = tmp_path / "c2pa-allowed-list.pem"
+        allowed.write_text(allowed_list, encoding="utf-8")
+        monkeypatch.setenv(artifact_bundles.C2PA_ALLOWED_LIST_ENV, str(allowed))
+    else:
+        monkeypatch.delenv(artifact_bundles.C2PA_ALLOWED_LIST_ENV, raising=False)
+        monkeypatch.delenv("C2PATOOL_ALLOWED_LIST", raising=False)
     argv_capture = tmp_path / "c2pa-argv.json" if capture_argv else None
     if argv_capture is not None:
         monkeypatch.setenv("FAKE_C2PA_ARGV_CAPTURE", str(argv_capture))
@@ -843,6 +882,8 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
     assert any("untrusted" in warning for warning in verify["warnings"])
+    assert verify["control_evidence"]["c2pa"]["trust"]["trust_tier"] == "untrusted"
+    assert verify["control_evidence"]["c2pa"]["trust"]["production_trust_list_trusted"] is False
     assert argv_capture is not None
     argv = json.loads(argv_capture.read_text(encoding="utf-8"))
     assert "trust" in argv
@@ -873,11 +914,42 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
     assert "c2pa" in verify["verified_controls"]
     assert not any("production trust-list proof" in warning for warning in verify["warnings"])
     assert not any("production trust anchors are not configured" in warning for warning in verify["warnings"])
+    c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
+    assert c2pa_trust["trust_tier"] == "production_trust_list"
+    assert c2pa_trust["production_trust_list_configured"] is True
+    assert c2pa_trust["production_trust_list_trusted"] is True
     assert argv_capture is not None
     argv = json.loads(argv_capture.read_text(encoding="utf-8"))
     assert "trust" in argv
     assert "--trust_anchors" in argv
     assert str(tmp_path / "c2pa-trust-anchors.pem") in argv
+
+
+def test_public_media_export_allowed_list_trust_is_not_production_trust_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, argv_capture = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="trusted",
+        allowed_list="pytest-end-entity\n",
+        capture_argv=True,
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle)
+
+    assert verify["ok"] is True
+    assert "c2pa" in verify["verified_controls"]
+    assert any("allowed-list end-entity" in warning for warning in verify["warnings"])
+    c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
+    assert c2pa_trust["trust_tier"] == "allowed_list_end_entity"
+    assert c2pa_trust["allowed_list_end_entity_configured"] is True
+    assert c2pa_trust["production_trust_list_trusted"] is False
+    assert argv_capture is not None
+    argv = json.loads(argv_capture.read_text(encoding="utf-8"))
+    assert "--allowed_list" in argv
+    assert str(tmp_path / "c2pa-allowed-list.pem") in argv
 
 
 def test_public_media_export_warns_when_c2pa_credential_trust_is_not_reported(
@@ -895,6 +967,7 @@ def test_public_media_export_warns_when_c2pa_credential_trust_is_not_reported(
     assert verify["ok"] is True
     assert any("trust was not proven by trust-list validation" in warning for warning in verify["warnings"])
     assert any("production trust anchors are not configured" in warning for warning in verify["warnings"])
+    assert verify["control_evidence"]["c2pa"]["trust"]["trust_tier"] == "not_reported"
 
 
 @pytest.mark.parametrize(
@@ -922,6 +995,119 @@ def test_public_media_export_rejects_expired_or_revoked_c2pa_credential(
     assert verify["ok"] is False
     assert "c2pa" in verify["present_controls"]
     assert any(expected_error in error for error in verify["errors"])
+
+
+def _write_public_media_registry_record(
+    registry: Path,
+    *,
+    c2pa_trust: dict[str, object],
+    verification_warnings: list[str] | None = None,
+) -> dict[str, object]:
+    source_ref = "manifests/artifact_bundles/public_media_export.bundle.json"
+    subject_digest = "sha256:" + ("e" * 64)
+    record_id = "sha256:" + ("f" * 64)
+    record = {
+        "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+        "record_id": record_id,
+        "artifact_class": "public_media_export",
+        "bundle_layout": "abyss_machine_artifact_bundle_v1",
+        "bundle_ref": "public-media/export-bundle",
+        "bundle_manifest_ref": source_ref,
+        "subject_digest": subject_digest,
+        "lifecycle_state": "release-ready",
+        "latest_eligible": True,
+        "terminal_state": False,
+        "verification_ok": True,
+        "verification_errors": [],
+        "verification_missing": [],
+        "verification_warnings": verification_warnings or [],
+        "required_controls": ["c2pa"],
+        "verified_controls": ["c2pa"],
+        "present_controls": ["c2pa"],
+        "source_repo": "abyss-machine",
+        "source_ref": source_ref,
+        "source_refs": [source_ref],
+        "producer": "pytest-public-media-export",
+        "producer_command": "pytest public media fixture",
+        "trust_root_mode": "public_release",
+        "trust_root_evidence": _trust_root_evidence(
+            "public_release",
+            subject_digest=subject_digest,
+            source_repo="abyss-machine",
+            source_ref=source_ref,
+        ),
+        "verifier_versions": {"pytest": "public-media-c2pa"},
+        "privacy_boundary": "public-safe media export test fixture",
+        "artifact_subject_store": {"required": False, "ok": True, "aggregate_digest": subject_digest},
+        "consumer_contract": {"admission_gate": "fail_closed_consumer_admission", "subject_store_required": False},
+        "control_evidence": {"c2pa": {"trust": c2pa_trust}},
+        "c2pa_trust": c2pa_trust,
+        "created_at": "2026-06-25T00:00:00Z",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "abi_ref": artifact_bundles.ABI_REF,
+    }
+    records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+    records.mkdir(parents=True, exist_ok=True)
+    (records / f"{record_id.removeprefix('sha256:')}.json").write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return record
+
+
+def test_trust_gate_warns_on_allowed_list_c2pa_from_structured_verdict(tmp_path: Path) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "trusted",
+        "trust_tier": "allowed_list_end_entity",
+        "production_trust_list_configured": False,
+        "production_trust_list_trusted": False,
+        "allowed_list_end_entity_configured": True,
+        "trust_sources": {"allowed_list": "ABYSS_MACHINE_C2PA_ALLOWED_LIST"},
+        "status_codes": ["signingCredential.trusted"],
+    }
+    _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
+
+    gate = artifact_bundles.trust_gate(
+        tmp_path / "registry",
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "warn"
+    assert gate["manual_review"] == []
+    assert any("allowed-list end-entity" in warning for warning in gate["warnings"])
+    assert gate["inspected_claims"]["c2pa_trust"]["trust_tier"] == "allowed_list_end_entity"
+
+
+def test_trust_gate_allows_public_media_with_production_c2pa_trust_list(tmp_path: Path) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "trusted",
+        "trust_tier": "production_trust_list",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": True,
+        "allowed_list_end_entity_configured": False,
+        "trust_sources": {"trust_anchors": "ABYSS_MACHINE_C2PA_TRUST_ANCHORS"},
+        "status_codes": ["signingCredential.trusted"],
+    }
+    _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
+
+    gate = artifact_bundles.trust_gate(
+        tmp_path / "registry",
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["warnings"] == []
+    assert gate["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is True
 
 
 def test_artifact_requirements_reports_sibling_producer_profile() -> None:
