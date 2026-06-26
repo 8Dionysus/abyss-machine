@@ -1101,7 +1101,7 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
     assert artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL in argv
 
 
-def test_public_media_export_accepts_official_content_credentials_trust_store(
+def test_public_media_export_legacy_content_credentials_store_is_not_production_trust_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1119,12 +1119,12 @@ def test_public_media_export_accepts_official_content_credentials_trust_store(
 
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
-    assert not any("production trust-list proof" in warning for warning in verify["warnings"])
+    assert any("legacy interim Content Credentials trust store" in warning for warning in verify["warnings"])
     c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
-    assert c2pa_trust["trust_tier"] == "production_trust_list"
-    assert c2pa_trust["production_trust_list_configured"] is True
-    assert c2pa_trust["production_trust_list_trusted"] is True
-    assert c2pa_trust["trust_anchor_profile"] == "official_content_credentials_trust_store"
+    assert c2pa_trust["trust_tier"] == "legacy_interim_trust_store"
+    assert c2pa_trust["production_trust_list_configured"] is False
+    assert c2pa_trust["production_trust_list_trusted"] is False
+    assert c2pa_trust["trust_anchor_profile"] == "legacy_content_credentials_interim_trust_store"
     assert c2pa_trust["validation_state"] == "Trusted"
     assert argv_capture is not None
     argv = json.loads(argv_capture.read_text(encoding="utf-8"))
@@ -1143,8 +1143,7 @@ def test_public_media_export_uses_active_manifest_for_c2pa_credential_trust(
         tmp_path / "trusted-active",
         monkeypatch,
         fake_state="trusted_active_untrusted_ingredient",
-        trust_anchors_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
-        trust_config_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL,
+        trust_anchors_ref=artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
     )
 
     trusted_verify = artifact_bundles.verify_bundle(trusted_bundle, repo_root=trusted_bundle.parent)
@@ -1159,8 +1158,7 @@ def test_public_media_export_uses_active_manifest_for_c2pa_credential_trust(
         tmp_path / "untrusted-active",
         monkeypatch,
         fake_state="untrusted_active_trusted_ingredient",
-        trust_anchors_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
-        trust_config_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL,
+        trust_anchors_ref=artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
     )
 
     untrusted_verify = artifact_bundles.verify_bundle(untrusted_bundle, repo_root=untrusted_bundle.parent)
@@ -1357,6 +1355,41 @@ def test_trust_gate_warns_on_allowed_list_c2pa_from_structured_verdict(tmp_path:
     assert gate["manual_review"] == []
     assert any("allowed-list end-entity" in warning for warning in gate["warnings"])
     assert gate["inspected_claims"]["c2pa_trust"]["trust_tier"] == "allowed_list_end_entity"
+
+
+def test_trust_gate_warns_on_legacy_content_credentials_c2pa_from_structured_verdict(tmp_path: Path) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Trusted",
+        "credential_status": "trusted",
+        "trust_tier": "legacy_interim_trust_store",
+        "production_trust_list_configured": False,
+        "production_trust_list_trusted": False,
+        "allowed_list_end_entity_configured": False,
+        "trust_anchor_profile": "legacy_content_credentials_interim_trust_store",
+        "trust_sources": {
+            "trust_anchors": "ABYSS_MACHINE_C2PA_TRUST_ANCHORS",
+            "trust_anchors_ref": artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
+            "trust_anchors_profile": "legacy_content_credentials_interim_trust_store",
+            "trust_anchors_profile_source": "auto:content_credentials_trust_store_url",
+            "trust_config": "ABYSS_MACHINE_C2PA_TRUST_CONFIG",
+        },
+        "status_codes": ["signingCredential.trusted"],
+    }
+    _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
+
+    gate = artifact_bundles.trust_gate(
+        tmp_path / "registry",
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "warn"
+    assert gate["manual_review"] == []
+    assert any("legacy interim Content Credentials trust store" in warning for warning in gate["warnings"])
+    assert gate["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is False
 
 
 def test_trust_gate_allows_public_media_with_production_c2pa_trust_list(tmp_path: Path) -> None:
