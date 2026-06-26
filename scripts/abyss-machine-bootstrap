@@ -17,6 +17,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from abyss_machine import artifact_bundles  # noqa: E402
 from abyss_machine.path_policy import AbyssMachinePathPolicy, DEFAULT_PATH_POLICY  # noqa: E402
 
 CONFIG_TEMPLATE_ROOT = REPO_ROOT / "config-templates" / "etc" / "abyss-machine"
@@ -86,6 +87,10 @@ PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
         ],
     },
 }
+
+
+def default_artifact_registry_dir(policy: AbyssMachinePathPolicy) -> Path:
+    return policy.state_path("artifacts", "bundle-registry")
 
 
 def path_policy_from_args(args: argparse.Namespace) -> AbyssMachinePathPolicy:
@@ -248,6 +253,55 @@ def emit(payload: dict[str, Any], *, json_output: bool) -> None:
         print(f"- {action.get('action')}: {action.get('target') or action.get('path') or action.get('source')}")
 
 
+def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePathPolicy) -> dict[str, Any]:
+    artifact_class = str(args.artifact_class or "bootstrap_install_bundle")
+    consumer_intent = str(args.artifact_consumer_intent or artifact_bundles.consumer_intent_for_artifact_class(artifact_class))
+    registry_dir = Path(args.artifact_registry_dir) if args.artifact_registry_dir else default_artifact_registry_dir(policy)
+    base = {
+        "schema": "abyss_machine_bootstrap_artifact_admission_v1",
+        "required": bool(args.require_artifact_trust_gate),
+        "artifact_class": artifact_class,
+        "consumer_intent": consumer_intent,
+        "registry_dir": str(registry_dir),
+        "subject_digest": str(args.artifact_subject_digest or "") or None,
+        "record_id": str(args.artifact_record_id or "") or None,
+        "source_repo": str(args.artifact_source_repo or "") or None,
+        "trust_root_mode": str(args.artifact_trust_root_mode or "") or None,
+        "require_latest": not bool(args.allow_non_latest_artifact),
+    }
+    if not args.require_artifact_trust_gate:
+        return {
+            **base,
+            "ok": True,
+            "verdict": "not_required",
+            "trust_gate": None,
+            "errors": [],
+            "claim_limit": "Local bootstrap development installs are unchanged unless --require-artifact-trust-gate is set.",
+        }
+
+    gate = artifact_bundles.trust_gate(
+        registry_dir,
+        artifact_class=artifact_class,
+        subject_digest=str(args.artifact_subject_digest or ""),
+        record_id=str(args.artifact_record_id or ""),
+        consumer_intent=consumer_intent,
+        expected_source_repo=str(args.artifact_source_repo or ""),
+        expected_trust_root_mode=str(args.artifact_trust_root_mode or ""),
+        require_latest=not bool(args.allow_non_latest_artifact),
+    )
+    ok = bool(gate.get("ok"))
+    return {
+        **base,
+        "ok": ok,
+        "verdict": str(gate.get("verdict") or "unknown"),
+        "record_id": gate.get("record_id") or base["record_id"],
+        "latest_record_id": gate.get("latest_record_id"),
+        "trust_gate": gate,
+        "errors": [] if ok else [str(item) for item in gate.get("reasons", [])],
+        "claim_limit": "Bootstrap install consumption is fail-closed when artifact trust-gate admission is required.",
+    }
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     actions: list[dict[str, Any]] = []
     values = default_vars(args)
@@ -284,13 +338,35 @@ def cmd_install(args: argparse.Namespace) -> int:
     policy = path_policy_from_args(args)
     values = policy.render_vars()
     apply = bool(args.apply)
+    artifact_admission = install_artifact_admission(args, policy)
+    actions.append({
+        "action": "artifact_trust_gate",
+        "required": artifact_admission["required"],
+        "artifact_class": artifact_admission["artifact_class"],
+        "consumer_intent": artifact_admission["consumer_intent"],
+        "registry_dir": artifact_admission["registry_dir"],
+        "verdict": artifact_admission["verdict"],
+        "record_id": artifact_admission.get("record_id"),
+        "latest_record_id": artifact_admission.get("latest_record_id"),
+    })
+    if not artifact_admission["ok"]:
+        payload = command_payload(
+            "install",
+            False,
+            actions,
+            profile=args.profile,
+            dry_run=not apply,
+            artifact_admission=artifact_admission,
+        )
+        emit(payload, json_output=args.json)
+        return 1
     ensure_roots(values, apply=apply, actions=actions)
     copy_tree(CONFIG_TEMPLATE_ROOT, Path(args.etc_root), values=values, apply=apply, actions=actions)
     copy_tree(SYSTEMD_TEMPLATE_ROOT / "system", policy.systemd_system_dir, values=values, apply=apply, actions=actions)
     copy_tree(SYSTEMD_TEMPLATE_ROOT / "user", policy.systemd_user_dir or policy.home / ".config/systemd/user", values=values, apply=apply, actions=actions)
     install_cli(values, apply=apply, actions=actions)
     install_public_seed(values, apply=apply, actions=actions)
-    payload = command_payload("install", True, actions, profile=args.profile, dry_run=not apply)
+    payload = command_payload("install", True, actions, profile=args.profile, dry_run=not apply, artifact_admission=artifact_admission)
     emit(payload, json_output=args.json)
     return 0
 
@@ -354,6 +430,20 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_options(install)
     install.add_argument("--dry-run", action="store_true")
     install.add_argument("--apply", action="store_true")
+    install.add_argument("--require-artifact-trust-gate", action="store_true", help="deny bootstrap install unless durable artifact trust-gate allows the selected install bundle")
+    install.add_argument("--artifact-registry-dir", default="", help="bundle registry root for bootstrap install admission")
+    install.add_argument("--artifact-class", default="bootstrap_install_bundle", help="artifact class consumed by this bootstrap install")
+    install.add_argument("--artifact-subject-digest", default="", help="expected install bundle subject digest")
+    install.add_argument("--artifact-record-id", default="", help="expected install bundle registry record id")
+    install.add_argument("--artifact-consumer-intent", default="installer", help="trust-gate consumer intent for bootstrap install")
+    install.add_argument("--artifact-source-repo", default="abyss-machine", help="expected source repo for bootstrap install material")
+    install.add_argument(
+        "--artifact-trust-root-mode",
+        default="",
+        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        help="expected trust root mode for bootstrap install material",
+    )
+    install.add_argument("--allow-non-latest-artifact", action="store_true", help="permit a selected non-latest install bundle record")
     install.set_defaults(func=cmd_install)
 
     enable = sub.add_parser("enable-profile")
