@@ -56,7 +56,6 @@ C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL = "https://contentcredentials.org/trus
 C2PA_PRODUCTION_TRUST_LIST_PROFILES = frozenset(
     {
         "official_c2pa_trust_list",
-        "official_content_credentials_trust_store",
         "c2pa_conformance_trust_list",
         "production_c2pa_trust_list",
     }
@@ -67,6 +66,7 @@ C2PA_TRUST_GAP_WARNINGS = (
     "C2PA signing credential is trusted only by configured allowed-list end-entity; this is not production trust-list proof",
     "C2PA trust verdict is not structured; production trust-list status is unproven",
     "C2PA signing credential is trusted by a custom trust anchor store; this is not production C2PA Trust List proof",
+    "C2PA signing credential is trusted by the legacy interim Content Credentials trust store; this is not production C2PA Trust List proof",
 )
 TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
@@ -3973,7 +3973,7 @@ def _c2pa_trust_anchor_profile(value: str, env: dict[str, str]) -> tuple[str, st
     if value.strip() == C2PA_OFFICIAL_TRUST_LIST_URL:
         return "official_c2pa_trust_list", "auto:official_c2pa_trust_list_url"
     if value.strip() == C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL:
-        return "official_content_credentials_trust_store", "auto:content_credentials_trust_store_url"
+        return "legacy_content_credentials_interim_trust_store", "auto:content_credentials_trust_store_url"
     return "custom_trust_anchor_store", "auto:custom_trust_anchor_store"
 
 
@@ -4087,6 +4087,8 @@ def _c2pa_trust_verdict(
         trust_tier = "production_trust_list"
     elif credential_status == "trusted" and allowed_list_configured:
         trust_tier = "allowed_list_end_entity"
+    elif credential_status == "trusted" and trust_anchor_profile == "legacy_content_credentials_interim_trust_store":
+        trust_tier = "legacy_interim_trust_store"
     elif credential_status == "trusted" and trust_anchors_configured:
         trust_tier = "custom_trust_anchor_store"
     elif credential_status == "trusted":
@@ -4124,6 +4126,8 @@ def _c2pa_trust_gap_warning(c2pa_trust: dict[str, Any]) -> str:
         return C2PA_TRUST_GAP_WARNINGS[2]
     if trust_tier == "custom_trust_anchor_store":
         return C2PA_TRUST_GAP_WARNINGS[4]
+    if trust_tier == "legacy_interim_trust_store":
+        return C2PA_TRUST_GAP_WARNINGS[5]
     if trust_tier == "untrusted":
         return C2PA_TRUST_GAP_WARNINGS[0]
     return C2PA_TRUST_GAP_WARNINGS[1]
@@ -4925,6 +4929,11 @@ def _validate_c2pa_sidecar(
     elif trust_verdict.get("trust_tier") == "custom_trust_anchor_store":
         warnings.append(
             "C2PA signing credential is trusted by a custom trust anchor store; "
+            "this is not production C2PA Trust List proof"
+        )
+    elif trust_verdict.get("trust_tier") == "legacy_interim_trust_store":
+        warnings.append(
+            "C2PA signing credential is trusted by the legacy interim Content Credentials trust store; "
             "this is not production C2PA Trust List proof"
         )
     elif trust_verdict.get("production_trust_list_trusted") is not True:
