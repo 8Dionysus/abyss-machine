@@ -1889,13 +1889,15 @@ def test_update_lane_status_exposes_tuf_and_scitt_boundaries() -> None:
 
     assert status["ok"] is True
     assert status["schema"] == "abyss_machine_update_transparency_lane_status_v1"
-    assert status["summary"]["tuf_status"] == "crypto_verifier_v1"
+    assert status["summary"]["tuf_status"] == "external_repository_producer_v1"
     assert status["summary"]["blocking_v1"] is False
     assert "bootstrap_install_bundle" in [row["artifact_class"] for row in status["rows"]]
     assert "aoa_session_memory_portable_bundle" in [row["artifact_class"] for row in status["rows"]]
     assert status["tuf"]["metadata_sidecar"] == artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
-    assert "cryptographic Ed25519 external TUF repository verifier" in status["claim_limits"][0]
+    assert "external TUF repository producer/verifier v1" in status["claim_limits"][0]
     assert status["tuf"]["external_repository_verifier"]["status"] == "crypto_verifier_v1"
+    assert status["tuf"]["external_repository_producer"]["status"] == "producer_v1"
+    assert status["tuf"]["not_full_tuf_repository_yet"] is False
     assert status["tuf"]["external_repository_verifier"]["cryptographic_signature_verifier"]["status"] == "ed25519_v1"
     assert "local statement/receipt binding stub" in status["claim_limits"][1]
     assert status["scitt"]["status"] == "local_stub_fail_closed_external_v1"
@@ -2186,6 +2188,82 @@ def test_oci_publication_verifier_warns_for_referrers_tag_fallback() -> None:
     assert result["ok"] is True
     assert result["verdict"] == "warn"
     assert "oci_referrers_tag_fallback_requires_race_review" in result["warnings"]
+
+
+def test_tuf_repository_builder_creates_client_bootstrap_and_consumes_with_trust_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, registry_subject_digest = _bootstrap_update_registry(tmp_path, monkeypatch)
+    target = tmp_path / "update-target.tar.gz"
+    target.write_bytes(b"external tuf update target\n")
+    tuf_repo = tmp_path / "published-tuf-repository"
+
+    build = cli.artifacts_update_repo_build(
+        tuf_repo,
+        target_file=target,
+        target_path="dist/update-target.tar.gz",
+        artifact_class="bootstrap_install_bundle",
+        version=2,
+        generate_missing_keys=True,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+    verify = cli.artifacts_update_repo_verify(
+        tuf_repo,
+        target_path="dist/update-target.tar.gz",
+        artifact_class="bootstrap_install_bundle",
+        target_digest=str(build["target_digest"]),
+        trusted_root_path=Path(str(build["trusted_root_path"])),
+        previous_trusted_path=Path(str(build["client_state_path"])),
+        registry_dir=registry,
+        subject_digest=registry_subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="github_oidc",
+        require_trusted_root=True,
+        require_trust_gate=True,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+
+    assert build["ok"] is True
+    assert build["schema"] == "abyss_machine_tuf_repository_build_v1"
+    assert build["role_metadata"]["timestamp"]["sha256"].startswith("sha256:")
+    assert Path(str(build["trusted_root_path"])).is_file()
+    assert Path(str(build["client_state_path"])).is_file()
+    assert "ephemeral_tuf_signing_keys_generated; use a host-managed key-dir for durable production channels" in build["warnings"]
+    assert verify["ok"] is True
+    assert verify["verdict"] == "allow"
+    assert verify["trusted_root"]["trusted_root_match"] is True
+    assert verify["consumer_admission"]["trust_gate"]["verdict"] == "allow"
+
+
+def test_tuf_repository_builder_denies_keyless_production_build(tmp_path: Path) -> None:
+    target = tmp_path / "update-target.tar.gz"
+    target.write_bytes(b"external tuf update target\n")
+
+    result = artifact_bundles.build_tuf_repository(
+        tmp_path / "published-tuf-repository",
+        target_file=target,
+        target_path="dist/update-target.tar.gz",
+        artifact_class="bootstrap_install_bundle",
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert result["ok"] is False
+    assert result["verdict"] == "deny"
+    assert "tuf_key_dir_required_or_dev_generate_keys" in result["errors"]
+
+    source_repo_output = artifact_bundles.build_tuf_repository(
+        ROOT / "tuf-repository-should-not-live-in-source",
+        target_file=target,
+        target_path="dist/update-target.tar.gz",
+        artifact_class="bootstrap_install_bundle",
+        generate_missing_keys=True,
+        now="2026-06-21T00:00:00Z",
+    )
+    assert source_repo_output["ok"] is False
+    assert "tuf_repository_dir_must_be_outside_source_repo" in source_repo_output["errors"]
 
 
 def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(tmp_path: Path) -> None:
