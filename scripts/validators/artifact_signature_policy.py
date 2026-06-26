@@ -311,6 +311,7 @@ def main() -> int:
                 "owner_route_refs",
                 "artifact_classes",
                 "release_export_triggers",
+                "host_verifier_commands",
                 "validator_commands",
                 "produced_sidecars",
                 "consumer_expectations",
@@ -331,6 +332,31 @@ def main() -> int:
                     unknown_modes = sorted(set(values) - ALLOWED_TRUST_ROOT_MODES)
                     if unknown_modes:
                         failures.append(f"producer profile {profile_id}.trust_root_modes has unknown modes: {', '.join(unknown_modes)}")
+            deferred_records = profile.get("deferred_records", [])
+            if deferred_records is None:
+                deferred_records = []
+            if not isinstance(deferred_records, list):
+                failures.append(f"producer profile {profile_id}.deferred_records must be a list when present")
+                deferred_records = []
+            for index, record in enumerate(deferred_records):
+                if not isinstance(record, dict):
+                    failures.append(f"producer profile {profile_id}.deferred_records[{index}] must be an object")
+                    continue
+                for key in ("status", "reason", "owner_route_ref"):
+                    value = record.get(key)
+                    if not isinstance(value, str) or not value:
+                        failures.append(f"producer profile {profile_id}.deferred_records[{index}].{key} must be a non-empty string")
+            producer_commands = profile.get("producer_commands")
+            if producer_commands is not None and (
+                not isinstance(producer_commands, list)
+                or not all(isinstance(value, str) and value for value in producer_commands)
+            ):
+                failures.append(f"producer profile {profile_id}.producer_commands must be a string list when present")
+            if (
+                (not isinstance(producer_commands, list) or not producer_commands)
+                and not deferred_records
+            ):
+                failures.append(f"producer profile {profile_id} must define producer_commands or deferred_records")
         if isinstance(classes, dict):
             uncovered = sorted(set(classes) - set(profile_class_refs))
             if uncovered:

@@ -1470,11 +1470,41 @@ def test_artifact_producer_profiles_cover_os_abyss_owner_repos() -> None:
         "Tree-of-Sophia",
     } <= owners
     assert profiles["summary"]["artifact_class_count"] == 21
+    assert profiles["summary"]["automation_status_counts"] == {"owner_local_producer_declared": len(rows)}
+    assert profiles["summary"]["incomplete_profiles"] == []
     assert "producer_profiles" in profiles["agent_loop"]
+    assert all(row["producer_commands"] or row["deferred_records"] for row in rows)
+    assert all(row["host_verifier_commands"] for row in rows)
     assert all(row["validator_commands"] for row in rows)
     assert all(row["produced_sidecars"] for row in rows)
     assert all(row["consumer_expectations"] for row in rows)
     assert all(row["owner_boundaries"] for row in rows)
+    assert all(row["automation_readiness"]["errors"] == [] for row in rows)
+    assert all(
+        row["automation_readiness"]["status"] in {"owner_local_producer_declared", "deferred_owner_route_declared"}
+        for row in rows
+    )
+
+
+def test_artifact_producer_profile_readiness_reports_missing_automation(tmp_path: Path) -> None:
+    manifest = json.loads((ROOT / artifact_bundles.POLICY_REF).read_text(encoding="utf-8"))
+    profile = manifest["producer_profiles"]["aoa-sdk"]
+    profile.pop("producer_commands")
+    profile.pop("host_verifier_commands")
+    policy_path = tmp_path / artifact_bundles.POLICY_REF
+    policy_path.parent.mkdir(parents=True)
+    policy_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    profiles = artifact_bundles.artifact_producer_profiles(owner_repo="aoa-sdk", repo_root=tmp_path)
+    row = profiles["rows"][0]
+
+    assert profiles["summary"]["automation_status_counts"] == {"incomplete": 1}
+    assert profiles["summary"]["incomplete_profiles"] == ["aoa-sdk"]
+    assert row["automation_readiness"]["status"] == "incomplete"
+    assert row["automation_readiness"]["errors"] == [
+        "producer_command_or_deferred_record_required",
+        "host_verifier_command_required",
+    ]
 
 
 def test_artifact_producer_profiles_filter_by_artifact_class() -> None:
@@ -1487,6 +1517,7 @@ def test_artifact_producer_profiles_filter_by_artifact_class() -> None:
         "Dionysus",
         "aoa-evals",
     }
+    assert all(row["host_verifier_commands"] for row in profiles["rows"])
 
 
 def test_artifact_affected_marks_contract_source_as_stale(tmp_path: Path) -> None:
