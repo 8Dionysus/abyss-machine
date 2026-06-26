@@ -3033,10 +3033,12 @@ def test_materialize_subjects_fails_closed_without_consumer_trust_gate(tmp_path:
     assert not store_root.exists()
 
 
-def test_ai_model_runtime_bundle_generates_ml_bom_and_required_release_controls(
+def _build_ai_runtime_ml_bom_test_bundle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    *,
+    manifest_mutator=None,
+) -> tuple[Path, dict, dict, dict]:
     fake_cosign = tmp_path / "cosign"
     _write_fake_cosign(fake_cosign)
     key = tmp_path / "local-test.key"
@@ -3088,6 +3090,8 @@ def test_ai_model_runtime_bundle_generates_ml_bom_and_required_release_controls(
                     "role": "referenced_openvino_conversion",
                     "included": False,
                     "source_ref": "{{ABYSS_MACHINE_SRV}}/cache/ai/tts/qwen3-openvino/customvoice-1p7b-fp16-ov",
+                    "framework": "OpenVINO",
+                    "precision": "fp16",
                 }
             ],
             "framework_configs": [
@@ -3104,6 +3108,8 @@ def test_ai_model_runtime_bundle_generates_ml_bom_and_required_release_controls(
             },
         },
     }
+    if manifest_mutator is not None:
+        manifest_mutator(manifest)
     manifest_path = tmp_path / "ai_runtime_config.bundle.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
     bundle = tmp_path / "bundle"
@@ -3112,10 +3118,43 @@ def test_ai_model_runtime_bundle_generates_ml_bom_and_required_release_controls(
     sign = artifact_bundles.sign_bundle(bundle, backend="cosign-local-key")
     verify = artifact_bundles.verify_bundle(bundle)
     ml_bom = json.loads((bundle / artifact_bundles.MLBOM_CYCLONEDX_SIDECAR).read_text(encoding="utf-8"))
-
     assert build["ok"] is True
-    assert artifact_bundles.MLBOM_CYCLONEDX_SIDECAR in build["written"]
     assert sign["ok"] is True
+    return bundle, ml_bom, verify, build
+
+
+def _ml_bom_component(ml_bom: dict, category: str) -> dict:
+    for component in ml_bom["components"]:
+        properties = {
+            prop.get("name"): prop.get("value")
+            for prop in component.get("properties", [])
+            if isinstance(prop, dict)
+        }
+        if properties.get("abyss.ml_bom.category") == category:
+            return component
+    raise AssertionError(f"ML-BOM component category not found: {category}")
+
+
+def _remove_ml_bom_property(component: dict, name: str) -> None:
+    component["properties"] = [
+        prop for prop in component.get("properties", []) if not (isinstance(prop, dict) and prop.get("name") == name)
+    ]
+
+
+def _write_ml_bom(bundle: Path, ml_bom: dict) -> None:
+    (bundle / artifact_bundles.MLBOM_CYCLONEDX_SIDECAR).write_text(
+        json.dumps(ml_bom, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_ai_model_runtime_bundle_generates_semantic_ml_bom_and_required_release_controls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, verify, build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+
+    assert artifact_bundles.MLBOM_CYCLONEDX_SIDECAR in build["written"]
     assert verify["ok"] is True
     assert verify["required_controls"] == ["abi_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"]
     assert verify["verified_controls"] == ["abi_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"]
@@ -3126,6 +3165,122 @@ def test_ai_model_runtime_bundle_generates_ml_bom_and_required_release_controls(
         if prop.get("name") == "abyss.ml_bom.category"
     }
     assert {"models", "conversions", "framework_configs"} <= categories
+    tool_components = ml_bom["metadata"]["tools"]["components"]
+    assert tool_components[0]["name"] == "abyss-machine"
+    assert tool_components[0]["version"]
+    dependency_map = {item["ref"]: set(item["dependsOn"]) for item in ml_bom["dependencies"]}
+    component_refs = {component["bom-ref"] for component in ml_bom["components"]}
+    metadata_ref = ml_bom["metadata"]["component"]["bom-ref"]
+    assert component_refs <= dependency_map[metadata_ref]
+    framework_ref = _ml_bom_component(ml_bom, "framework_configs")["bom-ref"]
+    assert _ml_bom_component(ml_bom, "models")["bom-ref"] in dependency_map[framework_ref]
+    assert _ml_bom_component(ml_bom, "conversions")["bom-ref"] in dependency_map[framework_ref]
+
+
+def test_ai_model_runtime_bundle_rejects_missing_model_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, _verify, _build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+    _remove_ml_bom_property(_ml_bom_component(ml_bom, "models"), "abyss.ml_bom.source_ref")
+    _write_ml_bom(bundle, ml_bom)
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert any("model component" in error and "source_ref or subject_digest" in error for error in verify["errors"])
+
+
+def test_ai_model_runtime_bundle_rejects_missing_framework_config_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, _verify, _build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+    _remove_ml_bom_property(_ml_bom_component(ml_bom, "framework_configs"), "abyss.ml_bom.framework")
+    _write_ml_bom(bundle, ml_bom)
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert any("framework config component" in error and "must define framework" in error for error in verify["errors"])
+
+
+def test_ai_model_runtime_bundle_rejects_missing_conversion_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, _verify, _build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+    conversion = _ml_bom_component(ml_bom, "conversions")
+    _remove_ml_bom_property(conversion, "abyss.ml_bom.source_ref")
+    _remove_ml_bom_property(conversion, "abyss.ml_bom.precision")
+    _write_ml_bom(bundle, ml_bom)
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert any("conversion component" in error and "source_ref or subject_digest" in error for error in verify["errors"])
+    assert any("conversion component" in error and "precision or format" in error for error in verify["errors"])
+
+
+def test_ai_model_runtime_bundle_rejects_missing_dependency_relationship(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, _verify, _build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+    ml_bom["dependencies"] = []
+    _write_ml_bom(bundle, ml_bom)
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert any("dependency graph metadata component must depend" in error for error in verify["errors"])
+
+
+def test_ai_model_runtime_bundle_rejects_missing_dataset_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, _verify, _build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+    dataset_ref = "ml-bom:datasets:training-data"
+    ml_bom["components"].append(
+        {
+            "bom-ref": dataset_ref,
+            "type": "data",
+            "name": "training-data",
+            "version": "snapshot",
+            "properties": [
+                {"name": "abyss.ml_bom.category", "value": "datasets"},
+                {"name": "abyss.ml_bom.role", "value": "training_dataset"},
+                {"name": "abyss.ml_bom.included", "value": "false"},
+            ],
+        }
+    )
+    for dependency in ml_bom["dependencies"]:
+        if dependency["ref"] in {
+            ml_bom["metadata"]["component"]["bom-ref"],
+            _ml_bom_component(ml_bom, "framework_configs")["bom-ref"],
+        }:
+            dependency["dependsOn"].append(dataset_ref)
+    _write_ml_bom(bundle, ml_bom)
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert any("dataset component" in error and "dataset provenance" in error for error in verify["errors"])
+
+
+def test_ai_model_runtime_bundle_rejects_missing_ml_bom_tool_versions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, _verify, _build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+    ml_bom["metadata"].pop("tools")
+    _write_ml_bom(bundle, ml_bom)
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert any("metadata.tools must identify tool name and version" in error for error in verify["errors"])
 
 
 def test_host_local_evidence_bundle_roundtrip_uses_local_provenance(tmp_path: Path) -> None:
