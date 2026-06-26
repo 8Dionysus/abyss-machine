@@ -70,6 +70,9 @@ External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM
 and SLSA/in-toto sidecars without moving the distribution files into the public
 source repository.
+Glob entries may set `optional: true` when several format-specific alternatives
+belong to one artifact route; the aggregate subject set must still contain at
+least one matched file.
 Runtime config artifacts use the same manifest route and may set `build_type`
 so the generated SLSA statement identifies a runtime-config bundle instead of
 the Python distribution default.

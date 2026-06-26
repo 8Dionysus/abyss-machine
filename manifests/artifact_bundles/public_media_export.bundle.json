@@ -17,11 +17,23 @@
   "artifact_subjects": [
     {
       "glob": "dist/abyss-machine-public-media-c2pa-probe-*.png",
-      "role": "public_media_export"
+      "role": "public_media_export",
+      "optional": true
+    },
+    {
+      "glob": "dist/abyss-machine-public-media-c2pa-probe-*.jpg",
+      "role": "public_media_export",
+      "optional": true
+    },
+    {
+      "glob": "dist/abyss-machine-public-media-c2pa-probe-*.jpeg",
+      "role": "public_media_export",
+      "optional": true
     }
   ],
   "c2pa": {
     "manifest_sidecar": "artifact.c2pa",
+    "allow_embedded_manifest": true,
     "validation_report": "artifact.c2pa.json",
     "required_validation_state": "Valid",
     "claim_limit": "Local c2patool validation proves asset binding and claim signature integrity; production publication still needs an accepted signing credential and privacy review."
@@ -44,6 +56,7 @@
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/public_media_export.bundle.json --bundle-dir BUNDLE_DIR",
     "cp MEDIA.public.c2pa BUNDLE_DIR/artifact.c2pa",
     "ABYSS_MACHINE_C2PA_TRUST_ANCHORS=TRUST_ANCHORS_PEM_OR_URL c2patool MEDIA.public.png --external-manifest MEDIA.public.c2pa trust --trust_anchors TRUST_ANCHORS_PEM_OR_URL > BUNDLE_DIR/artifact.c2pa.json",
+    "For embedded credentials, omit artifact.c2pa and record c2patool MEDIA.public.jpg trust output in BUNDLE_DIR/artifact.c2pa.json.",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
     "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:public-media-export --evidence-ref manual-positive:public-media-export --source-repo abyss-machine --source-ref manifests/artifact_bundles/public_media_export.bundle.json --producer abyss-machine-public-media-export --trust-root-mode public_release --trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON --json",

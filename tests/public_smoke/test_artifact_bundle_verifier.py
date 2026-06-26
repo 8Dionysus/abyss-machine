@@ -128,12 +128,52 @@ if state == "invalid":
     sys.exit(0)
 if state == "trusted":
     print(json.dumps({
-        "validation_state": "Valid",
+        "validation_state": "Trusted",
         "validation_results": {
             "activeManifest": {
                 "success": [{"code": "signingCredential.trusted"}],
                 "failure": [],
             }
+        },
+        "argv": sys.argv[1:],
+    }))
+    sys.exit(0)
+if state == "trusted_active_untrusted_ingredient":
+    print(json.dumps({
+        "validation_state": "Trusted",
+        "validation_results": {
+            "activeManifest": {
+                "success": [{"code": "signingCredential.trusted"}],
+                "failure": [],
+            },
+            "ingredientDeltas": [
+                {
+                    "validationDeltas": {
+                        "success": [],
+                        "failure": [{"code": "signingCredential.untrusted"}],
+                    }
+                }
+            ],
+        },
+        "argv": sys.argv[1:],
+    }))
+    sys.exit(0)
+if state == "untrusted_active_trusted_ingredient":
+    print(json.dumps({
+        "validation_state": "Valid",
+        "validation_results": {
+            "activeManifest": {
+                "success": [],
+                "failure": [{"code": "signingCredential.untrusted"}],
+            },
+            "ingredientDeltas": [
+                {
+                    "validationDeltas": {
+                        "success": [{"code": "signingCredential.trusted"}],
+                        "failure": [],
+                    }
+                }
+            ],
         },
         "argv": sys.argv[1:],
     }))
@@ -878,12 +918,20 @@ def _build_public_media_export_test_bundle(
     trust_anchors: str | None = None,
     trust_anchors_ref: str | None = None,
     trust_anchors_profile: str | None = None,
+    trust_config_ref: str | None = None,
     allowed_list: str | None = None,
+    allow_embedded_manifest: bool = False,
     capture_argv: bool = False,
 ) -> tuple[Path, Path | None]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    policy_dst = tmp_path / artifact_bundles.POLICY_REF
+    policy_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ROOT / artifact_bundles.POLICY_REF, policy_dst)
     asset = tmp_path / "media.png"
     asset.write_bytes(b"not-a-real-png-for-fake-c2pa")
-    manifest = tmp_path / "public_media_export.bundle.json"
+    manifest_ref = Path("manifests/artifact_bundles/public_media_export.bundle.json")
+    manifest = tmp_path / manifest_ref
+    manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(
         json.dumps(
             {
@@ -894,10 +942,11 @@ def _build_public_media_export_test_bundle(
                 "policy_ref": artifact_bundles.POLICY_REF,
                 "mode": "os_abyss_local",
                 "public_safe": True,
-                "subject_repo_root": ".",
+                "subject_repo_root": "../..",
                 "artifact_subjects": [{"path": "media.png", "role": "public_media_export"}],
                 "c2pa": {
                     "manifest_sidecar": artifact_bundles.C2PA_MANIFEST_SIDECAR,
+                    "allow_embedded_manifest": allow_embedded_manifest,
                     "validation_report": artifact_bundles.C2PA_REPORT_SIDECAR,
                     "required_validation_state": "Valid",
                 },
@@ -925,6 +974,11 @@ def _build_public_media_export_test_bundle(
         monkeypatch.setenv(artifact_bundles.C2PA_TRUST_ANCHORS_PROFILE_ENV, trust_anchors_profile)
     else:
         monkeypatch.delenv(artifact_bundles.C2PA_TRUST_ANCHORS_PROFILE_ENV, raising=False)
+    if trust_config_ref is not None:
+        monkeypatch.setenv(artifact_bundles.C2PA_TRUST_CONFIG_ENV, trust_config_ref)
+    else:
+        monkeypatch.delenv(artifact_bundles.C2PA_TRUST_CONFIG_ENV, raising=False)
+        monkeypatch.delenv("C2PATOOL_TRUST_CONFIG", raising=False)
     if allowed_list is not None:
         allowed = tmp_path / "c2pa-allowed-list.pem"
         allowed.write_text(allowed_list, encoding="utf-8")
@@ -939,20 +993,52 @@ def _build_public_media_export_test_bundle(
         monkeypatch.delenv("FAKE_C2PA_ARGV_CAPTURE", raising=False)
     bundle = tmp_path / "bundle"
 
-    artifact_bundles.build_sidecars(bundle, manifest_ref=manifest)
-    artifact_bundles.sign_bundle(bundle)
-    (bundle / artifact_bundles.C2PA_MANIFEST_SIDECAR).write_bytes(b"fake-c2pa")
+    artifact_bundles.build_sidecars(bundle, manifest_ref=manifest, repo_root=tmp_path)
+    artifact_bundles.sign_bundle(bundle, repo_root=tmp_path)
+    if not allow_embedded_manifest:
+        (bundle / artifact_bundles.C2PA_MANIFEST_SIDECAR).write_bytes(b"fake-c2pa")
+    report_state = "Trusted" if fake_state in {"trusted", "trusted_active_untrusted_ingredient"} else "Valid"
     (bundle / artifact_bundles.C2PA_REPORT_SIDECAR).write_text(
-        json.dumps({"validation_state": "Valid"}),
+        json.dumps({"validation_state": report_state}),
         encoding="utf-8",
     )
     return bundle, argv_capture
 
 
+def test_artifact_subjects_allow_optional_glob_alternatives(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifests" / "artifact_bundles" / "public_media_export.bundle.json"
+    manifest_path.parent.mkdir(parents=True)
+    subject = tmp_path / "dist" / "abyss-machine-public-media-c2pa-probe-sample.jpeg"
+    subject.parent.mkdir(parents=True)
+    subject.write_bytes(b"jpeg sample")
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "artifact_class": "public_media_export",
+        "owner_repo": "abyss-machine",
+        "subject_repo_root": "../..",
+        "_manifest_path": str(manifest_path),
+        "artifact_subjects": [
+            {"glob": "dist/abyss-machine-public-media-c2pa-probe-*.png", "role": "public_media_export", "optional": True},
+            {"glob": "dist/abyss-machine-public-media-c2pa-probe-*.jpg", "role": "public_media_export", "optional": True},
+            {"glob": "dist/abyss-machine-public-media-c2pa-probe-*.jpeg", "role": "public_media_export", "optional": True},
+        ],
+    }
+
+    subjects = artifact_bundles.build_artifact_subjects(manifest)
+
+    assert subjects is not None
+    assert [item["path"] for item in subjects["files"]] == [
+        "dist/abyss-machine-public-media-c2pa-probe-sample.jpeg"
+    ]
+    subject.unlink()
+    with pytest.raises(ValueError, match="artifact_subjects matched no files"):
+        artifact_bundles.build_artifact_subjects(manifest)
+
+
 def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     bundle, argv_capture = _build_public_media_export_test_bundle(tmp_path, monkeypatch, capture_argv=True)
 
-    verify = artifact_bundles.verify_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
     assert any("untrusted" in warning for warning in verify["warnings"])
@@ -963,7 +1049,7 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
     assert "trust" in argv
 
     monkeypatch.setenv("FAKE_C2PA_STATE", "invalid")
-    invalid = artifact_bundles.verify_bundle(bundle)
+    invalid = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
     assert invalid["ok"] is False
     assert invalid["verified_controls"] == []
     assert "c2pa" in invalid["present_controls"]
@@ -977,7 +1063,7 @@ def test_public_media_export_rejects_missing_c2pa_manifest_sidecar(
     bundle, _ = _build_public_media_export_test_bundle(tmp_path, monkeypatch)
     (bundle / artifact_bundles.C2PA_MANIFEST_SIDECAR).unlink()
 
-    verify = artifact_bundles.verify_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
 
     assert verify["ok"] is False
     assert "c2pa" in verify["present_controls"]
@@ -997,7 +1083,7 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
         capture_argv=True,
     )
 
-    verify = artifact_bundles.verify_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
 
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
@@ -1015,6 +1101,78 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
     assert artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL in argv
 
 
+def test_public_media_export_accepts_official_content_credentials_trust_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, argv_capture = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="trusted",
+        trust_anchors_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
+        trust_config_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL,
+        allow_embedded_manifest=True,
+        capture_argv=True,
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
+
+    assert verify["ok"] is True
+    assert "c2pa" in verify["verified_controls"]
+    assert not any("production trust-list proof" in warning for warning in verify["warnings"])
+    c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
+    assert c2pa_trust["trust_tier"] == "production_trust_list"
+    assert c2pa_trust["production_trust_list_configured"] is True
+    assert c2pa_trust["production_trust_list_trusted"] is True
+    assert c2pa_trust["trust_anchor_profile"] == "official_content_credentials_trust_store"
+    assert c2pa_trust["validation_state"] == "Trusted"
+    assert argv_capture is not None
+    argv = json.loads(argv_capture.read_text(encoding="utf-8"))
+    assert "--external-manifest" not in argv
+    assert "--trust_anchors" in argv
+    assert artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL in argv
+    assert "--trust_config" in argv
+    assert artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL in argv
+
+
+def test_public_media_export_uses_active_manifest_for_c2pa_credential_trust(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted_bundle, _ = _build_public_media_export_test_bundle(
+        tmp_path / "trusted-active",
+        monkeypatch,
+        fake_state="trusted_active_untrusted_ingredient",
+        trust_anchors_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
+        trust_config_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL,
+    )
+
+    trusted_verify = artifact_bundles.verify_bundle(trusted_bundle, repo_root=trusted_bundle.parent)
+
+    assert trusted_verify["ok"] is True
+    trusted_c2pa = trusted_verify["control_evidence"]["c2pa"]["trust"]
+    assert trusted_c2pa["credential_status"] == "trusted"
+    assert trusted_c2pa["production_trust_list_trusted"] is True
+    assert "signingCredential.untrusted" in trusted_c2pa["all_status_codes"]
+
+    untrusted_bundle, _ = _build_public_media_export_test_bundle(
+        tmp_path / "untrusted-active",
+        monkeypatch,
+        fake_state="untrusted_active_trusted_ingredient",
+        trust_anchors_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
+        trust_config_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL,
+    )
+
+    untrusted_verify = artifact_bundles.verify_bundle(untrusted_bundle, repo_root=untrusted_bundle.parent)
+
+    assert untrusted_verify["ok"] is True
+    assert any("untrusted" in warning for warning in untrusted_verify["warnings"])
+    untrusted_c2pa = untrusted_verify["control_evidence"]["c2pa"]["trust"]
+    assert untrusted_c2pa["credential_status"] == "untrusted"
+    assert untrusted_c2pa["production_trust_list_trusted"] is False
+    assert "signingCredential.trusted" in untrusted_c2pa["all_status_codes"]
+
+
 def test_public_media_export_custom_trust_anchors_are_not_production_trust_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1027,7 +1185,7 @@ def test_public_media_export_custom_trust_anchors_are_not_production_trust_list(
         capture_argv=True,
     )
 
-    verify = artifact_bundles.verify_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
 
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
@@ -1055,7 +1213,7 @@ def test_public_media_export_allowed_list_trust_is_not_production_trust_list(
         capture_argv=True,
     )
 
-    verify = artifact_bundles.verify_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
 
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
@@ -1080,7 +1238,7 @@ def test_public_media_export_warns_when_c2pa_credential_trust_is_not_reported(
         fake_state="no_trust_code",
     )
 
-    verify = artifact_bundles.verify_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
 
     assert verify["ok"] is True
     assert any("trust was not proven by trust-list validation" in warning for warning in verify["warnings"])
@@ -1108,7 +1266,7 @@ def test_public_media_export_rejects_expired_or_revoked_c2pa_credential(
         trust_anchors="-----BEGIN CERTIFICATE-----\\npytest\\n-----END CERTIFICATE-----\\n",
     )
 
-    verify = artifact_bundles.verify_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
 
     assert verify["ok"] is False
     assert "c2pa" in verify["present_controls"]
