@@ -1673,6 +1673,116 @@ def test_artifact_affected_source_ref_closes_sibling_lag_after_promotion(tmp_pat
     ]
 
 
+def test_trust_gate_denies_ephemeral_evidence_refs(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=[
+            "github-actions:artifact-production-evidence:123",
+            "tmp:abi-signs-source-freshness-evidence-20260625T091251Z/aoa-sdk-python-distribution",
+            "/srv/abyss-machine/tmp/pr68-bootstrap-trust-gate/aoa-kag/verify.json",
+            "file:///tmp/abyss-machine-artifact-bundle/verify.json",
+        ],
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        consumer_intent="agent",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert artifact_bundles.EPHEMERAL_EVIDENCE_REFS_BLOCKER in gate["blockers"]
+    assert gate["inspected_claims"]["evidence_refs"]["ok"] is False
+    assert gate["inspected_claims"]["evidence_refs"]["ephemeral_refs"] == [
+        "tmp:abi-signs-source-freshness-evidence-20260625T091251Z/aoa-sdk-python-distribution",
+        "/srv/abyss-machine/tmp/pr68-bootstrap-trust-gate/aoa-kag/verify.json",
+        "file:///tmp/abyss-machine-artifact-bundle/verify.json",
+    ]
+
+
+def test_trust_gate_allows_durable_evidence_refs(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=[
+            "github-actions:artifact-production-evidence:123",
+            "subject-store:materialized:aoa-sdk-python-distribution",
+            "owner-validator:aoa-sdk:validate_abyss_machine_package_artifact_bundle",
+        ],
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        consumer_intent="agent",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["inspected_claims"]["evidence_refs"]["ok"] is True
+    assert gate["inspected_claims"]["evidence_refs"]["ephemeral_refs"] == []
+
+
+def test_bundle_registry_repair_removes_ephemeral_evidence_refs(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=[
+            "change:abi-signs-source-freshness-evidence-20260625",
+            "tmp:abi-signs-source-freshness-evidence-20260625T091251Z/aoa-sdk-python-distribution",
+            "subject-store:post-materialize-repromotion",
+        ],
+    )
+
+    dry_run = artifact_bundles.repair_bundle_registry_evidence_refs(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        replacement_ref="registry-maintenance:ephemeral-evidence-ref-hygiene:pytest",
+        dry_run=True,
+    )
+    before_gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        consumer_intent="agent",
+    )
+    repaired = artifact_bundles.repair_bundle_registry_evidence_refs(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        replacement_ref="registry-maintenance:ephemeral-evidence-ref-hygiene:pytest",
+    )
+    after_gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        consumer_intent="agent",
+    )
+    latest = artifact_bundles.read_bundle_registry(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+    )["latest_by_artifact_class"]["aoa_sdk_python_distribution"]
+
+    assert dry_run["ok"] is True
+    assert dry_run["dry_run"] is True
+    assert dry_run["summary"]["repaired"] == 1
+    assert dry_run["written"] == []
+    assert before_gate["verdict"] == "deny"
+    assert repaired["ok"] is True
+    assert repaired["summary"]["repaired"] == 1
+    assert repaired["written"]
+    assert latest["evidence_refs"] == [
+        "change:abi-signs-source-freshness-evidence-20260625",
+        "subject-store:post-materialize-repromotion",
+        "registry-maintenance:ephemeral-evidence-ref-hygiene:pytest",
+    ]
+    assert latest["evidence_ref_repair"]["removed_ephemeral_refs"] == [
+        "tmp:abi-signs-source-freshness-evidence-20260625T091251Z/aoa-sdk-python-distribution"
+    ]
+    assert after_gate["ok"] is True
+    assert after_gate["verdict"] == "allow"
+    assert after_gate["inspected_claims"]["evidence_refs"]["ephemeral_refs"] == []
+
+
 def test_artifact_affected_wrong_source_ref_keeps_sibling_blocked(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
     _write_verified_registry_record(registry, evidence_refs=["commit:previous"])
