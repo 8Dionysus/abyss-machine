@@ -73,6 +73,7 @@ REQUIRED_ARTIFACT_COMMANDS = {
     "update-verify",
     "update-repo-verify",
     "scitt-verify",
+    "oci-verify",
 }
 REQUIRED_TYPING_COMMANDS = {
     "paths",
@@ -176,6 +177,22 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--issuer",
         "--transparency-service",
         "--now",
+        "--json",
+    },
+    ("artifacts", "oci-verify"): {
+        "--artifact-class",
+        "--registry-ref",
+        "--subject-digest",
+        "--required-referrer-type",
+        "--registry-dir",
+        "--record-id",
+        "--record-subject-digest",
+        "--source-repo",
+        "--trust-root-mode",
+        "--consumer-intent",
+        "--allow-tag-reference",
+        "--allow-missing-referrers",
+        "--require-trust-gate",
         "--json",
     },
 }
@@ -816,6 +833,16 @@ def portability_scan_report(paths: dict[str, Path]) -> dict[str, Any]:
 
 def host_installed_report(args: argparse.Namespace, paths: dict[str, Path]) -> dict[str, Any]:
     host_cli = Path(args.host_cli)
+    if not args.require_host_installed:
+        return {
+            "status": "skipped",
+            "reason": "host installed projection is advisory unless --require-host-installed is set",
+            "required": False,
+            "mode": "skipped_non_required_host_installed_projection",
+            "failures": [],
+            "critical_help_options": {"status": "skipped", "failures": []},
+            "content_parity": {"status": "skipped", "failures": []},
+        }
     if not host_cli.exists():
         return {"status": "unavailable", "reason": f"{host_cli} does not exist", "required": bool(args.require_host_installed)}
     if not os.access(host_cli, os.X_OK):
