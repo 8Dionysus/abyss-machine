@@ -47,13 +47,23 @@ MLBOM_CYCLONEDX_SIDECAR = "artifact.mlbom.cdx.json"
 C2PA_MANIFEST_SIDECAR = "artifact.c2pa"
 C2PA_REPORT_SIDECAR = "artifact.c2pa.json"
 C2PA_TRUST_ANCHORS_ENV = "ABYSS_MACHINE_C2PA_TRUST_ANCHORS"
+C2PA_TRUST_ANCHORS_PROFILE_ENV = "ABYSS_MACHINE_C2PA_TRUST_ANCHORS_PROFILE"
 C2PA_ALLOWED_LIST_ENV = "ABYSS_MACHINE_C2PA_ALLOWED_LIST"
 C2PA_TRUST_CONFIG_ENV = "ABYSS_MACHINE_C2PA_TRUST_CONFIG"
+C2PA_OFFICIAL_TRUST_LIST_URL = "https://raw.githubusercontent.com/c2pa-org/conformance-public/refs/heads/main/trust-list/C2PA-TRUST-LIST.pem"
+C2PA_PRODUCTION_TRUST_LIST_PROFILES = frozenset(
+    {
+        "official_c2pa_trust_list",
+        "c2pa_conformance_trust_list",
+        "production_c2pa_trust_list",
+    }
+)
 C2PA_TRUST_GAP_WARNINGS = (
     "C2PA signing credential is untrusted; this is local integrity evidence, not production trust-list proof",
     "C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof",
     "C2PA signing credential is trusted only by configured allowed-list end-entity; this is not production trust-list proof",
     "C2PA trust verdict is not structured; production trust-list status is unproven",
+    "C2PA signing credential is trusted by a custom trust anchor store; this is not production C2PA Trust List proof",
 )
 TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
@@ -3934,6 +3944,25 @@ def _c2patool_binary() -> str | None:
     return shutil.which("c2patool")
 
 
+def _c2pa_trust_anchor_ref(value: str) -> str:
+    value = value.strip()
+    if value.startswith(("https://", "http://")):
+        return value
+    path = Path(value)
+    if path.is_absolute():
+        return _portable_path_ref(path)
+    return value
+
+
+def _c2pa_trust_anchor_profile(value: str, env: dict[str, str]) -> tuple[str, str]:
+    explicit = str(env.get(C2PA_TRUST_ANCHORS_PROFILE_ENV) or "").strip()
+    if explicit:
+        return explicit, C2PA_TRUST_ANCHORS_PROFILE_ENV
+    if value.strip() == C2PA_OFFICIAL_TRUST_LIST_URL:
+        return "official_c2pa_trust_list", "auto:official_c2pa_trust_list_url"
+    return "custom_trust_anchor_store", "auto:custom_trust_anchor_store"
+
+
 def _c2pa_trust_args(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
     args: list[str] = []
     sources: dict[str, str] = {}
@@ -3954,6 +3983,11 @@ def _c2pa_trust_args(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
             continue
         args.extend([f"--{option}", value])
         sources[option] = source
+        if option == "trust_anchors":
+            profile, profile_source = _c2pa_trust_anchor_profile(value, env)
+            sources["trust_anchors_ref"] = _c2pa_trust_anchor_ref(value)
+            sources["trust_anchors_profile"] = profile
+            sources["trust_anchors_profile_source"] = profile_source
     return args, sources
 
 
@@ -4000,15 +4034,22 @@ def _c2pa_trust_verdict(
     trust_anchors_configured = bool(trust_sources.get("trust_anchors"))
     allowed_list_configured = bool(trust_sources.get("allowed_list"))
     trust_config_configured = bool(trust_sources.get("trust_config"))
+    trust_anchor_profile = str(trust_sources.get("trust_anchors_profile") or "")
+    production_trust_list_configured = bool(
+        trust_anchors_configured
+        and not allowed_list_configured
+        and trust_anchor_profile in C2PA_PRODUCTION_TRUST_LIST_PROFILES
+    )
     production_trust_list_trusted = bool(
         credential_status == "trusted"
-        and trust_anchors_configured
-        and not allowed_list_configured
+        and production_trust_list_configured
     )
     if production_trust_list_trusted:
         trust_tier = "production_trust_list"
     elif credential_status == "trusted" and allowed_list_configured:
         trust_tier = "allowed_list_end_entity"
+    elif credential_status == "trusted" and trust_anchors_configured:
+        trust_tier = "custom_trust_anchor_store"
     elif credential_status == "trusted":
         trust_tier = "trusted_without_explicit_trust_list"
     else:
@@ -4018,15 +4059,17 @@ def _c2pa_trust_verdict(
         "validation_state": str(report.get("validation_state") or ""),
         "credential_status": credential_status,
         "trust_tier": trust_tier,
-        "production_trust_list_configured": trust_anchors_configured and not allowed_list_configured,
+        "production_trust_list_configured": production_trust_list_configured,
         "production_trust_list_trusted": production_trust_list_trusted,
         "allowed_list_end_entity_configured": allowed_list_configured,
+        "trust_anchor_profile": trust_anchor_profile or None,
         "trust_config_configured": trust_config_configured,
         "trust_sources": dict(sorted(trust_sources.items())),
         "status_codes": list(status_codes),
         "claim_limits": [
-            "production_trust_list_trusted requires signingCredential.trusted from c2patool with trust anchors configured and no allowed-list override.",
+            "production_trust_list_trusted requires signingCredential.trusted from c2patool with an official or explicitly declared production C2PA Trust List profile and no allowed-list override.",
             "allowed_list end-entity trust is useful for local acceptance but is not C2PA production trust-list proof.",
+            "custom trust anchors can be useful for local policy, but they do not prove C2PA Conformance Program Trust List acceptance.",
         ],
     }
 
@@ -4039,6 +4082,8 @@ def _c2pa_trust_gap_warning(c2pa_trust: dict[str, Any]) -> str:
     trust_tier = str(c2pa_trust.get("trust_tier") or "")
     if trust_tier == "allowed_list_end_entity":
         return C2PA_TRUST_GAP_WARNINGS[2]
+    if trust_tier == "custom_trust_anchor_store":
+        return C2PA_TRUST_GAP_WARNINGS[4]
     if trust_tier == "untrusted":
         return C2PA_TRUST_GAP_WARNINGS[0]
     return C2PA_TRUST_GAP_WARNINGS[1]
@@ -4768,9 +4813,18 @@ def _validate_c2pa_sidecar(
     env = os.environ.copy()
     trust_args, trust_sources = _c2pa_trust_args(env)
     command = [c2patool, str(subject_path)]
-    sidecar = bundle / C2PA_MANIFEST_SIDECAR
-    if sidecar.is_file():
-        command.extend(["--external-manifest", str(sidecar)])
+    manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    c2pa_config = manifest.get("c2pa") if isinstance(manifest.get("c2pa"), dict) else {}
+    manifest_sidecar = str(c2pa_config.get("manifest_sidecar") or C2PA_MANIFEST_SIDECAR)
+    sidecar_rel = Path(manifest_sidecar)
+    if sidecar_rel.is_absolute() or ".." in sidecar_rel.parts:
+        errors.append("C2PA manifest_sidecar must be a safe bundle-relative path")
+        return None
+    sidecar = bundle / sidecar_rel
+    if not sidecar.is_file():
+        errors.append(f"C2PA manifest sidecar is missing: {manifest_sidecar}")
+        return None
+    command.extend(["--external-manifest", str(sidecar)])
     command.append("trust")
     command.extend(trust_args)
     proc = subprocess.run(
@@ -4819,6 +4873,11 @@ def _validate_c2pa_sidecar(
         warnings.append(
             "C2PA signing credential is trusted only by configured allowed-list end-entity; "
             "this is not production trust-list proof"
+        )
+    elif trust_verdict.get("trust_tier") == "custom_trust_anchor_store":
+        warnings.append(
+            "C2PA signing credential is trusted by a custom trust anchor store; "
+            "this is not production C2PA Trust List proof"
         )
     elif trust_verdict.get("production_trust_list_trusted") is not True:
         warnings.append("C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof")

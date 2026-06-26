@@ -630,6 +630,7 @@ def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) 
         "C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof",
         "C2PA signing credential is trusted only by configured allowed-list end-entity; this is not production trust-list proof",
         "C2PA trust verdict is not structured; production trust-list status is unproven",
+        "C2PA signing credential is trusted by a custom trust anchor store; this is not production C2PA Trust List proof",
         "C2PA production trust anchors are not configured; set ABYSS_MACHINE_C2PA_TRUST_ANCHORS or C2PATOOL_TRUST_ANCHORS before production publication",
     ],
 )
@@ -673,7 +674,7 @@ def test_trust_coverage_keeps_structured_c2pa_trust_gap_as_production_blocker() 
             "inspected_claims": {
                 "c2pa_trust": {
                     "schema": "abyss_machine_c2pa_trust_verdict_v1",
-                    "trust_tier": "allowed_list_end_entity",
+                    "trust_tier": "custom_trust_anchor_store",
                     "production_trust_list_trusted": False,
                 },
             },
@@ -815,6 +816,8 @@ def _build_public_media_export_test_bundle(
     *,
     fake_state: str | None = None,
     trust_anchors: str | None = None,
+    trust_anchors_ref: str | None = None,
+    trust_anchors_profile: str | None = None,
     allowed_list: str | None = None,
     capture_argv: bool = False,
 ) -> tuple[Path, Path | None]:
@@ -833,6 +836,11 @@ def _build_public_media_export_test_bundle(
                 "public_safe": True,
                 "subject_repo_root": ".",
                 "artifact_subjects": [{"path": "media.png", "role": "public_media_export"}],
+                "c2pa": {
+                    "manifest_sidecar": artifact_bundles.C2PA_MANIFEST_SIDECAR,
+                    "validation_report": artifact_bundles.C2PA_REPORT_SIDECAR,
+                    "required_validation_state": "Valid",
+                },
             }
         ),
         encoding="utf-8",
@@ -844,13 +852,19 @@ def _build_public_media_export_test_bundle(
         monkeypatch.setenv("FAKE_C2PA_STATE", fake_state)
     else:
         monkeypatch.delenv("FAKE_C2PA_STATE", raising=False)
-    if trust_anchors is not None:
+    if trust_anchors_ref is not None:
+        monkeypatch.setenv(artifact_bundles.C2PA_TRUST_ANCHORS_ENV, trust_anchors_ref)
+    elif trust_anchors is not None:
         anchors = tmp_path / "c2pa-trust-anchors.pem"
         anchors.write_text(trust_anchors, encoding="utf-8")
         monkeypatch.setenv(artifact_bundles.C2PA_TRUST_ANCHORS_ENV, str(anchors))
     else:
         monkeypatch.delenv(artifact_bundles.C2PA_TRUST_ANCHORS_ENV, raising=False)
         monkeypatch.delenv("C2PATOOL_TRUST_ANCHORS", raising=False)
+    if trust_anchors_profile is not None:
+        monkeypatch.setenv(artifact_bundles.C2PA_TRUST_ANCHORS_PROFILE_ENV, trust_anchors_profile)
+    else:
+        monkeypatch.delenv(artifact_bundles.C2PA_TRUST_ANCHORS_PROFILE_ENV, raising=False)
     if allowed_list is not None:
         allowed = tmp_path / "c2pa-allowed-list.pem"
         allowed.write_text(allowed_list, encoding="utf-8")
@@ -896,7 +910,52 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
     assert any("asset hash mismatch" in error for error in invalid["errors"])
 
 
+def test_public_media_export_rejects_missing_c2pa_manifest_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _ = _build_public_media_export_test_bundle(tmp_path, monkeypatch)
+    (bundle / artifact_bundles.C2PA_MANIFEST_SIDECAR).unlink()
+
+    verify = artifact_bundles.verify_bundle(bundle)
+
+    assert verify["ok"] is False
+    assert "c2pa" in verify["present_controls"]
+    assert any("C2PA manifest sidecar is missing" in error for error in verify["errors"])
+    assert verify["verified_controls"] == []
+
+
 def test_public_media_export_passes_without_production_warning_when_c2pa_credential_trusted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, argv_capture = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="trusted",
+        trust_anchors_ref=artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
+        capture_argv=True,
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle)
+
+    assert verify["ok"] is True
+    assert "c2pa" in verify["verified_controls"]
+    assert not any("production trust-list proof" in warning for warning in verify["warnings"])
+    assert not any("production trust anchors are not configured" in warning for warning in verify["warnings"])
+    c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
+    assert c2pa_trust["trust_tier"] == "production_trust_list"
+    assert c2pa_trust["production_trust_list_configured"] is True
+    assert c2pa_trust["production_trust_list_trusted"] is True
+    assert c2pa_trust["trust_anchor_profile"] == "official_c2pa_trust_list"
+    assert argv_capture is not None
+    argv = json.loads(argv_capture.read_text(encoding="utf-8"))
+    assert "trust" in argv
+    assert "--trust_anchors" in argv
+    assert artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL in argv
+
+
+def test_public_media_export_custom_trust_anchors_are_not_production_trust_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -912,15 +971,14 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
 
     assert verify["ok"] is True
     assert "c2pa" in verify["verified_controls"]
-    assert not any("production trust-list proof" in warning for warning in verify["warnings"])
-    assert not any("production trust anchors are not configured" in warning for warning in verify["warnings"])
+    assert any("custom trust anchor store" in warning for warning in verify["warnings"])
     c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
-    assert c2pa_trust["trust_tier"] == "production_trust_list"
-    assert c2pa_trust["production_trust_list_configured"] is True
-    assert c2pa_trust["production_trust_list_trusted"] is True
+    assert c2pa_trust["trust_tier"] == "custom_trust_anchor_store"
+    assert c2pa_trust["trust_anchor_profile"] == "custom_trust_anchor_store"
+    assert c2pa_trust["production_trust_list_configured"] is False
+    assert c2pa_trust["production_trust_list_trusted"] is False
     assert argv_capture is not None
     argv = json.loads(argv_capture.read_text(encoding="utf-8"))
-    assert "trust" in argv
     assert "--trust_anchors" in argv
     assert str(tmp_path / "c2pa-trust-anchors.pem") in argv
 
@@ -1092,7 +1150,13 @@ def test_trust_gate_allows_public_media_with_production_c2pa_trust_list(tmp_path
         "production_trust_list_configured": True,
         "production_trust_list_trusted": True,
         "allowed_list_end_entity_configured": False,
-        "trust_sources": {"trust_anchors": "ABYSS_MACHINE_C2PA_TRUST_ANCHORS"},
+        "trust_anchor_profile": "official_c2pa_trust_list",
+        "trust_sources": {
+            "trust_anchors": "ABYSS_MACHINE_C2PA_TRUST_ANCHORS",
+            "trust_anchors_ref": artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
+            "trust_anchors_profile": "official_c2pa_trust_list",
+            "trust_anchors_profile_source": "auto:official_c2pa_trust_list_url",
+        },
         "status_codes": ["signingCredential.trusted"],
     }
     _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
