@@ -227,6 +227,7 @@ ARTIFACT_DRIFT_STATUSES = (
 )
 UPDATE_LANE_VERDICTS = ("allow", "deny", "manual_review_required")
 DURABLE_EVIDENCE_FIELDS = ("source_repo", "source_ref", "producer", "trust_root_mode", "verifier_versions")
+EPHEMERAL_EVIDENCE_REFS_BLOCKER = "ephemeral_evidence_refs_present"
 BUNDLE_REGISTRY_INDEX = "index.json"
 BUNDLE_REGISTRY_RECORDS_DIR = "records"
 DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT = Path("/var/lib/abyss-machine/artifacts/subjects")
@@ -5669,6 +5670,114 @@ def upgrade_legacy_bundle_registry(
     }
 
 
+def repair_bundle_registry_evidence_refs(
+    registry_dir: str | Path,
+    *,
+    artifact_class: str = "",
+    replacement_ref: str = "",
+    latest_only: bool = True,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    root = Path(registry_dir)
+    registry = read_bundle_registry(root, artifact_class=artifact_class or None)
+    repaired_at = _utc_now()
+    maintenance_ref = str(replacement_ref or f"registry-maintenance:ephemeral-evidence-ref-hygiene:{repaired_at}")
+    latest_ids = {
+        str(record.get("record_id") or "")
+        for record in registry.get("latest_by_artifact_class", {}).values()
+        if isinstance(record, dict) and record.get("record_id")
+    }
+    repairs: list[dict[str, Any]] = []
+    written: list[str] = []
+    errors: list[str] = []
+    unchanged = 0
+    skipped_not_latest = 0
+
+    for record in registry.get("records", []):
+        if not isinstance(record, dict):
+            continue
+        record_id = str(record.get("record_id") or "")
+        if latest_only and record_id not in latest_ids:
+            skipped_not_latest += 1
+            continue
+        hygiene = _evidence_ref_hygiene(record)
+        ephemeral_refs = [str(item) for item in hygiene.get("ephemeral_refs", []) if str(item)]
+        if not ephemeral_refs:
+            unchanged += 1
+            continue
+        if not record_id:
+            errors.append("registry record without record_id cannot be repaired")
+            continue
+
+        cleaned_refs: list[str] = []
+        for ref in hygiene.get("durable_refs", []):
+            text = str(ref or "")
+            if text and text not in cleaned_refs:
+                cleaned_refs.append(text)
+        added_refs: list[str] = []
+        if maintenance_ref and maintenance_ref not in cleaned_refs:
+            cleaned_refs.append(maintenance_ref)
+            added_refs.append(maintenance_ref)
+
+        repaired = json.loads(json.dumps(record, ensure_ascii=False))
+        previous_repair = repaired.get("evidence_ref_repair")
+        if isinstance(previous_repair, dict) and previous_repair:
+            history = repaired.get("evidence_ref_repair_history")
+            history = history if isinstance(history, list) else []
+            history.append(previous_repair)
+            repaired["evidence_ref_repair_history"] = history[-20:]
+        repaired["evidence_refs"] = cleaned_refs
+        repaired["evidence_ref_repair"] = {
+            "schema": "abyss_machine_artifact_evidence_ref_repair_v1",
+            "repaired_at": repaired_at,
+            "reason": "ephemeral evidence refs are scratch context and cannot be consumer-admission authority",
+            "removed_ephemeral_refs": ephemeral_refs,
+            "added_evidence_refs": added_refs,
+            "repair_ref": maintenance_ref,
+            "latest_only": latest_only,
+        }
+        record_path = _registry_record_path(root, record_id)
+        repairs.append(
+            {
+                "record_id": record_id,
+                "artifact_class": repaired.get("artifact_class"),
+                "record_ref": _registry_path_ref(root, record_path),
+                "removed_ephemeral_refs": ephemeral_refs,
+                "added_evidence_refs": added_refs,
+                "write_ready": True,
+            }
+        )
+        if not dry_run:
+            _write_json(record_path, repaired)
+            written.append(_registry_path_ref(root, record_path))
+
+    if not dry_run and written:
+        index = read_bundle_registry(root)
+        _write_json(root / BUNDLE_REGISTRY_INDEX, index)
+        written.append(_registry_path_ref(root, root / BUNDLE_REGISTRY_INDEX))
+
+    return {
+        "ok": not errors,
+        "schema": "abyss_machine_artifact_bundle_registry_evidence_ref_repair_v1",
+        "registry_dir": _registry_path_ref(root, root),
+        "artifact_class_filter": artifact_class or None,
+        "dry_run": dry_run,
+        "latest_only": latest_only,
+        "replacement_ref": maintenance_ref,
+        "repaired_at": repaired_at,
+        "summary": {
+            "records_seen": len(registry.get("records", [])),
+            "repaired": len(repairs),
+            "unchanged": unchanged,
+            "skipped_not_latest": skipped_not_latest,
+            "errors": len(errors),
+        },
+        "repairs": repairs,
+        "written": written,
+        "errors": errors,
+    }
+
+
 def promote_bundle_evidence(
     bundle_dir: str | Path,
     registry_dir: str | Path,
@@ -5845,6 +5954,46 @@ def _trust_root_evidence_verification(
     }
 
 
+def _path_ref_matches_root(value: str, root: str) -> bool:
+    return value == root or value.startswith(root + "/")
+
+
+def _is_ephemeral_evidence_ref(ref: str) -> bool:
+    value = str(ref or "").strip()
+    lowered = value.lower()
+    if not lowered:
+        return False
+    if lowered.startswith("tmp:"):
+        return True
+
+    pathish_values = [lowered]
+    if lowered.startswith("file://"):
+        pathish_values.append(lowered.removeprefix("file://"))
+    if lowered.startswith("file:"):
+        pathish_values.append(lowered.removeprefix("file:"))
+
+    for pathish in pathish_values:
+        if _path_ref_matches_root(pathish, "/tmp"):
+            return True
+        if _path_ref_matches_root(pathish, "/srv/abyss-machine/tmp"):
+            return True
+    return False
+
+
+def _evidence_ref_hygiene(record: dict[str, Any]) -> dict[str, Any]:
+    refs = _string_list(record.get("evidence_refs"))
+    ephemeral_refs = [ref for ref in refs if _is_ephemeral_evidence_ref(ref)]
+    return {
+        "schema": "abyss_machine_artifact_evidence_ref_hygiene_v1",
+        "ok": not ephemeral_refs,
+        "refs": refs,
+        "durable_refs": [ref for ref in refs if ref not in ephemeral_refs],
+        "ephemeral_refs": ephemeral_refs,
+        "ephemeral_ref_count": len(ephemeral_refs),
+        "claim_limit": "Consumer admission cannot treat tmp or scratch paths as durable evidence authority.",
+    }
+
+
 def _trust_gate_decision(
     *,
     verdict: str,
@@ -5895,6 +6044,7 @@ def _trust_gate_inspected_claims(
         artifact_class=artifact_class,
         consumer_intent=consumer_intent,
     )
+    evidence_ref_hygiene = _evidence_ref_hygiene(selected)
     return {
         "registry_latest": {
             "required": require_latest,
@@ -5953,6 +6103,7 @@ def _trust_gate_inspected_claims(
             "host_managed_role": "local OS Abyss registry assertion; not external public release trust",
         },
         "trust_root_evidence": trust_root_evidence,
+        "evidence_refs": evidence_ref_hygiene,
         "privacy_boundary": {
             "value": privacy_boundary,
             "production_review_reason": privacy_review_reason or None,
@@ -6055,6 +6206,9 @@ def trust_gate(
         blockers.append("verification_errors_present")
     if selected.get("verification_missing"):
         blockers.append("verification_missing_required_sidecars")
+    evidence_ref_hygiene = _evidence_ref_hygiene(selected)
+    if evidence_ref_hygiene.get("ephemeral_refs"):
+        blockers.append(EPHEMERAL_EVIDENCE_REFS_BLOCKER)
 
     required_controls = {str(item) for item in selected.get("required_controls", [])}
     verified_controls = {str(item) for item in selected.get("verified_controls", [])}
