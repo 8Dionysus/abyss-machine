@@ -513,6 +513,8 @@ def main() -> int:
                     failures.append("update_transparency_lane.scitt.external_relying_party_mode.missing_receipt_verdict must be deny")
                 if not isinstance(external_mode.get("binding"), str) or "statement_digest" not in external_mode.get("binding", ""):
                     failures.append("update_transparency_lane.scitt.external_relying_party_mode.binding must describe statement_digest binding")
+                if not isinstance(external_mode.get("registry_link_required"), str) or not external_mode.get("registry_link_required"):
+                    failures.append("update_transparency_lane.scitt.external_relying_party_mode.registry_link_required must be a non-empty string")
                 if external_mode.get("not_external_service_yet") is not True:
                     failures.append("update_transparency_lane.scitt.external_relying_party_mode.not_external_service_yet must be true until live SCITT service lands")
 

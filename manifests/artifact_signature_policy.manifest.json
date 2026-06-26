@@ -1215,6 +1215,7 @@
         "receipt_required": true,
         "missing_receipt_verdict": "deny",
         "binding": "receipt.statement_digest must equal canonical signed statement digest",
+        "registry_link_required": "statement subject must bind to an existing durable artifact registry record when external relying-party mode requires registry linkage",
         "not_external_service_yet": true
       },
       "claim_limit": "SCITT is implemented as an OS Abyss local verifier/stub for statement/receipt binding and fail-closed external relying-party mode; live external transparency service, COSE signature verification, and Merkle receipt verification remain future production layers."
