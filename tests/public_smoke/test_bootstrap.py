@@ -144,6 +144,7 @@ def test_bootstrap_install_derives_user_systemd_dir_from_explicit_home_under_roo
         "--profile",
         "linux-systemd-core",
         "--dry-run",
+        "--skip-artifact-trust-gate",
         "--user",
         "agent",
         "--home",
@@ -158,6 +159,52 @@ def test_bootstrap_install_derives_user_systemd_dir_from_explicit_home_under_roo
     assert user_targets
     assert all(target.startswith(str(home / ".config/systemd/user")) for target in user_targets)
     assert not any(target.startswith("/root/.config/systemd/user") for target in user_targets)
+
+
+def test_bootstrap_install_requires_artifact_trust_gate_by_default(tmp_path: Path) -> None:
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--artifact-registry-dir",
+        str(tmp_path / "missing-registry"),
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["artifact_admission"]["required"] is True
+    assert payload["artifact_admission"]["verdict"] == "unknown"
+    assert payload["artifact_admission"]["errors"] == ["no_registry_record"]
+    assert payload["actions"] == [
+        {
+            "action": "artifact_trust_gate",
+            "artifact_class": "bootstrap_install_bundle",
+            "consumer_intent": "installer",
+            "latest_record_id": None,
+            "record_id": None,
+            "registry_dir": str(tmp_path / "missing-registry"),
+            "required": True,
+            "verdict": "unknown",
+        }
+    ]
+
+
+def test_bootstrap_install_local_development_skip_is_explicit(tmp_path: Path) -> None:
+    payload = run_bootstrap(
+        "install",
+        "--dry-run",
+        "--skip-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(tmp_path / "missing-registry"),
+    )
+
+    admission = payload["artifact_admission"]
+    assert admission["ok"] is True
+    assert admission["required"] is False
+    assert admission["verdict"] == "not_required"
+    assert admission["trust_gate"] is None
+    assert "explicit local-development opt-out" in admission["claim_limit"]
+    assert payload["actions"][0]["required"] is False
 
 
 def test_bootstrap_install_can_require_artifact_trust_gate(tmp_path: Path) -> None:
@@ -330,6 +377,7 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
         "--profile",
         "linux-systemd-core",
         "--apply",
+        "--skip-artifact-trust-gate",
         "--local-bin-dir",
         str(bin_dir),
         "--local-libexec-dir",

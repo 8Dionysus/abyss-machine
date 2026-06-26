@@ -276,7 +276,7 @@ def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePat
             "verdict": "not_required",
             "trust_gate": None,
             "errors": [],
-            "claim_limit": "Local bootstrap development installs are unchanged unless --require-artifact-trust-gate is set.",
+            "claim_limit": "Bootstrap install skips artifact trust-gate only through explicit local-development opt-out.",
         }
 
     gate = artifact_bundles.trust_gate(
@@ -430,7 +430,20 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_options(install)
     install.add_argument("--dry-run", action="store_true")
     install.add_argument("--apply", action="store_true")
-    install.add_argument("--require-artifact-trust-gate", action="store_true", help="deny bootstrap install unless durable artifact trust-gate allows the selected install bundle")
+    artifact_gate = install.add_mutually_exclusive_group()
+    artifact_gate.add_argument(
+        "--require-artifact-trust-gate",
+        dest="require_artifact_trust_gate",
+        action="store_true",
+        default=True,
+        help="deny bootstrap install unless durable artifact trust-gate allows the selected install bundle; this is the default",
+    )
+    artifact_gate.add_argument(
+        "--skip-artifact-trust-gate",
+        dest="require_artifact_trust_gate",
+        action="store_false",
+        help="explicit local-development opt-out for isolated projection rehearsals; production installs remain fail-closed",
+    )
     install.add_argument("--artifact-registry-dir", default="", help="bundle registry root for bootstrap install admission")
     install.add_argument("--artifact-class", default="bootstrap_install_bundle", help="artifact class consumed by this bootstrap install")
     install.add_argument("--artifact-subject-digest", default="", help="expected install bundle subject digest")

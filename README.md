@@ -33,6 +33,10 @@ python scripts/validators/first_run_installed_projection.py --json
 
 The bootstrap CLI and installed `abyss-machine` CLI share
 `abyss_machine.path_policy` for root defaults and environment overrides.
+Bootstrap `install` is fail-closed by default: it consumes
+`bootstrap_install_bundle` only after the durable artifact trust-gate admits the
+selected registry latest. Use `--skip-artifact-trust-gate` only for isolated
+local projection rehearsals that are not consuming an install artifact.
 Bootstrap installs the CLI entrypoint together with its `abyss_machine` package
 modules and a compact public seed projection under
 `/usr/local/share/abyss-machine` so installed validators and read models do not
