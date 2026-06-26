@@ -1441,18 +1441,25 @@ def _write_tuf_repository(
     }
 
 
-def _scitt_statement(*, digest: str = "sha256:" + ("a" * 64)) -> dict[str, object]:
+def _scitt_statement(
+    *,
+    digest: str = "sha256:" + ("a" * 64),
+    record_id: str = "",
+) -> dict[str, object]:
+    subject: dict[str, object] = {
+        "artifact_class": "bootstrap_install_bundle",
+        "artifact_digest": digest,
+        "source_repo": "abyss-machine",
+        "source_ref": "release:test",
+    }
+    if record_id:
+        subject["record_id"] = record_id
     return {
         "schema": artifact_bundles.SCITT_SIGNED_STATEMENT_SCHEMA,
         "statement_class": "release_update_artifact",
         "issuer": "did:web:abyss.example:issuer:release",
         "issued_at": "2026-06-21T00:00:00Z",
-        "subject": {
-            "artifact_class": "bootstrap_install_bundle",
-            "artifact_digest": digest,
-            "source_repo": "abyss-machine",
-            "source_ref": "release:test",
-        },
+        "subject": subject,
         "statement": {
             "predicate_type": "https://abyss.example/scitt/release-update-artifact/v1",
             "verdict": "release-ready",
@@ -1472,6 +1479,33 @@ def _scitt_receipt(statement: dict[str, object], *, digest: str | None = None) -
         "log_entry_id": "pytest-entry-1",
         "receipt_ref": "scitt://transparency.abyss.example/entries/pytest-entry-1",
     }
+
+
+def _write_scitt_registry_record(tmp_path: Path, *, record_id: str, digest: str) -> Path:
+    registry = tmp_path / "scitt-registry"
+    records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+    records.mkdir(parents=True, exist_ok=True)
+    (records / f"{record_id.removeprefix('sha256:')}.json").write_text(
+        json.dumps(
+            {
+                "schema": "abyss_machine_artifact_bundle_registry_record_v1",
+                "record_id": record_id,
+                "artifact_class": "bootstrap_install_bundle",
+                "lifecycle_state": "release-ready",
+                "latest_eligible": True,
+                "terminal_state": False,
+                "verification_ok": True,
+                "subject_digest": digest,
+                "source_repo": "abyss-machine",
+                "source_ref": "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+                "trust_root_mode": "github_oidc",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return registry
 
 
 def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
@@ -1622,6 +1656,50 @@ def test_scitt_receipt_verifier_allows_external_relying_party_with_bound_receipt
     assert cli_result["verdict"] == "allow"
 
 
+def test_scitt_receipt_verifier_allows_external_relying_party_with_registry_link(tmp_path: Path) -> None:
+    record_id = "sha256:" + ("1" * 64)
+    artifact_digest = "sha256:" + ("2" * 64)
+    registry = _write_scitt_registry_record(tmp_path, record_id=record_id, digest=artifact_digest)
+    statement = _scitt_statement(digest=artifact_digest, record_id=record_id)
+    receipt = _scitt_receipt(statement)
+    statement_path = tmp_path / "statement.json"
+    receipt_path = tmp_path / "receipt.json"
+    statement_path.write_text(json.dumps(statement), encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    result = artifact_bundles.verify_scitt_receipt(
+        statement,
+        receipt=receipt,
+        external_relying_party=True,
+        registry_dir=registry,
+        expected_record_id=record_id,
+        require_registry_link=True,
+        expected_statement_class="release_update_artifact",
+        expected_artifact_digest=artifact_digest,
+        now="2026-06-21T00:00:00Z",
+    )
+    cli_result = cli.artifacts_scitt_verify(
+        statement_path,
+        receipt_path=receipt_path,
+        external_relying_party=True,
+        registry_dir=registry,
+        expected_record_id=record_id,
+        require_registry_link=True,
+        expected_statement_class="release_update_artifact",
+        expected_artifact_digest=artifact_digest,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["registry_link"]["record_found"] is True
+    assert result["registry_link"]["digest_match"] is True
+    assert result["registry_link"]["record_id"] == record_id
+    assert result["registry_link"]["errors"] == []
+    assert cli_result["ok"] is True
+    assert cli_result["registry_link"]["digest_match"] is True
+
+
 def test_scitt_receipt_verifier_denies_missing_or_unbound_receipt_for_external_relying_party() -> None:
     statement = _scitt_statement()
 
@@ -1653,6 +1731,48 @@ def test_scitt_receipt_verifier_denies_missing_or_unbound_receipt_for_external_r
     assert wrong_artifact["ok"] is False
     assert wrong_artifact["verdict"] == "deny"
     assert "artifact_digest_mismatch" in wrong_artifact["errors"]
+
+
+def test_scitt_receipt_verifier_denies_missing_or_wrong_registry_link(tmp_path: Path) -> None:
+    record_id = "sha256:" + ("1" * 64)
+    artifact_digest = "sha256:" + ("2" * 64)
+    registry = _write_scitt_registry_record(tmp_path, record_id=record_id, digest=artifact_digest)
+    statement = _scitt_statement(digest=artifact_digest, record_id=record_id)
+    receipt = _scitt_receipt(statement)
+    wrong_digest_statement = _scitt_statement(digest="sha256:" + ("3" * 64), record_id=record_id)
+
+    missing_registry = artifact_bundles.verify_scitt_receipt(
+        statement,
+        receipt=receipt,
+        external_relying_party=True,
+        require_registry_link=True,
+        now="2026-06-21T00:00:00Z",
+    )
+    wrong_record = artifact_bundles.verify_scitt_receipt(
+        statement,
+        receipt=receipt,
+        external_relying_party=True,
+        registry_dir=registry,
+        expected_record_id="sha256:" + ("4" * 64),
+        require_registry_link=True,
+        now="2026-06-21T00:00:00Z",
+    )
+    wrong_digest = artifact_bundles.verify_scitt_receipt(
+        wrong_digest_statement,
+        receipt=_scitt_receipt(wrong_digest_statement),
+        external_relying_party=True,
+        registry_dir=registry,
+        expected_record_id=record_id,
+        require_registry_link=True,
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert missing_registry["ok"] is False
+    assert "scitt_registry_required" in missing_registry["errors"]
+    assert wrong_record["ok"] is False
+    assert "registry_record_id_mismatch" in wrong_record["errors"]
+    assert wrong_digest["ok"] is False
+    assert "artifact_digest_registry_mismatch" in wrong_digest["errors"]
 
 
 def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(tmp_path: Path) -> None:

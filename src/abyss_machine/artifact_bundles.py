@@ -1581,6 +1581,9 @@ def verify_scitt_receipt(
     receipt: dict[str, Any] | None = None,
     external_relying_party: bool = False,
     require_receipt: bool = False,
+    registry_dir: str | Path | None = None,
+    expected_record_id: str = "",
+    require_registry_link: bool = False,
     expected_statement_class: str = "",
     expected_artifact_digest: str = "",
     expected_issuer: str = "",
@@ -1625,6 +1628,63 @@ def verify_scitt_receipt(
     if not statement.get("issued_at"):
         warnings.append("issued_at_missing")
 
+    registry_link_required = bool(require_registry_link or registry_dir is not None or expected_record_id)
+    registry_link: dict[str, Any] = {
+        "required": registry_link_required,
+        "checked": False,
+        "registry_dir": str(registry_dir) if registry_dir is not None else None,
+        "artifact_class": str(subject.get("artifact_class") or "") or None,
+        "record_id": None,
+        "latest_record_id": None,
+        "record_found": False,
+        "digest_match": False,
+        "errors": [],
+    }
+    if registry_link_required:
+        if registry_dir is None:
+            registry_link["errors"].append("scitt_registry_required")
+        else:
+            registry_link["checked"] = True
+            class_id = str(subject.get("artifact_class") or "")
+            registry = read_bundle_registry(registry_dir, artifact_class=class_id or None)
+            latest = registry.get("latest_by_artifact_class", {}).get(class_id) if class_id else None
+            registry_link["latest_record_id"] = latest.get("record_id") if isinstance(latest, dict) else None
+            statement_record_id = str(
+                subject.get("record_id")
+                or subject.get("registry_record_id")
+                or expected_record_id
+                or ""
+            )
+            if expected_record_id and statement_record_id != expected_record_id:
+                registry_link["errors"].append("registry_record_id_mismatch")
+            if not statement_record_id:
+                registry_link["errors"].append("registry_record_id_missing")
+            registry_link["record_id"] = statement_record_id or None
+            records = registry.get("records") if isinstance(registry.get("records"), list) else []
+            record = next(
+                (
+                    item
+                    for item in records
+                    if isinstance(item, dict) and str(item.get("record_id") or "") == statement_record_id
+                ),
+                None,
+            )
+            if not isinstance(record, dict):
+                registry_link["errors"].append("registry_record_not_found")
+            else:
+                registry_link["record_found"] = True
+                acceptable_digests = {
+                    str(record.get("record_id") or ""),
+                    str(record.get("subject_digest") or ""),
+                    str(record.get("artifact_subjects_digest") or ""),
+                    str(record.get("abi_subject_digest") or ""),
+                }
+                if artifact_digest in acceptable_digests:
+                    registry_link["digest_match"] = True
+                else:
+                    registry_link["errors"].append("artifact_digest_registry_mismatch")
+    errors.extend(str(item) for item in registry_link["errors"])
+
     receipt_payload = receipt if isinstance(receipt, dict) else {}
     receipt_ok = False
     transparency_service_id = ""
@@ -1664,6 +1724,7 @@ def verify_scitt_receipt(
         "receipt_present": bool(receipt_payload),
         "receipt_ok": receipt_ok,
         "transparency_service": transparency_service_id or None,
+        "registry_link": registry_link,
         "verdict": "allow" if ok else "deny",
         "known_statement_classes": list(SCITT_STATEMENT_CLASSES),
         "scitt_policy": scitt,
@@ -1673,6 +1734,7 @@ def verify_scitt_receipt(
             "expected_artifact_digest": expected_artifact_digest or None,
             "expected_issuer": expected_issuer or None,
             "expected_transparency_service": expected_transparency_service or None,
+            "expected_record_id": expected_record_id or None,
         },
         "errors": errors,
         "warnings": warnings,
@@ -1680,6 +1742,7 @@ def verify_scitt_receipt(
             "This is an OS Abyss SCITT-style local verifier/stub: it checks statement/receipt binding and fail-closed external relying-party policy.",
             "It does not claim a live external transparency service, COSE signature verification, Merkle inclusion verification, or global append-only log consistency.",
             "External relying-party mode requires a receipt and denies consumption when the receipt is missing or not bound to the signed statement digest.",
+            "When registry linkage is required, the statement subject must bind to an existing durable artifact record and digest.",
         ],
     }
 
