@@ -89,9 +89,12 @@ context-envelope normalization, near-line duplicate semantics, metadata/context
 ingest plans, and public-safe event summaries live in
 `abyss_machine.typing_codex_semantics`; focused-snapshot, AT-SPI text-event
 sample/metadata/debounce, and generic GUI selftest semantic plans live in
-`abyss_machine.typing_atspi_adapters`; CLI still owns configured path reads,
-state/latest writes, live `pyatspi` traversal/listeners, text reads,
-`typing_ingest` execution, latest/history writes, and command rendering;
+`abyss_machine.typing_atspi_adapters`; saved-text filesystem scan limits,
+path walking, state continuity, file decode rejection, candidate/skip
+accounting, ingest kwargs, state entries, and public-safe scan documents live in
+`abyss_machine.typing_saved_text_adapters`; CLI still owns configured policy
+reads, live `pyatspi` traversal/listeners, text reads, `typing_ingest`
+execution, state/latest writes, latest/history writes, and command rendering;
 nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`;
 nervous synthesis selection, candidate build orchestration, path/write-result
@@ -275,7 +278,8 @@ decisions, typing status, validate, and end-to-end proof document assembly, save
 shape status, causal project binding/resolution, causal interaction identity/context-anchor and URL/AI recipient helpers,
 typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, process readmodel assembly, and causal-awareness event/readmodel status, session-tail latest-status
 contracts, Codex prompt/session-tail semantic ingest planning, AT-SPI
-focused/text-event/generic GUI semantic plans, and resource plan/launch
+focused/text-event/generic GUI semantic plans, saved-text scan filesystem
+mechanics, and resource plan/launch
 contracts are now
 module-owned with public
 validators. AI CPU route policy is

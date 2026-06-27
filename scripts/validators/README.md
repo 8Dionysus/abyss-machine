@@ -63,10 +63,13 @@ plans, synthetic selftest documents, and native-host response envelopes live in
 plans, text-event sample envelopes, metadata shaping, bounded browser-context
 summaries, context identity/debounce helpers, typing-event summaries, and
 generic GUI selftest documents live in `abyss_machine.typing_atspi_adapters`.
-Policy file reads, file scanning, framed native-host byte IO, live
-browser/WebExtension probes, `pyatspi` access, listener registration, text
-reads, systemd status reads, latest/index writes, and event writes remain at
-the CLI edge.
+Saved-text scan filesystem limits, path walking, state continuity, decode
+rejection, candidate/skip accounting, ingest kwargs, state entries, and
+public-safe scan documents live in `abyss_machine.typing_saved_text_adapters`.
+Policy file reads, framed native-host byte IO, live browser/WebExtension
+probes, `pyatspi` access, listener registration, text reads, systemd status
+reads, `typing_ingest`, latest/index writes, and event writes remain at the CLI
+edge.
 
 Nervous index JSONL source discovery/loading/hash rules,
 source-record parsing/metadata, source-policy helpers, record/chunk/document
