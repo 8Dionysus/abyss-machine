@@ -34,5 +34,11 @@
   desktop loading, timeout setup, safe child traversal, focused-candidate tree
   walk, path parsing/resolution, URL metadata focus traversal, and
   accessibility focus actions while CLI owns capture policy decisions, browser
-  context inference callbacks, targeted text insertion, GI/Atspi frame focus,
-  live probe orchestration, latest writes, and command rendering.
+  context inference callbacks, GI/Atspi frame focus, live probe orchestration,
+  latest writes, and command rendering.
+- AT-SPI path-targeted text/insert seam: `typing_atspi_adapters` owns
+  `pyatspi` desktop loading, path resolution, URL/text-hash confirmation,
+  accessibility focus, editable-text insert/set fallback, and result
+  confirmation for a known AT-SPI path while CLI owns capture policy decisions,
+  `typing_ingest`, latest writes, URL-scanned text insertion, GI/Atspi frame
+  focus, live probe orchestration, and command rendering.

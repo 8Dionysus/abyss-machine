@@ -893,6 +893,248 @@ def atspi_focus_metadata_by_path(
     return data
 
 
+def atspi_focus_text_by_path(
+    source_path: str,
+    url: str,
+    expected_text_sha256: str,
+    *,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "status": "not_found",
+        "source_path": source_path,
+        "url": url,
+        "attempts": [],
+        "errors": [],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "accessibility_focus_action_only": True,
+        },
+    }
+    path_parts, path_error = parse_atspi_path(source_path)
+    if path_error:
+        data.update(path_error)
+        return data
+    relative_parts = path_parts[1:] if path_parts and path_parts[0] == 0 else path_parts
+    pyatspi, desktop, load_error = load_pyatspi_desktop(pyatspi_module=pyatspi_module, load_pyatspi=load_pyatspi)
+    if load_error is not None or pyatspi is None or desktop is None:
+        data.update(load_error or {"status": "pyatspi_unavailable", "error": "pyatspi_unavailable"})
+        return data
+    for app_index, app in enumerate(atspi_children(desktop, data["errors"])[:80]):
+        obj = app
+        traversed = []
+        ok_path = True
+        for part in relative_parts:
+            kids = atspi_children(obj, data["errors"])
+            if part < 0 or part >= len(kids):
+                ok_path = False
+                break
+            obj = kids[part]
+            traversed.append(part)
+        if not ok_path:
+            continue
+        attrs = atspi_document_attributes(obj)
+        document_url = str(attrs.get("url") or "")
+        text, text_length, caret, text_error = atspi_text_payload(obj, max_chars=12000)
+        text_sha = text_sha256(text) if text else None
+        attempt = {
+            "app_index": app_index,
+            "traversed": traversed,
+            "role": atspi_role_name(obj, 120),
+            "name": atspi_node_name(obj, 180),
+            "url": document_url,
+            "document_title": attrs.get("document_title"),
+            "text_length": text_length,
+            "text_sha256": text_sha,
+            "expected_text_match": bool(text_sha == expected_text_sha256),
+            "states_before": atspi_state_flags(obj, pyatspi),
+            "text_error": text_error,
+            "_text": text,
+            "_caret_offset": caret,
+            "_document_attrs": attrs,
+        }
+        data["attempts"].append(attempt)
+        data["attempts"] = data["attempts"][-8:]
+        if document_url != url or text_sha != expected_text_sha256:
+            continue
+        focus = focus_accessible_with_pyatspi(obj, pyatspi, sleep=sleep)
+        states_after = focus.get("states_after") if isinstance(focus.get("states_after"), dict) else {}
+        data.update({
+            "ok": bool(states_after.get("focused") is True),
+            "status": "focused" if states_after.get("focused") is True else "matched_focus_not_confirmed",
+            "matched": {**attempt, "focus": focus},
+        })
+        return data
+    return data
+
+
+def atspi_insert_text_by_path(
+    source_path: str,
+    url: str,
+    expected_current_sha256: str,
+    insert_text: str,
+    *,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "status": "not_found",
+        "source_path": source_path,
+        "url": url,
+        "insert_text_length": len(insert_text),
+        "attempts": [],
+        "errors": [],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "accessibility_targeted_edit_only": True,
+            "global_virtual_keyboard": False,
+            "requires_url_match": True,
+            "requires_expected_current_text_hash": True,
+            "sensitive_state_override_limited_to_expected_selftest_text": True,
+        },
+    }
+    path_parts, path_error = parse_atspi_path(source_path)
+    if path_error:
+        data.update(path_error)
+        return data
+    relative_parts = path_parts[1:] if path_parts and path_parts[0] == 0 else path_parts
+    pyatspi, desktop, load_error = load_pyatspi_desktop(pyatspi_module=pyatspi_module, load_pyatspi=load_pyatspi)
+    if load_error is not None or pyatspi is None or desktop is None:
+        data.update(load_error or {"status": "pyatspi_unavailable", "error": "pyatspi_unavailable"})
+        return data
+    for app_index, app in enumerate(atspi_children(desktop, data["errors"])[:80]):
+        obj = app
+        traversed = []
+        ok_path = True
+        for part in relative_parts:
+            kids = atspi_children(obj, data["errors"])
+            if part < 0 or part >= len(kids):
+                ok_path = False
+                break
+            obj = kids[part]
+            traversed.append(part)
+        if not ok_path:
+            continue
+        attrs = atspi_document_attributes(obj)
+        document_url = str(attrs.get("url") or "")
+        states_before = atspi_state_flags(obj, pyatspi)
+        text, text_length, caret, text_error = atspi_text_payload(obj, max_chars=12000)
+        text_sha = text_sha256(text) if text else None
+        role = atspi_role_name(obj, 120)
+        name = atspi_node_name(obj, 180)
+        attempt = {
+            "app_index": app_index,
+            "traversed": traversed,
+            "role": role,
+            "name": name,
+            "url": document_url,
+            "document_title": attrs.get("document_title"),
+            "content_type": attrs.get("content_type"),
+            "text_length": text_length,
+            "text_sha256": text_sha,
+            "expected_current_text_match": bool(text_sha == expected_current_sha256),
+            "states_before": states_before,
+            "text_error": text_error,
+            "text_read": True,
+            "_text": text,
+            "_caret_offset": caret,
+            "_document_attrs": attrs,
+        }
+        data["attempts"].append(attempt)
+        data["attempts"] = data["attempts"][-8:]
+        if document_url != url:
+            continue
+        low_shape = f"{role} {name}".lower()
+        expected_selftest_text = text_sha == expected_current_sha256
+        sensitive_selftest_override = bool(
+            states_before.get("sensitive")
+            and expected_selftest_text
+            and "password" not in low_shape
+            and "passwd" not in low_shape
+            and "secret" not in low_shape
+            and "token" not in low_shape
+        )
+        if states_before.get("sensitive") and not sensitive_selftest_override:
+            data["status"] = "matched_sensitive_refused"
+            data["matched"] = attempt
+            return data
+        if sensitive_selftest_override:
+            attempt["sensitive_state_overridden_by_expected_selftest_text"] = True
+        if not expected_selftest_text:
+            data["status"] = "matched_unexpected_current_text"
+            data["matched"] = attempt
+            return data
+        try:
+            editable = obj.queryEditableText()
+        except Exception as exc:
+            data["status"] = "editable_text_unavailable"
+            data["matched"] = attempt
+            data["error"] = f"query_editable_text_failed: {exc}"
+            return data
+        insert_offset = caret if isinstance(caret, int) and caret >= 0 else text_length
+        field_focus: dict[str, Any] = {}
+        try:
+            component = obj.queryComponent()
+            field_focus["component_grab_focus"] = bool(component.grabFocus())
+        except Exception as exc:
+            field_focus["component_error"] = str(exc)[:180]
+        try:
+            text_iface = obj.queryText()
+            if hasattr(text_iface, "setCaretOffset"):
+                text_iface.setCaretOffset(insert_offset)
+        except Exception:
+            pass
+        try:
+            insert_ok = bool(editable.insertText(insert_offset, insert_text, len(insert_text)))
+        except Exception as exc:
+            data["status"] = "insert_failed"
+            data["matched"] = attempt
+            data["error"] = f"insert_text_failed: {exc}"
+            return data
+        sleep(0.2)
+        after_text, after_length, after_caret, after_error = atspi_text_payload(obj, max_chars=12000)
+        after_sha = text_sha256(after_text) if after_text else None
+        expected_after = text[:insert_offset] + insert_text + text[insert_offset:]
+        expected_after_sha = text_sha256(expected_after)
+        set_contents_ok: bool | None = None
+        if after_sha != expected_after_sha:
+            try:
+                set_contents_ok = bool(editable.setTextContents(expected_after))
+            except Exception as exc:
+                data.setdefault("errors", []).append({"kind": "set_text_contents_failed", "error": str(exc)[:180]})
+                set_contents_ok = False
+            sleep(0.2)
+            after_text, after_length, after_caret, after_error = atspi_text_payload(obj, max_chars=12000)
+            after_sha = text_sha256(after_text) if after_text else None
+        data.update({
+            "ok": bool((insert_ok or set_contents_ok) and after_sha == expected_after_sha),
+            "status": "inserted" if (insert_ok or set_contents_ok) and after_sha == expected_after_sha else "insert_unconfirmed",
+            "method": "atspi_editable_text_insert",
+            "matched": {
+                **attempt,
+                "field_focus": field_focus,
+                "insert_offset": insert_offset,
+                "insert_ok": insert_ok,
+                "set_text_contents_fallback_ok": set_contents_ok,
+                "after_text_length": after_length,
+                "after_text_sha256": after_sha,
+                "after_expected_match": bool(after_sha == expected_after_sha),
+                "after_caret_offset": after_caret,
+                "after_text_error": after_error,
+                "_after_text": after_text,
+            },
+        })
+        return data
+    return data
+
+
 def atspi_focus_metadata_by_url(
     url: str,
     timeout_sec: float = 6.0,

@@ -31,6 +31,27 @@ class FakeText:
     def getText(self, start: int, end: int) -> str:
         return self.text[start:end]
 
+    def setCaretOffset(self, offset: int) -> None:
+        self.caretOffset = offset
+
+
+class FakeEditableText:
+    def __init__(self, text: FakeText) -> None:
+        self.text = text
+
+    def insertText(self, offset: int, insert_text: str, length: int) -> bool:
+        payload = insert_text[:length]
+        self.text.text = self.text.text[:offset] + payload + self.text.text[offset:]
+        self.text.characterCount = len(self.text.text)
+        self.text.caretOffset = offset + len(payload)
+        return True
+
+    def setTextContents(self, text: str) -> bool:
+        self.text.text = text
+        self.text.characterCount = len(text)
+        self.text.caretOffset = len(text)
+        return True
+
 
 class FakeDocument:
     def __init__(self, attributes: dict[str, str]) -> None:
@@ -131,6 +152,11 @@ class FakeAccessible:
         if self.text is None:
             raise RuntimeError("text unavailable")
         return self.text
+
+    def queryEditableText(self) -> FakeEditableText:
+        if self.text is None:
+            raise RuntimeError("editable text unavailable")
+        return FakeEditableText(self.text)
 
     def queryDocument(self) -> FakeDocument:
         if self.document is None:
@@ -452,6 +478,74 @@ def test_atspi_focus_metadata_by_path_resolves_path_and_focuses_without_live_pya
     assert data["matched"]["url"] == "https://example.test/write"
     assert data["matched"]["states_after"]["focused"] is True
     assert data["matched"]["text_read"] is False
+
+
+def test_atspi_focus_text_by_path_matches_hash_and_focuses_without_live_pyatspi() -> None:
+    app = FakeApp()
+    text = FakeText("safe browser text", caret=17)
+    field = FakeAccessible(
+        role="entry",
+        name="Search",
+        app=app,
+        state=FakeState("editable", "showing", "visible", "enabled"),
+        text=text,
+        document=FakeDocument({"DocURL": "https://example.test/write", "Title": "Write"}),
+    )
+    frame = FakeAccessible(role="frame", name="Example Window", app=app, children=[field])
+    app_node = FakeAccessible(role="application", name="firefox", app=app, children=[frame])
+    desktop = FakeAccessible(role="desktop", name="desktop", app=app, children=[app_node])
+    registry = FakeRegistry([], desktop)
+    pyatspi_module = type("FakePyAtspiModule", (FakePyAtspi,), {"Registry": registry})()
+
+    data = typing_atspi_adapters.atspi_focus_text_by_path(
+        "0.0.0",
+        "https://example.test/write",
+        typing_atspi_adapters.text_sha256("safe browser text"),
+        pyatspi_module=pyatspi_module,
+        sleep=lambda seconds: None,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "focused"
+    assert data["matched"]["expected_text_match"] is True
+    assert data["matched"]["text_sha256"] == typing_atspi_adapters.text_sha256("safe browser text")
+    assert data["matched"]["focus"]["states_after"]["focused"] is True
+
+
+def test_atspi_insert_text_by_path_mutates_expected_text_without_live_pyatspi() -> None:
+    app = FakeApp()
+    text = FakeText("safe browser text", caret=len("safe browser text"))
+    field = FakeAccessible(
+        role="entry",
+        name="Search",
+        app=app,
+        state=FakeState("editable", "showing", "visible", "enabled"),
+        text=text,
+        document=FakeDocument({"DocURL": "https://example.test/write", "Title": "Write"}),
+    )
+    frame = FakeAccessible(role="frame", name="Example Window", app=app, children=[field])
+    app_node = FakeAccessible(role="application", name="firefox", app=app, children=[frame])
+    desktop = FakeAccessible(role="desktop", name="desktop", app=app, children=[app_node])
+    registry = FakeRegistry([], desktop)
+    pyatspi_module = type("FakePyAtspiModule", (FakePyAtspi,), {"Registry": registry})()
+
+    data = typing_atspi_adapters.atspi_insert_text_by_path(
+        "0.0.0",
+        "https://example.test/write",
+        typing_atspi_adapters.text_sha256("safe browser text"),
+        " plus insert",
+        pyatspi_module=pyatspi_module,
+        sleep=lambda seconds: None,
+    )
+
+    expected_after = "safe browser text plus insert"
+    assert data["ok"] is True
+    assert data["status"] == "inserted"
+    assert data["method"] == "atspi_editable_text_insert"
+    assert data["matched"]["insert_ok"] is True
+    assert data["matched"]["after_expected_match"] is True
+    assert data["matched"]["after_text_sha256"] == typing_atspi_adapters.text_sha256(expected_after)
+    assert text.text == expected_after
 
 
 def test_atspi_focus_metadata_by_url_walks_document_targets_without_live_pyatspi() -> None:
