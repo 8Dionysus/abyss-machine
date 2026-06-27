@@ -47,6 +47,10 @@ time, and subsystem-specific facts.
 The artifact bundle/trust lane remains owned by
 `abyss_machine.artifact_bundles`; the CLI only supplies collected checks,
 paths, latest refs, and write adapters for `artifacts validate`.
+Consumer verification commands for update metadata, external TUF repositories,
+and OCI/ORAS publication evidence are fail-closed by default: use
+`--inspect-only` only when checking evidence shape without consuming the
+artifact.
 Typing/nervous path and service defaults plus typing paths/index document contracts live in
 `abyss_machine.typing_nervous_policy`; refresh resource-gate and recent-index
 debounce helpers, refresh assessment, latest-status classification, and

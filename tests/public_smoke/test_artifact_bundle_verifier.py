@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -2858,6 +2860,39 @@ def _write_oci_runtime_registry_record(tmp_path: Path) -> tuple[Path, str, str]:
     return registry, record_id, subject_digest
 
 
+def _isolated_cli_env(tmp_path: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHONPATH": str(SRC_ROOT),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "ABYSS_USER": "agent",
+            "ABYSS_USER_HOME": str(tmp_path / "home"),
+            "ABYSS_MACHINE_ETC_ROOT": str(tmp_path / "etc" / "abyss-machine"),
+            "ABYSS_MACHINE_STATE_ROOT": str(tmp_path / "state"),
+            "ABYSS_MACHINE_ROOT": str(tmp_path / "srv" / "abyss-machine"),
+            "ABYSS_MACHINE_RUN_ROOT": str(tmp_path / "run" / "abyss-machine"),
+            "ABYSS_MACHINE_CACHE_ROOT": str(tmp_path / "srv" / "abyss-machine" / "cache"),
+            "ABYSS_MACHINE_RUNTIME_ROOT": str(tmp_path / "srv" / "abyss-machine" / "runtimes"),
+            "ABYSS_MACHINE_STORAGE_ROOT": str(tmp_path / "srv" / "abyss-machine" / "storage"),
+            "ABYSS_MACHINE_TMP_ROOT": str(tmp_path / "srv" / "abyss-machine" / "tmp"),
+        }
+    )
+    return env
+
+
+def _run_artifact_cli(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "abyss_machine.cli", "artifacts", *args, "--json"],
+        cwd=ROOT,
+        env=_isolated_cli_env(tmp_path),
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+
+
 def _oci_publication_evidence(
     *,
     registry_ref: str = "ghcr.io/8dionysus/abyss-machine/runtime-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111",
@@ -3303,6 +3338,157 @@ def test_oci_publication_verifier_allows_digest_pinned_referrers_with_trust_gate
     assert result["consumer_admission"]["trust_gate"]["verdict"] == "allow"
     assert cli_result["ok"] is True
     assert cli_result["consumer_admission"]["trust_gate"]["inspected_claims"]["trust_root_evidence"]["ok"] is True
+
+
+def test_consumer_cli_verify_commands_require_trust_gate_by_default_and_separate_inspection(tmp_path: Path) -> None:
+    metadata_path = tmp_path / artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
+    previous_update_path = tmp_path / "previous-update.json"
+    metadata_path.write_text(json.dumps(_update_metadata(), sort_keys=True) + "\n", encoding="utf-8")
+    previous_update_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "snapshot_version": 1,
+                "timestamp_version": 1,
+                "metadata_sha256": "sha256:not-this-metadata",
+                "last_seen_at": "2026-06-20T00:00:00Z",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    update_default = _run_artifact_cli(
+        tmp_path,
+        "update-verify",
+        str(metadata_path),
+        "--previous-trusted",
+        str(previous_update_path),
+        "--now",
+        "2026-06-21T00:00:00Z",
+    )
+    update_inspect = _run_artifact_cli(
+        tmp_path,
+        "update-verify",
+        str(metadata_path),
+        "--previous-trusted",
+        str(previous_update_path),
+        "--now",
+        "2026-06-21T00:00:00Z",
+        "--inspect-only",
+    )
+
+    tuf_repo = _write_tuf_repository(tmp_path / "consumer-cli-tuf")
+    previous_tuf_path = tmp_path / "previous-tuf-client-state.json"
+    trusted_root_path = tmp_path / "trusted-root.json"
+    previous_tuf_path.write_text(
+        json.dumps(
+            {
+                "artifact_class": "bootstrap_install_bundle",
+                "role_versions": {"root": 1, "targets": 1, "snapshot": 1, "timestamp": 1},
+                "timestamp_sha256": "sha256:not-this-timestamp",
+                "last_seen_at": "2026-06-20T00:00:00Z",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    trusted_root_path.write_text(json.dumps(tuf_repo["root_metadata"], sort_keys=True) + "\n", encoding="utf-8")
+    update_repo_default = _run_artifact_cli(
+        tmp_path,
+        "update-repo-verify",
+        str(tuf_repo["repo"]),
+        "--target-path",
+        str(tuf_repo["target_path"]),
+        "--artifact-class",
+        "bootstrap_install_bundle",
+        "--target-digest",
+        str(tuf_repo["target_digest"]),
+        "--trusted-root",
+        str(trusted_root_path),
+        "--previous-trusted",
+        str(previous_tuf_path),
+        "--require-trusted-root",
+        "--now",
+        "2026-06-21T00:00:00Z",
+    )
+    update_repo_inspect = _run_artifact_cli(
+        tmp_path,
+        "update-repo-verify",
+        str(tuf_repo["repo"]),
+        "--target-path",
+        str(tuf_repo["target_path"]),
+        "--artifact-class",
+        "bootstrap_install_bundle",
+        "--target-digest",
+        str(tuf_repo["target_digest"]),
+        "--trusted-root",
+        str(trusted_root_path),
+        "--previous-trusted",
+        str(previous_tuf_path),
+        "--require-trusted-root",
+        "--now",
+        "2026-06-21T00:00:00Z",
+        "--inspect-only",
+    )
+
+    oci_subject_digest = "sha256:" + ("1" * 64)
+    oci_evidence_path = tmp_path / "oci-publication.json"
+    oci_evidence_path.write_text(
+        json.dumps(_oci_publication_evidence(subject_digest=oci_subject_digest), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    oci_default = _run_artifact_cli(
+        tmp_path,
+        "oci-verify",
+        str(oci_evidence_path),
+        "--artifact-class",
+        "runtime_or_container_artifact",
+        "--subject-digest",
+        oci_subject_digest,
+        "--required-referrer-type",
+        "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "--required-referrer-type",
+        "application/vnd.cyclonedx+json",
+        "--required-referrer-type",
+        "application/vnd.in-toto+jsonl",
+    )
+    oci_inspect = _run_artifact_cli(
+        tmp_path,
+        "oci-verify",
+        str(oci_evidence_path),
+        "--artifact-class",
+        "runtime_or_container_artifact",
+        "--subject-digest",
+        oci_subject_digest,
+        "--required-referrer-type",
+        "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "--required-referrer-type",
+        "application/vnd.cyclonedx+json",
+        "--required-referrer-type",
+        "application/vnd.in-toto+jsonl",
+        "--inspect-only",
+    )
+
+    default_results = [update_default, update_repo_default, oci_default]
+    inspect_results = [update_inspect, update_repo_inspect, oci_inspect]
+    for result in default_results:
+        assert result.returncode == 1, result.stderr[-1000:]
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is False
+        assert "trust_gate_registry_required" in payload["errors"]
+        assert payload["consumer_admission"]["required"] is True
+        assert payload["consumer_admission"]["trust_gate"] is None
+
+    for result in inspect_results:
+        assert result.returncode == 0, result.stderr[-1000:]
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        assert payload["consumer_admission"]["required"] is False
+        assert payload["consumer_admission"].get("trust_gate") is None
+        if payload["schema"] in {"abyss_machine_update_metadata_verify_v1", "abyss_machine_tuf_repository_verify_v1"}:
+            assert payload["consumer_admission"]["verdict"] == "not_checked"
 
 
 def test_oci_publication_verifier_denies_tag_only_consumption() -> None:

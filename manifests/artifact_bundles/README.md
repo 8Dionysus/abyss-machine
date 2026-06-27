@@ -57,9 +57,10 @@ manual positive and negative evidence before claiming `FULLY_COVERED`.
 Use `update-lane` and `update-verify` for updateable/installable artifacts
 before update-client consumption. The sidecar name is
 `artifact.update.tuf.json`; the verifier blocks rollback, expired metadata, and
-unchanged metadata beyond the configured freeze window. Consumer use must pass
-`update-verify --require-trust-gate` with registry, subject digest, source repo,
-and trust-root mode so metadata freshness cannot bypass artifact `trust-gate`.
+unchanged metadata beyond the configured freeze window. CLI consumer use is
+fail-closed by default and must carry registry, subject digest, source repo, and
+trust-root mode so metadata freshness cannot bypass artifact `trust-gate`; use
+`--inspect-only` only for evidence-shape checks that do not consume the target.
 Use `update-repo-build` and `update-repo-verify` when the updateable artifact is
 distributed through an external TUF repository with `root`, `targets`,
 `snapshot`, and `timestamp` metadata plus trusted-root bootstrap. This is the
