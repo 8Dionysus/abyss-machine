@@ -2661,6 +2661,60 @@ def test_artifact_affected_current_local_commit_proof_closes_owner_repo_drift(tm
     assert row["drift"]["source_ref_state"] == "proved_current"
 
 
+def test_artifact_affected_current_local_commit_proof_closes_changed_path_drift(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    commit = "1234567890abcdef1234567890abcdef12345678"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=["registry-maintenance:post-merge:" + commit[:7]],
+        artifact_class="public_source_seed",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        source_refs=["src/abyss_machine"],
+        producer=f"abyss-machine-public-source-seed@{commit}",
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        ["src/abyss_machine/typing_atspi_adapters.py"],
+        artifact_class="public_source_seed",
+        changed_source_ref=commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["matches"][0]["matched_ref"] == "src/abyss_machine"
+    assert row["source_ref_status"]["matched_ref"] == f"abyss-machine-public-source-seed@{commit}"
+    assert row["source_ref_status"]["proves_current_ref"] is True
+    assert row["drift"]["source_ref_state"] == "proved_current"
+
+
+def test_artifact_affected_source_ref_does_not_reverify_unmatched_changed_paths(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    commit = "1234567890abcdef1234567890abcdef12345678"
+    _write_verified_registry_record(registry, evidence_refs=["commit:previous"])
+
+    affected = artifact_bundles.artifact_affected(
+        ["src/abyss_machine/typing_atspi_adapters.py"],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_ref=commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["matches"] == []
+    assert row["source_ref_status"]["required"] is False
+    assert row["drift"]["source_ref_state"] == "not_requested"
+    assert row["drift"]["operationally_blocking"] is False
+
+
 def test_artifact_affected_scopes_sibling_paths_to_matching_owner_repo() -> None:
     local = artifact_bundles.artifact_affected(
         ["manifests/artifact_bundles/portable_bundle.bundle.json"],

@@ -3164,6 +3164,7 @@ def _artifact_affected_verdict(
     changed_source_repo: str,
     changed_source_ref: str,
     accept_sibling_lag: bool,
+    source_status: dict[str, Any] | None = None,
 ) -> str:
     owner_repo = str(row.get("owner_repo") or "")
     automation_profiles = [
@@ -3176,8 +3177,9 @@ def _artifact_affected_verdict(
     }
     registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
     gate = row.get("trust_gate_status") if isinstance(row.get("trust_gate_status"), dict) else {}
-    scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(row, changed_source_repo) else ""
-    source_status = _source_ref_status(row, scoped_source_ref)
+    if source_status is None:
+        scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(row, changed_source_repo) else ""
+        source_status = _source_ref_status(row, scoped_source_ref)
     source_ref_proves_current = source_status.get("proves_current_ref") is True
     owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
     profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
@@ -3193,6 +3195,14 @@ def _artifact_affected_verdict(
             return "fresh"
         return "accepted_lag" if accept_sibling_lag else "blocked_by_missing_sibling"
     if owner_repo_changed and source_ref_proves_current:
+        if registry.get("checked") and not registry.get("has_latest"):
+            return "needs_rebuild"
+        if gate.get("verdict") == "manual_review_required":
+            return "manual_review_required"
+        if gate.get("checked") and gate.get("verdict") not in {None, "allow", "warn"}:
+            return "needs_reverify"
+        return "fresh"
+    if source_ref_proves_current and affected_reasons:
         if registry.get("checked") and not registry.get("has_latest"):
             return "needs_rebuild"
         if gate.get("verdict") == "manual_review_required":
@@ -3339,7 +3349,18 @@ def artifact_affected(
         }
         owner_repo_changed = bool(effective_source_repo and owner_repo and effective_source_repo == owner_repo)
         profile_owner_changed = bool(effective_source_repo and effective_source_repo in profile_owner_repos)
-        scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(requirement, effective_source_repo) else ""
+        explicit_source_ref_check = bool(changed_source_ref and not normalized_paths and not effective_source_repo)
+        source_ref_applies = (
+            bool(changed_source_ref)
+            and _artifact_source_ref_scope_applies(requirement, effective_source_repo)
+            and (
+                bool(reasons)
+                or owner_repo_changed
+                or profile_owner_changed
+                or explicit_source_ref_check
+            )
+        )
+        scoped_source_ref = changed_source_ref if source_ref_applies else ""
         source_status = _source_ref_status(requirement, scoped_source_ref)
         if owner_repo_changed and "owner_repo_changed" not in reasons:
             reasons.append("owner_repo_changed")
@@ -3355,6 +3376,7 @@ def artifact_affected(
             changed_source_repo=effective_source_repo,
             changed_source_ref=changed_source_ref,
             accept_sibling_lag=accept_sibling_lag,
+            source_status=source_status,
         )
         if (
             verdict == "needs_reverify"
