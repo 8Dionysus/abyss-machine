@@ -67,14 +67,15 @@ selftest result assembly live in
 plans, text-event sample envelopes, metadata shaping, bounded browser-context
 summaries, context identity/debounce helpers, supplied-object state/text/path/
 document/application runtime helpers, text-event listener runtime, typing-event
-summaries, and generic GUI selftest documents live in
+summaries, focused-candidate tree walk, browser focus metadata traversal, and
+generic GUI selftest documents live in
 `abyss_machine.typing_atspi_adapters`.
 Saved-text scan filesystem limits, path walking, state continuity, decode
 rejection, candidate/skip accounting, ingest kwargs, state entries, and
 public-safe scan documents live in `abyss_machine.typing_saved_text_adapters`.
 Policy file reads, native-host stdin/stdout binding, remaining browser AT-SPI,
-focused-browser, browser-context, and browser-privacy live probes,
-focused/browser `pyatspi` traversal, systemd status reads,
+focused-browser, browser-context, and browser-privacy live probes, targeted
+AT-SPI text insertion, GI/Atspi frame focus, systemd status reads,
 `typing_ingest`, latest/index writes, and event writes remain at the CLI edge.
 
 Nervous index JSONL source discovery/loading/hash rules,
