@@ -738,7 +738,7 @@ def _write_role_registry_latest(
         "abi_ref": artifact_bundles.ABI_REF,
     }
     records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
-    records.mkdir(parents=True)
+    records.mkdir(parents=True, exist_ok=True)
     (records / "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.json").write_text(
         json.dumps(record, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -2045,21 +2045,24 @@ def _write_verified_registry_record(
     registry: Path,
     *,
     evidence_refs: list[str],
+    record_id_hex: str = "a" * 64,
+    subject_digest: str = "sha256:" + "b" * 64,
     artifact_class: str = "aoa_sdk_python_distribution",
     source_repo: str = "aoa-sdk",
     source_ref: str = "sdk/distribution/manifests/python_distribution.bundle.json",
     source_refs: list[str] | None = None,
     producer: str = "aoa-sdk:release-audit-publish-helper@commit:current",
+    trust_root_mode: str = "host_managed",
     trust_root_evidence: dict[str, Any] | None = None,
 ) -> None:
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
-        "record_id": "sha256:" + "a" * 64,
+        "record_id": "sha256:" + record_id_hex,
         "artifact_class": artifact_class,
         "bundle_layout": "abyss_machine_artifact_bundle_v1",
         "bundle_ref": "aoa-sdk/dist/abyss-artifact-bundle",
         "bundle_manifest_ref": "sdk/distribution/manifests/python_distribution.bundle.json",
-        "subject_digest": "sha256:" + "b" * 64,
+        "subject_digest": subject_digest,
         "lifecycle_state": "release-ready",
         "latest_eligible": True,
         "terminal_state": False,
@@ -2075,7 +2078,7 @@ def _write_verified_registry_record(
         "source_refs": source_refs if source_refs is not None else [source_ref, *evidence_refs],
         "producer": producer,
         "producer_command": "python mechanics/release-support/parts/release-audit-publish-helper/scripts/validate_abyss_machine_package_artifact_bundle.py --json",
-        "trust_root_mode": "host_managed",
+        "trust_root_mode": trust_root_mode,
         "trust_root_evidence": trust_root_evidence or {},
         "privacy_boundary": "public package artifacts only; no host runtime state, private workspace evidence, session traces, caches, or local /srv data",
         "verifier_versions": {"test": "source-ref-freshness"},
@@ -2085,8 +2088,8 @@ def _write_verified_registry_record(
         "abi_ref": artifact_bundles.ABI_REF,
     }
     records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
-    records.mkdir(parents=True)
-    (records / "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json").write_text(
+    records.mkdir(parents=True, exist_ok=True)
+    (records / f"{record_id_hex}.json").write_text(
         json.dumps(record, sort_keys=True) + "\n",
         encoding="utf-8",
     )
@@ -2302,6 +2305,82 @@ def test_trust_gate_allows_host_managed_installer_with_update_root_evidence(tmp_
     assert gate["inspected_claims"]["trust_root"]["production_trust_root_ready"] is True
     assert gate["inspected_claims"]["trust_root_evidence"]["required"] is True
     assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is True
+
+
+def test_trust_coverage_trust_root_posture_splits_local_install_from_public_release(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    bootstrap_subject = "sha256:" + "b" * 64
+    bootstrap_ref = "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json"
+    _write_verified_registry_record(
+        registry,
+        record_id_hex="1" * 64,
+        subject_digest=bootstrap_subject,
+        artifact_class="bootstrap_install_bundle",
+        source_repo="abyss-machine",
+        source_ref=bootstrap_ref,
+        evidence_refs=[
+            "subject-store:materialized:bootstrap-install",
+            "tuf-root:host-managed:bootstrap-install",
+        ],
+        trust_root_mode="host_managed",
+        trust_root_evidence=_trust_root_evidence(
+            "host_managed",
+            subject_digest=bootstrap_subject,
+            source_repo="abyss-machine",
+            source_ref=bootstrap_ref,
+        ),
+    )
+    portable_subject = "sha256:" + "c" * 64
+    portable_ref = "manifests/artifact_bundles/portable_bundle.bundle.json"
+    _write_verified_registry_record(
+        registry,
+        record_id_hex="2" * 64,
+        subject_digest=portable_subject,
+        artifact_class="aoa_session_memory_portable_bundle",
+        source_repo="aoa-session-memory",
+        source_ref=portable_ref,
+        evidence_refs=[
+            "github-release:aoa-session-memory-portable-bundle",
+            "owner-validator:aoa-session-memory:portable-audit",
+        ],
+        trust_root_mode="public_release",
+        trust_root_evidence=_trust_root_evidence(
+            "public_release",
+            subject_digest=portable_subject,
+            source_repo="aoa-session-memory",
+            source_ref=portable_ref,
+        ),
+    )
+
+    posture = cli.artifact_trust_coverage_trust_root_posture(registry)
+    rows = {row["artifact_class"]: row for row in posture["rows"]}
+    bootstrap = rows["bootstrap_install_bundle"]
+    portable = rows["aoa_session_memory_portable_bundle"]
+
+    assert posture["summary"]["critical_targets"] == 2
+    assert posture["summary"]["critical_public_release_ready"] is False
+    assert posture["summary"]["status_counts"] == {
+        "local_ready_release_root_missing": 1,
+        "non_local_release_root_ready": 1,
+    }
+    assert bootstrap["status"] == "local_ready_release_root_missing"
+    assert bootstrap["local_consumption"]["consumer_intent"] == "installer"
+    assert bootstrap["local_consumption"]["ready"] is True
+    assert bootstrap["local_consumption"]["verdict"] == "allow"
+    assert bootstrap["public_release_consumption"]["ready"] is False
+    assert bootstrap["public_release_consumption"]["verdict"] == "manual_review_required"
+    assert "production_consumer_requires_release_trust_root" in bootstrap["public_release_consumption"]["reasons"]
+    assert bootstrap["non_local_release_root"]["ready"] is False
+    assert bootstrap["non_local_release_root"]["actual_mode"] == "host_managed"
+    assert portable["status"] == "non_local_release_root_ready"
+    assert portable["local_consumption"]["consumer_intent"] == "update_client"
+    assert portable["local_consumption"]["ready"] is True
+    assert portable["public_release_consumption"]["ready"] is True
+    assert portable["public_release_consumption"]["verdict"] == "allow"
+    assert portable["non_local_release_root"]["ready"] is True
+    assert portable["non_local_release_root"]["actual_mode"] == "public_release"
+    assert portable["non_local_release_root"]["evidence_required"] is True
+    assert portable["non_local_release_root"]["evidence_ok"] is True
 
 
 def test_bundle_registry_repair_removes_ephemeral_evidence_refs(tmp_path: Path) -> None:
