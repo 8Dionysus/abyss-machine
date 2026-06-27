@@ -69,6 +69,7 @@ C2PA_TRUST_GAP_WARNINGS = (
     "C2PA trust verdict is not structured; production trust-list status is unproven",
     "C2PA signing credential is trusted by a custom trust anchor store; this is not production C2PA Trust List proof",
     "C2PA signing credential is trusted by the legacy interim Content Credentials trust store; this is not production C2PA Trust List proof",
+    "C2PA signing credential chains to a production Trust List, but OS Abyss credential onboarding is not production-ready",
 )
 C2PA_CREDENTIAL_ONBOARDING_SCHEMA = "abyss_machine_c2pa_credential_onboarding_v1"
 C2PA_PRE_ORGANIZATION_WARNING = (
@@ -193,6 +194,15 @@ TRUST_ROOT_MODES = (
 )
 PRODUCTION_RELEASE_TRUST_ROOT_MODES = frozenset({"github_oidc", "oci_registry", "public_release"})
 TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS = {
+    "host_managed": (
+        "key_ref",
+        "trusted_root_digest",
+        "repository_dir",
+        "source_repo",
+        "source_ref",
+        "subject_digest",
+        "verifier",
+    ),
     "github_oidc": ("issuer", "subject", "source_repo", "source_ref", "subject_digest", "verifier"),
     "oci_registry": ("registry_ref", "digest", "source_repo", "source_ref", "subject_digest", "verifier"),
     "public_release": ("release_ref", "asset_ref", "asset_digest", "source_repo", "source_ref", "subject_digest", "verifier"),
@@ -1009,10 +1019,26 @@ def production_release_trust_root_modes(artifact_class: str, required_controls: 
     return list(dict.fromkeys(modes))
 
 
+def production_trust_root_modes(
+    artifact_class: str,
+    required_controls: list[str] | set[str],
+    *,
+    consumer_intent: str = "",
+) -> list[str]:
+    modes = production_release_trust_root_modes(artifact_class, required_controls)
+    if consumer_intent in {"update_client", "installer"}:
+        modes.append("host_managed")
+    return list(dict.fromkeys(modes))
+
+
 def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> dict[str, Any]:
     required = set(required_controls_for_rule(rule))
     artifact_class = str(rule.get("identity", {}).get("artifact_class") or "")
-    release_modes = production_release_trust_root_modes(artifact_class, required)
+    release_modes = production_trust_root_modes(
+        artifact_class,
+        required,
+        consumer_intent=consumer_intent,
+    )
     if consumer_intent not in PRODUCTION_CONSUMER_INTENTS:
         recommended = ["host_managed", "local_dev"]
     elif artifact_class == "host_local_evidence":
@@ -1027,8 +1053,12 @@ def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> d
             "production_consumer_result": "manual_review_required",
         },
         "host_managed": {
-            "role": "durable OS Abyss host registry assertion or local host-managed evidence; not an external public release trust root",
-            "production_consumer_result": "manual_review_required unless the artifact class is host-local evidence",
+            "role": "durable OS Abyss host registry assertion or host-managed update-root evidence",
+            "production_consumer_result": (
+                "allowed for update_client and installer only with host-managed update-root evidence; "
+                "manual_review_required for public release consumers"
+            ),
+            "required_evidence_fields": list(TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS["host_managed"]),
         },
         "github_oidc": {
             "role": "GitHub Actions/OIDC producer adapter for release provenance",
@@ -2752,6 +2782,21 @@ def _artifact_affected_matches(
     return sorted(reasons), matches
 
 
+def _artifact_source_ref_scope_applies(row: dict[str, Any], changed_source_repo: str) -> bool:
+    if not changed_source_repo:
+        return True
+    owner_repo = str(row.get("owner_repo") or "")
+    automation_profiles = [
+        item for item in row.get("producer_profiles", []) if isinstance(item, dict)
+    ] if isinstance(row.get("producer_profiles"), list) else []
+    profile_owner_repos = {
+        str(item.get("owner_repo"))
+        for item in automation_profiles
+        if str(item.get("owner_repo") or "")
+    }
+    return bool(owner_repo and changed_source_repo == owner_repo) or changed_source_repo in profile_owner_repos
+
+
 def _artifact_affected_verdict(
     row: dict[str, Any],
     *,
@@ -2771,7 +2816,8 @@ def _artifact_affected_verdict(
     }
     registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
     gate = row.get("trust_gate_status") if isinstance(row.get("trust_gate_status"), dict) else {}
-    source_status = _source_ref_status(row, changed_source_ref)
+    scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(row, changed_source_repo) else ""
+    source_status = _source_ref_status(row, scoped_source_ref)
     source_ref_proves_current = source_status.get("proves_current_ref") is True
     owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
     profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
@@ -2800,6 +2846,8 @@ def _artifact_affected_verdict(
         return "needs_reverify"
     if owner_repo_changed:
         return "needs_rebuild"
+    if source_status.get("required") is True and source_status.get("proves_current_ref") is not True:
+        return "needs_reverify"
     if registry.get("checked") and not registry.get("has_latest"):
         return "needs_rebuild"
     if gate.get("verdict") == "manual_review_required":
@@ -2931,7 +2979,8 @@ def artifact_affected(
         }
         owner_repo_changed = bool(effective_source_repo and owner_repo and effective_source_repo == owner_repo)
         profile_owner_changed = bool(effective_source_repo and effective_source_repo in profile_owner_repos)
-        source_status = _source_ref_status(requirement, changed_source_ref)
+        scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(requirement, effective_source_repo) else ""
+        source_status = _source_ref_status(requirement, scoped_source_ref)
         if owner_repo_changed and "owner_repo_changed" not in reasons:
             reasons.append("owner_repo_changed")
         if (
@@ -2947,6 +2996,13 @@ def artifact_affected(
             changed_source_ref=changed_source_ref,
             accept_sibling_lag=accept_sibling_lag,
         )
+        if (
+            verdict == "needs_reverify"
+            and source_status.get("required") is True
+            and source_status.get("proves_current_ref") is not True
+            and "source_ref_missing_current_proof" not in reasons
+        ):
+            reasons.append("source_ref_missing_current_proof")
         if verdict == "fresh" and source_status.get("matched") is True:
             reasons = []
         freshness = "fresh"
@@ -4330,18 +4386,16 @@ def _c2pa_credential_onboarding_status(
     trust_verdict: dict[str, Any],
 ) -> dict[str, Any]:
     config = c2pa_config.get("credential_onboarding") if isinstance(c2pa_config.get("credential_onboarding"), dict) else {}
-    production_ready = trust_verdict.get("production_trust_list_trusted") is True
-    phase = "production_trust_list_ready" if production_ready else str(config.get("phase") or "pre_organization")
-    legal_subject_state = (
-        "validated_legal_subject"
-        if production_ready
-        else str(config.get("legal_subject_state") or "organization_pending")
+    trust_list_trusted = trust_verdict.get("production_trust_list_trusted") is True
+    phase = str(config.get("phase") or "pre_organization")
+    legal_subject_state = str(config.get("legal_subject_state") or "organization_pending")
+    interim_posture = str(config.get("interim_posture") or "local_integrity_only")
+    production_onboarding_declared = (
+        phase == "production_trust_list_ready"
+        and legal_subject_state == "validated_legal_subject"
+        and interim_posture == "production_c2pa_trust_list"
     )
-    interim_posture = (
-        "production_c2pa_trust_list"
-        if production_ready
-        else str(config.get("interim_posture") or "local_integrity_only")
-    )
+    production_ready = trust_list_trusted and production_onboarding_declared
     return {
         "schema": C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
         "phase": phase,
@@ -4388,10 +4442,10 @@ def _c2pa_credential_onboarding_status(
 
 
 def _c2pa_pre_organization_warning(c2pa_trust: dict[str, Any]) -> str:
-    if not c2pa_trust or c2pa_trust.get("production_trust_list_trusted") is True:
+    if not c2pa_trust:
         return ""
     onboarding = c2pa_trust.get("credential_onboarding") if isinstance(c2pa_trust.get("credential_onboarding"), dict) else {}
-    if onboarding.get("phase") == "pre_organization":
+    if onboarding.get("phase") == "pre_organization" and onboarding.get("production_claim_allowed") is not True:
         return C2PA_PRE_ORGANIZATION_WARNING
     return ""
 
@@ -4400,6 +4454,9 @@ def _c2pa_trust_gap_warning(c2pa_trust: dict[str, Any]) -> str:
     if not c2pa_trust:
         return C2PA_TRUST_GAP_WARNINGS[3]
     if c2pa_trust.get("production_trust_list_trusted") is True:
+        onboarding = c2pa_trust.get("credential_onboarding") if isinstance(c2pa_trust.get("credential_onboarding"), dict) else {}
+        if onboarding.get("production_claim_allowed") is not True:
+            return C2PA_TRUST_GAP_WARNINGS[6]
         return ""
     trust_tier = str(c2pa_trust.get("trust_tier") or "")
     if trust_tier == "allowed_list_end_entity":
@@ -5220,6 +5277,12 @@ def _validate_c2pa_sidecar(
             "C2PA signing credential is trusted by the legacy interim Content Credentials trust store; "
             "this is not production C2PA Trust List proof"
         )
+    elif (
+        trust_verdict.get("production_trust_list_trusted") is True
+        and isinstance(trust_verdict.get("credential_onboarding"), dict)
+        and trust_verdict["credential_onboarding"].get("production_claim_allowed") is not True
+    ):
+        warnings.append(C2PA_TRUST_GAP_WARNINGS[6])
     elif trust_verdict.get("production_trust_list_trusted") is not True:
         warnings.append("C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof")
     onboarding_warning = _c2pa_pre_organization_warning(trust_verdict)
@@ -6188,7 +6251,11 @@ def _production_trust_root_expected_modes(
     if artifact_class == "host_local_evidence":
         return ["host_managed"]
     required_controls = [str(item) for item in selected.get("required_controls", []) if str(item)]
-    return production_release_trust_root_modes(artifact_class, required_controls)
+    return production_trust_root_modes(
+        artifact_class,
+        required_controls,
+        consumer_intent=consumer_intent,
+    )
 
 
 def _trust_root_evidence_verification(
@@ -6203,7 +6270,11 @@ def _trust_root_evidence_verification(
         artifact_class=artifact_class,
         consumer_intent=consumer_intent,
     )
-    required = trust_root_mode in PRODUCTION_RELEASE_TRUST_ROOT_MODES
+    required = trust_root_mode in PRODUCTION_RELEASE_TRUST_ROOT_MODES or (
+        trust_root_mode == "host_managed"
+        and consumer_intent in {"update_client", "installer"}
+        and trust_root_mode in expected_modes
+    )
     evidence = selected.get("trust_root_evidence")
     evidence = evidence if isinstance(evidence, dict) else {}
     errors: list[str] = []
@@ -6340,6 +6411,14 @@ def _trust_gate_inspected_claims(
         artifact_class=artifact_class,
         consumer_intent=consumer_intent,
     )
+    production_trust_root_mode_ready = bool(
+        consumer_intent not in PRODUCTION_CONSUMER_INTENTS
+        or str(selected.get("trust_root_mode") or "") in expected_trust_root_modes
+    )
+    production_trust_root_evidence_ready = bool(
+        trust_root_evidence.get("required") is not True
+        or trust_root_evidence.get("ok") is True
+    )
     evidence_ref_hygiene = _evidence_ref_hygiene(selected)
     return {
         "registry_latest": {
@@ -6392,11 +6471,11 @@ def _trust_gate_inspected_claims(
             ),
             "production_consumer": consumer_intent in PRODUCTION_CONSUMER_INTENTS,
             "production_expected_modes": expected_trust_root_modes,
-            "production_trust_root_ready": bool(
-                consumer_intent not in PRODUCTION_CONSUMER_INTENTS
-                or str(selected.get("trust_root_mode") or "") in expected_trust_root_modes
+            "production_trust_root_ready": production_trust_root_mode_ready and production_trust_root_evidence_ready,
+            "host_managed_role": (
+                "local OS Abyss registry assertion; for update_client and installer it must carry "
+                "host-managed update-root evidence, and it is not public-release trust"
             ),
-            "host_managed_role": "local OS Abyss registry assertion; not external public release trust",
         },
         "trust_root_evidence": trust_root_evidence,
         "evidence_refs": evidence_ref_hygiene,
