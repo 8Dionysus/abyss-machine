@@ -54,6 +54,29 @@ Use `trust-coverage --durable-only` when the question is whether persistent
 registry latest records and consumer `trust-gate` verdicts still work after the
 tmp/manual evidence layer is ignored; the default coverage mode still requires
 manual positive and negative evidence before claiming `FULLY_COVERED`.
+
+## Pre-Organization Operating Mode
+
+OS Abyss can run artifact trust for the next transition window before an
+organization-backed public identity exists. The operating profile is
+`pre_organization`: internal OS consumers may admit artifacts only through
+durable registry evidence, subject-store materialization where required, and a
+fresh `trust-gate` verdict. Public release claims must stay narrower than the
+internal evidence. In particular, `public_media_export` may prove C2PA asset
+binding and claim-signature integrity, but it must keep the warning verdict and
+must not be described as production C2PA Trust List proof until a legal subject,
+accepted conforming product, trust-list credential, and host-managed signer all
+exist.
+
+This mode is meant to last at least three months or until the organization-backed
+credential exists. Each public release candidate and each monthly review should
+check `trust-coverage --durable-only`, `update-lane`, the current
+`public_media_export` credential onboarding record, and any stale ABI, SBOM,
+SLSA/in-toto, C2PA, TUF, SCITT, or subject-store evidence reported by
+`affected` or `validate`. The transition to organization-backed publication must
+only change the credential/onboarding posture and trust roots; it must not move
+tmp evidence into authority or bypass the existing consumer gates.
+
 Use `update-lane` and `update-verify` for updateable/installable artifacts
 before update-client consumption. The sidecar name is
 `artifact.update.tuf.json`; the verifier blocks rollback, expired metadata, and
