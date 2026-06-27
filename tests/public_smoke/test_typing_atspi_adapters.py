@@ -3,6 +3,173 @@ from __future__ import annotations
 from abyss_machine import typing_atspi_adapters
 
 
+class FakePyAtspi:
+    STATE_FOCUSED = "focused"
+    STATE_EDITABLE = "editable"
+    STATE_SHOWING = "showing"
+    STATE_VISIBLE = "visible"
+    STATE_SENSITIVE = "sensitive"
+    STATE_ENABLED = "enabled"
+    STATE_SINGLE_LINE = "single_line"
+    STATE_MULTI_LINE = "multi_line"
+
+
+class FakeState:
+    def __init__(self, *flags: str) -> None:
+        self.flags = set(flags)
+
+    def contains(self, flag: str) -> bool:
+        return flag in self.flags
+
+
+class FakeText:
+    def __init__(self, text: str, caret: int = 0) -> None:
+        self.text = text
+        self.characterCount = len(text)
+        self.caretOffset = caret
+
+    def getText(self, start: int, end: int) -> str:
+        return self.text[start:end]
+
+
+class FakeDocument:
+    def __init__(self, attributes: dict[str, str]) -> None:
+        self.attributes = dict(attributes)
+
+    def getAttributeValue(self, key: str) -> str:
+        return self.attributes.get(key, "")
+
+    def getAttributes(self) -> list[str]:
+        return [f"{key}:{value}" for key, value in self.attributes.items()]
+
+
+class FakeApp:
+    def __init__(self, name: str = "firefox", pid: int = 1234) -> None:
+        self.name = name
+        self.pid = pid
+        self.toolkitName = "gtk"
+        self.toolkitVersion = "4"
+        self.parent = None
+
+    def getRoleName(self) -> str:
+        return "application"
+
+    def getApplication(self) -> "FakeApp":
+        return self
+
+    def get_process_id(self) -> int:
+        return self.pid
+
+
+class FakeAccessible:
+    def __init__(
+        self,
+        *,
+        role: str,
+        name: str,
+        app: FakeApp,
+        parent: object | None = None,
+        index: int = 0,
+        state: FakeState | None = None,
+        text: FakeText | None = None,
+        document: FakeDocument | None = None,
+        description: str = "",
+    ) -> None:
+        self.role = role
+        self.name = name
+        self.app = app
+        self.parent = parent
+        self.indexInParent = index
+        self.state = state or FakeState()
+        self.text = text
+        self.document = document
+        self.description = description
+
+    def getRoleName(self) -> str:
+        return self.role
+
+    def getApplication(self) -> FakeApp:
+        return self.app
+
+    def getState(self) -> FakeState:
+        return self.state
+
+    def queryText(self) -> FakeText:
+        if self.text is None:
+            raise RuntimeError("text unavailable")
+        return self.text
+
+    def queryDocument(self) -> FakeDocument:
+        if self.document is None:
+            raise RuntimeError("document unavailable")
+        return self.document
+
+    def getIndexInParent(self) -> int:
+        return self.indexInParent
+
+
+def test_atspi_runtime_helpers_project_object_payloads_without_live_pyatspi() -> None:
+    app = FakeApp()
+    frame = FakeAccessible(
+        role="frame",
+        name="Example Window",
+        app=app,
+        parent=app,
+        index=0,
+        document=FakeDocument({
+            "DocURL": "https://example.test/page",
+            "MimeType": "text/html",
+            "Title": "Example",
+        }),
+    )
+    field = FakeAccessible(
+        role="entry",
+        name="Search",
+        app=app,
+        parent=frame,
+        index=2,
+        state=FakeState("focused", "editable", "showing", "visible", "enabled", "single_line"),
+        text=FakeText("hello atspi runtime", caret=5),
+        description="Search field",
+    )
+
+    assert typing_atspi_adapters.atspi_state_flags(field, FakePyAtspi)["editable"] is True
+    assert typing_atspi_adapters.atspi_text_payload(field, 5) == ("hello", len("hello atspi runtime"), 5, None)
+    assert typing_atspi_adapters.atspi_object_path(field) == "0.0.2"
+
+    attrs = typing_atspi_adapters.atspi_document_attributes(field)
+    assert attrs["url"] == "https://example.test/page"
+    assert attrs["content_type"] == "text/html"
+    assert attrs["document_title"] == "Example"
+    assert attrs["atspi_path"] == "0.0.2"
+    assert attrs["document_path"] == "0.0"
+
+    context = typing_atspi_adapters.atspi_object_context(field, FakePyAtspi)
+    assert context["app"] == "firefox"
+    assert context["window_title"] == "Example Window"
+    assert context["role"] == "entry"
+    assert context["name"] == "Search"
+    assert context["states"]["focused"] is True
+    assert context["app_process_id"] == 1234
+
+
+def test_atspi_application_context_uses_bounded_proc_fallback(tmp_path) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "444").mkdir(parents=True)
+    (proc_root / "444" / "comm").write_text("firefox\n", encoding="utf-8")
+    app = FakeApp(name="-", pid=444)
+    field = FakeAccessible(role="entry", name="Search", app=app)
+
+    context = typing_atspi_adapters.atspi_application_context(field, proc_root=proc_root)
+
+    assert context == {
+        "name": "firefox",
+        "process_id": 444,
+        "toolkit_name": "gtk",
+        "toolkit_version": "4",
+    }
+
+
 def test_focused_snapshot_sensitive_candidate_builds_metadata_only_ingest_plan() -> None:
     candidate = {
         "ok": True,

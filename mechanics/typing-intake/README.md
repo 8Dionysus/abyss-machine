@@ -52,15 +52,17 @@ WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
 serving, subprocess cleanup, and public-safe WebExtension selftest result
 assembly live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
-sample/metadata/debounce, and generic GUI selftest semantic plans live in
-`abyss_machine.typing_atspi_adapters`. Saved-text scan filesystem limits, path
-walking, state continuity, decode rejection, candidate/skip accounting, ingest
-kwargs, state entries, and public-safe scan documents live in
+sample/metadata/debounce, generic GUI selftest semantic plans, and supplied
+accessibility-object state/text/path/document/application context runtime
+helpers live in `abyss_machine.typing_atspi_adapters`. Saved-text scan
+filesystem limits, path walking, state continuity, decode rejection,
+candidate/skip accounting, ingest kwargs, state entries, and public-safe scan
+documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep the remaining typing adapters
-bounded by source type: remaining `pyatspi` traversal/listener runtime, browser
-AT-SPI selftest execution, focused-browser/browser-context selftests, and
-privacy probes. The mechanic owns the route and tests; generated typed evidence
-remains local host state.
+bounded by source type: remaining `pyatspi` import/traversal/listener runtime,
+browser AT-SPI selftest execution, focused-browser/browser-context selftests,
+and privacy probes. The mechanic owns the route and tests; generated typed
+evidence remains local host state.
 
 ### Next route
 
