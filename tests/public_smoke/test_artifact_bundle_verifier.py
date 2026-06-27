@@ -1148,6 +1148,8 @@ def test_public_media_export_verifies_c2pa_asset_binding(tmp_path: Path, monkeyp
     assert onboarding["phase"] == "pre_organization"
     assert onboarding["legal_subject_state"] == "organization_pending"
     assert onboarding["production_claim_allowed"] is False
+    assert onboarding["operating_window"]["profile"] == "pre_organization_transition"
+    assert onboarding["operating_window"]["minimum_horizon"] == "at_least_three_months_or_until_organization_backed_credential_exists"
     assert "production C2PA Trust List proof" in onboarding["blocked_claims"]
     assert argv_capture is not None
     argv = json.loads(argv_capture.read_text(encoding="utf-8"))
@@ -1226,6 +1228,7 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
     assert c2pa_trust["production_trust_list_trusted"] is True
     assert c2pa_trust["credential_onboarding"]["phase"] == "production_trust_list_ready"
     assert c2pa_trust["credential_onboarding"]["production_claim_allowed"] is True
+    assert c2pa_trust["credential_onboarding"]["operating_window"]["profile"] == "organization_backed"
     assert c2pa_trust["trust_anchor_profile"] == "official_c2pa_trust_list"
     assert argv_capture is not None
     argv = json.loads(argv_capture.read_text(encoding="utf-8"))
@@ -1371,6 +1374,11 @@ def test_public_media_requirements_exposes_pre_organization_c2pa_onboarding() ->
     assert onboarding["interim_posture"] == "local_integrity_only"
     assert onboarding["production_claim_allowed"] is False
     assert onboarding["release_consumer_verdict_without_production_credential"] == "warn"
+    assert onboarding["operating_window"]["profile"] == "pre_organization_transition"
+    assert onboarding["operating_window"]["minimum_horizon"] == "at_least_three_months_or_until_organization_backed_credential_exists"
+    assert onboarding["operating_window"]["review_cadence"] == "each_public_release_candidate_and_monthly"
+    assert onboarding["operating_window"]["internal_consumption"] == "allowed_with_durable_registry_evidence_and_preserved_warn_verdict"
+    assert onboarding["operating_window"]["public_claim"] == "production_claim_blocked_until_organization_backed_c2pa_trust_list_credential"
     assert "host-managed signer installed" in " ".join(onboarding["required_before_production_claim"])
 
 
@@ -1590,6 +1598,7 @@ def test_trust_coverage_exposes_pre_organization_c2pa_onboarding(
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
     assert row["credential_onboarding"]["phase"] == "pre_organization"
     assert row["credential_onboarding"]["production_claim_allowed"] is False
+    assert row["credential_onboarding"]["operating_window"]["minimum_horizon"] == "at_least_three_months_or_until_organization_backed_credential_exists"
     assert "credential onboarding phase is pre_organization" in row["remaining_blocker"]
 
 
@@ -1612,6 +1621,10 @@ def test_trust_coverage_operating_posture_keeps_pre_org_public_claim_blocker_sep
                 "production_claim_allowed": False,
                 "blocked_claims": ["production C2PA Trust List proof"],
                 "required_before_production_claim": ["legal subject selected and validated"],
+                "operating_window": {
+                    "minimum_horizon": "at_least_three_months_or_until_organization_backed_credential_exists",
+                    "review_cadence": "each_public_release_candidate_and_monthly",
+                },
             },
         },
     ]
@@ -1625,6 +1638,10 @@ def test_trust_coverage_operating_posture_keeps_pre_org_public_claim_blocker_sep
     assert posture["public_release_claims"]["blocked_artifact_classes"][0]["artifact_class"] == "public_media_export"
     assert posture["warning_artifacts"] == [{"artifact_class": "public_media_export", "trust_gate_verdict": "warn"}]
     assert posture["next_transition"]["target_profile"] == "organization_backed"
+    assert posture["next_transition"]["current_operating_windows"] == [
+        "at_least_three_months_or_until_organization_backed_credential_exists"
+    ]
+    assert posture["next_transition"]["review_cadence"] == ["each_public_release_candidate_and_monthly"]
     assert posture["next_transition"]["required_before_transition"] == ["legal subject selected and validated"]
 
 

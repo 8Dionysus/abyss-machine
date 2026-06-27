@@ -60,6 +60,20 @@
         "claim-signing credential chains to the C2PA Trust List",
         "host-managed signer installed without storing private keys in source, tmp, or email"
       ],
+      "operating_window": {
+        "schema": "abyss_machine_c2pa_operating_window_v1",
+        "profile": "pre_organization_transition",
+        "minimum_horizon": "at_least_three_months_or_until_organization_backed_credential_exists",
+        "review_cadence": "each_public_release_candidate_and_monthly",
+        "internal_consumption": "allowed_with_durable_registry_evidence_and_preserved_warn_verdict",
+        "public_claim": "production_claim_blocked_until_organization_backed_c2pa_trust_list_credential",
+        "exit_triggers": [
+          "legal subject selected and validated",
+          "C2PA conforming product accepted",
+          "claim-signing credential chains to the C2PA Trust List",
+          "host-managed signer installed without storing private keys in source, tmp, or email"
+        ]
+      },
       "claim_limit": "This pre-organization lane keeps public_media_export useful before OS Abyss has a legal subject, but it must not be described as production C2PA Trust List proof."
     }
   },
