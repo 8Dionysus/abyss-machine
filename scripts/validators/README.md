@@ -59,10 +59,14 @@ event summaries live in `abyss_machine.typing_codex_semantics`; Codex
 session-tail filesystem reads live in `abyss_machine.typing_nervous_adapters`.
 Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
 plans, synthetic selftest documents, and native-host response envelopes live in
-`abyss_machine.typing_browser_adapters`. Policy file reads, file scanning,
-framed native-host byte IO, live browser/WebExtension probes, AT-SPI access,
-systemd status reads, latest/index writes, and event writes remain at the CLI
-edge.
+`abyss_machine.typing_browser_adapters`. AT-SPI focused-snapshot ingest/document
+plans, text-event sample envelopes, metadata shaping, bounded browser-context
+summaries, context identity/debounce helpers, typing-event summaries, and
+generic GUI selftest documents live in `abyss_machine.typing_atspi_adapters`.
+Policy file reads, file scanning, framed native-host byte IO, live
+browser/WebExtension probes, `pyatspi` access, listener registration, text
+reads, systemd status reads, latest/index writes, and event writes remain at
+the CLI edge.
 
 Nervous index JSONL source discovery/loading/hash rules,
 source-record parsing/metadata, source-policy helpers, record/chunk/document

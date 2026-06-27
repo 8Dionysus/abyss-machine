@@ -47,11 +47,14 @@ duplicate semantics, metadata/context ingest plans, and public-safe event
 summaries live in `abyss_machine.typing_codex_semantics`.
 Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
 plans, synthetic selftest documents, and native-host response envelopes live in
-`abyss_machine.typing_browser_adapters`. Keep the remaining typing adapters
+`abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
+sample/metadata/debounce, and generic GUI selftest semantic plans live in
+`abyss_machine.typing_atspi_adapters`. Keep the remaining typing adapters
 bounded by source type: framed native-host byte transport, temporary browser
-profile/WebExtension live probes, saved-text scan, AT-SPI text events,
-focused-browser selftests, and privacy probes. The mechanic owns the route and
-tests; generated typed evidence remains local host state.
+profile/WebExtension live probes, saved-text scan, remaining `pyatspi`
+traversal/listener runtime, browser AT-SPI selftest execution, focused-browser
+selftests, and privacy probes. The mechanic owns the route and tests;
+generated typed evidence remains local host state.
 
 ### Next route
 
