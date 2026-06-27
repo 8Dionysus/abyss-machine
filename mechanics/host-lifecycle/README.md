@@ -36,6 +36,13 @@ specific validator.
 
 Run public smoke tests and bootstrap dry-runs.
 
+### Live adapter route
+
+Host lifecycle owns the source/install/runtime parity route: source CLI,
+installed projection, bootstrap dry-runs, and host quick checks must agree on
+public-safe behavior while private `/etc`, `/var/lib`, `/srv`, captures,
+indexes, and secrets remain target-host state.
+
 ### Next route
 
 Use `config-projection` for rendered config and `diagnostic-spine` for health.

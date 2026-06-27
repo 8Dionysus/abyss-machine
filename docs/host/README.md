@@ -12,7 +12,9 @@ not mirror their private contents.
 
 Command ownership is tracked in [SUBSYSTEM_COMMANDS.md](SUBSYSTEM_COMMANDS.md):
 the CLI remains the public entrypoint, while stable subsystem contracts should
-live in importable `abyss_machine` package modules.
+live in importable `abyss_machine` package modules. Live host adapters are
+tracked separately in [LIVE_ADAPTERS.md](LIVE_ADAPTERS.md) so public contracts
+do not get confused with private runtime reads, writes, probes, and mutations.
 
 On a new machine, bootstrap creates the empty root shape and projected source
 contracts. Validators and opt-in units populate local evidence later:

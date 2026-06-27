@@ -37,6 +37,16 @@ all downstream use harmless.
 Use public smoke plus host-contract quick tests when changing typed evidence
 shape.
 
+### Live adapter route
+
+Shared latest/history persistence, local JSONL history reads, and Codex
+session-tail filesystem reads for typing and nervous organs start in
+`abyss_machine.typing_nervous_adapters`. Keep new typing adapters bounded by
+source type: Codex session-tail semantic normalization, browser/native-host
+messages, saved-text scan, AT-SPI text events, focused-browser selftests, and
+privacy probes. The mechanic owns the route and tests; generated typed evidence
+remains local host state.
+
 ### Next route
 
 Use `nervous-local` for derived memory intake and `diagnostic-spine` for repair.

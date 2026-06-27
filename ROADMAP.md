@@ -12,10 +12,13 @@
 
 - Extract remaining subsystem-specific command glue from the monolithic CLI
   into tested modules.
+- Continue live adapter hardening from `docs/host/LIVE_ADAPTERS.md`, starting
+  with typing/nervous adapters before wider host mutation/execution seams.
 - Add stricter schema validation after real bootstrap reports converge.
 - Move mature helper tools into owning mechanic parts.
-- Add release checks that combine public smoke, bootstrap dry-runs, path scans,
-  and secret scans.
+- Add release checks from `docs/testing/RELEASE_CHECK_ROUTE.md` that combine
+  public smoke, bootstrap dry-runs, path scans, secret scans, source/install
+  projection, and relevant host quick checks.
 
 ## Deferred
 

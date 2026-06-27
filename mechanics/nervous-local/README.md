@@ -37,6 +37,16 @@ AoA memo source truth.
 
 Use host-contract quick tests and privacy/source policy smoke checks.
 
+### Live adapter route
+
+Shared latest/history persistence and local JSONL history reads for typing and
+nervous organs start in
+`abyss_machine.typing_nervous_adapters`. Keep future nervous adapters bounded by
+source or execution class: browser capture, local JSONL/SQLite readers, semantic
+embedding subprocesses, rerank subprocesses, retention apply/unlink, and privacy
+audit writes. The public repo owns adapter mechanics and contract shape; local
+memory evidence stays under the host runtime roots.
+
 ### Next route
 
 Use `typing-intake` for typed sources and `diagnostic-spine` for freshness.
