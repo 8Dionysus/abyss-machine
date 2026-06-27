@@ -2687,6 +2687,81 @@ def test_scitt_receipt_verifier_allows_external_relying_party_with_registry_link
     assert cli_result["registry_link"]["digest_match"] is True
 
 
+def test_update_lane_surfaces_current_scitt_external_receipt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry, subject_digest = _bootstrap_update_registry(tmp_path, monkeypatch)
+    latest = artifact_bundles.read_bundle_registry(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+    )["latest_by_artifact_class"]["bootstrap_install_bundle"]
+    record_id = str(latest["record_id"])
+    statement = _scitt_statement(digest=subject_digest, record_id=record_id)
+    receipt = _scitt_receipt(statement)
+    statement_path = tmp_path / "statement.json"
+    receipt_path = tmp_path / "receipt.json"
+    statement_path.write_text(json.dumps(statement), encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    missing_receipt = cli.artifacts_scitt_verify(
+        statement_path,
+        external_relying_party=True,
+        registry_dir=registry,
+        expected_record_id=record_id,
+        require_registry_link=True,
+        expected_statement_class="release_update_artifact",
+        expected_artifact_digest=subject_digest,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+    valid_receipt = cli.artifacts_scitt_verify(
+        statement_path,
+        receipt_path=receipt_path,
+        external_relying_party=True,
+        registry_dir=registry,
+        expected_record_id=record_id,
+        require_registry_link=True,
+        expected_statement_class="release_update_artifact",
+        expected_artifact_digest=subject_digest,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+    negative_history_root = tmp_path / "negative-update-lane-history"
+    negative_history_path = negative_history_root / "2026" / "06" / "2026-06-21.jsonl"
+    negative_history_path.parent.mkdir(parents=True)
+    negative_history_path.write_text(json.dumps(missing_receipt) + "\n", encoding="utf-8")
+    positive_history_root = tmp_path / "positive-update-lane-history"
+    positive_history_path = positive_history_root / "2026" / "06" / "2026-06-21.jsonl"
+    positive_history_path.parent.mkdir(parents=True)
+    positive_history_path.write_text(json.dumps(valid_receipt) + "\n", encoding="utf-8")
+
+    negative_lane = cli.artifacts_update_lane(
+        history_root=negative_history_root,
+        registry_dir=registry,
+        write_latest=False,
+    )
+    positive_lane = cli.artifacts_update_lane(
+        history_root=positive_history_root,
+        registry_dir=registry,
+        write_latest=False,
+    )
+    negative_bootstrap_row = next(
+        row for row in negative_lane["rows"] if row["artifact_class"] == "bootstrap_install_bundle"
+    )
+    positive_bootstrap_row = next(
+        row for row in positive_lane["rows"] if row["artifact_class"] == "bootstrap_install_bundle"
+    )
+
+    assert missing_receipt["ok"] is False
+    assert "scitt_receipt_required" in missing_receipt["errors"]
+    assert negative_lane["summary"]["scitt_external_receipt_verified_artifact_classes"] == 0
+    assert "scitt_external_receipt" not in negative_bootstrap_row
+    assert valid_receipt["ok"] is True
+    assert positive_lane["summary"]["scitt_external_receipt_verified_artifact_classes"] == 1
+    assert positive_bootstrap_row["scitt_status"] == "SCITT_EXTERNAL_RECEIPT_VERIFIED"
+    assert positive_bootstrap_row["scitt_external_receipt"]["status"] == "verified_current"
+    assert positive_bootstrap_row["scitt_external_receipt"]["registry_link"]["record_id"] == record_id
+    assert positive_bootstrap_row["scitt_external_receipt"]["consumer_admission"]["record_id"] == record_id
+
+
 def test_scitt_receipt_verifier_denies_missing_or_unbound_receipt_for_external_relying_party() -> None:
     statement = _scitt_statement()
 
