@@ -2837,6 +2837,28 @@ def test_artifact_affected_scopes_sibling_paths_to_matching_owner_repo() -> None
     assert local_policy_path_from_sibling["rows"][0]["reasons"] == []
 
 
+def test_artifact_affected_does_not_match_local_bare_path_to_sibling_owner_ref() -> None:
+    local_bare_path = artifact_bundles.artifact_affected(
+        ["README.md"],
+        artifact_class="thin_routing_readmodel_bundle",
+    )
+    explicit_sibling = artifact_bundles.artifact_affected(
+        ["README.md"],
+        artifact_class="thin_routing_readmodel_bundle",
+        changed_source_repo="aoa-routing",
+    )
+
+    assert local_bare_path["rows"][0]["verdict"] == "fresh"
+    assert local_bare_path["rows"][0]["reasons"] == []
+    assert local_bare_path["rows"][0]["matches"] == []
+    assert explicit_sibling["rows"][0]["verdict"] == "blocked_by_missing_sibling"
+    assert explicit_sibling["rows"][0]["reasons"] == [
+        "authority_ref_changed",
+        "producer_profile_route_changed",
+        "owner_repo_changed",
+    ]
+
+
 def _update_metadata(**overrides: object) -> dict[str, object]:
     metadata: dict[str, object] = {
         "schema": "abyss_machine_tuf_update_metadata_v1",
