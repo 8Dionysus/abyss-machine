@@ -2535,6 +2535,32 @@ def test_artifact_affected_explicit_source_ref_mismatch_is_not_fresh_for_filtere
     assert row["drift"]["source_ref_state"] == "missing_current_proof"
 
 
+def test_artifact_affected_source_ref_does_not_block_out_of_scope_sibling_rows(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    current_commit = "c0ffee0123456789abcdef0123456789abcdef00"
+    _write_verified_registry_record(registry, evidence_refs=["commit:previous"])
+
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_repo="abyss-machine",
+        changed_source_ref=current_commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["freshness"] == "fresh"
+    assert row["reasons"] == []
+    assert row["source_ref_status"]["required"] is False
+    assert row["source_ref_status"]["expected"] is None
+    assert row["drift"]["status"] == "fresh"
+    assert row["drift"]["source_ref_state"] == "not_requested"
+    assert row["drift"]["operationally_blocking"] is False
+
+
 def test_artifact_affected_current_local_commit_proof_closes_owner_repo_drift(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
     commit = "fedcba9876543210fedcba9876543210fedcba98"

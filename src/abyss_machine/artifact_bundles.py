@@ -2782,6 +2782,21 @@ def _artifact_affected_matches(
     return sorted(reasons), matches
 
 
+def _artifact_source_ref_scope_applies(row: dict[str, Any], changed_source_repo: str) -> bool:
+    if not changed_source_repo:
+        return True
+    owner_repo = str(row.get("owner_repo") or "")
+    automation_profiles = [
+        item for item in row.get("producer_profiles", []) if isinstance(item, dict)
+    ] if isinstance(row.get("producer_profiles"), list) else []
+    profile_owner_repos = {
+        str(item.get("owner_repo"))
+        for item in automation_profiles
+        if str(item.get("owner_repo") or "")
+    }
+    return bool(owner_repo and changed_source_repo == owner_repo) or changed_source_repo in profile_owner_repos
+
+
 def _artifact_affected_verdict(
     row: dict[str, Any],
     *,
@@ -2801,7 +2816,8 @@ def _artifact_affected_verdict(
     }
     registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
     gate = row.get("trust_gate_status") if isinstance(row.get("trust_gate_status"), dict) else {}
-    source_status = _source_ref_status(row, changed_source_ref)
+    scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(row, changed_source_repo) else ""
+    source_status = _source_ref_status(row, scoped_source_ref)
     source_ref_proves_current = source_status.get("proves_current_ref") is True
     owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
     profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
@@ -2963,7 +2979,8 @@ def artifact_affected(
         }
         owner_repo_changed = bool(effective_source_repo and owner_repo and effective_source_repo == owner_repo)
         profile_owner_changed = bool(effective_source_repo and effective_source_repo in profile_owner_repos)
-        source_status = _source_ref_status(requirement, changed_source_ref)
+        scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(requirement, effective_source_repo) else ""
+        source_status = _source_ref_status(requirement, scoped_source_ref)
         if owner_repo_changed and "owner_repo_changed" not in reasons:
             reasons.append("owner_repo_changed")
         if (
