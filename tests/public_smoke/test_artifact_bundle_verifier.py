@@ -2955,7 +2955,20 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
     monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
 
-    subject = ROOT / "dist" / "abyss-machine-bootstrap-pytest-update-target.tar.gz"
+    manifest_ref = tmp_path / "manifests" / "bootstrap_install_bundle.bundle.json"
+    source_ref = "manifests/bootstrap_install_bundle.bundle.json"
+    manifest = json.loads((ROOT / "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json").read_text(encoding="utf-8"))
+    manifest["subject_repo_root"] = str(tmp_path)
+    manifest["artifact_subjects"] = [
+        {
+            "path": "dist/abyss-machine-bootstrap-pytest-update-target.tar.gz",
+            "role": "bootstrap_install_bundle",
+        }
+    ]
+    manifest_ref.parent.mkdir(parents=True, exist_ok=True)
+    manifest_ref.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+
+    subject = tmp_path / "dist" / "abyss-machine-bootstrap-pytest-update-target.tar.gz"
     subject.parent.mkdir(parents=True, exist_ok=True)
     subject.write_text("bootstrap update target\n", encoding="utf-8")
     bundle = tmp_path / "bootstrap-update-bundle"
@@ -2965,7 +2978,7 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     try:
         build = artifact_bundles.build_sidecars(
             bundle,
-            manifest_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            manifest_ref=manifest_ref,
         )
         sign = artifact_bundles.sign_bundle(bundle, backend="cosign-local-key")
         verify = artifact_bundles.verify_bundle(bundle)
@@ -2975,14 +2988,14 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             trust_root_mode,
             subject_digest=str(subjects["aggregate_digest"]),
             source_repo="abyss-machine",
-            source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            source_ref=source_ref,
         )
         promoted = artifact_bundles.promote_bundle_evidence(
             bundle,
             registry,
             lifecycle_state="release-ready",
             source_repo="abyss-machine",
-            source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            source_ref=source_ref,
             producer="pytest bootstrap update publisher",
             trust_root_mode=trust_root_mode,
             trust_root_evidence=trust_root_evidence,
@@ -2991,7 +3004,7 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             bundle,
             store_root=store_root,
             registry_dir=registry,
-            manifest_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            manifest_ref=manifest_ref,
             consumer_intent="update_client",
             expected_source_repo="abyss-machine",
             expected_trust_root_mode=trust_root_mode,
@@ -3001,7 +3014,7 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             registry,
             lifecycle_state="release-ready",
             source_repo="abyss-machine",
-            source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+            source_ref=source_ref,
             producer="pytest bootstrap update publisher",
             trust_root_mode=trust_root_mode,
             trust_root_evidence=trust_root_evidence,
