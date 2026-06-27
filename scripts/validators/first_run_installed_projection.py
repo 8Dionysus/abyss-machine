@@ -393,6 +393,7 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--source-repo",
         "--trust-root-mode",
         "--require-trust-gate",
+        "--inspect-only",
         "--json",
     },
     ("artifacts", "update-repo-build"): {
@@ -420,6 +421,7 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--source-repo",
         "--trust-root-mode",
         "--require-trust-gate",
+        "--inspect-only",
         "--json",
     },
     ("artifacts", "scitt-verify"): {
@@ -447,6 +449,7 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--allow-tag-reference",
         "--allow-missing-referrers",
         "--require-trust-gate",
+        "--inspect-only",
         "--json",
     },
     ("nervous", "synthesis-build"): {

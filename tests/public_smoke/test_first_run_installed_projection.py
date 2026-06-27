@@ -197,6 +197,7 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         assert "--artifact-class" in scenarios["required_options"]
         assert scenarios["missing_options"] == []
         assert "--require-trust-gate" in update_verify["required_options"]
+        assert "--inspect-only" in update_verify["required_options"]
         assert "--registry-dir" in update_verify["required_options"]
         assert "--subject-digest" in update_verify["required_options"]
         assert update_verify["missing_options"] == []
@@ -204,6 +205,7 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         assert "--artifact-class" in update_repo_verify["required_options"]
         assert "--target-digest" in update_repo_verify["required_options"]
         assert "--require-trust-gate" in update_repo_verify["required_options"]
+        assert "--inspect-only" in update_repo_verify["required_options"]
         assert update_repo_verify["missing_options"] == []
         assert "--receipt" in scitt_verify["required_options"]
         assert "--external-relying-party" in scitt_verify["required_options"]
@@ -213,6 +215,7 @@ def test_first_run_projection_checks_artifact_trust_option_surfaces(projection_p
         assert scitt_verify["missing_options"] == []
         assert "--required-referrer-type" in oci_verify["required_options"]
         assert "--require-trust-gate" in oci_verify["required_options"]
+        assert "--inspect-only" in oci_verify["required_options"]
         assert oci_verify["missing_options"] == []
 
 
