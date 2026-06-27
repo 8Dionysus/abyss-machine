@@ -7,6 +7,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tomllib
@@ -1106,11 +1107,69 @@ def _record_source_ref_tokens(record: dict[str, Any] | None) -> list[str]:
         value = str(record.get(key) or "").strip()
         if value:
             tokens.append(value)
+    trust_root_evidence = record.get("trust_root_evidence")
+    if isinstance(trust_root_evidence, dict):
+        for key in (
+            "source_commit",
+            "github_source_ref",
+            "workflow_ref",
+            "evidence_ref",
+            "subject",
+        ):
+            value = str(trust_root_evidence.get(key) or "").strip()
+            if value:
+                tokens.append(value)
     for key in ("source_refs", "evidence_refs"):
         values = record.get(key)
         if isinstance(values, list):
             tokens.extend(str(item).strip() for item in values if str(item).strip())
     return sorted(dict.fromkeys(tokens))
+
+
+def _is_git_hash_like(value: str) -> bool:
+    return 7 <= len(value) <= 64 and all(char in "0123456789abcdefABCDEF" for char in value)
+
+
+def _source_ref_looks_path_like(value: str) -> bool:
+    return "/" in value or value.endswith(
+        (
+            ".json",
+            ".jsonl",
+            ".md",
+            ".py",
+            ".toml",
+            ".yaml",
+            ".yml",
+            ".txt",
+            ".sh",
+        )
+    )
+
+
+def _source_ref_components(value: str) -> list[str]:
+    return [item for item in re.split(r"[^A-Za-z0-9._-]+", value) if item]
+
+
+def _source_ref_match(
+    expected: str,
+    known_refs: list[str],
+) -> tuple[bool, str | None, str | None, bool]:
+    for ref in known_refs:
+        if ref == expected:
+            return True, ref, "exact", not _source_ref_looks_path_like(expected)
+
+    if not _is_git_hash_like(expected):
+        return False, None, None, False
+
+    for ref in known_refs:
+        for component in _source_ref_components(ref):
+            if not _is_git_hash_like(component):
+                continue
+            if component == expected:
+                return True, ref, "embedded_git_hash", True
+            if len(expected) >= 7 and len(expected) < len(component) and component.startswith(expected):
+                return True, ref, "embedded_git_hash_prefix", True
+    return False, None, None, False
 
 
 def _source_ref_status(row: dict[str, Any], changed_source_ref: str) -> dict[str, Any]:
@@ -1123,14 +1182,18 @@ def _source_ref_status(row: dict[str, Any], changed_source_ref: str) -> dict[str
             "expected": None,
             "matched": None,
             "matched_ref": None,
+            "match_type": None,
+            "proves_current_ref": None,
             "known_refs": known_refs,
         }
-    matched = expected in known_refs
+    matched, matched_ref, match_type, proves_current_ref = _source_ref_match(expected, known_refs)
     return {
         "required": True,
         "expected": expected,
         "matched": matched,
-        "matched_ref": expected if matched else None,
+        "matched_ref": matched_ref,
+        "match_type": match_type,
+        "proves_current_ref": proves_current_ref,
         "known_refs": known_refs,
     }
 
@@ -2635,11 +2698,12 @@ def _artifact_affected_verdict(
     registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
     gate = row.get("trust_gate_status") if isinstance(row.get("trust_gate_status"), dict) else {}
     source_status = _source_ref_status(row, changed_source_ref)
+    source_ref_proves_current = source_status.get("proves_current_ref") is True
     owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
     profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
     external_owner_changed = bool(changed_source_repo and changed_source_repo != "abyss-machine" and (owner_repo_changed or profile_owner_changed))
     if external_owner_changed:
-        if source_status.get("matched") is True:
+        if source_ref_proves_current:
             if registry.get("checked") and not registry.get("has_latest"):
                 return "needs_rebuild"
             if gate.get("verdict") == "manual_review_required":
@@ -2648,6 +2712,14 @@ def _artifact_affected_verdict(
                 return "needs_reverify"
             return "fresh"
         return "accepted_lag" if accept_sibling_lag else "blocked_by_missing_sibling"
+    if owner_repo_changed and source_ref_proves_current:
+        if registry.get("checked") and not registry.get("has_latest"):
+            return "needs_rebuild"
+        if gate.get("verdict") == "manual_review_required":
+            return "manual_review_required"
+        if gate.get("checked") and gate.get("verdict") not in {None, "allow", "warn"}:
+            return "needs_reverify"
+        return "fresh"
     if any(reason in affected_reasons for reason in ("contract_source_changed", "bundle_manifest_changed", "authority_ref_changed", "producer_profile_route_changed", "release_artifact_pattern_changed")):
         return "needs_rebuild"
     if any(reason in affected_reasons for reason in ("policy_manifest_changed", "abi_signature_readmodel_changed")):
@@ -2685,8 +2757,10 @@ def _artifact_drift_status(
         status = "fresh"
 
     if source_status.get("required"):
-        if source_status.get("matched") is True:
+        if source_status.get("proves_current_ref") is True:
             source_ref_state = "proved_current"
+        elif source_status.get("matched") is True:
+            source_ref_state = "declared_ref_seen_without_current_proof"
         else:
             source_ref_state = "missing_current_proof"
     else:

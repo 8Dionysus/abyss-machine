@@ -1606,6 +1606,8 @@ def test_artifact_affected_source_repo_only_explains_owner_rebuild(tmp_path: Pat
     assert affected["summary"]["status_counts"] == {"needs_rebuild": 1}
     assert row["verdict"] == "needs_rebuild"
     assert row["source_ref_status"]["matched"] is True
+    assert row["source_ref_status"]["proves_current_ref"] is False
+    assert row["drift"]["source_ref_state"] == "declared_ref_seen_without_current_proof"
     assert row["reasons"] == ["owner_repo_changed"]
     assert row["drift"]["reason_count"] == 1
 
@@ -1696,11 +1698,20 @@ def test_artifact_affected_detects_profile_owner_for_shared_media_class() -> Non
     assert row["next_actions"][1] == "run the producer profile in owner repo Tree-of-Sophia"
 
 
-def _write_verified_registry_record(registry: Path, *, evidence_refs: list[str]) -> None:
+def _write_verified_registry_record(
+    registry: Path,
+    *,
+    evidence_refs: list[str],
+    artifact_class: str = "aoa_sdk_python_distribution",
+    source_repo: str = "aoa-sdk",
+    source_ref: str = "sdk/distribution/manifests/python_distribution.bundle.json",
+    source_refs: list[str] | None = None,
+    producer: str = "aoa-sdk:release-audit-publish-helper@commit:current",
+) -> None:
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
         "record_id": "sha256:" + "a" * 64,
-        "artifact_class": "aoa_sdk_python_distribution",
+        "artifact_class": artifact_class,
         "bundle_layout": "abyss_machine_artifact_bundle_v1",
         "bundle_ref": "aoa-sdk/dist/abyss-artifact-bundle",
         "bundle_manifest_ref": "sdk/distribution/manifests/python_distribution.bundle.json",
@@ -1715,13 +1726,10 @@ def _write_verified_registry_record(registry: Path, *, evidence_refs: list[str])
         "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
         "verified_controls": ["abi_signature", "sbom", "slsa_in_toto"],
         "present_controls": ["abi_signature", "sbom", "slsa_in_toto"],
-        "source_repo": "aoa-sdk",
-        "source_ref": "sdk/distribution/manifests/python_distribution.bundle.json",
-        "source_refs": [
-            "sdk/distribution/manifests/python_distribution.bundle.json",
-            *evidence_refs,
-        ],
-        "producer": "aoa-sdk:release-audit-publish-helper@commit:current",
+        "source_repo": source_repo,
+        "source_ref": source_ref,
+        "source_refs": source_refs if source_refs is not None else [source_ref, *evidence_refs],
+        "producer": producer,
         "producer_command": "python mechanics/release-support/parts/release-audit-publish-helper/scripts/validate_abyss_machine_package_artifact_bundle.py --json",
         "trust_root_mode": "host_managed",
         "verifier_versions": {"test": "source-ref-freshness"},
@@ -1757,6 +1765,7 @@ def test_artifact_affected_source_ref_closes_sibling_lag_after_promotion(tmp_pat
     assert row["freshness"] == "fresh"
     assert row["source_ref_status"]["matched"] is True
     assert row["source_ref_status"]["matched_ref"] == "commit:current"
+    assert row["source_ref_status"]["proves_current_ref"] is True
     assert row["drift"]["status"] == "fresh"
     assert row["drift"]["operationally_blocking"] is False
     assert row["drift"]["source_ref_state"] == "proved_current"
@@ -1898,6 +1907,66 @@ def test_artifact_affected_wrong_source_ref_keeps_sibling_blocked(tmp_path: Path
     assert row["source_ref_status"]["expected"] == "commit:current"
     assert row["source_ref_status"]["known_refs"]
     assert row["next_actions"][1] == "run the producer profile in owner repo aoa-sdk"
+
+
+def test_artifact_affected_source_ref_matches_embedded_producer_commit(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    commit = "0123456789abcdef0123456789abcdef01234567"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=["registry-maintenance:post-merge:" + commit[:7]],
+        source_refs=["sdk/distribution/manifests/python_distribution.bundle.json"],
+        producer=f"aoa-sdk:release-audit-publish-helper@{commit}",
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        ["sdk/distribution/manifests/python_distribution.bundle.json"],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_repo="aoa-sdk",
+        changed_source_ref=commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["source_ref_status"]["matched"] is True
+    assert row["source_ref_status"]["matched_ref"] == f"aoa-sdk:release-audit-publish-helper@{commit}"
+    assert row["source_ref_status"]["match_type"] == "embedded_git_hash"
+    assert row["source_ref_status"]["proves_current_ref"] is True
+    assert row["drift"]["source_ref_state"] == "proved_current"
+
+
+def test_artifact_affected_current_local_commit_proof_closes_owner_repo_drift(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    commit = "fedcba9876543210fedcba9876543210fedcba98"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=["registry-maintenance:post-merge:" + commit[:7]],
+        artifact_class="public_source_seed",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        source_refs=["manifests/artifact_bundles/public_source_seed.bundle.json"],
+        producer=f"abyss-machine-public-source-seed@{commit}",
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="public_source_seed",
+        changed_source_repo="abyss-machine",
+        changed_source_ref=commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["source_ref_status"]["matched_ref"] == f"abyss-machine-public-source-seed@{commit}"
+    assert row["source_ref_status"]["proves_current_ref"] is True
+    assert row["drift"]["source_ref_state"] == "proved_current"
 
 
 def test_artifact_affected_scopes_sibling_paths_to_matching_owner_repo() -> None:
