@@ -84,6 +84,11 @@ coverage document assembly plus route-note/gap and status decisions, typing stat
 session-tail latest-status contracts, metadata envelopes, title fingerprints,
 and AI transcript cleanup/role contracts live in
 `abyss_machine.typing_capture_contracts`;
+Codex prompt/session-tail text extraction, user-message route recognition,
+context-envelope normalization, near-line duplicate semantics, metadata/context
+ingest plans, and public-safe event summaries live in
+`abyss_machine.typing_codex_semantics`; CLI still owns configured path reads,
+state/latest writes, `typing_ingest` execution, and command rendering;
 nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`;
 nervous synthesis selection, candidate build orchestration, path/write-result
@@ -266,7 +271,8 @@ policy merge and heartbeat status, AT-SPI compact-history record and contract do
 decisions, typing status, validate, and end-to-end proof document assembly, saved-text recent-record validation, recent record policy/causal
 shape status, causal project binding/resolution, causal interaction identity/context-anchor and URL/AI recipient helpers,
 typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, process readmodel assembly, and causal-awareness event/readmodel status, session-tail latest-status
-contracts, and resource plan/launch contracts are now
+contracts, Codex prompt/session-tail semantic ingest planning, and resource
+plan/launch contracts are now
 module-owned with public
 validators. AI CPU route policy is
 also module-owned; the CLI still gathers

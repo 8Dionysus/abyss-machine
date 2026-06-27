@@ -52,9 +52,14 @@ browser-privacy selftest validation status,
 browser input recency classification/readmodel assembly, status, and validation freshness, AT-SPI text-event
 policy merge and heartbeat status, AT-SPI compact-history record and contract documents, session-tail latest-status contracts, title
 fingerprints, and AI transcript cleanup/role contracts live in
-`abyss_machine.typing_capture_contracts`; policy file reads, file scanning,
-browser native-host IO, AT-SPI access, Codex session JSONL reads, systemd
-status reads, latest/index writes, and event writes remain at the CLI edge.
+`abyss_machine.typing_capture_contracts`. Codex prompt/session-tail text
+extraction, user-message route recognition, context-envelope normalization,
+near-line duplicate semantics, metadata/context ingest plans, and public-safe
+event summaries live in `abyss_machine.typing_codex_semantics`; Codex
+session-tail filesystem reads live in `abyss_machine.typing_nervous_adapters`.
+Policy file reads, file scanning, browser native-host IO, AT-SPI access,
+systemd status reads, latest/index writes, and event writes remain at the CLI
+edge.
 
 Nervous index JSONL source discovery/loading/hash rules,
 source-record parsing/metadata, source-policy helpers, record/chunk/document
