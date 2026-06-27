@@ -97,7 +97,8 @@ sample/metadata/debounce, text-event listener runtime, focused-candidate tree
 walk, browser focus metadata traversal, path-targeted focus/text read/insert
 runtime, URL-scanned GI/Atspi text insertion runtime, GI/Atspi Firefox frame
 focus runtime, supplied-object runtime helpers, and generic GUI selftest
-semantic plans live in `abyss_machine.typing_atspi_adapters`; saved-text
+semantic plans plus browser/privacy selftest recent-record readers live in
+`abyss_machine.typing_atspi_adapters`; saved-text
 filesystem scan limits, path walking, state continuity, file decode rejection,
 candidate/skip accounting, ingest kwargs, state entries, and public-safe scan
 documents live in `abyss_machine.typing_saved_text_adapters`; CLI still owns

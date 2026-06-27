@@ -70,7 +70,7 @@ document/application runtime helpers, text-event listener runtime, typing-event
 summaries, focused-candidate tree walk, browser focus metadata traversal,
 path-targeted text focus/read/insert runtime, URL-scanned GI/Atspi text
 insertion runtime, GI/Atspi Firefox frame focus runtime, and generic GUI selftest
-documents live in
+documents plus browser/privacy selftest recent-record readers live in
 `abyss_machine.typing_atspi_adapters`.
 Saved-text scan filesystem limits, path walking, state continuity, decode
 rejection, candidate/skip accounting, ingest kwargs, state entries, and

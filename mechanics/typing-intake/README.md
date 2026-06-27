@@ -57,7 +57,8 @@ semantic plans, and supplied accessibility-object state/text/path/document/
 application context runtime helpers, focused-candidate tree walk, and browser
 focus metadata traversal plus path-targeted text focus/read/insert and
 URL-scanned GI/Atspi text insertion plus GI/Atspi Firefox frame focus runtime live in
-`abyss_machine.typing_atspi_adapters`. Saved-text scan filesystem limits, path
+`abyss_machine.typing_atspi_adapters`, including browser/privacy selftest
+recent-record readers. Saved-text scan filesystem limits, path
 walking, state continuity, decode rejection, candidate/skip accounting, ingest
 kwargs, state entries, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep the remaining typing adapters

@@ -1059,6 +1059,157 @@ def test_atspi_text_event_builders_bound_private_browser_context_and_debounce() 
     ) == "debounced"
 
 
+def test_atspi_browser_selftest_record_reader_projects_public_event_summary() -> None:
+    records = [
+        {"source_adapter": typing_atspi_adapters.AT_SPI_TEXT_EVENT_SOURCE, "text": {"text_sha256": "wrong"}},
+        {
+            "event_id": "evt-browser",
+            "generated_at": "2026-06-27T01:02:03+00:00",
+            "status": "captured",
+            "source_adapter": typing_atspi_adapters.AT_SPI_TEXT_EVENT_SOURCE,
+            "capture_gate": {"decision": "allow_text", "confidence": "atspi_browser_url_allowed"},
+            "text": {
+                "text": "raw text stays out of the summary",
+                "text_sha256": "sha-match",
+                "text_length": 31,
+                "text_chars_stored": 31,
+            },
+            "context": {
+                "app": {"text": "Firefox"},
+                "window_title": {"text": "Abyss browser probe"},
+                "url": {"text": "https://example.test/write"},
+            },
+            "causal_context": {
+                "recipient": {"kind": "browser_page"},
+                "task": {"binding": "selftest"},
+            },
+            "metadata": {
+                "atspi": {
+                    "role": "entry",
+                    "name": "Abyss safe browser probe",
+                    "source_path": "0.1.2",
+                    "document_path": "0.1",
+                    "app_process_id": 1234,
+                    "content_type": "text/html",
+                    "caret_offset": 31,
+                }
+            },
+        },
+    ]
+    errors = [{"line": 4, "error": "bad json"}]
+    seen_limits: list[int] = []
+
+    def read_recent(limit: int) -> tuple[list[dict], list[dict]]:
+        seen_limits.append(limit)
+        return records, errors
+
+    event, returned_errors = typing_atspi_adapters.find_atspi_browser_selftest_event(
+        "sha-match",
+        read_recent_records=read_recent,
+        limit=42,
+    )
+
+    assert seen_limits == [42]
+    assert returned_errors == errors
+    assert event is not None
+    assert event["event_id"] == "evt-browser"
+    assert event["capture_gate_confidence"] == "atspi_browser_url_allowed"
+    assert event["text_sha256"] == "sha-match"
+    assert event["url_allowed"] is True
+    assert event["browser_app"] is True
+    assert event["recipient"] == {"kind": "browser_page"}
+    assert event["task"] == {"binding": "selftest"}
+    assert event["atspi"]["source_path"] == "0.1.2"
+    assert "text" not in event
+
+
+def test_browser_privacy_selftest_record_reader_matches_url_and_bounds_absence() -> None:
+    records: list[dict] = [
+        {
+            "event_id": "old",
+            "generated_at": "2026-06-26T23:59:59+00:00",
+            "source_adapter": typing_atspi_adapters.FOCUSED_SNAPSHOT_SOURCE,
+            "context": {"url": {"text": "https://example.test/login"}},
+            "text": {"text_sha256": "probe-sha"},
+        },
+        {
+            "event_id": "privacy",
+            "generated_at": "2026-06-27T00:00:01+00:00",
+            "status": "metadata_only",
+            "source_adapter": typing_atspi_adapters.FOCUSED_SNAPSHOT_SOURCE,
+            "capture_gate": {"decision": "metadata_only", "confidence": "focused_sensitive_context"},
+            "text": {
+                "text_sha256": "probe-sha",
+                "text_length": 0,
+                "text_chars_stored": 0,
+                "metadata_only_reason": "focused_sensitive_context",
+            },
+            "context": {
+                "app": {"text": "Firefox"},
+                "window_title": {"text": "Login"},
+                "url": {"text": ""},
+            },
+            "metadata": {
+                "atspi": {
+                    "url": "https://example.test/login?token=private#fragment",
+                    "role": "entry",
+                    "safe_route": "browser_login_private_url",
+                    "browser_safe_url": False,
+                    "text_read": False,
+                }
+            },
+        },
+    ]
+    records.extend(
+        {
+            "event_id": f"match-{idx}",
+            "generated_at": f"2026-06-27T00:00:{idx + 2:02d}+00:00",
+            "status": "metadata_only",
+            "source_adapter": "atspi_text_changed_event",
+            "context": {"url": {"text": f"https://example.test/private/{idx}"}},
+            "text": {"text_sha256": "leaked-probe-sha"},
+        }
+        for idx in range(13)
+    )
+    errors = [{"line": idx, "error": "bad json"} for idx in range(25)]
+
+    def read_recent(limit: int) -> tuple[list[dict], list[dict]]:
+        assert limit in {77, 1200}
+        return records, errors
+
+    event, returned_errors = typing_atspi_adapters.find_browser_privacy_selftest_event(
+        "https://example.test/login#local-fragment",
+        typing_atspi_adapters.FOCUSED_SNAPSHOT_SOURCE,
+        read_recent_records=read_recent,
+        generated_after="2026-06-27T00:00:00+00:00",
+        probe_text_sha256="probe-sha",
+        limit=77,
+    )
+    absence = typing_atspi_adapters.browser_privacy_probe_absence(
+        "leaked-probe-sha",
+        read_recent_records=read_recent,
+    )
+
+    assert returned_errors == errors
+    assert event is not None
+    assert event["event_id"] == "privacy"
+    assert event["text_sha256_matches_probe"] is True
+    assert event["metadata_only_reason"] == "focused_sensitive_context"
+    assert event["atspi"]["safe_route"] == "browser_login_private_url"
+    assert typing_atspi_adapters.browser_privacy_url_matches(
+        "https://example.test/login?token=private",
+        "https://example.test/login#section",
+    ) is True
+    assert typing_atspi_adapters.browser_privacy_url_matches(
+        "https://example.test/login",
+        "https://example.test/settings",
+    ) is False
+    assert absence["ok"] is False
+    assert absence["records_scanned"] == len(records)
+    assert len(absence["matches"]) == 12
+    assert len(absence["parse_errors"]) == 20
+
+
 def test_generic_gui_selftest_document_accepts_safe_route_and_sensitive_metadata_only() -> None:
     plan = typing_atspi_adapters.generic_gui_selftest_plan("2026062700000012345")
     ingest = {
