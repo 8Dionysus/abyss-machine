@@ -193,6 +193,15 @@ TRUST_ROOT_MODES = (
 )
 PRODUCTION_RELEASE_TRUST_ROOT_MODES = frozenset({"github_oidc", "oci_registry", "public_release"})
 TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS = {
+    "host_managed": (
+        "key_ref",
+        "trusted_root_digest",
+        "repository_dir",
+        "source_repo",
+        "source_ref",
+        "subject_digest",
+        "verifier",
+    ),
     "github_oidc": ("issuer", "subject", "source_repo", "source_ref", "subject_digest", "verifier"),
     "oci_registry": ("registry_ref", "digest", "source_repo", "source_ref", "subject_digest", "verifier"),
     "public_release": ("release_ref", "asset_ref", "asset_digest", "source_repo", "source_ref", "subject_digest", "verifier"),
@@ -1009,10 +1018,26 @@ def production_release_trust_root_modes(artifact_class: str, required_controls: 
     return list(dict.fromkeys(modes))
 
 
+def production_trust_root_modes(
+    artifact_class: str,
+    required_controls: list[str] | set[str],
+    *,
+    consumer_intent: str = "",
+) -> list[str]:
+    modes = production_release_trust_root_modes(artifact_class, required_controls)
+    if consumer_intent in {"update_client", "installer"}:
+        modes.append("host_managed")
+    return list(dict.fromkeys(modes))
+
+
 def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> dict[str, Any]:
     required = set(required_controls_for_rule(rule))
     artifact_class = str(rule.get("identity", {}).get("artifact_class") or "")
-    release_modes = production_release_trust_root_modes(artifact_class, required)
+    release_modes = production_trust_root_modes(
+        artifact_class,
+        required,
+        consumer_intent=consumer_intent,
+    )
     if consumer_intent not in PRODUCTION_CONSUMER_INTENTS:
         recommended = ["host_managed", "local_dev"]
     elif artifact_class == "host_local_evidence":
@@ -1027,8 +1052,12 @@ def _trust_root_expectations(rule: dict[str, Any], *, consumer_intent: str) -> d
             "production_consumer_result": "manual_review_required",
         },
         "host_managed": {
-            "role": "durable OS Abyss host registry assertion or local host-managed evidence; not an external public release trust root",
-            "production_consumer_result": "manual_review_required unless the artifact class is host-local evidence",
+            "role": "durable OS Abyss host registry assertion or host-managed update-root evidence",
+            "production_consumer_result": (
+                "allowed for update_client and installer only with host-managed update-root evidence; "
+                "manual_review_required for public release consumers"
+            ),
+            "required_evidence_fields": list(TRUST_ROOT_EVIDENCE_REQUIRED_FIELDS["host_managed"]),
         },
         "github_oidc": {
             "role": "GitHub Actions/OIDC producer adapter for release provenance",
@@ -6188,7 +6217,11 @@ def _production_trust_root_expected_modes(
     if artifact_class == "host_local_evidence":
         return ["host_managed"]
     required_controls = [str(item) for item in selected.get("required_controls", []) if str(item)]
-    return production_release_trust_root_modes(artifact_class, required_controls)
+    return production_trust_root_modes(
+        artifact_class,
+        required_controls,
+        consumer_intent=consumer_intent,
+    )
 
 
 def _trust_root_evidence_verification(
@@ -6203,7 +6236,11 @@ def _trust_root_evidence_verification(
         artifact_class=artifact_class,
         consumer_intent=consumer_intent,
     )
-    required = trust_root_mode in PRODUCTION_RELEASE_TRUST_ROOT_MODES
+    required = trust_root_mode in PRODUCTION_RELEASE_TRUST_ROOT_MODES or (
+        trust_root_mode == "host_managed"
+        and consumer_intent in {"update_client", "installer"}
+        and trust_root_mode in expected_modes
+    )
     evidence = selected.get("trust_root_evidence")
     evidence = evidence if isinstance(evidence, dict) else {}
     errors: list[str] = []
@@ -6340,6 +6377,14 @@ def _trust_gate_inspected_claims(
         artifact_class=artifact_class,
         consumer_intent=consumer_intent,
     )
+    production_trust_root_mode_ready = bool(
+        consumer_intent not in PRODUCTION_CONSUMER_INTENTS
+        or str(selected.get("trust_root_mode") or "") in expected_trust_root_modes
+    )
+    production_trust_root_evidence_ready = bool(
+        trust_root_evidence.get("required") is not True
+        or trust_root_evidence.get("ok") is True
+    )
     evidence_ref_hygiene = _evidence_ref_hygiene(selected)
     return {
         "registry_latest": {
@@ -6392,11 +6437,11 @@ def _trust_gate_inspected_claims(
             ),
             "production_consumer": consumer_intent in PRODUCTION_CONSUMER_INTENTS,
             "production_expected_modes": expected_trust_root_modes,
-            "production_trust_root_ready": bool(
-                consumer_intent not in PRODUCTION_CONSUMER_INTENTS
-                or str(selected.get("trust_root_mode") or "") in expected_trust_root_modes
+            "production_trust_root_ready": production_trust_root_mode_ready and production_trust_root_evidence_ready,
+            "host_managed_role": (
+                "local OS Abyss registry assertion; for update_client and installer it must carry "
+                "host-managed update-root evidence, and it is not public-release trust"
             ),
-            "host_managed_role": "local OS Abyss registry assertion; not external public release trust",
         },
         "trust_root_evidence": trust_root_evidence,
         "evidence_refs": evidence_ref_hygiene,
