@@ -57,7 +57,10 @@ extraction, user-message route recognition, context-envelope normalization,
 near-line duplicate semantics, metadata/context ingest plans, and public-safe
 event summaries live in `abyss_machine.typing_codex_semantics`; Codex
 session-tail filesystem reads live in `abyss_machine.typing_nervous_adapters`.
-Policy file reads, file scanning, browser native-host IO, AT-SPI access,
+Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
+plans, synthetic selftest documents, and native-host response envelopes live in
+`abyss_machine.typing_browser_adapters`. Policy file reads, file scanning,
+framed native-host byte IO, live browser/WebExtension probes, AT-SPI access,
 systemd status reads, latest/index writes, and event writes remain at the CLI
 edge.
 

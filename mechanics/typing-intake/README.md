@@ -44,11 +44,14 @@ session-tail filesystem reads for typing and nervous organs start in
 `abyss_machine.typing_nervous_adapters`. Codex prompt/session-tail text
 extraction, user-message route recognition, context-envelope normalization,
 duplicate semantics, metadata/context ingest plans, and public-safe event
-summaries live in `abyss_machine.typing_codex_semantics`. Keep the remaining
-typing adapters bounded by source type: browser/native-host messages,
-saved-text scan, AT-SPI text events, focused-browser selftests, and privacy
-probes. The mechanic owns the route and tests; generated typed evidence remains
-local host state.
+summaries live in `abyss_machine.typing_codex_semantics`.
+Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
+plans, synthetic selftest documents, and native-host response envelopes live in
+`abyss_machine.typing_browser_adapters`. Keep the remaining typing adapters
+bounded by source type: framed native-host byte transport, temporary browser
+profile/WebExtension live probes, saved-text scan, AT-SPI text events,
+focused-browser selftests, and privacy probes. The mechanic owns the route and
+tests; generated typed evidence remains local host state.
 
 ### Next route
 
