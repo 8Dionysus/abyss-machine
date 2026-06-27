@@ -51,3 +51,8 @@
   Firefox app/window scan, bounded title matching, component/action focus, and
   state confirmation while CLI owns capture policy decisions, `typing_ingest`,
   latest writes, live probe orchestration, and command rendering.
+- AT-SPI selftest record-reader seam: `typing_atspi_adapters` owns
+  browser/privacy selftest recent-record lookup by text hash or URL, bounded
+  public-safe event projection, and absence-proof summaries while CLI owns the
+  live history reader callback, latest writes, live probe orchestration, and
+  command rendering.

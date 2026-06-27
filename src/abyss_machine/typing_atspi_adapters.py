@@ -8,6 +8,8 @@ import time
 from typing import Any, Callable, Mapping
 import warnings
 
+from . import typing_capture_contracts
+
 
 AT_SPI_TEXT_EVENT_SOURCE = "atspi_text_changed_event"
 FOCUSED_SNAPSHOT_SOURCE = "atspi_focused_text_snapshot"
@@ -17,6 +19,7 @@ StoreLatestHistory = Callable[[dict[str, Any], bool], dict[str, Any]]
 WriteLatestOnly = Callable[[dict[str, Any]], list[dict[str, Any]]]
 AppendCompactHistory = Callable[[dict[str, Any], dict[str, Any] | None, str, str | None], dict[str, Any] | None]
 FocusedCandidateBuilder = Callable[[Any, Any, dict[str, Any]], dict[str, Any] | None]
+ReadRecentRecords = Callable[[int], tuple[list[dict[str, Any]], list[dict[str, Any]]]]
 
 
 def nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -2163,6 +2166,127 @@ def atspi_typing_event_summary(event: Mapping[str, Any], *, include_text: bool =
             }
         )
     return summary
+
+
+def atspi_browser_selftest_event_summary(record: Any) -> dict[str, Any] | None:
+    if not isinstance(record, Mapping):
+        return None
+    text_payload = record.get("text") if isinstance(record.get("text"), Mapping) else {}
+    app = nested_get(record, ["context", "app", "text"])
+    url = nested_get(record, ["context", "url", "text"])
+    atspi_meta = nested_get(record, ["metadata", "atspi"])
+    atspi_meta = atspi_meta if isinstance(atspi_meta, Mapping) else {}
+    return {
+        "event_id": record.get("event_id"),
+        "generated_at": record.get("generated_at"),
+        "status": record.get("status"),
+        "source_adapter": record.get("source_adapter"),
+        "capture_gate_decision": nested_get(record, ["capture_gate", "decision"]),
+        "capture_gate_confidence": nested_get(record, ["capture_gate", "confidence"]),
+        "text_length": text_payload.get("text_length"),
+        "text_chars_stored": text_payload.get("text_chars_stored"),
+        "text_sha256": text_payload.get("text_sha256"),
+        "app": app,
+        "window_title": nested_get(record, ["context", "window_title", "text"]),
+        "url": url,
+        "recipient": nested_get(record, ["causal_context", "recipient"]),
+        "task": nested_get(record, ["causal_context", "task"]),
+        "url_allowed": str(url or "").startswith(("http://", "https://")),
+        "browser_app": "firefox" in str(app or "").lower(),
+        "atspi": {
+            "role": atspi_meta.get("role"),
+            "name": atspi_meta.get("name"),
+            "source_path": atspi_meta.get("source_path"),
+            "document_path": atspi_meta.get("document_path"),
+            "app_process_id": atspi_meta.get("app_process_id"),
+            "content_type": atspi_meta.get("content_type"),
+            "caret_offset": atspi_meta.get("caret_offset"),
+        },
+    }
+
+
+def find_atspi_browser_selftest_event(
+    text_sha256: str,
+    *,
+    read_recent_records: ReadRecentRecords,
+    limit: int = 240,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    records, errors = read_recent_records(limit)
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        text_payload = record.get("text") if isinstance(record.get("text"), Mapping) else {}
+        if record.get("source_adapter") != AT_SPI_TEXT_EVENT_SOURCE:
+            continue
+        if text_payload.get("text_sha256") != text_sha256:
+            continue
+        return atspi_browser_selftest_event_summary(record), errors
+    return None, errors
+
+
+def browser_privacy_url_matches(observed_url: Any, target_url: Any) -> bool:
+    observed = str(observed_url or "").strip()
+    target = str(target_url or "").strip()
+    if not observed or not target:
+        return False
+    if observed == target:
+        return True
+    return typing_capture_contracts.url_origin_path(observed) == typing_capture_contracts.url_origin_path(target)
+
+
+def find_browser_privacy_selftest_event(
+    url: str,
+    source_adapter: str,
+    *,
+    read_recent_records: ReadRecentRecords,
+    generated_after: str | None = None,
+    probe_text_sha256: str | None = None,
+    limit: int = 800,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    records, errors = read_recent_records(limit)
+    start_dt = typing_capture_contracts.typing_parse_iso(generated_after) if generated_after else None
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        if record.get("source_adapter") != source_adapter:
+            continue
+        context_url = nested_get(record, ["context", "url", "text"])
+        raw_atspi_url = nested_get(record, ["metadata", "atspi", "url"])
+        if not (browser_privacy_url_matches(context_url, url) or browser_privacy_url_matches(raw_atspi_url, url)):
+            continue
+        if start_dt is not None:
+            record_dt = typing_capture_contracts.typing_parse_iso(record.get("generated_at"))
+            if record_dt is not None and record_dt < start_dt:
+                continue
+        return typing_capture_contracts.browser_privacy_record_summary(record, probe_text_sha256), errors
+    return None, errors
+
+
+def browser_privacy_probe_absence(
+    probe_text_sha256: str,
+    *,
+    read_recent_records: ReadRecentRecords,
+    limit: int = 1200,
+) -> dict[str, Any]:
+    records, errors = read_recent_records(limit)
+    matches = [
+        {
+            "event_id": record.get("event_id"),
+            "generated_at": record.get("generated_at"),
+            "source_adapter": record.get("source_adapter"),
+            "status": record.get("status"),
+            "url": nested_get(record, ["context", "url", "text"]),
+        }
+        for record in records
+        if isinstance(record, Mapping)
+        and nested_get(record, ["text", "text_sha256"]) == probe_text_sha256
+    ]
+    return {
+        "ok": not matches,
+        "records_scanned": len(records),
+        "matches": matches[:12],
+        "parse_errors": errors[:20],
+    }
 
 
 def generic_gui_selftest_run_id(generated_at: str, pid: int) -> str:
