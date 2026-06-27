@@ -3111,7 +3111,10 @@ def _artifact_affected_matches(
     }
     owner_repo = str(row.get("owner_repo") or "")
     local_policy_scope = not changed_source_repo or changed_source_repo == "abyss-machine"
-    owner_scope = not changed_source_repo or not owner_repo or changed_source_repo == owner_repo or changed_source_repo in profile_owner_repos
+    if changed_source_repo:
+        owner_scope = not owner_repo or changed_source_repo == owner_repo or changed_source_repo in profile_owner_repos
+    else:
+        owner_scope = not owner_repo or owner_repo == "abyss-machine" or "abyss-machine" in profile_owner_repos
     refs: list[tuple[str, str]] = []
     refs.extend(("contract_source", str(item)) for item in source_route.get("contract_source_paths", []) if str(item))
     refs.extend(("bundle_manifest", str(item)) for item in source_route.get("bundle_manifest_refs", []) if str(item))
