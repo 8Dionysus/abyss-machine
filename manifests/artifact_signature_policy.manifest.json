@@ -168,7 +168,7 @@
       "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
       "consumer_expectations": ["package consumers verify wheel/sdist digest, SBOM, provenance, ABI identity, and trust-gate verdict before use"],
       "owner_boundaries": ["aoa-sdk owns typed SDK/API package truth; abyss-machine records evidence and gates consumption without rewriting SDK source"],
-      "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
+      "trust_root_modes": ["local_dev", "host_managed", "github_oidc", "public_release"]
     },
     "abyss-stack": {
       "profile_id": "abyss-stack",

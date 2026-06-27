@@ -5,6 +5,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -80,6 +81,13 @@ def _trust_root_evidence(mode: str, *, subject_digest: str, source_repo: str, so
             **base,
             "registry_ref": f"ghcr.io/8dionysus/{source_repo}/{source_ref.replace('/', '-')}",
             "digest": subject_digest,
+        }
+    if mode == "host_managed":
+        return {
+            **base,
+            "key_ref": f"host-managed-tuf-key:{source_repo}:{source_ref}",
+            "trusted_root_digest": subject_digest,
+            "repository_dir": f"/srv/abyss-machine/storage/artifact-trust/tuf-repositories/{source_repo}",
         }
     if mode == "public_release":
         return {
@@ -1905,6 +1913,7 @@ def _write_verified_registry_record(
     source_ref: str = "sdk/distribution/manifests/python_distribution.bundle.json",
     source_refs: list[str] | None = None,
     producer: str = "aoa-sdk:release-audit-publish-helper@commit:current",
+    trust_root_evidence: dict[str, Any] | None = None,
 ) -> None:
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
@@ -1930,6 +1939,8 @@ def _write_verified_registry_record(
         "producer": producer,
         "producer_command": "python mechanics/release-support/parts/release-audit-publish-helper/scripts/validate_abyss_machine_package_artifact_bundle.py --json",
         "trust_root_mode": "host_managed",
+        "trust_root_evidence": trust_root_evidence or {},
+        "privacy_boundary": "public package artifacts only; no host runtime state, private workspace evidence, session traces, caches, or local /srv data",
         "verifier_versions": {"test": "source-ref-freshness"},
         "evidence_refs": evidence_refs,
         "created_at": "2026-06-21T00:00:00Z",
@@ -2024,6 +2035,136 @@ def test_trust_gate_allows_durable_evidence_refs(tmp_path: Path) -> None:
     assert gate["verdict"] == "allow"
     assert gate["inspected_claims"]["evidence_refs"]["ok"] is True
     assert gate["inspected_claims"]["evidence_refs"]["ephemeral_refs"] == []
+
+
+def test_trust_gate_denies_host_managed_update_client_without_update_root_evidence(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=[
+            "change:abi-signs-source-freshness-evidence-20260625",
+            "subject-store:materialized:aoa-sdk-python-distribution",
+        ],
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        consumer_intent="update_client",
+        expected_source_repo="aoa-sdk",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "production_trust_root_evidence_missing" in gate["blockers"]
+    assert gate["manual_review"] == []
+    assert gate["inspected_claims"]["trust_root"]["production_trust_root_ready"] is False
+    assert gate["inspected_claims"]["trust_root_evidence"]["required"] is True
+    assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is False
+
+
+def test_trust_gate_allows_host_managed_update_client_with_update_root_evidence(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    subject_digest = "sha256:" + "b" * 64
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=[
+            "change:abi-signs-source-freshness-evidence-20260625",
+            "subject-store:materialized:aoa-sdk-python-distribution",
+            "tuf-root:host-managed:aoa-sdk",
+        ],
+        trust_root_evidence=_trust_root_evidence(
+            "host_managed",
+            subject_digest=subject_digest,
+            source_repo="aoa-sdk",
+            source_ref="sdk/distribution/manifests/python_distribution.bundle.json",
+        ),
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="aoa_sdk_python_distribution",
+        subject_digest=subject_digest,
+        consumer_intent="update_client",
+        expected_source_repo="aoa-sdk",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["manual_review"] == []
+    assert gate["blockers"] == []
+    assert gate["inspected_claims"]["trust_root"]["production_trust_root_ready"] is True
+    assert gate["inspected_claims"]["trust_root_evidence"]["required"] is True
+    assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is True
+
+
+def test_trust_gate_denies_host_managed_installer_without_update_root_evidence(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+        evidence_refs=[
+            "change:bootstrap-install-local-refresh",
+            "subject-store:materialized:bootstrap-install",
+        ],
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        consumer_intent="installer",
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "production_trust_root_evidence_missing" in gate["blockers"]
+    assert gate["inspected_claims"]["trust_root"]["production_trust_root_ready"] is False
+    assert gate["inspected_claims"]["trust_root_evidence"]["required"] is True
+
+
+def test_trust_gate_allows_host_managed_installer_with_update_root_evidence(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    subject_digest = "sha256:" + "b" * 64
+    source_ref = "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json"
+    _write_verified_registry_record(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        source_repo="abyss-machine",
+        source_ref=source_ref,
+        evidence_refs=[
+            "change:bootstrap-install-local-refresh",
+            "subject-store:materialized:bootstrap-install",
+            "tuf-root:host-managed:bootstrap-install",
+        ],
+        trust_root_evidence=_trust_root_evidence(
+            "host_managed",
+            subject_digest=subject_digest,
+            source_repo="abyss-machine",
+            source_ref=source_ref,
+        ),
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        subject_digest=subject_digest,
+        consumer_intent="installer",
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["blockers"] == []
+    assert gate["inspected_claims"]["trust_root"]["production_trust_root_ready"] is True
+    assert gate["inspected_claims"]["trust_root_evidence"]["required"] is True
+    assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is True
 
 
 def test_bundle_registry_repair_removes_ephemeral_evidence_refs(tmp_path: Path) -> None:
