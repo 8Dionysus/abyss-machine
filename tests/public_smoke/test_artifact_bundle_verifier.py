@@ -2118,6 +2118,7 @@ def _write_verified_registry_record(
     evidence_refs: list[str],
     record_id_hex: str = "a" * 64,
     subject_digest: str = "sha256:" + "b" * 64,
+    abi_subject_digest: str | None = None,
     artifact_class: str = "aoa_sdk_python_distribution",
     source_repo: str = "aoa-sdk",
     source_ref: str = "sdk/distribution/manifests/python_distribution.bundle.json",
@@ -2158,6 +2159,8 @@ def _write_verified_registry_record(
         "policy_ref": artifact_bundles.POLICY_REF,
         "abi_ref": artifact_bundles.ABI_REF,
     }
+    if abi_subject_digest is not None:
+        record["abi_subject_digest"] = abi_subject_digest
     records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
     records.mkdir(parents=True, exist_ok=True)
     (records / f"{record_id_hex}.json").write_text(
@@ -2194,6 +2197,99 @@ def test_artifact_affected_source_ref_closes_sibling_lag_after_promotion(tmp_pat
     assert row["next_actions"] == [
         "abyss-machine artifacts requirements --artifact-class aoa_sdk_python_distribution --json"
     ]
+
+
+def test_artifact_affected_abi_readmodel_change_ignores_external_rows_without_local_abi_subject(
+    tmp_path: Path,
+) -> None:
+    registry = tmp_path / "registry"
+    commit = "1234567890abcdef1234567890abcdef12345678"
+    _write_verified_registry_record(registry, evidence_refs=["commit:previous"])
+
+    affected = artifact_bundles.artifact_affected(
+        [artifact_bundles.ABI_REF],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_ref=commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["source_ref_status"]["required"] is False
+    assert row["abi_subject_status"]["state"] == "no_local_abi_subject"
+    assert row["abi_subject_status"]["fresh"] is True
+    assert row["drift"]["operationally_blocking"] is False
+
+
+def test_artifact_affected_abi_readmodel_change_is_fresh_when_latest_abi_subject_matches(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        [artifact_bundles.ABI_REF],
+        artifact_class="public_source_seed",
+        changed_source_ref="1234567890abcdef1234567890abcdef12345678",
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["source_ref_status"]["required"] is False
+    assert row["abi_subject_status"]["state"] == "current"
+    assert row["abi_subject_status"]["fresh"] is True
+    assert row["drift"]["operationally_blocking"] is False
+
+
+def test_artifact_affected_abi_readmodel_change_blocks_stale_abi_subject(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+    record_path = registry.parent / str(promoted["record_ref"])
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["abi_subject_digest"] = "sha256:" + ("0" * 64)
+    record_path.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+
+    affected = artifact_bundles.artifact_affected(
+        [artifact_bundles.ABI_REF],
+        artifact_class="public_source_seed",
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"needs_reverify": 1}
+    assert row["affected"] is True
+    assert row["verdict"] == "needs_reverify"
+    assert row["reasons"] == ["abi_signature_readmodel_changed"]
+    assert row["abi_subject_status"]["state"] == "stale"
+    assert row["abi_subject_status"]["fresh"] is False
+    assert row["drift"]["operationally_blocking"] is True
 
 
 def test_trust_gate_denies_ephemeral_evidence_refs(tmp_path: Path) -> None:
