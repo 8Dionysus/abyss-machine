@@ -15,3 +15,7 @@
   serving, temp profile/artifact/cache roots, subprocess lifecycle/cleanup,
   probe polling, and public-safe result assembly while latest/index writes and
   command rendering stay at the CLI edge.
+- Native-host transport seam: `typing_browser_adapters` owns framed
+  little-endian length-prefix message read/write, JSON decode/encode, and
+  malformed-frame errors while CLI binds the adapter to real stdin/stdout,
+  dispatches ingest, and renders the command exit.

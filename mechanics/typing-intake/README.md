@@ -46,20 +46,21 @@ extraction, user-message route recognition, context-envelope normalization,
 duplicate semantics, metadata/context ingest plans, and public-safe event
 summaries live in `abyss_machine.typing_codex_semantics`.
 Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
-plans, synthetic selftest documents, native-host response envelopes, safe
-Firefox selftest profile prefs, temporary WebExtension profile/tmp roots,
-`web-ext` execution, loopback HTTP probe serving, subprocess cleanup, and
-public-safe WebExtension selftest result assembly live in
+plans, synthetic selftest documents, native-host response envelopes, framed
+native-host byte transport, safe Firefox selftest profile prefs, temporary
+WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
+serving, subprocess cleanup, and public-safe WebExtension selftest result
+assembly live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
 sample/metadata/debounce, and generic GUI selftest semantic plans live in
 `abyss_machine.typing_atspi_adapters`. Saved-text scan filesystem limits, path
 walking, state continuity, decode rejection, candidate/skip accounting, ingest
 kwargs, state entries, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep the remaining typing adapters
-bounded by source type: framed native-host byte transport, remaining `pyatspi`
-traversal/listener runtime, browser AT-SPI selftest execution,
-focused-browser/browser-context selftests, and privacy probes. The mechanic owns
-the route and tests; generated typed evidence remains local host state.
+bounded by source type: remaining `pyatspi` traversal/listener runtime, browser
+AT-SPI selftest execution, focused-browser/browser-context selftests, and
+privacy probes. The mechanic owns the route and tests; generated typed evidence
+remains local host state.
 
 ### Next route
 

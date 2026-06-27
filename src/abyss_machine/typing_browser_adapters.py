@@ -10,6 +10,7 @@ import shutil
 import signal
 import socketserver
 import subprocess
+import struct
 import tempfile
 import threading
 import time
@@ -22,6 +23,7 @@ BROWSER_EXTENSION_SOURCE = "browser_extension_explicit"
 BROWSER_AI_TRANSCRIPT_SOURCE = "browser_ai_transcript"
 BROWSER_EXTENSION_MESSAGE_SCHEMA = "abyss_machine_browser_extension_message_v1"
 BROWSER_AI_TRANSCRIPT_MESSAGE_SCHEMA = "abyss_machine_browser_ai_transcript_message_v1"
+NATIVE_HOST_MAX_MESSAGE_BYTES = 1024 * 1024
 
 ProbeEventFinder = Callable[[str, int], tuple[dict[str, Any] | None, list[dict[str, Any]]]]
 RunCommand = Callable[[list[str], float, dict[str, str] | None], dict[str, Any]]
@@ -850,6 +852,54 @@ def native_host_message_route(message: Mapping[str, Any]) -> str:
     if message.get("schema") == BROWSER_AI_TRANSCRIPT_MESSAGE_SCHEMA or event_kind.startswith("ai_transcript_"):
         return BROWSER_AI_TRANSCRIPT_SOURCE
     return BROWSER_EXTENSION_SOURCE
+
+
+def native_host_decode_message_frame(
+    header: bytes,
+    body: bytes,
+    *,
+    max_message_bytes: int = NATIVE_HOST_MAX_MESSAGE_BYTES,
+) -> dict[str, Any] | None:
+    if not header:
+        return None
+    if len(header) != 4:
+        raise ValueError("native message header must be 4 bytes")
+    length = struct.unpack("<I", header)[0]
+    if length <= 0 or length > max_message_bytes:
+        raise ValueError(f"native message length out of range: {length}")
+    if len(body) != length:
+        raise ValueError("native message body truncated")
+    payload = json.loads(body.decode("utf-8", errors="replace"))
+    if not isinstance(payload, dict):
+        raise ValueError("native message body must be a JSON object")
+    return payload
+
+
+def native_host_read_message(
+    input_buffer: Any,
+    *,
+    max_message_bytes: int = NATIVE_HOST_MAX_MESSAGE_BYTES,
+) -> dict[str, Any] | None:
+    header = input_buffer.read(4)
+    if not header:
+        return None
+    if len(header) != 4:
+        raise ValueError("native message header must be 4 bytes")
+    length = struct.unpack("<I", header)[0]
+    if length <= 0 or length > max_message_bytes:
+        raise ValueError(f"native message length out of range: {length}")
+    body = input_buffer.read(length)
+    return native_host_decode_message_frame(header, body, max_message_bytes=max_message_bytes)
+
+
+def native_host_encode_response_frame(payload: Mapping[str, Any]) -> bytes:
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return struct.pack("<I", len(raw)) + raw
+
+
+def native_host_write_response(output_buffer: Any, payload: Mapping[str, Any]) -> None:
+    output_buffer.write(native_host_encode_response_frame(payload))
+    output_buffer.flush()
 
 
 def native_host_response(result: Mapping[str, Any]) -> dict[str, Any]:
