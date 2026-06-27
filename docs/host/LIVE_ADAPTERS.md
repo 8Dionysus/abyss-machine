@@ -18,7 +18,7 @@ package modules keep stable contracts, policy, and read-model shapes.
 
 | Surface | Reads | Writes | Mutates/executes | Current home |
 |---|---|---|---|---|
-| `typing` | policy files, Codex session JSONL, browser/native-host payloads, saved text files, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing saved-text scan state/latest, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; Codex prompt/session-tail semantic ingest plans live in `typing_codex_semantics`; browser/native-host ingest plans, synthetic selftest documents, route selection, response envelopes, framed native-host byte transport, temporary Firefox WebExtension selftest profile prep, loopback HTTP probe, `web-ext` command selection, subprocess lifecycle, cleanup, and probe-result document assembly live in `typing_browser_adapters`; focused-snapshot, AT-SPI text-event sample/metadata/debounce, and generic GUI selftest semantic plans live in `typing_atspi_adapters`; saved-text filesystem scan limits, path walking, state continuity, decode rejection, candidate/skip accounting, ingest kwargs, state entries, and scan documents live in `typing_saved_text_adapters`; native-host stdin/stdout binding, `pyatspi` traversal/listener registration, text reads, `typing_ingest`, saved-text state/latest writes, WebExtension latest writes, and browser AT-SPI/focused/privacy/context live probes remain CLI edge. |
+| `typing` | policy files, Codex session JSONL, browser/native-host payloads, saved text files, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing saved-text scan state/latest, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; Codex prompt/session-tail semantic ingest plans live in `typing_codex_semantics`; browser/native-host ingest plans, synthetic selftest documents, route selection, response envelopes, framed native-host byte transport, temporary Firefox WebExtension selftest profile prep, loopback HTTP probe, `web-ext` command selection, subprocess lifecycle, cleanup, and probe-result document assembly live in `typing_browser_adapters`; focused-snapshot, AT-SPI text-event sample/metadata/debounce, text-event listener runtime, supplied-object runtime helpers, and generic GUI selftest semantic plans live in `typing_atspi_adapters`; saved-text filesystem scan limits, path walking, state continuity, decode rejection, candidate/skip accounting, ingest kwargs, state entries, and scan documents live in `typing_saved_text_adapters`; native-host stdin/stdout binding, focused/browser `pyatspi` traversal, `typing_ingest`, saved-text state/latest writes, WebExtension latest writes, and browser AT-SPI/focused/privacy/context live probes remain CLI edge. |
 | `nervous` | source policy, privacy state, fact/event/episode JSONL, browser history DBs, explicit metadata roots, podman metadata, clipboard, screenshot/window state, semantic/index SQLite stores. | nervous facts/events/episodes/latest, index/semantic status, synthesis/eval reports, retention plans, privacy audit records. | browser content capture, GNOME/X11 probes, retention apply/unlink, semantic embedding subprocesses, reranker subprocesses. | Contracts split across nervous modules; latest/history persistence starts in `typing_nervous_adapters`; most probes remain CLI edge. |
 | `dictation` | audio devices, runtime config, transcripts, WAV metadata, server state. | transcript latest/JSONL, dictation index, validation latest. | recording, server transport, clipboard/text insertion, audio runtime subprocesses. | `dictation_contracts` owns shapes; live audio/clipboard/server adapters remain CLI edge. |
 | `ai` | runtime config, model/cache roots, package availability, tokenizer/model inventories, generated AoA summaries. | AI runtime/status/eval/token-accounting latest and histories. | OpenVINO, tokenizer, STT/TTS, resident LLM and benchmark subprocesses. | `ai_runtime_contracts`, `ai_tts_contracts`, and `ai_cpu_routing` own contracts; live execution remains CLI edge. |
@@ -91,7 +91,7 @@ edge debt.
 
 ## Extracted AT-SPI Semantic Seam
 
-`abyss_machine.typing_atspi_adapters` owns the first AT-SPI semantic adapter
+`abyss_machine.typing_atspi_adapters` owns the AT-SPI semantic/runtime adapter
 boundary for typing intake:
 
 - focused-snapshot ingest plans, candidate projections, metadata, context, and
@@ -103,13 +103,17 @@ boundary for typing intake:
 - safe string handling shared by live AT-SPI object readers;
 - AT-SPI object runtime helpers for state flags, text payload reads, object
   paths, document attributes, application/proc fallback context, and event
-  object context projection over supplied accessibility objects.
+  object context projection over supplied accessibility objects;
+- AT-SPI text-event listener runtime: `pyatspi` loading, event type selection,
+  Registry listener registration/start/stop, bounded sample timers, heartbeat
+  refresh loops, max-event stop, summary counters, compact-history callback
+  routing, and listener failure documents.
 
-The CLI still owns `pyatspi` imports, accessibility-tree traversal, live
-listener registration, monotonic clocks, calling `typing_ingest`,
-latest/history writes, and command rendering. Browser AT-SPI selftest
-execution, release-profile probing, focused-browser diagnostics, and privacy
-selftest record readers remain live edge debt.
+The CLI still owns policy reads, focused/browser accessibility-tree traversal,
+calling `typing_ingest`, latest/history writes, compact-history persistence
+callbacks, and command rendering. Browser AT-SPI selftest execution,
+release-profile probing, focused-browser diagnostics, and privacy selftest
+record readers remain live edge debt.
 
 ## Extracted Saved-Text Scan Seam
 
@@ -133,8 +137,8 @@ reads, and command rendering.
 
 1. Typing/nervous source adapters: browser AT-SPI selftest execution,
    focused-browser, browser-context, and privacy selftest runtime adapters,
-   selftest record readers, and the remaining `pyatspi` import/traversal/
-   listener runtime edge.
+   selftest record readers, and the remaining focused/browser `pyatspi`
+   traversal runtime edge.
 2. Nervous index/semantic execution adapters: SQLite store lifecycle,
    embedding subprocess execution, rerank subprocess execution, and latest
    provenance writes.

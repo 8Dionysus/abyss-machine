@@ -108,6 +108,160 @@ class FakeAccessible:
         return self.indexInParent
 
 
+class FakeAtspiEvent:
+    def __init__(self, event_type: str, source: object) -> None:
+        self.type = event_type
+        self.source = source
+        self.detail1 = 1
+        self.detail2 = 2
+        self.any_data = {"kind": "fake"}
+
+
+class FakeRegistry:
+    def __init__(self, events: list[FakeAtspiEvent]) -> None:
+        self.events = events
+        self.listeners: list[tuple[object, str]] = []
+        self.stop_calls = 0
+        self.started = False
+
+    def registerEventListener(self, callback: object, event_type: str) -> None:
+        self.listeners.append((callback, event_type))
+
+    def start(self) -> None:
+        self.started = True
+        for event in self.events:
+            for callback, event_type in list(self.listeners):
+                if event_type == event.type:
+                    callback(event)  # type: ignore[misc]
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+
+class FakeTimer:
+    def __init__(self, seconds: float, callback: object) -> None:
+        self.seconds = seconds
+        self.callback = callback
+        self.daemon = False
+        self.started = False
+        self.cancelled = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.ticks = 0
+
+    def now_iso(self) -> str:
+        self.ticks += 1
+        return f"2026-06-27T00:00:{self.ticks:02d}Z"
+
+    def monotonic(self) -> float:
+        self.ticks += 1
+        return float(self.ticks) / 10.0
+
+
+def test_atspi_listener_runtime_registers_events_and_routes_samples_without_live_pyatspi() -> None:
+    field = object()
+    registry = FakeRegistry([
+        FakeAtspiEvent("object:text-changed:insert", field),
+        FakeAtspiEvent("object:text-changed:insert", field),
+    ])
+    pyatspi_module = type("FakePyAtspiModule", (), {"Registry": registry})()
+    clock = FakeClock()
+    compact_calls: list[tuple[dict[str, object] | None, str, str | None]] = []
+    stored: list[tuple[str, bool, int]] = []
+    handled: list[str] = []
+
+    def handle_event(event: object, pyatspi: object, last_by_context: dict[str, dict[str, object]], write_latest: bool) -> dict[str, object]:
+        assert pyatspi is pyatspi_module
+        assert write_latest is True
+        handled.append(event.type)  # type: ignore[attr-defined]
+        last_by_context["fake"] = {"event_id": "evt-1"}
+        return {
+            "generated_at": clock.now_iso(),
+            "status": "captured",
+            "typing_event": {"event_id": "evt-1", "status": "captured"},
+        }
+
+    def store_latest_history(data: dict[str, object], write_latest: bool) -> dict[str, object]:
+        summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+        stored.append((str(data.get("status")), write_latest, int(summary.get("events_seen") or 0)))
+        return data
+
+    def append_compact_history(
+        data: dict[str, object],
+        sample: dict[str, object] | None,
+        listener_status: str,
+        error: str | None,
+    ) -> dict[str, object] | None:
+        compact_calls.append((sample, listener_status, error))
+        return None
+
+    data = typing_atspi_adapters.run_atspi_text_events_listener(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at=clock.now_iso(),
+        events_policy={"event_types": ["object:text-changed:insert"], "max_events_per_run": 1},
+        seconds=1.0,
+        forever=False,
+        write_latest=True,
+        handle_event=handle_event,
+        store_latest_history=store_latest_history,
+        write_latest_only=lambda data: [],
+        append_compact_history=append_compact_history,
+        pyatspi_module=pyatspi_module,
+        now_iso=clock.now_iso,
+        monotonic=clock.monotonic,
+        timer_factory=FakeTimer,
+    )
+
+    assert registry.listeners and registry.listeners[0][1] == "object:text-changed:insert"
+    assert registry.started is True
+    assert registry.stop_calls == 1
+    assert handled == ["object:text-changed:insert"]
+    assert data["ok"] is True
+    assert data["status"] == "sample_complete"
+    assert data["summary"]["events_seen"] == 1
+    assert data["summary"]["captured"] == 1
+    assert data["last_typing_event_id"] == "evt-1"
+    assert compact_calls[0][1] == "running"
+    assert stored[-1][0] == "sample_complete"
+
+
+def test_atspi_listener_runtime_reports_missing_pyatspi_through_store_callback() -> None:
+    stored: list[dict[str, object]] = []
+
+    def store_latest_history(data: dict[str, object], write_latest: bool) -> dict[str, object]:
+        stored.append(dict(data))
+        return data
+
+    data = typing_atspi_adapters.run_atspi_text_events_listener(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-27T00:00:00Z",
+        events_policy={},
+        seconds=1.0,
+        forever=False,
+        write_latest=True,
+        handle_event=lambda event, pyatspi, last_by_context, write_latest: {},
+        store_latest_history=store_latest_history,
+        write_latest_only=lambda data: [],
+        append_compact_history=lambda data, sample, listener_status, error: None,
+        load_pyatspi=lambda: (None, "pyatspi_unavailable: missing fake module"),
+    )
+
+    assert data["ok"] is False
+    assert data["status"] == "pyatspi_unavailable"
+    assert data["error"] == "pyatspi_unavailable: missing fake module"
+    assert stored and stored[-1]["status"] == "pyatspi_unavailable"
+
+
 def test_atspi_runtime_helpers_project_object_payloads_without_live_pyatspi() -> None:
     app = FakeApp()
     frame = FakeAccessible(

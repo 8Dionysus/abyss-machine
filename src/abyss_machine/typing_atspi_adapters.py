@@ -3,11 +3,18 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import threading
+import time
 from typing import Any, Callable, Mapping
 
 
 AT_SPI_TEXT_EVENT_SOURCE = "atspi_text_changed_event"
 FOCUSED_SNAPSHOT_SOURCE = "atspi_focused_text_snapshot"
+
+AtspiEventHandler = Callable[[Any, Any, dict[str, dict[str, Any]], bool], dict[str, Any]]
+StoreLatestHistory = Callable[[dict[str, Any], bool], dict[str, Any]]
+WriteLatestOnly = Callable[[dict[str, Any]], list[dict[str, Any]]]
+AppendCompactHistory = Callable[[dict[str, Any], dict[str, Any] | None, str, str | None], dict[str, Any] | None]
 
 
 def nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -39,6 +46,260 @@ def safe_string(value: Any, limit: int = 240) -> str:
 
 def text_sha256(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8", errors="replace")).hexdigest()
+
+
+def import_pyatspi_module() -> tuple[Any | None, str | None]:
+    try:
+        import pyatspi  # type: ignore
+    except Exception as exc:
+        return None, f"pyatspi_unavailable: {exc}"
+    return pyatspi, None
+
+
+def atspi_text_event_types(events_policy: Mapping[str, Any]) -> list[str]:
+    event_types = [str(item) for item in events_policy.get("event_types", []) if str(item).strip()]
+    return event_types or ["object:text-changed:insert", "object:text-changed:delete"]
+
+
+def atspi_text_events_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    seconds: float | None,
+    forever: bool,
+    source: str = AT_SPI_TEXT_EVENT_SOURCE,
+) -> dict[str, Any]:
+    return {
+        "schema": f"{schema_prefix}_typing_atspi_text_events_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "started_at": generated_at,
+        "heartbeat_at": generated_at,
+        "last_event_at": None,
+        "ok": False,
+        "status": "starting",
+        "source_adapter": source,
+        "read_only": True,
+        "raw_keylogging": False,
+        "password_fields_captured": False,
+        "forever": bool(forever),
+        "seconds": None if forever else seconds,
+        "summary": {
+            "events_seen": 0,
+            "captured": 0,
+            "metadata_only_or_skipped": 0,
+            "debounced": 0,
+            "errors": 0,
+        },
+        "samples": [],
+        "errors": [],
+        "policy": {
+            "committed_text_only": True,
+            "capture_gate_before_text_read": True,
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "automatic_action": False,
+        },
+    }
+
+
+def atspi_text_events_disabled_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    source: str = AT_SPI_TEXT_EVENT_SOURCE,
+) -> dict[str, Any]:
+    return {
+        "schema": f"{schema_prefix}_typing_atspi_text_events_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": True,
+        "status": "disabled",
+        "source_adapter": source,
+        "policy": {"raw_keylogging": False, "password_fields_captured": False, "automatic_action": False},
+    }
+
+
+def run_atspi_text_events_listener(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    events_policy: Mapping[str, Any],
+    seconds: float | None,
+    forever: bool,
+    write_latest: bool,
+    handle_event: AtspiEventHandler,
+    store_latest_history: StoreLatestHistory,
+    write_latest_only: WriteLatestOnly,
+    append_compact_history: AppendCompactHistory,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+    now_iso: Callable[[], str] | None = None,
+    monotonic: Callable[[], float] = time.monotonic,
+    timer_factory: Callable[[float, Callable[[], None]], Any] = threading.Timer,
+    thread_factory: Callable[..., Any] = threading.Thread,
+    event_factory: Callable[[], Any] = threading.Event,
+    lock_factory: Callable[[], Any] = threading.RLock,
+) -> dict[str, Any]:
+    now = now_iso or (lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    source = AT_SPI_TEXT_EVENT_SOURCE
+    data = atspi_text_events_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        seconds=seconds,
+        forever=forever,
+        source=source,
+    )
+    pyatspi = pyatspi_module
+    if pyatspi is None:
+        pyatspi, import_error = load_pyatspi()
+        if import_error or pyatspi is None:
+            data["status"] = "pyatspi_unavailable"
+            data["error"] = import_error or "pyatspi_unavailable"
+            return store_latest_history(data, write_latest)
+
+    last_by_context: dict[str, dict[str, Any]] = {}
+    event_types = atspi_text_event_types(events_policy)
+    max_events = 0 if forever else max(1, min(safe_int(events_policy.get("max_events_per_run"), 400), 5000))
+    started = monotonic()
+    heartbeat_interval = max(10.0, min(float(events_policy.get("heartbeat_interval_sec") or 30.0), 300.0))
+    history_checkpoint_events = max(100, min(safe_int(events_policy.get("history_checkpoint_events"), 1000), 100000))
+    data_lock = lock_factory()
+    stop_heartbeat = event_factory()
+
+    def refresh_latest(status: str, append_history: bool = True) -> None:
+        with data_lock:
+            stamp = now()
+            data["generated_at"] = stamp
+            data["heartbeat_at"] = stamp
+            data["ok"] = True
+            data["status"] = status
+            data["elapsed_sec"] = round(monotonic() - started, 3)
+            data["heartbeat_interval_sec"] = heartbeat_interval if forever else None
+            if write_latest:
+                if append_history:
+                    store_latest_history(data, True)
+                else:
+                    errors = write_latest_only(data)
+                    if errors:
+                        data["ok"] = False
+                        data["write_errors"] = errors
+
+    def heartbeat_loop() -> None:
+        while not stop_heartbeat.wait(heartbeat_interval):
+            refresh_latest("running", append_history=False)
+
+    def on_event(event: Any) -> None:
+        if max_events and int(nested_get(data, ["summary", "events_seen"]) or 0) >= max_events:
+            try:
+                pyatspi.Registry.stop()
+            except Exception:
+                pass
+            return
+        try:
+            sample = handle_event(event, pyatspi, last_by_context, write_latest)
+        except Exception as exc:
+            compact_history_error = None
+            with data_lock:
+                data["last_event_at"] = now()
+                data["summary"]["errors"] = int(data["summary"].get("errors") or 0) + 1
+                errors_seen = int(data["summary"].get("errors") or 0)
+                events_seen = int(data["summary"].get("events_seen") or 0)
+                if len(data["errors"]) < 20:
+                    data["errors"].append({"error": repr(exc)[:240]})
+                append_history = errors_seen <= 3 or errors_seen % 100 == 0 or (
+                    events_seen > 0 and events_seen % history_checkpoint_events == 0
+                )
+                error_record_text = repr(exc)[:500]
+            if write_latest:
+                compact_history_error = append_compact_history(data, None, "running_with_errors", error_record_text)
+            if compact_history_error:
+                with data_lock:
+                    data["ok"] = False
+                    write_errors = data.get("write_errors") if isinstance(data.get("write_errors"), list) else []
+                    if len(write_errors) < 20:
+                        write_errors.append(compact_history_error)
+                    data["write_errors"] = write_errors
+            refresh_latest("running_with_errors", append_history=append_history)
+            return
+
+        compact_history_error = None
+        with data_lock:
+            data["last_event_at"] = sample.get("generated_at") or now()
+            data["summary"]["events_seen"] = int(data["summary"].get("events_seen") or 0) + 1
+            events_seen = int(data["summary"].get("events_seen") or 0)
+            status = str(sample.get("status") or "unknown")
+            if status == "captured":
+                data["summary"]["captured"] = int(data["summary"].get("captured") or 0) + 1
+            elif status == "debounced":
+                data["summary"]["debounced"] = int(data["summary"].get("debounced") or 0) + 1
+            else:
+                data["summary"]["metadata_only_or_skipped"] = int(data["summary"].get("metadata_only_or_skipped") or 0) + 1
+            typing_event = sample.get("typing_event") if isinstance(sample.get("typing_event"), dict) else {}
+            if typing_event.get("event_id"):
+                data["last_typing_event_id"] = typing_event.get("event_id")
+                data["last_typing_event_status"] = typing_event.get("status")
+            samples = data.get("samples") if isinstance(data.get("samples"), list) else []
+            if len(samples) < 40 and status != "debounced":
+                samples.append(sample)
+                data["samples"] = samples
+            append_history = events_seen == 1 or events_seen % history_checkpoint_events == 0
+        if write_latest:
+            compact_history_error = append_compact_history(data, sample, "running", None)
+        if compact_history_error:
+            with data_lock:
+                data["ok"] = False
+                write_errors = data.get("write_errors") if isinstance(data.get("write_errors"), list) else []
+                if len(write_errors) < 20:
+                    write_errors.append(compact_history_error)
+                data["write_errors"] = write_errors
+        refresh_latest("running", append_history=append_history)
+
+    timer: Any | None = None
+    heartbeat_thread: Any | None = None
+    try:
+        for event_type in event_types:
+            pyatspi.Registry.registerEventListener(on_event, event_type)
+        refresh_latest("running")
+        if forever:
+            heartbeat_thread = thread_factory(target=heartbeat_loop, daemon=True)
+            heartbeat_thread.start()
+        if not forever:
+            sample_seconds = max(1.0, min(float(seconds or 5.0), 120.0))
+            timer = timer_factory(sample_seconds, pyatspi.Registry.stop)
+            timer.daemon = True
+            timer.start()
+        try:
+            pyatspi.Registry.start()
+        finally:
+            stop_heartbeat.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=1.0)
+            if timer is not None:
+                timer.cancel()
+    except KeyboardInterrupt:
+        data["status"] = "interrupted"
+    except Exception as exc:
+        data["ok"] = False
+        data["status"] = "listener_failed"
+        data["error"] = f"atspi_text_event_listener_failed: {exc}"
+        return store_latest_history(data, write_latest)
+
+    data["ok"] = True
+    data["status"] = "stopped" if forever else "sample_complete"
+    data["generated_at"] = now()
+    data["heartbeat_at"] = data["generated_at"]
+    data["elapsed_sec"] = round(monotonic() - started, 3)
+    data["non_claims"] = [
+        "AT-SPI text events are accessibility committed-text events, not raw key events.",
+        "Capture-gate runs before text read; denied contexts are skipped or metadata-only.",
+        "Browser contexts require a safe URL; generic app text requires focused/visible editable text-role evidence.",
+    ]
+    return store_latest_history(data, write_latest)
 
 
 def atspi_state_flags(obj: Any, pyatspi_module: Any) -> dict[str, bool]:
