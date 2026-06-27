@@ -6,6 +6,7 @@ from pathlib import Path
 import threading
 import time
 from typing import Any, Callable, Mapping
+import warnings
 
 
 AT_SPI_TEXT_EVENT_SOURCE = "atspi_text_changed_event"
@@ -55,6 +56,17 @@ def import_pyatspi_module() -> tuple[Any | None, str | None]:
     except Exception as exc:
         return None, f"pyatspi_unavailable: {exc}"
     return pyatspi, None
+
+
+def import_gi_atspi_module() -> tuple[Any | None, str | None]:
+    try:
+        import gi  # type: ignore
+
+        gi.require_version("Atspi", "2.0")
+        from gi.repository import Atspi  # type: ignore
+    except Exception as exc:
+        return None, f"AT-SPI import failed: {exc}"
+    return Atspi, None
 
 
 def load_pyatspi_desktop(
@@ -1132,6 +1144,330 @@ def atspi_insert_text_by_path(
             },
         })
         return data
+    return data
+
+
+def gi_atspi_state_contains(node: Any, state: Any) -> bool:
+    try:
+        state_set = node.get_state_set()
+        return bool(state_set and state_set.contains(state))
+    except Exception:
+        return False
+
+
+def gi_atspi_document_attributes(atspi_module: Any, document: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for target_key, atspi_key in (
+        ("url", "DocURL"),
+        ("content_type", "MimeType"),
+        ("title", "Title"),
+    ):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                value = atspi_module.Accessible.get_document_attribute_value(document, atspi_key)
+        except Exception:
+            value = None
+        if value:
+            values[target_key] = str(value)
+    return values
+
+
+def gi_atspi_firefox_documents(
+    atspi_module: Any,
+    app: Any,
+    max_nodes: int = 20000,
+    max_children: int = 180,
+    max_depth: int = 16,
+) -> list[dict[str, Any]]:
+    documents: list[dict[str, Any]] = []
+    roles = {
+        atspi_module.Role.DOCUMENT_WEB,
+        atspi_module.Role.DOCUMENT_FRAME,
+        atspi_module.Role.DOCUMENT_TEXT,
+        atspi_module.Role.DOCUMENT_EMAIL,
+    }
+    stack: list[tuple[Any, int, str]] = [(app, 0, "0")]
+    nodes_seen = 0
+    while stack and nodes_seen < max_nodes:
+        node, depth, path = stack.pop()
+        nodes_seen += 1
+        try:
+            role = atspi_module.Accessible.get_role(node)
+            role_name = str(atspi_module.Accessible.get_role_name(node) or "")
+            name = str(atspi_module.Accessible.get_name(node) or "")
+            child_count = int(atspi_module.Accessible.get_child_count(node) or 0)
+        except Exception:
+            continue
+        if role in roles:
+            documents.append({
+                "node": node,
+                "path": path,
+                "role": role_name,
+                "name": name,
+                "showing": gi_atspi_state_contains(node, atspi_module.StateType.SHOWING),
+                "visible": gi_atspi_state_contains(node, atspi_module.StateType.VISIBLE),
+                "focused": gi_atspi_state_contains(node, atspi_module.StateType.FOCUSED),
+            })
+        if depth < max_depth:
+            for index in range(min(child_count, max_children) - 1, -1, -1):
+                try:
+                    stack.append((atspi_module.Accessible.get_child_at_index(node, index), depth + 1, f"{path}.{index}"))
+                except Exception:
+                    continue
+    return documents
+
+
+def gi_atspi_document_priority(document: dict[str, Any]) -> tuple[int, int, int, int]:
+    return (
+        1 if document.get("focused") else 0,
+        1 if document.get("showing") else 0,
+        1 if document.get("visible") else 0,
+        -len(str(document.get("path") or "")),
+    )
+
+
+def atspi_insert_text_by_url(
+    url: str,
+    expected_current_sha256: str,
+    insert_text: str,
+    timeout_sec: float = 10.0,
+    *,
+    atspi_module: Any | None = None,
+    load_atspi: Callable[[], tuple[Any | None, str | None]] = import_gi_atspi_module,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "status": "not_found",
+        "url": url,
+        "nodes_seen": 0,
+        "attempts": [],
+        "errors": [],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "accessibility_targeted_edit_only": True,
+            "global_virtual_keyboard": False,
+            "requires_url_match": True,
+            "requires_expected_current_text_hash": True,
+            "sensitive_state_override_limited_to_expected_selftest_text": True,
+        },
+    }
+    atspi = atspi_module
+    if atspi is None:
+        atspi, import_error = load_atspi()
+        if import_error or atspi is None:
+            data["status"] = "atspi_unavailable"
+            data["error"] = import_error or "AT-SPI import failed"
+            return data
+    deadline = monotonic() + max(1.0, min(float(timeout_sec or 10.0), 20.0))
+    editable_roles = {atspi.Role.ENTRY, atspi.Role.TEXT}
+    text_roles = {atspi.Role.ENTRY, atspi.Role.TEXT, atspi.Role.PARAGRAPH}
+
+    def role_name(obj: Any) -> str:
+        try:
+            return safe_string(atspi.Accessible.get_role_name(obj), 120)
+        except Exception:
+            return "<role_unreadable>"
+
+    def node_name(obj: Any) -> str:
+        try:
+            return safe_string(atspi.Accessible.get_name(obj), 180)
+        except Exception:
+            return "<name_unreadable>"
+
+    def node_text(obj: Any) -> tuple[str, int, int | None, str | None]:
+        try:
+            text_iface = atspi.Accessible.get_text_iface(obj)
+            if not text_iface:
+                return "", 0, None, None
+            count = int(atspi.Text.get_character_count(text_iface) or 0)
+            caret = int(atspi.Text.get_caret_offset(text_iface) or 0)
+            text = str(atspi.Text.get_text(text_iface, 0, min(count, 12000)) or "") if count > 0 else ""
+            return text, count, caret, None
+        except Exception as exc:
+            return "", 0, None, f"read_text_failed: {exc}"
+
+    def child_count(obj: Any) -> int:
+        try:
+            return int(atspi.Accessible.get_child_count(obj) or 0)
+        except Exception:
+            return 0
+
+    def child_at(obj: Any, index: int) -> Any | None:
+        try:
+            return atspi.Accessible.get_child_at_index(obj, index)
+        except Exception as exc:
+            if len(data["errors"]) < 10:
+                data["errors"].append({"kind": "child_unreadable", "error": str(exc)[:160]})
+            return None
+
+    def attempt_insert(node: Any, path: str, document_path: str, document_attrs: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            role = atspi.Accessible.get_role(node)
+        except Exception:
+            return None
+        editable_state = gi_atspi_state_contains(node, atspi.StateType.EDITABLE)
+        if role not in text_roles and not editable_state:
+            return None
+        states = {
+            "focused": gi_atspi_state_contains(node, atspi.StateType.FOCUSED),
+            "editable": editable_state,
+            "showing": gi_atspi_state_contains(node, atspi.StateType.SHOWING),
+            "visible": gi_atspi_state_contains(node, atspi.StateType.VISIBLE),
+            "sensitive": gi_atspi_state_contains(node, atspi.StateType.SENSITIVE),
+            "enabled": gi_atspi_state_contains(node, atspi.StateType.ENABLED),
+        }
+        text, text_length, caret, text_error = node_text(node)
+        text_sha = text_sha256(text) if text else None
+        attempt = {
+            "role": role_name(node),
+            "name": node_name(node),
+            "path": path,
+            "document_path": document_path,
+            "url": document_attrs.get("url"),
+            "document_title": document_attrs.get("title"),
+            "content_type": document_attrs.get("content_type"),
+            "text_length": text_length,
+            "text_sha256": text_sha,
+            "expected_current_text_match": bool(text_sha == expected_current_sha256),
+            "states_before": states,
+            "text_error": text_error,
+            "text_read": True,
+            "_text": text,
+        }
+        data["attempts"].append(attempt)
+        data["attempts"] = data["attempts"][-12:]
+        low_shape = f"{attempt['role']} {attempt['name']}".lower()
+        expected_selftest_text = text_sha == expected_current_sha256
+        sensitive_selftest_override = bool(
+            states.get("sensitive")
+            and expected_selftest_text
+            and "password" not in low_shape
+            and "passwd" not in low_shape
+            and "secret" not in low_shape
+            and "token" not in low_shape
+        )
+        if states.get("sensitive") and not sensitive_selftest_override:
+            return {**attempt, "status": "matched_sensitive_refused"}
+        if sensitive_selftest_override:
+            attempt["sensitive_state_overridden_by_expected_selftest_text"] = True
+        if role not in editable_roles and not states.get("editable"):
+            return None
+        if not expected_selftest_text:
+            return {**attempt, "status": "matched_unexpected_current_text"}
+        try:
+            editable = atspi.Accessible.get_editable_text_iface(node)
+            if not editable:
+                return {**attempt, "status": "editable_text_unavailable"}
+        except Exception as exc:
+            return {**attempt, "status": "editable_text_unavailable", "error": str(exc)[:180]}
+        insert_offset = caret if isinstance(caret, int) and caret >= 0 else text_length
+        field_focus: dict[str, Any] = {}
+        try:
+            component = atspi.Accessible.get_component_iface(node)
+            if component:
+                field_focus["component_grab_focus"] = bool(atspi.Component.grab_focus(component))
+        except Exception as exc:
+            field_focus["component_error"] = str(exc)[:180]
+        try:
+            text_iface = atspi.Accessible.get_text_iface(node)
+            if text_iface:
+                atspi.Text.set_caret_offset(text_iface, insert_offset)
+        except Exception:
+            pass
+        try:
+            insert_ok = bool(atspi.EditableText.insert_text(editable, insert_offset, insert_text, len(insert_text)))
+        except Exception as exc:
+            return {**attempt, "status": "insert_failed", "insert_error": str(exc)[:180]}
+        sleep(0.2)
+        after_text, after_length, after_caret, after_error = node_text(node)
+        after_sha = text_sha256(after_text) if after_text else None
+        expected_after = text[:insert_offset] + insert_text + text[insert_offset:]
+        expected_after_sha = text_sha256(expected_after)
+        set_contents_ok: bool | None = None
+        if after_sha != expected_after_sha:
+            try:
+                set_contents_ok = bool(atspi.EditableText.set_text_contents(editable, expected_after))
+            except Exception as exc:
+                data.setdefault("errors", []).append({"kind": "set_text_contents_failed", "error": str(exc)[:180]})
+                set_contents_ok = False
+            sleep(0.2)
+            after_text, after_length, after_caret, after_error = node_text(node)
+            after_sha = text_sha256(after_text) if after_text else None
+        return {
+            **attempt,
+            "status": "inserted" if (insert_ok or set_contents_ok) and after_sha == expected_after_sha else "insert_unconfirmed",
+            "field_focus": field_focus,
+            "insert_offset": insert_offset,
+            "insert_ok": insert_ok,
+            "set_text_contents_fallback_ok": set_contents_ok,
+            "after_text_length": after_length,
+            "after_text_sha256": after_sha,
+            "after_expected_match": bool(after_sha == expected_after_sha),
+            "after_caret_offset": after_caret,
+            "after_text_error": after_error,
+            "_after_text": after_text,
+        }
+
+    while monotonic() < deadline:
+        try:
+            desktop = atspi.get_desktop(0)
+            app_count = int(atspi.Accessible.get_child_count(desktop) or 0)
+        except Exception as exc:
+            data["status"] = "desktop_unreadable"
+            data["error"] = f"desktop_unreadable: {exc}"
+            return data
+        firefox_apps: list[Any] = []
+        for index in range(min(app_count, 80)):
+            app = child_at(desktop, index)
+            if app is None:
+                continue
+            try:
+                app_name = str(atspi.Accessible.get_name(app) or "")
+            except Exception:
+                app_name = ""
+            if "firefox" in app_name.lower():
+                firefox_apps.append(app)
+        for app in firefox_apps[:8]:
+            documents = gi_atspi_firefox_documents(atspi, app, max_nodes=20000, max_children=180)
+            documents = sorted(documents, key=gi_atspi_document_priority, reverse=True)
+            for document in documents[:48]:
+                node = document.get("node")
+                if node is None:
+                    continue
+                attrs = gi_atspi_document_attributes(atspi, node)
+                if str(attrs.get("url") or "") != url:
+                    continue
+                document_path = str(document.get("path") or "")
+                stack: list[tuple[Any, str, int]] = [(node, document_path, 0)]
+                while stack and data["nodes_seen"] < 12000 and monotonic() < deadline:
+                    current, path, depth = stack.pop()
+                    data["nodes_seen"] += 1
+                    matched = attempt_insert(current, path, document_path, attrs)
+                    if isinstance(matched, dict) and matched.get("status") in {
+                        "matched_sensitive_refused",
+                        "matched_unexpected_current_text",
+                        "editable_text_unavailable",
+                        "insert_failed",
+                        "inserted",
+                        "insert_unconfirmed",
+                    }:
+                        data.update({
+                            "ok": bool(matched.get("status") == "inserted" and matched.get("after_expected_match") is True),
+                            "status": str(matched.get("status") or "matched"),
+                            "method": "atspi_editable_text_insert",
+                            "matched": matched,
+                        })
+                        return data
+                    if depth < 12:
+                        for child_index in range(min(child_count(current), 180) - 1, -1, -1):
+                            child = child_at(current, child_index)
+                            if child is not None:
+                                stack.append((child, f"{path}.{child_index}", depth + 1))
+        sleep(0.5)
     return data
 
 

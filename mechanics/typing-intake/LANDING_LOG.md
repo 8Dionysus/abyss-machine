@@ -40,5 +40,11 @@
   `pyatspi` desktop loading, path resolution, URL/text-hash confirmation,
   accessibility focus, editable-text insert/set fallback, and result
   confirmation for a known AT-SPI path while CLI owns capture policy decisions,
-  `typing_ingest`, latest writes, URL-scanned text insertion, GI/Atspi frame
-  focus, live probe orchestration, and command rendering.
+  `typing_ingest`, latest writes, GI/Atspi frame focus, live probe
+  orchestration, and command rendering.
+- AT-SPI URL-scanned text/insert seam: `typing_atspi_adapters` owns GI Atspi
+  loading, Firefox document scan/priority, URL/current-text hash confirmation,
+  editable-text insert/set fallback, focus/caret handling, and after-hash
+  confirmation while CLI owns capture policy decisions, `typing_ingest`,
+  latest writes, GI/Atspi frame focus, live probe orchestration, and command
+  rendering.

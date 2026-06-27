@@ -209,6 +209,167 @@ class FakeRegistry:
         self.stop_calls += 1
 
 
+class FakeGiAtspi:
+    class Role:
+        ENTRY = "entry"
+        TEXT = "text"
+        PARAGRAPH = "paragraph"
+        DOCUMENT_WEB = "document web"
+        DOCUMENT_FRAME = "document frame"
+        DOCUMENT_TEXT = "document text"
+        DOCUMENT_EMAIL = "document email"
+
+    class StateType:
+        FOCUSED = "focused"
+        EDITABLE = "editable"
+        SHOWING = "showing"
+        VISIBLE = "visible"
+        SENSITIVE = "sensitive"
+        ENABLED = "enabled"
+
+    desktop: object | None = None
+
+    @classmethod
+    def get_desktop(cls, index: int) -> object:
+        if cls.desktop is None:
+            raise RuntimeError("desktop unavailable")
+        return cls.desktop
+
+    class Accessible:
+        @staticmethod
+        def get_role(node: "FakeGiNode") -> str:
+            return node.role
+
+        @staticmethod
+        def get_role_name(node: "FakeGiNode") -> str:
+            return node.role_name
+
+        @staticmethod
+        def get_name(node: "FakeGiNode") -> str:
+            return node.name
+
+        @staticmethod
+        def get_child_count(node: "FakeGiNode") -> int:
+            return len(node.children)
+
+        @staticmethod
+        def get_child_at_index(node: "FakeGiNode", index: int) -> "FakeGiNode":
+            return node.children[index]
+
+        @staticmethod
+        def get_text_iface(node: "FakeGiNode") -> "FakeGiText | None":
+            return node.text
+
+        @staticmethod
+        def get_editable_text_iface(node: "FakeGiNode") -> "FakeGiEditableText | None":
+            return FakeGiEditableText(node.text) if node.text is not None else None
+
+        @staticmethod
+        def get_component_iface(node: "FakeGiNode") -> "FakeGiComponent":
+            return FakeGiComponent(node)
+
+        @staticmethod
+        def get_document_attribute_value(node: "FakeGiNode", key: str) -> str:
+            return node.document_attributes.get(key, "")
+
+    class Text:
+        @staticmethod
+        def get_character_count(text: "FakeGiText") -> int:
+            return len(text.value)
+
+        @staticmethod
+        def get_caret_offset(text: "FakeGiText") -> int:
+            return text.caret
+
+        @staticmethod
+        def get_text(text: "FakeGiText", start: int, end: int) -> str:
+            return text.value[start:end]
+
+        @staticmethod
+        def set_caret_offset(text: "FakeGiText", offset: int) -> bool:
+            text.caret = offset
+            return True
+
+    class EditableText:
+        @staticmethod
+        def insert_text(editable: "FakeGiEditableText", offset: int, insert_text: str, length: int) -> bool:
+            return editable.insert_text(offset, insert_text, length)
+
+        @staticmethod
+        def set_text_contents(editable: "FakeGiEditableText", text: str) -> bool:
+            return editable.set_text_contents(text)
+
+    class Component:
+        @staticmethod
+        def grab_focus(component: "FakeGiComponent") -> bool:
+            return component.grab_focus()
+
+
+class FakeGiStateSet:
+    def __init__(self, flags: set[str]) -> None:
+        self.flags = flags
+
+    def contains(self, flag: str) -> bool:
+        return flag in self.flags
+
+
+class FakeGiText:
+    def __init__(self, value: str, caret: int = 0) -> None:
+        self.value = value
+        self.caret = caret
+
+
+class FakeGiEditableText:
+    def __init__(self, text: FakeGiText | None) -> None:
+        if text is None:
+            raise RuntimeError("editable text unavailable")
+        self.text = text
+
+    def insert_text(self, offset: int, insert_text: str, length: int) -> bool:
+        payload = insert_text[:length]
+        self.text.value = self.text.value[:offset] + payload + self.text.value[offset:]
+        self.text.caret = offset + len(payload)
+        return True
+
+    def set_text_contents(self, text: str) -> bool:
+        self.text.value = text
+        self.text.caret = len(text)
+        return True
+
+
+class FakeGiComponent:
+    def __init__(self, node: "FakeGiNode") -> None:
+        self.node = node
+
+    def grab_focus(self) -> bool:
+        self.node.states.add("focused")
+        return True
+
+
+class FakeGiNode:
+    def __init__(
+        self,
+        *,
+        role: str,
+        role_name: str | None = None,
+        name: str = "",
+        states: set[str] | None = None,
+        text: FakeGiText | None = None,
+        document_attributes: dict[str, str] | None = None,
+        children: list["FakeGiNode"] | None = None,
+    ) -> None:
+        self.role = role
+        self.role_name = role_name or role
+        self.name = name
+        self.states = set(states or set())
+        self.text = text
+        self.document_attributes = dict(document_attributes or {})
+        self.children = list(children or [])
+
+    def get_state_set(self) -> FakeGiStateSet:
+        return FakeGiStateSet(self.states)
+
+
 class FakeTimer:
     def __init__(self, seconds: float, callback: object) -> None:
         self.seconds = seconds
@@ -546,6 +707,85 @@ def test_atspi_insert_text_by_path_mutates_expected_text_without_live_pyatspi() 
     assert data["matched"]["after_expected_match"] is True
     assert data["matched"]["after_text_sha256"] == typing_atspi_adapters.text_sha256(expected_after)
     assert text.text == expected_after
+
+
+def test_atspi_insert_text_by_url_mutates_expected_firefox_document_without_live_gi() -> None:
+    text = FakeGiText("safe browser text", caret=len("safe browser text"))
+    field = FakeGiNode(
+        role=FakeGiAtspi.Role.ENTRY,
+        name="Search",
+        states={"editable", "showing", "visible", "enabled"},
+        text=text,
+    )
+    document = FakeGiNode(
+        role=FakeGiAtspi.Role.DOCUMENT_FRAME,
+        name="Example",
+        states={"showing", "visible"},
+        document_attributes={
+            "DocURL": "https://example.test/write",
+            "Title": "Write",
+            "MimeType": "text/html",
+        },
+        children=[field],
+    )
+    app = FakeGiNode(role="application", name="firefox", children=[document])
+    desktop = FakeGiNode(role="desktop", name="desktop", children=[app])
+    FakeGiAtspi.desktop = desktop
+
+    data = typing_atspi_adapters.atspi_insert_text_by_url(
+        "https://example.test/write",
+        typing_atspi_adapters.text_sha256("safe browser text"),
+        " plus insert",
+        atspi_module=FakeGiAtspi,
+        monotonic=lambda: 0.0,
+        sleep=lambda seconds: None,
+    )
+
+    expected_after = "safe browser text plus insert"
+    assert data["ok"] is True
+    assert data["status"] == "inserted"
+    assert data["method"] == "atspi_editable_text_insert"
+    assert data["matched"]["path"] == "0.0.0"
+    assert data["matched"]["document_path"] == "0.0"
+    assert data["matched"]["field_focus"]["component_grab_focus"] is True
+    assert data["matched"]["after_expected_match"] is True
+    assert data["matched"]["after_text_sha256"] == typing_atspi_adapters.text_sha256(expected_after)
+    assert text.value == expected_after
+    assert "focused" in field.states
+
+
+def test_atspi_insert_text_by_url_refuses_unexpected_current_text_without_live_gi() -> None:
+    text = FakeGiText("different browser text", caret=len("different browser text"))
+    field = FakeGiNode(
+        role=FakeGiAtspi.Role.ENTRY,
+        name="Search",
+        states={"editable", "showing", "visible", "enabled"},
+        text=text,
+    )
+    document = FakeGiNode(
+        role=FakeGiAtspi.Role.DOCUMENT_FRAME,
+        name="Example",
+        states={"showing", "visible"},
+        document_attributes={"DocURL": "https://example.test/write", "Title": "Write"},
+        children=[field],
+    )
+    app = FakeGiNode(role="application", name="firefox", children=[document])
+    desktop = FakeGiNode(role="desktop", name="desktop", children=[app])
+    FakeGiAtspi.desktop = desktop
+
+    data = typing_atspi_adapters.atspi_insert_text_by_url(
+        "https://example.test/write",
+        typing_atspi_adapters.text_sha256("safe browser text"),
+        " plus insert",
+        atspi_module=FakeGiAtspi,
+        monotonic=lambda: 0.0,
+        sleep=lambda seconds: None,
+    )
+
+    assert data["ok"] is False
+    assert data["status"] == "matched_unexpected_current_text"
+    assert data["matched"]["expected_current_text_match"] is False
+    assert text.value == "different browser text"
 
 
 def test_atspi_focus_metadata_by_url_walks_document_targets_without_live_pyatspi() -> None:
