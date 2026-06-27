@@ -992,6 +992,7 @@ def _build_public_media_export_test_bundle(
     trust_config_ref: str | None = None,
     allowed_list: str | None = None,
     allow_embedded_manifest: bool = False,
+    production_onboarding: bool = False,
     capture_argv: bool = False,
 ) -> tuple[Path, Path | None]:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -1003,6 +1004,30 @@ def _build_public_media_export_test_bundle(
     manifest_ref = Path("manifests/artifact_bundles/public_media_export.bundle.json")
     manifest = tmp_path / manifest_ref
     manifest.parent.mkdir(parents=True, exist_ok=True)
+    credential_onboarding = {
+        "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+        "phase": "production_trust_list_ready" if production_onboarding else "pre_organization",
+        "legal_subject_state": "validated_legal_subject" if production_onboarding else "organization_pending",
+        "interim_posture": "production_c2pa_trust_list" if production_onboarding else "local_integrity_only",
+        "release_consumer_verdict_without_production_credential": "allow" if production_onboarding else "warn",
+        "allowed_interim_uses": [
+            "produce C2PA asset-binding evidence",
+            "run privacy review",
+            "promote durable registry evidence",
+            "admit release consumers only with an explicit trust-gate warning",
+        ],
+        "blocked_claims": [
+            "production C2PA Trust List proof",
+            "organization-backed public signing identity",
+            "unqualified trusted public-media claim",
+        ],
+        "required_before_production_claim": [
+            "legal subject selected and validated",
+            "C2PA conforming product accepted",
+            "claim-signing credential chains to the C2PA Trust List",
+            "host-managed signer installed without storing private keys in source, tmp, or email",
+        ],
+    }
     manifest.write_text(
         json.dumps(
             {
@@ -1020,30 +1045,7 @@ def _build_public_media_export_test_bundle(
                     "allow_embedded_manifest": allow_embedded_manifest,
                     "validation_report": artifact_bundles.C2PA_REPORT_SIDECAR,
                     "required_validation_state": "Valid",
-                    "credential_onboarding": {
-                        "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
-                        "phase": "pre_organization",
-                        "legal_subject_state": "organization_pending",
-                        "interim_posture": "local_integrity_only",
-                        "release_consumer_verdict_without_production_credential": "warn",
-                        "allowed_interim_uses": [
-                            "produce C2PA asset-binding evidence",
-                            "run privacy review",
-                            "promote durable registry evidence",
-                            "admit release consumers only with an explicit trust-gate warning",
-                        ],
-                        "blocked_claims": [
-                            "production C2PA Trust List proof",
-                            "organization-backed public signing identity",
-                            "unqualified trusted public-media claim",
-                        ],
-                        "required_before_production_claim": [
-                            "legal subject selected and validated",
-                            "C2PA conforming product accepted",
-                            "claim-signing credential chains to the C2PA Trust List",
-                            "host-managed signer installed without storing private keys in source, tmp, or email",
-                        ],
-                    },
+                    "credential_onboarding": credential_onboarding,
                 },
             }
         ),
@@ -1172,6 +1174,31 @@ def test_public_media_export_rejects_missing_c2pa_manifest_sidecar(
     assert verify["verified_controls"] == []
 
 
+def test_public_media_export_keeps_trusted_c2pa_credential_in_warn_until_onboarding_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _ = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="trusted",
+        trust_anchors_ref=artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
+
+    assert verify["ok"] is True
+    assert "c2pa" in verify["verified_controls"]
+    assert any("credential onboarding is not production-ready" in warning for warning in verify["warnings"])
+    assert artifact_bundles.C2PA_PRE_ORGANIZATION_WARNING in verify["warnings"]
+    c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
+    assert c2pa_trust["trust_tier"] == "production_trust_list"
+    assert c2pa_trust["production_trust_list_trusted"] is True
+    assert c2pa_trust["credential_onboarding"]["phase"] == "pre_organization"
+    assert c2pa_trust["credential_onboarding"]["legal_subject_state"] == "organization_pending"
+    assert c2pa_trust["credential_onboarding"]["production_claim_allowed"] is False
+
+
 def test_public_media_export_passes_without_production_warning_when_c2pa_credential_trusted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1181,6 +1208,7 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
         monkeypatch,
         fake_state="trusted",
         trust_anchors_ref=artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
+        production_onboarding=True,
         capture_argv=True,
     )
 
@@ -1598,6 +1626,48 @@ def test_trust_gate_warns_on_legacy_content_credentials_c2pa_from_structured_ver
     assert gate["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is False
 
 
+def test_trust_gate_warns_when_production_c2pa_trust_list_lacks_onboarding_readiness(tmp_path: Path) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "trusted",
+        "trust_tier": "production_trust_list",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": True,
+        "allowed_list_end_entity_configured": False,
+        "trust_anchor_profile": "official_c2pa_trust_list",
+        "trust_sources": {
+            "trust_anchors": "ABYSS_MACHINE_C2PA_TRUST_ANCHORS",
+            "trust_anchors_ref": artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
+            "trust_anchors_profile": "official_c2pa_trust_list",
+            "trust_anchors_profile_source": "auto:official_c2pa_trust_list_url",
+        },
+        "status_codes": ["signingCredential.trusted"],
+        "credential_onboarding": {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "pre_organization",
+            "legal_subject_state": "organization_pending",
+            "interim_posture": "local_integrity_only",
+            "production_claim_allowed": False,
+        },
+    }
+    _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
+
+    gate = artifact_bundles.trust_gate(
+        tmp_path / "registry",
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "warn"
+    assert any("credential onboarding is not production-ready" in warning for warning in gate["warnings"])
+    assert artifact_bundles.C2PA_PRE_ORGANIZATION_WARNING in gate["warnings"]
+    assert gate["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is True
+    assert gate["inspected_claims"]["c2pa_trust"]["credential_onboarding"]["production_claim_allowed"] is False
+
+
 def test_trust_gate_allows_public_media_with_production_c2pa_trust_list(tmp_path: Path) -> None:
     c2pa_trust = {
         "schema": "abyss_machine_c2pa_trust_verdict_v1",
@@ -1615,6 +1685,13 @@ def test_trust_gate_allows_public_media_with_production_c2pa_trust_list(tmp_path
             "trust_anchors_profile_source": "auto:official_c2pa_trust_list_url",
         },
         "status_codes": ["signingCredential.trusted"],
+        "credential_onboarding": {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "production_trust_list_ready",
+            "legal_subject_state": "validated_legal_subject",
+            "interim_posture": "production_c2pa_trust_list",
+            "production_claim_allowed": True,
+        },
     }
     _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
 
