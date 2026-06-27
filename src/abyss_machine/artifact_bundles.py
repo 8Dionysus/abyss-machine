@@ -69,6 +69,7 @@ C2PA_TRUST_GAP_WARNINGS = (
     "C2PA trust verdict is not structured; production trust-list status is unproven",
     "C2PA signing credential is trusted by a custom trust anchor store; this is not production C2PA Trust List proof",
     "C2PA signing credential is trusted by the legacy interim Content Credentials trust store; this is not production C2PA Trust List proof",
+    "C2PA signing credential chains to a production Trust List, but OS Abyss credential onboarding is not production-ready",
 )
 C2PA_CREDENTIAL_ONBOARDING_SCHEMA = "abyss_machine_c2pa_credential_onboarding_v1"
 C2PA_PRE_ORGANIZATION_WARNING = (
@@ -4359,18 +4360,16 @@ def _c2pa_credential_onboarding_status(
     trust_verdict: dict[str, Any],
 ) -> dict[str, Any]:
     config = c2pa_config.get("credential_onboarding") if isinstance(c2pa_config.get("credential_onboarding"), dict) else {}
-    production_ready = trust_verdict.get("production_trust_list_trusted") is True
-    phase = "production_trust_list_ready" if production_ready else str(config.get("phase") or "pre_organization")
-    legal_subject_state = (
-        "validated_legal_subject"
-        if production_ready
-        else str(config.get("legal_subject_state") or "organization_pending")
+    trust_list_trusted = trust_verdict.get("production_trust_list_trusted") is True
+    phase = str(config.get("phase") or "pre_organization")
+    legal_subject_state = str(config.get("legal_subject_state") or "organization_pending")
+    interim_posture = str(config.get("interim_posture") or "local_integrity_only")
+    production_onboarding_declared = (
+        phase == "production_trust_list_ready"
+        and legal_subject_state == "validated_legal_subject"
+        and interim_posture == "production_c2pa_trust_list"
     )
-    interim_posture = (
-        "production_c2pa_trust_list"
-        if production_ready
-        else str(config.get("interim_posture") or "local_integrity_only")
-    )
+    production_ready = trust_list_trusted and production_onboarding_declared
     return {
         "schema": C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
         "phase": phase,
@@ -4417,10 +4416,10 @@ def _c2pa_credential_onboarding_status(
 
 
 def _c2pa_pre_organization_warning(c2pa_trust: dict[str, Any]) -> str:
-    if not c2pa_trust or c2pa_trust.get("production_trust_list_trusted") is True:
+    if not c2pa_trust:
         return ""
     onboarding = c2pa_trust.get("credential_onboarding") if isinstance(c2pa_trust.get("credential_onboarding"), dict) else {}
-    if onboarding.get("phase") == "pre_organization":
+    if onboarding.get("phase") == "pre_organization" and onboarding.get("production_claim_allowed") is not True:
         return C2PA_PRE_ORGANIZATION_WARNING
     return ""
 
@@ -4429,6 +4428,9 @@ def _c2pa_trust_gap_warning(c2pa_trust: dict[str, Any]) -> str:
     if not c2pa_trust:
         return C2PA_TRUST_GAP_WARNINGS[3]
     if c2pa_trust.get("production_trust_list_trusted") is True:
+        onboarding = c2pa_trust.get("credential_onboarding") if isinstance(c2pa_trust.get("credential_onboarding"), dict) else {}
+        if onboarding.get("production_claim_allowed") is not True:
+            return C2PA_TRUST_GAP_WARNINGS[6]
         return ""
     trust_tier = str(c2pa_trust.get("trust_tier") or "")
     if trust_tier == "allowed_list_end_entity":
@@ -5249,6 +5251,12 @@ def _validate_c2pa_sidecar(
             "C2PA signing credential is trusted by the legacy interim Content Credentials trust store; "
             "this is not production C2PA Trust List proof"
         )
+    elif (
+        trust_verdict.get("production_trust_list_trusted") is True
+        and isinstance(trust_verdict.get("credential_onboarding"), dict)
+        and trust_verdict["credential_onboarding"].get("production_claim_allowed") is not True
+    ):
+        warnings.append(C2PA_TRUST_GAP_WARNINGS[6])
     elif trust_verdict.get("production_trust_list_trusted") is not True:
         warnings.append("C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof")
     onboarding_warning = _c2pa_pre_organization_warning(trust_verdict)
