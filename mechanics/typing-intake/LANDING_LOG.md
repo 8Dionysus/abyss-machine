@@ -5,3 +5,8 @@
   ingest/document plans, text-event sample/metadata/debounce helpers, and
   generic GUI selftest documents while live `pyatspi` traversal/listeners stay
   at the CLI edge.
+- Saved-text scan seam: `typing_saved_text_adapters` owns filesystem scan
+  limits, path walking, state continuity, decode rejection, skip/candidate
+  accounting, ingest kwargs, state entries, and public-safe scan documents
+  while `typing_ingest`, state/latest writes, timer/service status, and command
+  rendering stay at the CLI edge.
