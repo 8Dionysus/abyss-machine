@@ -76,6 +76,33 @@ C2PA_PRE_ORGANIZATION_WARNING = (
     "C2PA credential onboarding is pre-organization; public media exports are local-integrity evidence "
     "until a legal subject and C2PA Trust List signing credential exist"
 )
+C2PA_PRE_ORGANIZATION_OPERATING_WINDOW = {
+    "schema": "abyss_machine_c2pa_operating_window_v1",
+    "profile": "pre_organization_transition",
+    "minimum_horizon": "at_least_three_months_or_until_organization_backed_credential_exists",
+    "review_cadence": "each_public_release_candidate_and_monthly",
+    "internal_consumption": "allowed_with_durable_registry_evidence_and_preserved_warn_verdict",
+    "public_claim": "production_claim_blocked_until_organization_backed_c2pa_trust_list_credential",
+    "exit_triggers": [
+        "legal subject selected and validated",
+        "C2PA conforming product accepted",
+        "claim-signing credential chains to the C2PA Trust List",
+        "host-managed signer installed without storing private keys in source, tmp, or email",
+    ],
+}
+C2PA_PRODUCTION_OPERATING_WINDOW = {
+    "schema": "abyss_machine_c2pa_operating_window_v1",
+    "profile": "organization_backed",
+    "minimum_horizon": "until_credential_rotation_or_policy_change",
+    "review_cadence": "each_public_release_candidate_and_credential_rotation",
+    "internal_consumption": "allowed_with_durable_registry_evidence_and_trust_gate_allow",
+    "public_claim": "production_claim_allowed_when_c2pa_trust_list_and_onboarding_remain_valid",
+    "exit_triggers": [
+        "credential expires, revokes, or leaves the accepted C2PA Trust List",
+        "legal subject or signer authority changes",
+        "host-managed signer custody changes",
+    ],
+}
 TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
 TUF_REPOSITORY_TARGETS_DIR = "targets"
@@ -4380,6 +4407,29 @@ def _c2pa_onboarding_list(config: dict[str, Any], key: str, fallback: list[str])
     return fallback
 
 
+def c2pa_operating_window(
+    config: dict[str, Any] | None = None,
+    *,
+    production_ready: bool = False,
+) -> dict[str, Any]:
+    window_config = config.get("operating_window") if isinstance(config, dict) and isinstance(config.get("operating_window"), dict) else {}
+    defaults = C2PA_PRODUCTION_OPERATING_WINDOW if production_ready else C2PA_PRE_ORGANIZATION_OPERATING_WINDOW
+    window = {
+        "schema": str(window_config.get("schema") or defaults["schema"]),
+        "profile": str(window_config.get("profile") or defaults["profile"]),
+        "minimum_horizon": str(window_config.get("minimum_horizon") or defaults["minimum_horizon"]),
+        "review_cadence": str(window_config.get("review_cadence") or defaults["review_cadence"]),
+        "internal_consumption": str(window_config.get("internal_consumption") or defaults["internal_consumption"]),
+        "public_claim": str(window_config.get("public_claim") or defaults["public_claim"]),
+        "exit_triggers": _c2pa_onboarding_list(
+            window_config,
+            "exit_triggers",
+            [str(item) for item in defaults["exit_triggers"]],
+        ),
+    }
+    return window
+
+
 def _c2pa_credential_onboarding_status(
     *,
     c2pa_config: dict[str, Any],
@@ -4438,6 +4488,7 @@ def _c2pa_credential_onboarding_status(
             config.get("claim_limit")
             or "This status makes the pre-organization C2PA gap explicit; it does not waive production Trust List verification."
         ),
+        "operating_window": c2pa_operating_window(config, production_ready=production_ready),
     }
 
 
