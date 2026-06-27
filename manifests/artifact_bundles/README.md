@@ -89,6 +89,14 @@ distributed through an external TUF repository with `root`, `targets`,
 `snapshot`, and `timestamp` metadata plus trusted-root bootstrap. This is the
 OS Abyss external TUF producer/verifier v1; live SCITT transparency service and
 public-channel key ceremony remain separate production layers.
+Use `oci-layout-publish`, `oci-verify`, and `oci-consume` for OCI/ORAS runtime,
+container, model, or bundle routes. `oci-layout-publish` creates a local OCI
+layout proof with a digest-pinned subject and attached referrer manifests;
+`oci-consume` is fail-closed by default and materializes the subject only after
+digest/referrer verification and durable `trust-gate` admission. Local OCI
+layout proof is useful for OS and CI E2E coverage, but it remains distinct from
+an external registry push; external producer adapters must supply the same
+digest-pinned evidence contract from their registry.
 
 External repo manifests may also provide `artifact_subjects` entries. For
 package artifacts, those entries bind built wheel/sdist files to generated SBOM
