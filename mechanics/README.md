@@ -22,8 +22,9 @@ Live adapter hardening is tracked from [docs/host/LIVE_ADAPTERS.md](../docs/host
 Use these mechanic owners for the next extraction slices:
 
 - `typing-intake`: typing latest/history persistence, Codex session-tail
-  filesystem reads and semantic ingest planning, browser/native-host intake,
-  saved-text scan, and AT-SPI text-event adapters.
+  filesystem reads and semantic ingest planning, browser/native-host ingest
+  planning/response envelopes, saved-text scan, temporary browser live probes,
+  framed native-host byte IO, and AT-SPI text-event adapters.
 - `nervous-local`: nervous source capture, privacy state, local JSONL/SQLite
   readers, semantic/rerank execution, retention, and derived memory evidence.
 - `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource
