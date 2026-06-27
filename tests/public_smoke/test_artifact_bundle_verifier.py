@@ -2923,6 +2923,16 @@ def test_tuf_repository_builder_creates_client_bootstrap_and_consumes_with_trust
         now="2026-06-21T00:00:00Z",
         write_latest=False,
     )
+    history_root = tmp_path / "update-lane-history"
+    history_path = history_root / "2026" / "06" / "2026-06-21.jsonl"
+    history_path.parent.mkdir(parents=True)
+    history_path.write_text(json.dumps(verify) + "\n", encoding="utf-8")
+    lane = cli.artifacts_update_lane(
+        history_root=history_root,
+        registry_dir=registry,
+        write_latest=False,
+    )
+    bootstrap_row = next(row for row in lane["rows"] if row["artifact_class"] == "bootstrap_install_bundle")
 
     assert build["ok"] is True
     assert build["schema"] == "abyss_machine_tuf_repository_build_v1"
@@ -2934,6 +2944,11 @@ def test_tuf_repository_builder_creates_client_bootstrap_and_consumes_with_trust
     assert verify["verdict"] == "allow"
     assert verify["trusted_root"]["trusted_root_match"] is True
     assert verify["consumer_admission"]["trust_gate"]["verdict"] == "allow"
+    assert lane["summary"]["external_tuf_verified_artifact_classes"] == 1
+    assert bootstrap_row["status"] == "TUF_EXTERNAL_REPOSITORY_VERIFIED"
+    assert bootstrap_row["external_tuf_repository"]["status"] == "verified_current"
+    assert bootstrap_row["external_tuf_repository"]["consumer_admission"]["record_id"]
+    assert bootstrap_row["external_tuf_repository"]["target_digest"].startswith("sha256:")
 
 
 def test_tuf_repository_builder_denies_keyless_production_build(tmp_path: Path) -> None:
