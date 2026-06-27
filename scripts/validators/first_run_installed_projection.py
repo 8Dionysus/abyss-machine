@@ -40,16 +40,52 @@ PORTABILITY_NEEDLES = {
 HELP_SURFACES: tuple[tuple[str, ...], ...] = (
     (),
     ("artifacts",),
+    ("changes",),
+    ("docs",),
+    ("topology",),
+    ("graph",),
+    ("maps",),
+    ("rag",),
+    ("stack-bridge",),
+    ("self-awareness",),
+    ("storage",),
     ("typing",),
     ("nervous",),
+    ("resource",),
+    ("mode",),
+    ("observability",),
+    ("cooling",),
+    ("processes",),
+    ("heartbeats",),
+    ("reactions",),
+    ("responses",),
+    ("ai",),
+    ("ai", "cpu"),
 )
 REQUIRED_TOP_LEVEL = {
     "doctor",
+    "changes",
+    "docs",
+    "topology",
+    "graph",
+    "maps",
+    "rag",
+    "stack-bridge",
+    "self-awareness",
     "storage",
+    "resource",
+    "ai",
     "artifacts",
     "nervous",
     "typing",
     "dictation",
+    "mode",
+    "observability",
+    "cooling",
+    "processes",
+    "heartbeats",
+    "reactions",
+    "responses",
 }
 REQUIRED_ARTIFACT_COMMANDS = {
     "build-sidecars",
@@ -76,6 +112,107 @@ REQUIRED_ARTIFACT_COMMANDS = {
     "scitt-verify",
     "oci-verify",
 }
+REQUIRED_STORAGE_COMMANDS = {
+    "status",
+    "validate",
+    "policy",
+    "paths",
+    "hooks",
+    "run-hooks",
+    "podman-preflight",
+    "inventory",
+    "pressure",
+    "cleanup-plan",
+    "monitor",
+    "write-preflight",
+    "apply",
+}
+REQUIRED_CHANGES_COMMANDS = {
+    "status",
+    "paths",
+    "latest",
+    "index",
+    "record",
+    "close",
+    "preflight",
+}
+REQUIRED_DOCS_COMMANDS = {
+    "status",
+    "paths",
+    "audit",
+    "mesh",
+    "mesh-validate",
+    "decisions-index",
+}
+REQUIRED_TOPOLOGY_COMMANDS = {
+    "status",
+    "paths",
+    "validate",
+    "audit",
+}
+REQUIRED_GRAPH_COMMANDS = {
+    "status",
+    "query",
+    "validate",
+}
+REQUIRED_MAPS_COMMANDS = {
+    "status",
+    "paths",
+    "policy",
+    "build",
+    "query",
+    "packet",
+    "validate",
+}
+REQUIRED_RAG_COMMANDS = {
+    "status",
+    "paths",
+    "policy",
+    "trace",
+    "refresh",
+    "latest",
+    "eval",
+    "validate",
+}
+REQUIRED_STACK_BRIDGE_COMMANDS = {
+    "status",
+    "paths",
+    "export",
+    "latest",
+    "validate",
+    "observability",
+    "sync-static",
+}
+REQUIRED_SELF_AWARENESS_COMMANDS = {
+    "paths",
+    "status",
+    "capabilities",
+    "requirements",
+    "requirement-probes",
+    "trace-context",
+    "collect",
+    "query",
+    "correlate",
+    "timeline",
+    "spatial-graph",
+    "context",
+    "episodes",
+    "alerts",
+    "investigate",
+    "replay",
+    "activation-smoke",
+    "brief",
+    "failure-matrix",
+    "working-stack",
+    "coverage-audit",
+    "completion-audit",
+    "stack-closure-dossier",
+    "probe",
+    "export",
+    "validate",
+    "autolink",
+    "cycle",
+}
 REQUIRED_TYPING_COMMANDS = {
     "paths",
     "policy",
@@ -95,6 +232,108 @@ REQUIRED_NERVOUS_COMMANDS = {
     "validate",
     "redact-test",
     "index-status",
+    "index-build",
+    "index-validate",
+    "semantic-status",
+    "semantic-build",
+    "semantic-maintain",
+    "semantic-search",
+    "semantic-eval",
+    "synthesis-build",
+    "synthesis-latest",
+    "synthesis-validate",
+}
+REQUIRED_RESOURCE_COMMANDS = {
+    "paths",
+    "status",
+    "policy",
+    "plan",
+    "orchestrator",
+    "launch",
+    "validate",
+}
+REQUIRED_MODE_COMMANDS = {
+    "list",
+    "get",
+    "status",
+    "paths",
+    "policy",
+    "plan",
+    "validate",
+    "set",
+    "reconcile",
+}
+REQUIRED_OBSERVABILITY_COMMANDS = {
+    "status",
+    "paths",
+    "latest",
+    "collect",
+}
+REQUIRED_COOLING_COMMANDS = {
+    "status",
+    "paths",
+    "validate",
+    "recommend",
+    "apply",
+    "thermal-audit",
+    "fan-validate",
+    "fan-series",
+    "tfn1-write",
+    "rapl-smoothing",
+}
+REQUIRED_PROCESSES_COMMANDS = {
+    "paths",
+    "validate",
+    "latest",
+    "snapshot",
+    "game-guard",
+    "containers",
+    "thermal-attribution",
+    "thermal-plan",
+    "desktop-compositor",
+}
+REQUIRED_HEARTBEATS_COMMANDS = {
+    "pulse",
+    "status",
+    "paths",
+    "validate",
+}
+REQUIRED_REACTIONS_COMMANDS = {
+    "status",
+    "paths",
+    "validate",
+}
+REQUIRED_RESPONSES_COMMANDS = {
+    "status",
+    "paths",
+    "validate",
+}
+REQUIRED_AI_COMMANDS = {
+    "status",
+    "paths",
+    "validate",
+    "devices",
+    "models",
+    "capabilities",
+    "policy",
+    "storage",
+    "runtime",
+    "report",
+    "llm",
+    "token-accounting",
+    "workload",
+    "cpu",
+    "tts",
+    "eval",
+    "benchmark",
+    "config",
+}
+REQUIRED_AI_CPU_COMMANDS = {
+    "topology",
+    "thermal-map",
+    "route",
+    "launch",
+    "test",
 }
 CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
     ("artifacts", "materialize-subjects"): {
@@ -210,6 +449,82 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--require-trust-gate",
         "--json",
     },
+    ("nervous", "synthesis-build"): {
+        "--scope",
+        "--date",
+        "--hour",
+        "--json",
+    },
+    ("nervous", "semantic-build"): {
+        "--max-chunks",
+        "--batch-size",
+        "--device",
+        "--force",
+        "--rebuild",
+        "--json",
+    },
+    ("nervous", "semantic-maintain"): {
+        "--min-delta",
+        "--max-stale-minutes",
+        "--timeout",
+        "--dry-run",
+        "--force-refresh",
+        "--max-chunks",
+        "--batch-size",
+        "--rebuild",
+        "--no-thermal-sample",
+        "--refresh-index-first",
+        "--no-refresh-index-first",
+        "--json",
+    },
+    ("nervous", "semantic-search"): {
+        "--query",
+        "--limit",
+        "--no-dedupe",
+        "--source",
+        "--schema",
+        "--since",
+        "--until",
+        "--severity",
+        "--sensitivity",
+        "--force",
+        "--json",
+    },
+    ("resource", "plan"): {
+        "--class",
+        "--kind",
+        "--latency",
+        "--unattended",
+        "--force",
+        "--scope",
+        "--bytes",
+        "--target",
+        "--no-thermal-sample",
+        "--json",
+    },
+    ("resource", "launch"): {
+        "--class",
+        "--kind",
+        "--latency",
+        "--unattended",
+        "--force",
+        "--dry-run",
+        "--scope",
+        "--unit",
+        "--no-same-dir",
+        "--timeout",
+        "--bytes",
+        "--target",
+        "--no-thermal-sample",
+        "--success-on-block",
+        "--json",
+    },
+    ("ai", "cpu", "route"): {
+        "--class",
+        "--latency",
+        "--force",
+        "--json",
+    },
 }
 
 
@@ -220,21 +535,40 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def command_result(command: list[str], *, cwd: Path, env: dict[str, str], timeout: int = 60) -> dict[str, Any]:
-    completed = subprocess.run(
-        command,
-        cwd=cwd,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-    )
+def _timeout_output(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def command_result(command: list[str], *, cwd: Path, env: dict[str, str], timeout: float = 60) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "command": command,
+            "returncode": 124,
+            "stdout": _timeout_output(exc.stdout),
+            "stderr": _timeout_output(exc.stderr) + f"\ncommand timed out after {timeout} seconds",
+            "timed_out": True,
+            "timeout_sec": timeout,
+        }
     return {
         "command": command,
         "returncode": completed.returncode,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
+        "timed_out": False,
     }
 
 
@@ -379,12 +713,12 @@ def source_help_report(tmp_root: Path) -> dict[str, Any]:
     }
 
 
-def installed_help_report(executable: Path, *, cwd: Path, env: dict[str, str], label: str) -> dict[str, Any]:
+def installed_help_report(executable: Path, *, cwd: Path, env: dict[str, str], label: str, timeout: float = 60) -> dict[str, Any]:
     surfaces: dict[str, list[str]] = {}
     failures: list[str] = []
     for surface in HELP_SURFACES:
         command = [str(executable), *surface, "--help"]
-        result = command_result(command, cwd=cwd, env=env, timeout=60)
+        result = command_result(command, cwd=cwd, env=env, timeout=timeout)
         key = "top-level" if not surface else " ".join(surface)
         if result["returncode"] != 0:
             failures.append(f"{label} help failed for {key}: {str(result['stderr'])[-500:]}")
@@ -405,13 +739,14 @@ def critical_help_option_report(
     cwd: Path,
     env: dict[str, str],
     label: str,
+    timeout: float = 60,
 ) -> dict[str, Any]:
     commands: dict[str, dict[str, Any]] = {}
     failures: list[str] = []
     for surface, required_options in CRITICAL_HELP_OPTIONS.items():
         command = [*command_prefix, *surface, "--help"]
         key = " ".join(surface)
-        result = command_result(command, cwd=cwd, env=env, timeout=60)
+        result = command_result(command, cwd=cwd, env=env, timeout=timeout)
         row = {
             "command": command,
             "status": "ok" if result["returncode"] == 0 else "failed",
@@ -444,8 +779,15 @@ def source_critical_help_option_report(tmp_root: Path) -> dict[str, Any]:
     )
 
 
-def installed_critical_help_option_report(executable: Path, *, cwd: Path, env: dict[str, str], label: str) -> dict[str, Any]:
-    return critical_help_option_report([str(executable)], cwd=cwd, env=env, label=label)
+def installed_critical_help_option_report(
+    executable: Path,
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    label: str,
+    timeout: float = 60,
+) -> dict[str, Any]:
+    return critical_help_option_report([str(executable)], cwd=cwd, env=env, label=label, timeout=timeout)
 
 
 def compare_required_commands(surfaces: dict[str, list[str]]) -> list[str]:
@@ -453,8 +795,27 @@ def compare_required_commands(surfaces: dict[str, list[str]]) -> list[str]:
     checks = {
         "top-level": REQUIRED_TOP_LEVEL,
         "artifacts": REQUIRED_ARTIFACT_COMMANDS,
+        "changes": REQUIRED_CHANGES_COMMANDS,
+        "docs": REQUIRED_DOCS_COMMANDS,
+        "topology": REQUIRED_TOPOLOGY_COMMANDS,
+        "graph": REQUIRED_GRAPH_COMMANDS,
+        "maps": REQUIRED_MAPS_COMMANDS,
+        "rag": REQUIRED_RAG_COMMANDS,
+        "stack-bridge": REQUIRED_STACK_BRIDGE_COMMANDS,
+        "self-awareness": REQUIRED_SELF_AWARENESS_COMMANDS,
+        "storage": REQUIRED_STORAGE_COMMANDS,
         "typing": REQUIRED_TYPING_COMMANDS,
         "nervous": REQUIRED_NERVOUS_COMMANDS,
+        "resource": REQUIRED_RESOURCE_COMMANDS,
+        "mode": REQUIRED_MODE_COMMANDS,
+        "observability": REQUIRED_OBSERVABILITY_COMMANDS,
+        "cooling": REQUIRED_COOLING_COMMANDS,
+        "processes": REQUIRED_PROCESSES_COMMANDS,
+        "heartbeats": REQUIRED_HEARTBEATS_COMMANDS,
+        "reactions": REQUIRED_REACTIONS_COMMANDS,
+        "responses": REQUIRED_RESPONSES_COMMANDS,
+        "ai": REQUIRED_AI_COMMANDS,
+        "ai cpu": REQUIRED_AI_CPU_COMMANDS,
     }
     for surface, required in checks.items():
         actual = set(surfaces.get(surface, []))
@@ -792,6 +1153,50 @@ def organ_bootstrap_report(installed: Path, paths: dict[str, Path], env: dict[st
     }
 
 
+def self_awareness_projection_report(installed: Path, paths: dict[str, Path], env: dict[str, str]) -> dict[str, Any]:
+    failures: list[str] = []
+    self_awareness_paths = run_json([str(installed), "self-awareness", "paths", "--json"], cwd=paths["root"], env=env, timeout=60)
+    paths_text = json.dumps(self_awareness_paths, sort_keys=True)
+    expected_paths = (
+        str(paths["state_root"] / "self-awareness"),
+        str(paths["state_root"] / "self-awareness" / "events" / "latest.json"),
+        str(paths["etc_root"] / "SELF-AWARENESS.md"),
+    )
+    for expected in expected_paths:
+        if expected not in paths_text:
+            failures.append(f"self-awareness paths do not reference temp projection path {expected}")
+    policy = self_awareness_paths.get("policy") if isinstance(self_awareness_paths.get("policy"), dict) else {}
+    if policy.get("read_only_stack_consumer") is not True:
+        failures.append("self-awareness paths policy must declare read_only_stack_consumer")
+    if policy.get("host_layer_mutates_stack") is not False:
+        failures.append("self-awareness paths policy must not mutate abyss-stack")
+    if policy.get("automatic_remediation") is not False:
+        failures.append("self-awareness paths policy must not authorize automatic remediation")
+    commands = self_awareness_paths.get("commands") if isinstance(self_awareness_paths.get("commands"), dict) else {}
+    command_text = "\n".join(str(value) for value in commands.values())
+    missing_commands = sorted(
+        command for command in REQUIRED_SELF_AWARENESS_COMMANDS
+        if f"abyss-machine self-awareness {command}" not in command_text
+    )
+    if missing_commands:
+        failures.append(f"self-awareness paths missing command contract keys: {', '.join(missing_commands)}")
+    return {
+        "status": "ok" if not failures else "failed",
+        "paths_schema": self_awareness_paths.get("schema"),
+        "root": self_awareness_paths.get("root"),
+        "policy": policy,
+        "commands": sorted(commands),
+        "latest_paths": {
+            key: value.get("latest")
+            for key, value in self_awareness_paths.items()
+            if isinstance(value, dict) and isinstance(value.get("latest"), str)
+        },
+        "live_collectors_enabled": False,
+        "refresh_or_probe_run": False,
+        "failures": failures,
+    }
+
+
 def portability_scan_report(paths: dict[str, Path]) -> dict[str, Any]:
     roots = {
         "source": REPO_ROOT,
@@ -864,8 +1269,25 @@ def host_installed_report(args: argparse.Namespace, paths: dict[str, Path]) -> d
     if not os.access(host_cli, os.X_OK):
         return {"status": "unavailable", "reason": f"{host_cli} is not executable", "required": bool(args.require_host_installed)}
     env = projection_env(paths)
-    report = installed_help_report(host_cli, cwd=paths["root"], env=env, label="host-installed")
-    report["critical_help_options"] = installed_critical_help_option_report(host_cli, cwd=paths["root"], env=env, label="host-installed")
+    host_timeout = getattr(args, "host_advisory_timeout", None)
+    if host_timeout is None:
+        host_timeout = 60.0 if args.require_host_installed else 5.0
+    report = installed_help_report(host_cli, cwd=paths["root"], env=env, label="host-installed", timeout=float(host_timeout))
+    if args.require_host_installed:
+        report["critical_help_options"] = installed_critical_help_option_report(
+            host_cli,
+            cwd=paths["root"],
+            env=env,
+            label="host-installed",
+            timeout=float(host_timeout),
+        )
+    else:
+        report["critical_help_options"] = {
+            "status": "skipped",
+            "reason": "host installed critical option checks are advisory; pass --require-host-installed to require and run them",
+            "commands": {},
+            "failures": [],
+        }
     report["content_parity"] = content_parity_report(
         label="host-installed",
         installed_cli=host_cli,
@@ -924,8 +1346,9 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
     import_report = module_import_report(paths)
     unit_report = profile_unit_report(paths)
     organ_report = organ_bootstrap_report(installed, paths, env)
+    self_awareness_report = self_awareness_projection_report(installed, paths, env)
     portability_report = portability_scan_report(paths)
-    for section in (root_report, package_report, import_report, unit_report, organ_report, portability_report):
+    for section in (root_report, package_report, import_report, unit_report, organ_report, self_awareness_report, portability_report):
         failures.extend(section.get("failures", []))
     if import_report.get("status") != "ok" or import_report.get("uses_source_checkout") is True:
         failures.append("installed module import does not prove temp libexec package ownership")
@@ -953,6 +1376,7 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
         "module_import": import_report,
         "profile_units": unit_report,
         "typing_nervous": organ_report,
+        "self_awareness": self_awareness_report,
         "portability_scan": portability_report,
         "host_closeout_route": {
             "preflight": "abyss-machine changes preflight --intent TEXT --surface /usr/local/bin/abyss-machine --json",
@@ -987,6 +1411,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host-cli", default="/usr/local/bin/abyss-machine")
     parser.add_argument("--host-libexec-dir", default="/usr/local/libexec")
     parser.add_argument("--host-share-root", default="/usr/local/share/abyss-machine")
+    parser.add_argument("--host-advisory-timeout", type=float, default=None)
     parser.add_argument("--require-host-installed", action="store_true")
     return parser
 

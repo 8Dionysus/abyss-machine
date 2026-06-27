@@ -14,6 +14,8 @@ from abyss_machine.typing_nervous_refresh import (
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
     typing_nervous_index_resource_gated,
+    typing_nervous_processing_acceptance_status,
+    typing_nervous_processing_status_document,
     typing_nervous_refresh_document,
     typing_nervous_refresh_index_action,
     typing_nervous_refresh_fact_state,
@@ -21,10 +23,12 @@ from abyss_machine.typing_nervous_refresh import (
     typing_nervous_refresh_index_attempt_context,
     typing_nervous_refresh_index_retry_action,
     typing_nervous_refresh_latest_status,
+    typing_nervous_refresh_status_naming,
     typing_nervous_recent_index_debounce_safe,
     typing_nervous_refresh_needed,
     typing_nervous_refresh_snapshot_action,
     typing_nervous_refresh_synthesis_action,
+    typing_nervous_source_facts,
 )
 
 
@@ -686,6 +690,99 @@ def test_typing_nervous_refresh_latest_status_flags_timer_policy_and_stale_lates
     assert stale_status["status"] == "stale"
 
 
+def test_typing_nervous_refresh_status_naming_requires_resource_fields_when_latest_exists() -> None:
+    assert typing_nervous_refresh_status_naming({}) == {
+        "ok": True,
+        "latest_exists": False,
+        "fields": {
+            "index_resource_launch_attempted": False,
+            "index_resource_allowed": False,
+            "index_resource_blocked": False,
+            "index_resource_denied": False,
+            "index_resource_soft_gated": False,
+        },
+    }
+
+    status = typing_nervous_refresh_status_naming(
+        {
+            "latest_exists": True,
+            "index_resource_launch_attempted": False,
+            "index_resource_allowed": False,
+            "index_resource_blocked": False,
+            "index_resource_denied": False,
+            "index_resource_soft_gated": False,
+        }
+    )
+    assert status["ok"] is True
+    assert all(status["fields"].values())
+
+    missing = typing_nervous_refresh_status_naming(
+        {
+            "latest_exists": True,
+            "index_resource_launch_attempted": False,
+            "index_resource_allowed": False,
+            "index_resource_blocked": False,
+            "index_resource_denied": False,
+        }
+    )
+    assert missing["ok"] is False
+    assert missing["fields"]["index_resource_soft_gated"] is False
+
+
+def test_typing_nervous_processing_acceptance_preserves_resource_gate_and_debounce_contracts() -> None:
+    processing = {"ok": False, "summary": {"facts_ready": True}}
+
+    resource_gated = typing_nervous_processing_acceptance_status(
+        nervous_processing=processing,
+        nervous_refresh_status={"ok": True, "status": "resource_gated_index", "summary": {}},
+    )
+    assert resource_gated["ok"] is True
+    assert resource_gated["resource_gated_index_accepted"] is True
+    assert resource_gated["deferred_recent_index_accepted"] is False
+
+    deferred_recent = typing_nervous_processing_acceptance_status(
+        nervous_processing=processing,
+        nervous_refresh_status={
+            "ok": True,
+            "status": "deferred_recent_index_attempt",
+            "summary": {
+                "index_deferred_recent_attempt": True,
+                "index_previous_attempt_age_sec": 120,
+                "index_min_interval_sec": 900,
+                "index_records_lag": 5,
+                "index_records_lag_tolerance": 4,
+            },
+        },
+    )
+    assert deferred_recent["ok"] is True
+    assert deferred_recent["resource_gated_index_accepted"] is False
+    assert deferred_recent["deferred_recent_index_accepted"] is True
+
+    no_facts = typing_nervous_processing_acceptance_status(
+        nervous_processing={"ok": False, "summary": {"facts_ready": False}},
+        nervous_refresh_status={"ok": True, "status": "resource_gated_index", "summary": {}},
+    )
+    assert no_facts["ok"] is False
+    assert no_facts["facts_ready"] is False
+
+    unsafe_deferred = typing_nervous_processing_acceptance_status(
+        nervous_processing=processing,
+        nervous_refresh_status={
+            "ok": True,
+            "status": "deferred_recent_index_attempt",
+            "summary": {
+                "index_deferred_recent_attempt": True,
+                "index_previous_attempt_age_sec": 950,
+                "index_min_interval_sec": 900,
+                "index_records_lag": 128,
+                "index_records_lag_tolerance": 4,
+            },
+        },
+    )
+    assert unsafe_deferred["ok"] is False
+    assert unsafe_deferred["deferred_recent_index_accepted"] is False
+
+
 def test_typing_nervous_refresh_fact_state_preserves_recursive_fact_shape() -> None:
     state = typing_nervous_refresh_fact_state(
         facts_latest={
@@ -744,9 +841,161 @@ def test_typing_nervous_refresh_fact_state_preserves_missing_fact_shape() -> Non
     }
 
 
+def test_typing_nervous_processing_status_document_reports_indexed_without_raw_text() -> None:
+    facts_latest = {
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "facts": [
+            {
+                "source_id": "typed_text_autolog",
+                "observed_at": "2026-06-20T04:59:30+00:00",
+                "summary": {"latest_exists": True, "entries_indexed": 2, "parse_errors": 0},
+                "process": {"summary": {"lanes": 1}},
+                "entries": [
+                    {
+                        "event_id": "event-1",
+                        "generated_at": "2026-06-20T04:59:00+00:00",
+                        "text": "private text must not escape",
+                    }
+                ],
+            }
+        ],
+    }
+    index_latest = {
+        "generated_at": "2026-06-20T05:01:00+00:00",
+        "finished_at": "2026-06-20T05:01:00+00:00",
+        "sources": {"enabled_private_connector_sources": ["typed_text_autolog"]},
+        "summary": {"records_indexed": 5, "chunks_indexed": 7},
+        "counts": {"fts_chunks": 7, "meta": {"built_at": "2026-06-20T05:01:00+00:00"}},
+    }
+    status = typing_nervous_processing_status_document(
+        source={"enabled": True, "allowed": True, "group": "typing", "content": "typed_text"},
+        facts_latest=facts_latest,
+        facts_error=None,
+        index_latest=index_latest,
+        index_error=None,
+        facts_latest_path="/var/lib/abyss-machine/nervous/facts/latest.json",
+        index_latest_path="/var/lib/abyss-machine/nervous/search/latest.json",
+        version="test-version",
+        generated_at="2026-06-20T05:02:00+00:00",
+    )
+
+    assert typing_nervous_source_facts(facts_latest, "typed_text_autolog")[0]["source_id"] == "typed_text_autolog"
+    assert status["schema"] == "abyss_machine_typing_nervous_processing_v1"
+    assert status["version"] == "test-version"
+    assert status["generated_at"] == "2026-06-20T05:02:00+00:00"
+    assert status["ok"] is True
+    assert status["status"] == "indexed"
+    assert status["summary"]["facts_ready"] is True
+    assert status["summary"]["index_ready"] is True
+    assert status["summary"]["index_covers_latest_fact"] is True
+    assert status["summary"]["typed_latest_entry_at"] == "2026-06-20T04:59:00+00:00"
+    assert status["summary"]["entries_indexed"] == 2
+    assert status["summary"]["records_indexed"] == 5
+    assert status["summary"]["fts_chunks"] == 7
+    assert status["search_index"]["source_enabled_in_index"] is True
+    assert status["policy"]["raw_private_content"] is False
+    assert "private text must not escape" not in str(status)
+
+
+def test_typing_nervous_processing_status_document_distinguishes_stale_and_missing_index() -> None:
+    facts_latest = {
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "facts": [
+            {
+                "source_id": "typed_text_autolog",
+                "observed_at": "2026-06-20T05:00:00+00:00",
+                "summary": {"latest_exists": True, "entries_indexed": 1, "parse_errors": 0},
+                "entries": [{"event_id": "event-1", "generated_at": "2026-06-20T05:00:00+00:00"}],
+            }
+        ],
+    }
+    stale = typing_nervous_processing_status_document(
+        source={"enabled": True, "allowed": True},
+        facts_latest=facts_latest,
+        facts_error=None,
+        index_latest={
+            "finished_at": "2026-06-20T04:59:00+00:00",
+            "sources": {"enabled_sources": ["typed_text_autolog"]},
+            "summary": {"records_indexed": 3, "fts_chunks": 3},
+        },
+        index_error=None,
+        facts_latest_path="facts.json",
+        index_latest_path="index.json",
+    )
+    missing = typing_nervous_processing_status_document(
+        source={"enabled": True, "allowed": True},
+        facts_latest=facts_latest,
+        facts_error=None,
+        index_latest={"summary": {"records_indexed": 3}, "counts": {"fts_chunks": 3}},
+        index_error=None,
+        facts_latest_path="facts.json",
+        index_latest_path="index.json",
+    )
+
+    assert stale["ok"] is False
+    assert stale["status"] == "facts_ready_index_stale"
+    assert stale["summary"]["facts_ready"] is True
+    assert stale["summary"]["index_covers_latest_fact"] is False
+    assert missing["ok"] is False
+    assert missing["status"] == "facts_ready_index_missing"
+    assert missing["search_index"]["source_enabled_in_index"] is False
+
+
+def test_cli_typing_nervous_processing_status_uses_module_document(monkeypatch) -> None:
+    source = {"enabled": True, "allowed": True, "group": "typing", "content": "typed_text"}
+    facts_latest = {
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "facts": [
+            {
+                "source_id": "typed_text_autolog",
+                "observed_at": "2026-06-20T04:59:30+00:00",
+                "summary": {"latest_exists": True, "entries_indexed": 2, "parse_errors": 0},
+                "process": {"summary": {"lanes": 1}},
+                "entries": [{"event_id": "event-1", "generated_at": "2026-06-20T04:59:00+00:00"}],
+            }
+        ],
+    }
+    index_latest = {
+        "generated_at": "2026-06-20T05:01:00+00:00",
+        "finished_at": "2026-06-20T05:01:00+00:00",
+        "sources": {"enabled_private_connector_sources": ["typed_text_autolog"]},
+        "summary": {"records_indexed": 5, "chunks_indexed": 7},
+        "counts": {"fts_chunks": 7, "meta": {"built_at": "2026-06-20T05:01:00+00:00"}},
+    }
+
+    def fake_load_json_document(path: Path) -> tuple[dict, None]:
+        if path == cli.NERVOUS_FACTS_LATEST_PATH:
+            return facts_latest, None
+        if path == cli.NERVOUS_SEARCH_INDEX_LATEST_PATH:
+            return index_latest, None
+        return {}, None
+
+    monkeypatch.setattr(cli, "nervous_source_lookup", lambda source_id: source)
+    monkeypatch.setattr(cli, "load_json_document", fake_load_json_document)
+    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"fts_chunks": 0})
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-20T05:02:00+00:00")
+
+    assert cli.typing_nervous_processing_status() == typing_nervous_processing_status_document(
+        source=source,
+        facts_latest=facts_latest,
+        facts_error=None,
+        index_latest=index_latest,
+        index_error=None,
+        facts_latest_path=cli.NERVOUS_FACTS_LATEST_PATH,
+        index_latest_path=cli.NERVOUS_SEARCH_INDEX_LATEST_PATH,
+        counts_fallback=index_latest["counts"],
+        extra_index_source_ids=set(),
+        version=cli.VERSION,
+        generated_at="2026-06-20T05:02:00+00:00",
+    )
+
+
 def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_index_resource_gated is typing_nervous_index_resource_gated
     assert cli.typing_nervous_deferred_recent_index_safe is typing_nervous_deferred_recent_index_safe
+    assert cli.typing_nervous_processing_acceptance_status is typing_nervous_processing_acceptance_status
+    assert cli.build_typing_nervous_processing_status_document is typing_nervous_processing_status_document
+    assert cli.typing_nervous_source_facts is typing_nervous_source_facts
     assert cli.typing_nervous_recent_index_debounce_safe is typing_nervous_recent_index_debounce_safe
     assert cli.typing_nervous_refresh_needed is typing_nervous_refresh_needed
     assert cli.typing_nervous_refresh_document is typing_nervous_refresh_document
@@ -758,3 +1007,4 @@ def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
     assert cli.typing_nervous_refresh_final_context is typing_nervous_refresh_final_context
     assert cli.build_typing_nervous_refresh_fact_state is typing_nervous_refresh_fact_state
     assert cli.build_typing_nervous_refresh_latest_status is typing_nervous_refresh_latest_status
+    assert cli.typing_nervous_refresh_status_naming is typing_nervous_refresh_status_naming

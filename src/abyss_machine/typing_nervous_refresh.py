@@ -19,6 +19,14 @@ TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS = frozenset(
     }
 )
 
+TYPING_NERVOUS_REFRESH_RESOURCE_STATUS_FIELDS = (
+    "index_resource_launch_attempted",
+    "index_resource_allowed",
+    "index_resource_blocked",
+    "index_resource_denied",
+    "index_resource_soft_gated",
+)
+
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -93,6 +101,10 @@ def _typing_nervous_source_facts(document: Any, source_id: str) -> list[dict[str
     return found
 
 
+def typing_nervous_source_facts(document: Any, source_id: str) -> list[dict[str, Any]]:
+    return _typing_nervous_source_facts(document, source_id)
+
+
 def typing_nervous_refresh_fact_state(
     *,
     facts_latest: Any,
@@ -119,6 +131,165 @@ def typing_nervous_refresh_fact_state(
         "typed_summary": typed_fact.get("summary") if isinstance(typed_fact.get("summary"), dict) else {},
         "typed_process_summary": typed_process.get("summary") if isinstance(typed_process.get("summary"), dict) else {},
         "typed_latest_entry_generated_at": latest_entry.get("generated_at") if isinstance(latest_entry, dict) else None,
+    }
+
+
+def typing_nervous_processing_status_document(
+    *,
+    source: Any,
+    facts_latest: Any,
+    facts_error: Any,
+    index_latest: Any,
+    index_error: Any,
+    facts_latest_path: Any,
+    index_latest_path: Any,
+    counts_fallback: Any | None = None,
+    extra_index_source_ids: Any | None = None,
+    source_id: str = "typed_text_autolog",
+    schema_prefix: str = "abyss_machine",
+    version: str = "",
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    source_data = source if isinstance(source, dict) else {}
+    facts_data = facts_latest if isinstance(facts_latest, dict) else {}
+    index_data = index_latest if isinstance(index_latest, dict) else {}
+    typed_facts = _typing_nervous_source_facts(facts_data, source_id) if facts_data else []
+    typed_fact = typed_facts[0] if typed_facts else {}
+    typed_summary = typed_fact.get("summary") if isinstance(typed_fact.get("summary"), dict) else {}
+    typed_process = typed_fact.get("process") if isinstance(typed_fact.get("process"), dict) else {}
+
+    index_sources = _nested_get(index_data, ["sources", "enabled_private_connector_sources"]) if index_data else []
+    if not isinstance(index_sources, list):
+        index_sources = _nested_get(index_data, ["sources", "enabled_sources"]) if index_data else []
+    if not isinstance(index_sources, list):
+        index_sources = []
+    index_source_ids = {str(item) for item in index_sources if str(item or "").strip()}
+    if isinstance(extra_index_source_ids, (list, tuple, set)):
+        index_source_ids |= {str(item) for item in extra_index_source_ids if str(item or "").strip()}
+
+    index_summary = index_data.get("summary") if isinstance(index_data.get("summary"), dict) else {}
+    counts = index_data.get("counts") if isinstance(index_data.get("counts"), dict) else {}
+    if (not counts or counts.get("fts_chunks") is None) and isinstance(counts_fallback, dict):
+        counts = counts_fallback
+
+    fact_time = _parse_time(facts_data.get("generated_at")) if facts_data else None
+    typed_entries = typed_fact.get("entries") if isinstance(typed_fact.get("entries"), list) else []
+    typed_entry_times = [
+        parsed
+        for parsed in (_parse_time(item.get("generated_at")) for item in typed_entries if isinstance(item, dict))
+        if parsed is not None
+    ]
+    typed_latest_entry_time = max(typed_entry_times) if typed_entry_times else None
+    typed_fact_observed_time = _parse_time(typed_fact.get("observed_at")) if isinstance(typed_fact, dict) else None
+    typed_index_required_time = typed_latest_entry_time or typed_fact_observed_time or fact_time
+    index_time = (
+        _parse_time(index_data.get("finished_at"))
+        or _parse_time(_nested_get(index_data, ["counts", "meta", "built_at"]))
+        or _parse_time(_nested_get(counts, ["meta", "built_at"]))
+        or _parse_time(index_data.get("generated_at"))
+        if index_data
+        else None
+    )
+    index_covers_latest_fact = bool(typed_index_required_time and index_time and index_time >= typed_index_required_time)
+    entries_indexed = _safe_int(typed_summary.get("entries_indexed"), 0)
+    parse_errors = _safe_int(typed_summary.get("parse_errors"), 0)
+    records_indexed = (
+        _safe_int(index_summary.get("records_indexed"), 0)
+        or _safe_int(_nested_get(counts, ["meta", "records_indexed"]), 0)
+        or _safe_int(index_summary.get("documents"), 0)
+        or _safe_int(counts.get("documents"), 0)
+    )
+    chunks_indexed = (
+        _safe_int(index_summary.get("chunks_indexed"), 0)
+        or _safe_int(_nested_get(counts, ["meta", "chunks_indexed"]), 0)
+        or _safe_int(index_summary.get("chunks"), 0)
+        or _safe_int(counts.get("chunks"), 0)
+    )
+    fts_chunks = _safe_int(counts.get("fts_chunks"), 0) or _safe_int(index_summary.get("fts_chunks"), 0)
+    facts_ready = bool(
+        source_data.get("enabled") is True
+        and source_data.get("allowed") is not False
+        and typed_summary.get("latest_exists") is True
+        and entries_indexed > 0
+        and parse_errors == 0
+    )
+    index_ready = bool(
+        source_id in index_source_ids
+        and index_covers_latest_fact
+        and records_indexed > 0
+        and fts_chunks > 0
+    )
+    ok = bool(facts_ready and index_ready)
+    if ok:
+        status = "indexed"
+    elif facts_ready and source_id in index_source_ids and records_indexed > 0 and fts_chunks > 0:
+        status = "facts_ready_index_stale"
+    elif facts_ready:
+        status = "facts_ready_index_missing"
+    else:
+        status = "not_ready"
+
+    return {
+        "schema": f"{schema_prefix}_typing_nervous_processing_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": ok,
+        "status": status,
+        "summary": {
+            "facts_ready": facts_ready,
+            "index_ready": index_ready,
+            "index_covers_latest_fact": index_covers_latest_fact,
+            "typed_index_required_at": typed_index_required_time.isoformat() if typed_index_required_time else None,
+            "typed_latest_entry_at": typed_latest_entry_time.isoformat() if typed_latest_entry_time else None,
+            "typed_fact_observed_at": typed_fact_observed_time.isoformat() if typed_fact_observed_time else None,
+            "entries_indexed": entries_indexed,
+            "parse_errors": parse_errors,
+            "records_indexed": records_indexed,
+            "fts_chunks": fts_chunks,
+        },
+        "source_id": source_id,
+        "source": {
+            "enabled": source_data.get("enabled"),
+            "allowed": source_data.get("allowed"),
+            "group": source_data.get("group"),
+            "content": source_data.get("content"),
+        },
+        "facts": {
+            "latest": str(facts_latest_path),
+            "exists": isinstance(facts_latest, dict),
+            "generated_at": facts_data.get("generated_at") if facts_data else None,
+            "error": facts_error,
+            "typed_fact_exists": bool(typed_facts),
+            "typed_summary": typed_summary,
+            "typed_process": typed_process,
+        },
+        "search_index": {
+            "latest": str(index_latest_path),
+            "exists": isinstance(index_latest, dict),
+            "generated_at": index_data.get("generated_at") if index_data else None,
+            "finished_at": index_data.get("finished_at") if index_data else None,
+            "built_at": (_nested_get(index_data, ["counts", "meta", "built_at"]) or _nested_get(counts, ["meta", "built_at"])) if index_data else None,
+            "error": index_error,
+            "source_enabled_in_index": source_id in index_source_ids,
+            "index_covers_latest_fact": index_covers_latest_fact,
+            "index_covers_typed_entry_time": bool(typed_latest_entry_time and index_time and index_time >= typed_latest_entry_time),
+            "typed_index_required_at": typed_index_required_time.isoformat() if typed_index_required_time else None,
+            "records_indexed": records_indexed,
+            "chunks_indexed": chunks_indexed,
+            "fts_chunks": fts_chunks,
+            "source_ids_basis": "latest_or_sqlite_chunks",
+            "counts_basis": "latest_or_sqlite_counts",
+        },
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "raw_private_content": False,
+            "automatic_action": False,
+        },
+        "non_claims": [
+            "This checks that typed input is represented in nervous facts and the local search index.",
+            "It does not imply automatic action from typed input.",
+        ],
     }
 
 
@@ -323,6 +494,67 @@ def typing_nervous_refresh_latest_status(
             "automatic_action": latest_policy.get("automatic_action"),
             "internet_access": latest_policy.get("internet_access"),
         },
+    }
+
+
+def typing_nervous_refresh_status_naming(summary: Any) -> dict[str, Any]:
+    summary_data = summary if isinstance(summary, dict) else {}
+    fields = {
+        field: field in summary_data
+        for field in TYPING_NERVOUS_REFRESH_RESOURCE_STATUS_FIELDS
+    }
+    latest_exists = bool(summary_data.get("latest_exists"))
+    return {
+        "ok": bool(not latest_exists or all(fields.values())),
+        "latest_exists": latest_exists,
+        "fields": fields,
+    }
+
+
+def typing_nervous_processing_acceptance_status(
+    *,
+    nervous_processing: Any,
+    nervous_refresh_status: Any,
+) -> dict[str, Any]:
+    processing_data = nervous_processing if isinstance(nervous_processing, dict) else {}
+    refresh_data = nervous_refresh_status if isinstance(nervous_refresh_status, dict) else {}
+    refresh_summary = (
+        refresh_data.get("summary")
+        if isinstance(refresh_data.get("summary"), dict)
+        else {}
+    )
+    facts_ready = _nested_get(processing_data, ["summary", "facts_ready"]) is True
+    refresh_ok = refresh_data.get("ok") is True
+    refresh_status = refresh_data.get("status")
+    processing_ok = processing_data.get("ok") is True
+    resource_gated_index_accepted = bool(
+        not processing_ok
+        and refresh_ok
+        and refresh_status == "resource_gated_index"
+        and facts_ready
+    )
+    deferred_recent_index_accepted = bool(
+        not processing_ok
+        and refresh_ok
+        and refresh_status == "deferred_recent_index_attempt"
+        and (
+            typing_nervous_deferred_recent_index_safe(refresh_summary)
+            or _nested_get(refresh_data, ["summary", "index_deferred_recent_attempt_safe"]) is True
+        )
+        and facts_ready
+    )
+    return {
+        "ok": bool(
+            processing_ok
+            or resource_gated_index_accepted
+            or deferred_recent_index_accepted
+        ),
+        "processing_ok": processing_ok,
+        "facts_ready": facts_ready,
+        "nervous_refresh_ok": refresh_ok,
+        "nervous_refresh_status": refresh_status,
+        "resource_gated_index_accepted": resource_gated_index_accepted,
+        "deferred_recent_index_accepted": deferred_recent_index_accepted,
     }
 
 
