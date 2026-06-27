@@ -1670,6 +1670,58 @@ def test_trust_coverage_operating_posture_blocks_internal_readiness_for_normal_d
     ]
 
 
+def test_trust_coverage_exposes_registry_path_warning_for_empty_shadow_registry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = tmp_path / "public-source-seed"
+    artifacts_root = tmp_path / "artifacts"
+    canonical_registry = artifacts_root / "bundle-registry"
+    wrong_registry = artifacts_root / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    registered = artifact_bundles.write_bundle_registry_record(
+        bundle,
+        canonical_registry,
+        lifecycle_state="manually-verified",
+        consumer_refs=["pytest:consumer"],
+        evidence_refs=["pytest:manual-positive"],
+    )
+    assert registered["ok"] is True
+    monkeypatch.setattr(
+        cli,
+        "artifacts_trust_tools",
+        lambda write_latest=False: {
+            "summary": {
+                "status": "ready",
+                "available_controls": [
+                    "abi_signature",
+                    "sbom",
+                    "ml_bom",
+                    "slsa_in_toto",
+                    "sigstore_cosign",
+                    "c2pa",
+                ],
+                "missing_controls": [],
+            }
+        },
+    )
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=wrong_registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+
+    assert coverage["registry"]["summary"]["records"] == 0
+    assert coverage["registry"]["summary"]["registry_path_warnings"] == 1
+    assert coverage["registry"]["path_status"]["suspected_noncanonical_empty_registry"] is True
+    assert coverage["registry"]["path_status"]["canonical_sibling_record_file_count"] == 1
+    assert coverage["registry"]["warnings"] == ["selected_registry_empty_but_canonical_bundle_registry_sibling_has_records"]
+
+
 def test_trust_gate_warns_on_legacy_content_credentials_c2pa_from_structured_verdict(tmp_path: Path) -> None:
     c2pa_trust = {
         "schema": "abyss_machine_c2pa_trust_verdict_v1",
@@ -4257,6 +4309,8 @@ def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> Non
     assert persisted_index["registry_dir"] == "registry"
     assert persisted_index["records_dir"] == "registry/records"
     assert persisted_index["index_ref"] == "registry/index.json"
+    assert index["warnings"] == []
+    assert index["path_status"]["suspected_noncanonical_empty_registry"] is False
     latest = index["latest_by_artifact_class"]["public_source_seed"]
     assert latest["record_id"] == registered["record"]["record_id"]
     assert latest["lifecycle_state"] == "manually-verified"
@@ -4272,6 +4326,35 @@ def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> Non
     after_revoke = artifact_bundles.read_bundle_registry(registry, artifact_class="public_source_seed")
     assert after_revoke["latest_by_artifact_class"] == {}
     assert after_revoke["summary"]["state_counts"] == {"revoked": 1}
+
+
+def test_bundle_registry_warns_when_empty_registry_path_shadows_canonical_sibling(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    artifacts_root = tmp_path / "artifacts"
+    canonical_registry = artifacts_root / "bundle-registry"
+    wrong_registry = artifacts_root / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    registered = artifact_bundles.write_bundle_registry_record(
+        bundle,
+        canonical_registry,
+        lifecycle_state="manually-verified",
+        consumer_refs=["pytest:consumer"],
+        evidence_refs=["pytest:manual-positive"],
+    )
+    assert registered["ok"] is True
+
+    shadow = artifact_bundles.read_bundle_registry(wrong_registry, artifact_class="public_source_seed")
+
+    assert shadow["ok"] is True
+    assert shadow["summary"]["records"] == 0
+    assert shadow["summary"]["latest"] == 0
+    assert shadow["summary"]["registry_path_warnings"] == 1
+    assert shadow["path_status"]["selected_empty"] is True
+    assert shadow["path_status"]["suspected_noncanonical_empty_registry"] is True
+    assert shadow["path_status"]["canonical_sibling_record_file_count"] == 1
+    assert shadow["warnings"] == ["selected_registry_empty_but_canonical_bundle_registry_sibling_has_records"]
 
 
 def test_evidence_promotion_trust_gate_survives_tmp_bundle_removal(tmp_path: Path) -> None:
