@@ -3432,6 +3432,138 @@ def test_oci_publication_verifier_allows_digest_pinned_referrers_with_trust_gate
     assert cli_result["consumer_admission"]["trust_gate"]["inspected_claims"]["trust_root_evidence"]["ok"] is True
 
 
+def test_oci_layout_publish_and_consume_materializes_digest_pinned_subject_with_referrers(tmp_path: Path) -> None:
+    registry, record_id, record_subject_digest = _write_oci_runtime_registry_record(tmp_path)
+    subject = tmp_path / "runtime-tools.tar.gz"
+    subject.write_bytes(b"runtime tools payload\n")
+    sigstore = tmp_path / "artifact.sigstore.json"
+    sbom = tmp_path / "artifact.sbom.cdx.json"
+    provenance = tmp_path / "artifact.provenance.intoto.jsonl"
+    sigstore.write_text(json.dumps({"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json"}) + "\n", encoding="utf-8")
+    sbom.write_text(json.dumps({"bomFormat": "CycloneDX", "specVersion": "1.6", "components": []}) + "\n", encoding="utf-8")
+    provenance.write_text(json.dumps({"_type": "https://in-toto.io/Statement/v1"}) + "\n", encoding="utf-8")
+
+    publish = _run_artifact_cli(
+        tmp_path,
+        "oci-layout-publish",
+        str(subject),
+        "--layout-dir",
+        str(tmp_path / "oci-layout"),
+        "--artifact-class",
+        "runtime_or_container_artifact",
+        "--registry-ref",
+        "ghcr.io/8dionysus/abyss-machine/runtime-tools",
+        "--record-id",
+        record_id,
+        "--record-subject-digest",
+        record_subject_digest,
+        "--referrer",
+        f"application/vnd.dev.sigstore.bundle.v0.3+json={sigstore}",
+        "--referrer",
+        f"application/vnd.cyclonedx+json={sbom}",
+        "--referrer",
+        f"application/vnd.in-toto+jsonl={provenance}",
+    )
+    assert publish.returncode == 0, publish.stderr[-1000:]
+    published = json.loads(publish.stdout)
+    evidence_path = Path(published["evidence_path"])
+    assert published["ok"] is True
+    assert published["registry_ref"].endswith(published["subject_digest"])
+    assert published["referrers"]["types"] == [
+        "application/vnd.cyclonedx+json",
+        "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "application/vnd.in-toto+jsonl",
+    ]
+
+    consume = _run_artifact_cli(
+        tmp_path,
+        "oci-consume",
+        str(evidence_path),
+        "--output-dir",
+        str(tmp_path / "pulled"),
+        "--artifact-class",
+        "runtime_or_container_artifact",
+        "--subject-digest",
+        published["subject_digest"],
+        "--required-referrer-type",
+        "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "--required-referrer-type",
+        "application/vnd.cyclonedx+json",
+        "--required-referrer-type",
+        "application/vnd.in-toto+jsonl",
+        "--registry-dir",
+        str(registry),
+        "--record-id",
+        record_id,
+        "--record-subject-digest",
+        record_subject_digest,
+        "--source-repo",
+        "abyss-machine",
+        "--trust-root-mode",
+        "oci_registry",
+    )
+    assert consume.returncode == 0, consume.stderr[-1000:]
+    consumed = json.loads(consume.stdout)
+    pulled_subject = Path(consumed["pulled"]["subject"]["path"])
+    assert consumed["ok"] is True
+    assert consumed["verdict"] == "warn"
+    assert "oci_layout_local_proof_not_external_registry_publication" in consumed["warnings"]
+    assert pulled_subject.read_bytes() == subject.read_bytes()
+    assert consumed["verification"]["consumer_admission"]["trust_gate"]["verdict"] == "allow"
+    assert len(consumed["pulled"]["referrers"]) == 3
+
+
+def test_oci_consume_denies_tag_only_or_missing_trust_gate_registry(tmp_path: Path) -> None:
+    registry, record_id, record_subject_digest = _write_oci_runtime_registry_record(tmp_path)
+    subject = tmp_path / "runtime-tools.tar.gz"
+    subject.write_bytes(b"runtime tools payload\n")
+    sigstore = tmp_path / "artifact.sigstore.json"
+    sigstore.write_text(json.dumps({"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json"}) + "\n", encoding="utf-8")
+    published = cli.artifacts_oci_layout_publish(
+        subject,
+        tmp_path / "oci-layout",
+        artifact_class="runtime_or_container_artifact",
+        registry_ref="ghcr.io/8dionysus/abyss-machine/runtime-tools",
+        referrers=[{"artifact_type": "application/vnd.dev.sigstore.bundle.v0.3+json", "path": str(sigstore)}],
+        record_id=record_id,
+        record_subject_digest=record_subject_digest,
+        write_latest=False,
+    )
+    evidence = dict(published["evidence"])
+    evidence["registry_ref"] = "ghcr.io/8dionysus/abyss-machine/runtime-tools:latest"
+    evidence["subject"] = dict(evidence["subject"])
+    evidence["subject"]["reference"] = evidence["registry_ref"]
+
+    tag_only = artifact_bundles.consume_oci_publication(
+        evidence,
+        tmp_path / "pulled-tag-only",
+        expected_artifact_class="runtime_or_container_artifact",
+        required_referrer_types=["application/vnd.dev.sigstore.bundle.v0.3+json"],
+        registry_dir=registry,
+        expected_record_id=record_id,
+        expected_record_subject_digest=record_subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="oci_registry",
+    )
+    missing_registry = artifact_bundles.consume_oci_publication(
+        published["evidence"],
+        tmp_path / "pulled-missing-registry",
+        expected_artifact_class="runtime_or_container_artifact",
+        required_referrer_types=["application/vnd.dev.sigstore.bundle.v0.3+json"],
+        expected_record_id=record_id,
+        expected_record_subject_digest=record_subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="oci_registry",
+    )
+
+    assert tag_only["ok"] is False
+    assert tag_only["verdict"] == "deny"
+    assert "tag_only_reference_denied" in tag_only["errors"]
+    assert missing_registry["ok"] is False
+    assert missing_registry["verdict"] == "deny"
+    assert "trust_gate_registry_required" in missing_registry["errors"]
+
+
 def test_consumer_cli_verify_commands_require_trust_gate_by_default_and_separate_inspection(tmp_path: Path) -> None:
     metadata_path = tmp_path / artifact_bundles.TUF_UPDATE_METADATA_SIDECAR
     previous_update_path = tmp_path / "previous-update.json"

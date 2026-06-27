@@ -117,11 +117,17 @@ SCITT_STATEMENT_CLASSES = (
     "eval_report_result",
 )
 OCI_PUBLICATION_EVIDENCE_SCHEMA = "abyss_machine_oci_publication_evidence_v1"
+OCI_LAYOUT_PUBLICATION_SCHEMA = "abyss_machine_oci_layout_publication_v1"
+OCI_CONSUMPTION_SCHEMA = "abyss_machine_oci_consumption_v1"
 OCI_REFERRER_DISCOVERY_METHODS = (
     "v1.1-referrers-api",
     "v1.1-referrers-tag",
     "oci-layout",
 )
+OCI_LAYOUT_VERSION = "1.0.0"
+OCI_ARTIFACT_MANIFEST_MEDIA_TYPE = "application/vnd.oci.artifact.manifest.v1+json"
+OCI_CONTENT_DESCRIPTOR_MEDIA_TYPE = "application/octet-stream"
+OCI_DEFAULT_SUBJECT_ARTIFACT_TYPE = "application/vnd.abyss-machine.artifact.subject.v1"
 DEFAULT_BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/public_source_seed.bundle.json"
 OS_ARTIFACT_SCENARIOS = (
     {
@@ -2398,6 +2404,215 @@ def _oci_subject_digest(referrer: dict[str, Any]) -> str:
     )
 
 
+def _oci_blob_path(layout_dir: Path, digest: str) -> Path:
+    return layout_dir / "blobs" / "sha256" / digest.removeprefix("sha256:")
+
+
+def _write_oci_blob(layout_dir: Path, raw: bytes) -> dict[str, Any]:
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    blob_path = _oci_blob_path(layout_dir, digest)
+    blob_path.parent.mkdir(parents=True, exist_ok=True)
+    blob_path.write_bytes(raw)
+    return {"digest": digest, "size": len(raw)}
+
+
+def _oci_digest_descriptor(
+    *,
+    media_type: str,
+    digest: str,
+    size: int,
+    artifact_type: str = "",
+    title: str = "",
+    subject_digest: str = "",
+) -> dict[str, Any]:
+    descriptor: dict[str, Any] = {
+        "mediaType": media_type,
+        "digest": digest,
+        "size": int(size),
+    }
+    if artifact_type:
+        descriptor["artifactType"] = artifact_type
+    annotations: dict[str, str] = {}
+    if title:
+        annotations["org.opencontainers.image.title"] = title
+    if subject_digest:
+        annotations["org.opencontainers.image.ref.name"] = f"referrer-for-{subject_digest}"
+    if annotations:
+        descriptor["annotations"] = annotations
+    return descriptor
+
+
+def _digest_pinned_oci_ref(registry_ref: str, digest: str) -> str:
+    base = str(registry_ref or "").strip()
+    if not base:
+        base = "oci-layout://abyss-machine/artifact"
+    if "@sha256:" in base:
+        base = base.split("@sha256:", 1)[0]
+    return f"{base}@{digest}"
+
+
+def build_oci_layout_publication(
+    subject_path: str | Path,
+    layout_dir: str | Path,
+    *,
+    artifact_class: str,
+    registry_ref: str,
+    artifact_type: str = OCI_DEFAULT_SUBJECT_ARTIFACT_TYPE,
+    subject_media_type: str = OCI_CONTENT_DESCRIPTOR_MEDIA_TYPE,
+    referrers: list[dict[str, Any]] | None = None,
+    record_id: str = "",
+    record_subject_digest: str = "",
+) -> dict[str, Any]:
+    subject_file = Path(subject_path)
+    layout = Path(layout_dir)
+    errors: list[str] = []
+    if not subject_file.is_file():
+        errors.append("subject_file_missing")
+    if not artifact_class:
+        errors.append("artifact_class_missing")
+    if errors:
+        return {
+            "ok": False,
+            "schema": OCI_LAYOUT_PUBLICATION_SCHEMA,
+            "errors": errors,
+            "warnings": [],
+        }
+
+    layout.mkdir(parents=True, exist_ok=True)
+    _write_json(layout / "oci-layout", {"imageLayoutVersion": OCI_LAYOUT_VERSION})
+    subject_blob = _write_oci_blob(layout, subject_file.read_bytes())
+    subject_payload_descriptor = _oci_digest_descriptor(
+        media_type=subject_media_type,
+        digest=str(subject_blob["digest"]),
+        size=int(subject_blob["size"]),
+        title=subject_file.name,
+    )
+    subject_manifest = {
+        "schemaVersion": 2,
+        "mediaType": OCI_ARTIFACT_MANIFEST_MEDIA_TYPE,
+        "artifactType": artifact_type,
+        "blobs": [subject_payload_descriptor],
+    }
+    subject_manifest_raw = _canonical_json_bytes(subject_manifest)
+    subject_manifest_blob = _write_oci_blob(layout, subject_manifest_raw)
+    subject_digest = str(subject_manifest_blob["digest"])
+    subject_descriptor = _oci_digest_descriptor(
+        media_type=OCI_ARTIFACT_MANIFEST_MEDIA_TYPE,
+        digest=subject_digest,
+        size=int(subject_manifest_blob["size"]),
+        artifact_type=artifact_type,
+        title=subject_file.name,
+    )
+
+    referrer_descriptors: list[dict[str, Any]] = []
+    evidence_referrers: list[dict[str, Any]] = []
+    for index, referrer in enumerate(referrers or []):
+        referrer_path = Path(str(referrer.get("path") or ""))
+        referrer_type = str(referrer.get("artifact_type") or referrer.get("artifactType") or "")
+        referrer_media_type = str(
+            referrer.get("media_type") or referrer.get("mediaType") or OCI_CONTENT_DESCRIPTOR_MEDIA_TYPE
+        )
+        if not referrer_path.is_file():
+            errors.append(f"referrer_{index}_file_missing")
+            continue
+        if not referrer_type:
+            errors.append(f"referrer_{index}_artifact_type_missing")
+            continue
+        referrer_blob = _write_oci_blob(layout, referrer_path.read_bytes())
+        referrer_payload_descriptor = _oci_digest_descriptor(
+            media_type=referrer_media_type,
+            digest=str(referrer_blob["digest"]),
+            size=int(referrer_blob["size"]),
+            title=referrer_path.name,
+        )
+        referrer_manifest = {
+            "schemaVersion": 2,
+            "mediaType": OCI_ARTIFACT_MANIFEST_MEDIA_TYPE,
+            "artifactType": referrer_type,
+            "subject": subject_descriptor,
+            "blobs": [referrer_payload_descriptor],
+        }
+        referrer_manifest_raw = _canonical_json_bytes(referrer_manifest)
+        referrer_manifest_blob = _write_oci_blob(layout, referrer_manifest_raw)
+        referrer_digest = str(referrer_manifest_blob["digest"])
+        referrer_descriptor = _oci_digest_descriptor(
+            media_type=OCI_ARTIFACT_MANIFEST_MEDIA_TYPE,
+            digest=referrer_digest,
+            size=int(referrer_manifest_blob["size"]),
+            artifact_type=referrer_type,
+            title=referrer_path.name,
+            subject_digest=subject_digest,
+        )
+        referrer_descriptors.append(referrer_descriptor)
+        evidence_referrers.append(
+            {
+                "artifactType": referrer_type,
+                "mediaType": OCI_ARTIFACT_MANIFEST_MEDIA_TYPE,
+                "digest": referrer_digest,
+                "subject_digest": subject_digest,
+                "payload": referrer_payload_descriptor,
+            }
+        )
+
+    index = {
+        "schemaVersion": 2,
+        "manifests": [subject_descriptor, *referrer_descriptors],
+    }
+    _write_json(layout / "index.json", index)
+    registry_ref_pinned = _digest_pinned_oci_ref(registry_ref, subject_digest)
+    evidence = {
+        "schema": OCI_PUBLICATION_EVIDENCE_SCHEMA,
+        "artifact_class": artifact_class,
+        "registry_ref": registry_ref_pinned,
+        "record_id": record_id,
+        "record_subject_digest": record_subject_digest,
+        "subject": {
+            **subject_descriptor,
+            "digest": subject_digest,
+            "reference": registry_ref_pinned,
+            "payload": subject_payload_descriptor,
+        },
+        "referrers_discovery": {
+            "method": "oci-layout",
+            "status": "verified",
+            "layout_version": OCI_LAYOUT_VERSION,
+        },
+        "referrers": evidence_referrers,
+        "local_oci_layout": {
+            "path": str(layout),
+            "index": "index.json",
+            "subject_manifest_digest": subject_digest,
+            "subject_payload_digest": subject_payload_descriptor["digest"],
+        },
+    }
+    if errors:
+        return {
+            "ok": False,
+            "schema": OCI_LAYOUT_PUBLICATION_SCHEMA,
+            "layout_dir": str(layout),
+            "errors": errors,
+            "warnings": [],
+            "evidence": evidence,
+        }
+    evidence_path = layout / "oci-publication.json"
+    _write_json(evidence_path, evidence)
+    return {
+        "ok": True,
+        "schema": OCI_LAYOUT_PUBLICATION_SCHEMA,
+        "layout_dir": str(layout),
+        "evidence_path": str(evidence_path),
+        "subject_digest": subject_digest,
+        "registry_ref": registry_ref_pinned,
+        "referrers": {
+            "count": len(evidence_referrers),
+            "types": sorted({_oci_referrer_type(item) for item in evidence_referrers}),
+        },
+        "evidence": evidence,
+        "errors": [],
+        "warnings": ["oci_layout_local_proof_not_external_registry_publication"],
+    }
+
+
 def verify_oci_publication(
     evidence: dict[str, Any],
     *,
@@ -2571,6 +2786,124 @@ def verify_oci_publication(
             "This verifier checks an OS Abyss OCI/ORAS publication evidence document; it does not contact a registry itself.",
             "Digest-pinned subject references are required for automatic consumption; tag-only references are denied.",
             "The referrers tag-schema fallback can be accepted only as warn because concurrent clients can race when maintaining fallback indexes.",
+        ],
+    }
+
+
+def consume_oci_publication(
+    evidence: dict[str, Any],
+    output_dir: str | Path,
+    *,
+    expected_artifact_class: str = "",
+    expected_registry_ref: str = "",
+    expected_subject_digest: str = "",
+    required_referrer_types: list[str] | tuple[str, ...] | None = None,
+    registry_dir: str | Path | None = None,
+    expected_record_id: str = "",
+    expected_record_subject_digest: str = "",
+    expected_source_repo: str = "",
+    expected_trust_root_mode: str = "",
+    consumer_intent: str = "runtime",
+    allow_tag_reference: bool = False,
+    allow_missing_referrers: bool = False,
+    require_trust_gate: bool = True,
+) -> dict[str, Any]:
+    verification = verify_oci_publication(
+        evidence,
+        expected_artifact_class=expected_artifact_class,
+        expected_registry_ref=expected_registry_ref,
+        expected_subject_digest=expected_subject_digest,
+        required_referrer_types=required_referrer_types or [],
+        registry_dir=registry_dir,
+        expected_record_id=expected_record_id,
+        expected_record_subject_digest=expected_record_subject_digest,
+        expected_source_repo=expected_source_repo,
+        expected_trust_root_mode=expected_trust_root_mode,
+        consumer_intent=consumer_intent,
+        require_digest_ref=not allow_tag_reference,
+        require_referrers=not allow_missing_referrers,
+        require_trust_gate=require_trust_gate,
+    )
+    errors: list[str] = []
+    warnings: list[str] = [str(item) for item in verification.get("warnings", [])]
+    pulled: dict[str, Any] = {"subject": None, "referrers": []}
+
+    if not verification.get("ok"):
+        errors.extend(str(item) for item in verification.get("errors", []))
+    else:
+        local_layout = evidence.get("local_oci_layout") if isinstance(evidence.get("local_oci_layout"), dict) else {}
+        layout = Path(str(local_layout.get("path") or ""))
+        if not str(layout):
+            errors.append("oci_layout_required_for_local_consume")
+        elif not (layout / "oci-layout").is_file() or not (layout / "index.json").is_file():
+            errors.append("oci_layout_missing")
+        else:
+            subject = evidence.get("subject") if isinstance(evidence.get("subject"), dict) else {}
+            subject_digest = str(subject.get("digest") or "")
+            subject_manifest_path = _oci_blob_path(layout, subject_digest)
+            if not subject_manifest_path.is_file():
+                errors.append("subject_manifest_blob_missing")
+            elif _file_digest(subject_manifest_path) != subject_digest:
+                errors.append("subject_manifest_digest_mismatch")
+            else:
+                try:
+                    subject_manifest = json.loads(subject_manifest_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    subject_manifest = {}
+                    errors.append("subject_manifest_json_invalid")
+                blobs = subject_manifest.get("blobs") if isinstance(subject_manifest.get("blobs"), list) else []
+                payload = blobs[0] if blobs and isinstance(blobs[0], dict) else {}
+                payload_digest = str(payload.get("digest") or "")
+                payload_path = _oci_blob_path(layout, payload_digest)
+                if not _is_sha256_digest(payload_digest):
+                    errors.append("subject_payload_digest_missing")
+                elif not payload_path.is_file():
+                    errors.append("subject_payload_blob_missing")
+                elif _file_digest(payload_path) != payload_digest:
+                    errors.append("subject_payload_digest_mismatch")
+                else:
+                    output = Path(output_dir)
+                    annotations = payload.get("annotations") if isinstance(payload.get("annotations"), dict) else {}
+                    title = str(annotations.get("org.opencontainers.image.title") or payload_digest.replace(":", "-"))
+                    subject_out = output / "subject" / title
+                    subject_out.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(payload_path, subject_out)
+                    pulled["subject"] = {
+                        "path": str(subject_out),
+                        "digest": payload_digest,
+                        "manifest_digest": subject_digest,
+                    }
+            for index, referrer in enumerate(evidence.get("referrers") if isinstance(evidence.get("referrers"), list) else []):
+                if not isinstance(referrer, dict):
+                    continue
+                referrer_digest = str(referrer.get("digest") or "")
+                referrer_path = _oci_blob_path(layout, referrer_digest)
+                if not referrer_path.is_file():
+                    errors.append(f"referrer_{index}_manifest_blob_missing")
+                    continue
+                if _file_digest(referrer_path) != referrer_digest:
+                    errors.append(f"referrer_{index}_manifest_digest_mismatch")
+                    continue
+                pulled["referrers"].append(
+                    {
+                        "artifactType": _oci_referrer_type(referrer),
+                        "digest": referrer_digest,
+                    }
+                )
+
+    verdict = "deny" if errors else str(verification.get("verdict") or "allow")
+    return {
+        "ok": not errors and verdict in {"allow", "warn"},
+        "schema": OCI_CONSUMPTION_SCHEMA,
+        "policy_ref": POLICY_REF,
+        "verdict": verdict,
+        "verification": verification,
+        "pulled": pulled,
+        "errors": errors,
+        "warnings": warnings,
+        "claim_limits": [
+            "This command is a local OCI-layout consumption proof; external registry pull/push uses the same digest/referrers evidence contract but must be supplied by the producer adapter.",
+            "Automatic consumption requires digest-pinned OCI references plus durable trust-gate admission unless inspect-only is explicitly requested.",
         ],
     }
 
