@@ -56,15 +56,14 @@ sample/metadata/debounce, text-event listener runtime, generic GUI selftest
 semantic plans, and supplied accessibility-object state/text/path/document/
 application context runtime helpers, focused-candidate tree walk, and browser
 focus metadata traversal plus path-targeted text focus/read/insert and
-URL-scanned GI/Atspi text insertion runtime live in
+URL-scanned GI/Atspi text insertion plus GI/Atspi Firefox frame focus runtime live in
 `abyss_machine.typing_atspi_adapters`. Saved-text scan filesystem limits, path
 walking, state continuity, decode rejection, candidate/skip accounting, ingest
 kwargs, state entries, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep the remaining typing adapters
-bounded by source type: GI/Atspi frame focus, browser AT-SPI selftest
-execution, focused-browser/browser-context selftests, and privacy probes. The
-mechanic owns the route and tests; generated typed evidence remains local host
-state.
+bounded by source type: browser AT-SPI selftest execution,
+focused-browser/browser-context selftests, and privacy probes. The mechanic
+owns the route and tests; generated typed evidence remains local host state.
 
 ### Next route
 

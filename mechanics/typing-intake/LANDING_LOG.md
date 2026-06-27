@@ -34,17 +34,20 @@
   desktop loading, timeout setup, safe child traversal, focused-candidate tree
   walk, path parsing/resolution, URL metadata focus traversal, and
   accessibility focus actions while CLI owns capture policy decisions, browser
-  context inference callbacks, GI/Atspi frame focus, live probe orchestration,
-  latest writes, and command rendering.
+  context inference callbacks, live probe orchestration, latest writes, and
+  command rendering.
 - AT-SPI path-targeted text/insert seam: `typing_atspi_adapters` owns
   `pyatspi` desktop loading, path resolution, URL/text-hash confirmation,
   accessibility focus, editable-text insert/set fallback, and result
   confirmation for a known AT-SPI path while CLI owns capture policy decisions,
-  `typing_ingest`, latest writes, GI/Atspi frame focus, live probe
-  orchestration, and command rendering.
+  `typing_ingest`, latest writes, live probe orchestration, and command
+  rendering.
 - AT-SPI URL-scanned text/insert seam: `typing_atspi_adapters` owns GI Atspi
   loading, Firefox document scan/priority, URL/current-text hash confirmation,
   editable-text insert/set fallback, focus/caret handling, and after-hash
   confirmation while CLI owns capture policy decisions, `typing_ingest`,
-  latest writes, GI/Atspi frame focus, live probe orchestration, and command
-  rendering.
+  latest writes, live probe orchestration, and command rendering.
+- AT-SPI frame-focus seam: `typing_atspi_adapters` owns GI Atspi loading,
+  Firefox app/window scan, bounded title matching, component/action focus, and
+  state confirmation while CLI owns capture policy decisions, `typing_ingest`,
+  latest writes, live probe orchestration, and command rendering.
