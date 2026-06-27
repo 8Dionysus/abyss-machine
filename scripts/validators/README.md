@@ -69,15 +69,14 @@ summaries, context identity/debounce helpers, supplied-object state/text/path/
 document/application runtime helpers, text-event listener runtime, typing-event
 summaries, focused-candidate tree walk, browser focus metadata traversal,
 path-targeted text focus/read/insert runtime, URL-scanned GI/Atspi text
-insertion runtime, and generic GUI selftest
+insertion runtime, GI/Atspi Firefox frame focus runtime, and generic GUI selftest
 documents live in
 `abyss_machine.typing_atspi_adapters`.
 Saved-text scan filesystem limits, path walking, state continuity, decode
 rejection, candidate/skip accounting, ingest kwargs, state entries, and
 public-safe scan documents live in `abyss_machine.typing_saved_text_adapters`.
 Policy file reads, native-host stdin/stdout binding, remaining browser AT-SPI,
-focused-browser, browser-context, and browser-privacy live probes, GI/Atspi
-frame focus, systemd status reads,
+focused-browser, browser-context, and browser-privacy live probes, systemd status reads,
 `typing_ingest`, latest/index writes, and event writes remain at the CLI edge.
 
 Nervous index JSONL source discovery/loading/hash rules,

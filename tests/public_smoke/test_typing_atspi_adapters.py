@@ -226,6 +226,7 @@ class FakeGiAtspi:
         VISIBLE = "visible"
         SENSITIVE = "sensitive"
         ENABLED = "enabled"
+        ACTIVE = "active"
 
     desktop: object | None = None
 
@@ -269,6 +270,10 @@ class FakeGiAtspi:
             return FakeGiComponent(node)
 
         @staticmethod
+        def get_action_iface(node: "FakeGiNode") -> "FakeGiAction | None":
+            return FakeGiAction(node) if node.action_names else None
+
+        @staticmethod
         def get_document_attribute_value(node: "FakeGiNode", key: str) -> str:
             return node.document_attributes.get(key, "")
 
@@ -303,6 +308,19 @@ class FakeGiAtspi:
         @staticmethod
         def grab_focus(component: "FakeGiComponent") -> bool:
             return component.grab_focus()
+
+    class Action:
+        @staticmethod
+        def get_n_actions(action: "FakeGiAction") -> int:
+            return len(action.node.action_names)
+
+        @staticmethod
+        def get_action_name(action: "FakeGiAction", index: int) -> str:
+            return action.node.action_names[index]
+
+        @staticmethod
+        def do_action(action: "FakeGiAction", index: int) -> bool:
+            return action.do_action(index)
 
 
 class FakeGiStateSet:
@@ -346,6 +364,20 @@ class FakeGiComponent:
         return True
 
 
+class FakeGiAction:
+    def __init__(self, node: "FakeGiNode") -> None:
+        self.node = node
+
+    def do_action(self, index: int) -> bool:
+        name = self.node.action_names[index].lower()
+        self.node.actions_done.append(name)
+        if name == "focus":
+            self.node.states.add("focused")
+        if name == "activate":
+            self.node.states.add("active")
+        return True
+
+
 class FakeGiNode:
     def __init__(
         self,
@@ -356,6 +388,7 @@ class FakeGiNode:
         states: set[str] | None = None,
         text: FakeGiText | None = None,
         document_attributes: dict[str, str] | None = None,
+        action_names: list[str] | None = None,
         children: list["FakeGiNode"] | None = None,
     ) -> None:
         self.role = role
@@ -364,6 +397,8 @@ class FakeGiNode:
         self.states = set(states or set())
         self.text = text
         self.document_attributes = dict(document_attributes or {})
+        self.action_names = list(action_names or [])
+        self.actions_done: list[str] = []
         self.children = list(children or [])
 
     def get_state_set(self) -> FakeGiStateSet:
@@ -786,6 +821,59 @@ def test_atspi_insert_text_by_url_refuses_unexpected_current_text_without_live_g
     assert data["status"] == "matched_unexpected_current_text"
     assert data["matched"]["expected_current_text_match"] is False
     assert text.value == "different browser text"
+
+
+def test_atspi_focus_firefox_frame_by_title_focuses_matching_window_without_live_gi() -> None:
+    frame = FakeGiNode(
+        role="frame",
+        role_name="frame",
+        name="Abyss focused browser safe input probe - Mozilla Firefox",
+        states={"showing", "visible"},
+        action_names=["focus", "activate"],
+    )
+    other_frame = FakeGiNode(
+        role="frame",
+        role_name="frame",
+        name="Other Firefox Window",
+        states={"showing", "visible"},
+    )
+    app = FakeGiNode(role="application", name="firefox", children=[other_frame, frame])
+    desktop = FakeGiNode(role="desktop", name="desktop", children=[app])
+    FakeGiAtspi.desktop = desktop
+
+    data = typing_atspi_adapters.atspi_focus_firefox_frame_by_title(
+        "Abyss focused browser safe input probe",
+        atspi_module=FakeGiAtspi,
+        monotonic=lambda: 0.0,
+        sleep=lambda seconds: None,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "focused"
+    assert data["policy"]["window_focus_only"] is True
+    assert data["matched"]["child_index"] == 1
+    assert data["matched"]["title_match"] is True
+    assert data["matched"]["states_before"]["focused"] is False
+    assert data["matched"]["focus"]["component_grab_focus"] is True
+    assert data["matched"]["focus"]["actions"] == [
+        {"name": "focus", "ok": True},
+        {"name": "activate", "ok": True},
+    ]
+    assert data["matched"]["focus"]["states_after"]["focused"] is True
+    assert data["matched"]["focus"]["states_after"]["active"] is True
+    assert frame.actions_done == ["focus", "activate"]
+
+
+def test_atspi_focus_firefox_frame_by_title_reports_unavailable_without_live_gi() -> None:
+    data = typing_atspi_adapters.atspi_focus_firefox_frame_by_title(
+        "Abyss focused browser safe input probe",
+        load_atspi=lambda: (None, "AT-SPI import failed: missing fake module"),
+    )
+
+    assert data["ok"] is False
+    assert data["status"] == "atspi_unavailable"
+    assert data["error"] == "AT-SPI import failed: missing fake module"
+    assert data["attempts"] == []
 
 
 def test_atspi_focus_metadata_by_url_walks_document_targets_without_live_pyatspi() -> None:

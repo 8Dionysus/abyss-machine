@@ -1471,6 +1471,134 @@ def atspi_insert_text_by_url(
     return data
 
 
+def atspi_focus_firefox_frame_by_title(
+    title: str,
+    timeout_sec: float = 5.0,
+    *,
+    atspi_module: Any | None = None,
+    load_atspi: Callable[[], tuple[Any | None, str | None]] = import_gi_atspi_module,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "status": "not_found",
+        "title": title,
+        "attempts": [],
+        "errors": [],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "window_focus_only": True,
+        },
+    }
+    atspi = atspi_module
+    if atspi is None:
+        atspi, import_error = load_atspi()
+        if import_error or atspi is None:
+            data["status"] = "atspi_unavailable"
+            data["error"] = import_error or "AT-SPI import failed"
+            return data
+    title_token = str(title or "").lower()
+    deadline = monotonic() + max(1.0, min(float(timeout_sec or 5.0), 10.0))
+
+    def focus_accessible(obj: Any) -> dict[str, Any]:
+        result: dict[str, Any] = {"component_grab_focus": None, "actions": []}
+        try:
+            component = atspi.Accessible.get_component_iface(obj)
+            if component:
+                try:
+                    result["component_grab_focus"] = bool(atspi.Component.grab_focus(component))
+                except Exception as exc:
+                    result["component_grab_focus_error"] = str(exc)[:180]
+        except Exception as exc:
+            result["component_error"] = str(exc)[:180]
+        try:
+            action = atspi.Accessible.get_action_iface(obj)
+            if action:
+                action_count = int(atspi.Action.get_n_actions(action) or 0)
+                for action_index in range(min(action_count, 8)):
+                    try:
+                        action_name = str(atspi.Action.get_action_name(action, action_index) or "").lower()
+                    except Exception:
+                        action_name = ""
+                    if action_name not in {"focus", "click", "press", "activate"}:
+                        continue
+                    try:
+                        action_ok = bool(atspi.Action.do_action(action, action_index))
+                    except Exception as exc:
+                        result["actions"].append({"name": action_name, "ok": False, "error": str(exc)[:160]})
+                        continue
+                    result["actions"].append({"name": action_name, "ok": action_ok})
+        except Exception:
+            pass
+        sleep(0.25)
+        result["states_after"] = {
+            "focused": gi_atspi_state_contains(obj, atspi.StateType.FOCUSED),
+            "showing": gi_atspi_state_contains(obj, atspi.StateType.SHOWING),
+            "visible": gi_atspi_state_contains(obj, atspi.StateType.VISIBLE),
+            "active": gi_atspi_state_contains(obj, atspi.StateType.ACTIVE),
+        }
+        return result
+
+    while monotonic() < deadline:
+        try:
+            desktop = atspi.get_desktop(0)
+            app_count = int(atspi.Accessible.get_child_count(desktop) or 0)
+        except Exception as exc:
+            data["status"] = "desktop_unreadable"
+            data["error"] = f"desktop_unreadable: {exc}"
+            return data
+        for app_index in range(min(app_count, 80)):
+            try:
+                app = atspi.Accessible.get_child_at_index(desktop, app_index)
+                app_name = str(atspi.Accessible.get_name(app) or "")
+            except Exception:
+                continue
+            if "firefox" not in app_name.lower():
+                continue
+            try:
+                child_count = int(atspi.Accessible.get_child_count(app) or 0)
+            except Exception:
+                child_count = 0
+            for child_index in range(min(child_count, 20)):
+                try:
+                    child = atspi.Accessible.get_child_at_index(app, child_index)
+                    role = str(atspi.Accessible.get_role_name(child) or "")
+                    name = str(atspi.Accessible.get_name(child) or "")
+                except Exception:
+                    continue
+                attempt = {
+                    "app_index": app_index,
+                    "child_index": child_index,
+                    "app": app_name,
+                    "role": role,
+                    "name": safe_string(name, 220),
+                    "title_match": bool(title_token and title_token in name.lower()),
+                    "states_before": {
+                        "focused": gi_atspi_state_contains(child, atspi.StateType.FOCUSED),
+                        "showing": gi_atspi_state_contains(child, atspi.StateType.SHOWING),
+                        "visible": gi_atspi_state_contains(child, atspi.StateType.VISIBLE),
+                        "active": gi_atspi_state_contains(child, atspi.StateType.ACTIVE),
+                    },
+                }
+                data["attempts"].append(attempt)
+                data["attempts"] = data["attempts"][-10:]
+                if not attempt["title_match"]:
+                    continue
+                focus = focus_accessible(child)
+                states_after = focus.get("states_after") if isinstance(focus.get("states_after"), dict) else {}
+                focused = bool(states_after.get("focused") or states_after.get("active") or states_after.get("showing"))
+                data.update({
+                    "ok": focused,
+                    "status": "focused" if focused else "matched_focus_not_confirmed",
+                    "matched": {**attempt, "focus": focus},
+                })
+                return data
+        sleep(0.3)
+    return data
+
+
 def atspi_focus_metadata_by_url(
     url: str,
     timeout_sec: float = 6.0,
