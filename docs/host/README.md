@@ -10,6 +10,10 @@ The installed host layer uses these root classes:
 The public repo describes how these roots are created and maintained. It does
 not mirror their private contents.
 
+Command ownership is tracked in [SUBSYSTEM_COMMANDS.md](SUBSYSTEM_COMMANDS.md):
+the CLI remains the public entrypoint, while stable subsystem contracts should
+live in importable `abyss_machine` package modules.
+
 On a new machine, bootstrap creates the empty root shape and projected source
 contracts. Validators and opt-in units populate local evidence later:
 

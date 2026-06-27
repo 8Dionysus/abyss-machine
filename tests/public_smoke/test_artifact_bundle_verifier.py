@@ -318,6 +318,61 @@ def test_artifact_scenario_matrix_covers_required_os_trust_loop() -> None:
     assert matrix["summary"]["owner_or_manual_evidence_required"] == 2
 
 
+def test_artifacts_validate_document_contract_is_module_owned(tmp_path: Path) -> None:
+    checks = [
+        {"level": "ok", "key": "policy", "message": "policy present", "details": {"path": "policy.json"}},
+        {"level": "warn", "key": "latest", "message": "latest optional", "details": {}},
+    ]
+    paths = {"validate": {"latest": "/tmp/latest.json"}}
+    inventory_summary = {"records": 2, "missing": 0}
+    latest = tmp_path / "latest.json"
+
+    expected = artifact_bundles.artifacts_validate_document(
+        schema_prefix=cli.SCHEMA_PREFIX,
+        version=cli.VERSION,
+        generated_at="2026-01-01T00:00:00Z",
+        checks=checks,
+        strict=True,
+        paths=paths,
+        inventory_summary=inventory_summary,
+        latest_path=latest,
+    )
+    actual = cli.artifacts_validate_document_from_checks(
+        checks,
+        strict=True,
+        paths=paths,
+        inventory_summary=inventory_summary,
+        latest=latest,
+        generated_at="2026-01-01T00:00:00Z",
+    )
+
+    assert actual == expected
+    assert actual["schema"] == "abyss_machine_artifacts_validate_v1"
+    assert actual["scope"] == "artifacts evidence subsystem"
+    assert actual["ok"] is False
+    assert actual["non_claims"] == list(artifact_bundles.ARTIFACTS_VALIDATE_NON_CLAIMS)
+
+
+def test_artifacts_validate_cli_entrypoint_writes_public_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    validate_root = tmp_path / "validate"
+    monkeypatch.setattr(cli, "ARTIFACTS_VALIDATE_ROOT", validate_root)
+    monkeypatch.setattr(cli, "ARTIFACTS_VALIDATE_LATEST_PATH", validate_root / "latest.json")
+    monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
+
+    rc = cli.main(["artifacts", "validate", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert data["schema"] == "abyss_machine_artifacts_validate_v1"
+    assert data["scope"] == "artifacts evidence subsystem"
+    assert data["latest"] == str(validate_root / "latest.json")
+    assert data["non_claims"] == list(artifact_bundles.ARTIFACTS_VALIDATE_NON_CLAIMS)
+    assert rc == (1 if data["summary"]["fails"] else 0)
+    latest = json.loads((validate_root / "latest.json").read_text(encoding="utf-8"))
+    assert latest["schema"] == data["schema"]
+    assert (tmp_path / "index.json").is_file()
+
+
 def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     scenarios_root = tmp_path / "scenarios"
     monkeypatch.setattr(cli, "ARTIFACTS_SCENARIOS_ROOT", scenarios_root)
@@ -2049,6 +2104,10 @@ def test_artifact_affected_wrong_source_ref_keeps_sibling_blocked(tmp_path: Path
     assert row["source_ref_status"]["matched"] is False
     assert row["source_ref_status"]["expected"] == "commit:current"
     assert row["source_ref_status"]["known_refs"]
+    assert row["drift"]["status"] == "blocked_missing_sibling"
+    assert row["drift"]["operationally_blocking"] is True
+    assert row["drift"]["needs_rebuild"] is True
+    assert row["drift"]["source_ref_state"] == "missing_current_proof"
     assert row["next_actions"][1] == "run the producer profile in owner repo aoa-sdk"
 
 

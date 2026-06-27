@@ -12,7 +12,11 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from abyss_machine.path_policy import AbyssMachinePathPolicy
-from abyss_machine.typing_nervous_policy import TypingNervousPolicy
+from abyss_machine.typing_nervous_policy import (
+    TypingNervousPolicy,
+    typing_index_document_from_paths,
+    typing_paths_document,
+)
 
 
 def test_typing_nervous_policy_derives_organ_roots_from_path_policy() -> None:
@@ -76,6 +80,75 @@ def test_typing_nervous_policy_honors_subsystem_overrides() -> None:
     assert constants["TYPING_USER_SYSTEMD_DIR"] == Path("/override/systemd/user")
     assert constants["NERVOUS_SEARCH_INDEX_DB_PATH"] == Path("/override/nervous.db")
     assert constants["TYPING_BROWSER_WEBEXTENSION_NPM_CACHE"] == Path("/override/npm")
+
+
+def test_typing_paths_and_index_documents_are_module_owned_contracts() -> None:
+    path_policy = AbyssMachinePathPolicy.from_values(
+        user="agent",
+        home="/tmp/agent",
+        etc_root="/tmp/etc",
+        state_root="/tmp/state",
+        srv_root="/tmp/srv",
+        run_root="/tmp/run",
+        cache_root="/tmp/cache",
+        storage_root="/tmp/storage",
+        tmp_root="/tmp/tmp",
+        environ={},
+    )
+    constants = TypingNervousPolicy.from_path_policy(path_policy, environ={}).as_cli_constants()
+
+    paths = typing_paths_document(
+        constants,
+        generated_at="2026-06-26T10:00:00Z",
+        events_today_path="/tmp/state/typing/events/2026/06/2026-06-26.jsonl",
+        version="test",
+    )
+    index = typing_index_document_from_paths(
+        constants,
+        paths,
+        generated_at="2026-06-26T10:00:00Z",
+        version="test",
+    )
+
+    assert paths["schema"] == "abyss_machine_typing_paths_v1"
+    assert paths["events"]["daily_glob"] == "/tmp/state/typing/events/YYYY/MM/YYYY-MM-DD.jsonl"
+    assert paths["browser_extension"]["native_host"] == "org.abyss_machine.typing_intake"
+    assert paths["browser_webextension_selftest"]["npm_cache"] == "/tmp/cache/npm"
+    assert paths["commands"]["validate"] == "abyss-machine typing validate --json"
+    assert index["schema"] == "abyss_machine_typing_index_v1"
+    assert index["paths"] == paths
+    assert index["policy"]["raw_keylogging"] is False
+    assert index["coverage"]["tracks"][-1] == "browser_input_recency"
+    assert index["nervous_refresh"]["service"] == "abyss-machine-typing-nervous-refresh.service"
+    assert index["browser_extension"]["native_host"] == "/tmp/agent/.mozilla/native-messaging-hosts/org.abyss_machine.typing_intake.json"
+
+
+def test_cli_typing_paths_and_index_delegate_to_policy_contracts(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    generated_at = "2026-06-26T10:00:00Z"
+    today_path = Path("/tmp/state/typing/events/2026/06/2026-06-26.jsonl")
+    constants = cli.typing_paths_contract_snapshot()
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli, "typing_today_path", lambda root: today_path)
+
+    paths = typing_paths_document(
+        constants,
+        generated_at=generated_at,
+        events_today_path=today_path,
+        schema_prefix=cli.SCHEMA_PREFIX,
+        version=cli.VERSION,
+    )
+    index = typing_index_document_from_paths(
+        constants,
+        paths,
+        generated_at=generated_at,
+        schema_prefix=cli.SCHEMA_PREFIX,
+        version=cli.VERSION,
+    )
+
+    assert cli.typing_paths() == paths
+    assert cli.typing_index_document() == index
 
 
 def test_cli_typing_nervous_constants_follow_environment_policy() -> None:

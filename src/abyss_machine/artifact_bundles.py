@@ -13,7 +13,7 @@ import subprocess
 import tomllib
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 try:
     from cryptography.hazmat.primitives import serialization
@@ -25,6 +25,7 @@ except Exception:  # pragma: no cover - optional production verifier dependency.
     Ed25519PrivateKey = None  # type: ignore[assignment]
     Ed25519PublicKey = None  # type: ignore[assignment]
 
+from . import validation_contracts
 
 POLICY_REF = "manifests/artifact_signature_policy.manifest.json"
 POLICY_REF_REPO_QUALIFIED = f"repo:abyss-machine/{POLICY_REF}"
@@ -1119,6 +1120,39 @@ def update_lane_status(
     }
 
 
+ARTIFACTS_VALIDATE_NON_CLAIMS = (
+    "Artifact validation proves evidence contract shape, not that cleanup is globally safe.",
+    "No artifact command grants delete-ok from date, size, or refs alone.",
+)
+
+
+def artifacts_validate_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    checks: Iterable[Mapping[str, Any]],
+    strict: bool,
+    paths: Mapping[str, Any],
+    inventory_summary: Any,
+    latest_path: str | Path,
+) -> dict[str, Any]:
+    return validation_contracts.validation_document(
+        schema=f"{schema_prefix}_artifacts_validate_v1",
+        version=version,
+        generated_at=generated_at,
+        checks=checks,
+        strict=strict,
+        scope="artifacts evidence subsystem",
+        extra={
+            "paths": dict(paths),
+            "inventory_summary": dict(inventory_summary) if isinstance(inventory_summary, Mapping) else inventory_summary,
+            "latest": str(latest_path),
+            "non_claims": list(ARTIFACTS_VALIDATE_NON_CLAIMS),
+        },
+    )
+
+
 def _positive_int(value: object) -> int | None:
     if isinstance(value, bool):
         return None
@@ -1224,6 +1258,14 @@ def _source_ref_status(row: dict[str, Any], changed_source_ref: str) -> dict[str
         "proves_current_ref": proves_current_ref,
         "known_refs": known_refs,
     }
+
+
+def _artifact_source_ref_state(source_status: dict[str, Any]) -> str:
+    if source_status.get("required") is not True:
+        return "not_requested"
+    if source_status.get("matched") is True:
+        return "proved_current"
+    return "missing_current_proof"
 
 
 def verify_update_metadata(
@@ -2962,6 +3004,7 @@ def artifact_affected(
                 "reasons": gate.get("reasons", []),
             },
             "source_ref_status": source_status,
+            "drift": drift,
             "next_actions": next_actions,
             "claim_limit": "Affected detects declared source/profile drift and closes source-ref drift only when latest durable evidence proves the ref; it does not rebuild or consume artifacts by itself.",
         })
