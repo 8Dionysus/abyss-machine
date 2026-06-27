@@ -6105,6 +6105,38 @@ def _latest_sort_key(record: dict[str, Any]) -> tuple[int, str, str]:
     )
 
 
+def _bundle_registry_path_status(root: Path, records_dir: Path) -> dict[str, Any]:
+    index_path = root / BUNDLE_REGISTRY_INDEX
+    record_files = sorted(records_dir.glob("*.json")) if records_dir.is_dir() else []
+    sibling = root.parent / "bundle-registry"
+    sibling_records_dir = sibling / BUNDLE_REGISTRY_RECORDS_DIR
+    sibling_record_files = sorted(sibling_records_dir.glob("*.json")) if sibling_records_dir.is_dir() else []
+    sibling_has_registry = (sibling / BUNDLE_REGISTRY_INDEX).is_file() or bool(sibling_record_files)
+    selected_empty = not index_path.is_file() and not record_files
+    suspected_noncanonical = bool(root.name == "registry" and selected_empty and sibling_has_registry)
+    warnings = []
+    if suspected_noncanonical:
+        warnings.append("selected_registry_empty_but_canonical_bundle_registry_sibling_has_records")
+    return {
+        "schema": "abyss_machine_artifact_bundle_registry_path_status_v1",
+        "selected": _registry_path_ref(root, root),
+        "selected_exists": root.exists(),
+        "index_exists": index_path.is_file(),
+        "records_dir_exists": records_dir.is_dir(),
+        "record_file_count": len(record_files),
+        "selected_empty": selected_empty,
+        "canonical_sibling": _registry_path_ref(root, sibling),
+        "canonical_sibling_index_exists": (sibling / BUNDLE_REGISTRY_INDEX).is_file(),
+        "canonical_sibling_record_file_count": len(sibling_record_files),
+        "suspected_noncanonical_empty_registry": suspected_noncanonical,
+        "warnings": warnings,
+        "claim_limit": (
+            "This status diagnoses registry path selection only; it does not switch registries "
+            "or create durable evidence."
+        ),
+    }
+
+
 def read_bundle_registry(
     registry_dir: str | Path,
     *,
@@ -6112,6 +6144,7 @@ def read_bundle_registry(
 ) -> dict[str, Any]:
     root = Path(registry_dir)
     records_dir = root / BUNDLE_REGISTRY_RECORDS_DIR
+    path_status = _bundle_registry_path_status(root, records_dir)
     records: list[dict[str, Any]] = []
     if records_dir.is_dir():
         for path in sorted(records_dir.glob("*.json")):
@@ -6153,10 +6186,13 @@ def read_bundle_registry(
         "records_dir": _registry_path_ref(root, records_dir),
         "index_ref": _registry_path_ref(root, root / BUNDLE_REGISTRY_INDEX),
         "artifact_class_filter": artifact_class,
+        "path_status": path_status,
+        "warnings": list(path_status.get("warnings", [])),
         "summary": {
             "records": len(records),
             "latest": len(latest_by_artifact_class),
             "state_counts": state_counts,
+            "registry_path_warnings": len(path_status.get("warnings", [])),
         },
         "latest_by_artifact_class": latest_by_artifact_class,
         "records": records,
