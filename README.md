@@ -88,20 +88,20 @@ Codex prompt/session-tail text extraction, user-message route recognition,
 context-envelope normalization, near-line duplicate semantics, metadata/context
 ingest plans, and public-safe event summaries live in
 `abyss_machine.typing_codex_semantics`; browser/native-host ingest plans,
-response envelopes, synthetic selftest documents, safe Firefox selftest profile
-prefs, temporary WebExtension selftest profile/tmp roots, `web-ext` execution,
-loopback HTTP probe serving, subprocess cleanup, probe polling, and
-public-safe WebExtension selftest documents live in
+response envelopes, framed native-host byte transport, synthetic selftest
+documents, safe Firefox selftest profile prefs, temporary WebExtension selftest
+profile/tmp roots, `web-ext` execution, loopback HTTP probe serving, subprocess
+cleanup, probe polling, and public-safe WebExtension selftest documents live in
 `abyss_machine.typing_browser_adapters`; focused-snapshot, AT-SPI text-event
 sample/metadata/debounce, and generic GUI selftest semantic plans live in
 `abyss_machine.typing_atspi_adapters`; saved-text filesystem scan limits,
 path walking, state continuity, file decode rejection, candidate/skip
 accounting, ingest kwargs, state entries, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`; CLI still owns configured policy
-reads, framed native-host byte IO, live `pyatspi` traversal/listeners, text
-reads, `typing_ingest` execution, state/latest writes, latest/history writes,
-remaining browser AT-SPI/focused/context/privacy selftest probes, and command
-rendering;
+reads, native-host stdin/stdout binding, live `pyatspi` traversal/listeners,
+text reads, `typing_ingest` execution, state/latest writes,
+latest/history writes, remaining browser AT-SPI/focused/context/privacy
+selftest probes, and command rendering;
 nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`;
 nervous synthesis selection, candidate build orchestration, path/write-result

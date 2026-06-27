@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import struct
+
+import pytest
 
 from abyss_machine import cli
 from abyss_machine import typing_browser_adapters
@@ -156,6 +160,66 @@ def test_browser_selftest_documents_and_native_host_response_envelopes() -> None
     assert error["ok"] is False
     assert error["status"] == "native_host_error"
     assert error["policy"]["automatic_action"] is False
+
+
+def test_native_host_transport_reads_and_writes_length_prefixed_json() -> None:
+    message = {
+        "schema": "abyss_machine_browser_extension_message_v1",
+        "event_kind": "committed_text",
+        "text": "synthetic browser text",
+    }
+    framed = typing_browser_adapters.native_host_encode_response_frame(message)
+    decoded = typing_browser_adapters.native_host_read_message(io.BytesIO(framed))
+    empty = typing_browser_adapters.native_host_read_message(io.BytesIO(b""))
+
+    assert decoded == message
+    assert empty is None
+
+    out = io.BytesIO()
+    typing_browser_adapters.native_host_write_response(out, {"ok": True, "status": "captured", "note": "synthetic"})
+    raw = out.getvalue()
+    length = struct.unpack("<I", raw[:4])[0]
+    assert length == len(raw[4:])
+    assert raw[4:] == b'{"ok":true,"status":"captured","note":"synthetic"}'
+
+
+def test_cli_native_host_transport_binds_to_standard_buffers(monkeypatch) -> None:
+    message = {
+        "schema": "abyss_machine_browser_extension_message_v1",
+        "event_kind": "committed_text",
+        "text": "synthetic browser text",
+    }
+    stdin_buffer = io.BytesIO(typing_browser_adapters.native_host_encode_response_frame(message))
+    stdout_buffer = io.BytesIO()
+
+    class FakeStdin:
+        buffer = stdin_buffer
+
+    class FakeStdout:
+        buffer = stdout_buffer
+
+    monkeypatch.setattr(cli.sys, "stdin", FakeStdin())
+    monkeypatch.setattr(cli.sys, "stdout", FakeStdout())
+
+    assert cli.typing_browser_native_host_read_message() == message
+    cli.typing_browser_native_host_write_response({"ok": True, "status": "captured"})
+
+    raw = stdout_buffer.getvalue()
+    assert struct.unpack("<I", raw[:4])[0] == len(raw[4:])
+    assert raw[4:] == b'{"ok":true,"status":"captured"}'
+
+
+def test_native_host_transport_rejects_malformed_frames() -> None:
+    with pytest.raises(ValueError, match="header"):
+        typing_browser_adapters.native_host_read_message(io.BytesIO(b"\x01\x02"))
+    with pytest.raises(ValueError, match="out of range"):
+        typing_browser_adapters.native_host_read_message(io.BytesIO(struct.pack("<I", 0)))
+    with pytest.raises(ValueError, match="out of range"):
+        typing_browser_adapters.native_host_read_message(io.BytesIO(struct.pack("<I", 1024 * 1024 + 1)))
+    with pytest.raises(ValueError, match="truncated"):
+        typing_browser_adapters.native_host_read_message(io.BytesIO(struct.pack("<I", 5) + b"{}"))
+    with pytest.raises(ValueError, match="JSON object"):
+        typing_browser_adapters.native_host_read_message(io.BytesIO(struct.pack("<I", 2) + b"[]"))
 
 
 def test_browser_webextension_base_command_selects_path_or_offline_npm(tmp_path) -> None:
