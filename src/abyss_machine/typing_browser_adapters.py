@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+import http.server
 import hashlib
-from typing import Any, Mapping
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import socketserver
+import subprocess
+import tempfile
+import threading
+import time
+from typing import Any, Callable, Mapping
 
 from . import typing_capture_contracts
 
@@ -10,6 +22,10 @@ BROWSER_EXTENSION_SOURCE = "browser_extension_explicit"
 BROWSER_AI_TRANSCRIPT_SOURCE = "browser_ai_transcript"
 BROWSER_EXTENSION_MESSAGE_SCHEMA = "abyss_machine_browser_extension_message_v1"
 BROWSER_AI_TRANSCRIPT_MESSAGE_SCHEMA = "abyss_machine_browser_ai_transcript_message_v1"
+
+ProbeEventFinder = Callable[[str, int], tuple[dict[str, Any] | None, list[dict[str, Any]]]]
+RunCommand = Callable[[list[str], float, dict[str, str] | None], dict[str, Any]]
+TerminateProcesses = Callable[[str], list[dict[str, Any]]]
 
 
 def _nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -30,6 +46,406 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 def browser_selftest_run_id(seed: str) -> str:
     return hashlib.sha256(str(seed or "").encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
+def browser_webextension_run_id(generated_at: str, pid: int) -> str:
+    return re.sub(r"[^0-9]", "", str(generated_at or ""))[:14] + str(pid)[-5:]
+
+
+def firefox_selftest_user_prefs() -> str:
+    return "\n".join([
+        'user_pref("app.normandy.enabled", false);',
+        'user_pref("app.shield.optoutstudies.enabled", false);',
+        'user_pref("app.update.enabled", false);',
+        'user_pref("browser.aboutConfig.showWarning", false);',
+        'user_pref("browser.cache.disk.enable", false);',
+        'user_pref("browser.newtabpage.activity-stream.feeds.telemetry", false);',
+        'user_pref("browser.newtabpage.activity-stream.telemetry", false);',
+        'user_pref("browser.safebrowsing.blockedURIs.enabled", false);',
+        'user_pref("browser.safebrowsing.downloads.enabled", false);',
+        'user_pref("browser.safebrowsing.downloads.remote.enabled", false);',
+        'user_pref("browser.safebrowsing.downloads.remote.url", "");',
+        'user_pref("browser.safebrowsing.malware.enabled", false);',
+        'user_pref("browser.safebrowsing.phishing.enabled", false);',
+        'user_pref("browser.safebrowsing.provider.google.updateURL", "");',
+        'user_pref("browser.safebrowsing.provider.google4.updateURL", "");',
+        'user_pref("browser.safebrowsing.provider.mozilla.updateURL", "");',
+        'user_pref("browser.shell.checkDefaultBrowser", false);',
+        'user_pref("browser.startup.homepage_override.mstone", "ignore");',
+        'user_pref("browser.urlbar.speculativeConnect.enabled", false);',
+        'user_pref("datareporting.healthreport.uploadEnabled", false);',
+        'user_pref("datareporting.policy.dataSubmissionEnabled", false);',
+        'user_pref("dom.security.https_only_mode", false);',
+        'user_pref("extensions.getAddons.cache.enabled", false);',
+        'user_pref("extensions.systemAddon.update.enabled", false);',
+        'user_pref("extensions.update.enabled", false);',
+        'user_pref("network.captive-portal-service.enabled", false);',
+        'user_pref("network.connectivity-service.enabled", false);',
+        'user_pref("network.dns.disablePrefetch", true);',
+        'user_pref("network.http.speculative-parallel-limit", 0);',
+        'user_pref("network.predictor.enabled", false);',
+        'user_pref("network.prefetch-next", false);',
+        'user_pref("toolkit.telemetry.enabled", false);',
+        'user_pref("toolkit.telemetry.unified", false);',
+        "",
+    ])
+
+
+def _atomic_write_text(path: Path, text: str, mode: int = 0o664) -> dict[str, Any] | None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as tmp:
+            tmp.write(text)
+            tmp_name = tmp.name
+        os.chmod(tmp_name, mode)
+        os.replace(tmp_name, path)
+        return None
+    except OSError as exc:
+        return {"path": str(path), "error": str(exc)}
+
+
+def prepare_firefox_selftest_profile(profile_dir: Path) -> dict[str, Any] | None:
+    return _atomic_write_text(profile_dir / "user.js", firefox_selftest_user_prefs(), 0o664)
+
+
+def browser_webextension_base_command(
+    *,
+    npm_cache: Path,
+    which: Callable[[str], str | None] = shutil.which,
+) -> tuple[list[str], dict[str, Any]]:
+    web_ext_bin = which("web-ext")
+    if web_ext_bin:
+        return [web_ext_bin], {"route": "path", "binary": web_ext_bin, "offline_npm_cache": False}
+    npm_bin = which("npm")
+    if not npm_bin:
+        return [], {"route": "missing", "error": "neither web-ext nor npm executable was found"}
+    return [
+        npm_bin,
+        "exec",
+        "--offline",
+        "--yes",
+        "--package",
+        "web-ext",
+        "--",
+        "web-ext",
+    ], {
+        "route": "npm_exec_offline",
+        "binary": npm_bin,
+        "npm_cache": str(npm_cache),
+        "offline_npm_cache": True,
+    }
+
+
+def _webextension_selftest_error_document(
+    *,
+    status: str,
+    error: str,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+) -> dict[str, Any]:
+    return {
+        "schema": f"{schema_prefix}_typing_browser_webextension_selftest_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "status": status,
+        "source_adapter": BROWSER_EXTENSION_SOURCE,
+        "error": error,
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "automatic_action": False,
+        },
+    }
+
+
+def _default_run_command(cmd: list[str], timeout: float, env: dict[str, str] | None) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(
+            cmd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+    except FileNotFoundError:
+        return {"ok": False, "returncode": 127, "stdout": "", "stderr": "not found"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "returncode": 124, "stdout": "", "stderr": "timeout"}
+
+
+def _terminate_process_group(proc: Any) -> tuple[str, str, int | None]:
+    stdout = ""
+    stderr = ""
+    if proc is None:
+        return stdout, stderr, None
+    try:
+        if proc.poll() is None:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:
+        pass
+    try:
+        stdout, stderr = proc.communicate(timeout=5.0)
+    except Exception:
+        try:
+            if proc.poll() is None:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            pass
+        try:
+            stdout, stderr = proc.communicate(timeout=2.0)
+        except Exception:
+            stdout, stderr = "", ""
+    return str(stdout or ""), str(stderr or ""), getattr(proc, "returncode", None)
+
+
+def browser_webextension_selftest_document(
+    *,
+    generated_at: str,
+    pid: int,
+    tmp_root: Path,
+    extension_root: Path,
+    npm_cache: Path,
+    schema_prefix: str,
+    version: str,
+    find_probe_event: ProbeEventFinder,
+    which: Callable[[str], str | None] = shutil.which,
+    run_command: RunCommand = _default_run_command,
+    process_factory: Callable[..., Any] = subprocess.Popen,
+    terminate_processes: TerminateProcesses | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    deadline_seconds: float = 35.0,
+) -> dict[str, Any]:
+    run_id = browser_webextension_run_id(generated_at, pid)
+    probe_text = f"abyss browser webextension committed text {run_id}"
+    probe_hash = hashlib.sha256(probe_text.encode("utf-8", errors="replace")).hexdigest()
+    profile_dir = tmp_root / "profile"
+    site_dir = tmp_root / "site"
+    artifacts_dir = tmp_root / "web-ext-artifacts"
+    firefox_bin = which("firefox")
+    base_command, web_ext_info = browser_webextension_base_command(npm_cache=npm_cache, which=which)
+    stdout_tail = ""
+    stderr_tail = ""
+    web_ext_returncode: int | None = None
+    web_ext_version: dict[str, Any] | None = None
+    cleanup_actions: list[dict[str, Any]] = []
+    event: dict[str, Any] | None = None
+    parse_errors: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    url = ""
+
+    if not firefox_bin:
+        return _webextension_selftest_error_document(
+            status="firefox_missing",
+            error="firefox executable not found",
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+        )
+    if not base_command:
+        return _webextension_selftest_error_document(
+            status="web_ext_missing",
+            error=str(web_ext_info.get("error") or "web-ext loader unavailable"),
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+        )
+
+    proc: Any | None = None
+    httpd: socketserver.TCPServer | None = None
+    server_thread: threading.Thread | None = None
+    try:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        site_dir.mkdir(parents=True, exist_ok=True)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        prefs_error = prepare_firefox_selftest_profile(profile_dir)
+        if prefs_error:
+            errors.append(prefs_error)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        npm_cache.mkdir(parents=True, exist_ok=True)
+        page = f"""<!doctype html>
+<meta charset=\"utf-8\">
+<title>Abyss browser WebExtension safe input probe</title>
+<textarea id=\"probe\" name=\"abyss_note\" aria-label=\"Abyss safe note\" autocomplete=\"off\" autofocus></textarea>
+<script>
+  const probeText = {json.dumps(probe_text)};
+  function emitProbe() {{
+    const probe = document.getElementById(\"probe\");
+    probe.focus();
+    probe.value = probeText;
+    probe.setSelectionRange(probe.value.length, probe.value.length);
+    probe.dispatchEvent(new InputEvent(\"input\", {{bubbles: true, inputType: \"insertText\", data: \"probe\"}}));
+  }}
+  setTimeout(emitProbe, 2500);
+</script>
+"""
+        write_error = _atomic_write_text(site_dir / "index.html", page, 0o664)
+        if write_error:
+            errors.append(write_error)
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, directory=str(site_dir), **kwargs)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                return
+
+        class ReusableTCPServer(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+
+        httpd = ReusableTCPServer(("127.0.0.1", 0), Handler)
+        port = int(httpd.server_address[1])
+        url = f"http://127.0.0.1:{port}/index.html"
+        server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        server_thread.start()
+
+        env = os.environ.copy()
+        env["MOZ_NO_REMOTE"] = "1"
+        if web_ext_info.get("offline_npm_cache"):
+            env["NPM_CONFIG_CACHE"] = str(npm_cache)
+        web_ext_version = run_command(base_command + ["--version"], 20.0, env)
+        if not web_ext_version.get("ok"):
+            errors.append({
+                "error": "web_ext_version_check_failed",
+                "returncode": web_ext_version.get("returncode"),
+                "stderr": str(web_ext_version.get("stderr") or "")[-500:],
+                "stdout": str(web_ext_version.get("stdout") or "")[-500:],
+            })
+        command = base_command + [
+            "run",
+            "--source-dir",
+            str(extension_root),
+            "--artifacts-dir",
+            str(artifacts_dir),
+            "--firefox",
+            firefox_bin,
+            "--firefox-profile",
+            str(profile_dir),
+            "--profile-create-if-missing",
+            "--keep-profile-changes",
+            "--no-reload",
+            "--no-input",
+            "--no-config-discovery",
+            "--pref",
+            "browser.shell.checkDefaultBrowser=false",
+            "--pref",
+            "browser.startup.homepage_override.mstone=ignore",
+            "--start-url",
+            url,
+            "--arg=--new-instance",
+        ]
+        proc = process_factory(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            preexec_fn=os.setsid,
+        )
+        deadline = monotonic() + max(1.0, float(deadline_seconds or 35.0))
+        while monotonic() < deadline:
+            event, parse_errors = find_probe_event(probe_hash, 520)
+            if isinstance(event, dict):
+                break
+            if proc.poll() is not None:
+                break
+            sleep(0.5)
+    except Exception as exc:
+        errors.append({"error": repr(exc)[:500]})
+    finally:
+        stdout, stderr, web_ext_returncode = _terminate_process_group(proc)
+        stdout_tail = str(stdout or "")[-2000:]
+        stderr_tail = str(stderr or "")[-2000:]
+        if terminate_processes is not None:
+            cleanup_actions = terminate_processes(str(tmp_root))
+        if httpd is not None:
+            try:
+                httpd.shutdown()
+                httpd.server_close()
+            except Exception:
+                pass
+        if server_thread is not None:
+            try:
+                server_thread.join(timeout=1.0)
+            except Exception:
+                pass
+
+    event_ok = (
+        isinstance(event, dict)
+        and event.get("status") == "captured"
+        and event.get("source_adapter") == BROWSER_EXTENSION_SOURCE
+        and event.get("capture_gate_decision") == "allow_text"
+        and event.get("capture_gate_confidence") == "browser_url_and_field_allowed"
+        and event.get("text_sha256") == probe_hash
+        and event.get("text_chars_stored") == len(probe_text)
+        and _nested_get(event, ["recipient", "kind"]) == "browser_extension"
+    )
+    ok = bool(event_ok and not parse_errors and not errors)
+    return {
+        "schema": f"{schema_prefix}_typing_browser_webextension_selftest_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": ok,
+        "status": "passed" if ok else "failed",
+        "run_id": run_id,
+        "source_adapter": BROWSER_EXTENSION_SOURCE,
+        "url": url,
+        "probe": {
+            "text_sha256": probe_hash,
+            "text_length": len(probe_text),
+            "text_omitted": True,
+        },
+        "event": event,
+        "web_ext": {
+            "loader": web_ext_info,
+            "version": str((web_ext_version or {}).get("stdout") or "").strip(),
+            "version_check_ok": bool((web_ext_version or {}).get("ok")),
+            "returncode": web_ext_returncode,
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+            "cleanup_actions": cleanup_actions[:40],
+        },
+        "firefox": {
+            "binary": firefox_bin,
+            "profile": str(profile_dir),
+            "extension_source": str(extension_root),
+        },
+        "tmp_root": str(tmp_root),
+        "parse_errors": parse_errors[:20],
+        "errors": errors[:20],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "automatic_action": False,
+            "internet_access": False,
+            "loopback_http_only": True,
+            "temporary_firefox_profile": True,
+            "release_profile_mutated": False,
+            "uses_webextension_content_script": True,
+            "uses_native_messaging_host": True,
+        },
+        "non_claims": [
+            "This selftest proves the WebExtension content-script to native-host route in a temporary Firefox profile.",
+            "It does not prove the extension is active in the user's release Firefox profiles.",
+            "It does not collect raw key events, password fields, cookies, local storage, or full form values.",
+        ],
+    }
 
 
 def browser_extension_message_metadata(

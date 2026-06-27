@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from abyss_machine import cli
 from abyss_machine import typing_browser_adapters
 
@@ -154,6 +156,162 @@ def test_browser_selftest_documents_and_native_host_response_envelopes() -> None
     assert error["ok"] is False
     assert error["status"] == "native_host_error"
     assert error["policy"]["automatic_action"] is False
+
+
+def test_browser_webextension_base_command_selects_path_or_offline_npm(tmp_path) -> None:
+    direct_command, direct_info = typing_browser_adapters.browser_webextension_base_command(
+        npm_cache=tmp_path / "npm",
+        which=lambda name: "/usr/bin/web-ext" if name == "web-ext" else None,
+    )
+    npm_command, npm_info = typing_browser_adapters.browser_webextension_base_command(
+        npm_cache=tmp_path / "npm",
+        which=lambda name: "/usr/bin/npm" if name == "npm" else None,
+    )
+    missing_command, missing_info = typing_browser_adapters.browser_webextension_base_command(
+        npm_cache=tmp_path / "npm",
+        which=lambda name: None,
+    )
+
+    assert direct_command == ["/usr/bin/web-ext"]
+    assert direct_info["route"] == "path"
+    assert npm_command[:5] == ["/usr/bin/npm", "exec", "--offline", "--yes", "--package"]
+    assert npm_info["route"] == "npm_exec_offline"
+    assert npm_info["npm_cache"] == str(tmp_path / "npm")
+    assert missing_command == []
+    assert missing_info["route"] == "missing"
+
+
+def test_browser_webextension_selftest_reports_missing_runtime_without_probe(tmp_path) -> None:
+    called = {"probe": False}
+
+    def forbidden_probe(_text_sha: str, _limit: int):
+        called["probe"] = True
+        return None, []
+
+    firefox_missing = typing_browser_adapters.browser_webextension_selftest_document(
+        generated_at="2026-06-27T18:00:00Z",
+        pid=4242,
+        tmp_root=tmp_path / "tmp",
+        extension_root=tmp_path / "extension",
+        npm_cache=tmp_path / "npm",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        find_probe_event=forbidden_probe,
+        which=lambda name: None,
+    )
+    web_ext_missing = typing_browser_adapters.browser_webextension_selftest_document(
+        generated_at="2026-06-27T18:00:00Z",
+        pid=4242,
+        tmp_root=tmp_path / "tmp",
+        extension_root=tmp_path / "extension",
+        npm_cache=tmp_path / "npm",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        find_probe_event=forbidden_probe,
+        which=lambda name: "/usr/bin/firefox" if name == "firefox" else None,
+    )
+
+    assert firefox_missing["status"] == "firefox_missing"
+    assert firefox_missing["source_adapter"] == "browser_extension_explicit"
+    assert web_ext_missing["status"] == "web_ext_missing"
+    assert web_ext_missing["policy"]["raw_keylogging"] is False
+    assert called["probe"] is False
+
+
+def test_browser_webextension_selftest_runtime_adapter_builds_public_safe_document(tmp_path) -> None:
+    generated_at = "2026-06-27T18:00:00Z"
+    pid = 4242
+    run_id = typing_browser_adapters.browser_webextension_run_id(generated_at, pid)
+    probe_text = f"abyss browser webextension committed text {run_id}"
+    probe_hash = hashlib.sha256(probe_text.encode("utf-8", errors="replace")).hexdigest()
+    commands: list[tuple[list[str], float, dict[str, str] | None]] = []
+    launched: list[list[str]] = []
+    cleanup_tokens: list[str] = []
+
+    class FakeProcess:
+        pid = 999999
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=0):
+            return "web-ext stdout", "web-ext stderr"
+
+    def fake_which(name: str) -> str | None:
+        return {
+            "firefox": "/usr/bin/firefox",
+            "web-ext": "/usr/bin/web-ext",
+        }.get(name)
+
+    def fake_run(cmd: list[str], timeout: float, env: dict[str, str] | None) -> dict[str, object]:
+        commands.append((cmd, timeout, env))
+        return {"ok": True, "returncode": 0, "stdout": "8.0.0", "stderr": ""}
+
+    def fake_process_factory(command: list[str], **_kwargs: object) -> FakeProcess:
+        launched.append(command)
+        return FakeProcess()
+
+    def fake_find_probe_event(text_sha256: str, limit: int):
+        assert text_sha256 == probe_hash
+        assert limit == 520
+        return {
+            "event_id": "evt-webextension",
+            "generated_at": generated_at,
+            "status": "captured",
+            "source_adapter": "browser_extension_explicit",
+            "capture_gate_decision": "allow_text",
+            "capture_gate_confidence": "browser_url_and_field_allowed",
+            "text_length": len(probe_text),
+            "text_chars_stored": len(probe_text),
+            "text_sha256": probe_hash,
+            "recipient": {"kind": "browser_extension"},
+        }, []
+
+    def fake_terminate(token: str) -> list[dict[str, object]]:
+        cleanup_tokens.append(token)
+        return [{"token": token, "ok": True}]
+
+    data = typing_browser_adapters.browser_webextension_selftest_document(
+        generated_at=generated_at,
+        pid=pid,
+        tmp_root=tmp_path / "tmp",
+        extension_root=tmp_path / "extension",
+        npm_cache=tmp_path / "npm",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        find_probe_event=fake_find_probe_event,
+        which=fake_which,
+        run_command=fake_run,
+        process_factory=fake_process_factory,
+        terminate_processes=fake_terminate,
+        sleep=lambda _seconds: None,
+        deadline_seconds=1.0,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "passed"
+    assert data["run_id"] == run_id
+    assert data["probe"] == {
+        "text_sha256": probe_hash,
+        "text_length": len(probe_text),
+        "text_omitted": True,
+    }
+    assert data["event"]["event_id"] == "evt-webextension"
+    assert "text" not in data["event"]
+    assert data["policy"]["temporary_firefox_profile"] is True
+    assert data["policy"]["release_profile_mutated"] is False
+    assert data["policy"]["loopback_http_only"] is True
+    assert data["web_ext"]["loader"]["route"] == "path"
+    assert data["web_ext"]["version"] == "8.0.0"
+    assert data["web_ext"]["cleanup_actions"] == [{"token": str(tmp_path / "tmp"), "ok": True}]
+    assert commands[0][0] == ["/usr/bin/web-ext", "--version"]
+    assert launched[0][:4] == ["/usr/bin/web-ext", "run", "--source-dir", str(tmp_path / "extension")]
+    assert "--firefox-profile" in launched[0]
+    assert str(tmp_path / "tmp" / "profile") in launched[0]
+    assert cleanup_tokens == [str(tmp_path / "tmp")]
+    assert (tmp_path / "tmp" / "profile" / "user.js").exists()
+    assert (tmp_path / "tmp" / "site" / "index.html").exists()
 
 
 def test_cli_browser_extension_ingest_executes_adapter_plan(monkeypatch) -> None:

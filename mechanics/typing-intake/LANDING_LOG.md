@@ -10,3 +10,8 @@
   accounting, ingest kwargs, state entries, and public-safe scan documents
   while `typing_ingest`, state/latest writes, timer/service status, and command
   rendering stay at the CLI edge.
+- WebExtension selftest runtime seam: `typing_browser_adapters` owns temporary
+  Firefox profile prefs, `web-ext` command selection, loopback HTTP probe
+  serving, temp profile/artifact/cache roots, subprocess lifecycle/cleanup,
+  probe polling, and public-safe result assembly while latest/index writes and
+  command rendering stay at the CLI edge.
