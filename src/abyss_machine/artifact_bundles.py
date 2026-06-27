@@ -69,6 +69,11 @@ C2PA_TRUST_GAP_WARNINGS = (
     "C2PA signing credential is trusted by a custom trust anchor store; this is not production C2PA Trust List proof",
     "C2PA signing credential is trusted by the legacy interim Content Credentials trust store; this is not production C2PA Trust List proof",
 )
+C2PA_CREDENTIAL_ONBOARDING_SCHEMA = "abyss_machine_c2pa_credential_onboarding_v1"
+C2PA_PRE_ORGANIZATION_WARNING = (
+    "C2PA credential onboarding is pre-organization; public media exports are local-integrity evidence "
+    "until a legal subject and C2PA Trust List signing credential exist"
+)
 TUF_UPDATE_METADATA_SIDECAR = "artifact.update.tuf.json"
 TUF_REPOSITORY_METADATA_DIR = "metadata"
 TUF_REPOSITORY_TARGETS_DIR = "targets"
@@ -842,6 +847,29 @@ def _bundle_manifest_refs_for_class(repo_root: Path, artifact_class: str) -> lis
         except ValueError:
             refs.append(path.as_posix())
     return refs
+
+
+def _c2pa_onboarding_for_manifest_refs(
+    manifest_refs: list[str],
+    *,
+    repo_root: Path,
+) -> dict[str, Any]:
+    for manifest_ref in manifest_refs:
+        try:
+            manifest = load_bundle_manifest(manifest_ref, repo_root=repo_root)
+        except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+            continue
+        c2pa_config = manifest.get("c2pa") if isinstance(manifest.get("c2pa"), dict) else {}
+        onboarding = c2pa_config.get("credential_onboarding") if isinstance(c2pa_config.get("credential_onboarding"), dict) else {}
+        if not onboarding:
+            continue
+        status = _c2pa_credential_onboarding_status(
+            c2pa_config=c2pa_config,
+            trust_verdict={"production_trust_list_trusted": False},
+        )
+        status["source_manifest_ref"] = manifest_ref
+        return status
+    return {}
 
 
 def _repo_relative_text(path: str | Path, *, repo_root: Path = REPO_ROOT) -> str:
@@ -2536,7 +2564,8 @@ def artifact_requirement_row(
         for pattern in rule_item.get("artifact_patterns", [])
         if str(pattern)
     ]
-    return {
+    credential_onboarding = _c2pa_onboarding_for_manifest_refs(manifest_refs, repo_root=repo_root)
+    row = {
         "schema": "abyss_machine_artifact_requirements_row_v1",
         "artifact_class": artifact_class,
         "owner_repo": identity.get("owner_repo"),
@@ -2590,6 +2619,9 @@ def artifact_requirement_row(
             "GitHub OIDC is one producer adapter, not the OS Abyss trust plane itself.",
         ],
     }
+    if credential_onboarding:
+        row["credential_onboarding"] = credential_onboarding
+    return row
 
 
 def artifact_requirements(
@@ -4240,6 +4272,87 @@ def _c2pa_trust_verdict(
     }
 
 
+def _c2pa_onboarding_list(config: dict[str, Any], key: str, fallback: list[str]) -> list[str]:
+    value = config.get(key)
+    if isinstance(value, list):
+        items = [str(item) for item in value if str(item)]
+        if items:
+            return items
+    return fallback
+
+
+def _c2pa_credential_onboarding_status(
+    *,
+    c2pa_config: dict[str, Any],
+    trust_verdict: dict[str, Any],
+) -> dict[str, Any]:
+    config = c2pa_config.get("credential_onboarding") if isinstance(c2pa_config.get("credential_onboarding"), dict) else {}
+    production_ready = trust_verdict.get("production_trust_list_trusted") is True
+    phase = "production_trust_list_ready" if production_ready else str(config.get("phase") or "pre_organization")
+    legal_subject_state = (
+        "validated_legal_subject"
+        if production_ready
+        else str(config.get("legal_subject_state") or "organization_pending")
+    )
+    interim_posture = (
+        "production_c2pa_trust_list"
+        if production_ready
+        else str(config.get("interim_posture") or "local_integrity_only")
+    )
+    return {
+        "schema": C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+        "phase": phase,
+        "legal_subject_state": legal_subject_state,
+        "interim_posture": interim_posture,
+        "production_claim_allowed": production_ready,
+        "release_consumer_verdict_without_production_credential": (
+            "allow" if production_ready else str(config.get("release_consumer_verdict_without_production_credential") or "warn")
+        ),
+        "allowed_interim_uses": _c2pa_onboarding_list(
+            config,
+            "allowed_interim_uses",
+            [
+                "produce C2PA asset-binding evidence",
+                "run privacy review",
+                "promote durable registry evidence",
+                "admit release consumers only with an explicit trust-gate warning",
+            ],
+        ),
+        "blocked_claims": _c2pa_onboarding_list(
+            config,
+            "blocked_claims",
+            [
+                "production C2PA Trust List proof",
+                "organization-backed public signing identity",
+                "unqualified trusted public-media claim",
+            ],
+        ),
+        "required_before_production_claim": _c2pa_onboarding_list(
+            config,
+            "required_before_production_claim",
+            [
+                "legal subject selected and validated",
+                "C2PA conforming product accepted",
+                "claim-signing credential chains to the C2PA Trust List",
+                "host-managed signer installed without storing private keys in source, tmp, or email",
+            ],
+        ),
+        "claim_limit": str(
+            config.get("claim_limit")
+            or "This status makes the pre-organization C2PA gap explicit; it does not waive production Trust List verification."
+        ),
+    }
+
+
+def _c2pa_pre_organization_warning(c2pa_trust: dict[str, Any]) -> str:
+    if not c2pa_trust or c2pa_trust.get("production_trust_list_trusted") is True:
+        return ""
+    onboarding = c2pa_trust.get("credential_onboarding") if isinstance(c2pa_trust.get("credential_onboarding"), dict) else {}
+    if onboarding.get("phase") == "pre_organization":
+        return C2PA_PRE_ORGANIZATION_WARNING
+    return ""
+
+
 def _c2pa_trust_gap_warning(c2pa_trust: dict[str, Any]) -> str:
     if not c2pa_trust:
         return C2PA_TRUST_GAP_WARNINGS[3]
@@ -5033,6 +5146,10 @@ def _validate_c2pa_sidecar(
         status_codes=active_status_codes,
         all_status_codes=status_codes,
     )
+    trust_verdict["credential_onboarding"] = _c2pa_credential_onboarding_status(
+        c2pa_config=c2pa_config,
+        trust_verdict=trust_verdict,
+    )
     if any(code == "assertion.dataHash.mismatch" for code in status_codes):
         errors.append(f"C2PA asset hash mismatch for {subject_ref}")
     if any(code == "signingCredential.expired" for code in active_status_codes):
@@ -5062,6 +5179,9 @@ def _validate_c2pa_sidecar(
         )
     elif trust_verdict.get("production_trust_list_trusted") is not True:
         warnings.append("C2PA signing credential trust was not proven by trust-list validation; this is local integrity evidence, not production trust-list proof")
+    onboarding_warning = _c2pa_pre_organization_warning(trust_verdict)
+    if onboarding_warning:
+        warnings.append(onboarding_warning)
     if not trust_sources and not any(code == "signingCredential.trusted" for code in active_status_codes):
         warnings.append(
             "C2PA production trust anchors are not configured; set "
@@ -6394,7 +6514,9 @@ def trust_gate(
         if privacy_review_reason:
             manual_review.append(privacy_review_reason)
         if artifact_class == "public_media_export" and "c2pa" in required_controls:
-            _append_unique_text(warnings, _c2pa_trust_gap_warning(_record_c2pa_trust(selected)))
+            c2pa_trust = _record_c2pa_trust(selected)
+            _append_unique_text(warnings, _c2pa_trust_gap_warning(c2pa_trust))
+            _append_unique_text(warnings, _c2pa_pre_organization_warning(c2pa_trust))
 
     if selected.get("verification_warnings"):
         for warning in selected.get("verification_warnings", []):
