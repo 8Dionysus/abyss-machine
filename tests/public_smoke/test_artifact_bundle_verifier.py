@@ -1591,6 +1591,66 @@ def test_trust_coverage_exposes_pre_organization_c2pa_onboarding(
     assert "credential onboarding phase is pre_organization" in row["remaining_blocker"]
 
 
+def test_trust_coverage_operating_posture_keeps_pre_org_public_claim_blocker_separate() -> None:
+    rows = [
+        {
+            "artifact_class": "bootstrap_install_bundle",
+            "status": "FULLY_COVERED",
+            "remaining_blocker": "",
+            "installed_verification": {"trust_gate_verdict": "allow"},
+        },
+        {
+            "artifact_class": "public_media_export",
+            "status": "DEFERRED_WITH_REAL_BLOCKER",
+            "remaining_blocker": "Public media export C2PA credential onboarding phase is pre_organization.",
+            "installed_verification": {"trust_gate_verdict": "warn"},
+            "credential_onboarding": {
+                "phase": "pre_organization",
+                "legal_subject_state": "organization_pending",
+                "production_claim_allowed": False,
+                "blocked_claims": ["production C2PA Trust List proof"],
+                "required_before_production_claim": ["legal subject selected and validated"],
+            },
+        },
+    ]
+
+    posture = cli.artifact_trust_coverage_operating_posture(rows)
+
+    assert posture["profile"] == "pre_organization"
+    assert posture["os_internal_consumption"]["ready"] is True
+    assert posture["os_internal_consumption"]["blocked_artifact_classes"] == []
+    assert posture["public_release_claims"]["production_ready"] is False
+    assert posture["public_release_claims"]["blocked_artifact_classes"][0]["artifact_class"] == "public_media_export"
+    assert posture["warning_artifacts"] == [{"artifact_class": "public_media_export", "trust_gate_verdict": "warn"}]
+    assert posture["next_transition"]["target_profile"] == "organization_backed"
+    assert posture["next_transition"]["required_before_transition"] == ["legal subject selected and validated"]
+
+
+def test_trust_coverage_operating_posture_blocks_internal_readiness_for_normal_deferred_rows() -> None:
+    rows = [
+        {
+            "artifact_class": "bootstrap_install_bundle",
+            "status": "DEFERRED_WITH_REAL_BLOCKER",
+            "remaining_blocker": "Consumer trust-gate did not allow registry latest.",
+            "installed_verification": {"trust_gate_verdict": "manual_review_required"},
+        }
+    ]
+
+    posture = cli.artifact_trust_coverage_operating_posture(rows)
+
+    assert posture["profile"] == "organization_backed"
+    assert posture["os_internal_consumption"]["ready"] is False
+    assert posture["public_release_claims"]["production_ready"] is False
+    assert posture["os_internal_consumption"]["blocked_artifact_classes"] == [
+        {
+            "artifact_class": "bootstrap_install_bundle",
+            "status": "DEFERRED_WITH_REAL_BLOCKER",
+            "reason": "Consumer trust-gate did not allow registry latest.",
+            "trust_gate_verdict": "manual_review_required",
+        }
+    ]
+
+
 def test_trust_gate_warns_on_legacy_content_credentials_c2pa_from_structured_verdict(tmp_path: Path) -> None:
     c2pa_trust = {
         "schema": "abyss_machine_c2pa_trust_verdict_v1",
