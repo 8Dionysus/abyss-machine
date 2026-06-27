@@ -18,7 +18,7 @@ package modules keep stable contracts, policy, and read-model shapes.
 
 | Surface | Reads | Writes | Mutates/executes | Current home |
 |---|---|---|---|---|
-| `typing` | policy files, Codex session JSONL, browser/native-host payloads, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; browser/AT-SPI/native-host probes remain CLI edge. |
+| `typing` | policy files, Codex session JSONL, browser/native-host payloads, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; Codex prompt/session-tail semantic ingest plans live in `typing_codex_semantics`; browser/AT-SPI/native-host probes remain CLI edge. |
 | `nervous` | source policy, privacy state, fact/event/episode JSONL, browser history DBs, explicit metadata roots, podman metadata, clipboard, screenshot/window state, semantic/index SQLite stores. | nervous facts/events/episodes/latest, index/semantic status, synthesis/eval reports, retention plans, privacy audit records. | browser content capture, GNOME/X11 probes, retention apply/unlink, semantic embedding subprocesses, reranker subprocesses. | Contracts split across nervous modules; latest/history persistence starts in `typing_nervous_adapters`; most probes remain CLI edge. |
 | `dictation` | audio devices, runtime config, transcripts, WAV metadata, server state. | transcript latest/JSONL, dictation index, validation latest. | recording, server transport, clipboard/text insertion, audio runtime subprocesses. | `dictation_contracts` owns shapes; live audio/clipboard/server adapters remain CLI edge. |
 | `ai` | runtime config, model/cache roots, package availability, tokenizer/model inventories, generated AoA summaries. | AI runtime/status/eval/token-accounting latest and histories. | OpenVINO, tokenizer, STT/TTS, resident LLM and benchmark subprocesses. | `ai_runtime_contracts`, `ai_tts_contracts`, and `ai_cpu_routing` own contracts; live execution remains CLI edge. |
@@ -42,15 +42,32 @@ for the agent nervous-system organs:
 - write-disabled no-op semantics for public-safe dry paths.
 
 This is intentionally narrow. It does not claim AT-SPI, browser capture,
-Codex message normalization/ingest semantics, semantic embedding, retention
-unlink, or dictation/audio execution are extracted yet. Those remain explicit
-live adapter debt until moved behind similarly bounded seams.
+semantic embedding, retention unlink, or dictation/audio execution are
+extracted yet. Those remain explicit live adapter debt until moved behind
+similarly bounded seams.
+
+## Extracted Codex Semantic Seam
+
+`abyss_machine.typing_codex_semantics` owns the Codex prompt/session-tail
+semantic boundary for typing intake:
+
+- prompt text extraction from UserPromptSubmit payload shapes;
+- Codex prompt-hook metadata and ingest-plan construction;
+- session JSONL user-message route recognition for `event_msg.user_message` and
+  `response_item.message.role_user`;
+- IDE/goal/environment envelope normalization and skip reasons;
+- near-line duplicate keying for fallback raw-route repeats;
+- Codex session-tail metadata/context ingest plans;
+- public-safe event summary projection without raw text.
+
+The CLI still owns JSON parsing, configured paths, session-tail state
+bookkeeping, calling `typing_ingest`, latest/history writes, and command
+rendering. The filesystem tail mechanics remain in `typing_nervous_adapters`.
 
 ## Next Extraction Order
 
 1. Typing/nervous source adapters: browser native-host, AT-SPI text-event
-   listener, saved-text scan, privacy/selftest record readers, and Codex
-   session-tail semantic normalization/ingest boundaries.
+   listener, saved-text scan, and privacy/selftest record readers.
 2. Nervous index/semantic execution adapters: SQLite store lifecycle,
    embedding subprocess execution, rerank subprocess execution, and latest
    provenance writes.
