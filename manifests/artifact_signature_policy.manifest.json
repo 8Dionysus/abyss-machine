@@ -440,7 +440,7 @@
     "c2pa": {
       "consumer_checks": [
         "verify the C2PA manifest or sidecar for public media/content exports",
-        "verify claim signature, active asset binding, accepted trust-list credential, and privacy review route before publication"
+        "verify claim signature, active asset binding, accepted trust-list credential or explicit pre-organization onboarding warning, and privacy review route before publication"
       ]
     }
   },
@@ -934,7 +934,7 @@
         "owner_repo": "abyss-machine",
         "authority_ref": ["docs/publication/PUBLICATION_BOUNDARY.md", "manifests/artifact_signature_policy.manifest.json"],
         "producer": "reviewed export process from public-safe source or privacy-reviewed host material",
-        "consumer_expectation": "content consumers verify C2PA manifest and, when bundled for release, release asset digest or signature",
+        "consumer_expectation": "content consumers verify C2PA manifest, credential onboarding phase, and, when bundled for release, release asset digest or signature",
         "privacy_boundary": "public only after review; private host evidence keeps its local provenance and does not become public automatically",
         "content_identity": "media digest plus C2PA manifest or sidecar",
         "abi_epoch": "not_applicable_content_credential",

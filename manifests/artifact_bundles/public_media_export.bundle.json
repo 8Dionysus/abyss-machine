@@ -36,7 +36,32 @@
     "allow_embedded_manifest": true,
     "validation_report": "artifact.c2pa.json",
     "required_validation_state": "Valid",
-    "claim_limit": "Local c2patool validation proves asset binding and claim signature integrity; production publication still needs an accepted signing credential and privacy review."
+    "claim_limit": "Local c2patool validation proves asset binding and claim signature integrity; production publication still needs an accepted signing credential, legal subject, and privacy review.",
+    "credential_onboarding": {
+      "schema": "abyss_machine_c2pa_credential_onboarding_v1",
+      "phase": "pre_organization",
+      "legal_subject_state": "organization_pending",
+      "interim_posture": "local_integrity_only",
+      "release_consumer_verdict_without_production_credential": "warn",
+      "allowed_interim_uses": [
+        "produce C2PA asset-binding evidence",
+        "run privacy review",
+        "promote durable registry evidence",
+        "admit release consumers only with an explicit trust-gate warning"
+      ],
+      "blocked_claims": [
+        "production C2PA Trust List proof",
+        "organization-backed public signing identity",
+        "unqualified trusted public-media claim"
+      ],
+      "required_before_production_claim": [
+        "legal subject selected and validated",
+        "C2PA conforming product accepted",
+        "claim-signing credential chains to the C2PA Trust List",
+        "host-managed signer installed without storing private keys in source, tmp, or email"
+      ],
+      "claim_limit": "This pre-organization lane keeps public_media_export useful before OS Abyss has a legal subject, but it must not be described as production C2PA Trust List proof."
+    }
   },
   "lifecycle": {
     "initial_state": "candidate",
@@ -45,7 +70,7 @@
   },
   "consumer_contract": {
     "stable_interface": "abyss-machine artifacts registry-latest --artifact-class public_media_export --consumer-intent release_consumer --json",
-    "consumer_expectation": "Content consumers select a public_media_export registry latest only after durable evidence promotion, media subject materialization, and a release-consumer trust-gate allow or warn verdict over C2PA asset binding, claim signature integrity, publication privacy route, source repo, and trust root mode.",
+    "consumer_expectation": "Content consumers select a public_media_export registry latest only after durable evidence promotion, media subject materialization, and a release-consumer trust-gate allow or warn verdict over C2PA asset binding, claim signature integrity, publication privacy route, source repo, trust root mode, and the current credential onboarding phase.",
     "registry_required": true,
     "subject_store_required": true,
     "admission_gate": "fail_closed_consumer_admission",
