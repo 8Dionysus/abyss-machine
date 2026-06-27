@@ -100,10 +100,13 @@ boundary for typing intake:
   bounded summaries, context identity, debounce decisions, and typing-event
   summaries;
 - generic GUI selftest ingest plans and final selftest document assembly;
-- safe string handling shared by live AT-SPI object readers.
+- safe string handling shared by live AT-SPI object readers;
+- AT-SPI object runtime helpers for state flags, text payload reads, object
+  paths, document attributes, application/proc fallback context, and event
+  object context projection over supplied accessibility objects.
 
-The CLI still owns `pyatspi` imports, accessibility-tree traversal, object text
-reads, live listener registration, monotonic clocks, calling `typing_ingest`,
+The CLI still owns `pyatspi` imports, accessibility-tree traversal, live
+listener registration, monotonic clocks, calling `typing_ingest`,
 latest/history writes, and command rendering. Browser AT-SPI selftest
 execution, release-profile probing, focused-browser diagnostics, and privacy
 selftest record readers remain live edge debt.
@@ -130,8 +133,8 @@ reads, and command rendering.
 
 1. Typing/nervous source adapters: browser AT-SPI selftest execution,
    focused-browser, browser-context, and privacy selftest runtime adapters,
-   selftest record readers, and the remaining `pyatspi` traversal/listener
-   runtime edge.
+   selftest record readers, and the remaining `pyatspi` import/traversal/
+   listener runtime edge.
 2. Nervous index/semantic execution adapters: SQLite store lifecycle,
    embedding subprocess execution, rerank subprocess execution, and latest
    provenance writes.

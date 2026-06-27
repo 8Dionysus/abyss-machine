@@ -19,3 +19,8 @@
   little-endian length-prefix message read/write, JSON decode/encode, and
   malformed-frame errors while CLI binds the adapter to real stdin/stdout,
   dispatches ingest, and renders the command exit.
+- AT-SPI object-runtime seam: `typing_atspi_adapters` owns supplied-object
+  state flags, text payload reads, object paths, document attributes,
+  application/proc fallback context, and event object context projection while
+  CLI still owns `pyatspi` import, accessibility traversal/listener
+  registration, ingest, latest writes, and command rendering.

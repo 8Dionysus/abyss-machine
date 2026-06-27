@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Mapping
+from pathlib import Path
+from typing import Any, Callable, Mapping
 
 
 AT_SPI_TEXT_EVENT_SOURCE = "atspi_text_changed_event"
@@ -38,6 +39,304 @@ def safe_string(value: Any, limit: int = 240) -> str:
 
 def text_sha256(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8", errors="replace")).hexdigest()
+
+
+def atspi_state_flags(obj: Any, pyatspi_module: Any) -> dict[str, bool]:
+    flags = {
+        "focused": False,
+        "editable": False,
+        "showing": False,
+        "visible": False,
+        "sensitive": False,
+        "enabled": False,
+        "single_line": False,
+        "multi_line": False,
+    }
+    try:
+        state = obj.getState()
+    except Exception:
+        return flags
+    mapping = {
+        "focused": "STATE_FOCUSED",
+        "editable": "STATE_EDITABLE",
+        "showing": "STATE_SHOWING",
+        "visible": "STATE_VISIBLE",
+        "sensitive": "STATE_SENSITIVE",
+        "enabled": "STATE_ENABLED",
+        "single_line": "STATE_SINGLE_LINE",
+        "multi_line": "STATE_MULTI_LINE",
+    }
+    for key, attr in mapping.items():
+        try:
+            flags[key] = bool(state.contains(getattr(pyatspi_module, attr)))
+        except Exception:
+            flags[key] = False
+    return flags
+
+
+def atspi_text_payload(obj: Any, max_chars: int) -> tuple[str, int, int | None, str | None]:
+    try:
+        text_iface = obj.queryText()
+    except Exception as exc:
+        return "", 0, None, f"query_text_failed: {exc}"
+    try:
+        count = int(text_iface.characterCount)
+    except Exception:
+        count = 0
+    if count <= 0:
+        return "", 0, None, None
+    try:
+        caret = int(text_iface.caretOffset)
+    except Exception:
+        caret = None
+    try:
+        text = str(text_iface.getText(0, min(count, max_chars)) or "")
+    except Exception as exc:
+        return "", count, caret, f"read_text_failed: {exc}"
+    return text, count, caret, None
+
+
+def atspi_accessible_index_in_parent(obj: Any) -> int | None:
+    for attr in ("getIndexInParent",):
+        try:
+            method = getattr(obj, attr)
+        except Exception:
+            method = None
+        if callable(method):
+            try:
+                value = int(method())
+                if value >= 0:
+                    return value
+            except Exception:
+                pass
+    try:
+        value = int(getattr(obj, "indexInParent"))
+        if value >= 0:
+            return value
+    except Exception:
+        pass
+    return None
+
+
+def atspi_same_accessible(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        if left == right:
+            return True
+    except Exception:
+        pass
+    try:
+        left_name = getattr(left, "name", None)
+        right_name = getattr(right, "name", None)
+        left_role = left.getRoleName()
+        right_role = right.getRoleName()
+        return bool(left_name == right_name and left_role == right_role and id(left) == id(right))
+    except Exception:
+        return False
+
+
+def atspi_object_path(obj: Any, max_depth: int = 36) -> str | None:
+    parts: list[str] = []
+    target = obj
+    try:
+        app_obj = obj.getApplication()
+    except Exception:
+        app_obj = None
+    for _ in range(max_depth):
+        if target is None:
+            break
+        if app_obj is not None and atspi_same_accessible(target, app_obj):
+            break
+        try:
+            parent = target.parent
+        except Exception:
+            break
+        if parent is None:
+            break
+        index = atspi_accessible_index_in_parent(target)
+        if index is None:
+            break
+        parts.append(str(index))
+        target = parent
+    if not parts:
+        return "0"
+    return "0." + ".".join(reversed(parts))
+
+
+def atspi_document_attributes(obj: Any) -> dict[str, str]:
+    values: dict[str, str] = {}
+    source_path = atspi_object_path(obj)
+    if source_path:
+        values["atspi_path"] = source_path
+    target = obj
+    for _ in range(14):
+        if target is None:
+            break
+        document = None
+        try:
+            document = target.queryDocument()
+        except Exception:
+            document = None
+        if document is not None:
+            for target_key, atspi_key in (
+                ("url", "DocURL"),
+                ("content_type", "MimeType"),
+                ("document_title", "Title"),
+            ):
+                if values.get(target_key):
+                    continue
+                try:
+                    value = document.getAttributeValue(atspi_key)
+                except Exception:
+                    value = None
+                if value:
+                    values[target_key] = safe_string(value, 320)
+            try:
+                attrs = document.getAttributes()
+            except Exception:
+                attrs = []
+            if isinstance(attrs, (list, tuple)):
+                for item in attrs:
+                    text = str(item or "")
+                    if ":" not in text:
+                        continue
+                    key, value = text.split(":", 1)
+                    key = key.strip()
+                    mapped = {"DocURL": "url", "MimeType": "content_type", "Title": "document_title"}.get(key)
+                    if mapped and value and not values.get(mapped):
+                        values[mapped] = safe_string(value, 320)
+            document_path = atspi_object_path(target)
+            if document_path and not values.get("document_path"):
+                values["document_path"] = document_path
+            try:
+                if not values.get("document_role"):
+                    values["document_role"] = safe_string(target.getRoleName(), 120)
+            except Exception:
+                pass
+        try:
+            target = target.parent
+        except Exception:
+            break
+    return values
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+
+
+def atspi_application_context(
+    obj: Any,
+    *,
+    proc_root: Path = Path("/proc"),
+    read_text: Callable[[Path], str | None] | None = None,
+) -> dict[str, Any]:
+    app_obj = None
+    app_name = ""
+    process_id: int | None = None
+    toolkit_name = ""
+    toolkit_version = ""
+    try:
+        app_obj = obj.getApplication()
+    except Exception:
+        app_obj = None
+    if app_obj is not None:
+        try:
+            app_name = safe_string(app_obj.name, 160)
+        except Exception:
+            app_name = ""
+        try:
+            raw_pid = app_obj.get_process_id()
+            process_id = int(raw_pid) if raw_pid is not None else None
+        except Exception:
+            process_id = None
+        try:
+            toolkit_name = safe_string(getattr(app_obj, "toolkitName", ""), 80)
+        except Exception:
+            toolkit_name = ""
+        try:
+            toolkit_version = safe_string(getattr(app_obj, "toolkitVersion", ""), 80)
+        except Exception:
+            toolkit_version = ""
+    reader = read_text or _read_text
+    if (not app_name or app_name == "-") and process_id:
+        proc_comm = reader(proc_root / str(process_id) / "comm")
+        if proc_comm:
+            app_name = safe_string(proc_comm, 160)
+        else:
+            try:
+                raw_cmdline = (proc_root / str(process_id) / "cmdline").read_bytes()
+                first_arg = raw_cmdline.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+                if first_arg:
+                    app_name = safe_string(Path(first_arg).name, 160)
+            except Exception:
+                pass
+    return {
+        "name": app_name,
+        "process_id": process_id,
+        "toolkit_name": toolkit_name,
+        "toolkit_version": toolkit_version,
+    }
+
+
+def atspi_object_context(obj: Any, pyatspi_module: Any) -> dict[str, Any]:
+    role = "<role_unreadable>"
+    name = "<name_unreadable>"
+    description = ""
+    app = ""
+    app_context = atspi_application_context(obj)
+    window_title = ""
+    document_attrs = atspi_document_attributes(obj)
+    try:
+        role = safe_string(obj.getRoleName(), 120)
+    except Exception:
+        pass
+    try:
+        name = safe_string(obj.name, 240)
+    except Exception:
+        pass
+    try:
+        description = safe_string(obj.description, 240)
+    except Exception:
+        pass
+    app = str(app_context.get("name") or "")
+    window_roles = {"frame", "window", "dialog", "alert", "terminal", "document frame"}
+    parent = obj
+    for _ in range(12):
+        try:
+            parent = parent.parent
+        except Exception:
+            break
+        if parent is None:
+            break
+        try:
+            parent_role = safe_string(parent.getRoleName(), 120).lower()
+            parent_name = safe_string(parent.name, 240)
+        except Exception:
+            continue
+        if parent_role in window_roles and parent_name:
+            window_title = parent_name
+            break
+    return {
+        "app": app,
+        "window_title": window_title,
+        "url": document_attrs.get("url", ""),
+        "document_title": document_attrs.get("document_title", ""),
+        "content_type": document_attrs.get("content_type", ""),
+        "atspi_path": document_attrs.get("atspi_path", ""),
+        "document_path": document_attrs.get("document_path", ""),
+        "document_role": document_attrs.get("document_role", ""),
+        "role": role,
+        "name": name,
+        "description": description,
+        "app_process_id": app_context.get("process_id"),
+        "app_toolkit_name": app_context.get("toolkit_name", ""),
+        "app_toolkit_version": app_context.get("toolkit_version", ""),
+        "states": atspi_state_flags(obj, pyatspi_module),
+    }
 
 
 def focused_snapshot_policy_shape(candidate: Mapping[str, Any]) -> dict[str, Any]:
