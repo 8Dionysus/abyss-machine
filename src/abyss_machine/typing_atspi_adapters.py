@@ -15,6 +15,7 @@ AtspiEventHandler = Callable[[Any, Any, dict[str, dict[str, Any]], bool], dict[s
 StoreLatestHistory = Callable[[dict[str, Any], bool], dict[str, Any]]
 WriteLatestOnly = Callable[[dict[str, Any]], list[dict[str, Any]]]
 AppendCompactHistory = Callable[[dict[str, Any], dict[str, Any] | None, str, str | None], dict[str, Any] | None]
+FocusedCandidateBuilder = Callable[[Any, Any, dict[str, Any]], dict[str, Any] | None]
 
 
 def nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -54,6 +55,30 @@ def import_pyatspi_module() -> tuple[Any | None, str | None]:
     except Exception as exc:
         return None, f"pyatspi_unavailable: {exc}"
     return pyatspi, None
+
+
+def load_pyatspi_desktop(
+    *,
+    timeout_ms: int | None = None,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+) -> tuple[Any | None, Any | None, dict[str, Any] | None]:
+    pyatspi = pyatspi_module
+    if pyatspi is None:
+        pyatspi, import_error = load_pyatspi()
+        if import_error or pyatspi is None:
+            return None, None, {"status": "pyatspi_unavailable", "error": import_error or "pyatspi_unavailable"}
+    if timeout_ms is not None:
+        try:
+            if hasattr(pyatspi, "setTimeout"):
+                pyatspi.setTimeout(int(timeout_ms))
+        except Exception:
+            pass
+    try:
+        desktop = pyatspi.Registry.getDesktop(0)
+    except Exception as exc:
+        return pyatspi, None, {"status": "desktop_unreadable", "error": f"desktop_unreadable: {exc}"}
+    return pyatspi, desktop, None
 
 
 def atspi_text_event_types(events_policy: Mapping[str, Any]) -> list[str]:
@@ -598,6 +623,397 @@ def atspi_object_context(obj: Any, pyatspi_module: Any) -> dict[str, Any]:
         "app_toolkit_version": app_context.get("toolkit_version", ""),
         "states": atspi_state_flags(obj, pyatspi_module),
     }
+
+
+def atspi_children(obj: Any, errors: list[dict[str, Any]] | None = None, *, max_errors: int = 10) -> list[Any]:
+    try:
+        return list(obj)
+    except Exception as exc:
+        if errors is not None and len(errors) < max_errors:
+            errors.append({"kind": "children_unreadable", "error": str(exc)[:160]})
+        return []
+
+
+def atspi_role_name(obj: Any, limit: int = 120) -> str:
+    try:
+        return safe_string(obj.getRoleName(), limit)
+    except Exception:
+        return "<role_unreadable>"
+
+
+def atspi_node_name(obj: Any, limit: int = 240) -> str:
+    try:
+        return safe_string(obj.name, limit)
+    except Exception:
+        return "<name_unreadable>"
+
+
+def atspi_node_description(obj: Any, limit: int = 240) -> str:
+    try:
+        return safe_string(obj.description, limit)
+    except Exception:
+        return ""
+
+
+def focus_accessible_with_pyatspi(
+    obj: Any,
+    pyatspi_module: Any,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+    action_names: set[str] | None = None,
+    sleep_sec: float = 0.25,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"component_grab_focus": None, "actions": []}
+    allowed_actions = action_names or {"focus", "click", "press"}
+    try:
+        component = obj.queryComponent()
+        try:
+            result["component_grab_focus"] = bool(component.grabFocus())
+        except Exception as exc:
+            result["component_grab_focus_error"] = str(exc)[:180]
+    except Exception as exc:
+        result["component_error"] = str(exc)[:180]
+    try:
+        action = obj.queryAction()
+        action_count = int(getattr(action, "nActions", 0))
+        for action_index in range(min(action_count, 8)):
+            try:
+                action_name = str(action.getName(action_index) or "").lower()
+            except Exception:
+                action_name = ""
+            if action_name not in allowed_actions:
+                continue
+            try:
+                action_ok = bool(action.doAction(action_index))
+            except Exception as exc:
+                result["actions"].append({"name": action_name, "ok": False, "error": str(exc)[:160]})
+                continue
+            result["actions"].append({"name": action_name, "ok": action_ok})
+    except Exception:
+        pass
+    sleep(sleep_sec)
+    result["states_after"] = atspi_state_flags(obj, pyatspi_module)
+    return result
+
+
+def parse_atspi_path(source_path: str) -> tuple[list[int], dict[str, Any] | None]:
+    path_parts: list[int] = []
+    for item in str(source_path or "").split("."):
+        if item == "":
+            continue
+        try:
+            path_parts.append(int(item))
+        except ValueError:
+            return [], {"status": "bad_path", "error": f"bad path component: {item}"}
+    if not path_parts:
+        return [], {"status": "missing_path"}
+    return path_parts, None
+
+
+def atspi_focused_candidate_walk(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    max_nodes: int,
+    max_depth: int,
+    timeout_sec: float,
+    build_candidate: FocusedCandidateBuilder,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "schema": f"{schema_prefix}_typing_atspi_focused_candidate_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "source_adapter": FOCUSED_SNAPSHOT_SOURCE,
+        "read_only": True,
+        "raw_keylogging": False,
+        "password_fields_captured": False,
+        "nodes_seen": 0,
+        "errors": [],
+    }
+    timeout = max(1.0, min(float(timeout_sec or 3.0), 10.0))
+    timeout_ms = int(timeout * 1000 / 3)
+    pyatspi, desktop, load_error = load_pyatspi_desktop(
+        timeout_ms=timeout_ms,
+        pyatspi_module=pyatspi_module,
+        load_pyatspi=load_pyatspi,
+    )
+    if load_error is not None or pyatspi is None or desktop is None:
+        data["error"] = str((load_error or {}).get("error") or "pyatspi_unavailable")
+        return data
+    deadline = monotonic() + timeout
+    focused: list[dict[str, Any]] = []
+    window_roles = {"frame", "window", "dialog", "alert", "terminal", "document frame"}
+
+    def app_name_for(obj: Any, fallback: str) -> str:
+        app_context = atspi_application_context(obj)
+        return str(app_context.get("name") or fallback)
+
+    def walk(obj: Any, path: str, app_name: str, window_title: str, depth: int) -> None:
+        if len(focused) >= 8 or data["nodes_seen"] >= max_nodes or depth > max_depth or monotonic() > deadline:
+            return
+        data["nodes_seen"] += 1
+        role = atspi_role_name(obj, 120)
+        name = atspi_node_name(obj, 240)
+        desc = atspi_node_description(obj, 240)
+        states = atspi_state_flags(obj, pyatspi)
+        current_window = name if role.lower() in window_roles and name else window_title
+        current_app = app_name_for(obj, app_name)
+        if states.get("focused"):
+            document_attrs = atspi_document_attributes(obj)
+            snapshot = {
+                "app": current_app,
+                "window_title": current_window,
+                "role": role,
+                "name": name,
+                "description": desc,
+                "path": path,
+                "states": states,
+                "document_attrs": document_attrs,
+            }
+            candidate = build_candidate(obj, pyatspi, snapshot)
+            if isinstance(candidate, dict):
+                focused.append(candidate)
+                if candidate.get("text_role") or candidate.get("sensitive_context"):
+                    return
+            if role.lower() in window_roles:
+                return
+        for child_index, child in enumerate(atspi_children(obj, data["errors"])[:120]):
+            walk(child, f"{path}/{child_index}", current_app, current_window, depth + 1)
+
+    try:
+        apps = atspi_children(desktop, data["errors"])
+        prioritized_apps: list[tuple[int, int, Any, str]] = []
+        for app_index, app in enumerate(apps[:80]):
+            app_name = atspi_node_name(app, 240)
+            app_lower = app_name.lower()
+            priority = 4
+            if any(token in app_lower for token in ("firefox", "chrome", "chromium")):
+                priority = 0
+            elif any(token in app_lower for token in ("code", "codium", "terminal", "kitty", "wezterm")):
+                priority = 1
+            elif "gnome-shell" in app_lower or app_lower == "main stage":
+                priority = 9
+            prioritized_apps.append((priority, app_index, app, app_name))
+        for _priority, app_index, app, app_name in sorted(prioritized_apps, key=lambda item: (item[0], item[1])):
+            if monotonic() > deadline or data["nodes_seen"] >= max_nodes:
+                break
+            walk(app, str(app_index), app_name, "", 0)
+            if any(item.get("text_role") or item.get("sensitive_context") for item in focused):
+                break
+    except Exception as exc:
+        data["error"] = f"focused_walk_failed: {exc}"
+        return data
+    data["candidates"] = focused
+    return data
+
+
+def atspi_focus_metadata_by_path(
+    source_path: str,
+    url: str,
+    *,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "status": "not_found",
+        "source_path": source_path,
+        "url": url,
+        "attempts": [],
+        "errors": [],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "accessibility_focus_action_only": True,
+            "text_read": False,
+        },
+    }
+    path_parts, path_error = parse_atspi_path(source_path)
+    if path_error:
+        data.update(path_error)
+        return data
+    relative_parts = path_parts[1:] if path_parts and path_parts[0] == 0 else path_parts
+    pyatspi, desktop, load_error = load_pyatspi_desktop(pyatspi_module=pyatspi_module, load_pyatspi=load_pyatspi)
+    if load_error is not None or pyatspi is None or desktop is None:
+        data.update(load_error or {"status": "pyatspi_unavailable", "error": "pyatspi_unavailable"})
+        return data
+    for app_index, app in enumerate(atspi_children(desktop, data["errors"])[:80]):
+        obj = app
+        traversed = []
+        ok_path = True
+        for part in relative_parts:
+            kids = atspi_children(obj, data["errors"])
+            if part < 0 or part >= len(kids):
+                ok_path = False
+                break
+            obj = kids[part]
+            traversed.append(part)
+        if not ok_path:
+            continue
+        attrs = atspi_document_attributes(obj)
+        document_url = str(attrs.get("url") or "")
+        app_context = atspi_application_context(obj)
+        states_before = atspi_state_flags(obj, pyatspi)
+        url_matches_target = document_url == url
+        attempt = {
+            "app_index": app_index,
+            "app": app_context.get("name"),
+            "traversed": traversed,
+            "role": atspi_role_name(obj, 120),
+            "name": atspi_node_name(obj, 180),
+            "description": atspi_node_description(obj, 240),
+            "url": document_url if url_matches_target else None,
+            "url_present": bool(document_url),
+            "url_matches_target": url_matches_target,
+            "raw_url_omitted": not url_matches_target,
+            "document_title": attrs.get("document_title") if url_matches_target else None,
+            "content_type": attrs.get("content_type") if url_matches_target else None,
+            "document_path": attrs.get("document_path") if url_matches_target else None,
+            "states_before": states_before,
+            "text_read": False,
+        }
+        data["attempts"].append(attempt)
+        data["attempts"] = data["attempts"][-8:]
+        if not url_matches_target:
+            continue
+        focus = focus_accessible_with_pyatspi(obj, pyatspi, sleep=sleep)
+        states_after = focus.get("states_after") if isinstance(focus.get("states_after"), dict) else {}
+        data.update({
+            "ok": bool(states_after.get("focused") is True),
+            "status": "focused" if states_after.get("focused") is True else "matched_focus_not_confirmed",
+            "matched": {**attempt, "focus": focus, "states_after": states_after},
+        })
+        return data
+    return data
+
+
+def atspi_focus_metadata_by_url(
+    url: str,
+    timeout_sec: float = 6.0,
+    *,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "status": "not_found",
+        "url": url,
+        "nodes_seen": 0,
+        "attempts": [],
+        "errors": [],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "accessibility_focus_action_only": True,
+            "text_read": False,
+        },
+    }
+    pyatspi, desktop, load_error = load_pyatspi_desktop(
+        timeout_ms=700,
+        pyatspi_module=pyatspi_module,
+        load_pyatspi=load_pyatspi,
+    )
+    if load_error is not None or pyatspi is None or desktop is None:
+        data.update(load_error or {"status": "pyatspi_unavailable", "error": "pyatspi_unavailable"})
+        return data
+    deadline = monotonic() + max(1.0, min(float(timeout_sec or 6.0), 12.0))
+    max_nodes = 3000
+    max_depth = 24
+    focus_roles = {"entry", "text", "paragraph", "document web", "document frame", "document text"}
+
+    def focus_targets(document: Any, document_path: str) -> list[tuple[Any, str, str]]:
+        editable: list[tuple[Any, str, str]] = []
+        fallback: list[tuple[Any, str, str]] = [(document, document_path, "document")]
+        stack: list[tuple[Any, str, int]] = [(document, document_path, 0)]
+        local_nodes = 0
+        while stack and local_nodes < 900 and monotonic() <= deadline:
+            obj, path, depth = stack.pop()
+            local_nodes += 1
+            role = atspi_role_name(obj, 120)
+            role_lower = role.lower()
+            states = atspi_state_flags(obj, pyatspi)
+            if not states.get("sensitive") and (states.get("editable") or role_lower in focus_roles):
+                kind = "editable_or_text" if states.get("editable") or role_lower in {"entry", "text"} else "document_text"
+                editable.append((obj, path, kind))
+            if depth < 10:
+                for child_index, child in enumerate(atspi_children(obj, data["errors"])[:120]):
+                    stack.append((child, f"{path}.{child_index}", depth + 1))
+        return editable[:12] + fallback
+
+    matched: dict[str, Any] | None = None
+
+    def walk(obj: Any, path: str, app_name: str, depth: int) -> None:
+        nonlocal matched
+        if matched is not None or depth > max_depth or data["nodes_seen"] >= max_nodes or monotonic() > deadline:
+            return
+        data["nodes_seen"] += 1
+        current_app = app_name
+        try:
+            app_context = atspi_application_context(obj)
+            if app_context.get("name"):
+                current_app = str(app_context.get("name") or current_app)
+        except Exception:
+            pass
+        attrs = atspi_document_attributes(obj)
+        document_url = str(attrs.get("url") or "")
+        if document_url == url:
+            for target_obj, target_path, target_kind in focus_targets(obj, path):
+                states_before = atspi_state_flags(target_obj, pyatspi)
+                role = atspi_role_name(target_obj, 120)
+                attempt = {
+                    "app": current_app,
+                    "role": role,
+                    "name": atspi_node_name(target_obj, 180),
+                    "path": target_path,
+                    "target_kind": target_kind,
+                    "url": document_url,
+                    "document_title": attrs.get("document_title"),
+                    "content_type": attrs.get("content_type"),
+                    "document_path": attrs.get("document_path"),
+                    "states_before": states_before,
+                    "text_read": False,
+                }
+                data["attempts"].append(attempt)
+                data["attempts"] = data["attempts"][-12:]
+                if states_before.get("sensitive"):
+                    continue
+                focus = focus_accessible_with_pyatspi(target_obj, pyatspi, sleep=sleep)
+                states_after = focus.get("states_after") if isinstance(focus.get("states_after"), dict) else {}
+                focus_attempt = {**attempt, "focus": focus, "states_after": states_after}
+                if states_after.get("focused") is True:
+                    matched = focus_attempt
+                    return
+                matched = focus_attempt if matched is None else matched
+        for child_index, child in enumerate(atspi_children(obj, data["errors"])[:150]):
+            walk(child, f"{path}.{child_index}", current_app, depth + 1)
+
+    try:
+        for app_index, app in enumerate(atspi_children(desktop, data["errors"])[:80]):
+            if matched is not None and nested_get(matched, ["states_after", "focused"]) is True:
+                break
+            if monotonic() > deadline:
+                break
+            walk(app, str(app_index), atspi_node_name(app, 180), 0)
+    except Exception as exc:
+        data["status"] = "walk_failed"
+        data["error"] = f"walk_failed: {exc}"
+        return data
+    if matched is not None:
+        states_after = matched.get("states_after") if isinstance(matched.get("states_after"), dict) else {}
+        data.update({
+            "ok": bool(states_after.get("focused") is True),
+            "status": "focused" if states_after.get("focused") is True else "matched_focus_not_confirmed",
+            "matched": matched,
+        })
+    return data
 
 
 def focused_snapshot_policy_shape(candidate: Mapping[str, Any]) -> dict[str, Any]:

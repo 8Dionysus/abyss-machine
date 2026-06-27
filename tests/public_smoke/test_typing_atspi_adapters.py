@@ -43,6 +43,31 @@ class FakeDocument:
         return [f"{key}:{value}" for key, value in self.attributes.items()]
 
 
+class FakeComponent:
+    def __init__(self, obj: "FakeAccessible") -> None:
+        self.obj = obj
+
+    def grabFocus(self) -> bool:
+        self.obj.state.flags.add("focused")
+        return True
+
+
+class FakeAction:
+    nActions = 1
+
+    def __init__(self, obj: "FakeAccessible") -> None:
+        self.obj = obj
+
+    def getName(self, index: int) -> str:
+        return "focus" if index == 0 else ""
+
+    def doAction(self, index: int) -> bool:
+        if index == 0:
+            self.obj.state.flags.add("focused")
+            return True
+        return False
+
+
 class FakeApp:
     def __init__(self, name: str = "firefox", pid: int = 1234) -> None:
         self.name = name
@@ -74,6 +99,7 @@ class FakeAccessible:
         text: FakeText | None = None,
         document: FakeDocument | None = None,
         description: str = "",
+        children: list["FakeAccessible"] | None = None,
     ) -> None:
         self.role = role
         self.name = name
@@ -84,9 +110,16 @@ class FakeAccessible:
         self.text = text
         self.document = document
         self.description = description
+        self.children = list(children or [])
+        for child_index, child in enumerate(self.children):
+            child.parent = self
+            child.indexInParent = child_index
 
     def getRoleName(self) -> str:
         return self.role
+
+    def __iter__(self):
+        return iter(self.children)
 
     def getApplication(self) -> FakeApp:
         return self.app
@@ -104,6 +137,12 @@ class FakeAccessible:
             raise RuntimeError("document unavailable")
         return self.document
 
+    def queryComponent(self) -> FakeComponent:
+        return FakeComponent(self)
+
+    def queryAction(self) -> FakeAction:
+        return FakeAction(self)
+
     def getIndexInParent(self) -> int:
         return self.indexInParent
 
@@ -118,11 +157,17 @@ class FakeAtspiEvent:
 
 
 class FakeRegistry:
-    def __init__(self, events: list[FakeAtspiEvent]) -> None:
+    def __init__(self, events: list[FakeAtspiEvent], desktop: object | None = None) -> None:
         self.events = events
+        self.desktop = desktop
         self.listeners: list[tuple[object, str]] = []
         self.stop_calls = 0
         self.started = False
+
+    def getDesktop(self, index: int) -> object:
+        if self.desktop is None:
+            raise RuntimeError("desktop unavailable")
+        return self.desktop
 
     def registerEventListener(self, callback: object, event_type: str) -> None:
         self.listeners.append((callback, event_type))
@@ -322,6 +367,126 @@ def test_atspi_application_context_uses_bounded_proc_fallback(tmp_path) -> None:
         "toolkit_name": "gtk",
         "toolkit_version": "4",
     }
+
+
+def test_atspi_focused_candidate_walk_routes_tree_through_builder_without_live_pyatspi() -> None:
+    app = FakeApp()
+    field = FakeAccessible(
+        role="entry",
+        name="Search",
+        app=app,
+        state=FakeState("focused", "editable", "showing", "visible", "enabled"),
+        text=FakeText("focused text", caret=7),
+        document=FakeDocument({"DocURL": "https://example.test/write", "Title": "Write"}),
+    )
+    frame = FakeAccessible(role="frame", name="Example Window", app=app, children=[field])
+    app_node = FakeAccessible(role="application", name="firefox", app=app, children=[frame])
+    desktop = FakeAccessible(role="desktop", name="desktop", app=app, children=[app_node])
+    registry = FakeRegistry([], desktop)
+    pyatspi_module = type("FakePyAtspiModule", (FakePyAtspi,), {"Registry": registry})()
+    snapshots: list[dict[str, object]] = []
+
+    def build_candidate(obj: object, pyatspi: object, snapshot: dict[str, object]) -> dict[str, object]:
+        assert obj is field
+        assert pyatspi is pyatspi_module
+        snapshots.append(snapshot)
+        text, text_length, caret, text_error = typing_atspi_adapters.atspi_text_payload(obj, 120)
+        return {
+            "ok": text_error is None,
+            "text_role": True,
+            "sensitive_context": False,
+            "path": snapshot["path"],
+            "role": snapshot["role"],
+            "app": snapshot["app"],
+            "window_title": snapshot["window_title"],
+            "text": text,
+            "text_length": text_length,
+            "caret_offset": caret,
+        }
+
+    data = typing_atspi_adapters.atspi_focused_candidate_walk(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-27T00:00:00Z",
+        max_nodes=20,
+        max_depth=8,
+        timeout_sec=1.0,
+        build_candidate=build_candidate,
+        pyatspi_module=pyatspi_module,
+        monotonic=lambda: 0.0,
+    )
+
+    assert "error" not in data
+    assert data["nodes_seen"] >= 3
+    assert data["candidates"][0]["text"] == "focused text"
+    assert data["candidates"][0]["path"] == "0/0/0"
+    assert snapshots[0]["document_attrs"]["url"] == "https://example.test/write"
+    assert snapshots[0]["window_title"] == "Example Window"
+
+
+def test_atspi_focus_metadata_by_path_resolves_path_and_focuses_without_live_pyatspi() -> None:
+    app = FakeApp()
+    field = FakeAccessible(
+        role="entry",
+        name="Search",
+        app=app,
+        state=FakeState("editable", "showing", "visible", "enabled"),
+        document=FakeDocument({"DocURL": "https://example.test/write", "Title": "Write"}),
+    )
+    frame = FakeAccessible(role="frame", name="Example Window", app=app, children=[field])
+    app_node = FakeAccessible(role="application", name="firefox", app=app, children=[frame])
+    desktop = FakeAccessible(role="desktop", name="desktop", app=app, children=[app_node])
+    registry = FakeRegistry([], desktop)
+    pyatspi_module = type("FakePyAtspiModule", (FakePyAtspi,), {"Registry": registry})()
+
+    data = typing_atspi_adapters.atspi_focus_metadata_by_path(
+        "0.0.0",
+        "https://example.test/write",
+        pyatspi_module=pyatspi_module,
+        sleep=lambda seconds: None,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "focused"
+    assert data["matched"]["role"] == "entry"
+    assert data["matched"]["url"] == "https://example.test/write"
+    assert data["matched"]["states_after"]["focused"] is True
+    assert data["matched"]["text_read"] is False
+
+
+def test_atspi_focus_metadata_by_url_walks_document_targets_without_live_pyatspi() -> None:
+    app = FakeApp()
+    field = FakeAccessible(
+        role="entry",
+        name="Search",
+        app=app,
+        state=FakeState("editable", "showing", "visible", "enabled"),
+    )
+    frame = FakeAccessible(
+        role="document frame",
+        name="Example",
+        app=app,
+        document=FakeDocument({"DocURL": "https://example.test/write", "Title": "Write"}),
+        children=[field],
+    )
+    app_node = FakeAccessible(role="application", name="firefox", app=app, children=[frame])
+    desktop = FakeAccessible(role="desktop", name="desktop", app=app, children=[app_node])
+    registry = FakeRegistry([], desktop)
+    pyatspi_module = type("FakePyAtspiModule", (FakePyAtspi,), {"Registry": registry})()
+
+    data = typing_atspi_adapters.atspi_focus_metadata_by_url(
+        "https://example.test/write",
+        timeout_sec=1.0,
+        pyatspi_module=pyatspi_module,
+        monotonic=lambda: 0.0,
+        sleep=lambda seconds: None,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "focused"
+    assert data["matched"]["url"] == "https://example.test/write"
+    assert data["matched"]["text_read"] is False
+    assert data["matched"]["states_after"]["focused"] is True
 
 
 def test_focused_snapshot_sensitive_candidate_builds_metadata_only_ingest_plan() -> None:
