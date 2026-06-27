@@ -2499,6 +2499,42 @@ def test_artifact_affected_source_ref_matches_embedded_producer_commit(tmp_path:
     assert row["drift"]["source_ref_state"] == "proved_current"
 
 
+def test_artifact_affected_explicit_source_ref_mismatch_is_not_fresh_for_filtered_class(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    current_commit = "c0ffee0123456789abcdef0123456789abcdef00"
+    _write_verified_registry_record(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/bootstrap_install_bundle.bundle.json",
+        source_refs=["manifests/artifact_bundles/bootstrap_install_bundle.bundle.json"],
+        producer="abyss-machine-bootstrap-install@previous",
+        evidence_refs=["merge:github-pr-previous"],
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="bootstrap_install_bundle",
+        changed_source_ref=current_commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"needs_reverify": 1}
+    assert affected["summary"]["operationally_blocking"] == 1
+    assert row["affected"] is True
+    assert row["verdict"] == "needs_reverify"
+    assert row["freshness"] == "stale"
+    assert row["reasons"] == ["source_ref_missing_current_proof"]
+    assert row["source_ref_status"]["required"] is True
+    assert row["source_ref_status"]["expected"] == current_commit
+    assert row["source_ref_status"]["matched"] is False
+    assert row["source_ref_status"]["proves_current_ref"] is False
+    assert row["drift"]["status"] == "reverify_required"
+    assert row["drift"]["operationally_blocking"] is True
+    assert row["drift"]["source_ref_state"] == "missing_current_proof"
+
+
 def test_artifact_affected_current_local_commit_proof_closes_owner_repo_drift(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
     commit = "fedcba9876543210fedcba9876543210fedcba98"

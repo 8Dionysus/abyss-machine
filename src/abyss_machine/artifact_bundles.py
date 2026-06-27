@@ -2830,6 +2830,8 @@ def _artifact_affected_verdict(
         return "needs_reverify"
     if owner_repo_changed:
         return "needs_rebuild"
+    if source_status.get("required") is True and source_status.get("proves_current_ref") is not True:
+        return "needs_reverify"
     if registry.get("checked") and not registry.get("has_latest"):
         return "needs_rebuild"
     if gate.get("verdict") == "manual_review_required":
@@ -2977,6 +2979,13 @@ def artifact_affected(
             changed_source_ref=changed_source_ref,
             accept_sibling_lag=accept_sibling_lag,
         )
+        if (
+            verdict == "needs_reverify"
+            and source_status.get("required") is True
+            and source_status.get("proves_current_ref") is not True
+            and "source_ref_missing_current_proof" not in reasons
+        ):
+            reasons.append("source_ref_missing_current_proof")
         if verdict == "fresh" and source_status.get("matched") is True:
             reasons = []
         freshness = "fresh"
