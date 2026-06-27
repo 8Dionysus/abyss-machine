@@ -37,6 +37,13 @@ helper is stack service health.
 
 Use dry-run resource planning and public boundary scans.
 
+### Live adapter route
+
+AI runtime adapters should own concrete subprocess execution, cache/runtime
+path translation, model/tool discovery, and resource-sampling evidence. Keep
+model weights, benchmark outputs, and generated runtime state outside Git; only
+plans, contracts, and bounded summaries belong in the public seed.
+
 ### Next route
 
 Use `storage-routing` for caches and `host-facts` for capability reports.

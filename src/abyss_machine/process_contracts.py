@@ -68,6 +68,7 @@ GAME_WINE_RUNTIME_PATTERNS = [
 PROCESS_REGEX_MATCH_HEAD_CHARS = 32768
 PROCESS_REGEX_MATCH_TAIL_CHARS = 32768
 _REGEX_CACHE: dict[str, re.Pattern[str]] = {}
+PROCESS_REGEX_CACHE = _REGEX_CACHE
 
 
 def _schema(schema_prefix: str, suffix: str) -> str:

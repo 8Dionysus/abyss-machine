@@ -37,6 +37,13 @@ authorizes destructive repair.
 
 Use `docs/validation/VALIDATOR_TOPOLOGY.md` and public smoke checks.
 
+### Live adapter route
+
+Diagnostic adapters should separate probe execution from diagnosis shape:
+systemd, filesystem, process, and validator probes gather current host facts;
+contract modules decide bounded status and repair hints. A diagnostic warning is
+evidence for routing, not authority to mutate the host.
+
 ### Next route
 
 Use the relevant mechanic package named by the diagnostic result.

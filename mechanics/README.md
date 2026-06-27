@@ -15,3 +15,20 @@ This atlas routes durable host-machine moves.
 
 The atlas does not create new host authority. It makes existing movements
 visible and gives future implementation a place to land.
+
+## Live Adapter Route
+
+Live adapter hardening is tracked from [docs/host/LIVE_ADAPTERS.md](../docs/host/LIVE_ADAPTERS.md).
+Use these mechanic owners for the next extraction slices:
+
+- `typing-intake`: typing latest/history persistence, Codex session-tail
+  filesystem reads plus remaining semantic/ingest seams, browser/native-host
+  intake, saved-text scan, and AT-SPI text-event adapters.
+- `nervous-local`: nervous source capture, privacy state, local JSONL/SQLite
+  readers, semantic/rerank execution, retention, and derived memory evidence.
+- `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource
+  gates, token/STT/TTS execution, and cache/runtime evidence.
+- `diagnostic-spine`: doctor, validation, repair, and freshness probes that
+  prove the host layer is healthy without publishing private state.
+- `host-lifecycle`: bootstrap, install projection, source/install parity, and
+  release/check gates for the portable public seed.
