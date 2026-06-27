@@ -2973,6 +2973,7 @@ def artifact_requirement_row(
             "latest_source_ref_tokens": _record_source_ref_tokens(latest if isinstance(latest, dict) else None),
             "latest_trust_root_mode": latest.get("trust_root_mode") if isinstance(latest, dict) else None,
             "latest_verified_controls": latest.get("verified_controls", []) if isinstance(latest, dict) else [],
+            "latest_abi_subject_digest": latest.get("abi_subject_digest") if isinstance(latest, dict) else None,
         }
         gate = trust_gate(registry_dir, artifact_class=artifact_class, consumer_intent=consumer_intent) if isinstance(latest, dict) else {}
         trust_gate_status = {
@@ -3157,6 +3158,43 @@ def _artifact_source_ref_scope_applies(row: dict[str, Any], changed_source_repo:
     return bool(owner_repo and changed_source_repo == owner_repo) or changed_source_repo in profile_owner_repos
 
 
+def _artifact_abi_subject_status(row: dict[str, Any]) -> dict[str, Any]:
+    source_route = row.get("source_route") if isinstance(row.get("source_route"), dict) else {}
+    registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
+    generated_surfaces = source_route.get("generated_contract_surfaces")
+    current_digests = [
+        str(surface.get("source_tree_hash"))
+        for surface in generated_surfaces
+        if isinstance(surface, dict) and str(surface.get("source_tree_hash") or "")
+    ] if isinstance(generated_surfaces, list) else []
+    latest_digest = str(registry.get("latest_abi_subject_digest") or "")
+    if not registry.get("checked"):
+        state = "not_checked"
+        fresh = None
+    elif not registry.get("has_latest"):
+        state = "missing_durable_evidence"
+        fresh = False
+    elif not current_digests:
+        state = "no_local_abi_subject"
+        fresh = True
+    elif latest_digest and latest_digest in current_digests:
+        state = "current"
+        fresh = True
+    elif latest_digest:
+        state = "stale"
+        fresh = False
+    else:
+        state = "missing_latest_abi_subject_digest"
+        fresh = False
+    return {
+        "checked": bool(registry.get("checked")),
+        "state": state,
+        "fresh": fresh,
+        "current_abi_subject_digests": current_digests,
+        "latest_abi_subject_digest": latest_digest or None,
+    }
+
+
 def _artifact_affected_verdict(
     row: dict[str, Any],
     *,
@@ -3338,6 +3376,17 @@ def artifact_affected(
             normalized_paths,
             changed_source_repo=effective_source_repo,
         )
+        abi_subject_status = _artifact_abi_subject_status(requirement)
+        if (
+            "abi_signature_readmodel_changed" in reasons
+            and abi_subject_status.get("fresh") is True
+        ):
+            reasons = [reason for reason in reasons if reason != "abi_signature_readmodel_changed"]
+            matches = [
+                match
+                for match in matches
+                if match.get("reason") != "abi_signature_readmodel_changed"
+            ]
         owner_repo = str(requirement.get("owner_repo") or "")
         automation_profiles = [
             item for item in requirement.get("producer_profiles", []) if isinstance(item, dict)
@@ -3435,6 +3484,7 @@ def artifact_affected(
                 "latest_source_refs": registry.get("latest_source_refs", []),
                 "latest_producer": registry.get("latest_producer"),
                 "latest_evidence_refs": registry.get("latest_evidence_refs", []),
+                "latest_abi_subject_digest": registry.get("latest_abi_subject_digest"),
             },
             "trust_gate": {
                 "checked": gate.get("checked"),
@@ -3442,6 +3492,7 @@ def artifact_affected(
                 "reasons": gate.get("reasons", []),
             },
             "source_ref_status": source_status,
+            "abi_subject_status": abi_subject_status,
             "drift": drift,
             "next_actions": next_actions,
             "claim_limit": "Affected detects declared source/profile drift and closes source-ref drift only when latest durable evidence proves the ref; it does not rebuild or consume artifacts by itself.",
