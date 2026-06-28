@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tomllib
@@ -405,7 +406,152 @@ def _string_list(value: Any) -> list[str]:
     return [str(item) for item in value if str(item)]
 
 
-def _producer_profile_automation_readiness(row: dict[str, Any]) -> dict[str, Any]:
+def _normalize_owner_repo_roots(owner_repo_roots: Mapping[str, str | Path] | None) -> dict[str, Path]:
+    if not owner_repo_roots:
+        return {}
+    return {str(owner): Path(path) for owner, path in owner_repo_roots.items() if str(owner)}
+
+
+def _owner_repo_root_for_profile(
+    row: dict[str, Any],
+    *,
+    repo_root: Path,
+    workspace_root: str | Path | None = None,
+    owner_repo_roots: Mapping[str, str | Path] | None = None,
+) -> tuple[Path | None, str]:
+    owner_repo = str(row.get("owner_repo") or "")
+    overrides = _normalize_owner_repo_roots(owner_repo_roots)
+    if owner_repo in overrides:
+        return overrides[owner_repo], "owner_repo_root_override"
+    if owner_repo == "abyss-machine":
+        return repo_root, "policy_repo_root"
+    if workspace_root is None:
+        return None, "not_checked"
+    workspace = Path(workspace_root)
+    candidates: list[tuple[Path, str]] = []
+    if owner_repo:
+        candidates.append((workspace / owner_repo, "workspace_owner_repo"))
+    for alias in _string_list(row.get("workspace_aliases")):
+        candidates.append((workspace / alias, "workspace_alias"))
+    for candidate, source in candidates:
+        if candidate.exists():
+            return candidate, source
+    return (candidates[0][0], candidates[0][1]) if candidates else (None, "not_resolved")
+
+
+def _looks_like_python_executable(value: str) -> bool:
+    name = Path(value).name
+    return name == "python" or name.startswith("python")
+
+
+def _looks_like_owner_local_ref(value: str) -> bool:
+    text = value.strip()
+    if not text or text.startswith("-") or "=" in text:
+        return False
+    if Path(text).is_absolute():
+        return False
+    normalized = text.removeprefix("./")
+    return normalized.startswith(("scripts/", "tools/", "bin/")) or normalized.endswith(".py")
+
+
+def _producer_command_resolution(
+    row: dict[str, Any],
+    *,
+    repo_root: Path,
+    workspace_root: str | Path | None = None,
+    owner_repo_roots: Mapping[str, str | Path] | None = None,
+) -> dict[str, Any]:
+    producer_commands = _string_list(row.get("producer_commands"))
+    owner_root, owner_root_source = _owner_repo_root_for_profile(
+        row,
+        repo_root=repo_root,
+        workspace_root=workspace_root,
+        owner_repo_roots=owner_repo_roots,
+    )
+    errors: list[str] = []
+    resolved_commands: list[dict[str, Any]] = []
+    missing_command_refs: list[dict[str, Any]] = []
+    external_commands: list[dict[str, Any]] = []
+    for command in producer_commands:
+        try:
+            parts = shlex.split(command)
+        except ValueError as exc:
+            errors.append(f"producer_command_parse_error:{command}")
+            missing_command_refs.append({"command": command, "reason": str(exc)})
+            continue
+        if not parts:
+            errors.append("producer_command_empty")
+            missing_command_refs.append({"command": command, "reason": "empty"})
+            continue
+        local_refs: list[str] = []
+        if _looks_like_python_executable(parts[0]):
+            for token in parts[1:]:
+                if token == "-m":
+                    break
+                if _looks_like_owner_local_ref(token):
+                    local_refs.append(token.removeprefix("./"))
+                    break
+        elif _looks_like_owner_local_ref(parts[0]):
+            local_refs.append(parts[0].removeprefix("./"))
+        if local_refs:
+            if owner_root is None:
+                for ref in local_refs:
+                    errors.append(f"owner_repo_root_required:{ref}")
+                    missing_command_refs.append({"command": command, "ref": ref, "reason": "owner_repo_root_required"})
+                continue
+            if not owner_root.exists():
+                errors.append(f"owner_repo_root_missing:{owner_root}")
+                for ref in local_refs:
+                    missing_command_refs.append({"command": command, "ref": ref, "owner_repo_root": str(owner_root), "reason": "owner_repo_root_missing"})
+                continue
+            resolved_paths: list[str] = []
+            for ref in local_refs:
+                candidate = owner_root / ref
+                if candidate.is_file():
+                    resolved_paths.append(str(candidate))
+                else:
+                    errors.append(f"producer_command_ref_missing:{ref}")
+                    missing_command_refs.append({"command": command, "ref": ref, "owner_repo_root": str(owner_root), "reason": "missing"})
+            if len(resolved_paths) == len(local_refs):
+                resolved_commands.append({"command": command, "kind": "owner_local_ref", "refs": local_refs, "resolved_paths": resolved_paths})
+            continue
+        executable = parts[0]
+        resolved_executable = shutil.which(executable)
+        external = {
+            "command": command,
+            "kind": "external_or_host_command",
+            "executable": executable,
+            "resolved_executable": resolved_executable,
+        }
+        external_commands.append(external)
+        if resolved_executable:
+            resolved_commands.append(external)
+        else:
+            errors.append(f"producer_command_executable_missing:{executable}")
+            missing_command_refs.append({"command": command, "executable": executable, "reason": "executable_missing"})
+    return {
+        "schema": "abyss_machine_producer_profile_command_resolution_v1",
+        "checked": True,
+        "status": "unresolved" if errors else "resolved",
+        "owner_repo_root": str(owner_root) if owner_root is not None else None,
+        "owner_repo_root_source": owner_root_source,
+        "owner_repo_root_exists": owner_root.exists() if owner_root is not None else None,
+        "resolved_commands": resolved_commands,
+        "missing_command_refs": missing_command_refs,
+        "external_commands": external_commands,
+        "errors": errors,
+        "claim_limit": "Command resolution checks declared command references exist. It does not execute sibling validators or transfer sibling source authority to abyss-machine.",
+    }
+
+
+def _producer_profile_automation_readiness(
+    row: dict[str, Any],
+    *,
+    repo_root: Path = REPO_ROOT,
+    workspace_root: str | Path | None = None,
+    owner_repo_roots: Mapping[str, str | Path] | None = None,
+    require_command_resolution: bool = False,
+) -> dict[str, Any]:
     producer_commands = _string_list(row.get("producer_commands"))
     host_verifier_commands = _string_list(row.get("host_verifier_commands"))
     deferred_records = [
@@ -416,21 +562,45 @@ def _producer_profile_automation_readiness(row: dict[str, Any]) -> dict[str, Any
         errors.append("producer_command_or_deferred_record_required")
     if not host_verifier_commands:
         errors.append("host_verifier_command_required")
-    if producer_commands:
+    command_resolution_checked = bool(workspace_root is not None or owner_repo_roots or require_command_resolution)
+    command_resolution: dict[str, Any] | None = None
+    resolution_errors: list[str] = []
+    if producer_commands and command_resolution_checked:
+        command_resolution = _producer_command_resolution(
+            row,
+            repo_root=repo_root,
+            workspace_root=workspace_root,
+            owner_repo_roots=owner_repo_roots,
+        )
+        resolution_errors = _string_list(command_resolution.get("errors"))
+        errors.extend(resolution_errors)
+    if not producer_commands and require_command_resolution and not deferred_records:
+        errors.append("producer_command_resolution_required")
+    if producer_commands and command_resolution_checked and resolution_errors:
+        status = "owner_local_producer_unresolved"
+    elif producer_commands and command_resolution_checked:
+        status = "owner_local_producer_validated"
+    elif producer_commands:
         status = "owner_local_producer_declared"
     elif deferred_records:
         status = "deferred_owner_route_declared"
     else:
         status = "incomplete"
-    return {
+    if "producer_command_or_deferred_record_required" in errors or "host_verifier_command_required" in errors:
+        status = "incomplete"
+    result = {
         "schema": "abyss_machine_producer_profile_automation_readiness_v1",
-        "status": "incomplete" if errors else status,
+        "status": status,
         "owner_local_producer_declared": bool(producer_commands),
+        "owner_local_producer_command_resolution_checked": command_resolution_checked,
         "explicit_deferred_records": bool(deferred_records),
         "host_verifier_declared": bool(host_verifier_commands),
         "errors": errors,
         "claim_limit": "Automation readiness names owner-local commands or explicit deferrals plus host verifier commands; it does not execute sibling validators or move sibling authority into abyss-machine.",
     }
+    if command_resolution is not None:
+        result["command_resolution"] = command_resolution
+    return result
 
 
 def _scenario_durable_evidence_status(
@@ -486,7 +656,14 @@ def _scenario_durable_evidence_status(
     }
 
 
-def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
+def _producer_profile_rows(
+    policy: dict[str, Any],
+    *,
+    repo_root: Path = REPO_ROOT,
+    workspace_root: str | Path | None = None,
+    owner_repo_roots: Mapping[str, str | Path] | None = None,
+    require_command_resolution: bool = False,
+) -> list[dict[str, Any]]:
     profiles = policy.get("producer_profiles")
     if not isinstance(profiles, dict):
         return []
@@ -511,7 +688,13 @@ def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
         row["deferred_records"] = [
             item for item in row.get("deferred_records", []) if isinstance(item, dict)
         ] if isinstance(row.get("deferred_records"), list) else []
-        row["automation_readiness"] = _producer_profile_automation_readiness(row)
+        row["automation_readiness"] = _producer_profile_automation_readiness(
+            row,
+            repo_root=repo_root,
+            workspace_root=workspace_root,
+            owner_repo_roots=owner_repo_roots,
+            require_command_resolution=require_command_resolution,
+        )
         rows.append(row)
     return rows
 
@@ -530,10 +713,19 @@ def artifact_producer_profiles(
     owner_repo: str = "",
     artifact_class: str = "",
     repo_root: Path = REPO_ROOT,
+    workspace_root: str | Path | None = None,
+    owner_repo_roots: Mapping[str, str | Path] | None = None,
+    require_command_resolution: bool = False,
 ) -> dict[str, Any]:
     policy = load_policy(repo_root)
     classes = policy.get("artifact_classes") if isinstance(policy.get("artifact_classes"), dict) else {}
-    rows = _producer_profile_rows(policy)
+    rows = _producer_profile_rows(
+        policy,
+        repo_root=repo_root,
+        workspace_root=workspace_root,
+        owner_repo_roots=owner_repo_roots,
+        require_command_resolution=require_command_resolution,
+    )
     errors: list[str] = []
     if profile_id:
         rows = [row for row in rows if row.get("profile_id") == profile_id]
@@ -555,8 +747,12 @@ def artifact_producer_profiles(
         readiness = row.get("automation_readiness") if isinstance(row.get("automation_readiness"), dict) else {}
         status = str(readiness.get("status") or "unknown")
         automation_status_counts[status] = automation_status_counts.get(status, 0) + 1
-        if readiness.get("errors"):
-            incomplete_profiles.append(str(row.get("profile_id") or row.get("owner_repo") or "unknown"))
+        readiness_errors = _string_list(readiness.get("errors"))
+        if readiness_errors:
+            profile_ref = str(row.get("profile_id") or row.get("owner_repo") or "unknown")
+            incomplete_profiles.append(profile_ref)
+            if require_command_resolution:
+                errors.extend([f"{profile_ref}:{error}" for error in readiness_errors])
     return {
         "ok": not errors,
         "schema": "abyss_machine_artifact_producer_profiles_v1",
@@ -566,11 +762,16 @@ def artifact_producer_profiles(
         "profile_filter": profile_id or None,
         "owner_repo_filter": owner_repo or None,
         "artifact_class_filter": artifact_class or None,
+        "workspace_root": str(workspace_root) if workspace_root is not None else None,
+        "owner_repo_root_overrides": {owner: str(path) for owner, path in _normalize_owner_repo_roots(owner_repo_roots).items()},
+        "require_command_resolution": require_command_resolution,
         "summary": {
             "profiles": len(rows),
             "owner_repos": owner_repos,
             "artifact_classes": artifact_classes,
             "artifact_class_count": len(artifact_classes),
+            "command_resolution_checked": bool(workspace_root is not None or owner_repo_roots or require_command_resolution),
+            "command_resolution_required": require_command_resolution,
             "automation_status_counts": automation_status_counts,
             "incomplete_profiles": incomplete_profiles,
         },

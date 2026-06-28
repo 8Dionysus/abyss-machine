@@ -2150,6 +2150,101 @@ def test_artifact_producer_profile_readiness_reports_missing_automation(tmp_path
     ]
 
 
+def test_artifact_producer_profiles_resolve_owner_local_commands(tmp_path: Path) -> None:
+    owner_root = tmp_path / "workspace" / "aoa-sdk"
+    script = owner_root / "scripts" / "release_check.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+
+    profiles = artifact_bundles.artifact_producer_profiles(
+        owner_repo="aoa-sdk",
+        workspace_root=tmp_path / "workspace",
+        require_command_resolution=True,
+    )
+    row = profiles["rows"][0]
+    readiness = row["automation_readiness"]
+    resolution = readiness["command_resolution"]
+
+    assert profiles["ok"] is True
+    assert profiles["summary"]["automation_status_counts"] == {"owner_local_producer_validated": 1}
+    assert profiles["summary"]["command_resolution_checked"] is True
+    assert profiles["summary"]["command_resolution_required"] is True
+    assert readiness["status"] == "owner_local_producer_validated"
+    assert readiness["errors"] == []
+    assert resolution["status"] == "resolved"
+    assert resolution["owner_repo_root_source"] == "workspace_owner_repo"
+    assert resolution["resolved_commands"][0]["resolved_paths"] == [str(script)]
+
+
+def test_artifact_producer_profiles_resolve_workspace_alias(tmp_path: Path) -> None:
+    owner_root = tmp_path / "workspace" / "bundles" / "aoa-session-memory"
+    script = owner_root / "scripts" / "aoa_session_memory.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+
+    profiles = artifact_bundles.artifact_producer_profiles(
+        owner_repo="aoa-session-memory",
+        workspace_root=tmp_path / "workspace",
+        require_command_resolution=True,
+    )
+    row = profiles["rows"][0]
+    resolution = row["automation_readiness"]["command_resolution"]
+
+    assert profiles["ok"] is True
+    assert row["automation_readiness"]["status"] == "owner_local_producer_validated"
+    assert resolution["owner_repo_root"] == str(owner_root)
+    assert resolution["owner_repo_root_source"] == "workspace_alias"
+    assert resolution["resolved_commands"][0]["resolved_paths"] == [str(script)]
+
+
+def test_artifact_producer_profiles_fail_when_owner_command_ref_is_missing(tmp_path: Path) -> None:
+    owner_root = tmp_path / "workspace" / "aoa-sdk"
+    owner_root.mkdir(parents=True)
+
+    profiles = artifact_bundles.artifact_producer_profiles(
+        owner_repo="aoa-sdk",
+        workspace_root=tmp_path / "workspace",
+        require_command_resolution=True,
+    )
+    row = profiles["rows"][0]
+    readiness = row["automation_readiness"]
+    resolution = readiness["command_resolution"]
+
+    assert profiles["ok"] is False
+    assert profiles["summary"]["automation_status_counts"] == {"owner_local_producer_unresolved": 1}
+    assert profiles["summary"]["incomplete_profiles"] == ["aoa-sdk"]
+    assert readiness["status"] == "owner_local_producer_unresolved"
+    assert "producer_command_ref_missing:scripts/release_check.py" in readiness["errors"]
+    assert "aoa-sdk:producer_command_ref_missing:scripts/release_check.py" in profiles["errors"]
+    assert resolution["status"] == "unresolved"
+    assert resolution["missing_command_refs"] == [
+        {
+            "command": "python scripts/release_check.py",
+            "ref": "scripts/release_check.py",
+            "owner_repo_root": str(owner_root),
+            "reason": "missing",
+        }
+    ]
+
+
+def test_cli_artifacts_producer_profiles_accept_owner_repo_root_override(tmp_path: Path) -> None:
+    owner_root = tmp_path / "checked-out-aoa-sdk"
+    script = owner_root / "scripts" / "release_check.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+
+    profiles = cli.artifacts_producer_profiles(
+        owner_repo="aoa-sdk",
+        owner_repo_root=[f"aoa-sdk={owner_root}"],
+        require_command_resolution=True,
+        write_latest=False,
+    )
+
+    assert profiles["ok"] is True
+    assert profiles["owner_repo_root_overrides"] == {"aoa-sdk": str(owner_root)}
+    assert profiles["rows"][0]["automation_readiness"]["status"] == "owner_local_producer_validated"
+
+
 def test_artifact_producer_profiles_filter_by_artifact_class() -> None:
     profiles = artifact_bundles.artifact_producer_profiles(artifact_class="public_media_export")
 

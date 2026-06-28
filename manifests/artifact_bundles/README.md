@@ -48,6 +48,12 @@ Use `requirements` before producing a bundle to inspect producer profile,
 required controls, trust-root expectations, and owner/source route. Use
 `affected` before consuming or landing changes to detect stale source,
 manifest, policy, ABI, or sibling-owner evidence.
+Use `producer-profiles --workspace-root /srv/AbyssOS --require-command-resolution`
+for OS-wide profile validation when sibling checkouts are present; add
+`--owner-repo-root OWNER=PATH` for repos outside that workspace. This resolves
+declared owner-local command references and fails on missing or renamed
+producer scripts without executing sibling validators or importing sibling
+authority into `abyss-machine`.
 Use `registry-latest` when an agent needs the selected durable latest record and
 its consumer `trust-gate` verdict without hand-parsing the full registry.
 Use `trust-coverage --durable-only` when the question is whether persistent
