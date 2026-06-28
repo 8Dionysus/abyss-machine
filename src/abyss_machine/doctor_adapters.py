@@ -123,6 +123,20 @@ class DoctorPowerCoolingProbePort:
     systemd_unit: Callable[[str], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class DoctorStorageProcessProbePaths:
+    storage_policy: Path
+    process_latest: Path
+
+
+@dataclass(frozen=True)
+class DoctorStorageProcessProbePort:
+    storage_filesystems: Callable[[], list[dict[str, Any]]]
+    storage_policy_document: Callable[[], dict[str, Any]]
+    storage_hooks_status: Callable[[], dict[str, Any]]
+    process_latest_summary: Callable[[], dict[str, Any]]
+
+
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
     "doctor_json",
     "doctor_paths_json",
@@ -315,6 +329,66 @@ def collect_doctor_power_cooling_checks(
         "cooling_reconcile_timer",
         f"{cooling_timer_name} {cooling_timer['active']}/{cooling_timer['enabled']}",
         cooling_timer,
+    )
+
+    return checks
+
+
+def _storage_hook_dirs_ready(hooks_status: dict[str, Any]) -> bool:
+    return all(
+        directory.get("exists")
+        for directory_list in hooks_status.get("directories", {}).values()
+        for directory in directory_list
+    )
+
+
+def collect_doctor_storage_process_checks(
+    *,
+    paths: DoctorStorageProcessProbePaths,
+    port: DoctorStorageProcessProbePort,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    storage = port.storage_filesystems()
+    root_fs = next((item for item in storage if item.get("target") == "/"), None)
+    srv_fs = next((item for item in storage if item.get("target") == "/srv"), None)
+    if root_fs and root_fs.get("fstype") == "btrfs":
+        _add_check(checks, "ok", "root_btrfs", "root filesystem is Btrfs", root_fs)
+    else:
+        _add_check(checks, "warn", "root_btrfs", "root filesystem is not detected as Btrfs", root_fs)
+    if srv_fs:
+        _add_check(checks, "ok", "srv_mount", f"/srv mounted as {srv_fs.get('fstype')}", srv_fs)
+    else:
+        _add_check(checks, "warn", "srv_mount", "/srv mount not detected")
+
+    storage_policy = port.storage_policy_document()
+    _add_check(
+        checks,
+        "ok" if storage_policy.get("ok") else "warn",
+        "storage_policy",
+        f"{paths.storage_policy} ready" if storage_policy.get("ok") else f"{paths.storage_policy} missing or invalid",
+        {"path": str(paths.storage_policy), "load_error": storage_policy.get("load_error")},
+    )
+
+    hooks_status = port.storage_hooks_status()
+    hook_dirs_ready = _storage_hook_dirs_ready(hooks_status)
+    _add_check(
+        checks,
+        "ok" if hook_dirs_ready else "warn",
+        "storage_hooks",
+        "storage hook directories present" if hook_dirs_ready else "storage hook directories incomplete",
+        hooks_status.get("summary"),
+    )
+
+    process_summary = port.process_latest_summary()
+    _add_check(
+        checks,
+        "ok" if process_summary.get("ok") else "warn",
+        "process_snapshot_latest",
+        f"process snapshot latest: {process_summary.get('generated_at')}"
+        if process_summary.get("ok")
+        else "process snapshot latest missing",
+        {"path": str(paths.process_latest), "summary": process_summary.get("summary")},
     )
 
     return checks

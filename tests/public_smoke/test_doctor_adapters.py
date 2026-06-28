@@ -42,6 +42,13 @@ def _power_cooling_paths() -> doctor_adapters.DoctorPowerCoolingProbePaths:
     )
 
 
+def _storage_process_paths() -> doctor_adapters.DoctorStorageProcessProbePaths:
+    return doctor_adapters.DoctorStorageProcessProbePaths(
+        storage_policy=Path("/etc/abyss-machine/storage-policy.json"),
+        process_latest=Path("/var/lib/abyss-machine/process/latest.json"),
+    )
+
+
 def _fake_port(
     *,
     exists: set[Path],
@@ -167,6 +174,85 @@ def test_doctor_power_cooling_probe_adapter_preserves_degraded_status_shape() ->
     }
     assert by_key["cooling_reconcile_timer"]["level"] == "warn"
     assert by_key["cooling_reconcile_timer"]["data"]["name"] == "abyss-cooling-reconcile.timer"
+
+
+def test_doctor_storage_process_probe_adapter_collects_clean_checks_without_live_host() -> None:
+    paths = _storage_process_paths()
+    filesystems = [
+        {"target": "/", "fstype": "btrfs", "size": 100},
+        {"target": "/srv", "fstype": "xfs", "size": 200},
+    ]
+    hooks = {
+        "directories": {
+            "source": [{"path": "/srv/abyss-machine/storage/source", "exists": True}],
+            "target": [{"path": "/srv/abyss-machine/storage/target", "exists": True}],
+        },
+        "summary": {"directories": 2, "missing": 0},
+    }
+    process_summary = {
+        "ok": True,
+        "generated_at": "2026-06-28T10:40:00Z",
+        "summary": {"processes": 128, "containers": 2},
+    }
+    port = doctor_adapters.DoctorStorageProcessProbePort(
+        storage_filesystems=lambda: filesystems,
+        storage_policy_document=lambda: {"ok": True, "load_error": None},
+        storage_hooks_status=lambda: hooks,
+        process_latest_summary=lambda: process_summary,
+    )
+
+    checks = doctor_adapters.collect_doctor_storage_process_checks(
+        paths=paths,
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert len(checks) == 5
+    assert by_key["root_btrfs"]["level"] == "ok"
+    assert by_key["srv_mount"]["message"] == "/srv mounted as xfs"
+    assert by_key["storage_policy"]["data"] == {"path": str(paths.storage_policy), "load_error": None}
+    assert by_key["storage_hooks"]["level"] == "ok"
+    assert by_key["storage_hooks"]["data"] == {"directories": 2, "missing": 0}
+    assert by_key["process_snapshot_latest"]["message"] == "process snapshot latest: 2026-06-28T10:40:00Z"
+    assert by_key["process_snapshot_latest"]["data"] == {
+        "path": str(paths.process_latest),
+        "summary": {"processes": 128, "containers": 2},
+    }
+
+
+def test_doctor_storage_process_probe_adapter_preserves_degraded_status_shape() -> None:
+    paths = _storage_process_paths()
+    hooks = {
+        "directories": {
+            "source": [{"path": "/srv/abyss-machine/storage/source", "exists": True}],
+            "target": [{"path": "/srv/abyss-machine/storage/target", "exists": False}],
+        },
+        "summary": {"directories": 2, "missing": 1},
+    }
+    port = doctor_adapters.DoctorStorageProcessProbePort(
+        storage_filesystems=lambda: [{"target": "/", "fstype": "ext4"}],
+        storage_policy_document=lambda: {"ok": False, "load_error": "missing"},
+        storage_hooks_status=lambda: hooks,
+        process_latest_summary=lambda: {"ok": False, "summary": None},
+    )
+
+    checks = doctor_adapters.collect_doctor_storage_process_checks(
+        paths=paths,
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert by_key["root_btrfs"]["level"] == "warn"
+    assert by_key["root_btrfs"]["data"] == {"target": "/", "fstype": "ext4"}
+    assert by_key["srv_mount"] == {"level": "warn", "key": "srv_mount", "message": "/srv mount not detected"}
+    assert by_key["storage_policy"]["level"] == "warn"
+    assert by_key["storage_policy"]["message"] == f"{paths.storage_policy} missing or invalid"
+    assert by_key["storage_hooks"]["level"] == "warn"
+    assert by_key["storage_hooks"]["message"] == "storage hook directories incomplete"
+    assert by_key["storage_hooks"]["data"] == {"directories": 2, "missing": 1}
+    assert by_key["process_snapshot_latest"]["level"] == "warn"
+    assert by_key["process_snapshot_latest"]["message"] == "process snapshot latest missing"
+    assert by_key["process_snapshot_latest"]["data"] == {"path": str(paths.process_latest), "summary": None}
 
 
 def test_doctor_core_probe_adapter_preserves_degraded_status_shape() -> None:
