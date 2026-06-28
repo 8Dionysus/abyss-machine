@@ -7143,6 +7143,13 @@ def trust_gate(
             c2pa_trust = _record_c2pa_trust(selected)
             _append_unique_text(warnings, _c2pa_trust_gap_warning(c2pa_trust))
             _append_unique_text(warnings, _c2pa_pre_organization_warning(c2pa_trust))
+            onboarding = (
+                c2pa_trust.get("credential_onboarding")
+                if isinstance(c2pa_trust.get("credential_onboarding"), dict)
+                else {}
+            )
+            if consumer_intent == "public_release" and onboarding.get("production_claim_allowed") is not True:
+                manual_review.append("public_release_claim_requires_production_c2pa_trust_list")
 
     if selected.get("verification_warnings"):
         for warning in selected.get("verification_warnings", []):
