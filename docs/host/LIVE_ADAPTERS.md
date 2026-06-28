@@ -261,9 +261,24 @@ status-probe seam:
 - command availability checks for `podman`, `rsync`, and `curl`.
 
 The CLI binds the concrete platform, filesystem, command-map, topology validate,
-and stack-bridge validate ports. Power, cooling, storage, process, observability,
-nervous, docs, dictation, AI runtime, memory, mode, and timer probes remain
-deeper live adapter debt.
+and stack-bridge validate ports. Power/cooling status checks are split below;
+storage, process, observability, nervous, docs, dictation, AI runtime, memory,
+mode, and timer probes remain deeper live adapter debt.
+
+## Extracted Doctor Power/Cooling Status Probe Seam
+
+`abyss_machine.doctor_adapters` owns the `abyss-machine doctor` power/cooling
+status-probe seam:
+
+- power-profiles-daemon and automatic power-profile timer readiness checks;
+- thermald readiness check;
+- cooling backend projection with fan/platform profile summary and latest path;
+- cooling reconcile timer readiness through a fakeable systemd-unit port.
+
+The CLI binds the current `status()` read-model and concrete systemd lookup. The
+adapter does not switch power profiles, write cooling state, sample sensors, or
+authorize cooling repair; those remain in their subsystem owners and later live
+adapter slices.
 
 ## Extracted Doctor Report IO Seam
 
