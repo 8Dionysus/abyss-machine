@@ -53,8 +53,12 @@ plans, contracts, and bounded summaries belong in the public seed.
 - Extracted dictation recording lifecycle/process-state execution into
   `abyss_machine.dictation_execution_adapters`; the adapter owns runtime
   recording state IO, active/stale detection, process start, stop signalling,
-  and state cleanup through fakeable ports. CLI still owns profile/config
-  selection, WAV inspection, insertion, journal/latest writes, and rendering.
+  and state cleanup through fakeable ports.
+- Extracted dictation audio inspection and audio-doctor probes into
+  `abyss_machine.dictation_execution_adapters`; the adapter owns WAV stats,
+  recent runtime WAV discovery, and `pactl`/`wpctl` probe execution through
+  fakeable ports. CLI still owns profile/config selection, live mic-calibration
+  recording/apply, insertion, journal/latest writes, and rendering.
 
 ### Next route
 

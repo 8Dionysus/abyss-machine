@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
 import stat
+import struct
 from pathlib import Path
 import sys
+import wave
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
@@ -44,6 +47,122 @@ def _recording_paths(tmp_path: Path) -> dictation_execution_adapters.DictationRe
         runtime_dir=runtime_dir,
         state_file=runtime_dir / "recording.json",
     )
+
+
+def _audio_paths(tmp_path: Path) -> dictation_execution_adapters.DictationAudioPaths:
+    return dictation_execution_adapters.DictationAudioPaths(runtime_dir=tmp_path / "runtime")
+
+
+def _write_wav(path: Path, samples: list[int], *, sample_rate: int = 16000, channels: int = 1) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame_values: list[int] = []
+    for sample in samples:
+        frame_values.extend([sample] * channels)
+    frames = struct.pack("<" + "h" * len(frame_values), *frame_values)
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(frames)
+
+
+def test_audio_adapter_reads_wav_stats_from_synthetic_runtime_file(tmp_path: Path) -> None:
+    audio = tmp_path / "audio.wav"
+    _write_wav(audio, [0, 1200, -1200, 2400, -2400] * 320)
+
+    stats = dictation_execution_adapters.wav_stats(audio)
+
+    assert stats["ok"] is True
+    assert stats["path"] == str(audio)
+    assert stats["sample_rate"] == 16000
+    assert stats["channels"] == 1
+    assert stats["duration_sec"] == 0.1
+    assert stats["peak"] > 0
+    assert stats["dbfs"] < 0
+    assert stats["frame_dbfs_p50"] is not None
+
+
+def test_audio_adapter_lists_recent_runtime_wavs(tmp_path: Path) -> None:
+    paths = _audio_paths(tmp_path)
+    old_audio = paths.runtime_dir / "old.wav"
+    new_audio = paths.runtime_dir / "new.wav"
+    ignored = paths.runtime_dir / "ignored.txt"
+    _write_wav(old_audio, [100] * 16)
+    _write_wav(new_audio, [200] * 16)
+    ignored.write_text("not audio", encoding="utf-8")
+    os.utime(old_audio, (100.0, 100.0))
+    os.utime(new_audio, (200.0, 200.0))
+
+    assert dictation_execution_adapters.recent_wavs(paths, limit=1) == [new_audio]
+    assert dictation_execution_adapters.recent_wavs(paths, limit=5) == [new_audio, old_audio]
+
+
+def test_audio_doctor_uses_fakeable_audio_probe_ports(tmp_path: Path) -> None:
+    paths = _audio_paths(tmp_path)
+    good_audio = paths.runtime_dir / "good.wav"
+    bad_audio = paths.runtime_dir / "bad.wav"
+    _write_wav(good_audio, [600] * 160)
+    bad_audio.write_text("not a wav", encoding="utf-8")
+    calls: list[tuple[list[str], float, object]] = []
+
+    def fake_run(command: list[str], timeout: float, run_env: object) -> dict[str, object]:
+        calls.append((command, timeout, run_env))
+        if command == ["pactl", "get-default-source"]:
+            return {"ok": True, "stdout": "alsa_input.test", "stderr": "", "returncode": 0}
+        if command == ["wpctl", "status"]:
+            return {"ok": True, "stdout": "PipeWire status", "stderr": "", "returncode": 0}
+        if command == ["wpctl", "inspect", "@DEFAULT_AUDIO_SOURCE@"]:
+            return {"ok": True, "stdout": "node.name = alsa_input.test", "stderr": "", "returncode": 0}
+        raise AssertionError(command)
+
+    data = dictation_execution_adapters.audio_doctor(
+        paths=paths,
+        config={"calibration": {"enabled": True}},
+        limit=2,
+        run_command=fake_run,
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        recent_wavs_fn=lambda limit: [good_audio, bad_audio][:limit],
+    )
+
+    assert data["schema"] == "abyss_machine_dictation_audio_doctor_v1"
+    assert data["default_source"] == "alsa_input.test"
+    assert data["wpctl_status_ok"] is True
+    assert data["wpctl_default_source"] == "node.name = alsa_input.test"
+    assert data["calibration"] == {"enabled": True}
+    assert data["summary"]["files_analyzed"] == 1
+    assert data["recent_files"][0]["ok"] is True
+    assert data["recent_files"][1]["ok"] is False
+    assert calls == [
+        (["pactl", "get-default-source"], 2.0, None),
+        (["wpctl", "status"], 2.0, None),
+        (["wpctl", "inspect", "@DEFAULT_AUDIO_SOURCE@"], 2.0, None),
+    ]
+
+
+def test_cli_dictation_audio_doctor_binds_live_adapter(monkeypatch, tmp_path: Path) -> None:
+    paths = _audio_paths(tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_audio_doctor(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "schema": "abyss_machine_dictation_audio_doctor_v1"}
+
+    monkeypatch.setattr(cli, "dictation_audio_paths", lambda: paths)
+    monkeypatch.setattr(cli, "dictation_config", lambda: {"calibration": {"source": "test"}})
+    monkeypatch.setattr(dictation_execution_adapters, "audio_doctor", fake_audio_doctor)
+
+    data = cli.dictation_audio_doctor(7)
+
+    assert data["ok"] is True
+    assert captured["paths"] == paths
+    assert captured["config"] == {"calibration": {"source": "test"}}
+    assert captured["limit"] == 7
+    assert captured["run_command"] is cli.run
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert callable(captured["now"])
 
 
 def test_recording_adapter_starts_process_and_writes_state_without_live_audio(tmp_path: Path) -> None:
