@@ -115,7 +115,10 @@ envelopes, markdown, validation, eval run execution-plan, and deterministic eval
 freshness/status contract assembly, maintenance assessments, batch policy,
 build-command shaping, source chunk projection, sidecar store/count/reuse
 contracts, embedding subprocess payload/script/result contracts, and
-vector/search shaping live in `abyss_machine.nervous_semantic`.
+vector/search shaping live in `abyss_machine.nervous_semantic`. Embedding
+subprocess temp-file staging, OpenVINO runner invocation, output readback,
+cleanup, and resource-profile callback routing live in
+`abyss_machine.nervous_semantic_adapters`.
 Nervous retention route specs, root/file candidate classification, retention
 policy, plan/apply/validate result envelopes, and privacy-review route
 contracts live in
@@ -300,9 +303,11 @@ live thermal/policy/mode/battery facts. Nervous semantic
 schema, status/freshness decisions, maintenance gate decisions, batch policy,
 build-command shaping, source chunk projection, semantic sidecar store/reuse,
 embedding subprocess payload/script/result parsing, and vector search are
-module-owned while source-index connection, locking, embedding subprocess
-execution, policy gates, resource launch, and latest writes remain at the CLI
-edge. Nervous retention route specs, file-candidate classification, policy,
+module-owned; embedding subprocess temp-file staging, OpenVINO runner
+invocation, output readback, cleanup, and resource-profile callback routing are
+adapter-owned while source-index connection, locking, policy gates, resource
+launch, sidecar writes, and latest writes remain at the CLI edge. Nervous
+retention route specs, file-candidate classification, policy,
 plan/apply/validate envelopes, and privacy-review route contracts are
 module-owned while root scanning, symlink-tail checks, unlink execution, and
 latest/history writes remain at the CLI edge. Nervous screenshot recurring

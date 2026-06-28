@@ -44,8 +44,11 @@ nervous organs start in
 `abyss_machine.typing_nervous_adapters`. Keep future nervous adapters bounded by
 source or execution class: browser capture, local JSONL/SQLite readers, semantic
 embedding subprocesses, rerank subprocesses, retention apply/unlink, and privacy
-audit writes. The public repo owns adapter mechanics and contract shape; local
-memory evidence stays under the host runtime roots.
+audit writes. `abyss_machine.nervous_semantic_adapters` now owns the first
+semantic execution seam for embedding subprocess temp-file staging, runner
+invocation, output readback, cleanup, and resource-profile callback routing.
+The public repo owns adapter mechanics and contract shape; local memory
+evidence stays under the host runtime roots.
 
 ### Next route
 
