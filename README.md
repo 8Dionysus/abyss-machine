@@ -128,7 +128,10 @@ contracts live in `abyss_machine.nervous_screenshot`.
 Nervous rerank profile/defaults, source-prior scoring, machine-query caps,
 merge policy, hybrid result scoring, neural text shaping, neural config
 normalization, guarded neural-score blending, and eval document envelopes live in
-`abyss_machine.nervous_rerank`.
+`abyss_machine.nervous_rerank`; OpenVINO neural scorer temp-payload staging,
+command invocation, stdout/output JSON parsing, policy-gate callback routing,
+and resource-profile callback routing live in
+`abyss_machine.nervous_rerank_adapters`.
 Nervous recall refusal, mode normalization, search execution-plan, evidence projection,
 summary counts, pack identity, and retrieval-pack document contracts live in
 `abyss_machine.nervous_recall`.
@@ -307,6 +310,13 @@ module-owned; embedding subprocess temp-file staging, OpenVINO runner
 invocation, output readback, cleanup, and resource-profile callback routing are
 adapter-owned while source-index connection, locking, policy gates, resource
 launch, sidecar writes, and latest writes remain at the CLI edge. Nervous
+rerank profile/defaults, hybrid source-prior scoring, machine-query caps,
+neural text/config shaping, guarded neural-score blending, and eval envelopes
+are module-owned; OpenVINO neural scorer temp-payload staging, command
+execution, stdout/output JSON parsing, policy-gate callback routing, and
+resource-profile callback routing are adapter-owned while lexical/semantic
+source collection, semantic maintenance assessment, latest/history writes, and
+command rendering remain at the CLI edge. Nervous
 retention route specs, file-candidate classification, policy,
 plan/apply/validate envelopes, and privacy-review route contracts are
 module-owned while root scanning, symlink-tail checks, unlink execution, and
@@ -425,9 +435,9 @@ rendering remain at the CLI edge. The public
 cold-start route now checks for private operator path and current-checkout
 leakage across source and temporary installed projections. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
-subprocess execution/provenance adapters, nervous retention filesystem/unlink/
-latest adapters, nervous event/episode live latest/write adapters, screenshot live probe/capture adapters, rerank live search/
-neural-execution adapters, recall live search adapter/write adapters, AI runtime live
+provenance adapters, nervous retention filesystem/unlink/latest adapters,
+nervous event/episode live latest/write adapters, screenshot live probe/capture
+adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
 execution adapters, TTS live server/audio execution adapters, and dictation live audio/server/insert adapters plus
 remaining self-awareness live probe/readmodel orchestration and cooling/process
 host-control adapters behind smaller modules before claiming full
