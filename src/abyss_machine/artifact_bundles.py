@@ -55,6 +55,14 @@ C2PA_TRUST_CONFIG_ENV = "ABYSS_MACHINE_C2PA_TRUST_CONFIG"
 C2PA_OFFICIAL_TRUST_LIST_URL = "https://raw.githubusercontent.com/c2pa-org/conformance-public/refs/heads/main/trust-list/C2PA-TRUST-LIST.pem"
 C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL = "https://contentcredentials.org/trust/anchors.pem"
 C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL = "https://contentcredentials.org/trust/store.cfg"
+C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_CANONICAL_URL = "https://verify.contentauthenticity.org/trust/anchors.pem"
+C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_CANONICAL_URL = "https://verify.contentauthenticity.org/trust/store.cfg"
+C2PA_CONTENT_CREDENTIALS_TRUST_ANCHOR_URLS = frozenset(
+    {
+        C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
+        C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_CANONICAL_URL,
+    }
+)
 C2PA_PRODUCTION_TRUST_LIST_PROFILES = frozenset(
     {
         "official_c2pa_trust_list",
@@ -4663,7 +4671,7 @@ def _c2pa_trust_anchor_profile(value: str, env: dict[str, str]) -> tuple[str, st
         return explicit, C2PA_TRUST_ANCHORS_PROFILE_ENV
     if value.strip() == C2PA_OFFICIAL_TRUST_LIST_URL:
         return "official_c2pa_trust_list", "auto:official_c2pa_trust_list_url"
-    if value.strip() == C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL:
+    if value.strip() in C2PA_CONTENT_CREDENTIALS_TRUST_ANCHOR_URLS:
         return "legacy_content_credentials_interim_trust_store", "auto:content_credentials_trust_store_url"
     return "custom_trust_anchor_store", "auto:custom_trust_anchor_store"
 

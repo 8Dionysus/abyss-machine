@@ -1271,6 +1271,36 @@ def test_public_media_export_legacy_content_credentials_store_is_not_production_
     assert artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL in argv
 
 
+def test_public_media_export_recognizes_canonical_content_credentials_trust_redirect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, argv_capture = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="trusted",
+        trust_anchors_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_CANONICAL_URL,
+        trust_config_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_CANONICAL_URL,
+        allow_embedded_manifest=True,
+        capture_argv=True,
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
+
+    assert verify["ok"] is True
+    assert "c2pa" in verify["verified_controls"]
+    assert any("legacy interim Content Credentials trust store" in warning for warning in verify["warnings"])
+    c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
+    assert c2pa_trust["trust_tier"] == "legacy_interim_trust_store"
+    assert c2pa_trust["trust_anchor_profile"] == "legacy_content_credentials_interim_trust_store"
+    assert c2pa_trust["production_trust_list_configured"] is False
+    assert c2pa_trust["production_trust_list_trusted"] is False
+    assert argv_capture is not None
+    argv = json.loads(argv_capture.read_text(encoding="utf-8"))
+    assert artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_CANONICAL_URL in argv
+    assert artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_CANONICAL_URL in argv
+
+
 def test_public_media_export_uses_active_manifest_for_c2pa_credential_trust(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
