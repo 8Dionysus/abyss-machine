@@ -44,6 +44,20 @@ class DoctorMachineReportWritePaths:
 
 
 @dataclass(frozen=True)
+class DoctorMachineReportArtifactPath:
+    label: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class DoctorMachineReportInputPaths:
+    root: Path
+    latest_json: Path
+    latest_markdown: Path
+    artifacts: tuple[DoctorMachineReportArtifactPath, ...]
+
+
+@dataclass(frozen=True)
 class DoctorReportWritePort:
     write_text: Callable[[Path, str, int], dict[str, Any] | None]
 
@@ -58,6 +72,16 @@ class DoctorMachineReportWritePort:
 class DoctorArtifactReadPort:
     load_json_document: Callable[[Path], tuple[Any, Any]]
     path_exists: Callable[[Path], bool]
+
+
+@dataclass(frozen=True)
+class DoctorMachineReportInputPort:
+    collect_doctor: Callable[[], dict[str, Any]]
+    collect_memory_residency: Callable[[], dict[str, Any]]
+    collect_nervous_brief: Callable[[], dict[str, Any]]
+    read_ai_policy_latest: Callable[[], dict[str, Any]]
+    collect_ai_policy: Callable[[], dict[str, Any]]
+    read_artifact: Callable[[str, Path], dict[str, Any]]
 
 
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
@@ -263,6 +287,84 @@ def read_machine_report_artifact(
         exists=port.path_exists(path),
         load_error=error,
         data=data,
+    )
+
+
+def machine_report_paths_document(paths: DoctorMachineReportInputPaths) -> dict[str, Any]:
+    return {
+        "root": str(paths.root),
+        "latest_json": str(paths.latest_json),
+        "latest_markdown": str(paths.latest_markdown),
+        "daily_jsonl_glob": str(paths.root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+        "daily_markdown_glob": str(paths.root / "YYYY" / "MM" / "YYYY-MM-DD.md"),
+    }
+
+
+def _machine_report_ai_policy(no_thermal_sample: bool, port: DoctorMachineReportInputPort) -> dict[str, Any]:
+    if no_thermal_sample:
+        latest = port.read_ai_policy_latest()
+        if latest.get("generated_at") and not latest.get("error"):
+            return latest
+    return port.collect_ai_policy()
+
+
+def collect_machine_report_inputs(
+    *,
+    no_thermal_sample: bool,
+    paths: DoctorMachineReportInputPaths,
+    port: DoctorMachineReportInputPort,
+) -> dict[str, Any]:
+    doctor_data = port.collect_doctor()
+    memory_data = port.collect_memory_residency()
+    nervous_data = port.collect_nervous_brief()
+    ai_policy_data = _machine_report_ai_policy(no_thermal_sample, port)
+    services = memory_data.get("services") if isinstance(memory_data.get("services"), list) else []
+    protected_services = [
+        doctor_contracts.machine_report_service_summary(item)
+        for item in services
+        if isinstance(item, dict) and item.get("protected")
+    ]
+    artifacts = [
+        port.read_artifact(artifact.label, artifact.path)
+        for artifact in paths.artifacts
+    ]
+    return {
+        "doctor_data": doctor_data,
+        "memory_data": memory_data,
+        "nervous_data": nervous_data,
+        "ai_policy_data": ai_policy_data,
+        "protected_services": protected_services,
+        "artifacts": artifacts,
+        "paths": machine_report_paths_document(paths),
+    }
+
+
+def build_machine_report_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    no_thermal_sample: bool,
+    paths: DoctorMachineReportInputPaths,
+    port: DoctorMachineReportInputPort,
+) -> dict[str, Any]:
+    inputs = collect_machine_report_inputs(
+        no_thermal_sample=no_thermal_sample,
+        paths=paths,
+        port=port,
+    )
+    return doctor_contracts.machine_report_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        doctor_data=inputs["doctor_data"],
+        memory_data=inputs["memory_data"],
+        nervous_data=inputs["nervous_data"],
+        ai_policy_data=inputs["ai_policy_data"],
+        protected_services=inputs["protected_services"],
+        artifacts=inputs["artifacts"],
+        paths=inputs["paths"],
+        no_thermal_sample=no_thermal_sample,
     )
 
 

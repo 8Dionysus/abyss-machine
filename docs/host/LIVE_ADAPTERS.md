@@ -246,8 +246,8 @@ for `abyss-machine doctor validate`:
 
 `abyss_machine.doctor_contracts` still owns the validate document envelope. The
 CLI binds the concrete host probes, writes validate latest/history, and renders
-command output. Full `doctor` status probes, machine-report collection, report
-writes, and safe repair orchestration remain live adapter debt.
+command output. Full `doctor` status probes and safe repair orchestration remain
+live adapter debt.
 
 ## Extracted Doctor Report IO Seam
 
@@ -261,9 +261,26 @@ writes, and safe repair orchestration remain live adapter debt.
 - machine-report JSON latest/history writes plus latest/daily markdown writes.
 
 `abyss_machine.doctor_contracts` remains the owner of report and machine-report
-document shapes. The CLI still collects live doctor, memory, nervous, and AI
-policy inputs, binds concrete filesystem writers/readers, renders command
-output, and owns safe repair orchestration.
+document shapes. The CLI still binds concrete filesystem writers/readers,
+renders command output, and owns safe repair orchestration.
+
+## Extracted Doctor Machine Report Input Seam
+
+`abyss_machine.doctor_adapters` now owns the machine-report input collection
+boundary:
+
+- fakeable ports for doctor, memory residency, nervous brief, AI policy latest,
+  live AI policy, and compact artifact reads;
+- `--no-thermal-sample` AI policy routing that reuses a readable latest policy
+  document and falls back to live policy only when the latest document is absent
+  or failed;
+- compact protected-service projection through
+  `doctor_contracts.machine_report_service_summary`;
+- machine-report path projection and ordered compact artifact list execution.
+
+The CLI remains the binder for concrete live functions, configured constants,
+latest/history writes, and rendering. This seam is read-only input collection; it
+does not stop, restart, repair, or mutate host services.
 
 ## Next Extraction Order
 
@@ -272,8 +289,8 @@ output, and owns safe repair orchestration.
 2. Dictation and AI runtime adapters: audio/server/clipboard execution and
    model/runtime subprocess plans.
 3. Diagnostic and host lifecycle adapters: full doctor status probes, bootstrap
-   dry-run evidence, richer installed projection closeout, machine-report input
-   collection, and repair orchestration.
+   dry-run evidence, richer installed projection closeout, and repair
+   orchestration.
 
 ## Stop Lines
 
