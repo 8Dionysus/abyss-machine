@@ -37,7 +37,7 @@
     "validation_report": "artifact.c2pa.json",
     "required_validation_state": "Valid",
     "standard_refs": {
-      "specification": "https://spec.c2pa.org/specifications/specifications/2.2/specs/C2PA_Specification.html",
+      "specification": "https://spec.c2pa.org/specifications/specifications/2.4/specs/C2PA_Specification.html",
       "conformance_program": "https://c2pa.org/conformance/",
       "production_trust_list": "https://raw.githubusercontent.com/c2pa-org/conformance-public/refs/heads/main/trust-list/C2PA-TRUST-LIST.pem",
       "c2patool_usage": "https://opensource.contentauthenticity.org/docs/c2patool/docs/usage/"
