@@ -1829,6 +1829,89 @@ def test_trust_gate_warns_when_production_c2pa_trust_list_lacks_onboarding_readi
     assert gate["inspected_claims"]["c2pa_trust"]["credential_onboarding"]["production_claim_allowed"] is False
 
 
+def test_trust_gate_blocks_public_media_public_release_claim_until_c2pa_production_ready(
+    tmp_path: Path,
+) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "untrusted",
+        "trust_tier": "untrusted",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": False,
+        "allowed_list_end_entity_configured": False,
+        "trust_anchor_profile": "official_c2pa_trust_list",
+        "status_codes": ["signingCredential.untrusted"],
+        "credential_onboarding": {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "pre_organization",
+            "legal_subject_state": "organization_pending",
+            "interim_posture": "local_integrity_only",
+            "production_claim_allowed": False,
+        },
+    }
+    registry = tmp_path / "registry"
+    _write_public_media_registry_record(registry, c2pa_trust=c2pa_trust)
+
+    release_consumer = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+    public_release = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_media_export",
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert release_consumer["ok"] is True
+    assert release_consumer["verdict"] == "warn"
+    assert public_release["ok"] is False
+    assert public_release["verdict"] == "manual_review_required"
+    assert public_release["decision"]["allow"] is False
+    assert "public_release_claim_requires_production_c2pa_trust_list" in public_release["manual_review"]
+    assert artifact_bundles.C2PA_PRE_ORGANIZATION_WARNING in public_release["warnings"]
+
+
+def test_registry_latest_blocks_public_media_public_release_claim_without_production_c2pa(
+    tmp_path: Path,
+) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "untrusted",
+        "trust_tier": "untrusted",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": False,
+        "allowed_list_end_entity_configured": False,
+        "trust_anchor_profile": "official_c2pa_trust_list",
+        "status_codes": ["signingCredential.untrusted"],
+        "credential_onboarding": {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "pre_organization",
+            "legal_subject_state": "organization_pending",
+            "interim_posture": "local_integrity_only",
+            "production_claim_allowed": False,
+        },
+    }
+    registry = tmp_path / "registry"
+    _write_public_media_registry_record(registry, c2pa_trust=c2pa_trust)
+
+    latest = cli.artifacts_registry_latest(
+        artifact_class="public_media_export",
+        registry_dir=registry,
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert latest["ok"] is False
+    assert latest["has_latest"] is True
+    assert latest["trust_gate"]["verdict"] == "manual_review_required"
+    assert "public_release_claim_requires_production_c2pa_trust_list" in latest["errors"]
+
+
 def test_trust_gate_allows_public_media_with_production_c2pa_trust_list(tmp_path: Path) -> None:
     c2pa_trust = {
         "schema": "abyss_machine_c2pa_trust_verdict_v1",
