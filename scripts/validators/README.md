@@ -276,8 +276,9 @@ profile defaults, env-bound runtime/postprocess/profile selection, runtime env
 projection, and config/profile read documents live in
 `abyss_machine.dictation_profile_adapters`. Path/index/AGENTS.md documents and
 dictation docs scaffolding live in `abyss_machine.dictation_docs_adapters`.
-Postprocess glue, replacements reads/writes, validation/latest writes, status
-readiness, and rendering remain at the CLI edge.
+Status read-model assembly and readiness path/command probes live in
+`abyss_machine.dictation_status_adapters`. Postprocess glue, replacements
+reads/writes, validation/latest writes, and rendering remain at the CLI edge.
 
 `artifact_signature_policy.py` validates the public artifact identity and
 signature policy that feeds contract ABI signatures, local provenance packet
