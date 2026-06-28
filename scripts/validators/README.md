@@ -277,8 +277,10 @@ projection, and config/profile read documents live in
 `abyss_machine.dictation_profile_adapters`. Path/index/AGENTS.md documents and
 dictation docs scaffolding live in `abyss_machine.dictation_docs_adapters`.
 Status read-model assembly and readiness path/command probes live in
-`abyss_machine.dictation_status_adapters`. Postprocess glue, replacements
-reads/writes, validation/latest writes, and rendering remain at the CLI edge.
+`abyss_machine.dictation_status_adapters`. Dictation validation checks and
+validate latest/history write routing live in
+`abyss_machine.dictation_validation_adapters`. Postprocess glue, replacements
+reads/writes, notification flow, and rendering remain at the CLI edge.
 
 `artifact_signature_policy.py` validates the public artifact identity and
 signature policy that feeds contract ABI signatures, local provenance packet
