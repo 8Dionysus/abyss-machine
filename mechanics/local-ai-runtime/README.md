@@ -44,6 +44,15 @@ path translation, model/tool discovery, and resource-sampling evidence. Keep
 model weights, benchmark outputs, and generated runtime state outside Git; only
 plans, contracts, and bounded summaries belong in the public seed.
 
+### Landing log
+
+- Extracted explicit-file dictation transcription runtime into
+  `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
+  socket transport, client-side 16 kHz runtime preprocessing, helper subprocess
+  invocation, and helper runtime env projection through fakeable ports. CLI
+  still owns profile/config selection, recording lifecycle, insertion, journal
+  writes, and rendering.
+
 ### Next route
 
 Use `storage-routing` for caches and `host-facts` for capability reports.

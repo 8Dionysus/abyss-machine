@@ -218,9 +218,12 @@ busy/max-duration, audio-doctor summary/recommended-runtime decisions,
 mic-calibration command/result contracts, recording command/state, stop/toggle
 lifecycle envelopes, transcript helper/server request/result envelopes,
 insertion result/key-sequence policy, and journal event/markdown contracts live in
-`abyss_machine.dictation_contracts`; WAV inspection, server/socket transport,
-live insertion execution, document writes, and latest writes remain at the CLI
-edge.
+`abyss_machine.dictation_contracts`; explicit-file transcription runtime
+execution, warm-server socket transport, client-side 16 kHz runtime
+preprocessing, helper subprocess invocation, and helper runtime env projection
+live in `abyss_machine.dictation_execution_adapters`. WAV inspection for
+status/audio-doctor/profile selection, recording execution, live insertion
+execution, document writes, and latest writes remain at the CLI edge.
 These surfaces
 are re-exported or adapted by the CLI for installed-host compatibility. A fresh
 machine should render
@@ -382,8 +385,11 @@ result, max-duration policy, audio-doctor summary/recommended-runtime decisions,
 mic-calibration command/result contracts, recording command/state, stop/toggle
 lifecycle envelopes, transcript helper/server request/result envelopes,
 insertion result/key-sequence policy, and journal event/markdown contracts are
-module-owned while WAV inspection, server/socket transport, live text insertion
-execution, document writes, and latest writes remain at the CLI edge. Memory policy/path,
+module-owned; `dictation_execution_adapters` owns explicit-file transcription
+through warm-server socket transport, client-side 16 kHz runtime preprocessing,
+helper subprocess invocation, and helper runtime env projection. WAV inspection
+for status/audio-doctor/profile selection, recording execution, live text
+insertion execution, document writes, and latest writes remain at the CLI edge. Memory policy/path,
 pressure-classification, zram-relief, headroom attribution, launch-gate, and
 plan document contracts are module-owned while `/proc`, `/sys`, cgroup/systemd
 reads, process sampling, orchestration/apply routes, and latest/history writes
@@ -456,7 +462,7 @@ should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, nervous retention filesystem/unlink/latest adapters,
 nervous event/episode live latest/write adapters, screenshot live probe/capture
 adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
-execution adapters, TTS live server/audio execution adapters, and dictation live audio/server/insert adapters plus
+execution adapters, TTS live server/audio execution adapters, and dictation recording/audio-doctor/clipboard/journal adapters plus
 remaining self-awareness live probe/readmodel orchestration and cooling/process
 host-control adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.
