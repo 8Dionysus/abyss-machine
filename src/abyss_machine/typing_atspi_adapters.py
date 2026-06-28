@@ -6,6 +6,7 @@ from pathlib import Path
 import threading
 import time
 from typing import Any, Callable, Mapping
+import urllib.parse
 import warnings
 
 from . import typing_capture_contracts
@@ -51,6 +52,64 @@ def safe_string(value: Any, limit: int = 240) -> str:
 
 def text_sha256(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8", errors="replace")).hexdigest()
+
+
+def controlled_browser_selftest_override(
+    app: str | None,
+    window_title: str | None,
+    url: str | None,
+    role: str | None,
+    name: str | None,
+    document_title: str | None,
+    content_type: str | None,
+    states: Mapping[str, Any] | None,
+    allow_label_only: bool = False,
+) -> dict[str, Any]:
+    """Bound Firefox's false sensitive state to exact temporary selftest pages."""
+    parsed = urllib.parse.urlsplit(str(url or ""))
+    host = (parsed.hostname or "").lower()
+    loopback_http = parsed.scheme == "http" and host in {"127.0.0.1", "localhost", "::1"}
+    app_text = str(app or "").lower()
+    role_text = str(role or "").lower()
+    name_text = " ".join(str(name or "").split()).lower()
+    title_probe = " ".join(str(item or "") for item in (window_title, document_title)).lower()
+    content_text = str(content_type or "").lower()
+    state_data = states if isinstance(states, Mapping) else {}
+    label_tokens = {
+        "abyss safe browser probe",
+        "abyss focused safe browser note",
+    }
+    title_tokens = {
+        "abyss browser at-spi safe input probe",
+        "abyss focused browser safe input probe",
+    }
+    blocked_tokens = {"password", "passwd", "passphrase", "secret", "token", "credential", "login", "auth"}
+    label_ok = name_text in label_tokens
+    title_ok = any(token in title_probe for token in title_tokens)
+    lexical_safe = not any(token in " ".join([role_text, name_text, title_probe]) for token in blocked_tokens)
+    role_ok = role_text in {"entry", "text", "paragraph"} or bool(state_data.get("editable"))
+    content_ok = not content_text or "html" in content_text
+    allowed = bool(
+        loopback_http
+        and "firefox" in app_text
+        and label_ok
+        and (title_ok or allow_label_only)
+        and role_ok
+        and lexical_safe
+        and content_ok
+    )
+    return {
+        "allowed": allowed,
+        "reason": "controlled_firefox_loopback_selftest" if allowed else "not_controlled_firefox_loopback_selftest",
+        "loopback_http": loopback_http,
+        "label_match": label_ok,
+        "title_match": title_ok,
+        "label_only_allowed": bool(allow_label_only),
+        "role_ok": role_ok,
+        "content_ok": content_ok,
+        "lexical_safe": lexical_safe,
+        "stores_extra_text": False,
+    }
 
 
 def import_pyatspi_module() -> tuple[Any | None, str | None]:
@@ -1599,6 +1658,129 @@ def atspi_focus_firefox_frame_by_title(
                 })
                 return data
         sleep(0.3)
+    return data
+
+
+def atspi_focus_text_by_url(
+    url: str,
+    expected_text_sha256: str,
+    timeout_sec: float = 3.0,
+    *,
+    pyatspi_module: Any | None = None,
+    load_pyatspi: Callable[[], tuple[Any | None, str | None]] = import_pyatspi_module,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": False,
+        "status": "not_found",
+        "url": url,
+        "nodes_seen": 0,
+        "attempts": [],
+        "errors": [],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "accessibility_focus_action_only": True,
+        },
+    }
+    pyatspi, desktop, load_error = load_pyatspi_desktop(
+        timeout_ms=700,
+        pyatspi_module=pyatspi_module,
+        load_pyatspi=load_pyatspi,
+    )
+    if load_error is not None or pyatspi is None or desktop is None:
+        data.update(load_error or {"status": "pyatspi_unavailable", "error": "pyatspi_unavailable"})
+        return data
+    deadline = monotonic() + max(0.5, min(float(timeout_sec or 3.0), 8.0))
+    max_nodes = 1800
+    max_depth = 22
+    text_roles = {"entry", "text", "password text", "terminal"}
+    matched: dict[str, Any] | None = None
+
+    def walk(obj: Any, path: str, app_name: str, depth: int) -> None:
+        nonlocal matched
+        if matched is not None or depth > max_depth or data["nodes_seen"] >= max_nodes or monotonic() > deadline:
+            return
+        data["nodes_seen"] += 1
+        current_app = app_name
+        try:
+            app_context = atspi_application_context(obj)
+            if app_context.get("name"):
+                current_app = str(app_context.get("name") or current_app)
+        except Exception:
+            pass
+        role = atspi_role_name(obj, 120)
+        role_lower = role.lower()
+        name = atspi_node_name(obj, 180)
+        states = atspi_state_flags(obj, pyatspi)
+        document_attrs = atspi_document_attributes(obj)
+        document_url = str(document_attrs.get("url") or "")
+        if document_url == url:
+            text_role = role_lower in text_roles or bool(states.get("editable")) or role_lower in {"entry", "text"}
+            controlled_sensitive_override = controlled_browser_selftest_override(
+                current_app,
+                "",
+                document_url,
+                role,
+                name,
+                document_attrs.get("document_title"),
+                document_attrs.get("content_type"),
+                states,
+                allow_label_only=True,
+            )
+            sensitive_allowed = not states.get("sensitive") or controlled_sensitive_override.get("allowed") is True
+            if text_role and sensitive_allowed:
+                text, text_length, caret, text_error = atspi_text_payload(obj, max_chars=12000)
+                text_sha = text_sha256(text) if text else None
+                attempt = {
+                    "app": current_app,
+                    "role": role,
+                    "name": name,
+                    "path": path,
+                    "url": document_url,
+                    "document_title": document_attrs.get("document_title"),
+                    "content_type": document_attrs.get("content_type"),
+                    "text_length": text_length,
+                    "text_sha256": text_sha,
+                    "expected_text_match": bool(text_sha == expected_text_sha256),
+                    "states_before": states,
+                    "sensitive_state_override": (
+                        controlled_sensitive_override
+                        if controlled_sensitive_override.get("allowed")
+                        else None
+                    ),
+                    "text_error": text_error,
+                    "_text": text,
+                    "_caret_offset": caret,
+                    "_document_attrs": document_attrs,
+                }
+                data["attempts"].append(attempt)
+                data["attempts"] = data["attempts"][-8:]
+                if text_sha == expected_text_sha256:
+                    focus = focus_accessible_with_pyatspi(obj, pyatspi, sleep=sleep)
+                    matched = {**attempt, "focus": focus}
+                    return
+        for child_index, child in enumerate(atspi_children(obj, data["errors"])[:150]):
+            walk(child, f"{path}/{child_index}", current_app, depth + 1)
+
+    try:
+        for app_index, app in enumerate(atspi_children(desktop, data["errors"])[:80]):
+            if matched is not None or monotonic() > deadline:
+                break
+            walk(app, str(app_index), atspi_node_name(app, 180), 0)
+    except Exception as exc:
+        data["status"] = "walk_failed"
+        data["error"] = f"walk_failed: {exc}"
+        return data
+    if matched is not None:
+        states_after = nested_get(matched, ["focus", "states_after"])
+        states_after = states_after if isinstance(states_after, Mapping) else {}
+        data.update({
+            "ok": bool(states_after.get("focused") is True),
+            "status": "focused" if states_after.get("focused") is True else "matched_focus_not_confirmed",
+            "matched": matched,
+        })
     return data
 
 

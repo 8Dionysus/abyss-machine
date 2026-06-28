@@ -847,6 +847,221 @@ def test_cli_browser_context_selftest_binds_adapter_to_latest_store(monkeypatch,
     assert captured["process_tail"] is cli.typing_safe_process_tail
 
 
+def test_focused_browser_selftest_reports_missing_firefox_without_live_probe(tmp_path) -> None:
+    called: list[str] = []
+
+    def forbidden(*_args: object, **_kwargs: object):
+        called.append("live")
+        return {}
+
+    data = typing_browser_adapters.focused_browser_selftest_document(
+        generated_at="2026-06-27T18:00:00Z",
+        pid=4242,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        policy={},
+        find_event=forbidden,
+        focus_window_by_title=forbidden,
+        focus_text_by_path=forbidden,
+        focus_text_by_url=forbidden,
+        insert_text_by_url=forbidden,
+        focused_candidate=forbidden,
+        focused_snapshot_from_candidate=forbidden,
+        capture_gate_decision=forbidden,
+        which=lambda name: None,
+    )
+
+    assert data["status"] == "firefox_missing"
+    assert data["source_adapter"] == "atspi_focused_text_snapshot"
+    assert data["policy"]["raw_keylogging"] is False
+    assert called == []
+
+
+def test_focused_browser_selftest_runtime_adapter_builds_public_safe_document(tmp_path) -> None:
+    generated_at = "2026-06-27T18:00:00Z"
+    pid = 4242
+    run_id = typing_browser_adapters.browser_webextension_run_id(generated_at, pid)
+    base_text = f"abyss focused browser committed text probe {run_id}"
+    base_sha = hashlib.sha256(base_text.encode("utf-8", errors="replace")).hexdigest()
+    launched: list[list[str]] = []
+    captured_candidate: dict[str, object] = {}
+
+    class FakeProcess:
+        pid = 999999
+        returncode = 0
+
+        def poll(self):
+            return None
+
+        def communicate(self, timeout=0):
+            return "focused stdout ?token=secret", "focused stderr ?client_secret=secret"
+
+    def fake_process_factory(command: list[str], **_kwargs: object) -> FakeProcess:
+        launched.append(command)
+        return FakeProcess()
+
+    def fake_find_event(text_sha256: str, limit: int):
+        assert text_sha256 == base_sha
+        assert limit == 420
+        return {
+            "event_id": "evt-ready",
+            "status": "captured",
+            "url": launched[0][-1],
+            "app": "Firefox",
+            "window_title": "Abyss focused browser safe input probe",
+            "atspi": {
+                "source_path": "0.1.2.3",
+                "document_path": "0.1.2",
+                "content_type": "text/html",
+            },
+        }, []
+
+    def fake_focus_text_by_path(source_path: str, url: str, expected_sha: str) -> dict[str, object]:
+        assert source_path == "0.1.2.3"
+        assert expected_sha == base_sha
+        assert url == launched[0][-1]
+        return {
+            "ok": True,
+            "matched": {
+                "role": "entry",
+                "name": "Abyss focused safe browser note",
+                "path": source_path,
+                "document_title": "Abyss focused browser safe input probe",
+                "text_length": len(base_text),
+                "_text": base_text,
+                "_caret_offset": len(base_text),
+                "_private": "hidden",
+                "focus": {"states_after": {"focused": True, "editable": True}},
+            },
+        }
+
+    def fake_capture_gate_decision(source: str, **kwargs: object) -> dict[str, object]:
+        assert source == "atspi_focused_text_snapshot"
+        assert kwargs["url"] == launched[0][-1]
+        assert kwargs["write_latest"] is False
+        return {"decision": "allow_text", "confidence": "focused_browser_safe_url_allowed"}
+
+    def fake_snapshot_from_candidate(candidate: dict[str, object]) -> dict[str, object]:
+        captured_candidate.update(candidate)
+        return {
+            "schema": "abyss_machine_typing_focused_snapshot_v1",
+            "ok": True,
+            "status": "captured",
+            "generated_at": generated_at,
+            "event": {
+                "event_id": "evt-focused",
+                "generated_at": generated_at,
+                "status": "captured",
+                "source_adapter": "atspi_focused_text_snapshot",
+                "capture_gate": {
+                    "decision": "allow_text",
+                    "confidence": "focused_browser_safe_url_allowed",
+                },
+                "text": {
+                    "text_length": len(base_text),
+                    "text_chars_stored": len(base_text),
+                    "text_sha256": base_sha,
+                },
+                "context": {
+                    "app": {"text": "Firefox"},
+                    "window_title": {"text": "Abyss focused browser safe input probe"},
+                    "url": {"text": launched[0][-1]},
+                },
+                "metadata": {
+                    "atspi": {
+                        "safe_route": "browser_safe_url",
+                        "browser_safe_url": True,
+                    },
+                },
+                "causal_context": {
+                    "recipient": {"kind": "browser"},
+                    "task": {"binding": "selftest"},
+                },
+            },
+        }
+
+    data = typing_browser_adapters.focused_browser_selftest_document(
+        generated_at=generated_at,
+        pid=pid,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        policy={"focused_snapshot": {"enabled": True}},
+        find_event=fake_find_event,
+        focus_window_by_title=lambda *_args, **_kwargs: {"ok": True, "_private": "hidden", "method": "title"},
+        focus_text_by_path=fake_focus_text_by_path,
+        focus_text_by_url=lambda *_args, **_kwargs: pytest.fail("url focus fallback should not run"),
+        insert_text_by_url=lambda *_args, **_kwargs: pytest.fail("noop insert fallback should not run"),
+        focused_candidate=lambda *_args, **_kwargs: pytest.fail("focused candidate fallback should not run"),
+        focused_snapshot_from_candidate=fake_snapshot_from_candidate,
+        capture_gate_decision=fake_capture_gate_decision,
+        terminate_processes=lambda token: [{"ok": True, "token_seen": bool(token)}],
+        which=lambda name: "/usr/bin/firefox" if name == "firefox" else None,
+        process_factory=fake_process_factory,
+        sleep=lambda _seconds: None,
+        monotonic=lambda: 100.0,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "passed"
+    assert data["run_id"] == run_id
+    assert data["source_adapter"] == "atspi_focused_text_snapshot"
+    assert data["probe"]["base_text_sha256"] == base_sha
+    assert data["probe"]["text_sha256"] == base_sha
+    assert data["candidate"]["text_sha256"] == base_sha
+    assert data["candidate"]["expected_text_match"] is True
+    assert "text" not in data["candidate"]
+    assert data["event"]["event_id"] == "evt-focused"
+    assert "_private" not in data["window_focus_attempt"]
+    assert "_private" not in data["path_focus_attempts"][0]["matched"]
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stdout_tail"]
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stderr_tail"]
+    assert data["firefox"]["cleanup_actions"] == [{"ok": True, "token_seen": True}]
+    assert captured_candidate["url"] == data["url"]
+    assert launched[0][:4] == ["/usr/bin/firefox", "--new-instance", "--profile", str(tmp_path / "tmp" / "profile")]
+    assert launched[0][-2:] == ["--new-window", data["url"]]
+    assert (tmp_path / "tmp" / "profile" / "user.js").exists()
+    assert (tmp_path / "tmp" / "site" / "index.html").exists()
+
+
+def test_cli_focused_browser_selftest_binds_adapter_to_latest_store(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-27T18:00:00Z")
+    monkeypatch.setattr(cli, "TYPING_FOCUSED_BROWSER_SELFTEST_TMP_ROOT", tmp_path / "tmp")
+    monkeypatch.setattr(cli, "typing_policy", lambda write_latest=False: {"policy": True})
+    monkeypatch.setattr(cli, "typing_focused_browser_selftest_store", lambda data, write_latest=True: {"stored": data, "write_latest": write_latest})
+    monkeypatch.setattr(
+        cli,
+        "typing_focused_snapshot_from_candidate",
+        lambda candidate, write_latest=True: {"candidate": candidate, "write_latest": write_latest},
+    )
+
+    def fake_document(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"schema": "abyss_machine_typing_focused_browser_selftest_v1", "ok": True}
+
+    monkeypatch.setattr(typing_browser_adapters, "focused_browser_selftest_document", fake_document)
+
+    result = cli.typing_focused_browser_selftest(write_latest=False)
+
+    assert result["write_latest"] is False
+    assert result["stored"]["ok"] is True
+    assert captured["generated_at"] == "2026-06-27T18:00:00Z"
+    assert captured["tmp_root"] == tmp_path / "tmp"
+    assert captured["policy"] == {"policy": True}
+    assert captured["find_event"] is cli.typing_browser_atspi_find_event
+    assert captured["focus_window_by_title"] is cli.typing_atspi_focus_firefox_frame_by_title
+    assert captured["focus_text_by_path"] is cli.typing_atspi_focus_text_by_path
+    assert captured["focus_text_by_url"] is cli.typing_atspi_focus_text_by_url
+    assert captured["insert_text_by_url"] is cli.typing_atspi_insert_text_by_url
+    assert captured["focused_candidate"] is cli.typing_atspi_focused_candidate
+    assert captured["capture_gate_decision"] is cli.typing_capture_gate_decision
+    assert captured["process_tail"] is cli.typing_safe_process_tail
+    snapshot = captured["focused_snapshot_from_candidate"]({"ok": True})
+    assert snapshot["write_latest"] is False
+
+
 def test_cli_browser_extension_ingest_executes_adapter_plan(monkeypatch) -> None:
     captured: dict[str, object] = {}
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-27T00:00:00Z")

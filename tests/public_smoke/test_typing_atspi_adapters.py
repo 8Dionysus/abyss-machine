@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from abyss_machine import typing_atspi_adapters
 
 
@@ -909,6 +911,79 @@ def test_atspi_focus_metadata_by_url_walks_document_targets_without_live_pyatspi
     assert data["matched"]["url"] == "https://example.test/write"
     assert data["matched"]["text_read"] is False
     assert data["matched"]["states_after"]["focused"] is True
+
+
+def test_atspi_focus_text_by_url_reads_hash_and_focuses_without_live_pyatspi() -> None:
+    app = FakeApp()
+    text = "abyss focused browser committed text probe 202606271800004242"
+    text_sha = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+    field = FakeAccessible(
+        role="entry",
+        name="Abyss focused safe browser note",
+        app=app,
+        state=FakeState("editable", "showing", "visible", "enabled"),
+        text=FakeText(text, caret=len(text)),
+    )
+    frame = FakeAccessible(
+        role="document frame",
+        name="Abyss focused browser safe input probe",
+        app=app,
+        document=FakeDocument({
+            "DocURL": "http://127.0.0.1:10000/index.html",
+            "Title": "Abyss focused browser safe input probe",
+            "MimeType": "text/html",
+        }),
+        children=[field],
+    )
+    app_node = FakeAccessible(role="application", name="firefox", app=app, children=[frame])
+    desktop = FakeAccessible(role="desktop", name="desktop", app=app, children=[app_node])
+    registry = FakeRegistry([], desktop)
+    pyatspi_module = type("FakePyAtspiModule", (FakePyAtspi,), {"Registry": registry})()
+
+    data = typing_atspi_adapters.atspi_focus_text_by_url(
+        "http://127.0.0.1:10000/index.html",
+        text_sha,
+        timeout_sec=1.0,
+        pyatspi_module=pyatspi_module,
+        monotonic=lambda: 0.0,
+        sleep=lambda seconds: None,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "focused"
+    assert data["matched"]["url"] == "http://127.0.0.1:10000/index.html"
+    assert data["matched"]["text_sha256"] == text_sha
+    assert data["matched"]["expected_text_match"] is True
+    assert data["matched"]["focus"]["states_after"]["focused"] is True
+    assert data["matched"]["_text"] == text
+
+
+def test_controlled_browser_selftest_override_stays_public_safe() -> None:
+    allowed = typing_atspi_adapters.controlled_browser_selftest_override(
+        "Firefox",
+        "Abyss focused browser safe input probe",
+        "http://127.0.0.1:10000/index.html",
+        "entry",
+        "Abyss focused safe browser note",
+        "Abyss focused browser safe input probe",
+        "text/html",
+        {"editable": True},
+    )
+    denied = typing_atspi_adapters.controlled_browser_selftest_override(
+        "Firefox",
+        "Abyss focused browser safe input probe",
+        "http://127.0.0.1:10000/login.html",
+        "entry",
+        "Password",
+        "Abyss focused browser safe input probe",
+        "text/html",
+        {"editable": True},
+    )
+
+    assert allowed["allowed"] is True
+    assert allowed["stores_extra_text"] is False
+    assert denied["allowed"] is False
+    assert denied["lexical_safe"] is False
 
 
 def test_focused_snapshot_sensitive_candidate_builds_metadata_only_ingest_plan() -> None:
