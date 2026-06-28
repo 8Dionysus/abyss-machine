@@ -57,21 +57,25 @@ plans, contracts, and bounded summaries belong in the public seed.
 - Extracted dictation audio inspection and audio-doctor probes into
   `abyss_machine.dictation_execution_adapters`; the adapter owns WAV stats,
   recent runtime WAV discovery, and `pactl`/`wpctl` probe execution through
-  fakeable ports. CLI still owns profile/config selection, live mic-calibration
-  recording/apply, and rendering.
+  fakeable ports. CLI still owns profile/config selection and rendering.
 - Extracted dictation transcript journal IO into
   `abyss_machine.dictation_execution_adapters`; the adapter owns audio metadata
   shaping, append-only JSONL/Markdown journal writes, latest/index JSON writes,
   and latest/tail reads through public-safe filesystem ports. CLI still owns
-  profile/config selection, live mic-calibration recording/apply, dictation docs
-  scaffolding, validation/latest writes, and rendering.
+  profile/config selection, dictation docs scaffolding, validation/latest
+  writes, and rendering.
 - Extracted dictation clipboard/text insertion execution into
   `abyss_machine.dictation_execution_adapters`; the adapter owns `wtype`,
   `wl-copy`, and `ydotool` execution through fakeable subprocess/session/sleep
   ports while `dictation_contracts` keeps insertion result and key-sequence
-  policy shapes. CLI still owns profile/config selection, live mic-calibration
-  recording/apply, dictation docs scaffolding, validation/latest writes, and
-  rendering.
+  policy shapes. CLI still owns profile/config selection, dictation docs
+  scaffolding, validation/latest writes, and rendering.
+- Extracted dictation mic-calibration execution into
+  `abyss_machine.dictation_execution_adapters`; the adapter owns recent/recorded
+  WAV selection, bounded `pw-record` execution, notification callback routing,
+  WAV inspection, runtime recommendation, and optional config apply through
+  fakeable ports. CLI still owns profile/config selection, dictation docs
+  scaffolding, validation/latest writes, and rendering.
 
 ### Next route
 

@@ -32,7 +32,8 @@ Use these mechanic owners for the next extraction slices:
   readers, semantic/rerank execution, retention, and derived memory evidence.
 - `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource
   gates, token/STT/TTS execution, dictation transcription/recording/audio
-  inspection/journal/insertion adapters, and cache/runtime evidence.
+  inspection/journal/insertion/calibration adapters, and cache/runtime
+  evidence.
 - `diagnostic-spine`: doctor, validation, repair, and freshness probes that
   prove the host layer is healthy without publishing private state.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
