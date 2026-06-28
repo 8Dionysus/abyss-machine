@@ -22,6 +22,20 @@ def _paths() -> doctor_adapters.DoctorValidatePaths:
     )
 
 
+def _core_paths() -> doctor_adapters.DoctorCoreProbePaths:
+    change_root = Path("/var/lib/abyss-machine/changes")
+    return doctor_adapters.DoctorCoreProbePaths(
+        manifest=Path("/etc/abyss-machine/manifest.json"),
+        topology_doc=Path("/etc/abyss-machine/TOPOLOGY.md"),
+        change_root=change_root,
+        change_agent_entrypoint=change_root / "AGENTS.md",
+        change_index=change_root / "index.json",
+        topology_validate_latest=Path("/var/lib/abyss-machine/topology/validate/latest.json"),
+        stack_bridge_validate_latest=Path("/var/lib/abyss-machine/stack-bridge/validate/latest.json"),
+        binary=Path("/usr/local/bin/abyss-machine"),
+    )
+
+
 def _fake_port(
     *,
     exists: set[Path],
@@ -39,6 +53,76 @@ def _fake_port(
 
 def _by_key(checks: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {str(check["key"]): check for check in checks}
+
+
+def test_doctor_core_probe_adapter_collects_clean_checks_without_live_host() -> None:
+    paths = _core_paths()
+    exists = {
+        paths.manifest,
+        paths.topology_doc,
+        paths.change_agent_entrypoint,
+        paths.change_index,
+        paths.binary,
+    }
+    port = doctor_adapters.DoctorCoreProbePort(
+        platform_system=lambda: "Linux",
+        path_exists=lambda path: path in exists,
+        topology_validate=lambda: {"summary": {"status": "ok", "fails": 0, "warnings": 0}},
+        stack_bridge_validate=lambda: {"summary": {"status": "ok", "fails": 0, "warnings": 0}},
+    )
+
+    checks = doctor_adapters.collect_doctor_core_checks(
+        paths=paths,
+        commands={"podman": True, "rsync": True, "curl": True},
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert len(checks) == 10
+    assert by_key["platform"]["message"] == "Linux host"
+    assert by_key["bridge_manifest"]["level"] == "ok"
+    assert by_key["machine_change_ledger"]["level"] == "ok"
+    assert by_key["machine_topology_validate"]["data"]["latest"] == str(paths.topology_validate_latest)
+    assert by_key["stack_bridge_validate"]["data"]["command"] == "abyss-machine stack-bridge validate --json"
+    assert by_key["binary"]["level"] == "ok"
+    assert by_key["cmd_podman"]["level"] == "ok"
+    assert by_key["cmd_rsync"]["level"] == "ok"
+    assert by_key["cmd_curl"]["level"] == "ok"
+
+
+def test_doctor_core_probe_adapter_preserves_degraded_status_shape() -> None:
+    paths = _core_paths()
+    exists = {paths.change_agent_entrypoint}
+    port = doctor_adapters.DoctorCoreProbePort(
+        platform_system=lambda: "Darwin",
+        path_exists=lambda path: path in exists,
+        topology_validate=lambda: {"summary": {"status": "fail", "fails": 1, "warnings": 0}},
+        stack_bridge_validate=lambda: {"summary": {"status": "warn", "fails": 0, "warnings": 2}},
+    )
+
+    checks = doctor_adapters.collect_doctor_core_checks(
+        paths=paths,
+        commands={"curl": True},
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert by_key["platform"] == {"level": "fail", "key": "platform", "message": "unsupported platform Darwin"}
+    assert by_key["bridge_manifest"]["level"] == "warn"
+    assert by_key["machine_topology_doc"]["level"] == "warn"
+    assert by_key["machine_change_ledger"]["data"] == {
+        "agent_entrypoint": str(paths.change_agent_entrypoint),
+        "agent_entrypoint_exists": True,
+        "index": str(paths.change_index),
+        "index_exists": False,
+    }
+    assert by_key["machine_topology_validate"]["level"] == "fail"
+    assert by_key["machine_topology_validate"]["data"]["summary"]["fails"] == 1
+    assert by_key["stack_bridge_validate"]["level"] == "warn"
+    assert by_key["binary"]["message"] == f"{paths.binary} missing"
+    assert by_key["cmd_podman"]["level"] == "warn"
+    assert by_key["cmd_rsync"]["level"] == "warn"
+    assert by_key["cmd_curl"]["level"] == "ok"
 
 
 def test_doctor_validate_probe_adapter_collects_clean_checks_without_live_host() -> None:
