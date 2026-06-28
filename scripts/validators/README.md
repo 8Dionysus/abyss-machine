@@ -274,8 +274,9 @@ mic-calibration recording/apply live in
 `abyss_machine.dictation_execution_adapters`. Config load/save, concrete
 profile defaults, env-bound runtime/postprocess/profile selection, runtime env
 projection, and config/profile read documents live in
-`abyss_machine.dictation_profile_adapters`. Postprocess glue, replacements
-reads/writes, dictation docs scaffolding, validation/latest writes, status
+`abyss_machine.dictation_profile_adapters`. Path/index/AGENTS.md documents and
+dictation docs scaffolding live in `abyss_machine.dictation_docs_adapters`.
+Postprocess glue, replacements reads/writes, validation/latest writes, status
 readiness, and rendering remain at the CLI edge.
 
 `artifact_signature_policy.py` validates the public artifact identity and

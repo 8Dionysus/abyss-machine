@@ -62,26 +62,29 @@ plans, contracts, and bounded summaries belong in the public seed.
   `abyss_machine.dictation_execution_adapters`; the adapter owns audio metadata
   shaping, append-only JSONL/Markdown journal writes, latest/index JSON writes,
   and latest/tail reads through public-safe filesystem ports. CLI still owns
-  dictation docs scaffolding, validation/latest writes, and rendering.
+  validation/latest writes and rendering.
 - Extracted dictation clipboard/text insertion execution into
   `abyss_machine.dictation_execution_adapters`; the adapter owns `wtype`,
   `wl-copy`, and `ydotool` execution through fakeable subprocess/session/sleep
   ports while `dictation_contracts` keeps insertion result and key-sequence
-  policy shapes. CLI still owns dictation docs scaffolding, validation/latest
-  writes, and rendering.
+  policy shapes. CLI still owns validation/latest writes and rendering.
 - Extracted dictation mic-calibration execution into
   `abyss_machine.dictation_execution_adapters`; the adapter owns recent/recorded
   WAV selection, bounded `pw-record` execution, notification callback routing,
   WAV inspection, runtime recommendation, and optional config apply through
-  fakeable ports. CLI still owns dictation docs scaffolding, validation/latest
-  writes, and rendering.
+  fakeable ports. CLI still owns validation/latest writes and rendering.
 - Extracted dictation profile/config discovery into
   `abyss_machine.dictation_profile_adapters`; the adapter owns config
   load/save, concrete profile defaults, env-bound runtime/postprocess/profile
   selection, runtime env projection, and config/profile read documents through
   fakeable ports. CLI still owns postprocess glue, replacements reads/writes,
-  dictation docs scaffolding, validation/latest writes, status readiness, and
-  rendering.
+  validation/latest writes, status readiness, and rendering.
+- Extracted dictation docs scaffolding into
+  `abyss_machine.dictation_docs_adapters`; the adapter owns daily transcript
+  path projection, paths/index/AGENTS.md documents, directory creation,
+  AGENTS.md touch/update, and index JSON writes through fakeable ports. CLI
+  still owns validation/latest writes, replacements read/write glue, status
+  readiness, and rendering.
 
 ### Next route
 
