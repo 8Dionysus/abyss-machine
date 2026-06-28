@@ -43,6 +43,7 @@ EnsureDocs = Callable[[], list[dict[str, Any]]]
 IndexDocument = Callable[[], dict[str, Any]]
 PathsDocument = Callable[[], dict[str, Any]]
 ConfigDocument = Callable[[], dict[str, Any]]
+StatusDocument = Callable[[], dict[str, Any]]
 PathExists = Callable[[Path], bool]
 RunWtypeText = Callable[[str, float], Mapping[str, Any]]
 CopyClipboardText = Callable[[str], Mapping[str, Any]]
@@ -962,6 +963,37 @@ def recording_age_seconds(
     if started.tzinfo is None:
         started = started.replace(tzinfo=now_datetime().tzinfo)
     return (now_datetime() - started).total_seconds()
+
+
+def toggle_debounce_bypassed(env: Mapping[str, str]) -> bool:
+    return str(env.get("ABYSS_DICTATION_BYPASS_DEBOUNCE", "0")).lower() in {"1", "true", "yes"}
+
+
+def toggle_debounce_result(
+    active_recording: Mapping[str, Any],
+    *,
+    age_seconds: float | None,
+    env: Mapping[str, str],
+    status_document: StatusDocument,
+    debounce_seconds: float,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+) -> dict[str, Any] | None:
+    if toggle_debounce_bypassed(env):
+        return None
+    if age_seconds is None or age_seconds >= debounce_seconds:
+        return None
+    status_data = dict(status_document())
+    status_data["message"] = "ignored duplicate dictation toggle"
+    return dictation_contracts.toggle_result(
+        action="debounce",
+        recording=dict(active_recording),
+        status=status_data,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now(),
+    )
 
 
 def load_active_recording(
