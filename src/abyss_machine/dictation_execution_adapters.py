@@ -46,6 +46,8 @@ PathExists = Callable[[Path], bool]
 RunWtypeText = Callable[[str, float], Mapping[str, Any]]
 CopyClipboardText = Callable[[str], Mapping[str, Any]]
 SendKeySequence = Callable[[list[str], Mapping[str, str], float], Mapping[str, Any]]
+SaveConfig = Callable[[dict[str, Any], str], None]
+Notify = Callable[[str, str, int], None]
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,12 @@ class DictationJournalPaths:
     markdown_path: Path
     latest_path: Path
     index_path: Path
+
+
+@dataclass(frozen=True)
+class DictationCalibrationPaths:
+    runtime_dir: Path
+    config_path: Path
 
 
 @dataclass(frozen=True)
@@ -463,6 +471,87 @@ def audio_doctor(
         "calibration": config.get("calibration", {}) if isinstance(config.get("calibration"), dict) else {},
         "recommended_runtime": dictation_contracts.recommended_audio_runtime(summary),
     }
+
+
+def calibrate_mic(
+    *,
+    paths: DictationCalibrationPaths,
+    config: Mapping[str, Any],
+    seconds: int,
+    from_recent: bool,
+    limit: int,
+    apply: bool,
+    command_exists: CommandExists,
+    run_command: RunCommand,
+    save_config: SaveConfig,
+    notify: Notify,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+    filename_timestamp_fn: FilenameTimestamp = filename_timestamp,
+    wav_stats_fn: WavStats = wav_stats,
+    recent_wavs_fn: RecentWavs | None = None,
+    path_exists: PathExists = Path.exists,
+) -> dict[str, Any]:
+    stats: list[dict[str, Any]] = []
+    recorded_path: Path | None = None
+    if from_recent:
+        files = recent_wavs_fn(limit) if recent_wavs_fn is not None else recent_wavs(DictationAudioPaths(paths.runtime_dir), limit)
+    else:
+        if not command_exists("pw-record"):
+            return dictation_contracts.mic_calibration_error_result(
+                error="pw-record not found",
+                schema_prefix=schema_prefix,
+                version=version,
+                generated_at=now(),
+            )
+        paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+        recorded_path = paths.runtime_dir / f"mic-calibration-{filename_timestamp_fn()}.wav"
+        bounded_seconds = max(3, min(int(seconds), 60))
+        notify("Abyss Dictation", f"Калибровка микрофона: говорите {bounded_seconds} с", 2500)
+        record_cmd = dictation_contracts.calibration_recording_command(
+            recorded_path,
+            seconds=bounded_seconds,
+            timeout_available=command_exists("timeout"),
+        )
+        out = run_command(record_cmd, bounded_seconds + 8.0, None)
+        if not path_exists(recorded_path):
+            return dictation_contracts.mic_calibration_error_result(
+                error=str(out.get("stderr") or out.get("stdout") or "calibration recording was not created"),
+                schema_prefix=schema_prefix,
+                version=version,
+                generated_at=now(),
+            )
+        files = [recorded_path]
+
+    stats = inspect_wavs(files, wav_stats_fn=wav_stats_fn)
+    summary = dictation_contracts.summarize_audio_stats(stats)
+    recommended = dictation_contracts.recommended_audio_runtime(summary)
+    result = dictation_contracts.mic_calibration_result(
+        source="recent" if from_recent else "recorded",
+        recorded_path=recorded_path,
+        summary=summary,
+        recommended_runtime=recommended,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now(),
+    )
+    if apply and result["ok"]:
+        updated_config = dict(config)
+        runtime = dict(updated_config.get("runtime", {})) if isinstance(updated_config.get("runtime"), dict) else {}
+        runtime.update(recommended)
+        updated_config["runtime"] = runtime
+        updated_config["calibration"] = {
+            "enabled": True,
+            "source": result["source"],
+            "updated_at": now(),
+            "summary": summary,
+            "recommended_runtime": recommended,
+        }
+        save_config(updated_config, "calibrate-mic")
+        result["applied"] = True
+        result["config_path"] = str(paths.config_path)
+    return result
 
 
 def insert_text(

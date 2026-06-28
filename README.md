@@ -223,10 +223,11 @@ execution, warm-server socket transport, client-side 16 kHz runtime
 preprocessing, helper subprocess invocation, helper runtime env projection,
 recording lifecycle/process-state execution, WAV inspection/recent-audio scan,
 audio-doctor `pactl`/`wpctl` probes, and transcript journal
-JSONL/Markdown/latest/index IO, and clipboard/text insertion execution live in
+JSONL/Markdown/latest/index IO, clipboard/text insertion execution, and
+mic-calibration recording/apply live in
 `abyss_machine.dictation_execution_adapters`. Profile/config selection, live
-mic-calibration recording/apply, dictation docs scaffolding, validation/latest
-writes, and rendering remain at the CLI edge.
+dictation docs scaffolding, validation/latest writes, and rendering remain at
+the CLI edge.
 These surfaces
 are re-exported or adapted by the CLI for installed-host compatibility. A fresh
 machine should render
@@ -393,8 +394,8 @@ through warm-server socket transport, client-side 16 kHz runtime preprocessing,
 helper subprocess invocation, helper runtime env projection, and recording
 lifecycle/process-state execution, WAV inspection/recent-audio scan, and
 audio-doctor `pactl`/`wpctl` probes, and transcript journal
-JSONL/Markdown/latest/index IO, and clipboard/text insertion execution.
-Profile/config selection, live mic-calibration recording/apply, dictation docs
+JSONL/Markdown/latest/index IO, clipboard/text insertion execution, and
+mic-calibration recording/apply. Profile/config selection, dictation docs
 scaffolding, validation/latest writes, and rendering remain at the CLI edge. Memory policy/path,
 pressure-classification, zram-relief, headroom attribution, launch-gate, and
 plan document contracts are module-owned while `/proc`, `/sys`, cgroup/systemd
@@ -468,7 +469,7 @@ should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, nervous retention filesystem/unlink/latest adapters,
 nervous event/episode live latest/write adapters, screenshot live probe/capture
 adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
-execution adapters, TTS live server/audio execution adapters, and dictation mic-calibration adapters plus
+execution adapters, TTS live server/audio execution adapters, dictation profile/runtime discovery adapters, plus
 remaining self-awareness live probe/readmodel orchestration and cooling/process
 host-control adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.

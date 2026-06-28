@@ -53,6 +53,13 @@ def _audio_paths(tmp_path: Path) -> dictation_execution_adapters.DictationAudioP
     return dictation_execution_adapters.DictationAudioPaths(runtime_dir=tmp_path / "runtime")
 
 
+def _calibration_paths(tmp_path: Path) -> dictation_execution_adapters.DictationCalibrationPaths:
+    return dictation_execution_adapters.DictationCalibrationPaths(
+        runtime_dir=tmp_path / "runtime",
+        config_path=tmp_path / "config.json",
+    )
+
+
 def _journal_paths(tmp_path: Path) -> dictation_execution_adapters.DictationJournalPaths:
     return dictation_execution_adapters.DictationJournalPaths(
         jsonl_root=tmp_path / "transcripts" / "jsonl",
@@ -173,6 +180,135 @@ def test_cli_dictation_audio_doctor_binds_live_adapter(monkeypatch, tmp_path: Pa
     assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
     assert captured["version"] == cli.VERSION
     assert callable(captured["now"])
+
+
+def test_mic_calibration_adapter_uses_recent_wavs_and_applies_config(tmp_path: Path) -> None:
+    paths = _calibration_paths(tmp_path)
+    audio = paths.runtime_dir / "recent.wav"
+    _write_wav(audio, [500] * 160)
+    saved: dict[str, object] = {}
+
+    def save_config(config: dict[str, object], updated_by: str) -> None:
+        saved["config"] = config
+        saved["updated_by"] = updated_by
+
+    data = dictation_execution_adapters.calibrate_mic(
+        paths=paths,
+        config={"runtime": {"existing": True}},
+        seconds=8,
+        from_recent=True,
+        limit=1,
+        apply=True,
+        command_exists=lambda command: False,
+        run_command=lambda command, timeout, env: (_ for _ in ()).throw(AssertionError(command)),
+        save_config=save_config,
+        notify=lambda title, body, expire_ms: (_ for _ in ()).throw(AssertionError(title)),
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        recent_wavs_fn=lambda limit: [audio][:limit],
+    )
+
+    assert data["ok"] is True
+    assert data["source"] == "recent"
+    assert data["applied"] is True
+    assert data["config_path"] == str(paths.config_path)
+    assert saved["updated_by"] == "calibrate-mic"
+    config = saved["config"]
+    assert config["runtime"]["existing"] is True
+    assert "audio_preprocess" in config["runtime"]
+    assert config["calibration"]["source"] == "recent"
+
+
+def test_mic_calibration_adapter_records_with_fake_runner(tmp_path: Path) -> None:
+    paths = _calibration_paths(tmp_path)
+    calls: dict[str, object] = {}
+
+    def fake_run(command: list[str], timeout: float, env: object) -> dict[str, object]:
+        calls["command"] = command
+        calls["timeout"] = timeout
+        calls["env"] = env
+        _write_wav(Path(command[-1]), [500] * 160)
+        return {"ok": True, "stdout": "", "stderr": "", "returncode": 0}
+
+    data = dictation_execution_adapters.calibrate_mic(
+        paths=paths,
+        config={},
+        seconds=1,
+        from_recent=False,
+        limit=12,
+        apply=False,
+        command_exists=lambda command: command in {"pw-record", "timeout"},
+        run_command=fake_run,
+        save_config=lambda config, updated_by: (_ for _ in ()).throw(AssertionError(updated_by)),
+        notify=lambda title, body, expire_ms: calls.update({"notify": (title, body, expire_ms)}),
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        filename_timestamp_fn=lambda: "20260628-120000",
+    )
+
+    assert data["ok"] is True
+    assert data["source"] == "recorded"
+    assert data["recorded_path"] == str(paths.runtime_dir / "mic-calibration-20260628-120000.wav")
+    assert data["applied"] is False
+    assert calls["command"][:4] == ["timeout", "--signal=INT", "--kill-after=3s", "3s"]
+    assert calls["timeout"] == 11.0
+    assert calls["env"] is None
+    assert calls["notify"][0] == "Abyss Dictation"
+
+
+def test_mic_calibration_adapter_reports_missing_recorder(tmp_path: Path) -> None:
+    data = dictation_execution_adapters.calibrate_mic(
+        paths=_calibration_paths(tmp_path),
+        config={},
+        seconds=8,
+        from_recent=False,
+        limit=12,
+        apply=False,
+        command_exists=lambda command: False,
+        run_command=lambda command, timeout, env: (_ for _ in ()).throw(AssertionError(command)),
+        save_config=lambda config, updated_by: (_ for _ in ()).throw(AssertionError(updated_by)),
+        notify=lambda title, body, expire_ms: (_ for _ in ()).throw(AssertionError(title)),
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+    )
+
+    assert data["ok"] is False
+    assert data["error"] == "pw-record not found"
+
+
+def test_cli_dictation_calibrate_mic_binds_live_adapter(monkeypatch, tmp_path: Path) -> None:
+    paths = _calibration_paths(tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_calibrate_mic(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "schema": "abyss_machine_dictation_mic_calibration_v1"}
+
+    monkeypatch.setattr(cli, "dictation_calibration_paths", lambda: paths)
+    monkeypatch.setattr(cli, "dictation_config", lambda: {"runtime": {"test": True}})
+    monkeypatch.setattr(dictation_execution_adapters, "calibrate_mic", fake_calibrate_mic)
+
+    data = cli.dictation_calibrate_mic(seconds=7, from_recent=True, limit=3, apply=True)
+
+    assert data["ok"] is True
+    assert captured["paths"] == paths
+    assert captured["config"] == {"runtime": {"test": True}}
+    assert captured["seconds"] == 7
+    assert captured["from_recent"] is True
+    assert captured["limit"] == 3
+    assert captured["apply"] is True
+    assert captured["command_exists"] is cli.command_exists
+    assert captured["run_command"] is cli.run
+    assert captured["save_config"] is cli.save_dictation_config
+    assert captured["notify"] is cli.notify
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert callable(captured["now"])
+    assert captured["wav_stats_fn"] is cli.wav_stats
+    assert captured["recent_wavs_fn"] is cli.recent_dictation_wavs
 
 
 def _journal_result(audio: Path) -> dict[str, object]:
