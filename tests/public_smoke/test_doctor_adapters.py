@@ -36,6 +36,12 @@ def _core_paths() -> doctor_adapters.DoctorCoreProbePaths:
     )
 
 
+def _power_cooling_paths() -> doctor_adapters.DoctorPowerCoolingProbePaths:
+    return doctor_adapters.DoctorPowerCoolingProbePaths(
+        cooling_latest=Path("/var/lib/abyss-machine/cooling/latest.json"),
+    )
+
+
 def _fake_port(
     *,
     exists: set[Path],
@@ -88,6 +94,79 @@ def test_doctor_core_probe_adapter_collects_clean_checks_without_live_host() -> 
     assert by_key["cmd_podman"]["level"] == "ok"
     assert by_key["cmd_rsync"]["level"] == "ok"
     assert by_key["cmd_curl"]["level"] == "ok"
+
+
+def test_doctor_power_cooling_probe_adapter_collects_clean_checks_without_live_host() -> None:
+    paths = _power_cooling_paths()
+    power = {
+        "power_profiles_daemon": {"active": "active", "is_active": True},
+        "auto_timer": {"active": "active", "is_active": True},
+    }
+    thermal = {"thermald": {"active": "active", "is_active": True}}
+    cooling = {
+        "ok": True,
+        "fan": {"available": True, "fan_mode": "auto"},
+        "power": {"platform_profile": {"current": "balanced"}},
+    }
+    timer = {"active": "active", "enabled": "enabled", "is_active": True, "is_enabled": True}
+    port = doctor_adapters.DoctorPowerCoolingProbePort(
+        power_status=lambda: power,
+        thermal_status=lambda: thermal,
+        cooling_status=lambda: cooling,
+        systemd_unit=lambda name: dict(timer, name=name),
+    )
+
+    checks = doctor_adapters.collect_doctor_power_cooling_checks(
+        paths=paths,
+        cooling_timer_name="abyss-cooling-reconcile.timer",
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert len(checks) == 5
+    assert by_key["power_profiles_daemon"]["level"] == "ok"
+    assert by_key["abyss_power_auto"]["message"] == "abyss-power-profile-auto.timer active"
+    assert by_key["thermald"]["level"] == "ok"
+    assert by_key["cooling_backend"]["message"] == "cooling backend fan_mode=auto platform=balanced"
+    assert by_key["cooling_backend"]["data"]["latest"] == str(paths.cooling_latest)
+    assert by_key["cooling_reconcile_timer"]["message"] == "abyss-cooling-reconcile.timer active/enabled"
+
+
+def test_doctor_power_cooling_probe_adapter_preserves_degraded_status_shape() -> None:
+    paths = _power_cooling_paths()
+    power = {
+        "power_profiles_daemon": {"active": "inactive", "is_active": False},
+        "auto_timer": {"active": "inactive", "is_active": False},
+    }
+    thermal = {"thermald": {"active": "failed", "is_active": False}}
+    cooling = {"ok": False, "fan": {"available": False}, "power": {"platform_profile": {}}}
+    timer = {"active": "inactive", "enabled": "disabled", "is_active": False, "is_enabled": False}
+    port = doctor_adapters.DoctorPowerCoolingProbePort(
+        power_status=lambda: power,
+        thermal_status=lambda: thermal,
+        cooling_status=lambda: cooling,
+        systemd_unit=lambda name: dict(timer, name=name),
+    )
+
+    checks = doctor_adapters.collect_doctor_power_cooling_checks(
+        paths=paths,
+        cooling_timer_name="abyss-cooling-reconcile.timer",
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert by_key["power_profiles_daemon"]["level"] == "warn"
+    assert by_key["abyss_power_auto"]["level"] == "warn"
+    assert by_key["thermald"]["message"] == "thermald failed"
+    assert by_key["cooling_backend"]["level"] == "warn"
+    assert by_key["cooling_backend"]["message"] == "cooling backend unavailable"
+    assert by_key["cooling_backend"]["data"] == {
+        "fan": {"available": False},
+        "platform_profile": {},
+        "latest": str(paths.cooling_latest),
+    }
+    assert by_key["cooling_reconcile_timer"]["level"] == "warn"
+    assert by_key["cooling_reconcile_timer"]["data"]["name"] == "abyss-cooling-reconcile.timer"
 
 
 def test_doctor_core_probe_adapter_preserves_degraded_status_shape() -> None:

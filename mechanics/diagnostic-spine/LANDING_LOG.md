@@ -16,3 +16,6 @@
 - Extracted doctor core status probe collection into `doctor_adapters` through
   fakeable platform, filesystem, topology validate, and stack-bridge validate
   ports; CLI still binds concrete live functions and owns deeper status probes.
+- Extracted doctor power/cooling status probe collection into `doctor_adapters`
+  through fakeable status-readmodel and systemd-unit ports; CLI still binds the
+  concrete host status document and owns broader live status probes.

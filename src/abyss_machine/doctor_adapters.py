@@ -110,6 +110,19 @@ class DoctorCoreProbePort:
     stack_bridge_validate: Callable[[], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class DoctorPowerCoolingProbePaths:
+    cooling_latest: Path
+
+
+@dataclass(frozen=True)
+class DoctorPowerCoolingProbePort:
+    power_status: Callable[[], dict[str, Any]]
+    thermal_status: Callable[[], dict[str, Any]]
+    cooling_status: Callable[[], dict[str, Any]]
+    systemd_unit: Callable[[str], dict[str, Any]]
+
+
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
     "doctor_json",
     "doctor_paths_json",
@@ -136,6 +149,15 @@ def _add_check(
 
 def _validation_level(summary: dict[str, Any]) -> str:
     return "fail" if summary.get("fails") else "warn" if summary.get("warnings") else "ok"
+
+
+def _nested_get(data: dict[str, Any], path: list[str]) -> Any:
+    current: Any = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
 
 
 def collect_doctor_core_checks(
@@ -229,6 +251,71 @@ def collect_doctor_core_checks(
             _add_check(checks, "ok", f"cmd_{command}", f"cmd {command}")
         else:
             _add_check(checks, "warn", f"cmd_{command}", f"cmd {command} missing")
+
+    return checks
+
+
+def collect_doctor_power_cooling_checks(
+    *,
+    paths: DoctorPowerCoolingProbePaths,
+    cooling_timer_name: str,
+    port: DoctorPowerCoolingProbePort,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    power = port.power_status()
+    power_unit = power["power_profiles_daemon"]
+    _add_check(
+        checks,
+        "ok" if power_unit["is_active"] else "warn",
+        "power_profiles_daemon",
+        f"power-profiles-daemon {power_unit['active']}",
+        power_unit,
+    )
+
+    auto_timer = power["auto_timer"]
+    _add_check(
+        checks,
+        "ok" if auto_timer["is_active"] else "warn",
+        "abyss_power_auto",
+        f"abyss-power-profile-auto.timer {auto_timer['active']}",
+        auto_timer,
+    )
+
+    thermal = port.thermal_status()
+    thermald = thermal["thermald"]
+    _add_check(
+        checks,
+        "ok" if thermald["is_active"] else "warn",
+        "thermald",
+        f"thermald {thermald['active']}",
+        thermald,
+    )
+
+    cooling = port.cooling_status()
+    cooling_fan = cooling.get("fan", {})
+    _add_check(
+        checks,
+        "ok" if cooling_fan.get("available") and cooling.get("ok") else "warn",
+        "cooling_backend",
+        f"cooling backend fan_mode={cooling_fan.get('fan_mode')} platform={_nested_get(cooling, ['power', 'platform_profile', 'current'])}"
+        if cooling_fan.get("available")
+        else "cooling backend unavailable",
+        {
+            "fan": cooling_fan,
+            "platform_profile": cooling.get("power", {}).get("platform_profile", {}),
+            "latest": str(paths.cooling_latest),
+        },
+    )
+
+    cooling_timer = port.systemd_unit(cooling_timer_name)
+    _add_check(
+        checks,
+        "ok" if cooling_timer["is_active"] and cooling_timer["is_enabled"] else "warn",
+        "cooling_reconcile_timer",
+        f"{cooling_timer_name} {cooling_timer['active']}/{cooling_timer['enabled']}",
+        cooling_timer,
+    )
 
     return checks
 

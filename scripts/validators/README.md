@@ -178,11 +178,12 @@ Doctor policy/path/status/report, validate document, and machine-report document
 contracts live in `abyss_machine.doctor_contracts`; `doctor validate`
 file/latest/systemd/bridge probe collection and `doctor` core status probe
 collection for platform/path/topology/stack-bridge/binary/command availability
-live in `abyss_machine.doctor_adapters`; report writes, machine-report artifact
-reads, machine-report input collection, safe repair orchestration, and
-machine-report latest/history/markdown writes are also routed through
-`doctor_adapters`; deeper live status probes, concrete port binding, latest
-writes, and command rendering remain at the CLI edge.
+plus `doctor` power/cooling status probe collection live in
+`abyss_machine.doctor_adapters`; report writes, machine-report artifact reads,
+machine-report input collection, safe repair orchestration, and machine-report
+latest/history/markdown writes are also routed through `doctor_adapters`;
+deeper live status probes, concrete port binding, latest writes, and command
+rendering remain at the CLI edge.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
 `abyss_machine.memory_contracts`; `/proc`, `/sys`, cgroup/systemd reads,
