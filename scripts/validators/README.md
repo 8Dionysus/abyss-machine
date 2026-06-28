@@ -177,8 +177,11 @@ CLI edge.
 Doctor policy/path/status/report, validate document, and machine-report document
 contracts live in `abyss_machine.doctor_contracts`; `doctor validate`
 file/latest/systemd/bridge probe collection lives in
-`abyss_machine.doctor_adapters`; full status probes, safe repair orchestration,
-report writes, latest writes, and command rendering remain at the CLI edge.
+`abyss_machine.doctor_adapters`; report writes, machine-report artifact reads,
+and machine-report latest/history/markdown writes are also routed through
+`doctor_adapters`; full status probes, safe repair orchestration,
+machine-report input collection, concrete port binding, and command rendering
+remain at the CLI edge.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
 `abyss_machine.memory_contracts`; `/proc`, `/sys`, cgroup/systemd reads,

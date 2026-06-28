@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 from typing import Any
 
@@ -109,3 +110,119 @@ def test_doctor_validate_probe_adapter_preserves_warning_and_failure_shape() -> 
     assert by_key["systemd_timer_state"]["level"] == "warn"
     assert by_key["bridge_commands"]["level"] == "fail"
     assert "doctor_machine_report_json" in by_key["bridge_commands"]["data"]["missing"]
+
+
+def test_daily_markdown_path_uses_local_calendar_route() -> None:
+    path = doctor_adapters.daily_markdown_path(
+        Path("/var/lib/abyss-machine/doctor/reports"),
+        dt.datetime(2026, 6, 28, 8, 45, tzinfo=dt.timezone.utc),
+    )
+
+    assert path.as_posix().endswith("/2026/06/2026-06-28.md")
+
+
+def test_doctor_report_writer_uses_latest_and_daily_paths_without_live_host() -> None:
+    writes: list[tuple[Path, str, int]] = []
+
+    def write_text(path: Path, text: str, mode: int) -> dict[str, Any] | None:
+        writes.append((path, text, mode))
+        return None
+
+    result = doctor_adapters.write_doctor_report(
+        schema_prefix="abyss_machine",
+        version="0.8.test",
+        generated_at="2026-06-28T08:45:00Z",
+        data={
+            "generated_at": "2026-06-28T08:44:00Z",
+            "state": "watch",
+            "readiness_score": 88,
+            "summary": {"status": "warn", "checks": 1, "fails": 0, "warnings": 1},
+            "checks": [{"level": "warn", "key": "latest", "message": "missing"}],
+        },
+        paths=doctor_adapters.DoctorReportWritePaths(
+            latest_markdown=Path("/var/lib/abyss-machine/doctor/reports/latest.md"),
+            daily_markdown=Path("/var/lib/abyss-machine/doctor/reports/2026/06/2026-06-28.md"),
+        ),
+        port=doctor_adapters.DoctorReportWritePort(write_text=write_text),
+    )
+
+    assert result["schema"] == "abyss_machine_doctor_report_v1"
+    assert result["ok"] is True
+    assert [item[0].name for item in writes] == ["latest.md", "2026-06-28.md"]
+    assert all(item[2] == 0o664 for item in writes)
+    assert "# Abyss Machine Doctor" in writes[0][1]
+
+
+def test_machine_report_artifact_reader_compacts_json_without_raw_payload() -> None:
+    path = Path("/var/lib/abyss-machine/doctor/latest.json")
+    port = doctor_adapters.DoctorArtifactReadPort(
+        load_json_document=lambda candidate: (
+            {
+                "schema": "abyss_machine_doctor_v1",
+                "generated_at": "2026-06-28T08:44:00Z",
+                "ok": True,
+                "summary": {"status": "warn", "warnings": 1, "private_field": "not copied"},
+                "checks": [{"data": {"large": "payload"}}],
+            },
+            None,
+        ),
+        path_exists=lambda candidate: candidate == path,
+    )
+
+    artifact = doctor_adapters.read_machine_report_artifact(
+        label="doctor_latest",
+        path=path,
+        port=port,
+    )
+
+    assert artifact["label"] == "doctor_latest"
+    assert artifact["exists"] is True
+    assert artifact["status"] == "warn"
+    assert artifact["summary"] == {"status": "warn", "warnings": 1}
+    assert "checks" not in artifact
+
+
+def test_machine_report_writer_marks_document_failed_on_write_error() -> None:
+    text_writes: list[Path] = []
+
+    def write_latest_and_history(data: dict[str, Any], latest: Path, root: Path) -> list[dict[str, Any]]:
+        assert latest.name == "latest.json"
+        assert root.name == "machine-report"
+        return []
+
+    def write_text(path: Path, text: str, mode: int) -> dict[str, Any] | None:
+        text_writes.append(path)
+        if path.name == "latest.md":
+            return {"path": str(path), "error": "permission denied"}
+        return None
+
+    data = {
+        "schema": "abyss_machine_doctor_machine_report_v1",
+        "generated_at": "2026-06-28T08:44:00Z",
+        "ok": True,
+        "status": "ok",
+        "summary": {"doctor_status": "ok"},
+        "memory": {"summary": {}},
+        "nervous": {},
+        "ai_policy": {},
+        "protected_services": [],
+        "guardrails": [],
+    }
+
+    result = doctor_adapters.write_machine_report_outputs(
+        data=data,
+        paths=doctor_adapters.DoctorMachineReportWritePaths(
+            latest_json=Path("/var/lib/abyss-machine/doctor/machine-report/latest.json"),
+            history_root=Path("/var/lib/abyss-machine/doctor/machine-report"),
+            latest_markdown=Path("/var/lib/abyss-machine/doctor/machine-report/latest.md"),
+            daily_markdown=Path("/var/lib/abyss-machine/doctor/machine-report/2026/06/2026-06-28.md"),
+        ),
+        port=doctor_adapters.DoctorMachineReportWritePort(
+            write_latest_and_history=write_latest_and_history,
+            write_text=write_text,
+        ),
+    )
+
+    assert result["ok"] is False
+    assert result["write_errors"] == [{"path": "/var/lib/abyss-machine/doctor/machine-report/latest.md", "error": "permission denied"}]
+    assert [path.name for path in text_writes] == ["latest.md", "2026-06-28.md"]

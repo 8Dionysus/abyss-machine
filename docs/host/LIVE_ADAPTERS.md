@@ -249,6 +249,22 @@ CLI binds the concrete host probes, writes validate latest/history, and renders
 command output. Full `doctor` status probes, machine-report collection, report
 writes, and safe repair orchestration remain live adapter debt.
 
+## Extracted Doctor Report IO Seam
+
+`abyss_machine.doctor_adapters` also owns the diagnostic report IO seam:
+
+- local daily markdown path construction for doctor reports and machine
+  reports;
+- doctor markdown report writes to latest and daily paths;
+- machine-report artifact latest reads through a fakeable read port and compact
+  `doctor_contracts.artifact_entry` projection;
+- machine-report JSON latest/history writes plus latest/daily markdown writes.
+
+`abyss_machine.doctor_contracts` remains the owner of report and machine-report
+document shapes. The CLI still collects live doctor, memory, nervous, and AI
+policy inputs, binds concrete filesystem writers/readers, renders command
+output, and owns safe repair orchestration.
+
 ## Next Extraction Order
 
 1. Nervous index/semantic execution adapters: SQLite store lifecycle and
@@ -256,8 +272,8 @@ writes, and safe repair orchestration remain live adapter debt.
 2. Dictation and AI runtime adapters: audio/server/clipboard execution and
    model/runtime subprocess plans.
 3. Diagnostic and host lifecycle adapters: full doctor status probes, bootstrap
-   dry-run evidence, richer installed projection closeout, report writers, and
-   repair orchestration.
+   dry-run evidence, richer installed projection closeout, machine-report input
+   collection, and repair orchestration.
 
 ## Stop Lines
 
