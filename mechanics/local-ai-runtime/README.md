@@ -77,24 +77,29 @@ plans, contracts, and bounded summaries belong in the public seed.
   `abyss_machine.dictation_profile_adapters`; the adapter owns config
   load/save, concrete profile defaults, env-bound runtime/postprocess/profile
   selection, runtime env projection, and config/profile read documents through
-  fakeable ports. CLI still owns postprocess glue, replacements reads/writes,
-  and rendering.
+  fakeable ports. CLI still owns postprocess glue and rendering.
 - Extracted dictation docs scaffolding into
   `abyss_machine.dictation_docs_adapters`; the adapter owns daily transcript
   path projection, paths/index/AGENTS.md documents, directory creation,
   AGENTS.md touch/update, and index JSON writes through fakeable ports. CLI
-  still owns replacements read/write glue and rendering.
+  still owns rendering.
 - Extracted dictation status read-model assembly into
   `abyss_machine.dictation_status_adapters`; the adapter owns config,
   replacements, server-socket, transcript-latest, model path, command, ydotool
   socket, audio default-source, recording, and journal readiness projection
-  through fakeable ports. CLI still owns replacements read/write glue,
-  postprocess glue, notification flow, and rendering.
+  through fakeable ports. CLI still owns postprocess glue, notification flow,
+  and rendering.
 - Extracted dictation validation/latest routing into
   `abyss_machine.dictation_validation_adapters`; the adapter owns dictation
   docs/index validation checks, transcript latest validation/empty-state
   checks, and validate latest/history write routing through fakeable ports. CLI
-  still owns replacements read/write glue, postprocess glue, notification flow,
+  still owns postprocess glue, notification flow, and rendering.
+- Extracted dictation replacements read/write flow into
+  `abyss_machine.dictation_replacements_adapters`; the adapter owns
+  replacements document fallback/load/save, list/test documents, text
+  application, and add/remove mutation flow through fakeable JSON/path/clock
+  ports while `dictation_contracts` keeps replacement rule normalization and
+  application semantics. CLI still owns postprocess glue, notification flow,
   and rendering.
 
 ### Next route
