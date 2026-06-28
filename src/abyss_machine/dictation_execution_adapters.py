@@ -42,6 +42,7 @@ RecentWavs = Callable[[int], list[Path]]
 EnsureDocs = Callable[[], list[dict[str, Any]]]
 IndexDocument = Callable[[], dict[str, Any]]
 PathsDocument = Callable[[], dict[str, Any]]
+ConfigDocument = Callable[[], dict[str, Any]]
 PathExists = Callable[[Path], bool]
 RunWtypeText = Callable[[str, float], Mapping[str, Any]]
 CopyClipboardText = Callable[[str], Mapping[str, Any]]
@@ -699,6 +700,27 @@ def audio_metadata(audio: Any, *, wav_duration_fn: WavDuration = wav_duration) -
         except Exception as exc:
             data["duration_error"] = str(exc)
     return data
+
+
+def journal_policy(config_document: ConfigDocument) -> dict[str, bool]:
+    try:
+        settings = config_document().get("journal", {})
+    except Exception:
+        return {"enabled": True, "include_failed": True}
+    if not isinstance(settings, dict):
+        return {"enabled": True, "include_failed": True}
+    return {
+        "enabled": dictation_contracts.bool_value(settings.get("enabled"), True),
+        "include_failed": dictation_contracts.bool_value(settings.get("include_failed"), True),
+    }
+
+
+def journal_enabled(config_document: ConfigDocument) -> bool:
+    return journal_policy(config_document)["enabled"]
+
+
+def journal_include_failed(config_document: ConfigDocument) -> bool:
+    return journal_policy(config_document)["include_failed"]
 
 
 def journal_event(
