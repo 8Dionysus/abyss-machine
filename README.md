@@ -92,8 +92,9 @@ response envelopes, framed native-host byte transport, synthetic selftest
 documents, safe Firefox selftest profile prefs, temporary WebExtension selftest
 profile/tmp roots, `web-ext` execution, loopback HTTP probe serving, subprocess
 cleanup, probe polling, and public-safe WebExtension selftest documents live in
-`abyss_machine.typing_browser_adapters`, along with Firefox `profiles.ini`
-parsing and release-profile selection; focused-snapshot, AT-SPI text-event
+`abyss_machine.typing_browser_adapters`, along with browser-context, browser
+AT-SPI, focused-browser, and browser-privacy selftest runtime orchestration,
+Firefox `profiles.ini` parsing, and release-profile selection; focused-snapshot, AT-SPI text-event
 sample/metadata/debounce, text-event listener runtime, focused-candidate tree
 walk, browser focus metadata traversal, path-targeted focus/text read/insert
 runtime, URL-scanned GI/Atspi text insertion runtime, GI/Atspi Firefox frame
@@ -104,8 +105,8 @@ filesystem scan limits, path walking, state continuity, file decode rejection,
 candidate/skip accounting, ingest kwargs, state entries, and public-safe scan
 documents live in `abyss_machine.typing_saved_text_adapters`; CLI still owns
 configured policy reads, native-host stdin/stdout binding, `typing_ingest`
-execution, state/latest writes, latest/history writes, remaining browser
-AT-SPI/focused/context/privacy selftest probes, and command rendering;
+execution, state/latest writes, latest/history writes, browser selftest
+callback binding, and command rendering;
 nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`;
 nervous synthesis selection, candidate build orchestration, path/write-result
