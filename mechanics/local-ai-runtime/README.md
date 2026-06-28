@@ -78,13 +78,20 @@ plans, contracts, and bounded summaries belong in the public seed.
   load/save, concrete profile defaults, env-bound runtime/postprocess/profile
   selection, runtime env projection, and config/profile read documents through
   fakeable ports. CLI still owns postprocess glue, replacements reads/writes,
-  validation/latest writes, status readiness, and rendering.
+  validation/latest writes, and rendering.
 - Extracted dictation docs scaffolding into
   `abyss_machine.dictation_docs_adapters`; the adapter owns daily transcript
   path projection, paths/index/AGENTS.md documents, directory creation,
   AGENTS.md touch/update, and index JSON writes through fakeable ports. CLI
-  still owns validation/latest writes, replacements read/write glue, status
-  readiness, and rendering.
+  still owns validation/latest writes, replacements read/write glue, and
+  rendering.
+- Extracted dictation status read-model assembly into
+  `abyss_machine.dictation_status_adapters`; the adapter owns config,
+  replacements, server-socket, transcript-latest, model path, command, ydotool
+  socket, audio default-source, recording, and journal readiness projection
+  through fakeable ports. CLI still owns validation/latest writes,
+  replacements read/write glue, postprocess glue, notification flow, and
+  rendering.
 
 ### Next route
 
