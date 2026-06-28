@@ -20,7 +20,7 @@ package modules keep stable contracts, policy, and read-model shapes.
 |---|---|---|---|---|
 | `typing` | policy files, Codex session JSONL, browser/native-host payloads, saved text files, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing saved-text scan state/latest, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; Codex prompt/session-tail semantic ingest plans live in `typing_codex_semantics`; browser/native-host ingest plans, synthetic selftest documents, route selection, response envelopes, framed native-host byte transport, Firefox profile discovery, temporary Firefox WebExtension, browser-context, browser AT-SPI, focused-browser, and browser-privacy selftest profile prep, loopback/nonloopback local HTTP probes, `web-ext` command selection, subprocess lifecycle, cleanup, probe polling, targeted AT-SPI callback routing, and public-safe result document assembly live in `typing_browser_adapters`; focused-snapshot, AT-SPI text-event sample/metadata/debounce, text-event listener runtime, focused-candidate tree walk, browser focus metadata traversal, path-targeted focus/text read/insert runtime, URL-targeted focused-text runtime, URL-scanned GI/Atspi text insertion runtime, GI/Atspi Firefox frame focus runtime, browser/privacy selftest recent-record readers, supplied-object runtime helpers, and generic GUI selftest semantic plans live in `typing_atspi_adapters`; saved-text filesystem scan limits, path walking, state continuity, decode rejection, candidate/skip accounting, ingest kwargs, state entries, and scan documents live in `typing_saved_text_adapters`; native-host stdin/stdout binding, `typing_ingest`, saved-text state/latest writes, browser selftest latest/index writes, callback binding, policy reads, and command rendering remain CLI edge. |
 | `nervous` | source policy, privacy state, fact/event/episode JSONL, browser history DBs, explicit metadata roots, podman metadata, clipboard, screenshot/window state, semantic/index SQLite stores. | nervous facts/events/episodes/latest, index/semantic status, synthesis/eval reports, retention plans, privacy audit records. | browser content capture, GNOME/X11 probes, retention apply/unlink, semantic embedding subprocesses, reranker subprocesses. | Contracts split across nervous modules; latest/history persistence starts in `typing_nervous_adapters`; semantic embedding subprocess execution lives in `nervous_semantic_adapters`; neural rerank subprocess execution lives in `nervous_rerank_adapters`; most other probes remain CLI edge. |
-| `dictation` | audio devices, runtime config, transcripts, WAV metadata, recording/server state. | transcript latest/JSONL, dictation index, validation latest. | recording, server transport, clipboard/text insertion, audio runtime subprocesses. | `dictation_contracts` owns shapes; `dictation_profile_adapters` owns config load/save, concrete profile defaults, env-bound runtime/postprocess/profile selection, runtime env projection, and config/profile read documents; `dictation_docs_adapters` owns path/index/AGENTS.md documents and dictation docs scaffolding; `dictation_execution_adapters` owns explicit-file transcription via warm-server/helper runtime, client-side 16 kHz preprocessing, recording lifecycle/process-state execution, WAV inspection/recent-audio scan, audio-doctor `pactl`/`wpctl` probes, transcript journal JSONL/Markdown/latest/index IO, clipboard/text insertion execution, and mic-calibration recording/apply; `dictation_status_adapters` owns status read-model assembly and readiness path/command probes; `dictation_validation_adapters` owns dictation validation checks and validate latest/history write routing; `dictation_replacements_adapters` owns replacements load/save/list/test/add/remove flow. Postprocess/notification/rendering remain CLI edge. |
+| `dictation` | audio devices, runtime config/env, runtime paths, transcripts, WAV metadata, recording/server state. | transcript latest/JSONL, dictation index, validation latest. | recording, server transport, clipboard/text insertion, audio runtime subprocesses, desktop notifications. | `dictation_contracts` owns shapes; `dictation_runtime_adapters` owns XDG runtime path/socket/max-duration env translation; `dictation_profile_adapters` owns config load/save, concrete profile defaults, env-bound runtime/postprocess/profile selection, runtime env projection, and config/profile read documents; `dictation_docs_adapters` owns path/index/AGENTS.md documents and dictation docs scaffolding; `dictation_execution_adapters` owns explicit-file transcription via warm-server/helper runtime, client-side 16 kHz preprocessing, recording lifecycle/process-state execution, toggle debounce, WAV inspection/recent-audio scan, audio-doctor `pactl`/`wpctl` probes, transcript journal policy/JSONL/Markdown/latest/index IO, clipboard/text insertion execution, and mic-calibration recording/apply; `dictation_lock_adapters` owns file-lock execution; `dictation_postprocess_adapters` owns transcript postprocess/intent glue; `dictation_notifications_adapters` owns notification policy and `notify-send` command spawning; `dictation_status_adapters` owns status read-model assembly and readiness path/command probes; `dictation_validation_adapters` owns dictation validation checks and validate latest/history write routing; `dictation_replacements_adapters` owns replacements load/save/list/test/add/remove flow. Rendering remains CLI edge. |
 | `ai` | runtime config, model/cache roots, package availability, tokenizer/model inventories, generated AoA summaries. | AI runtime/status/eval/token-accounting latest and histories. | OpenVINO, tokenizer, STT/TTS, resident LLM and benchmark subprocesses. | `ai_runtime_contracts`, `ai_tts_contracts`, and `ai_cpu_routing` own contracts; live execution remains CLI edge. |
 | `self-awareness` | stack/runtime latest files, observability probes, generated event/fabric stores, systemd state. | self-awareness timeline/context/episode/brief/query/probe/latest surfaces. | probe/cycle/replay/investigate orchestration and stack handoff checks. | `self_awareness_contracts` owns read-model shapes; orchestration remains CLI edge. |
 | `storage/process/memory/mode/cooling` | disk usage, `/proc`, cgroups, sensors, power profile, process tables, systemd state. | status/plan/monitor/latest histories and indexes. | cleanup apply, resource launch, profile switch, cooling apply, process/container probes. | Contract modules own policy decisions; live host reads and mutation remain CLI edge. |
@@ -42,9 +42,8 @@ for the agent nervous-system organs:
 - write-disabled no-op semantics for public-safe dry paths.
 
 This is intentionally narrow. It does not claim the full AT-SPI runtime,
-browser live capture/probes, semantic embedding, retention unlink, or
-dictation postprocess/notification glue. Those remain explicit live adapter
-debt until moved behind similarly bounded seams.
+browser live capture/probes, semantic embedding, retention unlink, or other
+subsystem live IO until those are moved behind similarly bounded seams.
 
 ## Extracted Codex Semantic Seam
 
@@ -217,8 +216,9 @@ local-private temp-artifact slice.
 
 `abyss_machine.dictation_execution_adapters` owns the explicit-file dictation
 transcription runtime seam, the recording lifecycle/process-state seam, the
-read-only audio inspection seam, the transcript journal IO seam, the
-clipboard/text insertion execution seam, and the mic-calibration execution seam:
+toggle debounce seam, the read-only audio inspection seam, the transcript
+journal policy/IO seam, the clipboard/text insertion execution seam, and the
+mic-calibration execution seam:
 
 - runtime model/helper readiness checks before transcription execution;
 - warm-server UNIX socket JSON-line request/response transport through a
@@ -233,11 +233,15 @@ clipboard/text insertion execution seam, and the mic-calibration execution seam:
 - `pw-record` command execution through a fakeable process-start port;
 - process liveness, recording age, SIGINT/SIGTERM stop escalation, sleep, and
   state unlink through fakeable process/clock/signal ports;
+- duplicate-toggle debounce policy, bypass env interpretation, and debounce
+  status result construction through fakeable env/status/clock ports;
 - WAV stats extraction and recent runtime WAV discovery through public-safe
   filesystem adapters;
 - audio-doctor default-source/status probes through fakeable `pactl`/`wpctl`
   command ports, with summary/recommendation still delegated to
   `dictation_contracts`;
+- transcript journal enabled/include-failed policy through a fakeable config
+  document port;
 - transcript journal event assembly around live audio metadata, append-only
   JSONL writes, readable Markdown appends, latest/index JSON writes, and
   latest/tail reads through public-safe filesystem adapters;
@@ -247,6 +251,31 @@ clipboard/text insertion execution seam, and the mic-calibration execution seam:
 - mic-calibration recent/recorded WAV selection, bounded `pw-record`
   invocation, calibration notification callback, WAV inspection, runtime
   recommendation, and optional config apply through fakeable ports.
+
+`abyss_machine.dictation_runtime_adapters` owns the dictation runtime env/path
+seam:
+
+- `XDG_RUNTIME_DIR` and `/run/user/$uid` fallback selection;
+- runtime dictation directory creation through a fakeable ensure-directory port;
+- `ABYSS_DICTATION_SERVER_SOCKET`, `YDOTOOL_SOCKET`, and
+  `ABYSS_DICTATION_MAX_SECONDS` translation without reading live env in
+  reusable logic.
+
+`abyss_machine.dictation_lock_adapters` owns dictation file-lock execution for
+toggle and completion critical sections through bounded lock timeouts.
+
+`abyss_machine.dictation_postprocess_adapters` owns transcript postprocess and
+intent glue:
+
+- common transcript fixes;
+- command-intent detection and intent-test documents;
+- postprocess application with fakeable config and replacements document ports.
+
+`abyss_machine.dictation_notifications_adapters` owns notification policy and
+desktop notification execution:
+
+- `ABYSS_DICTATION_NOTIFY` env override and config desktop gate handling;
+- `notify-send` command construction and spawning through fakeable ports.
 
 `abyss_machine.dictation_profile_adapters` owns the config/profile discovery
 seam:
@@ -280,7 +309,8 @@ seam:
 - ydotool socket readiness, recording/stale-recording projection, and journal
   readiness fields without reading private transcript contents.
 
-The CLI still owns postprocess glue, notification flow, and command rendering.
+The CLI still owns concrete env/config binding, high-level command dispatch,
+callback wiring, and command rendering.
 The adapters do not persist WAV files in Git or make model weights public;
 runtime audio copies remain under the target host runtime directory.
 
@@ -472,8 +502,9 @@ downloads, or destructive cleanup.
 
 1. Nervous index/semantic execution adapters: SQLite store lifecycle and
    semantic latest/provenance writes.
-2. Dictation and AI runtime adapters: dictation postprocess/notification glue
-   and AI runtime subprocess plans.
+2. AI runtime adapters: runtime/model discovery, subprocess plans, and TTS
+   server/audio execution. Dictation should only reappear here when a concrete
+   remaining CLI edge has been re-inventoried.
 3. Diagnostic and host lifecycle adapters: deeper doctor status probes,
    bootstrap dry-run evidence, and richer installed projection closeout.
 

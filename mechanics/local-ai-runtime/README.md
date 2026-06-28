@@ -61,8 +61,20 @@ plans, contracts, and bounded summaries belong in the public seed.
 - Extracted dictation transcript journal IO into
   `abyss_machine.dictation_execution_adapters`; the adapter owns audio metadata
   shaping, append-only JSONL/Markdown journal writes, latest/index JSON writes,
-  and latest/tail reads through public-safe filesystem ports. CLI still owns
-  rendering.
+  latest/tail reads, and journal enabled/include-failed policy through
+  public-safe filesystem/config ports. CLI still owns rendering.
+- Extracted dictation runtime env/path translation into
+  `abyss_machine.dictation_runtime_adapters`; the adapter owns XDG runtime root
+  fallback, runtime directory creation, server socket override, ydotool socket
+  projection, and max-duration env translation through fakeable ports. CLI
+  still binds the concrete process environment and uid.
+- Extracted dictation lock execution into
+  `abyss_machine.dictation_lock_adapters`; the adapter owns bounded file locks
+  for toggle and completion critical sections through fakeable lock paths.
+- Extracted dictation toggle debounce policy into
+  `abyss_machine.dictation_execution_adapters`; the adapter owns bypass env
+  interpretation and debounce result construction through fakeable env/status
+  ports while CLI still owns high-level start/stop/stale orchestration.
 - Extracted dictation clipboard/text insertion execution into
   `abyss_machine.dictation_execution_adapters`; the adapter owns `wtype`,
   `wl-copy`, and `ydotool` execution through fakeable subprocess/session/sleep
@@ -77,7 +89,15 @@ plans, contracts, and bounded summaries belong in the public seed.
   `abyss_machine.dictation_profile_adapters`; the adapter owns config
   load/save, concrete profile defaults, env-bound runtime/postprocess/profile
   selection, runtime env projection, and config/profile read documents through
-  fakeable ports. CLI still owns postprocess glue and rendering.
+  fakeable ports. CLI still owns rendering.
+- Extracted dictation postprocess and intent glue into
+  `abyss_machine.dictation_postprocess_adapters`; the adapter owns common
+  transcript fixes, command-intent detection, intent-test documents, and
+  postprocess application through fakeable config/replacements ports.
+- Extracted dictation notification policy and desktop notification spawning into
+  `abyss_machine.dictation_notifications_adapters`; the adapter owns env/config
+  notification gating, `notify-send` command construction, and spawn execution
+  through fakeable ports.
 - Extracted dictation docs scaffolding into
   `abyss_machine.dictation_docs_adapters`; the adapter owns daily transcript
   path projection, paths/index/AGENTS.md documents, directory creation,
@@ -87,20 +107,18 @@ plans, contracts, and bounded summaries belong in the public seed.
   `abyss_machine.dictation_status_adapters`; the adapter owns config,
   replacements, server-socket, transcript-latest, model path, command, ydotool
   socket, audio default-source, recording, and journal readiness projection
-  through fakeable ports. CLI still owns postprocess glue, notification flow,
-  and rendering.
+  through fakeable ports. CLI still owns rendering.
 - Extracted dictation validation/latest routing into
   `abyss_machine.dictation_validation_adapters`; the adapter owns dictation
   docs/index validation checks, transcript latest validation/empty-state
   checks, and validate latest/history write routing through fakeable ports. CLI
-  still owns postprocess glue, notification flow, and rendering.
+  still owns rendering.
 - Extracted dictation replacements read/write flow into
   `abyss_machine.dictation_replacements_adapters`; the adapter owns
   replacements document fallback/load/save, list/test documents, text
   application, and add/remove mutation flow through fakeable JSON/path/clock
   ports while `dictation_contracts` keeps replacement rule normalization and
-  application semantics. CLI still owns postprocess glue, notification flow,
-  and rendering.
+  application semantics. CLI still owns rendering.
 
 ### Next route
 
