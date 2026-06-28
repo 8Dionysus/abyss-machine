@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -103,6 +104,28 @@ def test_command_result_reports_timeout_without_raising(tmp_path: Path) -> None:
     assert result["returncode"] == 124
     assert result["timed_out"] is True
     assert "timed out" in result["stderr"]
+
+
+def test_command_result_timeout_kills_child_process_group(tmp_path: Path) -> None:
+    module = load_validator_module()
+    script = (
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)'])\n"
+        "time.sleep(10)\n"
+    )
+
+    started = time.monotonic()
+    result = module.command_result(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env={},
+        timeout=0.05,
+    )
+    elapsed = time.monotonic() - started
+
+    assert result["returncode"] == 124
+    assert result["timed_out"] is True
+    assert elapsed < 2.0
 
 
 def test_optional_host_installed_report_skips_heavy_critical_checks(tmp_path: Path) -> None:

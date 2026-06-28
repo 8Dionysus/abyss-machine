@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -546,31 +547,48 @@ def _timeout_output(value: Any) -> str:
     return str(value)
 
 
-def command_result(command: list[str], *, cwd: Path, env: dict[str, str], timeout: float = 60) -> dict[str, Any]:
+def _kill_process_group(process: subprocess.Popen[str]) -> None:
     try:
-        completed = subprocess.run(
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        process.kill()
+
+
+def command_result(command: list[str], *, cwd: Path, env: dict[str, str], timeout: float = 60) -> dict[str, Any]:
+    process: subprocess.Popen[str] | None = None
+    try:
+        process = subprocess.Popen(
             command,
             cwd=cwd,
             env=env,
             text=True,
-            capture_output=True,
-            check=False,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
+        stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
+        if process is not None:
+            _kill_process_group(process)
+            stdout, stderr = process.communicate()
+        else:
+            stdout = _timeout_output(exc.stdout)
+            stderr = _timeout_output(exc.stderr)
         return {
             "command": command,
             "returncode": 124,
-            "stdout": _timeout_output(exc.stdout),
-            "stderr": _timeout_output(exc.stderr) + f"\ncommand timed out after {timeout} seconds",
+            "stdout": _timeout_output(stdout),
+            "stderr": _timeout_output(stderr) + f"\ncommand timed out after {timeout} seconds",
             "timed_out": True,
             "timeout_sec": timeout,
         }
     return {
         "command": command,
-        "returncode": completed.returncode,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
+        "returncode": process.returncode,
+        "stdout": stdout,
+        "stderr": stderr,
         "timed_out": False,
     }
 
