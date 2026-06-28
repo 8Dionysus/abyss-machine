@@ -233,8 +233,9 @@ dictation docs scaffolding live in `abyss_machine.dictation_docs_adapters`.
 Status read-model assembly and readiness path/command probes live in
 `abyss_machine.dictation_status_adapters`. Dictation validation checks and
 validate latest/history write routing live in
-`abyss_machine.dictation_validation_adapters`. Postprocess glue, replacements
-reads/writes, notification flow, and rendering remain at the CLI edge.
+`abyss_machine.dictation_validation_adapters`. Replacements load/save/list/test
+and add/remove mutation flow live in `abyss_machine.dictation_replacements_adapters`.
+Postprocess glue, notification flow, and rendering remain at the CLI edge.
 These surfaces
 are re-exported or adapted by the CLI for installed-host compatibility. A fresh
 machine should render
@@ -408,8 +409,9 @@ selection, runtime env projection, and config/profile read documents.
 `dictation_docs_adapters` owns path/index/AGENTS.md documents and dictation docs
 scaffolding. `dictation_status_adapters` owns status read-model assembly and
 readiness path/command probes. `dictation_validation_adapters` owns dictation
-validation checks and validate latest/history write routing. Postprocess glue,
-replacements reads/writes, notification flow, and rendering remain at the CLI edge. Memory policy/path,
+validation checks and validate latest/history write routing.
+`dictation_replacements_adapters` owns replacements load/save/list/test and
+add/remove mutation flow. Postprocess glue, notification flow, and rendering remain at the CLI edge. Memory policy/path,
 pressure-classification, zram-relief, headroom attribution, launch-gate, and
 plan document contracts are module-owned while `/proc`, `/sys`, cgroup/systemd
 reads, process sampling, orchestration/apply routes, and latest/history writes
@@ -482,7 +484,7 @@ should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, nervous retention filesystem/unlink/latest adapters,
 nervous event/episode live latest/write adapters, screenshot live probe/capture
 adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
-execution adapters, TTS live server/audio execution adapters, dictation replacements/postprocess/notification adapters, plus
+execution adapters, TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness live probe/readmodel orchestration and cooling/process
 host-control adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.
