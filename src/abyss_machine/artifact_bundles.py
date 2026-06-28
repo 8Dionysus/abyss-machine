@@ -286,6 +286,9 @@ ARTIFACT_DRIFT_STATUSES = (
 UPDATE_LANE_VERDICTS = ("allow", "deny", "manual_review_required")
 DURABLE_EVIDENCE_FIELDS = ("source_repo", "source_ref", "producer", "trust_root_mode", "verifier_versions")
 EPHEMERAL_EVIDENCE_REFS_BLOCKER = "ephemeral_evidence_refs_present"
+PUBLIC_MEDIA_PUBLIC_RELEASE_C2PA_TRUST_LIST_VERIFIER_REQUIRED = (
+    "public_media_public_release_requires_c2pa_trust_list_verifier"
+)
 BUNDLE_REGISTRY_INDEX = "index.json"
 BUNDLE_REGISTRY_RECORDS_DIR = "records"
 DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT = Path("/var/lib/abyss-machine/artifacts/subjects")
@@ -6050,6 +6053,28 @@ def _source_ref_from_evidence(
     return ""
 
 
+def _public_media_public_release_c2pa_promotion_errors(record: dict[str, Any]) -> list[str]:
+    if str(record.get("artifact_class") or "") != "public_media_export":
+        return []
+    if str(record.get("trust_root_mode") or "") != "public_release":
+        return []
+    required_controls = {str(item) for item in record.get("required_controls", [])}
+    if "c2pa" not in required_controls:
+        return []
+    c2pa_trust = _record_c2pa_trust(record)
+    trust_sources = c2pa_trust.get("trust_sources") if isinstance(c2pa_trust.get("trust_sources"), dict) else {}
+    trust_anchor_profile = str(c2pa_trust.get("trust_anchor_profile") or trust_sources.get("trust_anchors_profile") or "")
+    trust_anchors_configured = bool(trust_sources.get("trust_anchors"))
+    production_verifier_configured = bool(
+        c2pa_trust.get("production_trust_list_configured") is True
+        and trust_anchors_configured
+        and trust_anchor_profile in C2PA_PRODUCTION_TRUST_LIST_PROFILES
+    )
+    if production_verifier_configured:
+        return []
+    return [PUBLIC_MEDIA_PUBLIC_RELEASE_C2PA_TRUST_LIST_VERIFIER_REQUIRED]
+
+
 def _registry_record_path(registry_dir: Path, record_id: str) -> Path:
     filename = record_id.removeprefix("sha256:") + ".json"
     return registry_dir / BUNDLE_REGISTRY_RECORDS_DIR / filename
@@ -6171,6 +6196,7 @@ def bundle_registry_record(
         record["control_evidence"] = control_evidence
     if c2pa_trust:
         record["c2pa_trust"] = c2pa_trust
+    errors.extend(_public_media_public_release_c2pa_promotion_errors(record))
     return {
         "ok": not errors,
         "schema": "abyss_machine_artifact_bundle_registry_write_v1",

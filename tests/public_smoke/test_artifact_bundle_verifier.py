@@ -1237,6 +1237,90 @@ def test_public_media_export_passes_without_production_warning_when_c2pa_credent
     assert artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL in argv
 
 
+def test_public_media_public_release_promotion_requires_c2pa_trust_list_verifier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _ = _build_public_media_export_test_bundle(tmp_path, monkeypatch)
+    registry = tmp_path / "registry"
+
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_media_export.bundle.json",
+        producer="pytest public media publisher",
+        trust_root_mode="public_release",
+        repo_root=bundle.parent,
+    )
+
+    assert promoted["ok"] is False
+    assert artifact_bundles.PUBLIC_MEDIA_PUBLIC_RELEASE_C2PA_TRUST_LIST_VERIFIER_REQUIRED in promoted["errors"]
+    assert promoted["written"] == []
+    assert promoted["record"]["c2pa_trust"]["production_trust_list_configured"] is False
+    assert promoted["record"]["c2pa_trust"]["production_trust_list_trusted"] is False
+    assert promoted["record"]["c2pa_trust"]["credential_onboarding"]["phase"] == "pre_organization"
+    assert artifact_bundles.read_bundle_registry(registry)["summary"]["records"] == 0
+
+
+def test_public_media_public_release_promotion_accepts_pre_org_official_c2pa_trust_list_verifier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _ = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        trust_anchors_ref=artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
+    )
+    registry = tmp_path / "registry"
+    source_ref = "manifests/artifact_bundles/public_media_export.bundle.json"
+    subject_digest = _bundle_subject_digest(bundle)
+
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        source_repo="abyss-machine",
+        source_ref=source_ref,
+        producer="pytest public media publisher",
+        trust_root_mode="public_release",
+        trust_root_evidence=_trust_root_evidence(
+            "public_release",
+            subject_digest=subject_digest,
+            source_repo="abyss-machine",
+            source_ref=source_ref,
+        ),
+        repo_root=bundle.parent,
+    )
+    release_consumer = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+    public_release = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_media_export",
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert promoted["ok"] is True
+    c2pa_trust = promoted["record"]["c2pa_trust"]
+    assert c2pa_trust["production_trust_list_configured"] is True
+    assert c2pa_trust["production_trust_list_trusted"] is False
+    assert c2pa_trust["trust_anchor_profile"] == "official_c2pa_trust_list"
+    assert c2pa_trust["trust_sources"]["trust_anchors_ref"] == artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL
+    assert c2pa_trust["credential_onboarding"]["phase"] == "pre_organization"
+    assert release_consumer["ok"] is True
+    assert release_consumer["verdict"] == "warn"
+    assert public_release["ok"] is False
+    assert public_release["verdict"] == "manual_review_required"
+    assert "public_release_claim_requires_production_c2pa_trust_list" in public_release["manual_review"]
+    assert artifact_bundles.C2PA_PRE_ORGANIZATION_WARNING in public_release["warnings"]
+
+
 def test_public_media_export_legacy_content_credentials_store_is_not_production_trust_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
