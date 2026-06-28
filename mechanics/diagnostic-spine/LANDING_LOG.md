@@ -10,3 +10,6 @@
 - Extracted doctor machine-report input collection into `doctor_adapters` through
   fakeable doctor, memory, nervous, AI policy, and artifact-read ports; CLI still
   binds concrete live functions and owns repair orchestration.
+- Extracted doctor safe repair orchestration into `doctor_adapters` through
+  fakeable semantic-maintenance and docs-mesh runners; CLI still computes live
+  safe-action need and binds concrete refresh functions.

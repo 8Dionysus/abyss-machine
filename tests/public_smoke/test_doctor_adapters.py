@@ -322,6 +322,82 @@ def test_machine_report_input_adapter_refreshes_ai_policy_when_latest_missing() 
     assert report["ai_policy"]["class"] == "warm"
 
 
+def test_safe_repair_adapter_runs_only_automatic_allowed_actions() -> None:
+    calls: list[tuple[str, Any]] = []
+    safe_actions = [
+        {"action": "semantic_maintain", "automatic": True, "command": "abyss-machine nervous semantic-maintain --json"},
+        {"action": "docs_mesh", "automatic": True, "command": "abyss-machine docs mesh --json"},
+        {"action": "unknown_safe_action", "automatic": True},
+        {"action": "semantic_maintain", "automatic": False},
+    ]
+    port = doctor_adapters.DoctorSafeRepairPort(
+        semantic_maintain=lambda no_thermal_sample: calls.append(("semantic", no_thermal_sample)) or {
+            "ok": True,
+            "decision": "built",
+            "summary": {"chunks": 12},
+            "assessment": {"needed": True},
+            "raw_private_payload": {"not": "copied"},
+        },
+        docs_mesh_build=lambda: calls.append(("docs", None)) or {
+            "ok": True,
+            "summary": {"status": "ok"},
+            "path": "/var/lib/abyss-machine/docs/mesh/latest.json",
+            "raw_private_payload": {"not": "copied"},
+        },
+    )
+
+    results = doctor_adapters.collect_safe_repair_results(
+        repair=True,
+        safe_only=True,
+        repair_policy={"enabled": True},
+        safe_actions=safe_actions,
+        no_thermal_sample=True,
+        port=port,
+    )
+
+    assert calls == [("semantic", True), ("docs", None)]
+    assert results == [
+        {
+            "action": "semantic_maintain",
+            "ok": True,
+            "decision": "built",
+            "summary": {"chunks": 12},
+            "assessment": {"needed": True},
+        },
+        {
+            "action": "docs_mesh",
+            "ok": True,
+            "summary": {"status": "ok"},
+            "path": "/var/lib/abyss-machine/docs/mesh/latest.json",
+        },
+    ]
+
+
+def test_safe_repair_adapter_respects_repair_safe_only_and_policy_gates() -> None:
+    calls: list[str] = []
+    safe_actions = [{"action": "semantic_maintain", "automatic": True}]
+    port = doctor_adapters.DoctorSafeRepairPort(
+        semantic_maintain=lambda no_thermal_sample: calls.append("semantic") or {"ok": True},
+        docs_mesh_build=lambda: calls.append("docs") or {"ok": True},
+    )
+
+    for repair, safe_only, policy in (
+        (False, True, {"enabled": True}),
+        (True, False, {"enabled": True}),
+        (True, True, {"enabled": False}),
+    ):
+        assert doctor_adapters.collect_safe_repair_results(
+            repair=repair,
+            safe_only=safe_only,
+            repair_policy=policy,
+            safe_actions=safe_actions,
+            no_thermal_sample=False,
+            port=port,
+        ) == []
+
+    assert calls == []
+
+
 def test_machine_report_writer_marks_document_failed_on_write_error() -> None:
     text_writes: list[Path] = []
 

@@ -84,6 +84,12 @@ class DoctorMachineReportInputPort:
     read_artifact: Callable[[str, Path], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class DoctorSafeRepairPort:
+    semantic_maintain: Callable[[bool], dict[str, Any]]
+    docs_mesh_build: Callable[[], dict[str, Any]]
+
+
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
     "doctor_json",
     "doctor_paths_json",
@@ -366,6 +372,56 @@ def build_machine_report_document(
         paths=inputs["paths"],
         no_thermal_sample=no_thermal_sample,
     )
+
+
+def _repair_policy_enabled(repair_policy: Any) -> bool:
+    if not isinstance(repair_policy, dict):
+        return True
+    return bool(repair_policy.get("enabled", True))
+
+
+def _semantic_maintain_repair_result(action: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action": action.get("action"),
+        "ok": result.get("ok"),
+        "decision": result.get("decision"),
+        "summary": result.get("summary"),
+        "assessment": result.get("assessment"),
+    }
+
+
+def _docs_mesh_repair_result(action: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action": action.get("action"),
+        "ok": result.get("ok"),
+        "summary": result.get("summary"),
+        "path": result.get("path"),
+    }
+
+
+def collect_safe_repair_results(
+    *,
+    repair: bool,
+    safe_only: bool,
+    repair_policy: Any,
+    safe_actions: list[dict[str, Any]],
+    no_thermal_sample: bool,
+    port: DoctorSafeRepairPort,
+) -> list[dict[str, Any]]:
+    if not repair or not safe_only or not _repair_policy_enabled(repair_policy):
+        return []
+    results: list[dict[str, Any]] = []
+    for action in safe_actions:
+        if not isinstance(action, dict) or not action.get("automatic"):
+            continue
+        action_name = action.get("action")
+        if action_name == "semantic_maintain":
+            result = port.semantic_maintain(no_thermal_sample)
+            results.append(_semantic_maintain_repair_result(action, result))
+        elif action_name == "docs_mesh":
+            result = port.docs_mesh_build()
+            results.append(_docs_mesh_repair_result(action, result))
+    return results
 
 
 def write_machine_report_outputs(

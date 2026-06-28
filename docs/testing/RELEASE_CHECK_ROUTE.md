@@ -57,6 +57,12 @@ abyss-machine doctor --json
 abyss-machine doctor machine-report --json --no-thermal-sample
 ```
 
+For safe repair adapter changes, public CI should rely on fake-port tests and
+read-only doctor status checks. If `abyss-machine doctor --repair --safe-only
+--json --no-thermal-sample` is run on a live host, report only the compact repair
+summary and performed action names; do not copy generated latest files or raw
+repair payloads into the repository.
+
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash
