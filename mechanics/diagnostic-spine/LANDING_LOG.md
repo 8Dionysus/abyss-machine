@@ -7,3 +7,6 @@
 - Extracted doctor report writes, machine-report compact artifact reads, and
   machine-report latest/history/markdown writes into `doctor_adapters`; CLI
   still collects live inputs and owns repair orchestration.
+- Extracted doctor machine-report input collection into `doctor_adapters` through
+  fakeable doctor, memory, nervous, AI policy, and artifact-read ports; CLI still
+  binds concrete live functions and owns repair orchestration.

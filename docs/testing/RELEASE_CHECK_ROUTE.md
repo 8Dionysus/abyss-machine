@@ -54,6 +54,7 @@ PYTHONDONTWRITEBYTECODE=1 tools/abyss-machine-test quick --json
 abyss-machine enter --json
 abyss-machine topology --json
 abyss-machine doctor --json
+abyss-machine doctor machine-report --json --no-thermal-sample
 ```
 
 For typing/nervous changes, prefer bounded JSON status and validation commands:

@@ -182,6 +182,146 @@ def test_machine_report_artifact_reader_compacts_json_without_raw_payload() -> N
     assert "checks" not in artifact
 
 
+def test_machine_report_input_adapter_uses_latest_ai_policy_without_thermal_sample() -> None:
+    root = Path("/var/lib/abyss-machine/doctor/machine-report")
+    calls: list[str] = []
+    paths = doctor_adapters.DoctorMachineReportInputPaths(
+        root=root,
+        latest_json=root / "latest.json",
+        latest_markdown=root / "latest.md",
+        artifacts=(
+            doctor_adapters.DoctorMachineReportArtifactPath("doctor_latest", Path("/var/lib/abyss-machine/doctor/latest.json")),
+            doctor_adapters.DoctorMachineReportArtifactPath("ai_policy_latest", Path("/var/lib/abyss-machine/ai/policy/latest.json")),
+        ),
+    )
+
+    def collect_doctor() -> dict[str, Any]:
+        calls.append("doctor")
+        return {"ok": True, "summary": {"status": "ok", "checks": 2, "fails": 0, "warnings": 0}}
+
+    def collect_memory() -> dict[str, Any]:
+        calls.append("memory")
+        return {
+            "ok": True,
+            "status": "observed_clean",
+            "summary": {"swap_used_percent": 3.0, "psi_some_avg10": 0.0},
+            "services": [
+                {
+                    "unit": "abyss-dictation-server.service",
+                    "capability": "dictation",
+                    "class": "resident",
+                    "protected": True,
+                    "systemd": {"active_state": "active", "main_pid": 4242},
+                    "controls": {"memory_current": {"mib": 512}},
+                    "issues": [{"code": "warmup"}],
+                },
+                {"unit": "unprotected.service", "protected": False},
+            ],
+        }
+
+    def collect_nervous() -> dict[str, Any]:
+        calls.append("nervous")
+        return {
+            "ok": True,
+            "readiness": {
+                "status": "ready",
+                "semantic_ready": True,
+                "semantic_stale": False,
+                "semantic_maintenance_needed": False,
+            },
+        }
+
+    port = doctor_adapters.DoctorMachineReportInputPort(
+        collect_doctor=collect_doctor,
+        collect_memory_residency=collect_memory,
+        collect_nervous_brief=collect_nervous,
+        read_ai_policy_latest=lambda: calls.append("ai_latest") or {
+            "ok": True,
+            "generated_at": "2026-06-28T09:20:00Z",
+            "class": "light",
+            "heavy_policy": "allowed",
+            "can_run_heavy": True,
+        },
+        collect_ai_policy=lambda: calls.append("ai_live") or {
+            "ok": True,
+            "class": "warm",
+            "heavy_policy": "sampled",
+        },
+        read_artifact=lambda label, path: {
+            "label": label,
+            "path": str(path),
+            "exists": True,
+            "load_error": None,
+            "ok": True,
+            "status": "ok",
+        },
+    )
+
+    report = doctor_adapters.build_machine_report_document(
+        schema_prefix="abyss_machine",
+        version="0.8.test",
+        generated_at="2026-06-28T09:21:00Z",
+        no_thermal_sample=True,
+        paths=paths,
+        port=port,
+    )
+
+    assert calls == ["doctor", "memory", "nervous", "ai_latest"]
+    assert report["status"] == "ok"
+    assert report["policy"]["no_thermal_sample"] is True
+    assert report["ai_policy"]["class"] == "light"
+    assert [service["unit"] for service in report["protected_services"]] == ["abyss-dictation-server.service"]
+    assert report["protected_services"][0]["issue_codes"] == ["warmup"]
+    assert [artifact["label"] for artifact in report["artifacts"]] == ["doctor_latest", "ai_policy_latest"]
+    assert report["paths"]["daily_jsonl_glob"].endswith("/YYYY/MM/YYYY-MM-DD.jsonl")
+
+
+def test_machine_report_input_adapter_refreshes_ai_policy_when_latest_missing() -> None:
+    root = Path("/var/lib/abyss-machine/doctor/machine-report")
+    calls: list[str] = []
+    paths = doctor_adapters.DoctorMachineReportInputPaths(
+        root=root,
+        latest_json=root / "latest.json",
+        latest_markdown=root / "latest.md",
+        artifacts=(),
+    )
+    port = doctor_adapters.DoctorMachineReportInputPort(
+        collect_doctor=lambda: {"ok": True, "summary": {"status": "ok", "checks": 1, "fails": 0, "warnings": 0}},
+        collect_memory_residency=lambda: {"ok": True, "status": "observed_clean", "summary": {}, "services": []},
+        collect_nervous_brief=lambda: {
+            "ok": True,
+            "readiness": {
+                "status": "ready",
+                "semantic_ready": True,
+                "semantic_stale": False,
+                "semantic_maintenance_needed": False,
+            },
+        },
+        read_ai_policy_latest=lambda: calls.append("ai_latest") or {"ok": False, "error": "missing"},
+        collect_ai_policy=lambda: calls.append("ai_live") or {
+            "ok": True,
+            "generated_at": "2026-06-28T09:25:00Z",
+            "class": "warm",
+            "heavy_policy": "unrestricted",
+            "can_run_heavy": True,
+        },
+        read_artifact=lambda label, path: {"label": label, "path": str(path), "exists": False, "load_error": None},
+    )
+
+    report = doctor_adapters.build_machine_report_document(
+        schema_prefix="abyss_machine",
+        version="0.8.test",
+        generated_at="2026-06-28T09:26:00Z",
+        no_thermal_sample=True,
+        paths=paths,
+        port=port,
+    )
+
+    assert calls == ["ai_latest", "ai_live"]
+    assert report["status"] == "ok"
+    assert report["ai_policy"]["class"] == "warm"
+
+
 def test_machine_report_writer_marks_document_failed_on_write_error() -> None:
     text_writes: list[Path] = []
 

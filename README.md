@@ -160,8 +160,8 @@ result, and success-index helper contracts live in
 document, and machine-report document contracts live in
 `abyss_machine.doctor_contracts`; doctor validate probe collection for
 file/latest/systemd/bridge checks, report writes, machine-report artifact
-reads, and machine-report latest/history/markdown writes live in
-`abyss_machine.doctor_adapters`.
+reads, machine-report input collection, and machine-report
+latest/history/markdown writes live in `abyss_machine.doctor_adapters`.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
 `abyss_machine.memory_contracts`. Mode policy/path/state, definitions,
