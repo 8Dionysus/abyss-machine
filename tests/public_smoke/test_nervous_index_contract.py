@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
 import json
 import sys
 import datetime as dt
@@ -786,24 +785,22 @@ def test_nervous_index_vacuum_cli_uses_module_missing_db_result(monkeypatch, tmp
     assert cli.nervous_index_vacuum(write_latest=False) == vacuum_missing_db_result(started)
 
 
-def test_nervous_index_vacuum_cli_keeps_sqlite_execution_at_edge(monkeypatch, tmp_path: Path) -> None:
+def test_nervous_index_vacuum_cli_delegates_sqlite_execution_to_adapter(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "nervous.db"
     db_path.write_text("", encoding="utf-8")
-    count_snapshots = iter([{"documents": 3, "chunks": 5}, {"documents": 3, "chunks": 5, "optimized": True}])
-    executed: list[str] = []
+    after = {"documents": 3, "chunks": 5, "optimized": True}
+    captured: dict[str, Path] = {}
 
-    class FakeConnection:
-        def execute(self, sql: str) -> None:
-            executed.append(sql)
-
-        def close(self) -> None:
-            executed.append("close")
+    def fake_vacuum(path: Path, root: Path) -> dict:
+        captured["db_path"] = path
+        captured["root"] = root
+        return after
 
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", tmp_path / "index-root")
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: next(count_snapshots))
-    monkeypatch.setattr(cli, "nervous_index_lock", lambda: nullcontext())
-    monkeypatch.setattr(cli, "nervous_index_connect", lambda create=False: FakeConnection())
+    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"documents": 3, "chunks": 5})
+    monkeypatch.setattr(cli.nervous_index_adapters, "vacuum_index", fake_vacuum)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:32:00+00:00")
 
     started = vacuum_start_document(
@@ -816,7 +813,7 @@ def test_nervous_index_vacuum_cli_keeps_sqlite_execution_at_edge(monkeypatch, tm
     expected = vacuum_success_result(started, after={"documents": 3, "chunks": 5, "optimized": True})
 
     assert cli.nervous_index_vacuum(write_latest=False) == expected
-    assert executed == ["PRAGMA optimize", "VACUUM", "close"]
+    assert captured == {"db_path": db_path, "root": tmp_path / "index-root"}
 
 
 def test_nervous_index_validate_cli_delegates_stable_shape_to_module_contract(monkeypatch, tmp_path: Path) -> None:
