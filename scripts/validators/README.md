@@ -175,8 +175,10 @@ synth/eval/compare envelopes, and success-index entries live in
 IO, subprocess execution, resource snapshots, and latest writes remain at the
 CLI edge.
 Doctor policy/path/status/report, validate document, and machine-report document
-contracts live in `abyss_machine.doctor_contracts`; live probes, safe repair orchestration,
-systemd/file reads, report writes, and latest writes remain at the CLI edge.
+contracts live in `abyss_machine.doctor_contracts`; `doctor validate`
+file/latest/systemd/bridge probe collection lives in
+`abyss_machine.doctor_adapters`; full status probes, safe repair orchestration,
+report writes, latest writes, and command rendering remain at the CLI edge.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
 `abyss_machine.memory_contracts`; `/proc`, `/sys`, cgroup/systemd reads,

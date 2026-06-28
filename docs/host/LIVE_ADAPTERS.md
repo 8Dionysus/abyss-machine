@@ -231,14 +231,33 @@ such as `abyss-machine enter --json`, `typing validate`, and
 `nervous validate`. It does not install, repair, or mutate host state; failed
 content parity is evidence for an install closeout, not an automatic action.
 
+## Extracted Doctor Validate Probe Seam
+
+`abyss_machine.doctor_adapters` owns the first diagnostic-spine live probe seam
+for `abyss-machine doctor validate`:
+
+- file presence checks for doctor root, agent card, policy, reports, and user
+  systemd unit files;
+- compact latest JSON readability checks for doctor and machine-report latest
+  documents;
+- user systemd timer state projection through a narrow fakeable port;
+- bridge command coverage checks for doctor status, paths, reports, validate,
+  and safe repair entrypoints.
+
+`abyss_machine.doctor_contracts` still owns the validate document envelope. The
+CLI binds the concrete host probes, writes validate latest/history, and renders
+command output. Full `doctor` status probes, machine-report collection, report
+writes, and safe repair orchestration remain live adapter debt.
+
 ## Next Extraction Order
 
 1. Nervous index/semantic execution adapters: SQLite store lifecycle and
    semantic latest/provenance writes.
 2. Dictation and AI runtime adapters: audio/server/clipboard execution and
    model/runtime subprocess plans.
-3. Diagnostic and host lifecycle adapters: doctor probes, bootstrap dry-run
-   evidence, richer installed projection closeout, and repair orchestration.
+3. Diagnostic and host lifecycle adapters: full doctor status probes, bootstrap
+   dry-run evidence, richer installed projection closeout, report writers, and
+   repair orchestration.
 
 ## Stop Lines
 

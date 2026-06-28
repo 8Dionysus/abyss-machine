@@ -158,7 +158,8 @@ server response/payload, synth subprocess script/argv/result, synth/eval/compare
 result, and success-index helper contracts live in
 `abyss_machine.ai_tts_contracts`. Doctor policy/path/status/report, validate
 document, and machine-report document contracts live in
-`abyss_machine.doctor_contracts`.
+`abyss_machine.doctor_contracts`; doctor validate probe collection for
+file/latest/systemd/bridge checks lives in `abyss_machine.doctor_adapters`.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
 `abyss_machine.memory_contracts`. Mode policy/path/state, definitions,
