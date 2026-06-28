@@ -207,6 +207,7 @@
     "abyss-stack": {
       "profile_id": "abyss-stack",
       "owner_repo": "abyss-stack",
+      "owner_source_root_hints": ["${AOA_SOURCE_ROOT}", "~/src/abyss-stack"],
       "owner_route_refs": ["AGENTS.md", "compose/AGENTS.md", "compose/profiles/substrate.txt", "docs/runtime/ARCHITECTURE.md"],
       "artifact_classes": ["abyss_stack_runtime_config_bundle"],
       "release_export_triggers": ["runtime config bundle is rendered", "deployable config bundle is exported or released"],

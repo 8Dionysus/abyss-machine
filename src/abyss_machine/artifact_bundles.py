@@ -412,6 +412,13 @@ def _normalize_owner_repo_roots(owner_repo_roots: Mapping[str, str | Path] | Non
     return {str(owner): Path(path) for owner, path in owner_repo_roots.items() if str(owner)}
 
 
+def _expand_owner_source_root_hint(hint: str) -> Path | None:
+    expanded = os.path.expandvars(str(hint or "").strip())
+    if not expanded or "$" in expanded:
+        return None
+    return Path(expanded).expanduser()
+
+
 def _owner_repo_root_for_profile(
     row: dict[str, Any],
     *,
@@ -425,6 +432,10 @@ def _owner_repo_root_for_profile(
         return overrides[owner_repo], "owner_repo_root_override"
     if owner_repo == "abyss-machine":
         return repo_root, "policy_repo_root"
+    for hint in _string_list(row.get("owner_source_root_hints")):
+        candidate = _expand_owner_source_root_hint(hint)
+        if candidate is not None and candidate.exists():
+            return candidate, "owner_source_root_hint"
     if workspace_root is None:
         return None, "not_checked"
     workspace = Path(workspace_root)
@@ -675,6 +686,7 @@ def _producer_profile_rows(
         row["profile_id"] = str(row.get("profile_id") or profile_id)
         row["owner_repo"] = str(row.get("owner_repo") or "")
         row["workspace_aliases"] = _string_list(row.get("workspace_aliases"))
+        row["owner_source_root_hints"] = _string_list(row.get("owner_source_root_hints"))
         row["artifact_classes"] = _string_list(row.get("artifact_classes"))
         row["owner_route_refs"] = _string_list(row.get("owner_route_refs"))
         row["release_export_triggers"] = _string_list(row.get("release_export_triggers"))
