@@ -62,7 +62,8 @@ plans, synthetic selftest documents, native-host response envelopes, framed
 native-host byte transport, safe Firefox selftest profile prefs, temporary
 WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
 serving, subprocess cleanup, probe polling, public-safe WebExtension
-selftest result assembly, Firefox `profiles.ini` parsing, and release-profile
+and browser-context selftest result assembly, browser-context capture env
+override restoration, Firefox `profiles.ini` parsing, and release-profile
 selection live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused-snapshot ingest/document
 plans, text-event sample envelopes, metadata shaping, bounded browser-context
@@ -77,7 +78,7 @@ Saved-text scan filesystem limits, path walking, state continuity, decode
 rejection, candidate/skip accounting, ingest kwargs, state entries, and
 public-safe scan documents live in `abyss_machine.typing_saved_text_adapters`.
 Policy file reads, native-host stdin/stdout binding, remaining browser AT-SPI,
-focused-browser, browser-context, and browser-privacy live probes, systemd status reads,
+focused-browser and browser-privacy live probes, systemd status reads,
 `typing_ingest`, latest/index writes, and event writes remain at the CLI edge.
 
 Nervous index JSONL source discovery/loading/hash rules,
