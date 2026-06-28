@@ -433,6 +433,59 @@ def _producer_profile_automation_readiness(row: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _scenario_durable_evidence_status(
+    registry_dir: str | Path | None,
+    *,
+    artifact_class: str,
+    consumer_intent: str,
+) -> dict[str, Any]:
+    if registry_dir is None:
+        return {
+            "schema": "abyss_machine_artifact_scenario_durable_evidence_v1",
+            "checked": False,
+            "status": "not_checked",
+            "claim_limit": "Scenario durable evidence is only checked when a registry_dir is supplied.",
+        }
+    registry = read_bundle_registry(registry_dir, artifact_class=artifact_class)
+    latest_by_class = registry.get("latest_by_artifact_class") if isinstance(registry.get("latest_by_artifact_class"), dict) else {}
+    latest = latest_by_class.get(artifact_class) if isinstance(latest_by_class.get(artifact_class), dict) else None
+    gate = trust_gate(
+        registry_dir,
+        artifact_class=artifact_class,
+        consumer_intent=consumer_intent,
+        require_latest=True,
+    )
+    verdict = str(gate.get("verdict") or "unknown")
+    if latest is None:
+        status = "missing_latest"
+    elif verdict == "allow":
+        status = "durable_gate_allow"
+    elif verdict == "warn":
+        status = "durable_gate_warn"
+    elif verdict == "manual_review_required":
+        status = "manual_review_required"
+    elif verdict == "deny":
+        status = "durable_gate_denied"
+    else:
+        status = "durable_gate_unknown"
+    return {
+        "schema": "abyss_machine_artifact_scenario_durable_evidence_v1",
+        "checked": True,
+        "status": status,
+        "registry_dir": registry.get("registry_dir"),
+        "consumer_intent": consumer_intent,
+        "has_latest": latest is not None,
+        "latest_record_id": latest.get("record_id") if isinstance(latest, dict) else None,
+        "latest_source_repo": latest.get("source_repo") if isinstance(latest, dict) else None,
+        "latest_trust_root_mode": latest.get("trust_root_mode") if isinstance(latest, dict) else None,
+        "latest_lifecycle_state": latest.get("lifecycle_state") if isinstance(latest, dict) else None,
+        "trust_gate_ok": gate.get("ok") if isinstance(gate, dict) else False,
+        "trust_gate_verdict": gate.get("verdict") if isinstance(gate, dict) else None,
+        "trust_gate_reasons": gate.get("reasons", []) if isinstance(gate, dict) else [],
+        "claim_limit": "This is a durable registry/trust-gate readout; it does not produce evidence or replace source-owner proof.",
+    }
+
+
 def _producer_profile_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
     profiles = policy.get("producer_profiles")
     if not isinstance(profiles, dict):
@@ -544,6 +597,7 @@ def artifact_scenario_matrix(
     *,
     scenario_id: str = "",
     artifact_class: str = "",
+    registry_dir: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     policy = load_policy(repo_root)
@@ -597,6 +651,15 @@ def artifact_scenario_matrix(
             "recommended_for_consumer_intent",
             [],
         )
+        durable_evidence = _scenario_durable_evidence_status(
+            registry_dir,
+            artifact_class=class_id,
+            consumer_intent=consumer_intent,
+        )
+        owner_evidence_open = (not executable) and durable_evidence.get("status") not in {
+            "durable_gate_allow",
+            "durable_gate_warn",
+        }
         row = {
             "schema": "abyss_machine_artifact_scenario_matrix_row_v1",
             "scenario_id": str(spec.get("scenario_id") or ""),
@@ -617,6 +680,8 @@ def artifact_scenario_matrix(
             "coverage_ref": str(spec.get("coverage_ref") or ""),
             "coverage_tier": "synthetic_executable" if executable else "policy_or_owner_declared",
             "manual_or_owner_evidence_required": not executable,
+            "owner_or_manual_evidence_open": owner_evidence_open,
+            "durable_evidence": durable_evidence,
             "agent_loop": {
                 "detect_artifact_class": f"abyss-machine artifacts classify --artifact-class {class_id} --json",
                 "inspect_requirements": f"abyss-machine artifacts requirements --artifact-class {class_id} --json",
@@ -652,7 +717,11 @@ def artifact_scenario_matrix(
             "claim_limit": (
                 "Synthetic executable coverage proves the OS Abyss bundle/gate route shape, not a published production artifact."
                 if executable
-                else "Owner/manual evidence must still land in a durable registry before consumers treat this scenario as covered."
+                else (
+                    "Owner/manual evidence must still land in a durable registry before consumers treat this scenario as covered."
+                    if owner_evidence_open
+                    else "Durable registry admission is present; the scenario remains policy_or_owner_declared because the source owner still owns proof meaning."
+                )
             ),
         }
         rows.append(row)
@@ -664,6 +733,15 @@ def artifact_scenario_matrix(
     ]
     executable_rows = [row for row in rows if row.get("coverage_tier") == "synthetic_executable"]
     owner_required_rows = [row for row in rows if row.get("manual_or_owner_evidence_required") is True]
+    owner_open_rows = [row for row in rows if row.get("owner_or_manual_evidence_open") is True]
+    durable_status_counts: dict[str, int] = {}
+    durable_checked = 0
+    for row in rows:
+        durable = row.get("durable_evidence") if isinstance(row.get("durable_evidence"), dict) else {}
+        status = str(durable.get("status") or "not_checked")
+        durable_status_counts[status] = durable_status_counts.get(status, 0) + 1
+        if durable.get("checked") is True:
+            durable_checked += 1
     return {
         "ok": not errors and not missing_artifact_classes,
         "schema": "abyss_machine_artifact_scenario_matrix_v1",
@@ -677,8 +755,11 @@ def artifact_scenario_matrix(
             "artifact_classes": sorted({str(row.get("artifact_class")) for row in rows}),
             "executable_synthetic_coverage": len(executable_rows),
             "owner_or_manual_evidence_required": len(owner_required_rows),
+            "owner_or_manual_evidence_open": len(owner_open_rows),
             "update_lane_applicable": sum(1 for row in rows if row.get("update_lane_applies") is True),
             "missing_artifact_classes": missing_artifact_classes,
+            "durable_evidence_checked": durable_checked,
+            "durable_evidence_status_counts": durable_status_counts,
         },
         "agent_loop": [
             "detect artifact class",
@@ -695,6 +776,7 @@ def artifact_scenario_matrix(
             "Scenario matrix is a read-model over policy, manifests, and known validator coverage; it does not build, verify, promote, or consume artifacts.",
             "Rows marked synthetic_executable prove route mechanics in CI; production publication still requires real owner artifacts and trust-root evidence.",
             "Rows marked policy_or_owner_declared are deliberately not full coverage until durable evidence and trust-gate allow/warn exist.",
+            "Durable evidence status is a live registry/trust-gate readout; it does not build, verify, promote, or replace source-owner proof.",
         ],
         "errors": errors,
     }

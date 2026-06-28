@@ -318,6 +318,8 @@ def test_artifact_scenario_matrix_covers_required_os_trust_loop() -> None:
     assert rows["eval_report"]["artifact_class"] == "aoa_evals_generated_report_index_bundle"
     assert rows["eval_report"]["coverage_tier"] == "policy_or_owner_declared"
     assert rows["eval_report"]["manual_or_owner_evidence_required"] is True
+    assert rows["eval_report"]["owner_or_manual_evidence_open"] is True
+    assert rows["eval_report"]["durable_evidence"]["status"] == "not_checked"
     assert rows["public_media_export"]["coverage_status"] == "policy_declared_c2pa_binding_tests"
     assert rows["public_media_export"]["manual_or_owner_evidence_required"] is True
     for row in rows.values():
@@ -326,6 +328,36 @@ def test_artifact_scenario_matrix_covers_required_os_trust_loop() -> None:
         assert row["claim_limit"]
     assert "run trust-gate before any consumer use" in matrix["agent_loop"]
     assert matrix["summary"]["owner_or_manual_evidence_required"] == 2
+    assert matrix["summary"]["owner_or_manual_evidence_open"] == 2
+    assert matrix["summary"]["durable_evidence_checked"] == 0
+
+
+def test_artifact_scenario_matrix_reports_durable_owner_evidence(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=["owner-evidence:aoa-evals-report-index"],
+        artifact_class="aoa_evals_generated_report_index_bundle",
+        source_repo="aoa-evals",
+        source_ref="mechanics/release-support/parts/artifact-bundles/manifests/report_index.bundle.json",
+        producer="aoa-evals generated report-index builder",
+    )
+
+    matrix = artifact_bundles.artifact_scenario_matrix(
+        scenario_id="eval_report",
+        registry_dir=registry,
+    )
+    row = matrix["rows"][0]
+
+    assert row["coverage_tier"] == "policy_or_owner_declared"
+    assert row["manual_or_owner_evidence_required"] is True
+    assert row["owner_or_manual_evidence_open"] is False
+    assert row["durable_evidence"]["status"] == "durable_gate_allow"
+    assert row["durable_evidence"]["trust_gate_verdict"] == "allow"
+    assert row["durable_evidence"]["latest_source_repo"] == "aoa-evals"
+    assert matrix["summary"]["owner_or_manual_evidence_required"] == 1
+    assert matrix["summary"]["owner_or_manual_evidence_open"] == 0
+    assert matrix["summary"]["durable_evidence_checked"] == 1
 
 
 def test_artifacts_validate_document_contract_is_module_owned(tmp_path: Path) -> None:
