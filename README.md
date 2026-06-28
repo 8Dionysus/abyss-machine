@@ -92,7 +92,8 @@ response envelopes, framed native-host byte transport, synthetic selftest
 documents, safe Firefox selftest profile prefs, temporary WebExtension selftest
 profile/tmp roots, `web-ext` execution, loopback HTTP probe serving, subprocess
 cleanup, probe polling, and public-safe WebExtension selftest documents live in
-`abyss_machine.typing_browser_adapters`; focused-snapshot, AT-SPI text-event
+`abyss_machine.typing_browser_adapters`, along with Firefox `profiles.ini`
+parsing and release-profile selection; focused-snapshot, AT-SPI text-event
 sample/metadata/debounce, text-event listener runtime, focused-candidate tree
 walk, browser focus metadata traversal, path-targeted focus/text read/insert
 runtime, URL-scanned GI/Atspi text insertion runtime, GI/Atspi Firefox frame

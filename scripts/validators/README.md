@@ -61,8 +61,9 @@ Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
 plans, synthetic selftest documents, native-host response envelopes, framed
 native-host byte transport, safe Firefox selftest profile prefs, temporary
 WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
-serving, subprocess cleanup, probe polling, and public-safe WebExtension
-selftest result assembly live in
+serving, subprocess cleanup, probe polling, public-safe WebExtension
+selftest result assembly, Firefox `profiles.ini` parsing, and release-profile
+selection live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused-snapshot ingest/document
 plans, text-event sample envelopes, metadata shaping, bounded browser-context
 summaries, context identity/debounce helpers, supplied-object state/text/path/

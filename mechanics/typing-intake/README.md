@@ -50,7 +50,7 @@ plans, synthetic selftest documents, native-host response envelopes, framed
 native-host byte transport, safe Firefox selftest profile prefs, temporary
 WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
 serving, subprocess cleanup, and public-safe WebExtension selftest result
-assembly live in
+assembly plus Firefox `profiles.ini` parsing and release-profile selection live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
 sample/metadata/debounce, text-event listener runtime, generic GUI selftest
 semantic plans, and supplied accessibility-object state/text/path/document/

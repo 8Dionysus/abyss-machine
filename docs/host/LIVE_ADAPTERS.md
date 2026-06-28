@@ -18,7 +18,7 @@ package modules keep stable contracts, policy, and read-model shapes.
 
 | Surface | Reads | Writes | Mutates/executes | Current home |
 |---|---|---|---|---|
-| `typing` | policy files, Codex session JSONL, browser/native-host payloads, saved text files, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing saved-text scan state/latest, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; Codex prompt/session-tail semantic ingest plans live in `typing_codex_semantics`; browser/native-host ingest plans, synthetic selftest documents, route selection, response envelopes, framed native-host byte transport, temporary Firefox WebExtension selftest profile prep, loopback HTTP probe, `web-ext` command selection, subprocess lifecycle, cleanup, and probe-result document assembly live in `typing_browser_adapters`; focused-snapshot, AT-SPI text-event sample/metadata/debounce, text-event listener runtime, focused-candidate tree walk, browser focus metadata traversal, path-targeted focus/text read/insert runtime, URL-scanned GI/Atspi text insertion runtime, GI/Atspi Firefox frame focus runtime, browser/privacy selftest recent-record readers, supplied-object runtime helpers, and generic GUI selftest semantic plans live in `typing_atspi_adapters`; saved-text filesystem scan limits, path walking, state continuity, decode rejection, candidate/skip accounting, ingest kwargs, state entries, and scan documents live in `typing_saved_text_adapters`; native-host stdin/stdout binding, `typing_ingest`, saved-text state/latest writes, WebExtension latest writes, and browser AT-SPI/focused/privacy/context live probe orchestration remain CLI edge. |
+| `typing` | policy files, Codex session JSONL, browser/native-host payloads, saved text files, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing saved-text scan state/latest, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; Codex prompt/session-tail semantic ingest plans live in `typing_codex_semantics`; browser/native-host ingest plans, synthetic selftest documents, route selection, response envelopes, framed native-host byte transport, Firefox profile discovery, temporary Firefox WebExtension selftest profile prep, loopback HTTP probe, `web-ext` command selection, subprocess lifecycle, cleanup, and probe-result document assembly live in `typing_browser_adapters`; focused-snapshot, AT-SPI text-event sample/metadata/debounce, text-event listener runtime, focused-candidate tree walk, browser focus metadata traversal, path-targeted focus/text read/insert runtime, URL-scanned GI/Atspi text insertion runtime, GI/Atspi Firefox frame focus runtime, browser/privacy selftest recent-record readers, supplied-object runtime helpers, and generic GUI selftest semantic plans live in `typing_atspi_adapters`; saved-text filesystem scan limits, path walking, state continuity, decode rejection, candidate/skip accounting, ingest kwargs, state entries, and scan documents live in `typing_saved_text_adapters`; native-host stdin/stdout binding, `typing_ingest`, saved-text state/latest writes, WebExtension latest writes, and browser AT-SPI/focused/privacy/context live probe orchestration remain CLI edge. |
 | `nervous` | source policy, privacy state, fact/event/episode JSONL, browser history DBs, explicit metadata roots, podman metadata, clipboard, screenshot/window state, semantic/index SQLite stores. | nervous facts/events/episodes/latest, index/semantic status, synthesis/eval reports, retention plans, privacy audit records. | browser content capture, GNOME/X11 probes, retention apply/unlink, semantic embedding subprocesses, reranker subprocesses. | Contracts split across nervous modules; latest/history persistence starts in `typing_nervous_adapters`; most probes remain CLI edge. |
 | `dictation` | audio devices, runtime config, transcripts, WAV metadata, server state. | transcript latest/JSONL, dictation index, validation latest. | recording, server transport, clipboard/text insertion, audio runtime subprocesses. | `dictation_contracts` owns shapes; live audio/clipboard/server adapters remain CLI edge. |
 | `ai` | runtime config, model/cache roots, package availability, tokenizer/model inventories, generated AoA summaries. | AI runtime/status/eval/token-accounting latest and histories. | OpenVINO, tokenizer, STT/TTS, resident LLM and benchmark subprocesses. | `ai_runtime_contracts`, `ai_tts_contracts`, and `ai_cpu_routing` own contracts; live execution remains CLI edge. |
@@ -82,12 +82,14 @@ native-host semantic adapter boundary for typing intake:
   `user.js` prep, `web-ext`/offline-npm command selection, loopback HTTP test
   page, temp profile/artifact/cache roots, subprocess lifecycle and cleanup,
   typing-record probe polling, and public-safe result document assembly.
+- Firefox profile discovery: `profiles.ini` parsing, relative/absolute profile
+  path projection, extension sidecar path projection, and release-profile
+  selection order.
 
 The CLI still owns binding the adapter to native-messaging stdin/stdout,
 calling `typing_ingest`, latest/history writes, WebExtension selftest
-latest/index writes, and command rendering. Release-profile discovery,
-focused-browser, browser-privacy, browser-context, and AT-SPI probes remain live
-edge debt.
+latest/index writes, and command rendering. Focused-browser, browser-privacy,
+browser-context, and AT-SPI probe execution remain live edge debt.
 
 ## Extracted AT-SPI Semantic Seam
 
@@ -128,7 +130,7 @@ boundary for typing intake:
 The CLI still owns policy reads, capture-gate decisions, browser-context
 inference callbacks, calling `typing_ingest`, latest/history writes,
 compact-history persistence callbacks, and command rendering. Browser AT-SPI
-selftest execution, release-profile probing, focused-browser diagnostics, and
+selftest execution, focused-browser diagnostics, and
 privacy live-probe orchestration remain live edge debt.
 
 ## Extracted Saved-Text Scan Seam

@@ -10,6 +10,140 @@ from abyss_machine import cli
 from abyss_machine import typing_browser_adapters
 
 
+def test_firefox_extension_profiles_parse_relative_and_absolute_paths(tmp_path) -> None:
+    profiles_ini = tmp_path / "profiles.ini"
+    profiles_ini.write_text(
+        "\n".join([
+            "[Profile0]",
+            "Name=default-release",
+            "IsRelative=1",
+            "Path=abc.default-release",
+            "Default=1",
+            "",
+            "[Profile1]",
+            "Name=work",
+            "IsRelative=0",
+            "Path=/srv/firefox/work",
+            "Default=0",
+        ]),
+        encoding="utf-8",
+    )
+
+    profiles = typing_browser_adapters.firefox_extension_profiles(
+        profiles_ini,
+        extension_id="fixture@example.test",
+    )
+
+    assert profiles == [
+        {
+            "name": "default-release",
+            "path": str(tmp_path / "abc.default-release"),
+            "default": True,
+            "extensions_json": str(tmp_path / "abc.default-release" / "extensions.json"),
+            "sideload_xpi": str(tmp_path / "abc.default-release" / "extensions" / "fixture@example.test.xpi"),
+        },
+        {
+            "name": "work",
+            "path": "/srv/firefox/work",
+            "default": False,
+            "extensions_json": "/srv/firefox/work/extensions.json",
+            "sideload_xpi": "/srv/firefox/work/extensions/fixture@example.test.xpi",
+        },
+    ]
+
+
+def test_firefox_release_profile_selection_order_is_public_safe(tmp_path) -> None:
+    profiles_ini = tmp_path / "profiles.ini"
+    profiles_ini.write_text(
+        "\n".join([
+            "[Install123]",
+            "Default=custom.profile",
+            "",
+            "[Profile0]",
+            "Name=default-release",
+            "IsRelative=1",
+            "Path=default-release.profile",
+            "Default=1",
+            "",
+            "[Profile1]",
+            "Name=custom",
+            "IsRelative=1",
+            "Path=custom.profile",
+            "Default=0",
+        ]),
+        encoding="utf-8",
+    )
+
+    selected = typing_browser_adapters.firefox_release_profile(
+        profiles_ini,
+        extension_id="fixture@example.test",
+    )
+
+    assert selected is not None
+    assert selected["name"] == "custom"
+    assert selected["selection"] == "install_default"
+    assert selected["path"] == str(tmp_path / "custom.profile")
+
+
+def test_firefox_release_profile_falls_back_to_named_default_then_profile_default(tmp_path) -> None:
+    profiles_ini = tmp_path / "profiles.ini"
+    profiles_ini.write_text(
+        "\n".join([
+            "[Profile0]",
+            "Name=default-release",
+            "IsRelative=1",
+            "Path=release.profile",
+            "Default=0",
+            "",
+            "[Profile1]",
+            "Name=other",
+            "IsRelative=1",
+            "Path=other.profile",
+            "Default=1",
+        ]),
+        encoding="utf-8",
+    )
+
+    selected = typing_browser_adapters.firefox_release_profile(
+        profiles_ini,
+        extension_id="fixture@example.test",
+    )
+    assert selected is not None
+    assert selected["name"] == "default-release"
+    assert selected["selection"] == "named_default_release"
+
+    profiles_ini.write_text(
+        "\n".join([
+            "[Profile0]",
+            "Name=plain",
+            "IsRelative=1",
+            "Path=plain.profile",
+            "Default=1",
+        ]),
+        encoding="utf-8",
+    )
+    fallback = typing_browser_adapters.firefox_release_profile(
+        profiles_ini,
+        extension_id="fixture@example.test",
+    )
+    assert fallback is not None
+    assert fallback["name"] == "plain"
+    assert fallback["selection"] == "profile_default"
+
+
+def test_firefox_profiles_missing_file_preserves_empty_behavior(tmp_path) -> None:
+    profiles_ini = tmp_path / "missing.ini"
+
+    assert typing_browser_adapters.firefox_extension_profiles(
+        profiles_ini,
+        extension_id="fixture@example.test",
+    ) == []
+    assert typing_browser_adapters.firefox_release_profile(
+        profiles_ini,
+        extension_id="fixture@example.test",
+    ) is None
+
+
 def test_browser_extension_plan_and_status_document_are_public_safe() -> None:
     message = {
         "schema": "abyss_machine_browser_extension_message_v1",
