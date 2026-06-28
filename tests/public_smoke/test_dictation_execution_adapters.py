@@ -53,6 +53,16 @@ def _audio_paths(tmp_path: Path) -> dictation_execution_adapters.DictationAudioP
     return dictation_execution_adapters.DictationAudioPaths(runtime_dir=tmp_path / "runtime")
 
 
+def _journal_paths(tmp_path: Path) -> dictation_execution_adapters.DictationJournalPaths:
+    return dictation_execution_adapters.DictationJournalPaths(
+        jsonl_root=tmp_path / "transcripts" / "jsonl",
+        jsonl_path=tmp_path / "transcripts" / "jsonl" / "2026" / "06" / "2026-06-28.jsonl",
+        markdown_path=tmp_path / "transcripts" / "readable" / "2026" / "06" / "2026-06-28.md",
+        latest_path=tmp_path / "transcripts" / "latest.json",
+        index_path=tmp_path / "index.json",
+    )
+
+
 def _write_wav(path: Path, samples: list[int], *, sample_rate: int = 16000, channels: int = 1) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     frame_values: list[int] = []
@@ -163,6 +173,202 @@ def test_cli_dictation_audio_doctor_binds_live_adapter(monkeypatch, tmp_path: Pa
     assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
     assert captured["version"] == cli.VERSION
     assert callable(captured["now"])
+
+
+def _journal_result(audio: Path) -> dict[str, object]:
+    return {
+        "generated_at": "2026-06-28T11:59:58+00:00",
+        "action": "insert",
+        "recording": {
+            "profile": "auto",
+            "audio": str(audio),
+            "started_at": "2026-06-28T11:59:56+00:00",
+            "generated_at": "2026-06-28T11:59:58+00:00",
+            "max_seconds": 180,
+            "log": "/tmp/dictation.log",
+        },
+        "transcript": {
+            "ok": True,
+            "text": "Abyss online. ",
+            "raw_text": "abyss online",
+            "profile": {"name": "quality", "device": "CPU", "model_id": "test", "model_dir": "/tmp/model"},
+            "num_beams": 3,
+            "via": "server",
+            "elapsed_sec": 1.2,
+            "client_elapsed_sec": 1.4,
+            "postprocess": {"capitalization": True},
+            "intent": {"type": "dictation", "triggered": False},
+        },
+        "insert": {"ok": True, "method": "wtype", "stderr": "", "attempts": []},
+    }
+
+
+def test_journal_adapter_writes_transcript_files_without_live_clipboard(tmp_path: Path) -> None:
+    paths = _journal_paths(tmp_path)
+    audio = tmp_path / "runtime" / "dictation.wav"
+    _write_wav(audio, [500] * 160)
+    ensure_calls = 0
+
+    def ensure_docs() -> list[dict[str, object]]:
+        nonlocal ensure_calls
+        ensure_calls += 1
+        return []
+
+    data = dictation_execution_adapters.journal_write(
+        _journal_result(audio),
+        paths=paths,
+        enabled=True,
+        include_failed=True,
+        ensure_docs=ensure_docs,
+        index_document=lambda: {"schema": "abyss_machine_dictation_index_v1", "ok": True},
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+    )
+
+    assert data["ok"] is True
+    assert data["written"] is True
+    assert ensure_calls == 1
+    latest = json.loads(paths.latest_path.read_text(encoding="utf-8"))
+    assert latest["schema"] == "abyss_machine_dictation_transcript_event_v1"
+    assert latest["text"] == "Abyss online. "
+    assert latest["audio"]["exists"] is True
+    assert latest["audio"]["duration_sec"] == 0.01
+    assert json.loads(paths.index_path.read_text(encoding="utf-8"))["schema"] == "abyss_machine_dictation_index_v1"
+    jsonl_entries = [json.loads(line) for line in paths.jsonl_path.read_text(encoding="utf-8").splitlines()]
+    assert jsonl_entries == [latest]
+    markdown = paths.markdown_path.read_text(encoding="utf-8")
+    assert "Abyss online." in markdown
+    assert "Raw:" in markdown
+
+
+def test_journal_adapter_reads_latest_and_tail_from_transcript_store(tmp_path: Path) -> None:
+    paths = _journal_paths(tmp_path)
+    audio = tmp_path / "runtime" / "dictation.wav"
+    _write_wav(audio, [500] * 160)
+    times = iter(
+        [
+            "2026-06-28T12:00:00+00:00",
+            "2026-06-28T12:00:01+00:00",
+            "2026-06-28T12:00:02+00:00",
+            "2026-06-28T12:00:03+00:00",
+        ]
+    )
+
+    def now() -> str:
+        return next(times)
+
+    first = _journal_result(audio)
+    second = _journal_result(audio)
+    second["transcript"] = {**second["transcript"], "text": "Second entry. "}
+    for result in (first, second):
+        data = dictation_execution_adapters.journal_write(
+            result,
+            paths=paths,
+            enabled=True,
+            include_failed=True,
+            ensure_docs=lambda: [],
+            index_document=lambda: {"schema": "abyss_machine_dictation_index_v1"},
+            schema_prefix="abyss_machine",
+            version="test",
+            now=now,
+        )
+        assert data["ok"] is True
+
+    latest = dictation_execution_adapters.journal_latest(
+        paths=paths,
+        ensure_docs=lambda: [],
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:03+00:00",
+    )
+    assert latest["ok"] is True
+    assert latest["entry"]["text"] == "Second entry. "
+
+    tail = dictation_execution_adapters.journal_tail(
+        paths=paths,
+        lines=1,
+        ensure_docs=lambda: [],
+        paths_document=lambda: {"schema": "abyss_machine_dictation_paths_v1"},
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:04+00:00",
+    )
+    assert tail["ok"] is True
+    assert tail["lines"] == 1
+    assert tail["entries"][0]["text"] == "Second entry. "
+    assert tail["entries"][0]["_source_path"] == str(paths.jsonl_path)
+
+
+def test_journal_adapter_handles_disabled_or_missing_transcript_without_writing(tmp_path: Path) -> None:
+    paths = _journal_paths(tmp_path)
+    ensure_calls = 0
+
+    def ensure_docs() -> list[dict[str, object]]:
+        nonlocal ensure_calls
+        ensure_calls += 1
+        return []
+
+    disabled = dictation_execution_adapters.journal_write(
+        {},
+        paths=paths,
+        enabled=False,
+        include_failed=True,
+        ensure_docs=ensure_docs,
+        index_document=lambda: {},
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+    )
+    assert disabled["ok"] is True
+    assert disabled["enabled"] is False
+    assert ensure_calls == 0
+
+    missing = dictation_execution_adapters.journal_write(
+        {},
+        paths=paths,
+        enabled=True,
+        include_failed=True,
+        ensure_docs=ensure_docs,
+        index_document=lambda: {},
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+    )
+    assert missing["ok"] is True
+    assert missing["written"] is False
+    assert ensure_calls == 1
+    assert not paths.latest_path.exists()
+
+
+def test_cli_dictation_journal_write_binds_live_adapter(monkeypatch, tmp_path: Path) -> None:
+    paths = _journal_paths(tmp_path)
+    result = {"transcript": {"ok": True, "text": "hello"}}
+    captured: dict[str, object] = {}
+
+    def fake_journal_write(result_arg: object, **kwargs: object) -> dict[str, object]:
+        captured["result"] = result_arg
+        captured.update(kwargs)
+        return {"ok": True, "schema": "abyss_machine_dictation_journal_write_v1"}
+
+    monkeypatch.setattr(cli, "dictation_journal_paths", lambda: paths)
+    monkeypatch.setattr(cli, "dictation_journal_enabled", lambda: True)
+    monkeypatch.setattr(cli, "dictation_journal_include_failed", lambda: False)
+    monkeypatch.setattr(dictation_execution_adapters, "journal_write", fake_journal_write)
+
+    data = cli.dictation_journal_write(result)
+
+    assert data["ok"] is True
+    assert captured["result"] == result
+    assert captured["paths"] == paths
+    assert captured["enabled"] is True
+    assert captured["include_failed"] is False
+    assert captured["ensure_docs"] is cli.ensure_dictation_docs
+    assert captured["index_document"] is cli.dictation_index_document
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert callable(captured["now"])
+    assert captured["wav_duration_fn"] is cli.wav_duration
 
 
 def test_recording_adapter_starts_process_and_writes_state_without_live_audio(tmp_path: Path) -> None:

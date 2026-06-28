@@ -268,10 +268,11 @@ result/key-sequence policy, and journal event/markdown envelopes live in
 execution, warm-server socket transport, client-side 16 kHz runtime
 preprocessing, helper subprocess invocation, helper runtime env projection,
 recording lifecycle/process-state execution, WAV inspection/recent-audio scan,
-and audio-doctor `pactl`/`wpctl` probes live in
+audio-doctor `pactl`/`wpctl` probes, and transcript journal
+JSONL/Markdown/latest/index IO live in
 `abyss_machine.dictation_execution_adapters`. Profile/config selection, live
-mic-calibration recording/apply, live insertion execution, document writes, and
-latest writes remain at the CLI edge.
+mic-calibration recording/apply, live insertion execution, dictation docs
+scaffolding, validation/latest writes, and rendering remain at the CLI edge.
 
 `artifact_signature_policy.py` validates the public artifact identity and
 signature policy that feeds contract ABI signatures, local provenance packet
