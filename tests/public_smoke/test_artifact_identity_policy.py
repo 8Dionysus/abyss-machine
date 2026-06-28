@@ -89,7 +89,7 @@ def test_public_media_export_names_c2pa_primary_refs() -> None:
     manifest = load_json(PUBLIC_MEDIA_MANIFEST)
     refs = manifest["c2pa"]["standard_refs"]
 
-    assert refs["specification"].startswith("https://spec.c2pa.org/")
+    assert refs["specification"] == "https://spec.c2pa.org/specifications/specifications/2.4/specs/C2PA_Specification.html"
     assert refs["conformance_program"] == "https://c2pa.org/conformance/"
     assert refs["production_trust_list"].endswith("/trust-list/C2PA-TRUST-LIST.pem")
     assert "c2patool" in refs["c2patool_usage"]
