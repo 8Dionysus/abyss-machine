@@ -60,3 +60,9 @@
   public-safe event projection, and absence-proof summaries while CLI owns the
   live history reader callback, latest writes, live probe orchestration, and
   command rendering.
+- Browser-privacy selftest runtime seam: `typing_browser_adapters` owns the
+  temporary Firefox login-sensitive loopback page, profile prep, subprocess
+  lifecycle, metadata-event polling, focused metadata callback routing,
+  absence-proof callback routing, redacted process tails, cleanup, and
+  public-safe result document assembly while CLI owns policy reads, latest/index
+  writes, callback binding, and command rendering.

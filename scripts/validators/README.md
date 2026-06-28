@@ -66,7 +66,9 @@ browser-context, browser AT-SPI, and focused-browser selftest result assembly,
 browser-context capture env override restoration, browser AT-SPI selftest
 temporary/release-profile runtime orchestration, focused-browser selftest
 temporary-profile runtime orchestration, targeted AT-SPI callback routing,
-Firefox `profiles.ini` parsing, and release-profile selection live in
+browser-privacy temporary-profile/runtime orchestration, privacy metadata and
+absence-proof callback routing, Firefox `profiles.ini` parsing, and
+release-profile selection live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused-snapshot ingest/document
 plans, text-event sample envelopes, metadata shaping, bounded browser-context
 summaries, context identity/debounce helpers, supplied-object state/text/path/
@@ -80,8 +82,8 @@ recent-record readers live in
 Saved-text scan filesystem limits, path walking, state continuity, decode
 rejection, candidate/skip accounting, ingest kwargs, state entries, and
 public-safe scan documents live in `abyss_machine.typing_saved_text_adapters`.
-Policy file reads, native-host stdin/stdout binding, browser-privacy live
-probes, focused-browser callback binding, systemd status reads,
+Policy file reads, native-host stdin/stdout binding, browser selftest callback
+binding, systemd status reads,
 `typing_ingest`, latest/index writes, and event writes remain at the CLI edge.
 
 Nervous index JSONL source discovery/loading/hash rules,

@@ -24,10 +24,10 @@ Use these mechanic owners for the next extraction slices:
 - `typing-intake`: typing latest/history persistence, Codex session-tail
   filesystem reads and semantic ingest planning, browser/native-host ingest
   planning/transport/response envelopes, temporary Firefox WebExtension and
-  browser-context/browser AT-SPI/focused-browser selftest runtime, AT-SPI
+  browser-context/browser AT-SPI/focused-browser/browser-privacy selftest runtime, AT-SPI
   focused/text-event/generic GUI semantic plans, saved-text scan filesystem
-  mechanics, remaining browser-privacy live probe, native-host stdio binding,
-  and remaining `pyatspi` runtime adapters.
+  mechanics, native-host stdio binding, and remaining `pyatspi` runtime
+  adapters.
 - `nervous-local`: nervous source capture, privacy state, local JSONL/SQLite
   readers, semantic/rerank execution, retention, and derived memory evidence.
 - `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource

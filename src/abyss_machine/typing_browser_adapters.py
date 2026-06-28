@@ -38,6 +38,15 @@ ProcessTail = Callable[..., str]
 CaptureGateDecision = Callable[..., dict[str, Any]]
 FocusedCandidateProbe = Callable[[Mapping[str, Any] | None], dict[str, Any]]
 FocusedSnapshotFromCandidate = Callable[[dict[str, Any]], dict[str, Any]]
+BrowserPrivacyFindEvent = Callable[..., tuple[dict[str, Any] | None, list[dict[str, Any]]]]
+BrowserPrivacyProbeAbsence = Callable[[str], dict[str, Any]]
+BrowserPrivacyUrlMatches = Callable[[Any, Any], bool]
+BrowserPrivacyRecordSummary = Callable[[Any, str | None], dict[str, Any] | None]
+DenyContextMatches = Callable[[str, Mapping[str, Any]], list[dict[str, Any]]]
+CaptureGatePolicy = Callable[[Mapping[str, Any] | None], Mapping[str, Any]]
+CaptureGateTokenMatches = Callable[[str, str, list[Any]], list[dict[str, Any]]]
+BrowserExtensionPolicy = Callable[[Mapping[str, Any] | None], Mapping[str, Any]]
+BrowserUrlSchemeAllowed = Callable[[str, Mapping[str, Any]], bool]
 
 
 def _nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -1343,6 +1352,411 @@ def focused_browser_selftest_document(
             "This selftest proves focused snapshot capture only on a temporary Firefox loopback page.",
             "It does not read raw key events, password fields, cookies, local storage, or release Firefox profile data.",
             "It does not prove the Firefox WebExtension is active in release profiles.",
+        ],
+    }
+
+
+def browser_privacy_selftest_document(
+    *,
+    generated_at: str,
+    pid: int,
+    tmp_root: Path,
+    schema_prefix: str,
+    version: str,
+    policy: Mapping[str, Any] | None,
+    find_event: BrowserPrivacyFindEvent,
+    probe_absence: BrowserPrivacyProbeAbsence,
+    focused_candidate: FocusedCandidateProbe,
+    focused_snapshot_from_candidate: FocusedSnapshotFromCandidate,
+    focus_metadata_by_path: AtspiAction,
+    capture_gate_decision: CaptureGateDecision,
+    deny_context_matches: DenyContextMatches,
+    capture_gate_policy: CaptureGatePolicy,
+    capture_gate_token_matches: CaptureGateTokenMatches,
+    browser_extension_policy: BrowserExtensionPolicy,
+    browser_url_scheme_allowed: BrowserUrlSchemeAllowed,
+    url_origin: UrlOrigin,
+    browser_privacy_url_matches: BrowserPrivacyUrlMatches,
+    browser_privacy_record_summary: BrowserPrivacyRecordSummary = typing_capture_contracts.browser_privacy_record_summary,
+    prepare_profile: Callable[[Path], dict[str, Any] | None] = prepare_firefox_selftest_profile,
+    omit_private_text_fields: Callable[[Any], Any] = _omit_private_text_fields,
+    process_tail: ProcessTail = _safe_process_tail,
+    which: Callable[[str], str | None] = shutil.which,
+    process_factory: Callable[..., Any] = subprocess.Popen,
+    terminate_processes: TerminateProcesses | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    env_mapping: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    run_id = browser_webextension_run_id(generated_at, pid)
+    probe_text = f"abyss browser privacy visible login text probe {run_id}"
+    probe_hash = hashlib.sha256(probe_text.encode("utf-8", errors="replace")).hexdigest()
+    profile_dir = tmp_root / "profile"
+    site_dir = tmp_root / "site"
+    firefox_bin = which("firefox")
+    stdout_tail = ""
+    stderr_tail = ""
+    firefox_returncode: int | None = None
+    atspi_event: dict[str, Any] | None = None
+    focused_snapshot: dict[str, Any] | None = None
+    focused_event: dict[str, Any] | None = None
+    focused_candidate_item: dict[str, Any] | None = None
+    focused_candidate_attempts: list[dict[str, Any]] = []
+    focused_metadata_focus: dict[str, Any] | None = None
+    parse_errors: list[dict[str, Any]] = []
+    focused_parse_errors: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    cleanup_actions: list[dict[str, Any]] = []
+    url = ""
+
+    if not firefox_bin:
+        return {
+            "schema": f"{schema_prefix}_typing_browser_privacy_selftest_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "status": "firefox_missing",
+            "error": "firefox executable not found",
+            "policy": {"raw_keylogging": False, "password_fields_captured": False, "automatic_action": False},
+        }
+
+    proc: Any | None = None
+    httpd: socketserver.TCPServer | None = None
+    server_thread: threading.Thread | None = None
+    policy_data = policy if isinstance(policy, Mapping) else {}
+    try:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        site_dir.mkdir(parents=True, exist_ok=True)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        prefs_error = prepare_profile(profile_dir)
+        if prefs_error:
+            errors.append(prefs_error)
+        page = f"""<!doctype html>
+<meta charset=\"utf-8\">
+<title>Abyss login privacy input probe</title>
+<textarea id=\"probe\" aria-label=\"Abyss login visible note\" autocomplete=\"off\" autofocus></textarea>
+<script>
+  const probeText = {json.dumps(probe_text)};
+  function writeProbe() {{
+    const probe = document.getElementById(\"probe\");
+    probe.focus();
+    probe.value = probeText;
+    probe.setSelectionRange(probe.value.length, probe.value.length);
+    probe.dispatchEvent(new InputEvent(\"input\", {{bubbles: true, inputType: \"insertText\", data: \"probe\"}}));
+  }}
+  window.addEventListener(\"load\", writeProbe);
+  setTimeout(writeProbe, 300);
+  setTimeout(writeProbe, 1200);
+  setTimeout(writeProbe, 2400);
+</script>
+"""
+        write_error = _atomic_write_text(site_dir / "login.html", page, 0o664)
+        if write_error:
+            errors.append(write_error)
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, directory=str(site_dir), **kwargs)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                return
+
+        class ReusableTCPServer(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+
+        httpd = ReusableTCPServer(("127.0.0.1", 0), Handler)
+        port = int(httpd.server_address[1])
+        url = f"http://127.0.0.1:{port}/login.html?abyss_privacy_run={run_id}"
+        server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        server_thread.start()
+
+        process_env = dict(env_mapping or os.environ)
+        process_env["MOZ_NO_REMOTE"] = "1"
+        proc = process_factory(
+            [firefox_bin, "--new-instance", "--profile", str(profile_dir), "--new-window", url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=process_env,
+            preexec_fn=os.setsid,
+        )
+        atspi_deadline = monotonic() + 15.0
+        while monotonic() < atspi_deadline:
+            atspi_event, parse_errors = find_event(
+                url,
+                "atspi_text_changed_event",
+                generated_after=generated_at,
+                probe_text_sha256=probe_hash,
+                limit=900,
+            )
+            if isinstance(atspi_event, dict):
+                break
+            if proc.poll() is not None:
+                break
+            sleep(0.5)
+        if not isinstance(atspi_event, dict):
+            errors.append({"error": "browser_privacy_atspi_metadata_event_not_observed", "url": url})
+
+        focused_deadline = monotonic() + 12.0
+        while monotonic() < focused_deadline:
+            focused_scan = focused_candidate(policy_data)
+            candidate = focused_scan.get("candidate") if isinstance(focused_scan.get("candidate"), Mapping) else None
+            if isinstance(candidate, Mapping):
+                candidate_summary = typing_capture_contracts.focused_browser_candidate_summary(candidate, probe_hash) or {}
+                candidate_summary["scan_status"] = focused_scan.get("status")
+                focused_candidate_attempts.append(candidate_summary)
+                focused_candidate_attempts = focused_candidate_attempts[-8:]
+                if browser_privacy_url_matches(candidate.get("url"), url):
+                    focused_candidate_item = dict(candidate)
+                    focused_snapshot = focused_snapshot_from_candidate(focused_candidate_item)
+                    focused_event_raw = (
+                        focused_snapshot.get("event")
+                        if isinstance(focused_snapshot, Mapping) and isinstance(focused_snapshot.get("event"), Mapping)
+                        else None
+                    )
+                    focused_event = browser_privacy_record_summary(focused_event_raw, probe_hash)
+                    break
+            if proc.poll() is not None:
+                break
+            sleep(0.5)
+        if not isinstance(focused_candidate_item, dict):
+            source_path = str(_nested_get(atspi_event, ["atspi", "source_path"]) or "") if isinstance(atspi_event, Mapping) else ""
+            if source_path:
+                focused_metadata_focus = focus_metadata_by_path(source_path, url)
+                matched = focused_metadata_focus.get("matched") if isinstance(focused_metadata_focus.get("matched"), Mapping) else {}
+                if isinstance(matched, Mapping) and focused_metadata_focus.get("ok") is True:
+                    focused_policy = policy_data.get("focused_snapshot") if isinstance(policy_data.get("focused_snapshot"), Mapping) else {}
+                    text_roles_source = focused_policy.get("text_roles") if isinstance(focused_policy.get("text_roles"), list) else []
+                    sensitive_roles_source = (
+                        focused_policy.get("sensitive_roles")
+                        if isinstance(focused_policy.get("sensitive_roles"), list)
+                        else []
+                    )
+                    text_roles = {str(item).lower() for item in text_roles_source if str(item).strip()}
+                    sensitive_roles = {str(item).lower() for item in sensitive_roles_source if str(item).strip()}
+                    role = str(matched.get("role") or "entry")
+                    role_lower = role.lower()
+                    name = str(matched.get("name") or "")
+                    description = str(matched.get("description") or "")
+                    states = matched.get("states_after") if isinstance(matched.get("states_after"), Mapping) else matched.get("states_before")
+                    states = states if isinstance(states, Mapping) else {}
+                    window_title = str(atspi_event.get("window_title") or "Abyss login privacy input probe") if isinstance(atspi_event, Mapping) else "Abyss login privacy input probe"
+                    app = str(matched.get("app") or (atspi_event.get("app") if isinstance(atspi_event, Mapping) else None) or "Firefox")
+                    document_title = str(matched.get("document_title") or "")
+                    content_type = str(matched.get("content_type") or "")
+                    document_path = str(matched.get("document_path") or (_nested_get(atspi_event, ["atspi", "document_path"]) if isinstance(atspi_event, Mapping) else "") or "")
+                    context = (
+                        f"focused_text role={role} path={source_path} editable={bool(states.get('editable'))} "
+                        f"focused={bool(states.get('focused'))} name={name} url={url}"
+                    )
+                    context_probe = "\n".join([app, window_title, document_title, url, role, name, description, source_path])
+                    deny_matches = deny_context_matches(context_probe, policy_data)
+                    gate_policy = capture_gate_policy(policy_data)
+                    metadata_tokens = gate_policy.get("metadata_only_url_tokens") if isinstance(gate_policy.get("metadata_only_url_tokens"), list) else []
+                    hard_skip_tokens = gate_policy.get("hard_skip_url_tokens") if isinstance(gate_policy.get("hard_skip_url_tokens"), list) else []
+                    raw_url_matches = (
+                        capture_gate_token_matches("metadata_only_raw_url_token", url, metadata_tokens)
+                        + capture_gate_token_matches("hard_skip_raw_url_token", url, hard_skip_tokens)
+                    )
+                    role_sensitive = role_lower in sensitive_roles or "password" in role_lower
+                    text_role = role_lower in text_roles or bool(states.get("editable")) or role_lower in {"entry", "text"}
+                    sensitive_context = bool(role_sensitive or deny_matches or raw_url_matches)
+                    gate = capture_gate_decision(
+                        "atspi_focused_text_snapshot",
+                        app=app,
+                        window_title=window_title,
+                        context=context,
+                        url=url,
+                        policy=dict(policy_data),
+                        write_latest=False,
+                    )
+                    browser_policy = browser_extension_policy(policy_data)
+                    browser_safe_url = bool(
+                        capture_gate_token_matches(
+                            "browser_app_token",
+                            "\n".join([app, window_title, context]),
+                            ["firefox", "chrome", "chromium"],
+                        )
+                        and browser_url_scheme_allowed(url, browser_policy)
+                        and url_origin(url)
+                    )
+                    safe_routes_source = (
+                        focused_policy.get("safe_text_routes")
+                        if isinstance(focused_policy.get("safe_text_routes"), list)
+                        else ["browser_safe_url"]
+                    )
+                    safe_routes = {str(item).strip() for item in safe_routes_source if str(item).strip()}
+                    safe_route = "browser_safe_url" if "browser_safe_url" in safe_routes and browser_safe_url else None
+                    focused_candidate_item = {
+                        "ok": True,
+                        "app": app,
+                        "window_title": window_title,
+                        "role": role,
+                        "name": name,
+                        "description": description,
+                        "path": source_path,
+                        "url": url,
+                        "document_title": document_title,
+                        "content_type": content_type,
+                        "atspi_path": source_path,
+                        "document_path": document_path,
+                        "url_query_present": True,
+                        "url_fragment_present": False,
+                        "raw_url_omitted": True,
+                        "states": states,
+                        "text_role": bool(text_role),
+                        "sensitive_context": sensitive_context,
+                        "sensitive_matches": ([{"kind": "sensitive_role", "role": role}] if role_sensitive else []) + deny_matches + raw_url_matches,
+                        "capture_gate": gate,
+                        "capture_gate_decision": str(gate.get("decision") or "metadata_only"),
+                        "safe_route": safe_route,
+                        "safe_route_allowed": bool(safe_route),
+                        "browser_safe_url": browser_safe_url,
+                        "browser_context_inference": None,
+                        "text_read_allowed": False,
+                        "diagnostic_only": False,
+                        "text": "",
+                        "text_length": 0,
+                        "caret_offset": None,
+                    }
+                    focused_candidate_attempts.append(
+                        typing_capture_contracts.focused_browser_candidate_summary(focused_candidate_item, probe_hash) or {}
+                    )
+                    focused_snapshot = focused_snapshot_from_candidate(focused_candidate_item)
+                    focused_event_raw = (
+                        focused_snapshot.get("event")
+                        if isinstance(focused_snapshot, Mapping) and isinstance(focused_snapshot.get("event"), Mapping)
+                        else None
+                    )
+                    focused_event = browser_privacy_record_summary(focused_event_raw, probe_hash)
+        if not isinstance(focused_event, dict):
+            focused_event, focused_parse_errors = find_event(
+                url,
+                "atspi_focused_text_snapshot",
+                generated_after=generated_at,
+                probe_text_sha256=probe_hash,
+                limit=900,
+            )
+        if not isinstance(focused_event, dict):
+            errors.append({"error": "browser_privacy_focused_metadata_event_not_observed", "url": url})
+    except Exception as exc:
+        errors.append({"error": repr(exc)[:500]})
+    finally:
+        stdout, stderr, firefox_returncode = _terminate_process_group(proc)
+        stdout_tail = process_tail(stdout, max_chars=1000)
+        stderr_tail = process_tail(stderr, max_chars=1000)
+        if terminate_processes is not None:
+            cleanup_actions = terminate_processes(str(tmp_root))
+        if httpd is not None:
+            try:
+                httpd.shutdown()
+                httpd.server_close()
+            except Exception:
+                pass
+        if server_thread is not None:
+            try:
+                server_thread.join(timeout=1.0)
+            except Exception:
+                pass
+
+    absence = probe_absence(probe_hash)
+    focused_candidate_summary = (
+        typing_capture_contracts.focused_browser_candidate_summary(focused_candidate_item, probe_hash)
+        if isinstance(focused_candidate_item, Mapping)
+        else None
+    )
+    atspi_ok = (
+        isinstance(atspi_event, Mapping)
+        and atspi_event.get("source_adapter") == "atspi_text_changed_event"
+        and atspi_event.get("status") == "metadata_only"
+        and atspi_event.get("capture_gate_decision") == "metadata_only"
+        and atspi_event.get("capture_gate_confidence") == "sensitive_url"
+        and atspi_event.get("text_chars_stored") == 0
+        and atspi_event.get("text_value_present") is False
+        and atspi_event.get("text_sha256_matches_probe") is False
+        and _nested_get(atspi_event, ["atspi", "text_read"]) is False
+    )
+    focused_candidate_ok = (
+        isinstance(focused_candidate_item, Mapping)
+        and browser_privacy_url_matches(focused_candidate_item.get("url"), url)
+        and focused_candidate_item.get("text_read_allowed") is False
+        and focused_candidate_item.get("capture_gate_decision") == "metadata_only"
+        and _safe_int(focused_candidate_item.get("text_length"), 0) == 0
+    )
+    focused_ok = (
+        isinstance(focused_event, Mapping)
+        and focused_event.get("source_adapter") == "atspi_focused_text_snapshot"
+        and focused_event.get("status") == "metadata_only"
+        and focused_event.get("capture_gate_decision") == "metadata_only"
+        and focused_event.get("capture_gate_confidence") == "sensitive_url"
+        and focused_event.get("text_chars_stored") == 0
+        and focused_event.get("text_value_present") is False
+        and focused_event.get("text_sha256_matches_probe") is False
+        and _nested_get(focused_event, ["atspi", "text_read"]) is False
+    )
+    ok = bool(atspi_ok and focused_candidate_ok and focused_ok and absence.get("ok") and not errors)
+    return {
+        "schema": f"{schema_prefix}_typing_browser_privacy_selftest_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": ok,
+        "status": "passed" if ok else "failed",
+        "run_id": run_id,
+        "url": url,
+        "probe": {
+            "text_sha256": probe_hash,
+            "text_length": len(probe_text),
+            "text_omitted": True,
+            "visible_controlled_text": True,
+        },
+        "atspi_text_event": atspi_event,
+        "focused_candidate": focused_candidate_summary,
+        "focused_candidate_attempts": focused_candidate_attempts,
+        "focused_metadata_focus": omit_private_text_fields(focused_metadata_focus) if isinstance(focused_metadata_focus, Mapping) else None,
+        "focused_snapshot": {
+            "schema": focused_snapshot.get("schema") if isinstance(focused_snapshot, Mapping) else None,
+            "ok": focused_snapshot.get("ok") if isinstance(focused_snapshot, Mapping) else None,
+            "status": focused_snapshot.get("status") if isinstance(focused_snapshot, Mapping) else None,
+            "generated_at": focused_snapshot.get("generated_at") if isinstance(focused_snapshot, Mapping) else None,
+        },
+        "focused_event": focused_event,
+        "probe_absence": absence,
+        "checks": {
+            "atspi_metadata_only_before_text_read": atspi_ok,
+            "focused_candidate_no_text_read": focused_candidate_ok,
+            "focused_metadata_only_before_text_read": focused_ok,
+            "probe_text_sha256_absent_from_recent_events": absence.get("ok"),
+        },
+        "firefox": {
+            "binary": firefox_bin,
+            "returncode": firefox_returncode,
+            "profile": str(profile_dir),
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+            "cleanup_actions": cleanup_actions[:40],
+        },
+        "tmp_root": str(tmp_root),
+        "parse_errors": (parse_errors + focused_parse_errors)[:20],
+        "errors": errors[:20],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "secret_like_text_captured": False,
+            "automatic_action": False,
+            "internet_access": False,
+            "loopback_http_only": True,
+            "temporary_firefox_profile": True,
+            "release_profile_mutated": False,
+            "temp_profile_network_prefs_disabled": True,
+            "login_url_text_persisted": False,
+            "requires_metadata_only_on_login_url": True,
+            "atspi_text_read_before_gate": False,
+            "focused_text_read_before_gate": False,
+        },
+        "non_claims": [
+            "This selftest uses synthetic visible text on a temporary Firefox loopback login URL.",
+            "It proves configured AT-SPI and focused-browser routes do not persist text for that login-sensitive URL.",
+            "It does not activate or validate the release Firefox WebExtension profile.",
         ],
     }
 

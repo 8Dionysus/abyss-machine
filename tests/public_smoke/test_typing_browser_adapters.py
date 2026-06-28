@@ -1062,6 +1062,246 @@ def test_cli_focused_browser_selftest_binds_adapter_to_latest_store(monkeypatch,
     assert snapshot["write_latest"] is False
 
 
+def test_browser_privacy_selftest_reports_missing_firefox_without_live_probe(tmp_path) -> None:
+    called: list[str] = []
+
+    def forbidden(*_args: object, **_kwargs: object):
+        called.append("live")
+        return {}
+
+    data = typing_browser_adapters.browser_privacy_selftest_document(
+        generated_at="2026-06-27T18:00:00Z",
+        pid=4242,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        policy={},
+        find_event=forbidden,
+        probe_absence=forbidden,
+        focused_candidate=forbidden,
+        focused_snapshot_from_candidate=forbidden,
+        focus_metadata_by_path=forbidden,
+        capture_gate_decision=forbidden,
+        deny_context_matches=forbidden,
+        capture_gate_policy=forbidden,
+        capture_gate_token_matches=forbidden,
+        browser_extension_policy=forbidden,
+        browser_url_scheme_allowed=forbidden,
+        url_origin=forbidden,
+        browser_privacy_url_matches=forbidden,
+        which=lambda name: None,
+    )
+
+    assert data["status"] == "firefox_missing"
+    assert data["policy"]["raw_keylogging"] is False
+    assert called == []
+
+
+def test_browser_privacy_selftest_runtime_adapter_builds_public_safe_document(tmp_path) -> None:
+    generated_at = "2026-06-27T18:00:00Z"
+    pid = 4242
+    run_id = typing_browser_adapters.browser_webextension_run_id(generated_at, pid)
+    probe_text = f"abyss browser privacy visible login text probe {run_id}"
+    probe_sha = hashlib.sha256(probe_text.encode("utf-8", errors="replace")).hexdigest()
+    launched: list[list[str]] = []
+    captured_candidate: dict[str, object] = {}
+
+    class FakeProcess:
+        pid = 999999
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=0):
+            return "privacy stdout ?token=secret", "privacy stderr ?client_secret=secret"
+
+    def fake_process_factory(command: list[str], **_kwargs: object) -> FakeProcess:
+        launched.append(command)
+        return FakeProcess()
+
+    def fake_find_event(url: str, source_adapter: str, **kwargs: object):
+        assert source_adapter == "atspi_text_changed_event"
+        assert kwargs["generated_after"] == generated_at
+        assert kwargs["probe_text_sha256"] == probe_sha
+        assert kwargs["limit"] == 900
+        assert url == launched[0][-1]
+        return {
+            "event_id": "evt-atspi",
+            "source_adapter": "atspi_text_changed_event",
+            "status": "metadata_only",
+            "capture_gate_decision": "metadata_only",
+            "capture_gate_confidence": "sensitive_url",
+            "text_chars_stored": 0,
+            "text_value_present": False,
+            "text_sha256_matches_probe": False,
+            "app": "Firefox",
+            "window_title": "Abyss login privacy input probe",
+            "atspi": {
+                "text_read": False,
+                "source_path": "0.1.2.3",
+                "document_path": "0.1.2",
+            },
+        }, []
+
+    def fake_focus_metadata_by_path(source_path: str, url: str) -> dict[str, object]:
+        assert source_path == "0.1.2.3"
+        assert url == launched[0][-1]
+        return {
+            "ok": True,
+            "matched": {
+                "role": "entry",
+                "name": "Abyss login visible note",
+                "description": "Login textarea",
+                "app": "Firefox",
+                "document_title": "Abyss login privacy input probe",
+                "content_type": "text/html",
+                "document_path": "0.1.2",
+                "states_after": {"editable": True, "focused": True},
+                "_private": "hidden",
+            },
+        }
+
+    def fake_capture_gate_decision(source: str, **kwargs: object) -> dict[str, object]:
+        assert source == "atspi_focused_text_snapshot"
+        assert kwargs["url"] == launched[0][-1]
+        assert kwargs["write_latest"] is False
+        return {"decision": "metadata_only", "confidence": "sensitive_url"}
+
+    def fake_capture_gate_token_matches(kind: str, probe: str, tokens: list[object]) -> list[dict[str, object]]:
+        if kind == "browser_app_token" and "Firefox" in probe:
+            return [{"kind": kind, "token": "firefox"}]
+        return [{"kind": kind, "token": token} for token in tokens if str(token).lower() in probe.lower()]
+
+    def fake_snapshot_from_candidate(candidate: dict[str, object]) -> dict[str, object]:
+        captured_candidate.update(candidate)
+        return {
+            "schema": "abyss_machine_typing_focused_snapshot_v1",
+            "ok": True,
+            "status": "metadata_only",
+            "generated_at": generated_at,
+            "event": {
+                "event_id": "evt-focused",
+                "source_adapter": "atspi_focused_text_snapshot",
+                "status": "metadata_only",
+                "capture_gate": {"decision": "metadata_only", "confidence": "sensitive_url"},
+                "text": {"text_length": 0, "text_chars_stored": 0},
+                "metadata": {"atspi": {"text_read": False}},
+            },
+        }
+
+    def fake_record_summary(record: object, expected_sha: str | None = None) -> dict[str, object]:
+        assert isinstance(record, dict)
+        assert expected_sha == probe_sha
+        return {
+            "event_id": record["event_id"],
+            "source_adapter": record["source_adapter"],
+            "status": "metadata_only",
+            "capture_gate_decision": "metadata_only",
+            "capture_gate_confidence": "sensitive_url",
+            "text_chars_stored": 0,
+            "text_value_present": False,
+            "text_sha256_matches_probe": False,
+            "atspi": {"text_read": False},
+        }
+
+    data = typing_browser_adapters.browser_privacy_selftest_document(
+        generated_at=generated_at,
+        pid=pid,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        policy={"focused_snapshot": {"text_roles": ["entry"], "sensitive_roles": ["password"]}},
+        find_event=fake_find_event,
+        probe_absence=lambda text_sha: {"ok": text_sha == probe_sha, "records_scanned": 12, "matches": [], "parse_errors": []},
+        focused_candidate=lambda _policy: {"status": "no_candidate"},
+        focused_snapshot_from_candidate=fake_snapshot_from_candidate,
+        focus_metadata_by_path=fake_focus_metadata_by_path,
+        capture_gate_decision=fake_capture_gate_decision,
+        deny_context_matches=lambda probe, _policy: [{"kind": "deny_context_token", "token": "login"}] if "login" in probe.lower() else [],
+        capture_gate_policy=lambda _policy: {"metadata_only_url_tokens": ["login"], "hard_skip_url_tokens": []},
+        capture_gate_token_matches=fake_capture_gate_token_matches,
+        browser_extension_policy=lambda _policy: {"allowed_url_schemes": ["http:", "https:"]},
+        browser_url_scheme_allowed=lambda url, _policy: url.startswith("http://"),
+        url_origin=lambda url: {"origin": url.split("/login.html", 1)[0]},
+        browser_privacy_url_matches=lambda observed, target: str(observed) == str(target),
+        browser_privacy_record_summary=fake_record_summary,
+        terminate_processes=lambda token: [{"ok": True, "token_seen": bool(token)}],
+        which=lambda name: "/usr/bin/firefox" if name == "firefox" else None,
+        process_factory=fake_process_factory,
+        sleep=lambda _seconds: None,
+        monotonic=lambda: 100.0,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "passed"
+    assert data["run_id"] == run_id
+    assert data["probe"]["text_sha256"] == probe_sha
+    assert data["checks"] == {
+        "atspi_metadata_only_before_text_read": True,
+        "focused_candidate_no_text_read": True,
+        "focused_metadata_only_before_text_read": True,
+        "probe_text_sha256_absent_from_recent_events": True,
+    }
+    assert data["focused_event"]["event_id"] == "evt-focused"
+    assert data["focused_candidate"]["capture_gate_decision"] == "metadata_only"
+    assert data["focused_candidate"]["text_read_allowed"] is False
+    assert "text" not in data["focused_candidate"]
+    assert "_private" not in data["focused_metadata_focus"]["matched"]
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stdout_tail"]
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stderr_tail"]
+    assert data["firefox"]["cleanup_actions"] == [{"ok": True, "token_seen": True}]
+    assert captured_candidate["url"] == data["url"]
+    assert captured_candidate["text_read_allowed"] is False
+    assert launched[0][:4] == ["/usr/bin/firefox", "--new-instance", "--profile", str(tmp_path / "tmp" / "profile")]
+    assert launched[0][-2:] == ["--new-window", data["url"]]
+    assert (tmp_path / "tmp" / "profile" / "user.js").exists()
+    assert (tmp_path / "tmp" / "site" / "login.html").exists()
+
+
+def test_cli_browser_privacy_selftest_binds_adapter_to_latest_store(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-27T18:00:00Z")
+    monkeypatch.setattr(cli, "TYPING_BROWSER_PRIVACY_SELFTEST_TMP_ROOT", tmp_path / "tmp")
+    monkeypatch.setattr(cli, "typing_policy", lambda write_latest=False: {"policy": True})
+    monkeypatch.setattr(cli, "typing_browser_privacy_selftest_store", lambda data, write_latest=True: {"stored": data, "write_latest": write_latest})
+    monkeypatch.setattr(
+        cli,
+        "typing_focused_snapshot_from_candidate",
+        lambda candidate, write_latest=True: {"candidate": candidate, "write_latest": write_latest},
+    )
+
+    def fake_document(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"schema": "abyss_machine_typing_browser_privacy_selftest_v1", "ok": True}
+
+    monkeypatch.setattr(typing_browser_adapters, "browser_privacy_selftest_document", fake_document)
+
+    result = cli.typing_browser_privacy_selftest(write_latest=False)
+
+    assert result["write_latest"] is False
+    assert result["stored"]["ok"] is True
+    assert captured["generated_at"] == "2026-06-27T18:00:00Z"
+    assert captured["tmp_root"] == tmp_path / "tmp"
+    assert captured["policy"] == {"policy": True}
+    assert captured["find_event"] is cli.typing_browser_privacy_find_event
+    assert captured["probe_absence"] is cli.typing_browser_privacy_probe_absence
+    assert captured["focused_candidate"] is cli.typing_atspi_focused_candidate
+    assert captured["focus_metadata_by_path"] is cli.typing_atspi_focus_metadata_by_path
+    assert captured["capture_gate_decision"] is cli.typing_capture_gate_decision
+    assert captured["deny_context_matches"] is cli.typing_deny_context_matches
+    assert captured["capture_gate_policy"] is cli.typing_capture_gate_policy
+    assert captured["capture_gate_token_matches"] is cli.typing_capture_gate_token_matches
+    assert captured["browser_extension_policy"] is cli.typing_browser_extension_policy
+    assert captured["browser_url_scheme_allowed"] is cli.typing_browser_url_scheme_allowed
+    assert captured["url_origin"] is cli.typing_url_origin
+    assert captured["browser_privacy_url_matches"] is cli.typing_browser_privacy_url_matches
+    assert captured["browser_privacy_record_summary"] is cli.typing_browser_privacy_record_summary
+    assert captured["process_tail"] is cli.typing_safe_process_tail
+    snapshot = captured["focused_snapshot_from_candidate"]({"ok": True})
+    assert snapshot["write_latest"] is True
+
+
 def test_cli_browser_extension_ingest_executes_adapter_plan(monkeypatch) -> None:
     captured: dict[str, object] = {}
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-27T00:00:00Z")
