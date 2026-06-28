@@ -54,6 +54,98 @@ def browser_webextension_run_id(generated_at: str, pid: int) -> str:
     return re.sub(r"[^0-9]", "", str(generated_at or ""))[:14] + str(pid)[-5:]
 
 
+def _read_firefox_profiles_ini(profiles_ini: Path) -> list[str] | None:
+    if not profiles_ini.exists():
+        return None
+    try:
+        return profiles_ini.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+
+
+def firefox_extension_profiles_from_lines(
+    lines: list[str],
+    *,
+    profiles_root: Path,
+    extension_id: str,
+) -> list[dict[str, Any]]:
+    profiles: list[dict[str, Any]] = []
+    current: dict[str, str] = {}
+    for raw in lines + ["[end]"]:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            if current.get("Path"):
+                path = Path(current.get("Path") or "")
+                if current.get("IsRelative", "1") == "1":
+                    path = profiles_root / path
+                profiles.append({
+                    "name": current.get("Name"),
+                    "path": str(path),
+                    "default": current.get("Default") == "1",
+                    "extensions_json": str(path / "extensions.json"),
+                    "sideload_xpi": str(path / "extensions" / f"{extension_id}.xpi"),
+                })
+            current = {}
+            continue
+        if "=" in line:
+            key, value = line.split("=", 1)
+            current[key.strip()] = value.strip()
+    return profiles
+
+
+def firefox_extension_profiles(
+    profiles_ini: Path,
+    *,
+    extension_id: str,
+) -> list[dict[str, Any]]:
+    lines = _read_firefox_profiles_ini(profiles_ini)
+    if lines is None:
+        return []
+    return firefox_extension_profiles_from_lines(
+        lines,
+        profiles_root=profiles_ini.parent,
+        extension_id=extension_id,
+    )
+
+
+def firefox_release_profile(
+    profiles_ini: Path,
+    *,
+    extension_id: str,
+) -> dict[str, Any] | None:
+    lines = _read_firefox_profiles_ini(profiles_ini)
+    if lines is None:
+        return None
+    current_section = ""
+    install_default = ""
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            current_section = line[1:-1]
+            continue
+        if current_section.startswith("Install") and line.startswith("Default="):
+            install_default = line.split("=", 1)[1].strip()
+            break
+    profiles = firefox_extension_profiles_from_lines(
+        lines,
+        profiles_root=profiles_ini.parent,
+        extension_id=extension_id,
+    )
+    if install_default:
+        for profile in profiles:
+            if Path(str(profile.get("path") or "")).name == install_default:
+                return {**profile, "selection": "install_default"}
+    for profile in profiles:
+        if str(profile.get("name") or "") == "default-release":
+            return {**profile, "selection": "named_default_release"}
+    for profile in profiles:
+        if profile.get("default") is True:
+            return {**profile, "selection": "profile_default"}
+    return profiles[0] if profiles else None
+
+
 def firefox_selftest_user_prefs() -> str:
     return "\n".join([
         'user_pref("app.normandy.enabled", false);',

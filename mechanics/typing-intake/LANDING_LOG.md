@@ -19,6 +19,10 @@
   little-endian length-prefix message read/write, JSON decode/encode, and
   malformed-frame errors while CLI binds the adapter to real stdin/stdout,
   dispatches ingest, and renders the command exit.
+- Firefox release-profile seam: `typing_browser_adapters` owns `profiles.ini`
+  parsing, relative/absolute profile path projection, extension sidecar path
+  projection, and release-profile selection while CLI supplies the configured
+  profile file path and uses the selected profile inside live selftests.
 - AT-SPI object-runtime seam: `typing_atspi_adapters` owns supplied-object
   state flags, text payload reads, object paths, document attributes,
   application/proc fallback context, and event object context projection while
