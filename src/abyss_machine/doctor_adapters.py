@@ -90,6 +90,26 @@ class DoctorSafeRepairPort:
     docs_mesh_build: Callable[[], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class DoctorCoreProbePaths:
+    manifest: Path
+    topology_doc: Path
+    change_root: Path
+    change_agent_entrypoint: Path
+    change_index: Path
+    topology_validate_latest: Path
+    stack_bridge_validate_latest: Path
+    binary: Path
+
+
+@dataclass(frozen=True)
+class DoctorCoreProbePort:
+    platform_system: Callable[[], str]
+    path_exists: Callable[[Path], bool]
+    topology_validate: Callable[[], dict[str, Any]]
+    stack_bridge_validate: Callable[[], dict[str, Any]]
+
+
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
     "doctor_json",
     "doctor_paths_json",
@@ -112,6 +132,105 @@ def _add_check(
     if details is not None:
         item["data"] = details
     checks.append(item)
+
+
+def _validation_level(summary: dict[str, Any]) -> str:
+    return "fail" if summary.get("fails") else "warn" if summary.get("warnings") else "ok"
+
+
+def collect_doctor_core_checks(
+    *,
+    paths: DoctorCoreProbePaths,
+    commands: dict[str, Any],
+    port: DoctorCoreProbePort,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    platform_name = port.platform_system()
+    _add_check(
+        checks,
+        "ok" if platform_name == "Linux" else "fail",
+        "platform",
+        "Linux host" if platform_name == "Linux" else f"unsupported platform {platform_name}",
+    )
+
+    manifest_exists = port.path_exists(paths.manifest)
+    _add_check(
+        checks,
+        "ok" if manifest_exists else "warn",
+        "bridge_manifest",
+        f"{paths.manifest} present" if manifest_exists else f"{paths.manifest} missing",
+    )
+
+    topology_doc_exists = port.path_exists(paths.topology_doc)
+    _add_check(
+        checks,
+        "ok" if topology_doc_exists else "warn",
+        "machine_topology_doc",
+        f"{paths.topology_doc} present" if topology_doc_exists else f"{paths.topology_doc} missing",
+    )
+
+    change_agent_exists = port.path_exists(paths.change_agent_entrypoint)
+    change_index_exists = port.path_exists(paths.change_index)
+    if change_agent_exists and change_index_exists:
+        _add_check(checks, "ok", "machine_change_ledger", f"{paths.change_root} ready")
+    else:
+        _add_check(
+            checks,
+            "warn",
+            "machine_change_ledger",
+            f"{paths.change_root} incomplete",
+            {
+                "agent_entrypoint": str(paths.change_agent_entrypoint),
+                "agent_entrypoint_exists": change_agent_exists,
+                "index": str(paths.change_index),
+                "index_exists": change_index_exists,
+            },
+        )
+
+    topology_validation = port.topology_validate()
+    topology_summary = topology_validation.get("summary", {})
+    _add_check(
+        checks,
+        _validation_level(topology_summary),
+        "machine_topology_validate",
+        f"topology validate {topology_summary.get('status')}",
+        {
+            "summary": topology_summary,
+            "latest": str(paths.topology_validate_latest),
+            "command": "abyss-machine topology validate --json",
+        },
+    )
+
+    stack_bridge_validation = port.stack_bridge_validate()
+    stack_bridge_summary = stack_bridge_validation.get("summary", {})
+    _add_check(
+        checks,
+        _validation_level(stack_bridge_summary),
+        "stack_bridge_validate",
+        f"stack bridge validate {stack_bridge_summary.get('status')}",
+        {
+            "summary": stack_bridge_summary,
+            "latest": str(paths.stack_bridge_validate_latest),
+            "command": "abyss-machine stack-bridge validate --json",
+        },
+    )
+
+    binary_exists = port.path_exists(paths.binary)
+    _add_check(
+        checks,
+        "ok" if binary_exists else "warn",
+        "binary",
+        f"{paths.binary} present" if binary_exists else f"{paths.binary} missing",
+    )
+
+    for command in ("podman", "rsync", "curl"):
+        if commands.get(command):
+            _add_check(checks, "ok", f"cmd_{command}", f"cmd {command}")
+        else:
+            _add_check(checks, "warn", f"cmd_{command}", f"cmd {command} missing")
+
+    return checks
 
 
 def collect_doctor_validate_checks(

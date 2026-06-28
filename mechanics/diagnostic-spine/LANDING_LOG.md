@@ -13,3 +13,6 @@
 - Extracted doctor safe repair orchestration into `doctor_adapters` through
   fakeable semantic-maintenance and docs-mesh runners; CLI still computes live
   safe-action need and binds concrete refresh functions.
+- Extracted doctor core status probe collection into `doctor_adapters` through
+  fakeable platform, filesystem, topology validate, and stack-bridge validate
+  ports; CLI still binds concrete live functions and owns deeper status probes.

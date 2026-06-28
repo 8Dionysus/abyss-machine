@@ -246,7 +246,24 @@ for `abyss-machine doctor validate`:
 
 `abyss_machine.doctor_contracts` still owns the validate document envelope. The
 CLI binds the concrete host probes, writes validate latest/history, and renders
-command output. Full `doctor` status probes remain live adapter debt.
+command output. Deeper `doctor` status probes remain live adapter debt.
+
+## Extracted Doctor Core Status Probe Seam
+
+`abyss_machine.doctor_adapters` now owns the first `abyss-machine doctor`
+status-probe seam:
+
+- platform readiness classification;
+- bridge manifest, topology document, change-ledger, and installed binary path
+  checks;
+- topology and stack-bridge validate summary projection without writing latest
+  files;
+- command availability checks for `podman`, `rsync`, and `curl`.
+
+The CLI binds the concrete platform, filesystem, command-map, topology validate,
+and stack-bridge validate ports. Power, cooling, storage, process, observability,
+nervous, docs, dictation, AI runtime, memory, mode, and timer probes remain
+deeper live adapter debt.
 
 ## Extracted Doctor Report IO Seam
 
@@ -307,8 +324,8 @@ downloads, or destructive cleanup.
    semantic latest/provenance writes.
 2. Dictation and AI runtime adapters: audio/server/clipboard execution and
    model/runtime subprocess plans.
-3. Diagnostic and host lifecycle adapters: full doctor status probes, bootstrap
-   dry-run evidence, and richer installed projection closeout.
+3. Diagnostic and host lifecycle adapters: deeper doctor status probes,
+   bootstrap dry-run evidence, and richer installed projection closeout.
 
 ## Stop Lines
 
