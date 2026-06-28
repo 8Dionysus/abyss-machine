@@ -42,9 +42,13 @@ Use host-contract quick tests and privacy/source policy smoke checks.
 Shared latest/history persistence and local JSONL history reads for typing and
 nervous organs start in
 `abyss_machine.typing_nervous_adapters`. Keep future nervous adapters bounded by
-source or execution class: browser capture, local JSONL/SQLite readers, semantic
-embedding subprocesses, rerank subprocesses, retention apply/unlink, and privacy
-audit writes. `abyss_machine.nervous_semantic_adapters` now owns the first
+source or execution class: browser capture, local JSONL readers, lexical
+SQLite/FTS lifecycle, semantic embedding subprocesses, rerank subprocesses,
+retention apply/unlink, and privacy audit writes.
+`abyss_machine.nervous_index_adapters` now owns source-index connection binding,
+schema file writes, file locks/active-lock probes, latest writes, generated DB
+file mode/group normalization, and vacuum execution through fakeable ports.
+`abyss_machine.nervous_semantic_adapters` now owns the first
 semantic execution seam for embedding subprocess temp-file staging, runner
 invocation, output readback, cleanup, and resource-profile callback routing.
 `abyss_machine.nervous_rerank_adapters` now owns the neural rerank scorer

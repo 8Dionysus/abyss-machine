@@ -28,8 +28,9 @@ Use these mechanic owners for the next extraction slices:
   focused/text-event/generic GUI semantic plans, saved-text scan filesystem
   mechanics, native-host stdio binding, and remaining `pyatspi` runtime
   adapters.
-- `nervous-local`: nervous source capture, privacy state, local JSONL/SQLite
-  readers, semantic/rerank execution, retention, and derived memory evidence.
+- `nervous-local`: nervous source capture, privacy state, local JSONL readers,
+  lexical SQLite/FTS lifecycle, semantic/rerank execution, retention, and
+  derived memory evidence.
 - `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource
   gates, token/STT/TTS execution, dictation transcription/recording/audio
   inspection/journal/insertion/calibration/profile/docs/status/validation/replacements,
