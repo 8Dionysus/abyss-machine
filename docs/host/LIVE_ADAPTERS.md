@@ -246,8 +246,7 @@ for `abyss-machine doctor validate`:
 
 `abyss_machine.doctor_contracts` still owns the validate document envelope. The
 CLI binds the concrete host probes, writes validate latest/history, and renders
-command output. Full `doctor` status probes and safe repair orchestration remain
-live adapter debt.
+command output. Full `doctor` status probes remain live adapter debt.
 
 ## Extracted Doctor Report IO Seam
 
@@ -282,6 +281,26 @@ The CLI remains the binder for concrete live functions, configured constants,
 latest/history writes, and rendering. This seam is read-only input collection; it
 does not stop, restart, repair, or mutate host services.
 
+## Extracted Doctor Safe Repair Orchestration Seam
+
+`abyss_machine.doctor_adapters` now owns the safe repair orchestration boundary
+for `abyss-machine doctor --repair --safe-only`:
+
+- outer repair gate: `repair`, `safe_only`, and doctor repair policy
+  `enabled`;
+- execution selection from `safe_actions` only when an action is explicitly
+  marked `automatic`;
+- fakeable runner ports for semantic maintenance and docs mesh refresh;
+- compact result projection for performed repair actions without copying raw
+  runner payloads.
+
+The CLI still computes current safe-action need from live status probes and binds
+the concrete host refresh functions. The repair seam is limited to generated
+read-model refresh routes. Recovery is to rerun the relevant validate/report
+command and regenerate the host-owned latest files; it does not authorize
+privileged actions, service stops, restarts, project repository mutation, large
+downloads, or destructive cleanup.
+
 ## Next Extraction Order
 
 1. Nervous index/semantic execution adapters: SQLite store lifecycle and
@@ -289,8 +308,7 @@ does not stop, restart, repair, or mutate host services.
 2. Dictation and AI runtime adapters: audio/server/clipboard execution and
    model/runtime subprocess plans.
 3. Diagnostic and host lifecycle adapters: full doctor status probes, bootstrap
-   dry-run evidence, richer installed projection closeout, and repair
-   orchestration.
+   dry-run evidence, and richer installed projection closeout.
 
 ## Stop Lines
 
