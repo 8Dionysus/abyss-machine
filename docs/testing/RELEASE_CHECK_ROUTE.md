@@ -48,6 +48,7 @@ When a change touches installed CLI behavior, typing/nervous, host contracts,
 or live adapters, add the relevant host-side checks:
 
 ```bash
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --json
 PYTHONPATH=src python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"
 PYTHONDONTWRITEBYTECODE=1 tools/abyss-machine-test quick --json
 abyss-machine enter --json
@@ -58,6 +59,7 @@ abyss-machine doctor --json
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-check typing-validate --runtime-check nervous-validate --json
 abyss-machine typing status --json
 abyss-machine typing validate --json
 abyss-machine nervous status --json
@@ -76,5 +78,7 @@ A release or portability claim is only true when:
 - bootstrap dry-runs prove projection shape;
 - generated ABI/scaffold surfaces are current;
 - source/install projection checks cover the changed entrypoints;
+- the compact source/install/runtime parity summary is either green after
+  install or explicitly reported as advisory drift before install;
 - relevant host quick checks are either green or explicitly named as skipped;
 - residual live adapter debt is named in docs, not hidden behind green tests.

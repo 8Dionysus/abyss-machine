@@ -76,6 +76,7 @@ claims satisfy the same gate.
 
 - `python scripts/validators/path_policy.py`
 - `python scripts/validators/first_run_installed_projection.py`
+- `python scripts/validators/source_install_runtime_parity.py --advisory --json`
 - `python scripts/validators/typing_nervous_policy.py`
 - `python scripts/validators/typing_nervous_refresh_logic.py`
 
@@ -94,6 +95,13 @@ share projection, `/run` root creation, typing/nervous config and unit
 projection, and opt-in profile dry-runs. The live
 `/usr/local/bin/abyss-machine` comparison is read-only and advisory by default;
 use `--require-host-installed` during a real host install closeout.
+
+The source/install/runtime parity validator is a compact read-only closeout
+summary. It compares source and installed CLI/package/public-seed digests,
+projects bounded runtime command JSON into status/check counts, and deliberately
+omits raw runtime stdout, raw runtime JSON, private histories, captures, caches,
+and indexes. Use `--advisory` before an install is applied; require a green
+summary after an installed-host closeout.
 
 The typing/nervous policy validator keeps the first subsystem split honest:
 private nervous captures, search and semantic indexes, browser/tool adapters,

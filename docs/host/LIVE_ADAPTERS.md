@@ -213,6 +213,24 @@ writes, and command rendering. The adapter preserves the existing local debug
 input/output files; cleanup or retention policy for those files is a separate
 local-private temp-artifact slice.
 
+## Extracted Host Lifecycle Parity Summary
+
+`abyss_machine.host_lifecycle_parity` owns the compact source/install/runtime
+parity summary used during release and installed-host closeout:
+
+- source CLI vs installed CLI digest comparison;
+- package module and public-seed digest-map counts with bounded samples instead
+  of full file lists;
+- installed path identity summaries without file contents;
+- runtime command JSON projection into status/check/warning/failure counts;
+- privacy flags proving raw runtime stdout and raw runtime JSON are omitted.
+
+`scripts/validators/source_install_runtime_parity.py` is the read-only adapter
+that binds the contract to concrete host paths and bounded runtime commands
+such as `abyss-machine enter --json`, `typing validate`, and
+`nervous validate`. It does not install, repair, or mutate host state; failed
+content parity is evidence for an install closeout, not an automatic action.
+
 ## Next Extraction Order
 
 1. Nervous index/semantic execution adapters: SQLite store lifecycle and
@@ -220,7 +238,7 @@ local-private temp-artifact slice.
 2. Dictation and AI runtime adapters: audio/server/clipboard execution and
    model/runtime subprocess plans.
 3. Diagnostic and host lifecycle adapters: doctor probes, bootstrap dry-run
-   evidence, installed projection parity, and repair orchestration.
+   evidence, richer installed projection closeout, and repair orchestration.
 
 ## Stop Lines
 
