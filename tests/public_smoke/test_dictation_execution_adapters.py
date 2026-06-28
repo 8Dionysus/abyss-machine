@@ -371,6 +371,168 @@ def test_cli_dictation_journal_write_binds_live_adapter(monkeypatch, tmp_path: P
     assert captured["wav_duration_fn"] is cli.wav_duration
 
 
+def test_insert_adapter_prefers_wtype_success_without_clipboard() -> None:
+    calls: list[tuple[str, object]] = []
+
+    def fake_wtype(text: str, timeout: float) -> dict[str, object]:
+        calls.append(("wtype", {"text": text, "timeout": timeout}))
+        return {"returncode": 0, "stderr": ""}
+
+    def forbidden(*args: object, **kwargs: object) -> object:
+        raise AssertionError((args, kwargs))
+
+    data = dictation_execution_adapters.insert_text(
+        "hello",
+        env={},
+        command_exists=lambda command: command == "wtype",
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        run_wtype_fn=fake_wtype,
+        start_foreground_clipboard_fn=forbidden,
+        copy_clipboard_fn=forbidden,
+        send_key_sequence_fn=forbidden,
+    )
+
+    assert data["ok"] is True
+    assert data["method"] == "wtype"
+    assert calls == [("wtype", {"text": "hello", "timeout": 5.0})]
+
+
+def test_insert_adapter_falls_back_to_clipboard_and_ydotool_without_live_tools() -> None:
+    sleeps: list[float] = []
+    captured: dict[str, object] = {}
+
+    def fake_copy(text: str) -> dict[str, object]:
+        captured["copy_text"] = text
+        return {"returncode": 0, "stderr": ""}
+
+    def fake_send(sequence: list[str], env: dict[str, str], timeout: float) -> dict[str, object]:
+        captured["sequence"] = sequence
+        captured["ydotool_env"] = dict(env)
+        captured["timeout"] = timeout
+        return {"returncode": 0, "stderr": ""}
+
+    data = dictation_execution_adapters.insert_text(
+        "hello",
+        env={
+            "ABYSS_DICTATION_INSERT_METHOD": "clipboard",
+            "ABYSS_DICTATION_CLIPBOARD_PROVIDER": "daemon",
+            "ABYSS_DICTATION_PASTE_COMBO": "ctrl-shift-v",
+            "ABYSS_DICTATION_CLIPBOARD_SETTLE_SECONDS": "0.08",
+            "ABYSS_DICTATION_YDOTOOL_KEY_DELAY_MS": "77",
+            "YDOTOOL_SOCKET": "/tmp/ydotool.sock",
+        },
+        command_exists=lambda command: False,
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        copy_clipboard_fn=fake_copy,
+        send_key_sequence_fn=fake_send,
+        sleep_fn=sleeps.append,
+    )
+
+    assert data["ok"] is True
+    assert data["method"] == "wl-copy+ydotool-ctrl-shift-v"
+    assert data["clipboard_provider"] == "daemon"
+    assert data["clipboard_provider_returncode"] == 0
+    assert data["attempts"][0]["combo"] == "ctrl-shift-v"
+    assert data["attempts"][0]["paste_sent"] is True
+    assert captured["copy_text"] == "hello"
+    assert captured["timeout"] == 3.0
+    assert captured["ydotool_env"]["ABYSS_DICTATION_YDOTOOL_KEY_DELAY_MS"] == "77"
+    assert captured["ydotool_env"]["YDOTOOL_SOCKET"] == "/tmp/ydotool.sock"
+    assert sleeps == [0.08]
+
+
+def test_insert_adapter_stops_foreground_clipboard_session_after_paste() -> None:
+    sleeps: list[float] = []
+    stopped: list[float] = []
+    state = {"returncode": None}
+
+    def fake_start(text: str) -> dictation_execution_adapters.ForegroundClipboardSession:
+        assert text == "hello"
+
+        def stop(timeout: float) -> None:
+            stopped.append(timeout)
+            state["returncode"] = -15
+
+        return dictation_execution_adapters.ForegroundClipboardSession(
+            poll=lambda: state["returncode"],
+            read_stderr=lambda: "terminated",
+            stop=stop,
+        )
+
+    data = dictation_execution_adapters.insert_text(
+        "hello",
+        env={
+            "ABYSS_DICTATION_INSERT_METHOD": "clipboard",
+            "ABYSS_DICTATION_CLIPBOARD_PROVIDER": "foreground",
+            "ABYSS_DICTATION_CLIPBOARD_SETTLE_SECONDS": "0",
+            "ABYSS_DICTATION_CLIPBOARD_HOLD_SECONDS": "0.2",
+        },
+        command_exists=lambda command: False,
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        start_foreground_clipboard_fn=fake_start,
+        send_key_sequence_fn=lambda sequence, env, timeout: {"returncode": 0, "stderr": ""},
+        sleep_fn=sleeps.append,
+    )
+
+    assert data["ok"] is True
+    assert data["clipboard_provider"] == "foreground"
+    assert data["clipboard_provider_returncode"] == -15
+    assert data["stderr"] == "terminated"
+    assert sleeps == [0.0, 0.2]
+    assert stopped == [0.5]
+
+
+def test_insert_adapter_reports_missing_ydotool_as_failed_attempt() -> None:
+    def missing_ydotool(sequence: list[str], env: dict[str, str], timeout: float) -> dict[str, object]:
+        raise FileNotFoundError("ydotool")
+
+    data = dictation_execution_adapters.insert_text(
+        "hello",
+        env={
+            "ABYSS_DICTATION_INSERT_METHOD": "clipboard",
+            "ABYSS_DICTATION_CLIPBOARD_PROVIDER": "daemon",
+        },
+        command_exists=lambda command: False,
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        copy_clipboard_fn=lambda text: {"returncode": 0, "stderr": ""},
+        send_key_sequence_fn=missing_ydotool,
+        sleep_fn=lambda seconds: None,
+    )
+
+    assert data["ok"] is False
+    assert data["attempts"][0]["returncode"] == 127
+    assert data["attempts"][0]["paste_sent"] is False
+    assert "ydotool" in data["stderr"]
+
+
+def test_cli_dictation_insert_binds_live_adapter(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_insert_text(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "schema": "abyss_machine_dictation_insert_v1"}
+
+    monkeypatch.setattr(dictation_execution_adapters, "insert_text", fake_insert_text)
+
+    data = cli.dictation_insert("hello")
+
+    assert data["ok"] is True
+    assert captured["text"] == "hello"
+    assert captured["env"] is os.environ
+    assert captured["command_exists"] is cli.command_exists
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert callable(captured["now"])
+
+
 def test_recording_adapter_starts_process_and_writes_state_without_live_audio(tmp_path: Path) -> None:
     paths = _recording_paths(tmp_path)
     captured: dict[str, object] = {}
