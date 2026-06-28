@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import http.server
 import hashlib
 import json
@@ -14,7 +15,7 @@ import struct
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, MutableMapping
 
 from . import typing_capture_contracts
 
@@ -28,6 +29,11 @@ NATIVE_HOST_MAX_MESSAGE_BYTES = 1024 * 1024
 ProbeEventFinder = Callable[[str, int], tuple[dict[str, Any] | None, list[dict[str, Any]]]]
 RunCommand = Callable[[list[str], float, dict[str, str] | None], dict[str, Any]]
 TerminateProcesses = Callable[[str], list[dict[str, Any]]]
+FocusCallback = Callable[..., dict[str, Any]]
+LiveContentCapture = Callable[..., dict[str, Any]]
+ContextFromAtspiPath = Callable[..., dict[str, Any]]
+UrlOrigin = Callable[[str], Mapping[str, Any] | None]
+ProcessTail = Callable[..., str]
 
 
 def _nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -308,6 +314,28 @@ def _terminate_process_group(proc: Any) -> tuple[str, str, int | None]:
     return str(stdout or ""), str(stderr or ""), getattr(proc, "returncode", None)
 
 
+def _omit_private_text_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _omit_private_text_fields(item)
+            for key, item in value.items()
+            if not str(key).startswith("_")
+        }
+    if isinstance(value, list):
+        return [_omit_private_text_fields(item) for item in value]
+    return value
+
+
+def _safe_process_tail(text: Any, max_chars: int = 1000) -> str:
+    raw = str(text or "")[-4000:]
+    redacted = re.sub(
+        r"(?i)([?&](?:key|token|api[_-]?key|apikey|client[_-]?secret)=)[^\s&]+",
+        r"\1[REDACTED:url_query_secret]",
+        raw,
+    )
+    return redacted[-max(1, int(max_chars or 1000)):]
+
+
 def browser_webextension_selftest_document(
     *,
     generated_at: str,
@@ -538,6 +566,271 @@ def browser_webextension_selftest_document(
             "This selftest proves the WebExtension content-script to native-host route in a temporary Firefox profile.",
             "It does not prove the extension is active in the user's release Firefox profiles.",
             "It does not collect raw key events, password fields, cookies, local storage, or full form values.",
+        ],
+    }
+
+
+def browser_context_selftest_document(
+    *,
+    generated_at: str,
+    pid: int,
+    tmp_root: Path,
+    schema_prefix: str,
+    version: str,
+    events_policy: dict[str, Any] | None,
+    focus_window_by_title: FocusCallback,
+    focus_metadata_by_url: FocusCallback,
+    live_content_capture: LiveContentCapture,
+    context_from_recent_atspi_path: ContextFromAtspiPath,
+    prepare_profile: Callable[[Path], dict[str, Any] | None] = prepare_firefox_selftest_profile,
+    natural_route_host: Callable[[], str | None] = lambda: None,
+    url_origin: UrlOrigin | None = None,
+    omit_private_text_fields: Callable[[Any], Any] = _omit_private_text_fields,
+    process_tail: ProcessTail = _safe_process_tail,
+    which: Callable[[str], str | None] = shutil.which,
+    process_factory: Callable[..., Any] = subprocess.Popen,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    env_mapping: MutableMapping[str, str] | None = None,
+    deadline_seconds: float = 36.0,
+    capture_env_overrides: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    run_id = browser_webextension_run_id(generated_at, pid)
+    profile_dir = tmp_root / "profile"
+    site_dir = tmp_root / "site"
+    firefox_bin = which("firefox")
+    stdout_tail = ""
+    stderr_tail = ""
+    firefox_returncode: int | None = None
+    captures: dict[str, Any] | None = None
+    matched_capture: dict[str, Any] | None = None
+    inference: dict[str, Any] | None = None
+    window_focus_attempt: dict[str, Any] | None = None
+    focus_attempt: dict[str, Any] | None = None
+    capture_env = dict(capture_env_overrides or {
+        "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_MAX_APPS": "16",
+        "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_MAX_DOCUMENTS_PER_APP": "64",
+        "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_SCAN_MAX_NODES": "24000",
+        "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_TEXT_MAX_NODES": "12000",
+        "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_MAX_CHILDREN": "160",
+    })
+    runtime_env = env_mapping if env_mapping is not None else os.environ
+    previous_capture_env: dict[str, str | None] = {}
+    errors: list[dict[str, Any]] = []
+    url = ""
+
+    if not firefox_bin:
+        return {
+            "schema": f"{schema_prefix}_typing_browser_context_selftest_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "status": "firefox_missing",
+            "error": "firefox executable not found",
+            "policy": {"raw_keylogging": False, "password_fields_captured": False, "automatic_action": False},
+        }
+
+    proc: Any | None = None
+    httpd: socketserver.TCPServer | None = None
+    server_thread: threading.Thread | None = None
+    try:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        site_dir.mkdir(parents=True, exist_ok=True)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        prefs_error = prepare_profile(profile_dir)
+        if prefs_error:
+            errors.append(prefs_error)
+        page = f"""<!doctype html>
+<meta charset=\"utf-8\">
+<title>Abyss Writing Context</title>
+<main>
+  <h1>Abyss Writing Context</h1>
+  <p>Safe browser context proof {html.escape(run_id)} links page title, URL origin, visible document text, and AT-SPI document path for an Abyss Machine typing route.</p>
+  <p>The page represents a normal project reading surface: a short design note, a visible browser document, and a focused window that a future typed event can be connected to without reading private fields or account material.</p>
+  <p>The capture should identify this as project context because the title names Abyss, the document is visible, and the body has enough meaningful language to separate it from browser chrome, media controls, counters, or thin navigation.</p>
+  <p>The useful causal link is document first, then origin, then visible page context, then typed input. That gives later readmodels a better route for deciding where text was entered, what task it belonged to, and which browser surface was active.</p>
+  <p>The proof text is public and intentionally boring. It carries no credentials, no personal identifiers, no account fields, no payment material, and no form values. The empty note area remains empty so the route proves context capture rather than form capture.</p>
+  <textarea aria-label=\"Safe context note\"></textarea>
+</main>
+"""
+        write_error = _atomic_write_text(site_dir / "index.html", page, 0o664)
+        if write_error:
+            errors.append(write_error)
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, directory=str(site_dir), **kwargs)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                return
+
+        class ReusableTCPServer(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+
+        server_host = natural_route_host() or "127.0.0.1"
+        httpd = ReusableTCPServer((server_host, 0), Handler)
+        port = int(httpd.server_address[1])
+        url = f"http://{server_host}:{port}/index.html"
+        server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        server_thread.start()
+
+        process_env = dict(runtime_env)
+        process_env["MOZ_NO_REMOTE"] = "1"
+        process_env.setdefault("GNOME_ACCESSIBILITY", "1")
+        process_env.setdefault("NO_AT_BRIDGE", "0")
+        process_env.setdefault("GTK_MODULES", "gail:atk-bridge")
+        proc = process_factory(
+            [firefox_bin, "--new-instance", "--profile", str(profile_dir), "--new-window", url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=process_env,
+            preexec_fn=os.setsid,
+        )
+        sleep(1.2)
+        window_focus_attempt = focus_window_by_title("Abyss Writing Context", timeout_sec=3.0)
+        for key, value in capture_env.items():
+            previous_capture_env[key] = runtime_env.get(key)
+            runtime_env[key] = value
+        deadline = monotonic() + max(1.0, float(deadline_seconds or 36.0))
+        last_focus_attempt_at = 0.0
+        last_window_focus_attempt_at = monotonic()
+        while monotonic() < deadline:
+            if monotonic() - last_window_focus_attempt_at >= 3.0:
+                window_focus_attempt = focus_window_by_title("Abyss Writing Context", timeout_sec=2.0)
+                last_window_focus_attempt_at = monotonic()
+            if monotonic() - last_focus_attempt_at >= 4.0:
+                focus_attempt = focus_metadata_by_url(url, timeout_sec=3.0)
+                last_focus_attempt_at = monotonic()
+            captures = live_content_capture(write_latest=True)
+            for item in captures.get("captures", []) if isinstance(captures, dict) else []:
+                if not isinstance(item, dict):
+                    continue
+                record = item.get("record") if isinstance(item.get("record"), dict) else {}
+                record_url = typing_capture_contracts.browser_content_record_url(record)
+                if record_url == url and record.get("skipped_text") is not True:
+                    matched_capture = item
+                    break
+            if matched_capture:
+                break
+            if proc.poll() is not None:
+                break
+            sleep(1.0)
+        if isinstance(matched_capture, dict):
+            record = matched_capture.get("record") if isinstance(matched_capture.get("record"), dict) else {}
+            atspi = matched_capture.get("atspi") if isinstance(matched_capture.get("atspi"), dict) else {}
+            if not atspi and isinstance(record.get("atspi_context"), dict):
+                atspi = record["atspi_context"]
+            path = str(atspi.get("path") or "")
+            if path:
+                inference = context_from_recent_atspi_path(
+                    path,
+                    path,
+                    events_policy,
+                    allow_attention_fallback=False,
+                )
+    except Exception as exc:
+        errors.append({"error": repr(exc)[:500]})
+    finally:
+        for key, previous_value in previous_capture_env.items():
+            if previous_value is None:
+                runtime_env.pop(key, None)
+            else:
+                runtime_env[key] = previous_value
+        stdout, stderr, firefox_returncode = _terminate_process_group(proc)
+        stdout_tail = process_tail(stdout, max_chars=1000)
+        stderr_tail = process_tail(stderr, max_chars=1000)
+        if httpd is not None:
+            try:
+                httpd.shutdown()
+                httpd.server_close()
+            except Exception:
+                pass
+        if server_thread is not None:
+            try:
+                server_thread.join(timeout=1.0)
+            except Exception:
+                pass
+
+    matched_record = matched_capture.get("record") if isinstance(matched_capture, dict) and isinstance(matched_capture.get("record"), dict) else {}
+    matched_atspi = matched_capture.get("atspi") if isinstance(matched_capture, dict) and isinstance(matched_capture.get("atspi"), dict) else {}
+    text_record_ok = bool(
+        matched_record
+        and matched_record.get("skipped_text") is not True
+        and _safe_int(matched_record.get("text_length"), 0) > 0
+        and str(_nested_get(matched_record, ["content_quality", "classification"]) or "") == "usable"
+    )
+    inference_ok = bool(isinstance(inference, dict) and inference.get("ok") is True and inference.get("url") == url)
+    ok = bool(text_record_ok and inference_ok and not errors)
+    url_origin_doc = url_origin(typing_capture_contracts.browser_content_record_url(matched_record)) if matched_record and url_origin else None
+    return {
+        "schema": f"{schema_prefix}_typing_browser_context_selftest_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": ok,
+        "status": "passed" if ok else "failed",
+        "run_id": run_id,
+        "url": url,
+        "capture": {
+            "ok": captures.get("ok") if isinstance(captures, dict) else None,
+            "status": "matched" if matched_capture else "missing_match",
+            "summary": captures.get("summary") if isinstance(captures, dict) else None,
+            "record": {
+                "captured_at": matched_record.get("captured_at") if matched_record else None,
+                "title": matched_record.get("title") if matched_record else None,
+                "url_origin": _nested_get(url_origin_doc, ["origin"]) if matched_record else None,
+                "content_type": matched_record.get("content_type") if matched_record else None,
+                "text_captured": bool(
+                    matched_record.get("skipped_text") is not True
+                    and _safe_int(matched_record.get("text_length"), 0) > 0
+                ) if matched_record else None,
+                "text_length": matched_record.get("text_length") if matched_record else None,
+                "skipped_text": matched_record.get("skipped_text") if matched_record else None,
+                "web_context_class": _nested_get(matched_record, ["web_context_quality", "class"]) if matched_record else None,
+                "content_quality_class": _nested_get(matched_record, ["content_quality", "classification"]) if matched_record else None,
+            },
+            "atspi": {
+                "path": matched_atspi.get("path"),
+                "role": matched_atspi.get("role"),
+                "showing": matched_atspi.get("showing"),
+                "visible": matched_atspi.get("visible"),
+                "focused": matched_atspi.get("focused"),
+            } if matched_atspi else None,
+            "window_focus_attempt": omit_private_text_fields(window_focus_attempt) if isinstance(window_focus_attempt, dict) else None,
+            "focus_attempt": omit_private_text_fields(focus_attempt) if isinstance(focus_attempt, dict) else None,
+            "capture_env_overrides": capture_env,
+        },
+        "inference": {
+            key: value
+            for key, value in (inference or {}).items()
+            if key not in {"url", "title"}
+        } if isinstance(inference, dict) else None,
+        "firefox": {
+            "binary": firefox_bin,
+            "returncode": firefox_returncode,
+            "profile": str(profile_dir),
+            "profile_kind": "temporary_profile",
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+        },
+        "tmp_root": str(tmp_root),
+        "errors": errors[:20],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "form_values_captured": False,
+            "cookies_captured": False,
+            "local_storage_captured": False,
+            "automatic_action": False,
+            "temporary_firefox_profile": True,
+            "release_profile_mutated": False,
+            "uses_browser_content_capture": True,
+            "uses_atspi_document_path_inference": True,
+        },
+        "non_claims": [
+            "This proves safe browser document context capture and AT-SPI URL/context inference in a temporary Firefox profile.",
+            "It does not prove the unsigned release-profile WebExtension is active.",
+            "It does not collect raw key events, password fields, cookies, local storage, or form values.",
         ],
     }
 

@@ -512,6 +512,175 @@ def test_browser_webextension_selftest_runtime_adapter_builds_public_safe_docume
     assert (tmp_path / "tmp" / "site" / "index.html").exists()
 
 
+def test_browser_context_selftest_reports_missing_firefox_without_live_probe(tmp_path) -> None:
+    called = {"live": False}
+
+    def forbidden_live_capture(**_kwargs: object) -> dict[str, object]:
+        called["live"] = True
+        return {}
+
+    data = typing_browser_adapters.browser_context_selftest_document(
+        generated_at="2026-06-27T18:00:00Z",
+        pid=4242,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        events_policy={"max_age_sec": 30},
+        focus_window_by_title=lambda *_args, **_kwargs: {},
+        focus_metadata_by_url=lambda *_args, **_kwargs: {},
+        live_content_capture=forbidden_live_capture,
+        context_from_recent_atspi_path=lambda *_args, **_kwargs: {},
+        which=lambda name: None,
+    )
+
+    assert data["status"] == "firefox_missing"
+    assert data["policy"]["raw_keylogging"] is False
+    assert called["live"] is False
+
+
+def test_browser_context_selftest_runtime_adapter_builds_public_safe_document(tmp_path) -> None:
+    generated_at = "2026-06-27T18:00:00Z"
+    pid = 4242
+    run_id = typing_browser_adapters.browser_webextension_run_id(generated_at, pid)
+    launched: list[list[str]] = []
+    runtime_env = {
+        "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_MAX_APPS": "old",
+        "KEEP": "1",
+    }
+
+    class FakeProcess:
+        pid = 999999
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=0):
+            return "opened ?token=secret", "stderr ?client_secret=secret"
+
+    def fake_process_factory(command: list[str], **_kwargs: object) -> FakeProcess:
+        launched.append(command)
+        return FakeProcess()
+
+    def fake_live_capture(**kwargs: object) -> dict[str, object]:
+        assert kwargs == {"write_latest": True}
+        url = launched[0][-1]
+        return {
+            "ok": True,
+            "summary": {"captures": 1},
+            "captures": [{
+                "record": {
+                    "captured_at": generated_at,
+                    "title": "Abyss Writing Context",
+                    "url": {"url": url},
+                    "content_type": "text/html",
+                    "text_length": 512,
+                    "skipped_text": False,
+                    "web_context_quality": {"class": "project_context"},
+                    "content_quality": {"classification": "usable"},
+                },
+                "atspi": {
+                    "path": "/application/firefox/document",
+                    "role": "document",
+                    "showing": True,
+                    "visible": True,
+                    "focused": True,
+                },
+            }],
+        }
+
+    def fake_context_from_path(
+        source_path: str,
+        document_path: str,
+        events_policy: dict[str, object] | None,
+        *,
+        allow_attention_fallback: bool,
+    ) -> dict[str, object]:
+        assert source_path == "/application/firefox/document"
+        assert document_path == "/application/firefox/document"
+        assert events_policy == {"max_age_sec": 30}
+        assert allow_attention_fallback is False
+        return {
+            "ok": True,
+            "status": "matched",
+            "url": launched[0][-1],
+            "title": "Abyss Writing Context",
+            "basis": "recent_browser_content",
+        }
+
+    data = typing_browser_adapters.browser_context_selftest_document(
+        generated_at=generated_at,
+        pid=pid,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        events_policy={"max_age_sec": 30},
+        focus_window_by_title=lambda *_args, **_kwargs: {"ok": True, "_private": "hidden", "method": "title"},
+        focus_metadata_by_url=lambda *_args, **_kwargs: {"ok": True, "_private": "hidden", "method": "url"},
+        live_content_capture=fake_live_capture,
+        context_from_recent_atspi_path=fake_context_from_path,
+        natural_route_host=lambda: "127.0.0.1",
+        url_origin=lambda url: {"origin": "http://127.0.0.1"},
+        which=lambda name: "/usr/bin/firefox" if name == "firefox" else None,
+        process_factory=fake_process_factory,
+        sleep=lambda _seconds: None,
+        monotonic=lambda: 100.0,
+        env_mapping=runtime_env,
+        deadline_seconds=1.0,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "passed"
+    assert data["run_id"] == run_id
+    assert data["capture"]["record"]["text_captured"] is True
+    assert data["capture"]["record"]["content_quality_class"] == "usable"
+    assert data["capture"]["atspi"]["path"] == "/application/firefox/document"
+    assert "_private" not in data["capture"]["window_focus_attempt"]
+    assert "_private" not in data["capture"]["focus_attempt"]
+    assert data["inference"] == {"ok": True, "status": "matched", "basis": "recent_browser_content"}
+    assert data["policy"]["temporary_firefox_profile"] is True
+    assert data["policy"]["release_profile_mutated"] is False
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stdout_tail"]
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stderr_tail"]
+    assert launched[0][:4] == ["/usr/bin/firefox", "--new-instance", "--profile", str(tmp_path / "tmp" / "profile")]
+    assert launched[0][-2:] == ["--new-window", data["url"]]
+    assert (tmp_path / "tmp" / "profile" / "user.js").exists()
+    assert (tmp_path / "tmp" / "site" / "index.html").exists()
+    assert runtime_env == {
+        "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_MAX_APPS": "old",
+        "KEEP": "1",
+    }
+
+
+def test_cli_browser_context_selftest_binds_adapter_to_latest_store(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-27T18:00:00Z")
+    monkeypatch.setattr(cli, "TYPING_BROWSER_CONTEXT_SELFTEST_TMP_ROOT", tmp_path / "tmp")
+    monkeypatch.setattr(cli, "typing_browser_context_selftest_store", lambda data, write_latest=True: {"stored": data, "write_latest": write_latest})
+    monkeypatch.setattr(cli, "typing_policy", lambda write_latest=False: {"policy": True})
+    monkeypatch.setattr(cli, "typing_atspi_text_events_policy", lambda policy: {"events_policy": policy})
+
+    def fake_document(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"schema": "abyss_machine_typing_browser_context_selftest_v1", "ok": True}
+
+    monkeypatch.setattr(typing_browser_adapters, "browser_context_selftest_document", fake_document)
+
+    result = cli.typing_browser_context_selftest(write_latest=False)
+
+    assert result["write_latest"] is False
+    assert result["stored"]["ok"] is True
+    assert captured["generated_at"] == "2026-06-27T18:00:00Z"
+    assert captured["tmp_root"] == tmp_path / "tmp"
+    assert captured["events_policy"] == {"events_policy": {"policy": True}}
+    assert captured["focus_window_by_title"] is cli.typing_atspi_focus_firefox_frame_by_title
+    assert captured["focus_metadata_by_url"] is cli.typing_atspi_focus_metadata_by_url
+    assert captured["live_content_capture"] is cli.nervous_browser_live_content_capture
+    assert captured["context_from_recent_atspi_path"] is cli.typing_browser_context_from_recent_atspi_path
+    assert captured["natural_route_host"] is cli.typing_browser_atspi_natural_route_host
+    assert captured["process_tail"] is cli.typing_safe_process_tail
+
+
 def test_cli_browser_extension_ingest_executes_adapter_plan(monkeypatch) -> None:
     captured: dict[str, object] = {}
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-27T00:00:00Z")
