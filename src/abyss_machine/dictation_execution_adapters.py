@@ -3,6 +3,8 @@ from __future__ import annotations
 import array
 from dataclasses import dataclass
 import datetime as dt
+import fcntl
+import grp
 import hashlib
 import json
 import math
@@ -20,6 +22,8 @@ import wave
 from . import dictation_contracts
 
 
+DEFAULT_STATE_GROUP = "wheel"
+
 RunCommand = Callable[[list[str], float, Mapping[str, str] | None], Mapping[str, Any]]
 CommandExists = Callable[[str], bool]
 WavSampleRate = Callable[[Path], int | None]
@@ -35,6 +39,10 @@ SignalProcess = Callable[[int, int], None]
 Sleep = Callable[[float], None]
 WavStats = Callable[[Path], dict[str, Any]]
 RecentWavs = Callable[[int], list[Path]]
+EnsureDocs = Callable[[], list[dict[str, Any]]]
+IndexDocument = Callable[[], dict[str, Any]]
+PathsDocument = Callable[[], dict[str, Any]]
+PathExists = Callable[[Path], bool]
 
 
 @dataclass(frozen=True)
@@ -55,12 +63,159 @@ class DictationAudioPaths:
     runtime_dir: Path
 
 
+@dataclass(frozen=True)
+class DictationJournalPaths:
+    jsonl_root: Path
+    jsonl_path: Path
+    markdown_path: Path
+    latest_path: Path
+    index_path: Path
+
+
 def current_datetime() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc).astimezone()
 
 
 def filename_timestamp() -> str:
     return dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def _ensure_state_history_dir(path: Path, *, group: str = DEFAULT_STATE_GROUP) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path, 0o2775)
+    except PermissionError:
+        pass
+    try:
+        os.chown(path, -1, grp.getgrnam(group).gr_gid)
+    except (KeyError, PermissionError):
+        pass
+
+
+def safe_atomic_write_json(
+    path: Path,
+    data: dict[str, Any],
+    mode: int = 0o664,
+    *,
+    group: str = DEFAULT_STATE_GROUP,
+) -> dict[str, Any] | None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as tmp:
+            json.dump(data, tmp, indent=2, sort_keys=False)
+            tmp.write("\n")
+            tmp_name = tmp.name
+        os.chmod(tmp_name, mode)
+        try:
+            os.chown(tmp_name, -1, grp.getgrnam(group).gr_gid)
+        except (KeyError, PermissionError):
+            pass
+        os.replace(tmp_name, path)
+        return None
+    except OSError as exc:
+        return {"path": str(path), "error": str(exc)}
+
+
+def safe_append_jsonl(
+    path: Path,
+    data: dict[str, Any],
+    mode: int = 0o664,
+    *,
+    group: str = DEFAULT_STATE_GROUP,
+) -> dict[str, Any] | None:
+    try:
+        _ensure_state_history_dir(path.parent, group=group)
+        payload = (json.dumps(data, sort_keys=False) + "\n").encode("utf-8")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        fd = os.open(path, flags, mode)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            view = memoryview(payload)
+            while view:
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("short append write")
+                view = view[written:]
+        finally:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            os.close(fd)
+        try:
+            os.chmod(path, mode)
+        except PermissionError:
+            pass
+        try:
+            os.chown(path, -1, grp.getgrnam(group).gr_gid)
+        except (KeyError, PermissionError):
+            pass
+        return None
+    except OSError as exc:
+        return {"path": str(path), "error": str(exc)}
+
+
+def safe_append_text(
+    path: Path,
+    text: str,
+    mode: int = 0o664,
+    *,
+    group: str = DEFAULT_STATE_GROUP,
+) -> dict[str, Any] | None:
+    try:
+        _ensure_state_history_dir(path.parent, group=group)
+        payload = text.encode("utf-8")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        fd = os.open(path, flags, mode)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            view = memoryview(payload)
+            while view:
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("short append write")
+                view = view[written:]
+        finally:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            os.close(fd)
+        try:
+            os.chmod(path, mode)
+        except PermissionError:
+            pass
+        try:
+            os.chown(path, -1, grp.getgrnam(group).gr_gid)
+        except (KeyError, PermissionError):
+            pass
+        return None
+    except OSError as exc:
+        return {"path": str(path), "error": str(exc)}
+
+
+def load_json_document(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, "missing"
+    except OSError as exc:
+        return None, str(exc)
+    except json.JSONDecodeError as exc:
+        return None, f"invalid json: {exc}"
+    if not isinstance(data, dict):
+        return None, "document is not a JSON object"
+    return data, None
 
 
 def wav_stats(path: Path) -> dict[str, Any]:
@@ -150,6 +305,15 @@ def wav_stats(path: Path) -> dict[str, Any]:
     }
 
 
+def wav_duration(path: Path) -> float | None:
+    with wave.open(str(path), "rb") as wav:
+        frames = wav.getnframes()
+        rate = wav.getframerate()
+        if not rate:
+            return None
+        return round(frames / rate, 3)
+
+
 def recent_wavs(paths: DictationAudioPaths, limit: int = 12) -> list[Path]:
     if not paths.runtime_dir.exists():
         return []
@@ -201,6 +365,200 @@ def audio_doctor(
         "summary": summary,
         "calibration": config.get("calibration", {}) if isinstance(config.get("calibration"), dict) else {},
         "recommended_runtime": dictation_contracts.recommended_audio_runtime(summary),
+    }
+
+
+def audio_metadata(audio: Any, *, wav_duration_fn: WavDuration = wav_duration) -> dict[str, Any]:
+    if not audio:
+        return {"path": None, "exists": False}
+    path = Path(str(audio))
+    data: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "persistent_copy": False,
+    }
+    if path.exists():
+        try:
+            stat = path.stat()
+            data["size_bytes"] = stat.st_size
+            data["mtime"] = dt.datetime.fromtimestamp(stat.st_mtime, dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+        except OSError as exc:
+            data["stat_error"] = str(exc)
+        try:
+            data["duration_sec"] = wav_duration_fn(path)
+        except Exception as exc:
+            data["duration_error"] = str(exc)
+    return data
+
+
+def journal_event(
+    result: Mapping[str, Any],
+    *,
+    include_failed: bool,
+    paths: DictationJournalPaths,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+    wav_duration_fn: WavDuration = wav_duration,
+) -> dict[str, Any] | None:
+    transcript = result.get("transcript")
+    if not isinstance(transcript, dict):
+        return None
+    if not transcript.get("ok") and not include_failed:
+        return None
+    recording = result.get("recording") if isinstance(result.get("recording"), dict) else {}
+    audio = recording.get("audio") if isinstance(recording, dict) else None
+    generated_at = now()
+    event_id = dictation_contracts.journal_entry_id(dict(result), audio, generated_at)
+    return dictation_contracts.journal_event(
+        dict(result),
+        include_failed=True,
+        audio_metadata=audio_metadata(audio, wav_duration_fn=wav_duration_fn),
+        event_id=event_id,
+        generated_at=generated_at,
+        paths={
+            "jsonl": str(paths.jsonl_path),
+            "readable": str(paths.markdown_path),
+            "latest": str(paths.latest_path),
+        },
+        schema_prefix=schema_prefix,
+        version=version,
+    )
+
+
+def journal_write(
+    result: Mapping[str, Any],
+    *,
+    paths: DictationJournalPaths,
+    enabled: bool,
+    include_failed: bool,
+    ensure_docs: EnsureDocs,
+    index_document: IndexDocument,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+    wav_duration_fn: WavDuration = wav_duration,
+    path_exists: PathExists = Path.exists,
+) -> dict[str, Any]:
+    generated_at = now()
+    if not enabled:
+        return {
+            "schema": f"{schema_prefix}_dictation_journal_write_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": True,
+            "enabled": False,
+            "message": "dictation journal disabled by config",
+        }
+    event = journal_event(
+        result,
+        include_failed=include_failed,
+        paths=paths,
+        schema_prefix=schema_prefix,
+        version=version,
+        now=now,
+        wav_duration_fn=wav_duration_fn,
+    )
+    if event is None:
+        ensure_errors = ensure_docs()
+        return {
+            "schema": f"{schema_prefix}_dictation_journal_write_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": not ensure_errors,
+            "enabled": True,
+            "written": False,
+            "write_errors": ensure_errors,
+        }
+
+    include_header = not path_exists(paths.markdown_path)
+    errors = ensure_docs()
+    for error in (
+        safe_append_jsonl(paths.jsonl_path, event, 0o664),
+        safe_append_text(paths.markdown_path, dictation_contracts.journal_markdown(event, include_header), 0o664),
+        safe_atomic_write_json(paths.latest_path, event, 0o664),
+        safe_atomic_write_json(paths.index_path, index_document(), 0o664),
+    ):
+        if error:
+            errors.append(error)
+    return {
+        "schema": f"{schema_prefix}_dictation_journal_write_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": not errors,
+        "enabled": True,
+        "written": not errors,
+        "event_id": event.get("id"),
+        "paths": event.get("paths"),
+        "write_errors": errors,
+    }
+
+
+def journal_latest(
+    *,
+    paths: DictationJournalPaths,
+    ensure_docs: EnsureDocs,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+    path_exists: PathExists = Path.exists,
+) -> dict[str, Any]:
+    ensure_errors = ensure_docs()
+    latest, error = load_json_document(paths.latest_path)
+    empty = latest is None and error == "missing"
+    return {
+        "schema": f"{schema_prefix}_dictation_journal_latest_v1",
+        "version": version,
+        "generated_at": now(),
+        "ok": (bool(latest) or empty) and not ensure_errors,
+        "path": str(paths.latest_path),
+        "exists": path_exists(paths.latest_path),
+        "empty": empty,
+        "entry": latest if isinstance(latest, dict) else None,
+        "load_error": None if empty else error,
+        "write_errors": ensure_errors,
+    }
+
+
+def journal_tail(
+    *,
+    paths: DictationJournalPaths,
+    lines: int,
+    ensure_docs: EnsureDocs,
+    paths_document: PathsDocument,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+) -> dict[str, Any]:
+    bounded_lines = max(1, min(int(lines), 200))
+    ensure_errors = ensure_docs()
+    entries: list[dict[str, Any]] = []
+    files = sorted(paths.jsonl_root.glob("*/*/*.jsonl"))
+    for path in files[-14:]:
+        try:
+            raw_lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw in raw_lines:
+            if not raw.strip():
+                continue
+            try:
+                item = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                item["_source_path"] = str(path)
+                entries.append(item)
+    selected = entries[-bounded_lines:]
+    return {
+        "schema": f"{schema_prefix}_dictation_journal_tail_v1",
+        "version": version,
+        "generated_at": now(),
+        "ok": not ensure_errors,
+        "lines": bounded_lines,
+        "entries": selected,
+        "paths": paths_document(),
+        "write_errors": ensure_errors,
     }
 
 
