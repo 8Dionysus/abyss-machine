@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+from . import doctor_contracts
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,37 @@ class DoctorValidateProbePort:
     load_latest_json: Callable[[Path, str], dict[str, Any]]
     user_systemd_unit: Callable[[str], dict[str, Any]]
     bridge_manifest: Callable[[], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class DoctorReportWritePaths:
+    latest_markdown: Path
+    daily_markdown: Path
+
+
+@dataclass(frozen=True)
+class DoctorMachineReportWritePaths:
+    latest_json: Path
+    history_root: Path
+    latest_markdown: Path
+    daily_markdown: Path
+
+
+@dataclass(frozen=True)
+class DoctorReportWritePort:
+    write_text: Callable[[Path, str, int], dict[str, Any] | None]
+
+
+@dataclass(frozen=True)
+class DoctorMachineReportWritePort:
+    write_latest_and_history: Callable[[dict[str, Any], Path, Path], list[dict[str, Any]]]
+    write_text: Callable[[Path, str, int], dict[str, Any] | None]
+
+
+@dataclass(frozen=True)
+class DoctorArtifactReadPort:
+    load_json_document: Callable[[Path], tuple[Any, Any]]
+    path_exists: Callable[[Path], bool]
 
 
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
@@ -180,3 +214,76 @@ def collect_doctor_validate_checks(
     )
 
     return checks
+
+
+def daily_markdown_path(root: Path, now: dt.datetime) -> Path:
+    local_now = now.astimezone() if now.tzinfo is not None else now
+    return root / f"{local_now.year:04d}" / f"{local_now.month:02d}" / f"{local_now.strftime('%Y-%m-%d')}.md"
+
+
+def write_doctor_report(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    data: dict[str, Any],
+    paths: DoctorReportWritePaths,
+    port: DoctorReportWritePort,
+    mode: int = 0o664,
+) -> dict[str, Any]:
+    text = doctor_contracts.report_markdown(data)
+    errors = [
+        error
+        for error in (
+            port.write_text(paths.latest_markdown, text, mode),
+            port.write_text(paths.daily_markdown, text, mode),
+        )
+        if error
+    ]
+    return doctor_contracts.report_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        latest_path=paths.latest_markdown,
+        daily_path=paths.daily_markdown,
+        write_errors=errors,
+    )
+
+
+def read_machine_report_artifact(
+    *,
+    label: str,
+    path: Path,
+    port: DoctorArtifactReadPort,
+) -> dict[str, Any]:
+    data, error = port.load_json_document(path)
+    return doctor_contracts.artifact_entry(
+        label=label,
+        path=path,
+        exists=port.path_exists(path),
+        load_error=error,
+        data=data,
+    )
+
+
+def write_machine_report_outputs(
+    *,
+    data: dict[str, Any],
+    paths: DoctorMachineReportWritePaths,
+    port: DoctorMachineReportWritePort,
+    mode: int = 0o664,
+) -> dict[str, Any]:
+    markdown = doctor_contracts.machine_report_markdown(data)
+    errors = list(port.write_latest_and_history(data, paths.latest_json, paths.history_root))
+    errors.extend(
+        error
+        for error in (
+            port.write_text(paths.latest_markdown, markdown, mode),
+            port.write_text(paths.daily_markdown, markdown, mode),
+        )
+        if error
+    )
+    if errors:
+        data["ok"] = False
+        data["write_errors"] = errors
+    return data
