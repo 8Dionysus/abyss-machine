@@ -2986,6 +2986,42 @@ def test_artifact_affected_current_local_commit_proof_closes_owner_repo_drift(tm
     assert row["drift"]["source_ref_state"] == "proved_current"
 
 
+def test_artifact_affected_current_commit_does_not_hide_stale_abi_subject(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    commit = "fedcba9876543210fedcba9876543210fedcba98"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=["registry-maintenance:post-merge:" + commit[:7]],
+        artifact_class="public_source_seed",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        source_refs=["manifests/artifact_bundles/public_source_seed.bundle.json"],
+        producer=f"abyss-machine-public-source-seed@{commit}",
+        abi_subject_digest="sha256:" + ("0" * 64),
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="public_source_seed",
+        changed_source_ref=commit,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"needs_reverify": 1}
+    assert affected["summary"]["operationally_blocking"] == 1
+    assert row["affected"] is True
+    assert row["verdict"] == "needs_reverify"
+    assert row["freshness"] == "stale"
+    assert row["reasons"] == ["abi_subject_digest_stale"]
+    assert row["source_ref_status"]["matched_ref"] == f"abyss-machine-public-source-seed@{commit}"
+    assert row["source_ref_status"]["proves_current_ref"] is True
+    assert row["abi_subject_status"]["state"] == "stale"
+    assert row["drift"]["status"] == "reverify_required"
+    assert row["drift"]["source_ref_state"] == "proved_current"
+    assert row["drift"]["operationally_blocking"] is True
+
+
 def test_artifact_affected_current_local_commit_proof_closes_changed_path_drift(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
     commit = "1234567890abcdef1234567890abcdef12345678"

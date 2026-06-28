@@ -3299,6 +3299,7 @@ def _artifact_affected_verdict(
     changed_source_ref: str,
     accept_sibling_lag: bool,
     source_status: dict[str, Any] | None = None,
+    abi_subject_status: dict[str, Any] | None = None,
 ) -> str:
     owner_repo = str(row.get("owner_repo") or "")
     automation_profiles = [
@@ -3314,7 +3315,16 @@ def _artifact_affected_verdict(
     if source_status is None:
         scoped_source_ref = changed_source_ref if _artifact_source_ref_scope_applies(row, changed_source_repo) else ""
         source_status = _source_ref_status(row, scoped_source_ref)
+    abi_status = abi_subject_status if isinstance(abi_subject_status, dict) else _artifact_abi_subject_status(row)
     source_ref_proves_current = source_status.get("proves_current_ref") is True
+    abi_reverify_reasons = {
+        "abi_signature_readmodel_changed",
+        "abi_subject_digest_stale",
+    }
+    if any(reason in affected_reasons for reason in abi_reverify_reasons) or abi_status.get("state") == "stale":
+        if registry.get("checked") and not registry.get("has_latest"):
+            return "needs_rebuild"
+        return "needs_reverify"
     owner_repo_changed = bool(changed_source_repo and owner_repo and changed_source_repo == owner_repo)
     profile_owner_changed = bool(changed_source_repo and changed_source_repo in profile_owner_repos)
     external_owner_changed = bool(changed_source_repo and changed_source_repo != "abyss-machine" and (owner_repo_changed or profile_owner_changed))
@@ -3483,6 +3493,12 @@ def artifact_affected(
                 for match in matches
                 if match.get("reason") != "abi_signature_readmodel_changed"
             ]
+        if (
+            abi_subject_status.get("state") == "stale"
+            and "abi_signature_readmodel_changed" not in reasons
+        ):
+            if "abi_subject_digest_stale" not in reasons:
+                reasons.append("abi_subject_digest_stale")
         owner_repo = str(requirement.get("owner_repo") or "")
         automation_profiles = [
             item for item in requirement.get("producer_profiles", []) if isinstance(item, dict)
@@ -3522,6 +3538,7 @@ def artifact_affected(
             changed_source_ref=changed_source_ref,
             accept_sibling_lag=accept_sibling_lag,
             source_status=source_status,
+            abi_subject_status=abi_subject_status,
         )
         if (
             verdict == "needs_reverify"
