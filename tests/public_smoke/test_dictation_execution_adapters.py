@@ -311,6 +311,50 @@ def test_cli_dictation_calibrate_mic_binds_live_adapter(monkeypatch, tmp_path: P
     assert captured["recent_wavs_fn"] is cli.recent_dictation_wavs
 
 
+def test_journal_policy_adapter_preserves_fail_open_defaults() -> None:
+    assert dictation_execution_adapters.journal_policy(lambda: {}) == {
+        "enabled": True,
+        "include_failed": True,
+    }
+    assert dictation_execution_adapters.journal_policy(lambda: {"journal": "bad"}) == {
+        "enabled": True,
+        "include_failed": True,
+    }
+
+    def broken_config() -> dict[str, object]:
+        raise OSError("config unavailable")
+
+    assert dictation_execution_adapters.journal_enabled(broken_config) is True
+    assert dictation_execution_adapters.journal_include_failed(broken_config) is True
+
+
+def test_journal_policy_adapter_reads_explicit_config_values() -> None:
+    config = {"journal": {"enabled": "false", "include_failed": "0"}}
+
+    assert dictation_execution_adapters.journal_policy(lambda: config) == {
+        "enabled": False,
+        "include_failed": False,
+    }
+    assert dictation_execution_adapters.journal_enabled(lambda: config) is False
+    assert dictation_execution_adapters.journal_include_failed(lambda: config) is False
+
+
+def test_cli_dictation_journal_policy_binds_live_config(monkeypatch) -> None:
+    config = {"journal": {"enabled": False, "include_failed": True}}
+    calls = 0
+
+    def fake_config() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return config
+
+    monkeypatch.setattr(cli, "dictation_config", fake_config)
+
+    assert cli.dictation_journal_enabled() is False
+    assert cli.dictation_journal_include_failed() is True
+    assert calls == 2
+
+
 def _journal_result(audio: Path) -> dict[str, object]:
     return {
         "generated_at": "2026-06-28T11:59:58+00:00",
