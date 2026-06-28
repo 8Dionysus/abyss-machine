@@ -261,9 +261,9 @@ status-probe seam:
 - command availability checks for `podman`, `rsync`, and `curl`.
 
 The CLI binds the concrete platform, filesystem, command-map, topology validate,
-and stack-bridge validate ports. Power/cooling status checks are split below;
-storage, process, observability, nervous, docs, dictation, AI runtime, memory,
-mode, and timer probes remain deeper live adapter debt.
+and stack-bridge validate ports. Power/cooling, storage/process, and
+snapshot/observability status checks are split below; nervous, docs, dictation,
+AI runtime, memory, mode, and timer probes remain deeper live adapter debt.
 
 ## Extracted Doctor Power/Cooling Status Probe Seam
 
@@ -294,6 +294,21 @@ The CLI binds the current facts document, storage policy reader, storage hook
 status reader, and process latest-summary reader. The adapter does not scan
 disks, execute storage hooks, inspect `/proc`, run process snapshots, apply
 cleanup, or mutate storage/process state.
+
+## Extracted Doctor Snapshot/Observability Status Probe Seam
+
+`abyss_machine.doctor_adapters` owns the `abyss-machine doctor`
+snapshot/observability status-probe seam:
+
+- snapper availability, root config, and cleanup timer readiness projection;
+- observability topology projection for root, agent entrypoint, and index;
+- observability timer readiness projection using the configured timer name;
+- observability latest freshness projection using a caller-supplied maximum age.
+
+The CLI binds the current `status()` read-model and observability timer name.
+The adapter does not run snapper cleanup, execute the observability collector,
+read or write latest files, mutate systemd units, or repair observability
+permissions.
 
 ## Extracted Doctor Report IO Seam
 

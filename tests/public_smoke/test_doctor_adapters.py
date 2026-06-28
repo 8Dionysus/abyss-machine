@@ -255,6 +255,86 @@ def test_doctor_storage_process_probe_adapter_preserves_degraded_status_shape() 
     assert by_key["process_snapshot_latest"]["data"] == {"path": str(paths.process_latest), "summary": None}
 
 
+def test_doctor_snapshot_observability_probe_adapter_collects_clean_checks_without_live_host() -> None:
+    snapshots = {
+        "snapper_available": True,
+        "root_config_exists": True,
+        "timers": {"cleanup": {"active": "active", "is_active": True}},
+    }
+    observability = {
+        "root_exists": True,
+        "agent_entrypoint_exists": True,
+        "index_exists": True,
+        "timer": {"active": "active", "enabled": "enabled", "is_active": True, "is_enabled": True},
+        "latest": {"age_sec": 120, "generated_at": "2026-06-28T10:45:00Z"},
+    }
+    port = doctor_adapters.DoctorSnapshotObservabilityProbePort(
+        snapshots_status=lambda: snapshots,
+        observability_status=lambda: observability,
+    )
+
+    checks = doctor_adapters.collect_doctor_snapshot_observability_checks(
+        observability_timer_name="abyss-observability-collect.timer",
+        latest_max_age_sec=300,
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert len(checks) == 6
+    assert by_key["snapper"]["message"] == "snapper available"
+    assert by_key["snapper_root_config"]["level"] == "ok"
+    assert by_key["snapper_cleanup"]["data"] == {"active": "active", "is_active": True}
+    assert by_key["observability_topology"]["message"] == "observability topology present"
+    assert by_key["observability_topology"]["data"] == {
+        "root_exists": True,
+        "agent_entrypoint_exists": True,
+        "index_exists": True,
+    }
+    assert by_key["observability_timer"]["message"] == "abyss-observability-collect.timer active/enabled"
+    assert by_key["observability_latest"]["message"] == "observability latest sample age 120s"
+
+
+def test_doctor_snapshot_observability_probe_adapter_preserves_degraded_status_shape() -> None:
+    snapshots = {
+        "snapper_available": False,
+        "root_config_exists": False,
+        "timers": {"cleanup": {"active": "inactive", "is_active": False}},
+    }
+    observability = {
+        "root_exists": True,
+        "agent_entrypoint_exists": False,
+        "index_exists": False,
+        "timer": {"active": "inactive", "enabled": "disabled", "is_active": False, "is_enabled": False},
+        "latest": {"age_sec": 301, "generated_at": "2026-06-28T10:45:00Z"},
+    }
+    port = doctor_adapters.DoctorSnapshotObservabilityProbePort(
+        snapshots_status=lambda: snapshots,
+        observability_status=lambda: observability,
+    )
+
+    checks = doctor_adapters.collect_doctor_snapshot_observability_checks(
+        observability_timer_name="abyss-observability-collect.timer",
+        latest_max_age_sec=300,
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert by_key["snapper"]["level"] == "warn"
+    assert by_key["snapper"]["message"] == "snapper missing"
+    assert by_key["snapper_root_config"]["message"] == "snapper root config missing"
+    assert by_key["snapper_cleanup"]["message"] == "snapper-cleanup.timer inactive"
+    assert by_key["observability_topology"]["level"] == "warn"
+    assert by_key["observability_topology"]["data"] == {
+        "root_exists": True,
+        "agent_entrypoint_exists": False,
+        "index_exists": False,
+    }
+    assert by_key["observability_timer"]["message"] == "abyss-observability-collect.timer inactive/disabled"
+    assert by_key["observability_latest"]["level"] == "warn"
+    assert by_key["observability_latest"]["message"] == "observability latest sample age 301s"
+    assert by_key["observability_latest"]["data"] == {"age_sec": 301, "generated_at": "2026-06-28T10:45:00Z"}
+
+
 def test_doctor_core_probe_adapter_preserves_degraded_status_shape() -> None:
     paths = _core_paths()
     exists = {paths.change_agent_entrypoint}
