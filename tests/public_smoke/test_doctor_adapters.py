@@ -49,6 +49,13 @@ def _storage_process_paths() -> doctor_adapters.DoctorStorageProcessProbePaths:
     )
 
 
+def _dictation_paths() -> doctor_adapters.DoctorDictationProbePaths:
+    return doctor_adapters.DoctorDictationProbePaths(
+        config=Path("/etc/abyss-machine/dictation/config.json"),
+        input_remapper_preset=Path("/tmp/abyss-machine-test/input-remapper/Abyss Dictation.json"),
+    )
+
+
 def _fake_port(
     *,
     exists: set[Path],
@@ -333,6 +340,109 @@ def test_doctor_snapshot_observability_probe_adapter_preserves_degraded_status_s
     assert by_key["observability_latest"]["level"] == "warn"
     assert by_key["observability_latest"]["message"] == "observability latest sample age 301s"
     assert by_key["observability_latest"]["data"] == {"age_sec": 301, "generated_at": "2026-06-28T10:45:00Z"}
+
+
+def test_doctor_dictation_probe_adapter_collects_clean_checks_without_live_host() -> None:
+    paths = _dictation_paths()
+    dictation = {
+        "commands": {"pw_record": True, "wl_copy": True, "ydotool": True, "ydotool_socket": True},
+        "config": {
+            "exists": True,
+            "load_error": None,
+            "calibration": {"updated_at": "2026-06-28T10:50:00Z"},
+            "profile_policy": {"fallback_profile": "quality"},
+        },
+        "replacements": {"exists": True, "count": 4},
+        "profiles": {
+            "fast": {"model_dir_exists": True, "model_dir": "/models/fast"},
+            "quality": {"model_dir_exists": True, "model_dir": "/models/quality"},
+        },
+        "default_profile": "auto",
+        "server_socket": "/run/user/1000/abyss-machine/dictation/server.sock",
+        "server_socket_exists": True,
+    }
+    service = {"active": "active", "enabled": "enabled", "is_active": True, "is_enabled": True}
+    port = doctor_adapters.DoctorDictationProbePort(
+        dictation_status=lambda: dictation,
+        systemd_unit=lambda name: dict(service, name=name),
+        user_systemd_unit=lambda name: dict(service, name=name),
+        path_exists=lambda path: path == paths.input_remapper_preset,
+    )
+
+    checks = doctor_adapters.collect_doctor_dictation_checks(
+        paths=paths,
+        hotkey_service_name="abyss-dictation-hotkey.service",
+        server_service_name="abyss-dictation-server.service",
+        input_remapper_service_name="input-remapper.service",
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert len(checks) == 11
+    assert by_key["dictation_config"]["message"] == f"{paths.config} ready"
+    assert by_key["dictation_replacements"]["level"] == "ok"
+    assert by_key["dictation_mic_calibration"]["message"] == "dictation microphone calibration present"
+    assert by_key["dictation_record"]["level"] == "ok"
+    assert by_key["dictation_insert"]["data"] == dictation["commands"]
+    assert by_key["dictation_fast_model"]["data"] == "/models/fast"
+    assert by_key["dictation_default_model"]["message"] == "dictation auto profile ready (fallback quality)"
+    assert by_key["dictation_default_model"]["data"] == {
+        "default_profile": "auto",
+        "fallback_profile": "quality",
+        "fallback_model_dir": "/models/quality",
+    }
+    assert by_key["dictation_hotkey"]["message"] == "abyss-dictation-hotkey.service active/enabled"
+    assert by_key["dictation_server"]["message"] == "abyss-dictation-server warm model service ready"
+    assert by_key["dictation_server"]["data"]["socket_exists"] is True
+    assert by_key["dictation_input_remapper"]["level"] == "ok"
+    assert by_key["dictation_input_remapper_preset"]["data"] == str(paths.input_remapper_preset)
+
+
+def test_doctor_dictation_probe_adapter_preserves_degraded_status_shape() -> None:
+    paths = _dictation_paths()
+    dictation = {
+        "commands": {"pw_record": False, "wl_copy": True, "ydotool": False, "ydotool_socket": False},
+        "config": {"exists": False, "load_error": "missing", "calibration": {}},
+        "replacements": {"exists": True, "count": 0},
+        "profiles": {
+            "fast": {"model_dir_exists": False, "model_dir": "/models/fast"},
+            "quality": {"model_dir_exists": False, "model_dir": "/models/quality"},
+        },
+        "default_profile": "quality",
+        "server_socket": "/run/user/1000/abyss-machine/dictation/server.sock",
+        "server_socket_exists": False,
+    }
+    service = {"active": "inactive", "enabled": "disabled", "is_active": False, "is_enabled": False}
+    port = doctor_adapters.DoctorDictationProbePort(
+        dictation_status=lambda: dictation,
+        systemd_unit=lambda name: dict(service, name=name),
+        user_systemd_unit=lambda name: dict(service, name=name),
+        path_exists=lambda path: False,
+    )
+
+    checks = doctor_adapters.collect_doctor_dictation_checks(
+        paths=paths,
+        hotkey_service_name="abyss-dictation-hotkey.service",
+        server_service_name="abyss-dictation-server.service",
+        input_remapper_service_name="input-remapper.service",
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert by_key["dictation_config"]["level"] == "warn"
+    assert by_key["dictation_config"]["message"] == f"{paths.config} missing or invalid"
+    assert by_key["dictation_replacements"]["message"] == "dictation replacements missing"
+    assert by_key["dictation_mic_calibration"]["level"] == "warn"
+    assert by_key["dictation_record"]["message"] == "pw-record missing"
+    assert by_key["dictation_insert"]["message"] == "dictation insertion not fully ready"
+    assert by_key["dictation_fast_model"]["message"] == "dictation fast model missing"
+    assert by_key["dictation_default_model"]["message"] == "dictation default model missing (quality)"
+    assert by_key["dictation_default_model"]["data"] == "/models/quality"
+    assert by_key["dictation_hotkey"]["message"] == "abyss-dictation-hotkey.service inactive/disabled"
+    assert by_key["dictation_server"]["message"] == "abyss-dictation-server.service inactive/disabled"
+    assert by_key["dictation_server"]["data"]["socket_exists"] is False
+    assert by_key["dictation_input_remapper"]["message"] == "input-remapper.service inactive/disabled"
+    assert by_key["dictation_input_remapper_preset"]["level"] == "warn"
 
 
 def test_doctor_core_probe_adapter_preserves_degraded_status_shape() -> None:
