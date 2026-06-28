@@ -43,6 +43,9 @@ EnsureDocs = Callable[[], list[dict[str, Any]]]
 IndexDocument = Callable[[], dict[str, Any]]
 PathsDocument = Callable[[], dict[str, Any]]
 PathExists = Callable[[Path], bool]
+RunWtypeText = Callable[[str, float], Mapping[str, Any]]
+CopyClipboardText = Callable[[str], Mapping[str, Any]]
+SendKeySequence = Callable[[list[str], Mapping[str, str], float], Mapping[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,16 @@ class DictationJournalPaths:
     markdown_path: Path
     latest_path: Path
     index_path: Path
+
+
+@dataclass(frozen=True)
+class ForegroundClipboardSession:
+    poll: Callable[[], int | None]
+    read_stderr: Callable[[], str]
+    stop: Callable[[float], None]
+
+
+StartForegroundClipboard = Callable[[str], ForegroundClipboardSession]
 
 
 def current_datetime() -> dt.datetime:
@@ -216,6 +229,90 @@ def load_json_document(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     if not isinstance(data, dict):
         return None, "document is not a JSON object"
     return data, None
+
+
+def env_int(env: Mapping[str, str] | None, key: str, default: int, minimum: int, maximum: int) -> int:
+    raw = (env or {}).get(key, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def run_wtype_text(text: str, timeout: float) -> Mapping[str, Any]:
+    proc = subprocess.run(
+        ["wtype", "-"],
+        input=text,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+    return {"returncode": proc.returncode, "stderr": proc.stderr.strip()}
+
+
+def copy_clipboard_text(text: str) -> Mapping[str, Any]:
+    proc = subprocess.run(
+        ["wl-copy", "--type", "text/plain"],
+        input=text,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=3.0,
+        check=False,
+    )
+    return {"returncode": proc.returncode, "stderr": proc.stderr.strip()}
+
+
+def start_foreground_clipboard(text: str) -> ForegroundClipboardSession:
+    proc = subprocess.Popen(
+        ["wl-copy", "--foreground", "--type", "text/plain"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    if proc.stdin is None:
+        raise OSError("wl-copy stdin unavailable")
+    proc.stdin.write(text)
+    proc.stdin.close()
+
+    def poll() -> int | None:
+        return proc.poll()
+
+    def read_stderr() -> str:
+        if proc.stderr is None or proc.poll() is None:
+            return ""
+        return proc.stderr.read().strip()
+
+    def stop(timeout: float) -> None:
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                pass
+
+    return ForegroundClipboardSession(poll=poll, read_stderr=read_stderr, stop=stop)
+
+
+def send_key_sequence(sequence: list[str], env: Mapping[str, str], timeout: float) -> Mapping[str, Any]:
+    proc = subprocess.run(
+        ["ydotool", "key", "--key-delay", str(env.get("ABYSS_DICTATION_YDOTOOL_KEY_DELAY_MS", "45")), *sequence],
+        env=dict(env),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+    return {"returncode": proc.returncode, "stderr": proc.stderr.strip()}
 
 
 def wav_stats(path: Path) -> dict[str, Any]:
@@ -366,6 +463,130 @@ def audio_doctor(
         "calibration": config.get("calibration", {}) if isinstance(config.get("calibration"), dict) else {},
         "recommended_runtime": dictation_contracts.recommended_audio_runtime(summary),
     }
+
+
+def insert_text(
+    text: str,
+    *,
+    env: Mapping[str, str],
+    command_exists: CommandExists,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+    run_wtype_fn: RunWtypeText = run_wtype_text,
+    start_foreground_clipboard_fn: StartForegroundClipboard = start_foreground_clipboard,
+    copy_clipboard_fn: CopyClipboardText = copy_clipboard_text,
+    send_key_sequence_fn: SendKeySequence = send_key_sequence,
+    sleep_fn: Sleep = time.sleep,
+) -> dict[str, Any]:
+    if not text.strip():
+        return dictation_contracts.insert_empty_result(schema_prefix, version, now())
+
+    env_map = dict(env)
+    method_preference = str(env_map.get("ABYSS_DICTATION_INSERT_METHOD", "wtype")).lower()
+    wtype_result: dict[str, Any] | None = None
+    if method_preference in {"wtype", "auto"} and command_exists("wtype"):
+        timeout = max(5.0, min(30.0, len(text) / 12.0))
+        try:
+            wtype_proc = run_wtype_fn(text, timeout)
+            returncode = int(wtype_proc.get("returncode", 1))
+            stderr = str(wtype_proc.get("stderr") or "")
+            wtype_result = {
+                "method": "wtype",
+                "returncode": returncode,
+                "stderr": stderr,
+            }
+            if returncode == 0:
+                return dictation_contracts.insert_wtype_success_result(text, schema_prefix, version, now())
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            wtype_result = {
+                "method": "wtype",
+                "returncode": 124 if isinstance(exc, subprocess.TimeoutExpired) else 127,
+                "stderr": str(exc),
+            }
+
+    clipboard_provider = dictation_contracts.normalize_clipboard_provider(env_map.get("ABYSS_DICTATION_CLIPBOARD_PROVIDER", "foreground"))
+
+    foreground_session: ForegroundClipboardSession | None = None
+    copy_returncode: int | None = None
+    copy_stderr = ""
+    try:
+        if clipboard_provider == "foreground":
+            foreground_session = start_foreground_clipboard_fn(text)
+            sleep_fn(float(env_map.get("ABYSS_DICTATION_CLIPBOARD_SETTLE_SECONDS", "0.12")))
+            copy_returncode = foreground_session.poll()
+            if copy_returncode not in (None, 0):
+                copy_stderr = foreground_session.read_stderr()
+                return dictation_contracts.insert_error_result(copy_stderr.strip() or "wl-copy failed", schema_prefix, version, now())
+        else:
+            copy_run = copy_clipboard_fn(text)
+            copy_returncode = int(copy_run.get("returncode", 1))
+            copy_stderr = str(copy_run.get("stderr") or "")
+            if copy_returncode != 0:
+                return dictation_contracts.insert_error_result(copy_stderr or "wl-copy failed", schema_prefix, version, now())
+            sleep_fn(float(env_map.get("ABYSS_DICTATION_CLIPBOARD_SETTLE_SECONDS", "0.08")))
+    except FileNotFoundError:
+        return dictation_contracts.insert_error_result("wl-copy not found", schema_prefix, version, now())
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if foreground_session is not None:
+            foreground_session.stop(0.5)
+        return dictation_contracts.insert_error_result(str(exc), schema_prefix, version, now())
+
+    combo_name = dictation_contracts.normalize_paste_combo(env_map.get("ABYSS_DICTATION_PASTE_COMBO", "ctrl-v"))
+    key_delay_ms = str(env_int(env_map, "ABYSS_DICTATION_YDOTOOL_KEY_DELAY_MS", 45, 10, 120))
+    hold_seconds = float(env_map.get("ABYSS_DICTATION_CLIPBOARD_HOLD_SECONDS", "1.6"))
+    attempts: list[dict[str, Any]] = []
+    combo_order = dictation_contracts.paste_combo_order(combo_name)
+
+    ydotool_env = dict(env_map)
+    ydotool_env.setdefault("YDOTOOL_SOCKET", f"/run/user/{os.getuid()}/.ydotool_socket")
+    ydotool_env["ABYSS_DICTATION_YDOTOOL_KEY_DELAY_MS"] = key_delay_ms
+
+    paste_sent = False
+    for index, name in enumerate(combo_order):
+        if index:
+            sleep_fn(0.18)
+        sequence = dictation_contracts.paste_key_sequence(name)
+        try:
+            paste_proc = send_key_sequence_fn(sequence, ydotool_env, 3.0)
+            returncode = int(paste_proc.get("returncode", 1))
+            stderr = str(paste_proc.get("stderr") or "")
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            returncode = 124 if isinstance(exc, subprocess.TimeoutExpired) else 127
+            stderr = str(exc)
+        attempt = {
+            "combo": name,
+            "returncode": returncode,
+            "stderr": stderr,
+            "paste_sent": returncode == 0,
+        }
+        attempts.append(attempt)
+        if returncode != 0:
+            continue
+        paste_sent = True
+        if clipboard_provider == "foreground":
+            sleep_fn(max(0.2, min(5.0, hold_seconds)))
+        break
+
+    if foreground_session is not None:
+        foreground_session.stop(0.5)
+        if foreground_session.poll() is not None:
+            copy_stderr = foreground_session.read_stderr()
+        copy_returncode = foreground_session.poll()
+
+    fallback: dict[str, Any] | None = wtype_result
+    return dictation_contracts.insert_final_result(
+        text=text,
+        clipboard_provider=clipboard_provider,
+        copy_returncode=copy_returncode,
+        attempts=attempts,
+        fallback=fallback,
+        copy_stderr=copy_stderr,
+        combo_name=combo_name,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now(),
+    )
 
 
 def audio_metadata(audio: Any, *, wav_duration_fn: WavDuration = wav_duration) -> dict[str, Any]:
