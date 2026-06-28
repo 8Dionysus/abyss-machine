@@ -264,9 +264,12 @@ audio-doctor summary/recommended-runtime decisions, recording command/state
 contracts, mic-calibration command/result contracts, stop/toggle lifecycle
 envelopes, transcript helper/server request/result envelopes, insertion
 result/key-sequence policy, and journal event/markdown envelopes live in
-`abyss_machine.dictation_contracts`; WAV inspection, server/socket transport,
-live insertion execution, document writes, and latest writes remain at the CLI
-edge.
+`abyss_machine.dictation_contracts`; explicit-file transcription runtime
+execution, warm-server socket transport, client-side 16 kHz runtime
+preprocessing, helper subprocess invocation, and helper runtime env projection
+live in `abyss_machine.dictation_execution_adapters`. WAV inspection for
+status/audio-doctor/profile selection, recording execution, live insertion
+execution, document writes, and latest writes remain at the CLI edge.
 
 `artifact_signature_policy.py` validates the public artifact identity and
 signature policy that feeds contract ABI signatures, local provenance packet
