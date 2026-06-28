@@ -87,3 +87,40 @@ def test_memory_plan_is_not_a_zram_or_sysctl_mutation_plan(abyss_machine_module)
     assert plan["policy"]["do_not_kill_existing_processes"] is True
     assert plan["policy"]["do_not_tune_zram_or_sysctl_from_plan"] is True
     assert "recommended_new_work" in plan
+
+
+def test_memory_orchestrate_apply_carries_zram_sysctl_no_mutation_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    abyss_machine_module,
+) -> None:
+    candidate = {"id": "cand-safe", "target": {"kind": "managed_model_dehydrate_rehydrate_candidate"}}
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "memory_orchestrate_plan",
+        lambda **_kwargs: {"ok": True, "summary": {"candidate_count": 1}, "candidates": [candidate]},
+    )
+    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_target_snapshot", lambda _candidate: {})
+    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_candidate_idle_probe", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_health_route", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_future_executor", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_confirmation_artifact_status", lambda _candidate_id: {})
+    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_apply_guard_rows", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "memory_orchestrate_guard_summary",
+        lambda _guards: {"confirm_blockers": [], "counts": {"fail": 0}},
+    )
+    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_apply_steps", lambda *_args, **_kwargs: [])
+
+    result = abyss_machine_module.memory_orchestrate_apply(
+        "cand-safe",
+        dry_run=True,
+        confirm=False,
+        execute_live=False,
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["policy"]["do_not_tune_zram_or_sysctl_from_plan"] is True
+    assert result["policy"]["do_not_stop_disable_throttle_reaffinitize_or_cap_live_services"] is True
+    assert result["policy"]["existing_process_mutation"] is False
