@@ -794,6 +794,67 @@ def test_recording_adapter_reads_active_and_stale_state(tmp_path: Path) -> None:
     assert not paths.state_file.exists()
 
 
+def test_toggle_debounce_adapter_builds_result_from_fakeable_ports() -> None:
+    active = {"pid": 777, "audio": "/tmp/dictation.wav"}
+    calls = 0
+
+    def status_document() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"recording_active": True}
+
+    result = dictation_execution_adapters.toggle_debounce_result(
+        active,
+        age_seconds=0.1,
+        env={},
+        status_document=status_document,
+        debounce_seconds=0.35,
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+    )
+
+    assert result is not None
+    assert result["schema"] == "abyss_machine_dictation_toggle_v1"
+    assert result["action"] == "debounce"
+    assert result["recording"] == active
+    assert result["status"]["message"] == "ignored duplicate dictation toggle"
+    assert calls == 1
+
+
+def test_toggle_debounce_adapter_respects_bypass_and_age() -> None:
+    def forbidden_status() -> dict[str, object]:
+        raise AssertionError("status should not be read")
+
+    assert dictation_execution_adapters.toggle_debounce_bypassed({"ABYSS_DICTATION_BYPASS_DEBOUNCE": "yes"}) is True
+    assert (
+        dictation_execution_adapters.toggle_debounce_result(
+            {"pid": 777},
+            age_seconds=0.1,
+            env={"ABYSS_DICTATION_BYPASS_DEBOUNCE": "1"},
+            status_document=forbidden_status,
+            debounce_seconds=0.35,
+            schema_prefix="abyss_machine",
+            version="test",
+            now=lambda: "2026-06-28T12:00:00+00:00",
+        )
+        is None
+    )
+    assert (
+        dictation_execution_adapters.toggle_debounce_result(
+            {"pid": 777},
+            age_seconds=2.0,
+            env={},
+            status_document=forbidden_status,
+            debounce_seconds=0.35,
+            schema_prefix="abyss_machine",
+            version="test",
+            now=lambda: "2026-06-28T12:00:00+00:00",
+        )
+        is None
+    )
+
+
 def test_recording_adapter_stops_process_and_unlinks_state(tmp_path: Path) -> None:
     paths = _recording_paths(tmp_path)
     state = {
@@ -868,6 +929,34 @@ def test_cli_dictation_recording_lifecycle_binds_live_adapter(monkeypatch, tmp_p
     assert stopped["schema_prefix"] == cli.SCHEMA_PREFIX
     assert stopped["version"] == cli.VERSION
     assert callable(stopped["now"])
+
+
+def test_cli_dictation_toggle_binds_debounce_adapter(monkeypatch) -> None:
+    active = {"pid": 777, "audio": "/tmp/dictation.wav"}
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "load_dictation_recording", lambda: active)
+    monkeypatch.setattr(cli, "recording_age_seconds", lambda state: 0.1)
+
+    def fake_toggle_debounce_result(active_arg: object, **kwargs: object) -> dict[str, object]:
+        captured["active"] = active_arg
+        captured.update(kwargs)
+        return {"schema": "abyss_machine_dictation_toggle_v1", "action": "debounce", "ok": True}
+
+    monkeypatch.setattr(dictation_execution_adapters, "toggle_debounce_result", fake_toggle_debounce_result)
+    monkeypatch.setattr(cli, "_dictation_stop_unlocked", lambda _active: (_ for _ in ()).throw(AssertionError("stop should not run")))
+
+    data = cli._dictation_toggle_unlocked("quality", insert=True)
+
+    assert data["action"] == "debounce"
+    assert captured["active"] == active
+    assert captured["age_seconds"] == 0.1
+    assert captured["env"] is os.environ
+    assert captured["status_document"] is cli.dictation_status
+    assert captured["debounce_seconds"] == cli.DICTATION_DEBOUNCE_SECONDS
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert callable(captured["now"])
 
 
 def test_dictation_adapter_reports_missing_model_before_runtime_calls(tmp_path: Path) -> None:
