@@ -113,8 +113,11 @@ eval run execution-plan/run/validate envelopes live in
 status/freshness contract assembly, maintenance assessment, batch policy, build
 command shaping, source chunk projection, semantic sidecar store/reuse/count
 contracts, embedding subprocess payload/script/result contracts, and
-vector/search shaping live in `abyss_machine.nervous_semantic`; embedding
-subprocess temp-file staging, runner invocation, output readback, cleanup, and
+vector/search shaping live in `abyss_machine.nervous_semantic`; semantic DB
+connection/init/counts, file locks, source-chunk loading, latest and
+semantic-maintain latest/history writes, build-run metadata/provenance
+transactions, generated DB mode/group normalization, embedding subprocess
+temp-file staging, runner invocation, output readback, cleanup, and
 resource-profile callback routing live in
 `abyss_machine.nervous_semantic_adapters`. Nervous
 retention route specs, root/file candidate classification, retention policy,

@@ -48,9 +48,13 @@ retention apply/unlink, and privacy audit writes.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 schema file writes, file locks/active-lock probes, latest writes, generated DB
 file mode/group normalization, and vacuum execution through fakeable ports.
-`abyss_machine.nervous_semantic_adapters` now owns the first
-semantic execution seam for embedding subprocess temp-file staging, runner
-invocation, output readback, cleanup, and resource-profile callback routing.
+`abyss_machine.nervous_semantic_adapters` now owns the semantic sidecar
+lifecycle/source-loading/write seam plus embedding execution: semantic DB
+connection/init/counts, file locks, source-chunk loading from the lexical
+index, latest and semantic-maintain latest/history writes, build-run
+metadata/provenance transactions, generated DB mode/group normalization,
+embedding subprocess temp-file staging, runner invocation, output readback,
+cleanup, and resource-profile callback routing.
 `abyss_machine.nervous_rerank_adapters` now owns the neural rerank scorer
 subprocess seam for temp-payload staging, command invocation, stdout/output JSON
 parsing, policy-gate callback routing, debug path reporting, and

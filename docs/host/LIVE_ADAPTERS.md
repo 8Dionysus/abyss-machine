@@ -19,7 +19,7 @@ package modules keep stable contracts, policy, and read-model shapes.
 | Surface | Reads | Writes | Mutates/executes | Current home |
 |---|---|---|---|---|
 | `typing` | policy files, Codex session JSONL, browser/native-host payloads, saved text files, AT-SPI focus/text metadata, user-systemd status, recent typing records. | typing latest/history JSONL, source-specific selftest latest files, typing saved-text scan state/latest, typing index, compact AT-SPI history. | browser native-host responses, optional focused-browser selftests, AT-SPI focus/insert diagnostics, virtual typing selftests. | Contracts in `typing_capture_contracts`; latest/history persistence and Codex session-tail filesystem reads start in `typing_nervous_adapters`; Codex prompt/session-tail semantic ingest plans live in `typing_codex_semantics`; browser/native-host ingest plans, synthetic selftest documents, route selection, response envelopes, framed native-host byte transport, Firefox profile discovery, temporary Firefox WebExtension, browser-context, browser AT-SPI, focused-browser, and browser-privacy selftest profile prep, loopback/nonloopback local HTTP probes, `web-ext` command selection, subprocess lifecycle, cleanup, probe polling, targeted AT-SPI callback routing, and public-safe result document assembly live in `typing_browser_adapters`; focused-snapshot, AT-SPI text-event sample/metadata/debounce, text-event listener runtime, focused-candidate tree walk, browser focus metadata traversal, path-targeted focus/text read/insert runtime, URL-targeted focused-text runtime, URL-scanned GI/Atspi text insertion runtime, GI/Atspi Firefox frame focus runtime, browser/privacy selftest recent-record readers, supplied-object runtime helpers, and generic GUI selftest semantic plans live in `typing_atspi_adapters`; saved-text filesystem scan limits, path walking, state continuity, decode rejection, candidate/skip accounting, ingest kwargs, state entries, and scan documents live in `typing_saved_text_adapters`; native-host stdin/stdout binding, `typing_ingest`, saved-text state/latest writes, browser selftest latest/index writes, callback binding, policy reads, and command rendering remain CLI edge. |
-| `nervous` | source policy, privacy state, fact/event/episode JSONL, browser history DBs, explicit metadata roots, podman metadata, clipboard, screenshot/window state, semantic/index SQLite stores. | nervous facts/events/episodes/latest, index/semantic status, synthesis/eval reports, retention plans, privacy audit records. | browser content capture, GNOME/X11 probes, retention apply/unlink, semantic embedding subprocesses, reranker subprocesses. | Contracts split across nervous modules; latest/history persistence starts in `typing_nervous_adapters`; lexical index lifecycle IO lives in `nervous_index_adapters`; semantic embedding subprocess execution lives in `nervous_semantic_adapters`; neural rerank subprocess execution lives in `nervous_rerank_adapters`; most other probes remain CLI edge. |
+| `nervous` | source policy, privacy state, fact/event/episode JSONL, browser history DBs, explicit metadata roots, podman metadata, clipboard, screenshot/window state, semantic/index SQLite stores. | nervous facts/events/episodes/latest, index/semantic status, synthesis/eval reports, retention plans, privacy audit records. | browser content capture, GNOME/X11 probes, retention apply/unlink, semantic embedding subprocesses, reranker subprocesses. | Contracts split across nervous modules; latest/history persistence starts in `typing_nervous_adapters`; lexical index lifecycle IO lives in `nervous_index_adapters`; semantic sidecar lifecycle/source loading/latest writes and embedding subprocess execution live in `nervous_semantic_adapters`; neural rerank subprocess execution lives in `nervous_rerank_adapters`; most other probes remain CLI edge. |
 | `dictation` | audio devices, runtime config/env, runtime paths, transcripts, WAV metadata, recording/server state. | transcript latest/JSONL, dictation index, validation latest. | recording, server transport, clipboard/text insertion, audio runtime subprocesses, desktop notifications. | `dictation_contracts` owns shapes; `dictation_runtime_adapters` owns XDG runtime path/socket/max-duration env translation; `dictation_profile_adapters` owns config load/save, concrete profile defaults, env-bound runtime/postprocess/profile selection, runtime env projection, and config/profile read documents; `dictation_docs_adapters` owns path/index/AGENTS.md documents and dictation docs scaffolding; `dictation_execution_adapters` owns explicit-file transcription via warm-server/helper runtime, client-side 16 kHz preprocessing, recording lifecycle/process-state execution, toggle debounce, WAV inspection/recent-audio scan, audio-doctor `pactl`/`wpctl` probes, transcript journal policy/JSONL/Markdown/latest/index IO, clipboard/text insertion execution, and mic-calibration recording/apply; `dictation_lock_adapters` owns file-lock execution; `dictation_postprocess_adapters` owns transcript postprocess/intent glue; `dictation_notifications_adapters` owns notification policy and `notify-send` command spawning; `dictation_status_adapters` owns status read-model assembly and readiness path/command probes; `dictation_validation_adapters` owns dictation validation checks and validate latest/history write routing; `dictation_replacements_adapters` owns replacements load/save/list/test/add/remove flow. Rendering remains CLI edge. |
 | `ai` | runtime config, model/cache roots, package availability, tokenizer/model inventories, generated AoA summaries. | AI runtime/status/eval/token-accounting latest and histories. | OpenVINO, tokenizer, STT/TTS, resident LLM and benchmark subprocesses. | `ai_runtime_contracts`, `ai_tts_contracts`, and `ai_cpu_routing` own contracts; live execution remains CLI edge. |
 | `self-awareness` | stack/runtime latest files, observability probes, generated event/fabric stores, systemd state. | self-awareness timeline/context/episode/brief/query/probe/latest surfaces. | probe/cycle/replay/investigate orchestration and stack handoff checks. | `self_awareness_contracts` owns read-model shapes; orchestration remains CLI edge. |
@@ -195,11 +195,21 @@ The CLI still owns privacy/source/config binding, derived event/episode refresh
 orchestration, redactor callback binding, systemd timer probes, validation fact
 collection, and command rendering.
 
-## Extracted Nervous Semantic Execution Seam
+## Extracted Nervous Semantic Sidecar Seam
 
-`abyss_machine.nervous_semantic_adapters` owns the first nervous-local runtime
-execution seam:
+`abyss_machine.nervous_semantic_adapters` owns the nervous-local semantic
+sidecar lifecycle and runtime execution seam:
 
+- semantic sidecar SQLite connection and schema initialization through the
+  public `nervous_semantic` store contract;
+- non-blocking semantic sidecar file-lock acquisition and active-lock probes;
+- public-safe latest JSON writes for semantic status/build/search/eval
+  documents and semantic-maintain latest/history writes;
+- source-chunk loading from the lexical SQLite/FTS index through a fakeable
+  source DB port without publishing source rows;
+- semantic sidecar build-run metadata/provenance transactions and stale-vector
+  deletion;
+- generated semantic DB file mode/group normalization;
 - embedding batch temp JSONL input/output staging under the configured machine
   temp root;
 - OpenVINO embedding subprocess command invocation through a fakeable command
@@ -210,9 +220,8 @@ execution seam:
 - cleanup of temporary input/output files without returning raw embedded text.
 
 The CLI still owns nervous semantic config reads, model/python path discovery,
-privacy and AI policy gates, source-chunk collection from the lexical index,
-semantic sidecar writes, resource-launch orchestration for `semantic-maintain`,
-latest/history writes, and command rendering.
+privacy and AI policy gates, resource-launch orchestration for
+`semantic-maintain`, build-window orchestration, and command rendering.
 
 ## Extracted Nervous Rerank Execution Seam
 
@@ -522,8 +531,8 @@ downloads, or destructive cleanup.
 
 ## Next Extraction Order
 
-1. Nervous semantic sidecar adapters: semantic SQLite lifecycle,
-   latest/provenance writes, and source-chunk collection binding.
+1. Nervous recall/rerank live search adapters: lexical/semantic source
+   collection, retrieval latest/history writes, and eval write routing.
 2. AI runtime adapters: runtime/model discovery, subprocess plans, and TTS
    server/audio execution. Dictation should only reappear here when a concrete
    remaining CLI edge has been re-inventoried.
