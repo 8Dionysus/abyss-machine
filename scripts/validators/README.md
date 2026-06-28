@@ -271,9 +271,12 @@ recording lifecycle/process-state execution, WAV inspection/recent-audio scan,
 audio-doctor `pactl`/`wpctl` probes, and transcript journal
 JSONL/Markdown/latest/index IO, clipboard/text insertion execution, and
 mic-calibration recording/apply live in
-`abyss_machine.dictation_execution_adapters`. Profile/config selection, live
-dictation docs scaffolding, validation/latest writes, and rendering remain at
-the CLI edge.
+`abyss_machine.dictation_execution_adapters`. Config load/save, concrete
+profile defaults, env-bound runtime/postprocess/profile selection, runtime env
+projection, and config/profile read documents live in
+`abyss_machine.dictation_profile_adapters`. Postprocess glue, replacements
+reads/writes, dictation docs scaffolding, validation/latest writes, status
+readiness, and rendering remain at the CLI edge.
 
 `artifact_signature_policy.py` validates the public artifact identity and
 signature policy that feeds contract ABI signatures, local provenance packet
