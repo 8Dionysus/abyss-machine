@@ -49,9 +49,12 @@ plans, contracts, and bounded summaries belong in the public seed.
 - Extracted explicit-file dictation transcription runtime into
   `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
   socket transport, client-side 16 kHz runtime preprocessing, helper subprocess
-  invocation, and helper runtime env projection through fakeable ports. CLI
-  still owns profile/config selection, recording lifecycle, insertion, journal
-  writes, and rendering.
+  invocation, and helper runtime env projection through fakeable ports.
+- Extracted dictation recording lifecycle/process-state execution into
+  `abyss_machine.dictation_execution_adapters`; the adapter owns runtime
+  recording state IO, active/stale detection, process start, stop signalling,
+  and state cleanup through fakeable ports. CLI still owns profile/config
+  selection, WAV inspection, insertion, journal/latest writes, and rendering.
 
 ### Next route
 

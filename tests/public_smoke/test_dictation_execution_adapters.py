@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import signal
+import stat
 from pathlib import Path
 import sys
 
@@ -34,6 +36,171 @@ def _ready_paths(tmp_path: Path) -> dictation_execution_adapters.DictationTransc
         server_socket=tmp_path / "server.sock",
         server_audio_dir=tmp_path / "server-audio",
     )
+
+
+def _recording_paths(tmp_path: Path) -> dictation_execution_adapters.DictationRecordingPaths:
+    runtime_dir = tmp_path / "runtime"
+    return dictation_execution_adapters.DictationRecordingPaths(
+        runtime_dir=runtime_dir,
+        state_file=runtime_dir / "recording.json",
+    )
+
+
+def test_recording_adapter_starts_process_and_writes_state_without_live_audio(tmp_path: Path) -> None:
+    paths = _recording_paths(tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_start_process(command: list[str], log_path: Path) -> int:
+        captured["command"] = command
+        captured["log_path"] = log_path
+        return 4321
+
+    state = dictation_execution_adapters.start_recording(
+        paths=paths,
+        profile="quality",
+        max_seconds_value=180,
+        timeout_available=True,
+        schema_prefix="abyss_machine",
+        now=lambda: "2026-06-28T12:00:00+00:00",
+        timestamp=lambda: "20260628-120000",
+        start_process=fake_start_process,
+    )
+
+    audio_path = paths.runtime_dir / "dictation-20260628-120000.wav"
+    log_path = paths.runtime_dir / "dictation-20260628-120000.log"
+    assert state["schema"] == "abyss_machine_dictation_recording_v1"
+    assert state["pid"] == 4321
+    assert state["audio"] == str(audio_path)
+    assert state["log"] == str(log_path)
+    assert state["profile"] == "quality"
+    assert state["max_seconds"] == 180
+    assert captured["log_path"] == log_path
+    assert captured["command"] == [
+        "timeout",
+        "--signal=INT",
+        "--kill-after=5s",
+        "180s",
+        "pw-record",
+        "--rate",
+        "16000",
+        "--channels",
+        "1",
+        "--format",
+        "s16",
+        str(audio_path),
+    ]
+    assert json.loads(paths.state_file.read_text(encoding="utf-8")) == state
+    assert stat.S_IMODE(paths.state_file.stat().st_mode) == 0o600
+
+
+def test_recording_adapter_reads_active_and_stale_state(tmp_path: Path) -> None:
+    paths = _recording_paths(tmp_path)
+    audio_path = paths.runtime_dir / "dictation.wav"
+    audio_path.parent.mkdir(parents=True)
+    audio_path.write_text("synthetic wav placeholder", encoding="utf-8")
+    state = {
+        "schema": "abyss_machine_dictation_recording_v1",
+        "pid": 777,
+        "audio": str(audio_path),
+        "log": str(paths.runtime_dir / "dictation.log"),
+        "profile": "quality",
+        "started_at": "2026-06-28T12:00:00+00:00",
+        "max_seconds": 180,
+    }
+    dictation_execution_adapters.write_recording_state(paths.state_file, state)
+
+    active = dictation_execution_adapters.load_active_recording(paths, alive=lambda pid: pid == 777)
+    assert active == state
+    assert dictation_execution_adapters.recording_is_active(active, alive=lambda _pid: True) is True
+    assert dictation_execution_adapters.recording_age_seconds(
+        state,
+        now_datetime=lambda: cli.dt.datetime.fromisoformat("2026-06-28T12:00:03+00:00"),
+    ) == 3.0
+
+    stale = dictation_execution_adapters.load_stale_recording(paths, alive=lambda _pid: False)
+    assert stale is not None
+    assert stale["stale"] is True
+    assert paths.state_file.exists()
+
+    audio_path.unlink()
+    assert dictation_execution_adapters.load_stale_recording(paths, alive=lambda _pid: False) is None
+    assert not paths.state_file.exists()
+
+
+def test_recording_adapter_stops_process_and_unlinks_state(tmp_path: Path) -> None:
+    paths = _recording_paths(tmp_path)
+    state = {
+        "schema": "abyss_machine_dictation_recording_v1",
+        "pid": 777,
+        "audio": str(paths.runtime_dir / "dictation.wav"),
+        "log": str(paths.runtime_dir / "dictation.log"),
+        "profile": "quality",
+        "started_at": "2026-06-28T12:00:00+00:00",
+        "max_seconds": 180,
+    }
+    dictation_execution_adapters.write_recording_state(paths.state_file, state)
+    signals: list[tuple[int, int]] = []
+    ticks = iter([0.0, 10.0])
+
+    result = dictation_execution_adapters.stop_recording(
+        state,
+        paths=paths,
+        schema_prefix="abyss_machine",
+        version="test",
+        now=lambda: "2026-06-28T12:00:05+00:00",
+        alive=lambda _pid: True,
+        signal_process=lambda pid, sig: signals.append((pid, sig)),
+        monotonic=lambda: next(ticks),
+        sleep=lambda _seconds: None,
+    )
+
+    assert signals == [(777, int(signal.SIGINT)), (777, int(signal.SIGTERM))]
+    assert result["schema"] == "abyss_machine_dictation_stop_v1"
+    assert result["stopped"] is True
+    assert result["audio"] == state["audio"]
+    assert not paths.state_file.exists()
+
+
+def test_cli_dictation_recording_lifecycle_binds_live_adapter(monkeypatch, tmp_path: Path) -> None:
+    paths = _recording_paths(tmp_path)
+    started: dict[str, object] = {}
+    stopped: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "load_dictation_recording", lambda: None)
+    monkeypatch.setattr(cli, "dictation_recording_paths", lambda: paths)
+    monkeypatch.setattr(cli, "requested_dictation_profile_name", lambda _profile_name: "quality")
+    monkeypatch.setattr(cli, "dictation_max_seconds", lambda: 180)
+    monkeypatch.setattr(cli, "command_exists", lambda name: name == "timeout")
+    monkeypatch.setattr(cli, "dictation_status", lambda: {"recording": {"pid": 4321}})
+
+    def fake_start_recording(**kwargs: object) -> dict[str, object]:
+        started.update(kwargs)
+        return {"pid": 4321}
+
+    def fake_stop_recording(state: dict[str, object] | None = None, **kwargs: object) -> dict[str, object]:
+        stopped["state"] = state
+        stopped.update(kwargs)
+        return {"stopped": True}
+
+    monkeypatch.setattr(dictation_execution_adapters, "start_recording", fake_start_recording)
+    monkeypatch.setattr(dictation_execution_adapters, "stop_recording", fake_stop_recording)
+
+    data = cli._dictation_start_unlocked("fast")
+    assert data["message"] == "recording started"
+    assert started["paths"] == paths
+    assert started["profile"] == "quality"
+    assert started["max_seconds_value"] == 180
+    assert started["timeout_available"] is True
+    assert started["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert callable(started["now"])
+
+    stop_data = cli._dictation_stop_unlocked({"pid": 777})
+    assert stop_data["stopped"] is True
+    assert stopped["state"] == {"pid": 777}
+    assert stopped["paths"] == paths
+    assert stopped["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert stopped["version"] == cli.VERSION
+    assert callable(stopped["now"])
 
 
 def test_dictation_adapter_reports_missing_model_before_runtime_calls(tmp_path: Path) -> None:

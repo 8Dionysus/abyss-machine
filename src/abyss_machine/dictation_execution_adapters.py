@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import datetime as dt
 import hashlib
 import json
+import os
 from pathlib import Path
+import signal
 import socket
+import subprocess
+import tempfile
 import time
 from typing import Any, Callable, Mapping
 
@@ -16,8 +21,14 @@ CommandExists = Callable[[str], bool]
 WavSampleRate = Callable[[Path], int | None]
 WavDuration = Callable[[Path], float | None]
 Now = Callable[[], str]
+NowDateTime = Callable[[], dt.datetime]
 Monotonic = Callable[[], float]
 SocketJsonLineRequest = Callable[[Path, Mapping[str, Any], float, float], str | None]
+FilenameTimestamp = Callable[[], str]
+ProcessAlive = Callable[[int], bool]
+StartRecordingProcess = Callable[[list[str], Path], int]
+SignalProcess = Callable[[int, int], None]
+Sleep = Callable[[float], None]
 
 
 @dataclass(frozen=True)
@@ -25,6 +36,217 @@ class DictationTranscriptionPaths:
     helper: Path
     server_socket: Path
     server_audio_dir: Path
+
+
+@dataclass(frozen=True)
+class DictationRecordingPaths:
+    runtime_dir: Path
+    state_file: Path
+
+
+def current_datetime() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc).astimezone()
+
+
+def filename_timestamp() -> str:
+    return dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def write_recording_state(path: Path, state: Mapping[str, Any], mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=str(path.parent),
+        prefix=f".{path.name}.",
+        delete=False,
+    ) as tmp:
+        json.dump(dict(state), tmp, indent=2, sort_keys=False)
+        tmp.write("\n")
+        tmp_name = tmp.name
+    os.chmod(tmp_name, mode)
+    os.replace(tmp_name, path)
+
+
+def read_recording_state(paths: DictationRecordingPaths) -> dict[str, Any] | None:
+    if not paths.state_file.exists():
+        return None
+    try:
+        data = json.loads(paths.state_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def process_alive(pid: int) -> bool:
+    proc_stat = Path(f"/proc/{pid}/stat")
+    try:
+        stat_text = proc_stat.read_text(encoding="utf-8", errors="replace")
+        close = stat_text.rfind(")")
+        if close != -1:
+            fields = stat_text[close + 2 :].split()
+            if fields and fields[0] == "Z":
+                return False
+    except OSError:
+        pass
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def recording_is_active(state: Mapping[str, Any] | None, *, alive: ProcessAlive = process_alive) -> bool:
+    if not state:
+        return False
+    pid = int(state.get("pid") or 0)
+    return bool(pid and alive(pid))
+
+
+def recording_age_seconds(
+    state: Mapping[str, Any],
+    *,
+    now_datetime: NowDateTime = current_datetime,
+) -> float | None:
+    started_at = state.get("started_at")
+    if not started_at:
+        return None
+    try:
+        started = dt.datetime.fromisoformat(str(started_at))
+    except ValueError:
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=now_datetime().tzinfo)
+    return (now_datetime() - started).total_seconds()
+
+
+def load_active_recording(
+    paths: DictationRecordingPaths,
+    *,
+    alive: ProcessAlive = process_alive,
+) -> dict[str, Any] | None:
+    state = read_recording_state(paths)
+    if recording_is_active(state, alive=alive):
+        return state
+    return None
+
+
+def unlink_recording_state(paths: DictationRecordingPaths) -> None:
+    try:
+        paths.state_file.unlink()
+    except OSError:
+        pass
+
+
+def load_stale_recording(
+    paths: DictationRecordingPaths,
+    *,
+    alive: ProcessAlive = process_alive,
+) -> dict[str, Any] | None:
+    state = read_recording_state(paths)
+    if not state or recording_is_active(state, alive=alive):
+        return None
+    audio = state.get("audio")
+    if audio and Path(str(audio)).exists():
+        state["stale"] = True
+        return state
+    unlink_recording_state(paths)
+    return None
+
+
+def start_recording_process(command: list[str], log_path: Path) -> int:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("wb") as log:
+        proc = subprocess.Popen(
+            command,
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
+        )
+    return int(proc.pid)
+
+
+def signal_recording_process(pid: int, sig: int) -> None:
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def start_recording(
+    *,
+    paths: DictationRecordingPaths,
+    profile: str,
+    max_seconds_value: int,
+    timeout_available: bool,
+    schema_prefix: str,
+    now: Now,
+    timestamp: FilenameTimestamp = filename_timestamp,
+    start_process: StartRecordingProcess = start_recording_process,
+) -> dict[str, Any]:
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    stamp = timestamp()
+    audio_path = paths.runtime_dir / f"dictation-{stamp}.wav"
+    log_path = paths.runtime_dir / f"dictation-{stamp}.log"
+    command = dictation_contracts.recording_command(
+        audio_path,
+        max_seconds_value=max_seconds_value,
+        timeout_available=timeout_available,
+    )
+    pid = start_process(command, log_path)
+    state = dictation_contracts.recording_state(
+        pid=pid,
+        audio_path=audio_path,
+        log_path=log_path,
+        profile=profile,
+        started_at=now(),
+        max_seconds_value=max_seconds_value,
+        schema_prefix=schema_prefix,
+    )
+    write_recording_state(paths.state_file, state, 0o600)
+    return state
+
+
+def stop_recording(
+    state: Mapping[str, Any] | None = None,
+    *,
+    paths: DictationRecordingPaths,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+    alive: ProcessAlive = process_alive,
+    signal_process: SignalProcess = signal_recording_process,
+    monotonic: Monotonic = time.time,
+    sleep: Sleep = time.sleep,
+    wait_timeout_sec: float = 5.0,
+    poll_interval_sec: float = 0.1,
+) -> dict[str, Any]:
+    current = dict(state) if isinstance(state, Mapping) else load_active_recording(paths, alive=alive)
+    if not current:
+        return dictation_contracts.stop_inactive_result(schema_prefix, version, now())
+
+    pid = int(current["pid"])
+    signal_process(pid, int(signal.SIGINT))
+    deadline = monotonic() + wait_timeout_sec
+    while monotonic() < deadline and alive(pid):
+        sleep(poll_interval_sec)
+    if alive(pid):
+        signal_process(pid, int(signal.SIGTERM))
+
+    unlink_recording_state(paths)
+    return dictation_contracts.stopped_recording_result(
+        dict(current),
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now(),
+    )
 
 
 def unix_socket_json_line_request(
