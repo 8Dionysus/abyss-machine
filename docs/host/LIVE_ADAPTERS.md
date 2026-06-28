@@ -280,6 +280,21 @@ adapter does not switch power profiles, write cooling state, sample sensors, or
 authorize cooling repair; those remain in their subsystem owners and later live
 adapter slices.
 
+## Extracted Doctor Storage/Process Status Probe Seam
+
+`abyss_machine.doctor_adapters` owns the `abyss-machine doctor` storage/process
+status-probe seam:
+
+- root and `/srv` filesystem readiness projection from compact filesystem facts;
+- storage policy readiness projection with the configured policy path;
+- storage hook directory readiness projection from the storage hook read-model;
+- process snapshot latest freshness projection with the configured latest path.
+
+The CLI binds the current facts document, storage policy reader, storage hook
+status reader, and process latest-summary reader. The adapter does not scan
+disks, execute storage hooks, inspect `/proc`, run process snapshots, apply
+cleanup, or mutate storage/process state.
+
 ## Extracted Doctor Report IO Seam
 
 `abyss_machine.doctor_adapters` also owns the diagnostic report IO seam:

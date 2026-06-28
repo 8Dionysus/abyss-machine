@@ -178,7 +178,7 @@ Doctor policy/path/status/report, validate document, and machine-report document
 contracts live in `abyss_machine.doctor_contracts`; `doctor validate`
 file/latest/systemd/bridge probe collection and `doctor` core status probe
 collection for platform/path/topology/stack-bridge/binary/command availability
-plus `doctor` power/cooling status probe collection live in
+plus `doctor` power/cooling and storage/process status probe collection live in
 `abyss_machine.doctor_adapters`; report writes, machine-report artifact reads,
 machine-report input collection, safe repair orchestration, and machine-report
 latest/history/markdown writes are also routed through `doctor_adapters`;

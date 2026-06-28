@@ -19,3 +19,7 @@
 - Extracted doctor power/cooling status probe collection into `doctor_adapters`
   through fakeable status-readmodel and systemd-unit ports; CLI still binds the
   concrete host status document and owns broader live status probes.
+- Extracted doctor storage/process status probe collection into
+  `doctor_adapters` through fakeable filesystem-facts, storage-policy,
+  storage-hooks, and process-latest ports; CLI still binds concrete readers and
+  owns broader live status probes.
