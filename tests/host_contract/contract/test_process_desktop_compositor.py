@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 import types
 
@@ -34,6 +36,63 @@ def test_atspi_panel_telemetry_timeout_returns_bounded_error(monkeypatch, abyss_
     assert result["error"] == "atspi_panel_telemetry_timeout"
     assert result["hard_timeout_seconds"] == 2.0
     assert FakeRegistry.stopped is True
+
+
+def test_atspi_window_probe_code_returns_json_for_import_failure(tmp_path, abyss_machine_module) -> None:
+    broken_probe = tmp_path / "abyss-machine"
+    broken_probe.write_text("raise RuntimeError('broken probe import')\n", encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, "-c", abyss_machine_module.process_atspi_window_snapshot_probe_code(str(broken_probe))],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=5.0,
+    )
+
+    payload = json.loads(proc.stdout)
+    assert proc.returncode == 0
+    assert proc.stderr == ""
+    assert payload["ok"] is False
+    assert payload["exception_type"] == "RuntimeError"
+    assert "broken probe import" in payload["error"]
+
+
+def test_atspi_window_probe_code_adds_installed_parent_to_sys_path(tmp_path, abyss_machine_module) -> None:
+    package = tmp_path / "abyss_machine"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "fake_dep.py").write_text("VALUE = 'loaded-from-installed-parent'\n", encoding="utf-8")
+    probe = tmp_path / "abyss-machine"
+    probe.write_text(
+        "\n".join(
+            [
+                "try:",
+                "    from . import fake_dep",
+                "except ImportError:",
+                "    from abyss_machine import fake_dep",
+                "def process_atspi_window_snapshot():",
+                "    return {'ok': True, 'dep': fake_dep.VALUE}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", abyss_machine_module.process_atspi_window_snapshot_probe_code(str(probe))],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=5.0,
+    )
+
+    payload = json.loads(proc.stdout)
+    assert proc.returncode == 0
+    assert proc.stderr == ""
+    assert payload == {"ok": True, "dep": "loaded-from-installed-parent"}
 
 
 def test_desktop_compositor_guidance_does_not_blame_vitals(abyss_machine_module) -> None:
