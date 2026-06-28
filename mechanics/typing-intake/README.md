@@ -52,8 +52,10 @@ WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
 serving, subprocess cleanup, and public-safe WebExtension selftest result
 assembly, browser-context selftest temporary-profile/runtime orchestration,
 capture env override restoration, AT-SPI context-inference callback routing,
-and public-safe browser-context result assembly plus Firefox `profiles.ini`
-parsing and release-profile selection live in
+browser AT-SPI selftest temporary/release-profile runtime orchestration,
+targeted AT-SPI callback routing, and public-safe browser-context/browser
+AT-SPI result assembly plus Firefox `profiles.ini` parsing and release-profile
+selection live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
 sample/metadata/debounce, text-event listener runtime, generic GUI selftest
 semantic plans, and supplied accessibility-object state/text/path/document/
@@ -65,8 +67,7 @@ recent-record readers. Saved-text scan filesystem limits, path
 walking, state continuity, decode rejection, candidate/skip accounting, ingest
 kwargs, state entries, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep the remaining typing adapters
-bounded by source type: browser AT-SPI selftest execution,
-focused-browser selftests, and privacy probes. The mechanic
+bounded by source type: focused-browser selftests and privacy probes. The mechanic
 owns the route and tests; generated typed evidence remains local host state.
 
 ### Next route
