@@ -137,6 +137,12 @@ class DoctorStorageProcessProbePort:
     process_latest_summary: Callable[[], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class DoctorSnapshotObservabilityProbePort:
+    snapshots_status: Callable[[], dict[str, Any]]
+    observability_status: Callable[[], dict[str, Any]]
+
+
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
     "doctor_json",
     "doctor_paths_json",
@@ -389,6 +395,75 @@ def collect_doctor_storage_process_checks(
         if process_summary.get("ok")
         else "process snapshot latest missing",
         {"path": str(paths.process_latest), "summary": process_summary.get("summary")},
+    )
+
+    return checks
+
+
+def collect_doctor_snapshot_observability_checks(
+    *,
+    observability_timer_name: str,
+    latest_max_age_sec: int | float,
+    port: DoctorSnapshotObservabilityProbePort,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    snapshots = port.snapshots_status()
+    _add_check(
+        checks,
+        "ok" if snapshots["snapper_available"] else "warn",
+        "snapper",
+        "snapper available" if snapshots["snapper_available"] else "snapper missing",
+    )
+    _add_check(
+        checks,
+        "ok" if snapshots["root_config_exists"] else "warn",
+        "snapper_root_config",
+        "snapper root config present" if snapshots["root_config_exists"] else "snapper root config missing",
+    )
+    cleanup_timer = snapshots["timers"]["cleanup"]
+    _add_check(
+        checks,
+        "ok" if cleanup_timer["is_active"] else "warn",
+        "snapper_cleanup",
+        f"snapper-cleanup.timer {cleanup_timer['active']}",
+        cleanup_timer,
+    )
+
+    observability = port.observability_status()
+    topology_ready = (
+        observability["root_exists"]
+        and observability["agent_entrypoint_exists"]
+        and observability["index_exists"]
+    )
+    _add_check(
+        checks,
+        "ok" if topology_ready else "warn",
+        "observability_topology",
+        "observability topology present" if topology_ready else "observability topology incomplete",
+        {
+            "root_exists": observability["root_exists"],
+            "agent_entrypoint_exists": observability["agent_entrypoint_exists"],
+            "index_exists": observability["index_exists"],
+        },
+    )
+    obs_timer = observability["timer"]
+    _add_check(
+        checks,
+        "ok" if obs_timer["is_active"] and obs_timer["is_enabled"] else "warn",
+        "observability_timer",
+        f"{observability_timer_name} {obs_timer['active']}/{obs_timer['enabled']}",
+        obs_timer,
+    )
+    latest = observability.get("latest")
+    latest_age = latest.get("age_sec") if isinstance(latest, dict) else None
+    latest_ok = isinstance(latest_age, (int, float)) and latest_age <= latest_max_age_sec
+    _add_check(
+        checks,
+        "ok" if latest_ok else "warn",
+        "observability_latest",
+        f"observability latest sample age {latest_age}s" if latest_age is not None else "observability latest sample missing",
+        latest,
     )
 
     return checks
