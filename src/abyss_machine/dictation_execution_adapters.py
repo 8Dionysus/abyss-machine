@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import array
 from dataclasses import dataclass
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import time
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
+import wave
 
 from . import dictation_contracts
 
@@ -29,6 +33,8 @@ ProcessAlive = Callable[[int], bool]
 StartRecordingProcess = Callable[[list[str], Path], int]
 SignalProcess = Callable[[int, int], None]
 Sleep = Callable[[float], None]
+WavStats = Callable[[Path], dict[str, Any]]
+RecentWavs = Callable[[int], list[Path]]
 
 
 @dataclass(frozen=True)
@@ -44,12 +50,158 @@ class DictationRecordingPaths:
     state_file: Path
 
 
+@dataclass(frozen=True)
+class DictationAudioPaths:
+    runtime_dir: Path
+
+
 def current_datetime() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc).astimezone()
 
 
 def filename_timestamp() -> str:
     return dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def wav_stats(path: Path) -> dict[str, Any]:
+    with wave.open(str(path), "rb") as wav:
+        sample_rate = wav.getframerate()
+        channels = wav.getnchannels()
+        sample_width = wav.getsampwidth()
+        frames = wav.readframes(wav.getnframes())
+        frame_count = wav.getnframes()
+
+    if sample_width != 2:
+        return {
+            "path": str(path),
+            "ok": False,
+            "error": f"unsupported sample width {sample_width}",
+            "sample_rate": sample_rate,
+            "channels": channels,
+            "duration_sec": round(frame_count / sample_rate, 3) if sample_rate else 0.0,
+        }
+
+    samples = array.array("h")
+    samples.frombytes(frames)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    if channels > 1:
+        mono: list[int] = []
+        for idx in range(0, len(samples), channels):
+            mono.append(int(sum(samples[idx : idx + channels]) / channels))
+        values = mono
+    else:
+        values = list(samples)
+
+    count = len(values)
+    if not count:
+        rms = 0.0
+        peak = 0.0
+        p95 = 0.0
+        low_percent = 100.0
+        clip_percent = 0.0
+    else:
+        abs_values = [abs(v) for v in values]
+        peak_i = max(abs_values)
+        rms_i = math.sqrt(sum(v * v for v in values) / count)
+        sorted_abs = sorted(abs_values)
+        p95_i = sorted_abs[min(count - 1, int(count * 0.95))]
+        low_i = int(0.003 * 32768)
+        clip_i = int(0.98 * 32768)
+        low_percent = 100.0 * sum(1 for v in abs_values if v < low_i) / count
+        clip_percent = 100.0 * sum(1 for v in abs_values if v > clip_i) / count
+        rms = rms_i / 32768.0
+        peak = peak_i / 32768.0
+        p95 = p95_i / 32768.0
+
+    dbfs = 20.0 * math.log10(max(rms, 1e-9))
+    frame_dbfs: list[float] = []
+    if sample_rate and values:
+        frame_size = max(1, int(sample_rate * 0.03))
+        for offset in range(0, len(values) - frame_size + 1, frame_size):
+            frame = values[offset : offset + frame_size]
+            if not frame:
+                continue
+            frame_rms = math.sqrt(sum(v * v for v in frame) / len(frame)) / 32768.0
+            frame_dbfs.append(20.0 * math.log10(max(frame_rms, 1e-9)))
+        frame_dbfs.sort()
+
+    def percentile(values_f: list[float], ratio: float) -> float | None:
+        if not values_f:
+            return None
+        idx = min(len(values_f) - 1, max(0, int(len(values_f) * ratio)))
+        return round(values_f[idx], 1)
+
+    return {
+        "path": str(path),
+        "ok": True,
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "duration_sec": round(frame_count / sample_rate, 3) if sample_rate else 0.0,
+        "peak": round(peak, 4),
+        "rms": round(rms, 5),
+        "dbfs": round(dbfs, 1),
+        "p95": round(p95, 5),
+        "clip_percent": round(clip_percent, 4),
+        "low_level_percent": round(low_percent, 1),
+        "frame_dbfs_p10": percentile(frame_dbfs, 0.10),
+        "frame_dbfs_p50": percentile(frame_dbfs, 0.50),
+        "frame_dbfs_p90": percentile(frame_dbfs, 0.90),
+    }
+
+
+def recent_wavs(paths: DictationAudioPaths, limit: int = 12) -> list[Path]:
+    if not paths.runtime_dir.exists():
+        return []
+    files = [p for p in paths.runtime_dir.glob("*.wav") if p.is_file()]
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return files[:limit]
+
+
+def inspect_wavs(
+    files: Iterable[Path],
+    *,
+    wav_stats_fn: WavStats = wav_stats,
+) -> list[dict[str, Any]]:
+    stats: list[dict[str, Any]] = []
+    for path in files:
+        try:
+            stats.append(wav_stats_fn(path))
+        except (OSError, wave.Error, ValueError) as exc:
+            stats.append({"path": str(path), "ok": False, "error": str(exc)})
+    return stats
+
+
+def audio_doctor(
+    *,
+    paths: DictationAudioPaths,
+    config: Mapping[str, Any],
+    limit: int,
+    run_command: RunCommand,
+    schema_prefix: str,
+    version: str,
+    now: Now,
+    wav_stats_fn: WavStats = wav_stats,
+    recent_wavs_fn: RecentWavs | None = None,
+) -> dict[str, Any]:
+    default_source = run_command(["pactl", "get-default-source"], 2.0, None)
+    wpctl_status = run_command(["wpctl", "status"], 2.0, None)
+    wpctl_source = run_command(["wpctl", "inspect", "@DEFAULT_AUDIO_SOURCE@"], 2.0, None)
+    files = recent_wavs_fn(limit) if recent_wavs_fn is not None else recent_wavs(paths, limit)
+    stats = inspect_wavs(files, wav_stats_fn=wav_stats_fn)
+    summary = dictation_contracts.summarize_audio_stats(stats)
+    return {
+        "schema": f"{schema_prefix}_dictation_audio_doctor_v1",
+        "version": version,
+        "generated_at": now(),
+        "default_source": default_source["stdout"] if default_source.get("ok") else "",
+        "wpctl_status_ok": bool(wpctl_status.get("ok")),
+        "wpctl_default_source": wpctl_source["stdout"] if wpctl_source.get("ok") else "",
+        "recent_files": stats,
+        "summary": summary,
+        "calibration": config.get("calibration", {}) if isinstance(config.get("calibration"), dict) else {},
+        "recommended_runtime": dictation_contracts.recommended_audio_runtime(summary),
+    }
 
 
 def write_recording_state(path: Path, state: Mapping[str, Any], mode: int = 0o600) -> None:
