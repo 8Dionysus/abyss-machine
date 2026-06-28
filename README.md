@@ -175,6 +175,11 @@ Runtime evidence path/read-model contracts, heartbeat source freshness/rhythm/
 lifecycle helpers, reaction candidate/status envelopes, and owner-gated response
 route/profile/status contracts plus validate documents live in
 `abyss_machine.runtime_evidence_contracts`.
+Host lifecycle source/install/runtime parity document contracts, compact digest
+map comparisons, path identity summaries, runtime JSON projection, and
+privacy-preserving no-raw-runtime-output policy live in
+`abyss_machine.host_lifecycle_parity`; the validator script binds those
+contracts to live installed paths and bounded runtime commands for closeout.
 Storage policy/env read models, hook stage/status contracts, cache env routes,
 inventory drift, pressure classes/recommendations, cleanup action contracts,
 protected-root decisions, write-preflight decisions, dry-run apply shape, and
@@ -433,7 +438,9 @@ stack/runtime probes, latest JSON reads, refresh orchestration,
 investigate/replay/probe/cycle execution, validation reads/writes, and command
 rendering remain at the CLI edge. The public
 cold-start route now checks for private operator path and current-checkout
-leakage across source and temporary installed projections. Remaining hardening
+leakage across source and temporary installed projections. The compact
+source/install/runtime parity summary now reports installed drift without
+dumping live host payloads. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, nervous retention filesystem/unlink/latest adapters,
 nervous event/episode live latest/write adapters, screenshot live probe/capture
