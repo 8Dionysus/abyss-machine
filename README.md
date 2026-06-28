@@ -162,9 +162,10 @@ document, and machine-report document contracts live in
 platform/path/topology/stack-bridge/binary/command availability, doctor
 power/cooling status probe collection, doctor storage/process status probe
 collection, doctor snapshot/observability status probe collection, doctor
-validate probe collection for file/latest/systemd/bridge checks, report writes,
-machine-report artifact reads, machine-report input collection, safe repair
-orchestration, and machine-report latest/history/markdown writes live in
+dictation status probe collection, doctor validate probe collection for
+file/latest/systemd/bridge checks, report writes, machine-report artifact reads,
+machine-report input collection, safe repair orchestration, and machine-report
+latest/history/markdown writes live in
 `abyss_machine.doctor_adapters`.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
@@ -371,11 +372,11 @@ transport, audio IO, subprocess execution, resource snapshots, and latest
 writes remain at the CLI edge. Doctor policy/path/status, readiness scoring,
 validate document, report markdown/document shape, machine-report artifact
 summary/status, and machine-report document/markdown contracts are module-owned;
-`doctor_adapters` owns validate/core/power/cooling/storage/process/snapshot and
-observability probe collection, report IO, machine-report input/writes, and safe
-repair orchestration while remaining live diagnostic probes, concrete port
-binding, systemd/file reads, latest/report writes, and rendering remain at the
-CLI edge. Dictation config/profile/runtime env,
+`doctor_adapters` owns validate/core/power/cooling/storage/process/snapshot/
+observability/dictation probe collection, report IO, machine-report
+input/writes, and safe repair orchestration while remaining live diagnostic
+probes, concrete port binding, systemd/file reads, latest/report writes, and
+rendering remain at the CLI edge. Dictation config/profile/runtime env,
 replacement rules, transcript postprocessing, command-intent detection, busy
 result, max-duration policy, audio-doctor summary/recommended-runtime decisions,
 mic-calibration command/result contracts, recording command/state, stop/toggle

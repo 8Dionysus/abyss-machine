@@ -262,7 +262,7 @@ status-probe seam:
 
 The CLI binds the concrete platform, filesystem, command-map, topology validate,
 and stack-bridge validate ports. Power/cooling, storage/process, and
-snapshot/observability status checks are split below; nervous, docs, dictation,
+snapshot/observability/dictation status checks are split below; nervous, docs,
 AI runtime, memory, mode, and timer probes remain deeper live adapter debt.
 
 ## Extracted Doctor Power/Cooling Status Probe Seam
@@ -309,6 +309,23 @@ The CLI binds the current `status()` read-model and observability timer name.
 The adapter does not run snapper cleanup, execute the observability collector,
 read or write latest files, mutate systemd units, or repair observability
 permissions.
+
+## Extracted Doctor Dictation Status Probe Seam
+
+`abyss_machine.doctor_adapters` owns the `abyss-machine doctor` dictation
+status-probe seam:
+
+- dictation config, replacement, microphone calibration, and command readiness
+  projection from the dictation status read-model;
+- fast/default model readiness projection without model discovery;
+- hotkey, warm-server, and input-remapper service readiness through fakeable
+  systemd-unit ports;
+- input-remapper preset presence through a fakeable path-exists port.
+
+The CLI binds the current `status()` read-model, concrete service lookups, and
+operator-local preset path. The adapter does not record audio, inspect WAVs,
+contact the dictation server, write transcript journals, insert text, mutate
+hotkeys, or repair services.
 
 ## Extracted Doctor Report IO Seam
 

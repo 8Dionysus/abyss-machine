@@ -26,3 +26,7 @@
 - Extracted doctor snapshot/observability status probe collection into
   `doctor_adapters` through fakeable status-readmodel ports; CLI still binds the
   concrete host status document and owns broader live status probes.
+- Extracted doctor dictation status probe collection into `doctor_adapters`
+  through fakeable status-readmodel, service-state, and path-exists ports; CLI
+  still binds concrete host status/service readers and owns broader live status
+  probes.

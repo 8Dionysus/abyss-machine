@@ -143,6 +143,20 @@ class DoctorSnapshotObservabilityProbePort:
     observability_status: Callable[[], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class DoctorDictationProbePaths:
+    config: Path
+    input_remapper_preset: Path
+
+
+@dataclass(frozen=True)
+class DoctorDictationProbePort:
+    dictation_status: Callable[[], dict[str, Any]]
+    systemd_unit: Callable[[str], dict[str, Any]]
+    user_systemd_unit: Callable[[str], dict[str, Any]]
+    path_exists: Callable[[Path], bool]
+
+
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
     "doctor_json",
     "doctor_paths_json",
@@ -464,6 +478,145 @@ def collect_doctor_snapshot_observability_checks(
         "observability_latest",
         f"observability latest sample age {latest_age}s" if latest_age is not None else "observability latest sample missing",
         latest,
+    )
+
+    return checks
+
+
+def collect_doctor_dictation_checks(
+    *,
+    paths: DoctorDictationProbePaths,
+    hotkey_service_name: str,
+    server_service_name: str,
+    input_remapper_service_name: str,
+    port: DoctorDictationProbePort,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    dictation = port.dictation_status()
+    dictation_commands = dictation["commands"]
+    dictation_config_data = dictation.get("config", {})
+    _add_check(
+        checks,
+        "ok" if dictation_config_data.get("exists") and not dictation_config_data.get("load_error") else "warn",
+        "dictation_config",
+        f"{paths.config} ready"
+        if dictation_config_data.get("exists") and not dictation_config_data.get("load_error")
+        else f"{paths.config} missing or invalid",
+        dictation_config_data,
+    )
+    dictation_replacements_data = dictation.get("replacements", {})
+    _add_check(
+        checks,
+        "ok" if dictation_replacements_data.get("exists") and int(dictation_replacements_data.get("count") or 0) > 0 else "warn",
+        "dictation_replacements",
+        "dictation replacements present"
+        if dictation_replacements_data.get("exists") and int(dictation_replacements_data.get("count") or 0) > 0
+        else "dictation replacements missing",
+        dictation_replacements_data,
+    )
+    calibration = dictation_config_data.get("calibration", {}) if isinstance(dictation_config_data, dict) else {}
+    _add_check(
+        checks,
+        "ok" if calibration.get("updated_at") else "warn",
+        "dictation_mic_calibration",
+        "dictation microphone calibration present"
+        if calibration.get("updated_at")
+        else "dictation microphone calibration not yet applied",
+        calibration,
+    )
+    _add_check(
+        checks,
+        "ok" if dictation_commands["pw_record"] else "warn",
+        "dictation_record",
+        "pw-record available" if dictation_commands["pw_record"] else "pw-record missing",
+    )
+    _add_check(
+        checks,
+        "ok" if dictation_commands["wl_copy"] and dictation_commands["ydotool"] and dictation_commands["ydotool_socket"] else "warn",
+        "dictation_insert",
+        "clipboard + ydotool insertion ready"
+        if dictation_commands["wl_copy"] and dictation_commands["ydotool"] and dictation_commands["ydotool_socket"]
+        else "dictation insertion not fully ready",
+        dictation_commands,
+    )
+    fast_profile = dictation["profiles"].get("fast", {})
+    _add_check(
+        checks,
+        "ok" if fast_profile.get("model_dir_exists") else "warn",
+        "dictation_fast_model",
+        "dictation fast model present" if fast_profile.get("model_dir_exists") else "dictation fast model missing",
+        fast_profile.get("model_dir"),
+    )
+    if dictation.get("default_profile") == "auto":
+        policy = dictation_config_data.get("profile_policy", {})
+        fallback_name = str(policy.get("fallback_profile", "quality")) if isinstance(policy, dict) else "quality"
+        fallback_profile = dictation["profiles"].get(fallback_name, {})
+        _add_check(
+            checks,
+            "ok" if fallback_profile.get("model_dir_exists") else "warn",
+            "dictation_default_model",
+            f"dictation auto profile ready (fallback {fallback_name})"
+            if fallback_profile.get("model_dir_exists")
+            else f"dictation auto fallback missing ({fallback_name})",
+            {
+                "default_profile": "auto",
+                "fallback_profile": fallback_name,
+                "fallback_model_dir": fallback_profile.get("model_dir"),
+            },
+        )
+    else:
+        default_profile = dictation["profiles"].get(dictation["default_profile"], {})
+        _add_check(
+            checks,
+            "ok" if default_profile.get("model_dir_exists") else "warn",
+            "dictation_default_model",
+            f"dictation default model present ({dictation['default_profile']})"
+            if default_profile.get("model_dir_exists")
+            else f"dictation default model missing ({dictation['default_profile']})",
+            default_profile.get("model_dir"),
+        )
+
+    hotkey_service = port.systemd_unit(hotkey_service_name)
+    _add_check(
+        checks,
+        "ok" if hotkey_service["is_active"] and hotkey_service["is_enabled"] else "warn",
+        "dictation_hotkey",
+        f"{hotkey_service_name} {hotkey_service['active']}/{hotkey_service['enabled']}",
+        hotkey_service,
+    )
+    server_service = port.user_systemd_unit(server_service_name)
+    server_ready = server_service["is_active"] and dictation.get("server_socket_exists")
+    _add_check(
+        checks,
+        "ok" if server_ready else "warn",
+        "dictation_server",
+        f"{server_service_name.removesuffix('.service')} warm model service ready"
+        if server_ready
+        else f"{server_service_name} {server_service['active']}/{server_service['enabled']}",
+        {
+            "service": server_service,
+            "socket": dictation.get("server_socket"),
+            "socket_exists": dictation.get("server_socket_exists"),
+        },
+    )
+    input_remapper_service = port.systemd_unit(input_remapper_service_name)
+    _add_check(
+        checks,
+        "ok" if input_remapper_service["is_active"] and input_remapper_service["is_enabled"] else "warn",
+        "dictation_input_remapper",
+        f"{input_remapper_service_name} {input_remapper_service['active']}/{input_remapper_service['enabled']}",
+        input_remapper_service,
+    )
+    input_remapper_preset_exists = port.path_exists(paths.input_remapper_preset)
+    _add_check(
+        checks,
+        "ok" if input_remapper_preset_exists else "warn",
+        "dictation_input_remapper_preset",
+        "input-remapper Copilot+/ preset present"
+        if input_remapper_preset_exists
+        else "input-remapper Copilot+/ preset missing",
+        str(paths.input_remapper_preset),
     )
 
     return checks
