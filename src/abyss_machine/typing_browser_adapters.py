@@ -30,6 +30,7 @@ ProbeEventFinder = Callable[[str, int], tuple[dict[str, Any] | None, list[dict[s
 RunCommand = Callable[[list[str], float, dict[str, str] | None], dict[str, Any]]
 TerminateProcesses = Callable[[str], list[dict[str, Any]]]
 FocusCallback = Callable[..., dict[str, Any]]
+AtspiAction = Callable[..., dict[str, Any]]
 LiveContentCapture = Callable[..., dict[str, Any]]
 ContextFromAtspiPath = Callable[..., dict[str, Any]]
 UrlOrigin = Callable[[str], Mapping[str, Any] | None]
@@ -566,6 +567,375 @@ def browser_webextension_selftest_document(
             "This selftest proves the WebExtension content-script to native-host route in a temporary Firefox profile.",
             "It does not prove the extension is active in the user's release Firefox profiles.",
             "It does not collect raw key events, password fields, cookies, local storage, or full form values.",
+        ],
+    }
+
+
+def browser_atspi_selftest_document(
+    *,
+    generated_at: str,
+    pid: int,
+    tmp_root: Path,
+    schema_prefix: str,
+    version: str,
+    release_profile: bool,
+    natural_route: bool,
+    release_profile_info: Mapping[str, Any] | None,
+    find_event: ProbeEventFinder,
+    focus_window_by_title: FocusCallback,
+    focus_text_by_path: AtspiAction,
+    insert_text_by_path: AtspiAction,
+    insert_text_by_url: AtspiAction,
+    prepare_profile: Callable[[Path], dict[str, Any] | None] = prepare_firefox_selftest_profile,
+    natural_route_host: Callable[[], str | None] = lambda: None,
+    omit_private_text_fields: Callable[[Any], Any] = _omit_private_text_fields,
+    process_tail: ProcessTail = _safe_process_tail,
+    which: Callable[[str], str | None] = shutil.which,
+    process_factory: Callable[..., Any] = subprocess.Popen,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    env_mapping: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    run_id = browser_webextension_run_id(generated_at, pid)
+    probe_suffix = f" {run_id} 424242"
+    base_text = "safe writing surface committed text" if natural_route else "abyss browser atspi committed text probe"
+    expected_text = base_text + probe_suffix
+    base_sha = hashlib.sha256(base_text.encode("utf-8", errors="replace")).hexdigest()
+    expected_sha = hashlib.sha256(expected_text.encode("utf-8", errors="replace")).hexdigest()
+    page_script_probe_delays_ms = [4200, 6200, 8500]
+    profile_dir = Path(str(release_profile_info.get("path"))) if isinstance(release_profile_info, Mapping) else tmp_root / "profile"
+    site_dir = tmp_root / "site"
+    stdout_tail = ""
+    stderr_tail = ""
+    type_result: dict[str, Any] | None = None
+    firefox_returncode: int | None = None
+    ready_event: dict[str, Any] | None = None
+    event: dict[str, Any] | None = None
+    parse_errors: list[dict[str, Any]] = []
+    ready_parse_errors: list[dict[str, Any]] = []
+    readiness_notes: list[dict[str, Any]] = []
+    window_focus_attempt: dict[str, Any] | None = None
+    focus_attempt: dict[str, Any] | None = None
+    errors: list[dict[str, Any]] = []
+
+    firefox_bin = which("firefox")
+    if not firefox_bin:
+        return {
+            "schema": f"{schema_prefix}_typing_browser_atspi_selftest_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "status": "firefox_missing",
+            "error": "firefox executable not found",
+            "policy": {"raw_keylogging": False, "password_fields_captured": False, "automatic_action": False},
+        }
+    if release_profile and not isinstance(release_profile_info, Mapping):
+        return {
+            "schema": f"{schema_prefix}_typing_browser_atspi_selftest_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "status": "release_profile_missing",
+            "error": "Firefox release profile was not found in profiles.ini",
+            "policy": {"raw_keylogging": False, "password_fields_captured": False, "automatic_action": False},
+        }
+    if natural_route and release_profile:
+        return {
+            "schema": f"{schema_prefix}_typing_browser_atspi_selftest_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "status": "natural_route_requires_temporary_profile",
+            "error": "--natural-route is intentionally limited to the temporary Firefox profile proof route",
+            "natural_route": True,
+            "policy": {
+                "raw_keylogging": False,
+                "password_fields_captured": False,
+                "automatic_action": False,
+                "temporary_firefox_profile": True,
+                "release_profile_mutated": False,
+            },
+        }
+
+    proc: Any | None = None
+    httpd: socketserver.TCPServer | None = None
+    server_thread: threading.Thread | None = None
+    url = ""
+    try:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        site_dir.mkdir(parents=True, exist_ok=True)
+        if release_profile:
+            if not profile_dir.exists():
+                errors.append({"error": "release_profile_path_missing", "path": str(profile_dir)})
+        else:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            prefs_error = prepare_profile(profile_dir)
+            if prefs_error:
+                errors.append(prefs_error)
+        title = "Writing Surface" if natural_route else "Abyss browser AT-SPI safe input probe"
+        textarea_id = "note" if natural_route else "probe"
+        textarea_label = "Safe writing note" if natural_route else "Abyss safe browser probe"
+        input_data = "text" if natural_route else "probe"
+        page = f"""<!doctype html>
+<meta charset=\"utf-8\">
+<title>{html.escape(title)}</title>
+<div id=\"{html.escape(textarea_id)}\" role=\"textbox\" aria-label=\"{html.escape(textarea_label)}\" contenteditable=\"true\" tabindex=\"0\" style=\"white-space: pre-wrap; min-height: 4rem;\"></div>
+<script>
+  const baseText = {json.dumps(base_text)};
+  const expectedText = {json.dumps(expected_text)};
+  const probeSuffix = {json.dumps(probe_suffix)};
+  function getField() {{
+    return document.getElementById({json.dumps(textarea_id)});
+  }}
+  function focusField(field) {{
+    try {{
+      field.focus({{preventScroll: true}});
+    }} catch (error) {{
+      field.focus();
+    }}
+  }}
+  function moveCaretEnd(field) {{
+    const range = document.createRange();
+    range.selectNodeContents(field);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }}
+  function dispatchCommittedInput(field, data) {{
+    try {{
+      field.dispatchEvent(new InputEvent(\"input\", {{bubbles: true, inputType: \"insertText\", data}}));
+    }} catch (error) {{
+      field.dispatchEvent(new Event(\"input\", {{bubbles: true}}));
+    }}
+  }}
+  function emitBaseText() {{
+    const field = getField();
+    focusField(field);
+    field.textContent = baseText;
+    moveCaretEnd(field);
+    dispatchCommittedInput(field, {json.dumps(input_data)});
+  }}
+  function emitExpectedText() {{
+    const field = getField();
+    focusField(field);
+    if (field.textContent !== baseText) {{
+      field.textContent = baseText;
+    }}
+    moveCaretEnd(field);
+    let inserted = false;
+    try {{
+      inserted = document.execCommand(\"insertText\", false, probeSuffix);
+    }} catch (error) {{
+      inserted = false;
+    }}
+    if (!inserted || field.textContent !== expectedText) {{
+      field.textContent = expectedText;
+    }}
+    moveCaretEnd(field);
+    dispatchCommittedInput(field, probeSuffix);
+  }}
+  window.addEventListener(\"load\", emitBaseText);
+  setTimeout(emitBaseText, 300);
+  setTimeout(emitBaseText, 1200);
+  setTimeout(emitBaseText, 2400);
+  setTimeout(emitExpectedText, 4200);
+  setTimeout(emitExpectedText, 6200);
+  setTimeout(emitExpectedText, 8500);
+</script>
+"""
+        write_error = _atomic_write_text(site_dir / "index.html", page, 0o664)
+        if write_error:
+            errors.append(write_error)
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, directory=str(site_dir), **kwargs)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                return
+
+        class ReusableTCPServer(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+
+        server_host = "127.0.0.1"
+        if natural_route:
+            detected_host = natural_route_host()
+            if not detected_host:
+                errors.append({"error": "nonloopback_ipv4_unavailable"})
+                raise RuntimeError("nonloopback_ipv4_unavailable")
+            server_host = detected_host
+        httpd = ReusableTCPServer((server_host, 0), Handler)
+        port = int(httpd.server_address[1])
+        url = f"http://{server_host}:{port}/index.html"
+        server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        server_thread.start()
+
+        process_env = dict(env_mapping or os.environ)
+        process_env["MOZ_NO_REMOTE"] = "1"
+        process_env.setdefault("GNOME_ACCESSIBILITY", "1")
+        process_env.setdefault("NO_AT_BRIDGE", "0")
+        process_env.setdefault("GTK_MODULES", "gail:atk-bridge")
+        proc = process_factory(
+            [firefox_bin, "--new-instance", "--profile", str(profile_dir), "--new-window", url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=process_env,
+            preexec_fn=os.setsid,
+        )
+        sleep(0.8)
+        window_focus_attempt = focus_window_by_title(title, timeout_sec=3.0)
+        ready_deadline = monotonic() + 12.0
+        last_window_focus_at = monotonic()
+        while monotonic() < ready_deadline:
+            ready_event, ready_parse_errors = find_event(base_sha, 360)
+            if isinstance(ready_event, dict) and ready_event.get("url") == url:
+                break
+            if monotonic() - last_window_focus_at >= 3.0:
+                window_focus_attempt = focus_window_by_title(title, timeout_sec=2.0)
+                last_window_focus_at = monotonic()
+            ready_event = None
+            sleep(0.5)
+        if not isinstance(ready_event, dict):
+            readiness_notes.append({
+                "level": "info",
+                "key": "browser_atspi_base_text_not_observed_before_type",
+                "message": "base text was not observed before controlled typing; final committed-text event remains the authoritative proof",
+                "url": url,
+            })
+        ready_source_path = str(_nested_get(ready_event, ["atspi", "source_path"]) or "") if isinstance(ready_event, dict) else ""
+        if ready_source_path:
+            focus_attempt = focus_text_by_path(ready_source_path, url, base_sha)
+        sleep(0.3)
+        insert_source_path = ready_source_path or str(_nested_get(focus_attempt, ["matched", "path"]) or "")
+        type_result = (
+            insert_text_by_path(insert_source_path, url, base_sha, probe_suffix)
+            if insert_source_path
+            else {
+                "ok": False,
+                "status": "target_path_missing",
+                "method": "atspi_editable_text_insert",
+                "error": "safe selftest field path was not observed",
+                "policy": {
+                    "raw_keylogging": False,
+                    "password_fields_captured": False,
+                    "global_virtual_keyboard": False,
+                },
+            }
+        )
+        if not (isinstance(type_result, dict) and type_result.get("ok")):
+            fallback_insert = insert_text_by_url(url, base_sha, probe_suffix, timeout_sec=12.0)
+            if isinstance(type_result, dict):
+                type_result = {**fallback_insert, "path_insert": omit_private_text_fields(type_result)}
+            else:
+                type_result = fallback_insert
+        deadline = monotonic() + 24.0
+        while monotonic() < deadline:
+            event, parse_errors = find_event(expected_sha, 420)
+            if isinstance(event, dict):
+                break
+            sleep(0.5)
+    except Exception as exc:
+        errors.append({"error": repr(exc)[:500]})
+    finally:
+        stdout, stderr, firefox_returncode = _terminate_process_group(proc)
+        stdout_tail = process_tail(stdout, max_chars=1000)
+        stderr_tail = process_tail(stderr, max_chars=1000)
+        if httpd is not None:
+            try:
+                httpd.shutdown()
+                httpd.server_close()
+            except Exception:
+                pass
+        if server_thread is not None:
+            try:
+                server_thread.join(timeout=1.0)
+            except Exception:
+                pass
+
+    event_ok = (
+        isinstance(event, dict)
+        and event.get("status") == "captured"
+        and event.get("capture_gate_decision") == "allow_text"
+        and event.get("capture_gate_confidence") == "atspi_browser_url_allowed"
+        and event.get("text_sha256") == expected_sha
+        and event.get("text_chars_stored") == len(expected_text)
+    )
+    targeted_insert_ok = bool(isinstance(type_result, dict) and type_result.get("ok"))
+    page_script_controlled_insert_ok = bool(event_ok)
+    input_proof_ok = bool(targeted_insert_ok or page_script_controlled_insert_ok)
+    ok = bool(event_ok and not parse_errors and not errors and input_proof_ok)
+    return {
+        "schema": f"{schema_prefix}_typing_browser_atspi_selftest_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": ok,
+        "status": "passed" if ok else "failed",
+        "run_id": run_id,
+        "source_adapter": "atspi_text_changed_event",
+        "natural_route": bool(natural_route),
+        "url": url,
+        "probe": {
+            "base_text_sha256": base_sha,
+            "text_sha256": expected_sha,
+            "text_length": len(expected_text),
+            "text_omitted": True,
+            "attempts_targeted_atspi_insert": True,
+            "uses_targeted_atspi_insert": targeted_insert_ok,
+            "targeted_atspi_insert_confirmed": targeted_insert_ok,
+            "uses_page_script_controlled_insert": True,
+            "uses_global_virtual_keyboard": False,
+            "synthetic_operator_like_text": bool(natural_route),
+        },
+        "proof_input": {
+            "event_ok": event_ok,
+            "targeted_atspi_insert_ok": targeted_insert_ok,
+            "page_script_controlled_insert_ok": page_script_controlled_insert_ok,
+            "accepted_route": "targeted_atspi_insert" if targeted_insert_ok else "page_script_controlled_insert" if page_script_controlled_insert_ok else None,
+            "page_script_probe_delays_ms": page_script_probe_delays_ms,
+        },
+        "ready_event": ready_event,
+        "readiness_notes": readiness_notes,
+        "window_focus_attempt": omit_private_text_fields(window_focus_attempt) if isinstance(window_focus_attempt, dict) else None,
+        "focus_attempt": omit_private_text_fields(focus_attempt),
+        "event": event,
+        "type_result": omit_private_text_fields(type_result),
+        "firefox": {
+            "binary": firefox_bin,
+            "returncode": firefox_returncode,
+            "profile": str(profile_dir),
+            "profile_kind": "release_profile" if release_profile else "temporary_profile",
+            "release_profile": release_profile_info,
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+        },
+        "tmp_root": str(tmp_root),
+        "ready_parse_errors": ready_parse_errors[:20],
+        "parse_errors": parse_errors[:20],
+        "errors": errors[:20],
+        "policy": {
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "automatic_action": False,
+            "internet_access": False,
+            "loopback_http_only": not natural_route,
+            "nonloopback_local_http_only": bool(natural_route),
+            "targeted_atspi_insert_for_selftest_only": True,
+            "page_script_controlled_insert_for_selftest_only": True,
+            "global_virtual_keyboard": False,
+            "requires_safe_browser_url": True,
+            "temporary_firefox_profile": not release_profile,
+            "release_profile_mutated": bool(release_profile),
+        },
+        "non_claims": [
+            (
+                "This selftest uses a local non-loopback HTTP page to prove browser AT-SPI natural-route recency; "
+                "it is synthetic operator-like text, not proof of human typing."
+            )
+            if natural_route
+            else "This selftest uses a loopback HTTP page; it does not prove the unsigned WebExtension is active.",
+            "The selftest uses only the temporary safe page or a matched safe AT-SPI editable field; it does not use global key events.",
         ],
     }
 

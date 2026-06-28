@@ -512,6 +512,172 @@ def test_browser_webextension_selftest_runtime_adapter_builds_public_safe_docume
     assert (tmp_path / "tmp" / "site" / "index.html").exists()
 
 
+def test_browser_atspi_selftest_reports_missing_runtime_without_probe(tmp_path) -> None:
+    called = {"probe": False}
+
+    def forbidden_find_event(_text_sha: str, _limit: int):
+        called["probe"] = True
+        return None, []
+
+    data = typing_browser_adapters.browser_atspi_selftest_document(
+        generated_at="2026-06-27T18:00:00Z",
+        pid=4242,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        release_profile=False,
+        natural_route=False,
+        release_profile_info=None,
+        find_event=forbidden_find_event,
+        focus_window_by_title=lambda *_args, **_kwargs: {},
+        focus_text_by_path=lambda *_args, **_kwargs: {},
+        insert_text_by_path=lambda *_args, **_kwargs: {},
+        insert_text_by_url=lambda *_args, **_kwargs: {},
+        which=lambda name: None,
+    )
+
+    assert data["status"] == "firefox_missing"
+    assert data["policy"]["raw_keylogging"] is False
+    assert called["probe"] is False
+
+
+def test_browser_atspi_selftest_runtime_adapter_builds_public_safe_document(tmp_path) -> None:
+    generated_at = "2026-06-27T18:00:00Z"
+    pid = 4242
+    run_id = typing_browser_adapters.browser_webextension_run_id(generated_at, pid)
+    probe_suffix = f" {run_id} 424242"
+    base_text = "abyss browser atspi committed text probe"
+    expected_text = base_text + probe_suffix
+    base_sha = hashlib.sha256(base_text.encode("utf-8", errors="replace")).hexdigest()
+    expected_sha = hashlib.sha256(expected_text.encode("utf-8", errors="replace")).hexdigest()
+    launched: list[list[str]] = []
+    calls: list[tuple[str, int]] = []
+
+    class FakeProcess:
+        pid = 999999
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=0):
+            return "firefox stdout ?token=secret", "firefox stderr ?client_secret=secret"
+
+    def fake_process_factory(command: list[str], **_kwargs: object) -> FakeProcess:
+        launched.append(command)
+        return FakeProcess()
+
+    def fake_find_event(text_sha256: str, limit: int):
+        calls.append((text_sha256, limit))
+        url = launched[0][-1]
+        if text_sha256 == base_sha:
+            return {
+                "event_id": "evt-ready",
+                "status": "captured",
+                "url": url,
+                "atspi": {"source_path": "/application/firefox/document/entry"},
+            }, []
+        if text_sha256 == expected_sha:
+            return {
+                "event_id": "evt-atspi",
+                "status": "captured",
+                "capture_gate_decision": "allow_text",
+                "capture_gate_confidence": "atspi_browser_url_allowed",
+                "text_sha256": expected_sha,
+                "text_chars_stored": len(expected_text),
+                "url": url,
+            }, []
+        raise AssertionError(text_sha256)
+
+    data = typing_browser_adapters.browser_atspi_selftest_document(
+        generated_at=generated_at,
+        pid=pid,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        release_profile=False,
+        natural_route=False,
+        release_profile_info=None,
+        find_event=fake_find_event,
+        focus_window_by_title=lambda *_args, **_kwargs: {"ok": True, "_private": "hidden", "method": "title"},
+        focus_text_by_path=lambda path, url, text_sha: {
+            "ok": True,
+            "matched": {"path": path, "_text": base_text, "_private": "hidden"},
+            "url": url,
+            "text_sha256": text_sha,
+        },
+        insert_text_by_path=lambda path, url, text_sha, text: {
+            "ok": True,
+            "method": "atspi_editable_text_insert",
+            "matched": {"path": path, "_text": base_text, "_private": "hidden"},
+            "url": url,
+            "text_sha256": text_sha,
+            "insert_text_omitted": bool(text),
+        },
+        insert_text_by_url=lambda *_args, **_kwargs: {"ok": False, "status": "not_used"},
+        which=lambda name: "/usr/bin/firefox" if name == "firefox" else None,
+        process_factory=fake_process_factory,
+        sleep=lambda _seconds: None,
+        monotonic=lambda: 100.0,
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "passed"
+    assert data["run_id"] == run_id
+    assert data["source_adapter"] == "atspi_text_changed_event"
+    assert data["probe"]["base_text_sha256"] == base_sha
+    assert data["probe"]["text_sha256"] == expected_sha
+    assert data["probe"]["uses_targeted_atspi_insert"] is True
+    assert data["probe"]["uses_global_virtual_keyboard"] is False
+    assert data["proof_input"]["accepted_route"] == "targeted_atspi_insert"
+    assert data["event"]["event_id"] == "evt-atspi"
+    assert data["ready_event"]["event_id"] == "evt-ready"
+    assert "_private" not in data["window_focus_attempt"]
+    assert "_private" not in data["focus_attempt"]["matched"]
+    assert "_private" not in data["type_result"]["matched"]
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stdout_tail"]
+    assert "[REDACTED:url_query_secret]" in data["firefox"]["stderr_tail"]
+    assert data["firefox"]["profile_kind"] == "temporary_profile"
+    assert data["policy"]["loopback_http_only"] is True
+    assert data["policy"]["global_virtual_keyboard"] is False
+    assert calls == [(base_sha, 360), (expected_sha, 420)]
+    assert launched[0][:4] == ["/usr/bin/firefox", "--new-instance", "--profile", str(tmp_path / "tmp" / "profile")]
+    assert launched[0][-2:] == ["--new-window", data["url"]]
+    assert (tmp_path / "tmp" / "profile" / "user.js").exists()
+    assert (tmp_path / "tmp" / "site" / "index.html").exists()
+
+
+def test_cli_browser_atspi_selftest_binds_adapter_to_latest_store(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-27T18:00:00Z")
+    monkeypatch.setattr(cli, "TYPING_BROWSER_ATSPI_SELFTEST_TMP_ROOT", tmp_path / "tmp")
+    monkeypatch.setattr(cli, "typing_browser_atspi_selftest_store", lambda data, write_latest=True: {"stored": data, "write_latest": write_latest})
+    monkeypatch.setattr(cli, "typing_firefox_release_profile", lambda: {"path": str(tmp_path / "release")})
+
+    def fake_document(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"schema": "abyss_machine_typing_browser_atspi_selftest_v1", "ok": True}
+
+    monkeypatch.setattr(typing_browser_adapters, "browser_atspi_selftest_document", fake_document)
+
+    result = cli.typing_browser_atspi_selftest(write_latest=False, release_profile=True, natural_route=False)
+
+    assert result["write_latest"] is False
+    assert result["stored"]["ok"] is True
+    assert captured["generated_at"] == "2026-06-27T18:00:00Z"
+    assert captured["tmp_root"] == tmp_path / "tmp"
+    assert captured["release_profile"] is True
+    assert captured["natural_route"] is False
+    assert captured["release_profile_info"] == {"path": str(tmp_path / "release")}
+    assert captured["find_event"] is cli.typing_browser_atspi_find_event
+    assert captured["focus_window_by_title"] is cli.typing_atspi_focus_firefox_frame_by_title
+    assert captured["focus_text_by_path"] is cli.typing_atspi_focus_text_by_path
+    assert captured["insert_text_by_path"] is cli.typing_atspi_insert_text_by_path
+    assert captured["insert_text_by_url"] is cli.typing_atspi_insert_text_by_url
+    assert captured["natural_route_host"] is cli.typing_browser_atspi_natural_route_host
+    assert captured["process_tail"] is cli.typing_safe_process_tail
+
+
 def test_browser_context_selftest_reports_missing_firefox_without_live_probe(tmp_path) -> None:
     called = {"live": False}
 
