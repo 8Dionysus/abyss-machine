@@ -2,6 +2,40 @@
   "schema": "abyss_machine_artifact_signature_policy_manifest_v1",
   "policy_version": "0.2.4",
   "purpose": "Declare how abyss-machine public seed contracts, release bundles, runtime artifacts, local evidence, and public media exports are fingerprinted, attested, or signed without publishing private host state.",
+  "primary_standard_refs": {
+    "sbom": [
+      "https://cyclonedx.org/specification/overview/",
+      "https://spdx.dev/specifications/"
+    ],
+    "ml_bom": [
+      "https://cyclonedx.org/use-cases/machine-learning/"
+    ],
+    "slsa_in_toto": [
+      "https://slsa.dev/spec/v1.0/provenance",
+      "https://in-toto.io/Statement/v1"
+    ],
+    "sigstore_cosign": [
+      "https://docs.sigstore.dev/cosign/",
+      "https://docs.sigstore.dev/"
+    ],
+    "c2pa": [
+      "https://spec.c2pa.org/specifications/specifications/2.2/specs/C2PA_Specification.html",
+      "https://c2pa.org/conformance/",
+      "https://raw.githubusercontent.com/c2pa-org/conformance-public/refs/heads/main/trust-list/C2PA-TRUST-LIST.pem",
+      "https://opensource.contentauthenticity.org/docs/c2patool/docs/usage/"
+    ],
+    "oci_artifact": [
+      "https://github.com/opencontainers/image-spec/blob/main/spec.md",
+      "https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers",
+      "https://oras.land/docs/concepts/artifact/"
+    ],
+    "tuf": [
+      "https://theupdateframework.github.io/specification/latest/"
+    ],
+    "scitt": [
+      "https://datatracker.ietf.org/doc/rfc9699/"
+    ]
+  },
   "abi_signature": {
     "algorithm": "sha256-tree-v1",
     "generated_surface": "generated/contract_abi_signatures.min.json",

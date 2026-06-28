@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "manifests" / "artifact_signature_policy.manifest.json"
 SCHEMA_INVENTORY = ROOT / "manifests" / "schema_inventory.manifest.json"
+PUBLIC_MEDIA_MANIFEST = ROOT / "manifests" / "artifact_bundles" / "public_media_export.bundle.json"
 
 REQUIRED_IDENTITY_FIELDS = {
     "artifact_class",
@@ -56,6 +57,42 @@ def load_json(path: Path) -> dict:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
+
+
+def test_artifact_trust_controls_keep_primary_standard_refs() -> None:
+    policy = load_policy()
+    refs = policy["primary_standard_refs"]
+
+    for control in {
+        "sbom",
+        "ml_bom",
+        "slsa_in_toto",
+        "sigstore_cosign",
+        "c2pa",
+        "oci_artifact",
+        "tuf",
+        "scitt",
+    }:
+        assert refs[control]
+        assert all(str(item).startswith("https://") for item in refs[control])
+
+    assert any("cyclonedx.org" in item for item in refs["sbom"])
+    assert any("slsa.dev/spec" in item for item in refs["slsa_in_toto"])
+    assert any("sigstore.dev" in item for item in refs["sigstore_cosign"])
+    assert any("C2PA-TRUST-LIST.pem" in item for item in refs["c2pa"])
+    assert any("opencontainers/distribution-spec" in item for item in refs["oci_artifact"])
+    assert any("theupdateframework.github.io/specification" in item for item in refs["tuf"])
+    assert any("datatracker.ietf.org/doc/rfc9699" in item for item in refs["scitt"])
+
+
+def test_public_media_export_names_c2pa_primary_refs() -> None:
+    manifest = load_json(PUBLIC_MEDIA_MANIFEST)
+    refs = manifest["c2pa"]["standard_refs"]
+
+    assert refs["specification"].startswith("https://spec.c2pa.org/")
+    assert refs["conformance_program"] == "https://c2pa.org/conformance/"
+    assert refs["production_trust_list"].endswith("/trust-list/C2PA-TRUST-LIST.pem")
+    assert "c2patool" in refs["c2patool_usage"]
 
 
 def test_every_artifact_class_has_identity_posture() -> None:
