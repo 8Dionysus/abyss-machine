@@ -53,22 +53,24 @@ serving, subprocess cleanup, and public-safe WebExtension selftest result
 assembly, browser-context selftest temporary-profile/runtime orchestration,
 capture env override restoration, AT-SPI context-inference callback routing,
 browser AT-SPI selftest temporary/release-profile runtime orchestration,
-targeted AT-SPI callback routing, and public-safe browser-context/browser
-AT-SPI result assembly plus Firefox `profiles.ini` parsing and release-profile
-selection live in
+targeted AT-SPI callback routing, focused-browser selftest temporary-profile/
+runtime orchestration, focused-window/path/URL/no-op AT-SPI callback routing,
+and public-safe browser-context/browser AT-SPI/focused-browser result assembly
+plus Firefox `profiles.ini` parsing and release-profile selection live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
 sample/metadata/debounce, text-event listener runtime, generic GUI selftest
 semantic plans, and supplied accessibility-object state/text/path/document/
 application context runtime helpers, focused-candidate tree walk, and browser
 focus metadata traversal plus path-targeted text focus/read/insert and
-URL-scanned GI/Atspi text insertion plus GI/Atspi Firefox frame focus runtime live in
+URL-targeted focused-text runtime plus URL-scanned GI/Atspi text insertion plus
+GI/Atspi Firefox frame focus runtime live in
 `abyss_machine.typing_atspi_adapters`, including browser/privacy selftest
 recent-record readers. Saved-text scan filesystem limits, path
 walking, state continuity, decode rejection, candidate/skip accounting, ingest
 kwargs, state entries, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep the remaining typing adapters
-bounded by source type: focused-browser selftests and privacy probes. The mechanic
-owns the route and tests; generated typed evidence remains local host state.
+bounded by source type: browser-privacy probes. The mechanic owns the route and
+tests; generated typed evidence remains local host state.
 
 ### Next route
 
