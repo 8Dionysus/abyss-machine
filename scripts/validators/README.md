@@ -121,9 +121,12 @@ remain at the CLI edge. Nervous rerank profile/defaults, source-prior scoring,
 machine-query caps, merge policy, hybrid result scoring, neural text shaping,
 neural config normalization, guarded neural-score blending, and eval document
 envelopes live in
-`abyss_machine.nervous_rerank`; lexical/semantic source collection, semantic
-maintenance assessment, OpenVINO scorer subprocess execution, and latest/history
-writes remain at the CLI edge. Nervous recall refusal, mode normalization,
+`abyss_machine.nervous_rerank`; OpenVINO neural scorer temp-payload staging,
+subprocess runner invocation, stdout/output JSON parsing, policy-gate callback
+routing, debug input/output path reporting, and resource-profile callback
+routing live in `abyss_machine.nervous_rerank_adapters`; lexical/semantic
+source collection, semantic maintenance assessment, and latest/history writes
+remain at the CLI edge. Nervous recall refusal, mode normalization,
 search execution-plan, evidence projection, summary counts, pack identity, and
 retrieval-pack document contracts live in `abyss_machine.nervous_recall`;
 lexical/hybrid search adapter calls and latest/history writes remain at the CLI edge.
