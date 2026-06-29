@@ -38,8 +38,13 @@
   `abyss_machine.ai_runtime_adapters`; per-profile dictation-client calls,
   monotonic timing, before/after resource snapshots, and client-side
   resource-profile envelopes now pass through fakeable transport, clock, and
-  resource ports. CLI remains the eval config, fixture generation, dispatch,
-  and rendering edge.
+  resource ports. CLI remains the eval config, dispatch, and rendering edge.
+- Extracted STT synthetic fixture generation into
+  `abyss_machine.ai_runtime_adapters`; fixture directory creation, existing WAV
+  reuse, `espeak-ng` execution, optional `ffmpeg` resampling, raw WAV
+  replace/cleanup, and WAV metadata reads now pass through fakeable filesystem,
+  command, and metadata ports. CLI remains the eval config, dispatch, and
+  rendering edge.
 - Extracted `.aoa` token-accounting generated-summary routing into
   `abyss_machine.ai_runtime_adapters`; session-registry reads, session
   manifest/index fallback reads, generated-summary sanitization, outside-root

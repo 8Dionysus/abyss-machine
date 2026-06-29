@@ -841,6 +841,142 @@ def test_cli_llm_workhorse_command_delegates_to_runner(monkeypatch, capsys) -> N
     assert calls["run_command"] is cli.run
 
 
+def test_stt_eval_fixture_reuses_existing_valid_wav_without_subprocess() -> None:
+    fixture = Path("/fixtures/stt/ru-smoke.wav")
+    mkdir_calls: list[Path] = []
+
+    def fail_command_exists(name: str) -> bool:
+        raise AssertionError(f"{name} should not be checked for an existing valid fixture")
+
+    def fail_run(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("subprocess should not run for an existing valid fixture")
+
+    result = ai_runtime_adapters.stt_eval_fixture(
+        reference_text="локальный искусственный интеллект готов к работе",
+        fixture=fixture,
+        command_exists=fail_command_exists,
+        run_command=fail_run,
+        path_exists=lambda path: path == fixture,
+        path_size=lambda path: 2400 if path == fixture else None,
+        mkdir=lambda path: mkdir_calls.append(path),
+        wav_duration=lambda path: 1.5 if path == fixture else None,
+        wav_sample_rate=lambda path: 16000 if path == fixture else None,
+    )
+
+    assert result == {
+        "ok": True,
+        "path": str(fixture),
+        "created": False,
+        "duration_sec": 1.5,
+        "sample_rate": 16000,
+        "generator": "espeak-ng",
+    }
+    assert mkdir_calls == [fixture.parent]
+
+
+def test_stt_eval_fixture_generates_with_espeak_and_ffmpeg() -> None:
+    fixture = Path("/fixtures/stt/ru-smoke.wav")
+    reference = "локальный искусственный интеллект готов к работе"
+    existing: set[Path] = set()
+    runs: list[list[str]] = []
+    unlinked: list[Path] = []
+
+    def fake_run(argv: list[str], **kwargs: Any) -> dict[str, Any]:
+        runs.append(argv)
+        if argv[0] == "ffmpeg":
+            existing.add(fixture)
+        return {"ok": True, "stdout": "", "stderr": "", "returncode": 0}
+
+    result = ai_runtime_adapters.stt_eval_fixture(
+        reference_text=reference,
+        fixture=fixture,
+        command_exists=lambda name: name in {"espeak-ng", "ffmpeg"},
+        run_command=fake_run,
+        path_exists=lambda path: path in existing,
+        path_size=lambda path: 2400 if path in existing else None,
+        mkdir=lambda path: None,
+        unlink=lambda path: unlinked.append(path),
+        wav_duration=lambda path: 1.5 if path in existing else None,
+        wav_sample_rate=lambda path: 16000 if path in existing else None,
+    )
+
+    assert result == {
+        "ok": True,
+        "path": str(fixture),
+        "created": True,
+        "duration_sec": 1.5,
+        "sample_rate": 16000,
+        "generator": "espeak-ng",
+        "resampler": "ffmpeg",
+        "stderr": "",
+        "returncode": 0,
+    }
+    assert runs == [
+        ["espeak-ng", "-v", "ru", "-s", "145", "-w", str(fixture.with_suffix(".raw.wav")), reference],
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(fixture.with_suffix(".raw.wav")),
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            str(fixture),
+        ],
+    ]
+    assert unlinked == [fixture.with_suffix(".raw.wav")]
+
+
+def test_stt_eval_fixture_reports_missing_espeak_without_transport() -> None:
+    fixture = Path("/fixtures/stt/ru-smoke.wav")
+
+    def fail_run(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("subprocess should not run without espeak-ng")
+
+    result = ai_runtime_adapters.stt_eval_fixture(
+        reference_text="ref",
+        fixture=fixture,
+        command_exists=lambda name: False,
+        run_command=fail_run,
+        path_exists=lambda path: False,
+        path_size=lambda path: None,
+        mkdir=lambda path: None,
+    )
+
+    assert result == {
+        "ok": False,
+        "path": str(fixture),
+        "error": "espeak-ng not found",
+    }
+
+
+def test_cli_stt_fixture_delegates_generation_to_runtime_adapter(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+
+    def fake_stt_eval_fixture(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"ok": True, "path": "/fixtures/stt/ru-smoke.wav", "source": "adapter"}
+
+    monkeypatch.setattr(cli, "AI_FIXTURE_ROOT", Path("/fixtures"))
+    monkeypatch.setattr(cli.ai_runtime_adapters, "stt_eval_fixture", fake_stt_eval_fixture)
+
+    result = cli.ensure_stt_fixture("ref")
+
+    assert result == {"ok": True, "path": "/fixtures/stt/ru-smoke.wav", "source": "adapter"}
+    assert calls == {
+        "reference_text": "ref",
+        "fixture": Path("/fixtures/stt/ru-smoke.wav"),
+        "command_exists": cli.command_exists,
+        "run_command": cli.run,
+    }
+
+
 def test_stt_eval_runner_uses_dictation_transport_timing_and_resources() -> None:
     reference = "локальный искусственный интеллект готов к работе"
     fixture = {"ok": True, "path": "/tmp/ru-smoke.wav", "duration_sec": 2.0, "sample_rate": 16000}

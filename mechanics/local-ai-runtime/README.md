@@ -49,13 +49,15 @@ command/env/timeout/timing execution and resident LLM controller
 command/timeout/subprocess execution and workhorse LLM controller
 command/timeout/subprocess execution, benchmark/eval suite orchestration,
 STT eval dictation-client transport timing/resource envelopes, whole-command
-resource before/after sampling, latest/daily JSONL write routing,
-workload-measurement callback routing, workload run JSONL discovery/read/dedupe
-append, refresh-from-latest source gating, and workload taxonomy/stats/refresh/
-status write routing, LLM registry/latest/validate store/readmodel routing,
-plus token-accounting contract/profiles/latest/count store/readmodel routing
-and `.aoa` generated-summary session-registry/manifest/index reads plus
-latest/history write routing through fakeable ports.
+resource before/after sampling, STT synthetic fixture directory/path setup,
+`espeak-ng`/`ffmpeg` execution, raw WAV cleanup, WAV metadata reads,
+latest/daily JSONL write routing, workload-measurement callback routing,
+workload run JSONL discovery/read/dedupe append, refresh-from-latest source
+gating, and workload taxonomy/stats/refresh/status write routing, LLM
+registry/latest/validate store/readmodel routing, plus token-accounting
+contract/profiles/latest/count store/readmodel routing and `.aoa`
+generated-summary session-registry/manifest/index reads plus latest/history
+write routing through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
@@ -63,9 +65,10 @@ shutdown/unload cleanup, synth subprocess cache/env binding, and cold
 BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Core devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and store routing also live in
-`ai_runtime_adapters`. Remaining AI runtime adapters should focus on broader
-resource-sampling evidence and any still-proven resident parser/readmodel
-orchestration. Keep model weights, benchmark outputs, and
+`ai_runtime_adapters`. Remaining AI runtime adapters should focus on policy-gate
+binding, live input/env binding, broader resource-sampling evidence, and any
+still-proven resident parser/readmodel orchestration. Keep model weights,
+benchmark outputs, and
 generated runtime state outside Git; only plans, contracts, and bounded
 summaries belong in the public seed.
 
@@ -157,8 +160,14 @@ summaries belong in the public seed.
   dictation-client calls, monotonic timing, before/after resource snapshots,
   and client-side resource-profile envelopes through fakeable transport, clock,
   and resource ports while `ai_runtime_contracts` keeps scoring/result shapes.
-  CLI still owns eval config selection, synthetic fixture generation, command
-  dispatch, and rendering.
+  At that landing, CLI still owned eval config selection, fixture construction,
+  command dispatch, and rendering.
+- Extracted STT synthetic fixture generation into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns fixture directory
+  creation, existing WAV reuse checks, `espeak-ng` command execution, optional
+  `ffmpeg` resampling, raw WAV replace/cleanup, and duration/sample-rate reads
+  through fakeable filesystem, command, and WAV metadata ports. CLI still owns
+  eval config selection, command dispatch, and rendering.
 - Extracted TTS output audio summary and synth resource-report assembly into
   `abyss_machine.ai_tts_adapters`; the adapter owns WAV stat/duration/sample
   rate inspection, wall-clock result timing, RTF derivation, and resource-profile
