@@ -261,9 +261,13 @@ Storage policy env/read-model helpers, hook stage/status contracts, cache env
 route filtering, inventory drift, pressure classes/recommendations, cleanup
 action contracts, protected-root decisions, write-preflight decision logic,
 dry-run apply shape, and storage paths read models live in
-`abyss_machine.storage_contracts`; policy file reads, directory scans, disk
-usage, `/proc` guards, hook execution, monitor/status orchestration, actual
-apply execution, and latest/history writes remain at the CLI edge.
+`abyss_machine.storage_contracts`. Cleanup-plan active-process guard path
+matching, process snapshot projection, `/proc` fd target inspection, fd scan
+error accounting, and non-claim text live in `abyss_machine.storage_adapters`
+through fakeable process snapshot/fd ports. Policy file reads, directory scans,
+disk usage, process snapshot binding, hook execution, monitor/status
+orchestration, actual apply execution, and latest/history writes remain at the
+CLI edge.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`; active/closed

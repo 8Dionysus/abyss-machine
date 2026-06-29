@@ -63,6 +63,7 @@ of hand-maintaining command lists in the validator script:
 ```bash
 PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile diagnostic-read --json
 PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile ai-llm-refresh --allow-runtime-refresh --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile storage-refresh --allow-runtime-refresh --json
 ```
 
 Use a longer timeout for full doctor/machine-report refresh closeout:

@@ -106,6 +106,7 @@ def test_runtime_projection_omits_nested_status_payloads() -> None:
 def test_runtime_check_profiles_are_module_owned_and_deduped() -> None:
     assert host_lifecycle_parity.select_runtime_check_names() == ["enter"]
     assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["diagnostic-read"]) == ["doctor-paths"]
+    assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["storage-refresh"]) == ["storage-cleanup-plan"]
     assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["ai-llm-refresh"]) == [
         "ai-validate",
         "ai-llm-validate",
@@ -124,6 +125,7 @@ def test_runtime_check_profiles_are_module_owned_and_deduped() -> None:
         "doctor-paths",
     ]
     assert host_lifecycle_parity.runtime_command_effect_catalog()["doctor-paths"] == "read_only"
+    assert host_lifecycle_parity.runtime_command_effect_catalog()["storage-cleanup-plan"] == "refresh_latest"
     assert set(host_lifecycle_parity.runtime_command_effect_catalog()) == set(host_lifecycle_parity.runtime_command_catalog())
     assert host_lifecycle_parity.runtime_refresh_check_names(["enter", "doctor", "ai-validate"]) == [
         "doctor",

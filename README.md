@@ -194,7 +194,9 @@ opt-in.
 Storage policy/env read models, hook stage/status contracts, cache env routes,
 inventory drift, pressure classes/recommendations, cleanup action contracts,
 protected-root decisions, write-preflight decisions, dry-run apply shape, and
-paths read models live in `abyss_machine.storage_contracts`.
+paths read models live in `abyss_machine.storage_contracts`; cleanup-plan
+active-process guard path matching and `/proc` fd target inspection live in
+`abyss_machine.storage_adapters` through fakeable process snapshot/fd ports.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`.
