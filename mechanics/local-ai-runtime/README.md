@@ -48,15 +48,17 @@ child-process execution plus token-accounting tokenizer subprocess
 command/env/timeout/timing execution and resident LLM controller
 command/timeout/subprocess execution, benchmark/eval suite orchestration,
 whole-command resource before/after sampling, latest/daily JSONL write routing,
-and workload-measurement callback routing through fakeable ports.
+workload-measurement callback routing, workload run JSONL discovery/read/dedupe
+append, refresh-from-latest source gating, and workload taxonomy/stats/refresh/
+status write routing through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
 shutdown/unload cleanup, synth subprocess cache/env binding, and cold
 BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Remaining AI runtime adapters should
-focus on broader resource-sampling evidence and any still-proven resident
-readmodel/write orchestration. Keep model weights, benchmark outputs, and
+focus on broader resource-sampling evidence, non-workload latest/write routing,
+and any still-proven resident readmodel/write orchestration. Keep model weights, benchmark outputs, and
 generated runtime state outside Git; only plans, contracts, and bounded
 summaries belong in the public seed.
 
@@ -86,6 +88,14 @@ summaries belong in the public seed.
   fakeable policy, runtime, suite-runner, writer, path, and resource ports. CLI
   still owns concrete config/path binding, policy-gate binding, STT fixture and
   dictation transport, suite callback binding, command dispatch, and rendering.
+- Extracted AI workload store/readmodel routing into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns workload run JSONL
+  discovery, tolerant record reads, record-id dedupe append, refresh-from-latest
+  source gating, taxonomy latest writes, stats latest writes, refresh history
+  appends, and workload status latest writes through fakeable paths, writers,
+  source extractors, policy/status, and systemd ports. CLI still owns concrete
+  config/path binding, latest source readers, policy binding, systemd binding,
+  command dispatch, and rendering.
 - Extracted token-accounting tokenizer runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns exact-count tokenizer
   subprocess command/env/timeout/timing execution through fakeable runner and

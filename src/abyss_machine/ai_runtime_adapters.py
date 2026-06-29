@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -31,6 +32,9 @@ JsonWritePort = Callable[[Path, Mapping[str, Any], int], Any]
 JsonlAppendPort = Callable[[Path, Mapping[str, Any], int], Any]
 DailyPathPort = Callable[[], Path]
 WorkloadUpdatePort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+WorkloadAppendPort = Callable[[list[dict[str, Any]], bool], Mapping[str, Any]]
+WorkloadExtractPort = Callable[[dict[str, Any]], list[dict[str, Any]]]
+NoArgMappingPort = Callable[[], Mapping[str, Any]]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -391,6 +395,249 @@ def run_eval_suite(
             data["write_errors"] = write_errors
         if workload_update is not None:
             data["workload_update"] = dict(workload_update(data))
+    return data
+
+
+def workload_measurement_files(runs_root: Path) -> list[Path]:
+    if not runs_root.exists():
+        return []
+    return sorted(path for path in runs_root.rglob("*.jsonl") if path.is_file())
+
+
+def workload_read_measurements(runs_root: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for path in workload_measurement_files(runs_root):
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        item = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(item, dict):
+                        records.append(item)
+        except OSError:
+            continue
+    return records
+
+
+def workload_append_measurements(
+    records: list[dict[str, Any]],
+    *,
+    runs_root: Path,
+    runs_daily_path: DailyPathPort,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    append_jsonl: JsonlAppendPort,
+    stats_latest_path: Path,
+    stats_update: NoArgMappingPort | None = None,
+    write_stats: bool = True,
+) -> dict[str, Any]:
+    existing_ids = {str(item.get("record_id")) for item in workload_read_measurements(runs_root) if item.get("record_id")}
+    appended = 0
+    skipped = 0
+    errors: list[dict[str, Any]] = []
+    for record in records:
+        record_id = str(record.get("record_id") or "")
+        if not record_id:
+            skipped += 1
+            continue
+        if record_id in existing_ids:
+            skipped += 1
+            continue
+        error = append_jsonl(runs_daily_path(), record, 0o664)
+        if error:
+            errors.append(error)
+            continue
+        existing_ids.add(record_id)
+        appended += 1
+    result: dict[str, Any] = {
+        "schema": f"{schema_prefix}_ai_workload_update_v1",
+        "version": version,
+        "generated_at": now_iso(),
+        "ok": not errors,
+        "records_seen": len(records),
+        "records_appended": appended,
+        "records_skipped_existing_or_invalid": skipped,
+        "errors": errors,
+    }
+    if write_stats and stats_update is not None:
+        result["stats"] = {
+            "latest": str(stats_latest_path),
+            "updated": dict(stats_update()).get("ok"),
+        }
+    return result
+
+
+def workload_refresh_from_latest(
+    *,
+    latest_benchmark: Mapping[str, Any],
+    latest_eval: Mapping[str, Any],
+    latest_tts_eval: Mapping[str, Any],
+    latest_resident_audit: Mapping[str, Any],
+    schema_prefix: str,
+    benchmark_measurements: WorkloadExtractPort,
+    eval_measurements: WorkloadExtractPort,
+    tts_eval_measurements: WorkloadExtractPort,
+    resident_audit_measurements: WorkloadExtractPort,
+    append_measurements: WorkloadAppendPort,
+) -> dict[str, Any]:
+    records: list[dict[str, Any]] = []
+    benchmark_doc = dict(latest_benchmark)
+    eval_doc = dict(latest_eval)
+    tts_doc = dict(latest_tts_eval)
+    resident_doc = dict(latest_resident_audit)
+    if benchmark_doc.get("ok"):
+        records.extend(benchmark_measurements(benchmark_doc))
+    if eval_doc.get("ok"):
+        records.extend(eval_measurements(eval_doc))
+    if tts_doc.get("schema") == f"{schema_prefix}_ai_tts_eval_v1":
+        records.extend(tts_eval_measurements(tts_doc))
+    if resident_doc.get("schema") == f"{schema_prefix}_gemma4_spark_resident_audit_v1":
+        records.extend(resident_audit_measurements(resident_doc))
+    update = dict(append_measurements(records, True))
+    update["sources"] = {
+        "benchmark_generated_at": benchmark_doc.get("generated_at"),
+        "eval_generated_at": eval_doc.get("generated_at"),
+        "tts_eval_generated_at": tts_doc.get("generated_at"),
+        "resident_audit_generated_at": resident_doc.get("generated_at"),
+    }
+    return update
+
+
+def workload_taxonomy(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    class_levels: Mapping[str, int],
+    write_latest: bool,
+    taxonomy_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    data = ai_runtime_contracts.workload_taxonomy_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        class_levels=dict(class_levels),
+    )
+    if write_latest:
+        error = write_json(taxonomy_path, data, 0o664)
+        if error:
+            data["write_error"] = error
+    return data
+
+
+def workload_stats(
+    *,
+    config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    runs_root: Path,
+    runs_daily_glob: str,
+    latest_path: Path,
+    write_latest: bool,
+    write_json: JsonWritePort,
+    records: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    source_records = records if records is not None else workload_read_measurements(runs_root)
+    data = ai_runtime_contracts.workload_stats_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        records=source_records,
+        config=dict(config),
+        runs_daily_glob=runs_daily_glob,
+        latest_path=str(latest_path),
+    )
+    if write_latest:
+        error = write_json(latest_path, data, 0o664)
+        if error:
+            data["write_error"] = error
+    return data
+
+
+def workload_refresh(
+    *,
+    config: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    run_probe: bool | None,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    benchmark_runner: NoArgMappingPort,
+    refresh_from_latest: NoArgMappingPort,
+    stats: NoArgMappingPort,
+    stats_latest_path: Path,
+    write_latest: bool,
+    refresh_daily_path: DailyPathPort,
+    append_jsonl: JsonlAppendPort,
+) -> dict[str, Any]:
+    probe_plan = ai_runtime_contracts.workload_refresh_probe_plan(
+        config=dict(config),
+        policy=dict(policy),
+        run_probe=run_probe,
+    )
+    benchmark_result: dict[str, Any] | None = None
+    if probe_plan.get("quick_benchmark_requested") and not probe_plan.get("quick_benchmark_skip_reasons"):
+        benchmark_result = dict(benchmark_runner())
+
+    refresh = dict(refresh_from_latest())
+    stats_doc = dict(stats())
+    data = ai_runtime_contracts.workload_refresh_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        policy=dict(policy),
+        probe_plan=probe_plan,
+        benchmark_result=benchmark_result,
+        refresh=refresh,
+        stats=stats_doc,
+        stats_latest_path=str(stats_latest_path),
+    )
+    if write_latest:
+        error = append_jsonl(refresh_daily_path(), data, 0o664)
+        if error:
+            data["write_error"] = error
+    return data
+
+
+def workload_status(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    taxonomy: NoArgMappingPort,
+    refresh_from_latest: NoArgMappingPort,
+    stats: NoArgMappingPort,
+    policy: NoArgMappingPort,
+    refresh_from_latest_enabled: bool,
+    paths: Mapping[str, Any],
+    auto_refresh: Mapping[str, Any],
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    data = ai_runtime_contracts.workload_status_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        taxonomy=dict(taxonomy()),
+        refresh=dict(refresh_from_latest()) if refresh_from_latest_enabled else None,
+        stats=dict(stats()),
+        policy=dict(policy()),
+        paths=dict(paths),
+        auto_refresh=dict(auto_refresh),
+    )
+    if write_latest:
+        error = write_json(latest_path, data, 0o664)
+        if error:
+            data["write_error"] = error
     return data
 
 
