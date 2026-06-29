@@ -44,8 +44,10 @@ active-process guard: process snapshot projection, path matching, and
 `/proc/<pid>/fd` target inspection are fakeable adapter-owned IO. The same
 adapter owns allowlisted cleanup apply execution for package-manager clean, npm
 cache verify/clean, and generated temp cleanup through fakeable command/euid/
-clock ports. Cleanup action policy remains in `storage_contracts`; live
-inventory/disk scans, hooks, apply preflight orchestration, latest/history
+clock ports, plus hook directory scan/execution through fakeable hook-runner and
+environment ports. Cleanup action policy and hook stage/status contracts remain
+in `storage_contracts`; live inventory/disk scans, configured hook
+directory/env/time binding, apply preflight orchestration, latest/history
 writes, and rendering remain CLI edge.
 
 ### Next route

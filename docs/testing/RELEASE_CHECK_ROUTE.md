@@ -71,6 +71,13 @@ live-safe `storage cleanup-plan` / `storage apply --dry-run` summaries. Do not
 run `storage apply --confirm` as validation unless the operator explicitly
 requests that live mutation and the report stays compact.
 
+For storage hook execution adapter changes, public CI should rely on fake-runner
+tests for hook payload/env/result mapping plus live-safe `storage hooks --json`
+status. Do not run `storage run-hooks ... --enforce` on a live host as
+validation unless the operator explicitly requests hook execution; report only a
+compact summary and never copy hook payloads or local generated evidence into
+the repository.
+
 Use a longer timeout for full doctor/machine-report refresh closeout:
 
 ```bash

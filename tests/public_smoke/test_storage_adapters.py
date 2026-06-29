@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import os
 import sys
@@ -180,3 +181,116 @@ def test_storage_execute_cleanup_action_blocks_unallowlisted_actions() -> None:
         command_runner=lambda command, timeout: {"ok": False, "unexpected": [list(command), timeout]},
     )
     assert result == {"ok": False, "blocked": True, "reason": "manual_review_only_or_not_allowlisted"}
+
+
+def test_storage_hook_directory_status_filters_hidden_disabled_and_non_executable(tmp_path: Path) -> None:
+    hook_dir = tmp_path / "pre_cache_cleanup.d"
+    hook_dir.mkdir()
+    active = hook_dir / "10-active"
+    active.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    active.chmod(0o755)
+    disabled = hook_dir / "20-disabled.disabled"
+    disabled.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    disabled.chmod(0o755)
+    non_exec = hook_dir / "30-non-exec"
+    non_exec.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    hidden = hook_dir / ".hidden"
+    hidden.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (hook_dir / "nested").mkdir()
+
+    status = storage_adapters.hook_directory_status(hook_dir)
+    by_name = {item["name"]: item for item in status["entries"]}
+
+    assert status["exists"] is True
+    assert status["executable_count"] == 1
+    assert ".hidden" not in by_name
+    assert by_name["10-active"]["executable"] is True
+    assert by_name["20-disabled.disabled"]["disabled"] is True
+    assert by_name["30-non-exec"]["executable"] is False
+    assert by_name["nested"]["is_dir"] is True
+
+
+def test_storage_run_hook_stage_document_uses_fake_runner_env_and_enforce(tmp_path: Path) -> None:
+    hook_dir = tmp_path / "pre_cache_cleanup.d"
+    hook_dir.mkdir()
+    active = hook_dir / "10-active"
+    active.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    active.chmod(0o755)
+    disabled = hook_dir / "20-disabled.disabled"
+    disabled.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    disabled.chmod(0o755)
+    calls: list[dict[str, Any]] = []
+
+    def fake_runner(path: Path, stdin: str, env: dict[str, str], timeout: float) -> dict[str, Any]:
+        calls.append({
+            "path": str(path),
+            "stdin": json.loads(stdin),
+            "env": dict(env),
+            "timeout": timeout,
+        })
+        return {"returncode": 42, "ok": False, "stderr": "blocked by test"}
+
+    document = storage_adapters.run_hook_stage_document(
+        stage="pre_cache_cleanup",
+        valid_stages=["post_cache_cleanup", "pre_cache_cleanup"],
+        directories=[hook_dir],
+        payload={"action_id": "abc"},
+        enforce=True,
+        timeout=3.5,
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T00:00:00+00:00",
+        storage_policy_path=Path("/etc/abyss-machine/storage-policy.json"),
+        abyss_machine_root=Path("/srv/abyss-machine"),
+        cache_root=Path("/srv/abyss-machine/cache"),
+        runtime_root=Path("/srv/abyss-machine/runtimes"),
+        storage_root=Path("/srv/abyss-machine/storage"),
+        base_env={"KEEP": "yes"},
+        hook_runner=fake_runner,
+    )
+
+    assert document["ok"] is False
+    assert document["summary"] == {"executed": 1, "failed": 1, "blocked": True}
+    assert document["results"] == [
+        {
+            "returncode": 42,
+            "ok": False,
+            "stderr": "blocked by test",
+            "path": str(active),
+        }
+    ]
+    assert calls[0]["timeout"] == 3.5
+    assert calls[0]["stdin"]["schema"] == "abyss_machine_storage_hook_event_v1"
+    assert calls[0]["stdin"]["payload"] == {"action_id": "abc"}
+    assert calls[0]["env"]["KEEP"] == "yes"
+    assert calls[0]["env"]["ABYSS_MACHINE_HOOK_STAGE"] == "pre_cache_cleanup"
+    assert calls[0]["env"]["ABYSS_MACHINE_CACHE_ROOT"] == "/srv/abyss-machine/cache"
+
+
+def test_storage_run_hook_stage_document_rejects_invalid_stage_without_scanning() -> None:
+    document = storage_adapters.run_hook_stage_document(
+        stage="missing",
+        valid_stages=["pre_cache_cleanup"],
+        directories=[Path("/should/not/be/scanned")],
+        payload=None,
+        enforce=False,
+        timeout=1.0,
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T00:00:00+00:00",
+        storage_policy_path=Path("/etc/abyss-machine/storage-policy.json"),
+        abyss_machine_root=Path("/srv/abyss-machine"),
+        cache_root=Path("/srv/abyss-machine/cache"),
+        runtime_root=Path("/srv/abyss-machine/runtimes"),
+        storage_root=Path("/srv/abyss-machine/storage"),
+        hook_runner=lambda path, stdin, env, timeout: {"ok": False, "unexpected": str(path)},
+    )
+    assert document == {
+        "schema": "abyss_machine_storage_hooks_run_v1",
+        "version": "test",
+        "generated_at": "2026-06-29T00:00:00+00:00",
+        "ok": False,
+        "stage": "missing",
+        "error": "invalid hook stage",
+        "valid_stages": ["pre_cache_cleanup"],
+    }
