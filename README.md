@@ -195,8 +195,9 @@ Storage policy/env read models, hook stage/status contracts, cache env routes,
 inventory drift, pressure classes/recommendations, cleanup action contracts,
 protected-root decisions, write-preflight decisions, dry-run apply shape, and
 paths read models live in `abyss_machine.storage_contracts`; cleanup-plan
-active-process guard path matching and `/proc` fd target inspection live in
-`abyss_machine.storage_adapters` through fakeable process snapshot/fd ports.
+active-process guard path matching, `/proc` fd target inspection, and
+allowlisted cleanup apply execution live in `abyss_machine.storage_adapters`
+through fakeable process snapshot/fd, command-runner, euid, and clock ports.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`.
@@ -449,10 +450,12 @@ collection, response route-depth validation, and latest/history writes remain at
 the CLI edge. Storage policy/env read models, hook stage/status contracts,
 inventory drift, pressure classification/recommendation rules, cleanup action
 contracts, protected-root decisions, write-preflight decision logic, dry-run
-apply shape, and paths read models are module-owned while policy file reads,
-directory scans, disk usage, `/proc` process guards, hook execution,
-monitor/status orchestration, actual apply execution, and latest/history writes
-remain at the CLI edge. Changes ledger paths/index/status/latest read models,
+apply shape, paths read models, cleanup-plan process guards, and allowlisted
+cleanup apply execution are module/adapter-owned while policy file reads,
+directory scans, disk usage, process snapshot binding, hook execution,
+monitor/status orchestration, apply preflight orchestration, latest/history
+writes, and command rendering remain at the CLI edge. Changes ledger
+paths/index/status/latest read models,
 id and decision-review contracts, record/event/result shapes, surface
 classification, and preflight decision envelopes are module-owned while
 active/closed directory scans, JSON reads, decision-ref existence checks,
