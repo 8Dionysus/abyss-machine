@@ -1114,6 +1114,147 @@ def test_resident_latest_readmodels_use_fake_reader(tmp_path: Path) -> None:
     }
 
 
+def test_llm_registry_readmodel_uses_fake_runtime_profile_and_store_ports(tmp_path: Path) -> None:
+    config = {
+        "backend": "llama.cpp",
+        "runtime": {"name": "base"},
+        "families": {
+            "gemma4": {
+                "status": "candidate",
+                "provider": "google",
+                "runtime": {"name": "family"},
+                "profiles": {
+                    "spark": {"runtime": {"name": "spark"}, "local_path": "/srv/abyss-machine/cache/ai/gemma-e2b.gguf"},
+                    "workhorse": {"local_path": "/srv/abyss-machine/cache/ai/gemma-e4b.gguf"},
+                },
+            }
+        },
+    }
+    runtime_calls: list[dict[str, Any] | None] = []
+    profile_calls: list[tuple[str, str, str]] = []
+    writes: list[tuple[Path, str, int]] = []
+    appends: list[tuple[Path, str, int]] = []
+
+    def runtime_status(config_arg: dict[str, Any], runtime_override: dict[str, Any] | None = None) -> dict[str, Any]:
+        assert config_arg["backend"] == "llama.cpp"
+        runtime_calls.append(runtime_override)
+        name = (runtime_override or config_arg["runtime"])["name"]
+        return {"ok": True, "name": name}
+
+    def profile_status(family_name: str, profile_name: str, profile: dict[str, Any], runtime: dict[str, Any]) -> dict[str, Any]:
+        profile_calls.append((family_name, profile_name, runtime["name"]))
+        return {
+            "status": "ready",
+            "family": family_name,
+            "profile": profile_name,
+            "local_path": profile["local_path"],
+            "local_exists": True,
+            "storage": {"under_host_cache": True, "protection": {"decision": "allow"}},
+        }
+
+    def write_json(path: Path, data: dict[str, Any], mode: int) -> None:
+        writes.append((path, data["schema"], mode))
+        return None
+
+    def append_jsonl(path: Path, data: dict[str, Any], mode: int) -> None:
+        appends.append((path, data["schema"], mode))
+        return None
+
+    data = ai_runtime_adapters.llm_registry_readmodel(
+        config=config,
+        runtime_status=runtime_status,
+        profile_status=profile_status,
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        registry_latest_path=tmp_path / "registry.json",
+        registry_daily_path=tmp_path / "registry.jsonl",
+        validate_latest_path=tmp_path / "validate.json",
+        write_latest=True,
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
+
+    assert data["schema"] == "abyss_machine_ai_llm_registry_v1"
+    assert data["summary"]["ready_profiles"] == 2
+    assert data["families"]["gemma4"]["runtime"]["name"] == "family"
+    assert data["profiles"]["gemma4.spark"]["status"] == "ready"
+    assert runtime_calls == [None, {"name": "family"}, {"name": "spark"}]
+    assert profile_calls == [("gemma4", "spark", "spark"), ("gemma4", "workhorse", "family")]
+    assert writes == [(tmp_path / "registry.json", "abyss_machine_ai_llm_registry_v1", 0o664)]
+    assert appends == [(tmp_path / "registry.jsonl", "abyss_machine_ai_llm_registry_v1", 0o664)]
+
+
+def test_llm_latest_and_validate_readmodels_use_fake_store_ports(tmp_path: Path) -> None:
+    writes: list[tuple[Path, str, int]] = []
+    latest_path = tmp_path / "registry.json"
+    validate_path = tmp_path / "validate.json"
+    registry = {
+        "schema": "abyss_machine_ai_llm_registry_v1",
+        "ok": True,
+        "runtime": {"ok": True},
+        "summary": {"ready_profiles": 1},
+        "profiles": {
+            "gemma4.spark": {
+                "status": "ready",
+                "local_exists": True,
+                "local_path": "/srv/abyss-machine/cache/ai/gemma-e2b.gguf",
+                "storage": {"under_host_cache": True, "protection": {"decision": "allow"}},
+            }
+        },
+    }
+
+    latest = ai_runtime_adapters.llm_latest_readmodel(
+        latest_path=latest_path,
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        read_json=lambda path: (registry if path == latest_path else None, None),
+    )
+
+    def write_json(path: Path, data: dict[str, Any], mode: int) -> None:
+        writes.append((path, data["schema"], mode))
+        return None
+
+    validate = ai_runtime_adapters.llm_validate_readmodel(
+        base_checks=[{"level": "ok", "key": "fixture", "message": "fixture base check"}],
+        registry=registry,
+        token_profiles={"summary": {"exact_ready_profiles": 1}},
+        config={
+            "families": {
+                "gemma4": {
+                    "profiles": {
+                        "spark": {"local_path": "/srv/abyss-machine/cache/ai/gemma-e2b.gguf"}
+                    }
+                }
+            }
+        },
+        protected_roots=["/srv/AbyssOS/abyss-stack", "/work"],
+        paths={"schema": "abyss_machine_ai_llm_paths_v1"},
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        write_latest=True,
+        latest_path=validate_path,
+        write_json=write_json,
+    )
+
+    assert latest["read_at"] == STAMP
+    assert validate["schema"] == "abyss_machine_ai_llm_validate_v1"
+    assert validate["ok"] is True
+    assert validate["summary"] == {"fails": 0, "warnings": 0, "checks": 7, "profiles": 1, "ready_profiles": 1}
+    assert [item["key"] for item in validate["checks"]] == [
+        "fixture",
+        "runtime",
+        "profiles_configured",
+        "token_accounting_profiles",
+        "profile_models",
+        "storage_routes",
+        "protected_roots",
+    ]
+    assert writes == [(validate_path, "abyss_machine_ai_llm_validate_v1", 0o664)]
+
+
 def test_cli_model_inventory_wrapper_binds_adapter_without_writing(monkeypatch) -> None:
     from abyss_machine import cli
 

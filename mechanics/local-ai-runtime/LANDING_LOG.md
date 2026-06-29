@@ -23,4 +23,10 @@
   assembly and latest/history writes now pass through fakeable registry,
   tokenizer resolver, reader, writer, path, subprocess, environment, and clock
   ports. CLI remains the concrete registry/env/text/command rendering edge.
+- Extracted LLM registry/latest/validate store/readmodel routing into
+  `abyss_machine.ai_runtime_adapters`; registry document assembly,
+  latest/history writes, latest reads, validate contract-check assembly, and
+  validate latest writes now pass through fakeable runtime, profile,
+  token-profile, reader, writer, path, and clock ports. CLI remains the
+  concrete config/path/validation-input/command rendering edge.
 - Initial skeleton: package created to route host-managed AI runtime work.

@@ -38,6 +38,8 @@ NoArgMappingPort = Callable[[], Mapping[str, Any]]
 JsonReadPort = Callable[[Path], tuple[Any, str | None]]
 TokenResolverPort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 TokenCountSubprocessPort = Callable[..., Mapping[str, Any]]
+LLMRuntimeStatusPort = Callable[[Mapping[str, Any], Mapping[str, Any] | None], Mapping[str, Any]]
+LLMProfileStatusPort = Callable[[str, str, Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -1327,6 +1329,138 @@ def llm_profile_status(
         storage_protection=protection,
         under_host_cache=is_relative_to_path(local_path, cache_root),
     )
+
+
+def llm_registry_readmodel(
+    *,
+    config: Mapping[str, Any],
+    runtime_status: LLMRuntimeStatusPort,
+    profile_status: LLMProfileStatusPort,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    registry_latest_path: Path,
+    registry_daily_path: Path,
+    validate_latest_path: Path,
+    write_latest: bool,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+) -> dict[str, Any]:
+    config_doc = dict(config)
+    runtime = dict(runtime_status(config_doc, None))
+    family_runtimes: dict[str, dict[str, Any]] = {}
+    profile_statuses: dict[str, dict[str, Any]] = {}
+    families = config_doc.get("families") if isinstance(config_doc.get("families"), Mapping) else {}
+    for family_name, family in families.items():
+        if not isinstance(family, Mapping):
+            continue
+        family_key = str(family_name)
+        family_runtime = (
+            dict(runtime_status(config_doc, dict(family.get("runtime"))))
+            if isinstance(family.get("runtime"), Mapping)
+            else runtime
+        )
+        family_runtimes[family_key] = family_runtime
+        profiles = family.get("profiles") if isinstance(family.get("profiles"), Mapping) else {}
+        for profile_name, profile in profiles.items():
+            if not isinstance(profile, Mapping):
+                continue
+            profile_key = str(profile_name)
+            profile_runtime = (
+                dict(runtime_status(config_doc, dict(profile.get("runtime"))))
+                if isinstance(profile.get("runtime"), Mapping)
+                else family_runtime
+            )
+            profile_statuses[f"{family_key}.{profile_key}"] = dict(
+                profile_status(family_key, profile_key, dict(profile), profile_runtime)
+            )
+    data = ai_runtime_contracts.llm_registry_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        config=config_doc,
+        runtime=runtime,
+        family_runtimes=family_runtimes,
+        profile_statuses=profile_statuses,
+        registry_latest_path=registry_latest_path,
+        registry_daily_path=registry_daily_path,
+        validate_latest_path=validate_latest_path,
+    )
+    _write_latest_history_with_error_status(
+        data,
+        write_latest=write_latest,
+        latest_path=registry_latest_path,
+        daily_path=lambda: registry_daily_path,
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
+    return data
+
+
+def llm_latest_readmodel(
+    *,
+    latest_path: Path,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    read_json: JsonReadPort,
+) -> dict[str, Any]:
+    data, error = read_json(latest_path)
+    if not isinstance(data, Mapping):
+        return {
+            "schema": f"{schema_prefix}_ai_llm_registry_latest_read_v1",
+            "version": version,
+            "generated_at": now_iso(),
+            "ok": False,
+            "path": str(latest_path),
+            "error": error or "missing",
+        }
+    result = dict(data)
+    result["read_at"] = now_iso()
+    return result
+
+
+def llm_validate_readmodel(
+    *,
+    base_checks: Iterable[Mapping[str, Any]],
+    registry: Mapping[str, Any],
+    token_profiles: Mapping[str, Any],
+    config: Mapping[str, Any],
+    protected_roots: Iterable[str],
+    paths: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    checks = [dict(item) for item in base_checks]
+    registry_doc = dict(registry)
+    config_doc = dict(config)
+    checks.extend(
+        ai_runtime_contracts.llm_validate_contract_checks(
+            registry=registry_doc,
+            token_profiles=dict(token_profiles),
+            config=config_doc,
+            protected_roots=tuple(protected_roots),
+        )
+    )
+    data = ai_runtime_contracts.llm_validate_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        checks=checks,
+        registry=registry_doc,
+        paths=dict(paths),
+    )
+    _write_latest_with_error_status(
+        data,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        write_json=write_json,
+    )
+    return data
 
 
 def llm_resident_controller_timeout(command: str | None, jobs_action: str | None = None) -> float:

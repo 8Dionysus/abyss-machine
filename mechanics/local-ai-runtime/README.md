@@ -50,8 +50,9 @@ command/timeout/subprocess execution, benchmark/eval suite orchestration,
 whole-command resource before/after sampling, latest/daily JSONL write routing,
 workload-measurement callback routing, workload run JSONL discovery/read/dedupe
 append, refresh-from-latest source gating, and workload taxonomy/stats/refresh/
-status write routing, plus token-accounting contract/profiles/latest/count
-store/readmodel routing through fakeable ports.
+status write routing, LLM registry/latest/validate store/readmodel routing,
+plus token-accounting contract/profiles/latest/count store/readmodel routing
+through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
@@ -121,6 +122,13 @@ summaries belong in the public seed.
   subprocess, environment, and clock ports. CLI still owns concrete registry,
   env/text input binding, `.aoa` generated-summary reads, command dispatch, and
   rendering.
+- Extracted LLM registry/latest/validate store/readmodel routing into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns registry document
+  assembly, registry latest/history routing, latest readmodel reads, validate
+  contract-check assembly, and validate latest writes through fakeable runtime,
+  profile, token-profile, reader, writer, path, and clock ports. CLI still owns
+  concrete config/path binding, path validation input collection, command
+  dispatch, and rendering.
 - Extracted resident LLM controller runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns
   `abyss-gemma4-spark-resident` command construction, timeout routing,
