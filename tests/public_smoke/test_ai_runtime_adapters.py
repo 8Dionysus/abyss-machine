@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import stat
 import sys
 from typing import Any
@@ -10,7 +11,7 @@ SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from abyss_machine import ai_runtime_adapters
+from abyss_machine import ai_runtime_adapters, ai_runtime_contracts
 
 
 STAMP = "2026-06-29T12:00:00+00:00"
@@ -319,6 +320,87 @@ def test_llm_runtime_profile_and_tokenizer_discovery_are_fakeable(tmp_path: Path
     assert profile_status["storage"]["under_host_cache"] is True
     assert tokenizer_status["tokenizer_path"] == str(tokenizer)
     assert tokenizer_status["library_paths"] == [str(lib_root)]
+
+
+def test_token_accounting_count_subprocess_binds_command_env_timeout_and_clock() -> None:
+    profile = {
+        "profile": "gemma4.spark",
+        "model_path": "/srv/abyss-machine/cache/ai/models/gemma.gguf",
+        "tokenizer": {
+            "tokenizer_path": "/srv/abyss-machine/runtimes/llama.cpp/current/bin/llama-tokenize",
+            "library_paths": ["/srv/abyss-machine/runtimes/llama.cpp/current/lib"],
+        },
+    }
+    captured: dict[str, Any] = {}
+    monotonic_values = iter([100.0, 100.25])
+
+    class FakeProc:
+        returncode = 0
+        stdout = "Total number of tokens: 7\n"
+        stderr = "diagnostic"
+
+    def fake_run(command: list[str], **kwargs: Any) -> FakeProc:
+        captured["command"] = command
+        captured.update(kwargs)
+        return FakeProc()
+
+    result = ai_runtime_adapters.token_accounting_count_subprocess(
+        profile=profile,
+        text="SECRET_PROMPT_TEXT",
+        timeout=12.5,
+        environ={"LD_LIBRARY_PATH": "/existing/lib", "KEEP": "1"},
+        run_subprocess=fake_run,
+        monotonic=lambda: next(monotonic_values),
+    )
+
+    assert captured["command"] == ai_runtime_contracts.token_accounting_count_command(profile)
+    assert captured["input"] == "SECRET_PROMPT_TEXT"
+    assert captured["text"] is True
+    assert captured["stdout"] == subprocess.PIPE
+    assert captured["stderr"] == subprocess.PIPE
+    assert captured["timeout"] == 12.5
+    assert captured["check"] is False
+    assert captured["env"]["KEEP"] == "1"
+    assert captured["env"]["LD_LIBRARY_PATH"] == "/srv/abyss-machine/runtimes/llama.cpp/current/lib:/existing/lib"
+    assert result["elapsed_sec"] == 0.25
+    assert result["input_bytes"] == b"SECRET_PROMPT_TEXT"
+    assert result["outcome"] == {
+        "ok": True,
+        "total_tokens": 7,
+        "error": None,
+        "returncode": 0,
+        "stderr": "diagnostic",
+    }
+
+
+def test_token_accounting_count_subprocess_reports_timeout_without_stdout() -> None:
+    profile = {
+        "model_path": "/model.gguf",
+        "tokenizer": {"tokenizer_path": "/runtime/llama-tokenize", "library_paths": []},
+    }
+    monotonic_values = iter([5.0, 6.5])
+
+    def fake_timeout(command: list[str], **kwargs: Any) -> object:
+        raise subprocess.TimeoutExpired(cmd=command, timeout=kwargs["timeout"])
+
+    result = ai_runtime_adapters.token_accounting_count_subprocess(
+        profile=profile,
+        text="private text",
+        timeout=1.0,
+        environ={},
+        run_subprocess=fake_timeout,
+        monotonic=lambda: next(monotonic_values),
+    )
+
+    assert result["elapsed_sec"] == 1.5
+    assert result["input_bytes"] == b"private text"
+    assert result["outcome"] == {
+        "ok": False,
+        "total_tokens": None,
+        "error": "tokenizer_timeout",
+        "returncode": None,
+        "stderr": None,
+    }
 
 
 def test_python_runtime_and_kernel_module_probes_use_ports() -> None:

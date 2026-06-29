@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
+import time
 from typing import Any, Callable, Iterable, Mapping
 
 from . import ai_runtime_contracts
 
 
 RunPort = Callable[..., Mapping[str, Any]]
+SubprocessRunPort = Callable[..., Any]
+MonotonicPort = Callable[[], float]
 CommandExistsPort = Callable[[str], bool]
 WhichPort = Callable[[str], str | None]
 PathExistsPort = Callable[[Path], bool]
@@ -557,6 +561,55 @@ def token_accounting_resolve_tokenizer(
         candidate_paths=candidates,
         library_paths=library_paths,
     )
+
+
+def token_accounting_count_subprocess(
+    *,
+    profile: Mapping[str, Any],
+    text: str,
+    timeout: float,
+    environ: Mapping[str, str],
+    run_subprocess: SubprocessRunPort | None = None,
+    monotonic: MonotonicPort | None = None,
+) -> dict[str, Any]:
+    run_subprocess = run_subprocess or subprocess.run
+    monotonic = monotonic or time.monotonic
+    text_value = str(text)
+    input_bytes = text_value.encode("utf-8", errors="replace")
+    env = dict(environ)
+    env.update(ai_runtime_contracts.token_accounting_count_env_overlay(dict(profile), env.get("LD_LIBRARY_PATH")))
+
+    started = monotonic()
+    try:
+        proc = run_subprocess(
+            ai_runtime_contracts.token_accounting_count_command(dict(profile)),
+            input=text_value,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
+        outcome = ai_runtime_contracts.token_accounting_count_execution_result(
+            stdout=str(getattr(proc, "stdout", "") or ""),
+            stderr=str(getattr(proc, "stderr", "") or ""),
+            returncode=int(getattr(proc, "returncode", 1)),
+        )
+    except subprocess.TimeoutExpired:
+        outcome = {
+            "ok": False,
+            "total_tokens": None,
+            "error": "tokenizer_timeout",
+            "returncode": None,
+            "stderr": None,
+        }
+
+    return {
+        "elapsed_sec": round(monotonic() - started, 6),
+        "input_bytes": input_bytes,
+        "outcome": outcome,
+    }
 
 
 def python_runtime_versions(
