@@ -185,9 +185,10 @@ controller command/timeout/subprocess execution live in
 `abyss_machine.ai_runtime_adapters` through fakeable ports. `.aoa`
 generated-summary reads, latest-input collection, TTS profile/config policy
 orchestration, STT fixture/dictation transport, resident LLM parser/result
-rendering, token-accounting profile/latest routing, broader resource sampling,
-non-workload remaining latest writes, and command rendering remain at the CLI
-edge.
+rendering, token-accounting profile/count/latest routing, broader resource sampling,
+and command rendering remain at the CLI edge. Devices/models/capabilities/
+policy/runtime/status/report readmodel assembly and latest/history write
+routing live in `abyss_machine.ai_runtime_adapters` through fakeable ports.
 TTS profile/artifact/status decisions, policy-denial/error summaries, server
 response/payload shaping, synth subprocess script/argv/result contracts,
 synth/eval/compare envelopes, and success-index entries live in

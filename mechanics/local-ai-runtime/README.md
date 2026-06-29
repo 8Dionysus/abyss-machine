@@ -56,9 +56,11 @@ client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
 shutdown/unload cleanup, synth subprocess cache/env binding, and cold
 BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
-and synth runtime resource-report assembly. Remaining AI runtime adapters should
-focus on broader resource-sampling evidence, non-workload latest/write routing,
-and any still-proven resident readmodel/write orchestration. Keep model weights, benchmark outputs, and
+and synth runtime resource-report assembly. Core devices/models/capabilities/
+policy/runtime/status/report readmodel assembly and store routing also live in
+`ai_runtime_adapters`. Remaining AI runtime adapters should focus on broader
+resource-sampling evidence, token-accounting latest/write routing, and any
+still-proven resident parser/readmodel orchestration. Keep model weights, benchmark outputs, and
 generated runtime state outside Git; only plans, contracts, and bounded
 summaries belong in the public seed.
 
@@ -95,6 +97,15 @@ summaries belong in the public seed.
   appends, and workload status latest writes through fakeable paths, writers,
   source extractors, policy/status, and systemd ports. CLI still owns concrete
   config/path binding, latest source readers, policy binding, systemd binding,
+  command dispatch, and rendering.
+- Extracted AI core readmodel store routing into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns
+  devices/models/capabilities/policy/runtime/status/report document assembly,
+  resident latest readmodel reads for capabilities, runtime/report latest
+  writes, and runtime/report daily history appends through fakeable reader,
+  writer, path, clock, and input ports. CLI still owns concrete live input
+  collection, policy-gate binding, `.aoa` generated-summary reads,
+  token-accounting profile/count/latest routing, resident parser/rendering,
   command dispatch, and rendering.
 - Extracted token-accounting tokenizer runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns exact-count tokenizer
