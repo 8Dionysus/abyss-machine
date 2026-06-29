@@ -9,6 +9,8 @@ import subprocess
 import time
 from typing import Any, Callable, Mapping, Sequence
 
+from . import cooling_contracts
+
 
 CommandExistsPort = Callable[[str], bool]
 CommandRunnerPort = Callable[[Sequence[str], float], Mapping[str, Any]]
@@ -27,8 +29,19 @@ BatterySummaryPort = Callable[[], Mapping[str, Any]]
 FanStatusPort = Callable[[], Mapping[str, Any]]
 PlatformProfilePort = Callable[[], Mapping[str, Any]]
 TemperatureSamplePort = Callable[[], Mapping[str, Any]]
+TemperatureSummaryPort = Callable[[], Mapping[str, Any]]
 SleepPort = Callable[[float], None]
 MonotonicPort = Callable[[], float]
+NowIsoPort = Callable[[], str]
+SinceStampPort = Callable[[], str]
+StatusPort = Callable[[], Mapping[str, Any]]
+PathsPort = Callable[[], Mapping[str, Any]]
+ProfileTargetsPort = Callable[[str, Mapping[str, Any]], tuple[str, Mapping[str, Any], Mapping[str, Any] | None]]
+RaplSmoothingApplyPort = Callable[[str], Mapping[str, Any]]
+SetPlatformProfilePort = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
+SetFanModePort = Callable[[Any, Mapping[str, Any]], Mapping[str, Any]]
+WritePermissionPort = Callable[[Path], bool]
+FanValidateRunPort = Callable[..., Mapping[str, Any]]
 
 
 PLATFORM_PROFILE_PATH = Path("/sys/firmware/acpi/platform_profile")
@@ -47,6 +60,15 @@ KERNEL_FAN_ERROR_PATTERN = re.compile(
     r"TFN1|_FSL|FAN0|FAN1|FAN2|FAN3|FAN4|VFAN|UPFS|FANL|ACPI (?:BIOS )?Error",
     re.IGNORECASE,
 )
+
+
+def nested_get(data: Any, path: Sequence[str]) -> Any:
+    current = data
+    for key in path:
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(key)
+    return current
 
 
 def current_euid() -> int:
@@ -820,3 +842,493 @@ def kernel_fan_errors(
         "matches": lines[-max(1, int(limit)):],
         "journal_error": out.get("stderr"),
     }
+
+
+def apply_cooling_profile(
+    profile: str = "auto",
+    *,
+    schema_prefix: str,
+    version: str,
+    updated_by: str,
+    now_iso: NowIsoPort,
+    status_port: StatusPort,
+    profile_targets_port: ProfileTargetsPort,
+    rapl_smoothing_apply_port: RaplSmoothingApplyPort,
+    temperature_summary_port: TemperatureSummaryPort,
+    fan_status_port: FanStatusPort,
+    platform_profile_port: PlatformProfilePort,
+    paths_port: PathsPort,
+    set_platform_profile_port: SetPlatformProfilePort = set_platform_profile,
+    set_fan_mode_port: SetFanModePort = set_lenovo_fan_mode,
+) -> dict[str, Any]:
+    status_before = dict(status_port())
+    normalized, target, recommendation = profile_targets_port(profile, status_before)
+    fan = status_before.get("fan", {}) if isinstance(status_before.get("fan"), Mapping) else {}
+    platform_profile_data = nested_get(status_before, ["power", "platform_profile"])
+    if not isinstance(platform_profile_data, Mapping):
+        platform_profile_data = {}
+    actions: list[dict[str, Any]] = []
+    permission_required = False
+
+    target_platform = target.get("platform_profile")
+    if target_platform:
+        action = dict(set_platform_profile_port(str(target_platform), platform_profile_data))
+        if action.get("error") == "root permission required":
+            permission_required = True
+        actions.append(action)
+
+    target_fan = target.get("fan_mode")
+    if target_fan is not None:
+        action = dict(set_fan_mode_port(target_fan, fan))
+        if action.get("error") == "root permission required":
+            permission_required = True
+        actions.append(action)
+
+    if str(profile or "").strip().lower() == "auto":
+        rapl_action = dict(rapl_smoothing_apply_port(updated_by))
+        if rapl_action.get("permission_required"):
+            permission_required = True
+        actions.append(
+            {
+                "action": "rapl_smoothing",
+                "ok": bool(rapl_action.get("ok")),
+                "permission_required": bool(rapl_action.get("permission_required")),
+                "decision_action": rapl_action.get("action"),
+                "active": bool(rapl_action.get("active")),
+                "decision": rapl_action,
+            }
+        )
+
+    data = cooling_contracts.apply_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        requested_profile=profile,
+        applied_profile=normalized,
+        updated_by=updated_by,
+        permission_required=permission_required,
+        actions=actions,
+        recommendation=dict(recommendation) if isinstance(recommendation, Mapping) else None,
+        status_before=status_before,
+        status_after={
+            "temperature": dict(temperature_summary_port()),
+            "fan": dict(fan_status_port()),
+            "platform_profile": dict(platform_profile_port()),
+        },
+        paths=dict(paths_port()),
+    )
+    if permission_required:
+        data["pkexec_hint"] = ["pkexec", "/usr/local/bin/abyss-machine", "cooling", "apply", "--profile", str(profile), "--json"]
+    return data
+
+
+def tfn1_write_document(
+    level: int = 50,
+    seconds: float = 5.0,
+    *,
+    schema_prefix: str,
+    version: str,
+    updated_by: str,
+    now_iso: NowIsoPort,
+    since_stamp: SinceStampPort,
+    status_port: StatusPort,
+    tfn1_candidate_port: Callable[[], Mapping[str, Any] | None],
+    temperature_summary_port: TemperatureSummaryPort,
+    fan_status_port: FanStatusPort,
+    platform_profile_port: PlatformProfilePort,
+    paths_port: PathsPort,
+    write_permission: WritePermissionPort = write_permission_required,
+    write_text: WriteTextResultPort = write_text_result,
+    kernel_errors_port: Callable[..., Mapping[str, Any]] = kernel_fan_errors,
+    sleep: SleepPort = time.sleep,
+) -> dict[str, Any]:
+    candidate = tfn1_candidate_port()
+    status_before = dict(status_port())
+    seconds = max(0.0, min(float(seconds), 30.0))
+    level = int(level)
+    actions: list[dict[str, Any]] = []
+    permission_required = False
+    ok = True
+    if candidate is None:
+        ok = False
+        actions.append({"action": "find_tfn1", "ok": False, "error": "TFN1 candidate not found"})
+    else:
+        max_state = candidate.get("max_state")
+        path = Path(str(candidate.get("path"))) / "cur_state"
+        if not isinstance(max_state, int):
+            ok = False
+            actions.append({"action": "validate_level", "ok": False, "target": level, "error": "TFN1 max_state unavailable"})
+        elif level < 25 or level > max_state:
+            ok = False
+            actions.append(
+                {
+                    "action": "validate_level",
+                    "ok": False,
+                    "target": level,
+                    "min": 25,
+                    "max": max_state,
+                    "error": "manual TFN1 writes are restricted to the tested non-zero range",
+                }
+            )
+        elif write_permission(path):
+            ok = False
+            permission_required = True
+            actions.append({"action": "write_tfn1_cur_state", "ok": False, "target": level, "path": str(path), "error": "root permission required"})
+        else:
+            since = since_stamp()
+            result = dict(write_text(path, f"{level}\n"))
+            actions.append({"action": "write_tfn1_cur_state", "target": level, **result})
+            if seconds > 0:
+                sleep(seconds)
+            kernel = dict(kernel_errors_port(since, limit=20))
+            actions.append(
+                {
+                    "action": "check_recent_kernel_fan_errors",
+                    "ok": kernel.get("ok"),
+                    "since": since,
+                    "matches": kernel.get("matches", []),
+                    "journal_error": kernel.get("journal_error"),
+                }
+            )
+            ok = bool(result.get("ok")) and not kernel.get("matches")
+
+    data = {
+        "schema": f"{schema_prefix}_cooling_tfn1_write_v1",
+        "version": version,
+        "generated_at": now_iso(),
+        "ok": ok,
+        "permission_required": permission_required,
+        "updated_by": updated_by,
+        "requested_level": level,
+        "monitor_seconds": seconds,
+        "candidate": dict(candidate) if isinstance(candidate, Mapping) else None,
+        "policy": {
+            "automation": "disabled",
+            "safe_range": "25..max_state only; no zero/off writes from this command",
+            "reason": "TFN1 accepted one guarded write, but cur_state/RPM feedback is not reliable on this BIOS.",
+        },
+        "actions": actions,
+        "status_before": {
+            "temperature": status_before.get("temperature", {}).get("summary", {}) if isinstance(status_before.get("temperature"), Mapping) else {},
+            "fan": status_before.get("fan", {}),
+            "power": status_before.get("power", {}),
+        },
+        "status_after": {
+            "temperature": dict(temperature_summary_port()),
+            "fan": dict(fan_status_port()),
+            "platform_profile": dict(platform_profile_port()),
+        },
+        "paths": dict(paths_port()),
+    }
+    if permission_required:
+        data["pkexec_hint"] = [
+            "pkexec",
+            "/usr/local/bin/abyss-machine",
+            "cooling",
+            "tfn1-write",
+            "--level",
+            str(level),
+            "--seconds",
+            str(seconds),
+            "--json",
+        ]
+    return data
+
+
+def fan_validate_document(
+    levels: str | Sequence[int] | None = None,
+    seconds: float = 8.0,
+    interval: float = 2.0,
+    allow_lower: bool = False,
+    *,
+    schema_prefix: str,
+    version: str,
+    updated_by: str,
+    now_iso: NowIsoPort,
+    since_stamp: SinceStampPort,
+    status_port: StatusPort,
+    tfn1_candidate_port: Callable[[], Mapping[str, Any] | None],
+    temperature_summary_port: TemperatureSummaryPort,
+    temperature_sample_port: TemperatureSamplePort,
+    sample_series_port: Callable[[float, float], Sequence[Mapping[str, Any]]],
+    series_summary_port: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Any]] = series_summary,
+    fan_status_port: FanStatusPort = lambda: {},
+    platform_profile_port: PlatformProfilePort = lambda: {},
+    paths_port: PathsPort = lambda: {},
+    write_permission: WritePermissionPort = write_permission_required,
+    write_text: WriteTextResultPort = write_text_result,
+    kernel_errors_port: Callable[..., Mapping[str, Any]] = kernel_fan_errors,
+) -> dict[str, Any]:
+    candidate = tfn1_candidate_port()
+    requested_levels = cooling_contracts.parse_levels(levels)  # type: ignore[arg-type]
+    seconds = max(1.0, min(float(seconds), 60.0))
+    interval = max(0.5, min(float(interval), 10.0))
+    status_before = dict(status_port())
+    thermal_class = str(nested_get(status_before, ["temperature", "class"]) or "unknown")
+    temp_before = nested_get(status_before, ["temperature", "summary", "temperature_c_max"])
+    actions: list[dict[str, Any]] = []
+    permission_required = False
+    ok = True
+
+    if candidate is None:
+        ok = False
+        actions.append({"action": "find_tfn1", "ok": False, "error": "TFN1 candidate not found"})
+    else:
+        max_state = candidate.get("max_state")
+        path = Path(str(candidate.get("path"))) / "cur_state"
+        if not isinstance(max_state, int):
+            ok = False
+            actions.append({"action": "validate_levels", "ok": False, "error": "TFN1 max_state unavailable", "levels": requested_levels})
+        else:
+            invalid = [level for level in requested_levels if level < 25 or level > max_state]
+            if invalid:
+                ok = False
+                actions.append(
+                    {
+                        "action": "validate_levels",
+                        "ok": False,
+                        "levels": requested_levels,
+                        "invalid": invalid,
+                        "min": 25,
+                        "max": max_state,
+                        "error": "TFN1 validation levels must stay inside tested non-zero range",
+                    }
+                )
+            lower = [level for level in requested_levels if level < max_state]
+            if lower and thermal_class in {"hot", "critical"} and not allow_lower:
+                ok = False
+                actions.append(
+                    {
+                        "action": "validate_levels",
+                        "ok": False,
+                        "levels": requested_levels,
+                        "refused": lower,
+                        "thermal_class": thermal_class,
+                        "temperature_c_max": temp_before,
+                        "error": "refusing lower-than-max TFN1 levels while system is hot/critical",
+                    }
+                )
+            if ok and write_permission(path):
+                ok = False
+                permission_required = True
+                actions.append({"action": "write_tfn1_cur_state", "ok": False, "path": str(path), "levels": requested_levels, "error": "root permission required"})
+            if ok and not permission_required:
+                for level in requested_levels:
+                    before = dict(temperature_sample_port())
+                    since = since_stamp()
+                    write_result = dict(write_text(path, f"{level}\n"))
+                    samples = [dict(item) for item in sample_series_port(seconds, interval)]
+                    all_samples = [before] + samples
+                    kernel = dict(kernel_errors_port(since))
+                    series = dict(series_summary_port(all_samples))
+                    temp_delta = nested_get(series, ["temperature_c_max", "delta"])
+                    if write_result.get("ok") and kernel.get("ok"):
+                        verdict = "write_path_ok_effect_unproven"
+                        if isinstance(temp_delta, (int, float)) and float(temp_delta) <= -2.0:
+                            verdict = "write_path_ok_possible_cooling_effect"
+                    else:
+                        verdict = "write_path_failed_or_kernel_error"
+                    action = {
+                        "action": "validate_tfn1_level",
+                        "ok": bool(write_result.get("ok")) and bool(kernel.get("ok")),
+                        "level": level,
+                        "write": write_result,
+                        "kernel": kernel,
+                        "series": series,
+                        "samples": all_samples,
+                        "verdict": verdict,
+                    }
+                    actions.append(action)
+                    if not action["ok"]:
+                        ok = False
+                        break
+
+    data = {
+        "schema": f"{schema_prefix}_cooling_fan_validate_v1",
+        "version": version,
+        "generated_at": now_iso(),
+        "ok": ok,
+        "permission_required": permission_required,
+        "updated_by": updated_by,
+        "candidate": dict(candidate) if isinstance(candidate, Mapping) else None,
+        "requested_levels": requested_levels,
+        "duration_seconds_per_level": seconds,
+        "interval_seconds": interval,
+        "allow_lower": allow_lower,
+        "status_before": {
+            "temperature": status_before.get("temperature", {}).get("summary", {}) if isinstance(status_before.get("temperature"), Mapping) else {},
+            "fan": status_before.get("fan", {}),
+            "power": status_before.get("power", {}),
+        },
+        "actions": actions,
+        "status_after": {
+            "temperature": dict(temperature_summary_port()),
+            "fan": dict(fan_status_port()),
+            "platform_profile": dict(platform_profile_port()),
+        },
+        "decision": {
+            "production_ready": False,
+            "automation_allowed": False,
+            "reason": "TFN1 writes can be validated manually, but RPM/readback is unavailable and effective fan response is not yet independently measurable.",
+        },
+        "paths": dict(paths_port()),
+    }
+    if permission_required:
+        data["pkexec_hint"] = [
+            "pkexec",
+            "/usr/local/bin/abyss-machine",
+            "cooling",
+            "fan-validate",
+            "--levels",
+            ",".join(str(level) for level in requested_levels),
+            "--seconds",
+            str(seconds),
+            "--interval",
+            str(interval),
+            "--json",
+        ]
+    return data
+
+
+def fan_series_document(
+    level: int = 50,
+    repeats: int = 3,
+    seconds: float = 8.0,
+    interval: float = 2.0,
+    cooldown: float = 5.0,
+    state_label: str = "current",
+    allow_lower: bool = False,
+    *,
+    schema_prefix: str,
+    version: str,
+    updated_by: str,
+    now_iso: NowIsoPort,
+    status_port: StatusPort,
+    fan_validate_port: FanValidateRunPort,
+    temperature_summary_port: TemperatureSummaryPort,
+    fan_status_port: FanStatusPort,
+    platform_profile_port: PlatformProfilePort,
+    paths_port: PathsPort,
+    sleep: SleepPort = time.sleep,
+) -> dict[str, Any]:
+    normalized_inputs = cooling_contracts.normalize_fan_series_inputs(
+        level=level,
+        repeats=repeats,
+        seconds=seconds,
+        interval=interval,
+        cooldown=cooldown,
+        state_label=state_label,
+    )
+    level = normalized_inputs["level"]
+    repeats = normalized_inputs["repeats"]
+    seconds = normalized_inputs["seconds"]
+    interval = normalized_inputs["interval"]
+    cooldown = normalized_inputs["cooldown"]
+    state_label = normalized_inputs["state_label"]
+    status_before = dict(status_port())
+    results: list[dict[str, Any]] = []
+    ok = True
+    permission_required = False
+
+    for index in range(repeats):
+        run_data = dict(
+            fan_validate_port(
+                [level],
+                seconds=seconds,
+                interval=interval,
+                allow_lower=allow_lower,
+                updated_by=f"{updated_by}:fan-series:{state_label}:{index + 1}",
+            )
+        )
+        action = next((item for item in run_data.get("actions", []) if isinstance(item, Mapping) and item.get("action") == "validate_tfn1_level"), None)
+        compact = {
+            "index": index + 1,
+            "ok": run_data.get("ok"),
+            "permission_required": run_data.get("permission_required"),
+            "level": level,
+            "generated_at": run_data.get("generated_at"),
+            "status_before": run_data.get("status_before", {}).get("temperature", {}) if isinstance(run_data.get("status_before"), Mapping) else {},
+            "status_after": run_data.get("status_after", {}).get("temperature", {}) if isinstance(run_data.get("status_after"), Mapping) else {},
+            "cpu_hotspot_before": nested_get(run_data, ["status_before", "temperature", "cpu_hotspot"]),
+            "cpu_hotspot_after": nested_get(run_data, ["status_after", "temperature", "cpu_hotspot"]),
+            "action": {
+                "ok": action.get("ok") if isinstance(action, Mapping) else None,
+                "verdict": action.get("verdict") if isinstance(action, Mapping) else None,
+                "kernel_ok": nested_get(action, ["kernel", "ok"]) if isinstance(action, Mapping) else None,
+                "temperature_c_max_delta": nested_get(action, ["series", "temperature_c_max", "delta"]) if isinstance(action, Mapping) else None,
+                "temperature_c_max_first": nested_get(action, ["series", "temperature_c_max", "first"]) if isinstance(action, Mapping) else None,
+                "temperature_c_max_last": nested_get(action, ["series", "temperature_c_max", "last"]) if isinstance(action, Mapping) else None,
+                "temperature_c_max_max": nested_get(action, ["series", "temperature_c_max", "max"]) if isinstance(action, Mapping) else None,
+            },
+        }
+        results.append(
+            {
+                "summary": compact,
+                "data": run_data,
+            }
+        )
+        if run_data.get("permission_required"):
+            permission_required = True
+        if not run_data.get("ok"):
+            ok = False
+            break
+        if index < repeats - 1 and cooldown > 0:
+            sleep(cooldown)
+
+    compact_results = [item["summary"] for item in results]
+    series_decision = cooling_contracts.fan_series_decision(
+        compact_results=compact_results,
+        repeats=repeats,
+        permission_required=permission_required,
+    )
+
+    data = {
+        "schema": f"{schema_prefix}_cooling_fan_series_v1",
+        "version": version,
+        "generated_at": now_iso(),
+        "ok": ok,
+        "permission_required": permission_required,
+        "updated_by": updated_by,
+        "state_label": state_label,
+        "level": level,
+        "repeats": repeats,
+        "duration_seconds_per_repeat": seconds,
+        "interval_seconds": interval,
+        "cooldown_seconds": cooldown,
+        "allow_lower": allow_lower,
+        "status_before": {
+            "temperature": status_before.get("temperature", {}).get("summary", {}) if isinstance(status_before.get("temperature"), Mapping) else {},
+            "fan": status_before.get("fan", {}),
+            "power": status_before.get("power", {}),
+        },
+        "summary": series_decision["summary"],
+        "decision": series_decision["decision"],
+        "results": results,
+        "status_after": {
+            "temperature": dict(temperature_summary_port()),
+            "fan": dict(fan_status_port()),
+            "platform_profile": dict(platform_profile_port()),
+        },
+        "paths": dict(paths_port()),
+    }
+    if permission_required:
+        data["pkexec_hint"] = [
+            "pkexec",
+            "/usr/local/bin/abyss-machine",
+            "cooling",
+            "fan-series",
+            "--level",
+            str(level),
+            "--repeats",
+            str(repeats),
+            "--seconds",
+            str(seconds),
+            "--interval",
+            str(interval),
+            "--cooldown",
+            str(cooldown),
+            "--state-label",
+            state_label,
+            "--json",
+        ]
+    return data

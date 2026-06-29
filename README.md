@@ -181,7 +181,7 @@ plan/status, validate document, and lightweight reconcile status document contra
 `powerprofilesctl` get/set execution, recent GameMode journal probes, and
 external profile-guard input collection plus mode plan/status live input
 collection live in `abyss_machine.mode_adapters` through fakeable ports;
-concrete live reader binding, cooling apply orchestration, latest writes, and
+concrete live reader binding, cooling apply concrete binding, latest writes, and
 rendering remain at the CLI edge. Observability path, latest-read, manual-collect
 probe, status, and sample-temperature contracts live in
 `abyss_machine.observability_contracts`. Cooling config/path/status,
@@ -189,7 +189,8 @@ recommendation, apply-envelope, RAPL smoothing state/status, and guarded fan
 series decision contracts live in `abyss_machine.cooling_contracts`. Cooling
 platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle, kernel
 fan-error, thermal-zone/cooling-device sysfs sampling, trusted sensor
-projection, temperature summary/sample, and sample-series ports live in
+projection, temperature summary/sample, sample-series ports, profile apply
+orchestration, guarded TFN1 write, fan-validate, and fan-series orchestration live in
 `abyss_machine.cooling_adapters`. Process
 role/workload/game classifiers, paths/latest read models, game-guard envelope,
 and snapshot summary/top-list contracts live in `abyss_machine.process_contracts`.
@@ -464,10 +465,11 @@ remain at the CLI edge. Cooling config/path/status/recommend/apply envelope,
 RAPL smoothing state/status, fan-level parsing, and guarded fan-series decision
 contracts are module-owned; platform-profile, Lenovo fan-mode, RAPL-MMIO,
 package-throttle, kernel fan-error, thermal-zone/cooling-device sysfs sampling,
-trusted sensor projection, temperature summary/sample, and sample-series ports
-are adapter-owned through `cooling_adapters`. Systemd reads, concrete
-config/battery/sensors binding, validation/apply orchestration, latest/history
-writes, and rendering remain at the CLI edge.
+trusted sensor projection, temperature summary/sample, sample-series ports,
+profile apply orchestration, guarded TFN1 write, fan-validate, and fan-series
+orchestration are adapter-owned through `cooling_adapters`. Systemd reads,
+concrete config/battery/sensors binding, RAPL smoothing decision/state
+orchestration, latest/history writes, and rendering remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts are module-owned while live
 `/proc` process-info collection is adapter-owned through `process_adapters`;
