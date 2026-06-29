@@ -52,9 +52,9 @@ Use these mechanic owners for the next extraction slices:
   cooling platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle,
   kernel fan-error, thermal-zone/cooling-device sysfs sampling, trusted sensor
   projection, temperature summary/sample, sample-series ports, profile apply
-  orchestration, guarded TFN1 write, fan-validate, and fan-series orchestration
-  live in `cooling_adapters`. Continue broader container orchestration,
-  RAPL smoothing decision/state orchestration, and hotpath execution only as bounded
+  orchestration, guarded TFN1 write, fan-validate, fan-series orchestration, and
+  RAPL smoothing decision/state orchestration live in `cooling_adapters`.
+  Continue broader container orchestration and hotpath execution only as bounded
   public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.
