@@ -34,4 +34,10 @@
   construction, timeout routing, subprocess invocation, stdout/stderr/
   returncode mapping, and no-output JSON error envelopes now pass through a
   fakeable command port. CLI remains the argparse binding and rendering edge.
+- Extracted STT eval dictation transport into
+  `abyss_machine.ai_runtime_adapters`; per-profile dictation-client calls,
+  monotonic timing, before/after resource snapshots, and client-side
+  resource-profile envelopes now pass through fakeable transport, clock, and
+  resource ports. CLI remains the eval config, fixture generation, dispatch,
+  and rendering edge.
 - Initial skeleton: package created to route host-managed AI runtime work.

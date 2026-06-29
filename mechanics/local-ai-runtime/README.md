@@ -48,7 +48,8 @@ child-process execution plus token-accounting tokenizer subprocess
 command/env/timeout/timing execution and resident LLM controller
 command/timeout/subprocess execution and workhorse LLM controller
 command/timeout/subprocess execution, benchmark/eval suite orchestration,
-whole-command resource before/after sampling, latest/daily JSONL write routing,
+STT eval dictation-client transport timing/resource envelopes, whole-command
+resource before/after sampling, latest/daily JSONL write routing,
 workload-measurement callback routing, workload run JSONL discovery/read/dedupe
 append, refresh-from-latest source gating, and workload taxonomy/stats/refresh/
 status write routing, LLM registry/latest/validate store/readmodel routing,
@@ -90,9 +91,10 @@ summaries belong in the public seed.
   execution, eval suite execution-plan dispatch, policy-denial short-circuit,
   whole-command resource before/after sampling, benchmark/eval latest and daily
   JSONL write routing, and workload-measurement callback routing through
-  fakeable policy, runtime, suite-runner, writer, path, and resource ports. CLI
-  still owns concrete config/path binding, policy-gate binding, STT fixture and
-  dictation transport, suite callback binding, command dispatch, and rendering.
+  fakeable policy, runtime, suite-runner, writer, path, and resource ports. At
+  that landing, CLI still owned concrete config/path binding, policy-gate
+  binding, STT fixture and dictation transport, suite callback binding, command
+  dispatch, and rendering.
 - Extracted AI workload store/readmodel routing into
   `abyss_machine.ai_runtime_adapters`; the adapter owns workload run JSONL
   discovery, tolerant record reads, record-id dedupe append, refresh-from-latest
@@ -142,6 +144,13 @@ summaries belong in the public seed.
   invocation, stdout/stderr/returncode mapping, and no-output JSON error
   envelopes through a fakeable command port. CLI still owns argparse binding,
   user-visible result rendering, and command dispatch.
+- Extracted STT eval dictation transport and resource sampling into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns per-profile
+  dictation-client calls, monotonic timing, before/after resource snapshots,
+  and client-side resource-profile envelopes through fakeable transport, clock,
+  and resource ports while `ai_runtime_contracts` keeps scoring/result shapes.
+  CLI still owns eval config selection, synthetic fixture generation, command
+  dispatch, and rendering.
 - Extracted TTS output audio summary and synth resource-report assembly into
   `abyss_machine.ai_tts_adapters`; the adapter owns WAV stat/duration/sample
   rate inspection, wall-clock result timing, RTF derivation, and resource-profile
