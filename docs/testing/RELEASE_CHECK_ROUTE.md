@@ -92,6 +92,17 @@ binding, and CPU interval sampling. Live-host closeout may use compact
 `processes snapshot --json` or `processes game-guard --json` summaries, but
 should report counts and status only, not raw process command payloads.
 
+For process thermal-attribution/thermal-plan adapter changes, public CI should
+rely on synthetic proc-root and fake-port tests for `/proc/*/task/*/stat`
+thread deltas, thermal focus CPU projection, candidate confidence, incident
+classification, route-port fanout, game-guard new-work adjustment, and
+observe-only policy. Live-host closeout may use compact
+`processes thermal-attribution --seconds 1 --interval 0.5 --json` and
+`processes thermal-plan --seconds 1 --interval 0.5 --json` summaries, but
+should report only ok/classification/focus counts/candidate counts/unattended
+caps and route policy status, not raw command payloads, window titles, local
+paths, generated histories, or full process lists.
+
 For process container-health adapter changes, public CI should rely on
 fake-runner tests for Podman unavailable/failure/invalid-JSON behavior,
 sanitized `podman ps`/`inspect` projection, label allowlisting, attention-reason

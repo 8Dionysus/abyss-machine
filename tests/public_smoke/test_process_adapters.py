@@ -670,3 +670,168 @@ def test_atspi_window_snapshot_bounded_falls_back_to_latest_on_timeout(tmp_path:
     assert result["fresh_timeout"] is True
     assert result["fallback"]["source"] == "latest_desktop_compositor"
     assert result["_bounded_source"] == "latest_fallback_after_subprocess_failure"
+
+
+def _thermal_map(*, thermal_class: str = "hot") -> dict[str, object]:
+    return {
+        "ok": True,
+        "class": thermal_class,
+        "thresholds": {
+            "hot_temperature_c": 90.0,
+            "critical_temperature_c": 109.0,
+            "package_critical_temperature_c": 109.0,
+        },
+        "summary": {
+            "package_temperature_c_max": 97.0,
+            "core_temperature_c_max": 96.0,
+            "route_avoid_cpus": [7],
+            "hard_avoid_cpus": [],
+            "hot_cpus": [7],
+            "critical_cpus": [],
+        },
+        "episode": {"class": "watch"},
+        "available_by_role_cpuset": {"p_cores": "0-6"},
+        "per_cpu": [
+            {
+                "cpu": 7,
+                "core_id": 7,
+                "role": "p_core",
+                "temperature_c": 96.0,
+                "thermal_class": thermal_class,
+                "route_avoid": True,
+                "hard_avoid": False,
+            }
+        ],
+    }
+
+
+def test_process_thermal_attribution_document_uses_fake_proc_and_ports(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    _write_task(proc_root, 321, 322, comm="hot-worker", utime=0, stime=0)
+    monotonic_values = iter([0.0, 0.0, 0.0, 0.5, 0.5])
+    thermal_maps = [_thermal_map(), _thermal_map()]
+
+    def fake_sleep(seconds: float) -> None:
+        assert seconds == 0.2
+        _write_task(proc_root, 321, 322, comm="hot-worker", utime=50, stime=0)
+
+    def process_info_port(pid: int) -> dict[str, object]:
+        assert pid == 321
+        return {
+            "pid": pid,
+            "ppid": 1,
+            "uid": 1000,
+            "name": "hot-worker",
+            "comm": "hot-worker",
+            "cmdline": "hot-worker --synthetic",
+            "workload_hint": "normal",
+            "storage_matches": [],
+            "vmrss_kib": 1024,
+            "threads": 1,
+        }
+
+    data = process_adapters.process_thermal_attribution_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T00:00:00Z",
+        paths={"thermal_attribution": {"latest": "/tmp/latest.json"}},
+        seconds=0.5,
+        interval=0.2,
+        top=5,
+        thermal_map_port=lambda: thermal_maps.pop(0),
+        proc_root=proc_root,
+        process_info_port=process_info_port,
+        now=lambda: "2026-06-29T00:00:00Z",
+        monotonic=lambda: next(monotonic_values),
+        sleep=fake_sleep,
+        sysconf=lambda name: 100,
+        observer_pid=999,
+    )
+
+    assert data["ok"] is True
+    assert data["capture"]["facts_only"] is True
+    assert data["summary"]["focus_cpus"] == [7]
+    assert data["summary"]["focus_process_candidates"] == 1
+    assert data["summary"]["top_candidate_confidence"] == "high"
+    candidate = data["top"]["focus_cpu_candidates"][0]
+    assert candidate["pid"] == 321
+    assert candidate["focus_cpu_sec"] == 0.5
+    assert candidate["focus_cpu_percent_one_core"] == 100.0
+    assert candidate["attribution"]["claim"] == "candidate_not_proof"
+    assert data["incident"]["kind"] == "broad_heat"
+    assert data["policy"]["do_not_kill_or_throttle_from_this_result"] is True
+    assert "not proof" in data["non_claims"][0]
+
+
+def test_process_thermal_plan_document_routes_new_work_without_mutation() -> None:
+    attribution = {
+        "ok": True,
+        "summary": {"focus_process_candidates": 1},
+        "incident": {"kind": "localized_hotspot"},
+        "cpu_distribution": {"top": [{"cpu": 7, "cpu_sec": 0.4}]},
+        "top": {"focus_cpu_candidates": [{"pid": 321, "attribution": {"confidence": "high"}}]},
+    }
+    route_calls: list[str] = []
+
+    def route_port(
+        workload: str,
+        thermal_map: dict[str, object],
+        policy: dict[str, object],
+        route_mode: dict[str, object],
+        route_battery: dict[str, object],
+    ) -> dict[str, object]:
+        route_calls.append(workload)
+        assert thermal_map["class"] == "hot"
+        assert policy["class"] == "routed"
+        assert route_mode == {"effective_mode": "balanced", "selected_mode": "balanced"}
+        assert route_battery == {"capacity_percent": 80}
+        return {
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-6", "thread_limit": 2},
+        }
+
+    data = process_adapters.process_thermal_plan_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T00:00:00Z",
+        paths={"thermal_plan": {"latest": "/tmp/plan.json"}},
+        seconds=0.5,
+        interval=0.2,
+        top=5,
+        attribution_port=lambda: attribution,
+        thermal_map_port=lambda: _thermal_map(),
+        game_guard_port=lambda: {"active": True, "platform_present": True, "summary": {"active_games": 1}, "routing_policy": {"blocks": ["heavy"]}},
+        mode_port=lambda: {"selected_mode": "balanced", "effective_mode": "balanced", "launch_policy": {"default": "bounded"}},
+        policy_port=lambda thermal_map: {
+            "class": "routed",
+            "can_run_heavy": True,
+            "can_run_routed_heavy": True,
+            "can_run_routed_heavy_unattended": True,
+            "heavy_policy": {"route": "away_from_hot"},
+            "reasons": [],
+            "current": {"battery": {"capacity_percent": 80}},
+        },
+        route_port=route_port,
+        battery_port=lambda: {"capacity_percent": 50},
+        desktop_compositor_port=lambda: {
+            "ok": True,
+            "_bounded_source": "fake",
+            "summary": {"classification": "stable"},
+            "policy": {"automation": "observe_only"},
+        },
+        thermal_attribution_latest_path="/var/lib/abyss-machine/processes/thermal-attribution/latest.json",
+        game_guard_latest_path="/var/lib/abyss-machine/processes/game-guard/latest.json",
+        desktop_compositor_latest_path="/var/lib/abyss-machine/processes/desktop-compositor/latest.json",
+    )
+
+    assert route_calls == ["background", "probe", "light", "interactive", "medium", "heavy", "sustained"]
+    assert data["ok"] is True
+    assert data["policy"]["automation"] == "route_new_work_only"
+    assert data["policy"]["do_not_kill_or_throttle_from_this_result"] is True
+    assert data["recommended_new_work"]["medium"]["game_guarded"] is True
+    assert data["recommended_new_work"]["heavy"]["allowed"] is False
+    assert data["recommended_new_work"]["heavy"]["route_would_allow"] is True
+    assert data["attribution"]["top_focus_cpu_candidates"][0]["pid"] == 321
+    assert data["desktop_compositor"]["source"] == "fake"

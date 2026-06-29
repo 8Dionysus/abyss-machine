@@ -21,6 +21,13 @@ MonotonicPort = Callable[[], float]
 CommandExistsPort = Callable[[str], bool]
 CommandRunnerPort = Callable[..., dict[str, Any]]
 JsonLoaderPort = Callable[[Path], tuple[Any, str | None]]
+NowIsoPort = Callable[[], str]
+PidPort = Callable[[], int]
+ThermalMapPort = Callable[[], dict[str, Any]]
+ProcessInfoPort = Callable[[int], dict[str, Any] | None]
+DocumentPort = Callable[[], dict[str, Any]]
+PolicyPort = Callable[[dict[str, Any]], dict[str, Any]]
+RoutePort = Callable[[str, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]]
 
 CONTAINER_LABEL_ALLOWLIST = {
     "PODMAN_SYSTEMD_UNIT",
@@ -317,6 +324,729 @@ def collect_process_infos(
             "total_after": total_after,
             "sampled_pids": len(before_jiffies),
         },
+    }
+
+
+def process_thread_cpu_sample(
+    *,
+    proc_root: Path = Path("/proc"),
+    now: NowIsoPort,
+    monotonic: MonotonicPort = time.monotonic,
+    sysconf: SysconfPort = os.sysconf,
+) -> dict[str, Any]:
+    threads: dict[str, dict[str, Any]] = {}
+    inaccessible = 0
+    processes_seen = 0
+    try:
+        pid_entries = list(proc_root.iterdir())
+    except OSError:
+        pid_entries = []
+        inaccessible += 1
+    for pid_entry in pid_entries:
+        if not pid_entry.name.isdigit():
+            continue
+        pid = int(pid_entry.name)
+        task_root = pid_entry / "task"
+        try:
+            task_entries = list(task_root.iterdir())
+        except OSError:
+            inaccessible += 1
+            continue
+        processes_seen += 1
+        for task_entry in task_entries:
+            if not task_entry.name.isdigit():
+                continue
+            tid = int(task_entry.name)
+            stat = proc_task_stat_data(pid, tid, proc_root, sysconf=sysconf)
+            if not stat:
+                inaccessible += 1
+                continue
+            key = f"{pid}:{tid}"
+            threads[key] = {
+                "pid": pid,
+                "tid": tid,
+                "comm": stat.get("comm"),
+                "state": stat.get("state"),
+                "cpu_jiffies": stat.get("cpu_jiffies"),
+                "processor": stat.get("processor"),
+                "starttime_jiffies": stat.get("starttime_jiffies"),
+                "priority": stat.get("priority"),
+                "nice": stat.get("nice"),
+            }
+    return {
+        "at": now(),
+        "monotonic": monotonic(),
+        "threads": threads,
+        "summary": {
+            "processes_seen": processes_seen,
+            "threads_seen": len(threads),
+            "inaccessible_or_exited": inaccessible,
+        },
+    }
+
+
+def process_thermal_focus(thermal_map: dict[str, Any]) -> dict[str, Any]:
+    summary = thermal_map.get("summary", {}) if isinstance(thermal_map.get("summary"), dict) else {}
+    focus: set[int] = set()
+    for key in ("hard_avoid_cpus", "critical_cpus", "route_avoid_cpus", "hot_cpus"):
+        for cpu in summary.get(key, []) if isinstance(summary.get(key), list) else []:
+            try:
+                focus.add(int(cpu))
+            except (TypeError, ValueError):
+                pass
+    per_cpu_map: dict[int, dict[str, Any]] = {}
+    for item in thermal_map.get("per_cpu", []) if isinstance(thermal_map.get("per_cpu"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            cpu = int(item.get("cpu"))
+        except (TypeError, ValueError):
+            continue
+        per_cpu_map[cpu] = {
+            "cpu": cpu,
+            "core_id": item.get("core_id"),
+            "role": item.get("role"),
+            "temperature_c": item.get("temperature_c"),
+            "thermal_class": item.get("thermal_class"),
+            "route_avoid": item.get("route_avoid"),
+            "hard_avoid": item.get("hard_avoid"),
+        }
+    focus_details = [per_cpu_map[cpu] for cpu in sorted(focus) if cpu in per_cpu_map]
+    return {
+        "class": thermal_map.get("class"),
+        "summary": summary,
+        "focus_cpus": sorted(focus),
+        "focus_cpu_details": focus_details,
+        "per_cpu": per_cpu_map,
+    }
+
+
+def process_thermal_attribution_confidence(
+    focus_cpu_sec: float,
+    total_cpu_sec: float,
+    focus_share: float,
+    focus_cpus: list[int],
+) -> str:
+    if not focus_cpus or focus_cpu_sec <= 0:
+        return "none"
+    if focus_cpu_sec >= 0.35 and focus_share >= 0.70:
+        return "high"
+    if focus_cpu_sec >= 0.10 and focus_share >= 0.50:
+        return "medium"
+    if focus_cpu_sec >= 0.03:
+        return "low"
+    if total_cpu_sec >= 0.10:
+        return "low"
+    return "none"
+
+
+def confidence_rank(confidence: str | None) -> int:
+    return {"none": 0, "low": 1, "medium": 2, "high": 3}.get(str(confidence or "none"), 0)
+
+
+def process_cpu_distribution(enriched_threads: list[dict[str, Any]], elapsed: float, top: int = 16) -> dict[str, Any]:
+    by_cpu: dict[int, dict[str, Any]] = {}
+    for thread in enriched_threads:
+        if thread.get("observer_thread"):
+            continue
+        for processor in thread.get("processors", []) if isinstance(thread.get("processors"), list) else []:
+            if not isinstance(processor, dict):
+                continue
+            try:
+                cpu = int(processor.get("cpu"))
+                cpu_sec = float(processor.get("cpu_sec") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            bucket = by_cpu.setdefault(
+                cpu,
+                {
+                    "cpu": cpu,
+                    "cpu_sec": 0.0,
+                    "threads": 0,
+                    "processes": set(),
+                    "thermal": processor.get("thermal") if isinstance(processor.get("thermal"), dict) else {},
+                },
+            )
+            bucket["cpu_sec"] = round(float(bucket["cpu_sec"]) + cpu_sec, 4)
+            bucket["threads"] = int(bucket["threads"]) + 1
+            try:
+                bucket["processes"].add(int(thread.get("pid")))
+            except (TypeError, ValueError):
+                pass
+    rows: list[dict[str, Any]] = []
+    for bucket in by_cpu.values():
+        cpu_sec = float(bucket.get("cpu_sec") or 0.0)
+        rows.append({
+            "cpu": bucket.get("cpu"),
+            "cpu_sec": round(cpu_sec, 4),
+            "cpu_percent_one_core": round((cpu_sec / max(0.001, elapsed)) * 100.0, 2),
+            "threads": bucket.get("threads"),
+            "processes": len(bucket.get("processes") or []),
+            "thermal": bucket.get("thermal") or {},
+        })
+    rows = sorted(rows, key=lambda item: float(item.get("cpu_sec") or 0.0), reverse=True)
+    return {
+        "cpus_observed": len(rows),
+        "cpu_sec_total": round(sum(float(item.get("cpu_sec") or 0.0) for item in rows), 4),
+        "top": rows[: max(1, min(int(top), 64))],
+    }
+
+
+def process_thermal_incident(
+    thermal_map: dict[str, Any],
+    focus_cpus: list[int],
+    candidate_processes: list[dict[str, Any]],
+    cpu_distribution: dict[str, Any],
+) -> dict[str, Any]:
+    def ints(values: Any) -> list[int]:
+        result: list[int] = []
+        for value in values if isinstance(values, list) else []:
+            try:
+                result.append(int(value))
+            except (TypeError, ValueError):
+                pass
+        return sorted(set(result))
+
+    summary = thermal_map.get("summary", {}) if isinstance(thermal_map.get("summary"), dict) else {}
+    thresholds = thermal_map.get("thresholds", {}) if isinstance(thermal_map.get("thresholds"), dict) else {}
+    thermal_class = str(thermal_map.get("class") or "unknown")
+    route_avoid_cpus = ints(summary.get("route_avoid_cpus", []))
+    hard_avoid_cpus = ints(summary.get("hard_avoid_cpus", []))
+    hot_cpus = ints(summary.get("hot_cpus", []))
+    critical_cpus = ints(summary.get("critical_cpus", []))
+    package_temp = summary.get("package_temperature_c_max")
+    core_temp = summary.get("core_temperature_c_max")
+    package_critical_threshold = float(thresholds.get("package_critical_temperature_c", thresholds.get("critical_temperature_c", 100.0)))
+    hot_threshold = float(thresholds.get("hot_temperature_c", 90.0))
+    package_critical = isinstance(package_temp, (int, float)) and package_temp >= package_critical_threshold
+    package_hot = isinstance(package_temp, (int, float)) and package_temp >= hot_threshold
+    broad_heat = package_hot or len(hot_cpus) >= 4 or len(route_avoid_cpus) >= 6
+    top_candidate = candidate_processes[0] if candidate_processes else None
+    top_confidence = _nested_get(top_candidate or {}, ["attribution", "confidence"]) or "none"
+    cpu_top = cpu_distribution.get("top", []) if isinstance(cpu_distribution.get("top"), list) else []
+    hottest_cpu_load = cpu_top[0] if cpu_top else None
+
+    if package_critical:
+        kind = "package_critical"
+        severity = "critical"
+        launch_recommendation = "defer_new_heavy_work"
+    elif thermal_class == "critical" and focus_cpus:
+        kind = "critical_hotspot"
+        severity = "critical"
+        launch_recommendation = "operator_only_route_new_work_away_from_critical_cpus"
+    elif thermal_class == "critical":
+        kind = "critical_global"
+        severity = "critical"
+        launch_recommendation = "defer_new_heavy_work_until_clearer_telemetry"
+    elif broad_heat:
+        kind = "broad_heat"
+        severity = "hot"
+        launch_recommendation = "defer_unattended_heavy_and_route_operator_work"
+    elif focus_cpus:
+        kind = "localized_hotspot"
+        severity = "hot" if thermal_class == "hot" else "warm"
+        launch_recommendation = "route_new_work_away_from_focus_cpus"
+    elif thermal_class == "warm":
+        kind = "warm_no_focus"
+        severity = "warm"
+        launch_recommendation = "prefer_bounded_routes"
+    else:
+        kind = "no_hotspot"
+        severity = "green"
+        launch_recommendation = "normal_route_policy"
+
+    return {
+        "kind": kind,
+        "severity": severity,
+        "thermal_class": thermal_class,
+        "package_temperature_c_max": package_temp,
+        "core_temperature_c_max": core_temp,
+        "focus_cpus": focus_cpus,
+        "route_avoid_cpus": route_avoid_cpus,
+        "hard_avoid_cpus": hard_avoid_cpus,
+        "hot_cpus": hot_cpus,
+        "critical_cpus": critical_cpus,
+        "package_hot": package_hot,
+        "package_critical": package_critical,
+        "broad_heat": broad_heat,
+        "top_candidate": top_candidate,
+        "top_candidate_confidence": top_confidence,
+        "hottest_observed_cpu_load": hottest_cpu_load,
+        "launch_recommendation": launch_recommendation,
+        "operator_action": {
+            "safe_default": "observe_and_route_new_work",
+            "do_not_change_existing_user_process_affinity": True,
+            "do_not_kill_or_throttle_from_this_result": True,
+            "use_launch_wrapper_for_new_heavy_cpu_work": True,
+        },
+        "confidence_rule": "Attribution ranks candidates from repeated /proc thread CPU deltas; it is routing evidence, not exclusive causality proof.",
+    }
+
+
+def process_thermal_attribution_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    paths: dict[str, Any],
+    seconds: float,
+    interval: float,
+    top: int,
+    thermal_map_port: ThermalMapPort,
+    proc_root: Path = Path("/proc"),
+    process_info_port: ProcessInfoPort | None = None,
+    storage_roots: Sequence[Path | str] = (),
+    game_roots: Sequence[Path | str] = (),
+    now: NowIsoPort,
+    monotonic: MonotonicPort = time.monotonic,
+    sleep: SleepPort = time.sleep,
+    sysconf: SysconfPort = os.sysconf,
+    observer_pid: int | None = None,
+) -> dict[str, Any]:
+    seconds = max(0.5, min(float(seconds), 20.0))
+    interval = max(0.2, min(float(interval), 5.0))
+    top = max(5, min(int(top), 200))
+    thermal_before = thermal_map_port()
+    samples: list[dict[str, Any]] = []
+    deadline = monotonic() + seconds
+    while True:
+        sample = process_thread_cpu_sample(proc_root=proc_root, now=now, monotonic=monotonic, sysconf=sysconf)
+        samples.append(sample)
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        sleep(min(interval, remaining))
+    thermal_after = thermal_map_port()
+
+    before_focus = process_thermal_focus(thermal_before)
+    after_focus = process_thermal_focus(thermal_after)
+    focus_cpus = sorted(set(before_focus.get("focus_cpus", [])) | set(after_focus.get("focus_cpus", [])))
+    per_cpu: dict[int, dict[str, Any]] = {}
+    per_cpu.update(before_focus.get("per_cpu", {}))
+    per_cpu.update(after_focus.get("per_cpu", {}))
+    elapsed = max(0.001, float(samples[-1]["monotonic"]) - float(samples[0]["monotonic"])) if len(samples) >= 2 else 0.001
+    hz = clock_ticks(sysconf=sysconf) or 100
+    observer = os.getpid() if observer_pid is None else int(observer_pid)
+
+    thread_metrics: dict[str, dict[str, Any]] = {}
+    skipped_segments = 0
+    segment_count = 0
+    for previous, current in zip(samples, samples[1:]):
+        segment_count += 1
+        prev_threads = previous.get("threads", {})
+        cur_threads = current.get("threads", {})
+        if not isinstance(prev_threads, dict) or not isinstance(cur_threads, dict):
+            continue
+        for key, cur in cur_threads.items():
+            prev = prev_threads.get(key)
+            if not isinstance(cur, dict) or not isinstance(prev, dict):
+                continue
+            if cur.get("starttime_jiffies") != prev.get("starttime_jiffies"):
+                skipped_segments += 1
+                continue
+            cur_jiffies = cur.get("cpu_jiffies")
+            prev_jiffies = prev.get("cpu_jiffies")
+            if not isinstance(cur_jiffies, int) or not isinstance(prev_jiffies, int):
+                skipped_segments += 1
+                continue
+            delta = max(0, cur_jiffies - prev_jiffies)
+            if delta <= 0:
+                continue
+            processor = cur.get("processor")
+            processor_int = int(processor) if isinstance(processor, int) else None
+            metric = thread_metrics.setdefault(
+                key,
+                {
+                    "pid": cur.get("pid"),
+                    "tid": cur.get("tid"),
+                    "comm": cur.get("comm"),
+                    "state": cur.get("state"),
+                    "starttime_jiffies": cur.get("starttime_jiffies"),
+                    "cpu_jiffies_delta": 0,
+                    "focus_cpu_jiffies_delta": 0,
+                    "segments_with_cpu_delta": 0,
+                    "processors_by_jiffies": {},
+                    "focus_processors_by_jiffies": {},
+                    "last_processor": processor_int,
+                    "observer_thread": int(cur.get("pid") or -1) == observer,
+                },
+            )
+            metric["cpu_jiffies_delta"] = int(metric["cpu_jiffies_delta"]) + delta
+            metric["segments_with_cpu_delta"] = int(metric["segments_with_cpu_delta"]) + 1
+            metric["last_processor"] = processor_int
+            if processor_int is not None:
+                bucket = metric["processors_by_jiffies"]
+                bucket[str(processor_int)] = int(bucket.get(str(processor_int), 0)) + delta
+                if processor_int in focus_cpus:
+                    metric["focus_cpu_jiffies_delta"] = int(metric["focus_cpu_jiffies_delta"]) + delta
+                    focus_bucket = metric["focus_processors_by_jiffies"]
+                    focus_bucket[str(processor_int)] = int(focus_bucket.get(str(processor_int), 0)) + delta
+
+    enriched_threads: list[dict[str, Any]] = []
+    for metric in thread_metrics.values():
+        total_jiffies = int(metric.get("cpu_jiffies_delta") or 0)
+        focus_jiffies = int(metric.get("focus_cpu_jiffies_delta") or 0)
+        total_sec = round(float(total_jiffies) / float(hz), 4)
+        focus_sec = round(float(focus_jiffies) / float(hz), 4)
+        focus_share = round(float(focus_jiffies) / float(total_jiffies), 4) if total_jiffies > 0 else 0.0
+        processors = [
+            {
+                "cpu": int(cpu),
+                "cpu_sec": round(float(jiffies) / float(hz), 4),
+                "share": round(float(jiffies) / float(total_jiffies), 4) if total_jiffies > 0 else 0.0,
+                "thermal": per_cpu.get(int(cpu), {}),
+            }
+            for cpu, jiffies in sorted(
+                metric.get("processors_by_jiffies", {}).items(),
+                key=lambda item: int(item[1]),
+                reverse=True,
+            )
+        ]
+        enriched_threads.append({
+            "pid": metric.get("pid"),
+            "tid": metric.get("tid"),
+            "comm": metric.get("comm"),
+            "state": metric.get("state"),
+            "cpu_sec": total_sec,
+            "focus_cpu_sec": focus_sec,
+            "cpu_percent_one_core": round((total_sec / elapsed) * 100.0, 2),
+            "focus_cpu_percent_one_core": round((focus_sec / elapsed) * 100.0, 2),
+            "focus_cpu_share": focus_share,
+            "processors": processors[:8],
+            "last_processor": metric.get("last_processor"),
+            "segments_with_cpu_delta": metric.get("segments_with_cpu_delta"),
+            "observer_thread": metric.get("observer_thread"),
+        })
+
+    process_aggregates: dict[int, dict[str, Any]] = {}
+    for thread in enriched_threads:
+        try:
+            pid = int(thread.get("pid"))
+        except (TypeError, ValueError):
+            continue
+        proc = process_aggregates.setdefault(
+            pid,
+            {
+                "pid": pid,
+                "cpu_sec": 0.0,
+                "focus_cpu_sec": 0.0,
+                "threads_with_cpu_delta": 0,
+                "focus_threads": 0,
+                "top_threads": [],
+                "processor_jiffies": {},
+                "observer_process": pid == observer,
+            },
+        )
+        proc["cpu_sec"] = round(float(proc["cpu_sec"]) + float(thread.get("cpu_sec") or 0.0), 4)
+        proc["focus_cpu_sec"] = round(float(proc["focus_cpu_sec"]) + float(thread.get("focus_cpu_sec") or 0.0), 4)
+        proc["threads_with_cpu_delta"] = int(proc["threads_with_cpu_delta"]) + 1
+        if float(thread.get("focus_cpu_sec") or 0.0) > 0:
+            proc["focus_threads"] = int(proc["focus_threads"]) + 1
+        proc["top_threads"].append(thread)
+
+    processes: list[dict[str, Any]] = []
+    for pid, aggregate in process_aggregates.items():
+        if process_info_port is not None:
+            info = process_info_port(pid)
+        else:
+            info = process_info(pid, proc_root=proc_root, storage_roots=storage_roots, game_roots=game_roots, sysconf=sysconf)
+        info = info or {"pid": pid, "cmdline": "[exited]", "comm": None, "name": None}
+        top_threads = sorted(
+            aggregate.get("top_threads", []),
+            key=lambda item: (float(item.get("focus_cpu_sec") or 0.0), float(item.get("cpu_sec") or 0.0)),
+            reverse=True,
+        )[:8]
+        total_sec = float(aggregate.get("cpu_sec") or 0.0)
+        focus_sec = float(aggregate.get("focus_cpu_sec") or 0.0)
+        focus_share = round(focus_sec / total_sec, 4) if total_sec > 0 else 0.0
+        confidence = process_thermal_attribution_confidence(focus_sec, total_sec, focus_share, focus_cpus)
+        processes.append({
+            "pid": pid,
+            "ppid": info.get("ppid"),
+            "uid": info.get("uid"),
+            "name": info.get("name"),
+            "comm": info.get("comm"),
+            "cmdline": info.get("cmdline"),
+            "workload_hint": info.get("workload_hint"),
+            "storage_matches": info.get("storage_matches"),
+            "vmrss_kib": info.get("vmrss_kib"),
+            "threads": info.get("threads"),
+            "cpu_sec": round(total_sec, 4),
+            "focus_cpu_sec": round(focus_sec, 4),
+            "cpu_percent_one_core": round((total_sec / elapsed) * 100.0, 2),
+            "focus_cpu_percent_one_core": round((focus_sec / elapsed) * 100.0, 2),
+            "focus_cpu_share": focus_share,
+            "threads_with_cpu_delta": aggregate.get("threads_with_cpu_delta"),
+            "focus_threads": aggregate.get("focus_threads"),
+            "top_threads": top_threads,
+            "observer_process": aggregate.get("observer_process"),
+            "attribution": {
+                "confidence": confidence,
+                "claim": "candidate_not_proof" if confidence != "none" else "background_cpu_observed",
+                "basis": "Thread CPU deltas over the sample window, assigned to the thread's last reported processor for each segment.",
+            },
+        })
+
+    candidate_processes = [
+        item for item in processes
+        if float(item.get("focus_cpu_sec") or 0.0) > 0 and not item.get("observer_process")
+    ]
+    top_focus = sorted(
+        candidate_processes,
+        key=lambda item: (float(item.get("focus_cpu_sec") or 0.0), float(item.get("cpu_sec") or 0.0)),
+        reverse=True,
+    )[:top]
+    top_cpu = sorted(
+        [item for item in processes if not item.get("observer_process")],
+        key=lambda item: float(item.get("cpu_sec") or 0.0),
+        reverse=True,
+    )[:top]
+    cpu_distribution = process_cpu_distribution(enriched_threads, elapsed, top=16)
+    incident = process_thermal_incident(thermal_after, focus_cpus, top_focus, cpu_distribution)
+    sample_summaries = [sample.get("summary", {}) for sample in samples]
+    return {
+        "schema": f"{schema_prefix}_process_thermal_attribution_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": True,
+        "paths": paths,
+        "capture": {
+            "source": "/proc task stat + abyss-machine ai cpu thermal-map",
+            "seconds_requested": seconds,
+            "interval_seconds": interval,
+            "elapsed_seconds": round(elapsed, 3),
+            "samples": len(samples),
+            "segments": segment_count,
+            "top_limit": top,
+            "facts_only": True,
+            "observer_pid": observer,
+        },
+        "thermal": {
+            "before": {
+                "class": thermal_before.get("class"),
+                "summary": thermal_before.get("summary"),
+                "focus_cpus": before_focus.get("focus_cpus"),
+                "focus_cpu_details": before_focus.get("focus_cpu_details"),
+            },
+            "after": {
+                "class": thermal_after.get("class"),
+                "summary": thermal_after.get("summary"),
+                "focus_cpus": after_focus.get("focus_cpus"),
+                "focus_cpu_details": after_focus.get("focus_cpu_details"),
+            },
+            "focus_cpus": focus_cpus,
+            "focus_cpu_details": [per_cpu[cpu] for cpu in focus_cpus if cpu in per_cpu],
+        },
+        "summary": {
+            "processes_with_cpu_delta": len(processes),
+            "threads_with_cpu_delta": len(enriched_threads),
+            "focus_cpus": focus_cpus,
+            "focus_process_candidates": len(candidate_processes),
+            "focus_cpu_sec_total": round(sum(float(item.get("focus_cpu_sec") or 0.0) for item in processes), 4),
+            "cpu_sec_total": round(sum(float(item.get("cpu_sec") or 0.0) for item in processes), 4),
+            "incident_kind": incident.get("kind"),
+            "incident_severity": incident.get("severity"),
+            "top_candidate_confidence": incident.get("top_candidate_confidence"),
+            "samples": sample_summaries,
+            "skipped_segments": skipped_segments,
+            "hottest_candidate": top_focus[0] if top_focus else None,
+        },
+        "incident": incident,
+        "cpu_distribution": cpu_distribution,
+        "top": {
+            "focus_cpu_candidates": top_focus,
+            "cpu": top_cpu,
+            "threads": sorted(
+                [item for item in enriched_threads if not item.get("observer_thread")],
+                key=lambda item: (float(item.get("focus_cpu_sec") or 0.0), float(item.get("cpu_sec") or 0.0)),
+                reverse=True,
+            )[:top],
+        },
+        "processes": sorted(processes, key=lambda item: int(item.get("pid") or 0)),
+        "policy": {
+            "automation": "none",
+            "action": "observe_only",
+            "do_not_kill_or_throttle_from_this_result": True,
+            "confidence_ceiling": "high",
+            "reason": "Linux threads can migrate between CPUs; per-segment processor attribution is useful evidence but not exclusive causality.",
+        },
+        "non_claims": [
+            "This is not proof that a process caused a thermal spike by itself.",
+            "Thread processor is sampled from /proc stat and can change between samples.",
+            "The abyss-machine observer process may appear in raw CPU data and is excluded from candidate rankings.",
+            "Use repeated samples plus workload context before changing affinities, killing processes, or throttling work.",
+        ],
+    }
+
+
+def process_thermal_plan_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    paths: dict[str, Any],
+    seconds: float,
+    interval: float,
+    top: int,
+    attribution_port: DocumentPort,
+    thermal_map_port: ThermalMapPort,
+    game_guard_port: DocumentPort,
+    mode_port: DocumentPort,
+    policy_port: PolicyPort,
+    route_port: RoutePort,
+    battery_port: DocumentPort,
+    desktop_compositor_port: DocumentPort,
+    thermal_attribution_latest_path: str,
+    game_guard_latest_path: str,
+    desktop_compositor_latest_path: str,
+) -> dict[str, Any]:
+    seconds = max(0.5, min(float(seconds), 20.0))
+    interval = max(0.2, min(float(interval), 5.0))
+    top = max(5, min(int(top), 200))
+    attribution = attribution_port()
+    thermal_map = thermal_map_port()
+    game_guard = game_guard_port()
+    mode = mode_port()
+    policy = policy_port(thermal_map)
+    route_mode = {
+        "effective_mode": mode.get("effective_mode"),
+        "selected_mode": mode.get("selected_mode"),
+    }
+    route_battery = _nested_get(policy, ["current", "battery"]) or battery_port()
+    desktop_compositor = desktop_compositor_port()
+    routes: dict[str, Any] = {}
+    for workload in ("background", "probe", "light", "interactive", "medium", "heavy", "sustained"):
+        routes[workload] = route_port(workload, thermal_map, policy, route_mode, route_battery)
+
+    focus_cpus = sorted({int(cpu) for cpu in _nested_get(thermal_map, ["summary", "route_avoid_cpus"]) or []})
+    for key in ("hard_avoid_cpus", "hot_cpus", "critical_cpus"):
+        for cpu in _nested_get(thermal_map, ["summary", key]) or []:
+            try:
+                focus_cpus.append(int(cpu))
+            except (TypeError, ValueError):
+                pass
+    focus_cpus = sorted(set(focus_cpus))
+    candidates = _nested_get(attribution, ["top", "focus_cpu_candidates"]) or []
+    if not isinstance(candidates, list):
+        candidates = []
+    cpu_distribution = attribution.get("cpu_distribution", {}) if isinstance(attribution.get("cpu_distribution"), dict) else {}
+    incident = process_thermal_incident(thermal_map, focus_cpus, candidates, cpu_distribution)
+    recommended_new_work: dict[str, dict[str, Any]] = {}
+    for workload, route in routes.items():
+        recommended_new_work[workload] = {
+            "allowed": bool(route.get("allowed")),
+            "unattended_allowed": bool(route.get("unattended_allowed")),
+            "cpuset": _nested_get(route, ["route", "cpuset"]),
+            "thread_limit": _nested_get(route, ["route", "thread_limit"]),
+        }
+    if game_guard.get("active"):
+        recommended_new_work["medium"]["unattended_allowed"] = False
+        recommended_new_work["medium"]["game_guarded"] = True
+        for key in ("heavy", "sustained"):
+            item = recommended_new_work[key]
+            item["route_would_allow"] = item.get("allowed")
+            item["allowed"] = False
+            item["unattended_allowed"] = False
+            item["game_guarded"] = True
+            item["operator_force_supported"] = True
+    return {
+        "schema": f"{schema_prefix}_process_thermal_plan_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": bool(attribution.get("ok")) and bool(thermal_map.get("ok")),
+        "scope": "process CPU thermal orchestration",
+        "incident": incident,
+        "thermal": {
+            "class": thermal_map.get("class"),
+            "summary": thermal_map.get("summary"),
+            "episode": thermal_map.get("episode"),
+            "focus_cpus": focus_cpus,
+            "available_by_role_cpuset": thermal_map.get("available_by_role_cpuset"),
+        },
+        "attribution": {
+            "latest": thermal_attribution_latest_path,
+            "summary": attribution.get("summary"),
+            "incident": attribution.get("incident"),
+            "top_focus_cpu_candidates": candidates[: min(top, 10)],
+            "cpu_distribution": cpu_distribution,
+        },
+        "mode": {
+            "selected_mode": mode.get("selected_mode"),
+            "effective_mode": mode.get("effective_mode"),
+            "thermal_class": _nested_get(mode, ["operating", "thermal_class"]) or mode.get("thermal_class"),
+            "launch_policy": mode.get("launch_policy"),
+        },
+        "ai_policy": {
+            "class": policy.get("class"),
+            "can_run_heavy": policy.get("can_run_heavy"),
+            "can_run_routed_heavy": policy.get("can_run_routed_heavy"),
+            "can_run_routed_heavy_unattended": policy.get("can_run_routed_heavy_unattended"),
+            "heavy_policy": policy.get("heavy_policy"),
+            "reasons": policy.get("reasons"),
+        },
+        "game_guard": {
+            "active": game_guard.get("active"),
+            "platform_present": game_guard.get("platform_present"),
+            "summary": game_guard.get("summary"),
+            "latest": game_guard_latest_path,
+            "policy": game_guard.get("routing_policy"),
+        },
+        "desktop_compositor": {
+            "latest": desktop_compositor_latest_path,
+            "ok": desktop_compositor.get("ok"),
+            "degraded": desktop_compositor.get("degraded"),
+            "source": desktop_compositor.get("_bounded_source"),
+            "timeout_sec": desktop_compositor.get("_bounded_timeout_sec"),
+            "fresh_timeout": desktop_compositor.get("fresh_timeout"),
+            "fresh_error": desktop_compositor.get("fresh_error"),
+            "fallback": desktop_compositor.get("fallback"),
+            "summary": desktop_compositor.get("summary"),
+            "gnome_shell": desktop_compositor.get("gnome_shell"),
+            "display": desktop_compositor.get("display"),
+            "status_notifiers": desktop_compositor.get("status_notifiers"),
+            "gnome_shell_extensions": {
+                "enabled_count": _nested_get(desktop_compositor, ["gnome_shell_extensions", "enabled_count"]),
+                "enabled_uuids": _nested_get(desktop_compositor, ["gnome_shell_extensions", "enabled_uuids"]),
+                "vitals_enabled": _nested_get(desktop_compositor, ["gnome_shell_extensions", "vitals_enabled"]),
+            },
+            "atspi_windows": {
+                "count": _nested_get(desktop_compositor, ["atspi_windows", "count"]),
+                "counts_by_app": _nested_get(desktop_compositor, ["atspi_windows", "counts_by_app"]),
+                "counts_by_role": _nested_get(desktop_compositor, ["atspi_windows", "counts_by_role"]),
+            },
+            "x11_windows": desktop_compositor.get("x11_windows"),
+            "wayland_clients": {
+                "count": _nested_get(desktop_compositor, ["wayland_clients", "count"]),
+                "counts_by_comm": _nested_get(desktop_compositor, ["wayland_clients", "counts_by_comm"]),
+            },
+            "desktop_process_top": _nested_get(desktop_compositor, ["desktop_processes", "top"]),
+            "policy": desktop_compositor.get("policy"),
+        },
+        "routes": routes,
+        "recommended_new_work": recommended_new_work,
+        "commands": {
+            "fresh_plan": "abyss-machine processes thermal-plan --json",
+            "fresh_attribution": "abyss-machine processes thermal-attribution --seconds 3 --interval 0.5 --json",
+            "game_guard": "abyss-machine processes game-guard --json",
+            "route_heavy": "abyss-machine ai cpu route --class heavy --json",
+            "launch_heavy": "abyss-machine ai cpu launch --class heavy -- COMMAND...",
+            "launch_heavy_dry_run": "abyss-machine ai cpu launch --class heavy --dry-run -- COMMAND...",
+        },
+        "policy": {
+            "automation": "route_new_work_only",
+            "do_not_change_existing_user_process_affinity": True,
+            "do_not_change_existing_game_process_affinity": True,
+            "do_not_kill_or_throttle_from_this_result": True,
+            "game_guard_blocks_new_competing_heavy_work": True,
+            "operator_force_supported": True,
+            "future_stack_consumption": "abyss-stack may consume this plan and apply stack-owned launch policy without abyss-machine importing the stack.",
+        },
+        "paths": paths,
+        "non_claims": [
+            "This plan does not mutate running user processes.",
+            "Attribution candidates are evidence for routing, not exclusive causality proof.",
+            "Routes are applied only by explicit launch wrappers or future callers that consume them.",
+        ],
     }
 
 
