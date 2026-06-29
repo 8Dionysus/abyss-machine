@@ -22,6 +22,15 @@ SystemdUnitPort = Callable[[str], Mapping[str, Any]]
 StorageProtectionPort = Callable[[Path], Mapping[str, Any]]
 RelativeToPort = Callable[[Path, Path], bool]
 WalkPort = Callable[[Path], Iterable[tuple[str, list[str], list[str]]]]
+TimestampPort = Callable[[], str]
+RuntimeInfoPort = Callable[[], Mapping[str, Any]]
+PolicyGatePort = Callable[[str, str, bool], Mapping[str, Any]]
+OpenVINOSmokePort = Callable[[str, float], Mapping[str, Any]]
+EvalSuiteRunnerPort = Callable[[], Mapping[str, Any]]
+JsonWritePort = Callable[[Path, Mapping[str, Any], int], Any]
+JsonlAppendPort = Callable[[Path, Mapping[str, Any], int], Any]
+DailyPathPort = Callable[[], Path]
+WorkloadUpdatePort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -239,6 +248,150 @@ def openvino_text_eval(
         out,
         resource_profile(before, after, "child_process", "OpenVINO GenAI text eval subprocess"),
     )
+
+
+def run_openvino_benchmark_suite(
+    *,
+    devices: list[str] | None,
+    config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    policy_gate: PolicyGatePort,
+    runtime_info: RuntimeInfoPort,
+    smoke_device: OpenVINOSmokePort,
+    resource_snapshot: ResourceSnapshotPort,
+    resource_profile: ResourceProfilePort,
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+    workload_update: WorkloadUpdatePort | None = None,
+) -> dict[str, Any]:
+    resources_before = dict(resource_snapshot())
+    benchmark_config = dict(config.get("benchmark", {})) if isinstance(config.get("benchmark"), Mapping) else {}
+    requested = ai_runtime_contracts.openvino_benchmark_requested_devices(devices, benchmark_config)
+    gate = dict(policy_gate("probe", "ai benchmark --quick", False))
+    runtime = dict(runtime_info())
+    available = runtime.get("available_devices") if isinstance(runtime.get("available_devices"), list) else []
+    device_plan = ai_runtime_contracts.openvino_benchmark_device_plan(
+        requested_devices=requested,
+        available_devices=available,
+        benchmark_config=benchmark_config,
+    )
+    results: list[dict[str, Any]] = []
+    for item in device_plan:
+        if not item.get("available"):
+            skip_result = item.get("skip_result")
+            if isinstance(skip_result, Mapping):
+                results.append(dict(skip_result))
+            else:
+                results.append(ai_runtime_contracts.openvino_benchmark_skipped_device_result(str(item.get("device") or "")))
+            continue
+        results.append(dict(smoke_device(str(item["device"]), float(item["timeout_sec"]))))
+
+    resources_after = dict(resource_snapshot())
+    data = ai_runtime_contracts.openvino_benchmark_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        gate=gate,
+        requested_devices=requested,
+        available_devices=available,
+        runtime=runtime,
+        results=results,
+        resource_profile=resource_profile(resources_before, resources_after, "child_process", "whole quick benchmark command"),
+    )
+    if write_latest:
+        latest_error = write_json(latest_path, data, 0o664)
+        daily_error = append_jsonl(daily_path(), data, 0o664)
+        write_errors = [error for error in (latest_error, daily_error) if error]
+        if write_errors:
+            data["write_errors"] = write_errors
+        if workload_update is not None:
+            data["workload_update"] = dict(workload_update(data))
+    return data
+
+
+def run_eval_suite(
+    *,
+    requested_suite: str,
+    config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    class_levels: Mapping[str, int],
+    policy_gate: PolicyGatePort,
+    suite_runners: Mapping[str, EvalSuiteRunnerPort],
+    resource_snapshot: ResourceSnapshotPort,
+    resource_profile: ResourceProfilePort,
+    openvino_cache_root: Path,
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+    workload_update: WorkloadUpdatePort | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    resources_before = dict(resource_snapshot())
+    eval_config = dict(config.get("eval", {})) if isinstance(config.get("eval"), Mapping) else {}
+    suites = ai_runtime_contracts.eval_suites_for_request(requested_suite, eval_config)
+    declared_class = ai_runtime_contracts.highest_workload_class(
+        [ai_runtime_contracts.eval_suite_declared_class(item) for item in suites],
+        dict(class_levels),
+    )
+    gate = dict(policy_gate(declared_class, f"ai eval --suite {requested_suite}", force))
+    if not gate.get("ok"):
+        denied = ai_runtime_contracts.policy_denied_result(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=now_iso(),
+            command="ai eval",
+            requested_suite=requested_suite,
+            suites=suites,
+            gate=gate,
+        )
+        denied["resource_profile"] = resource_profile(
+            resources_before,
+            dict(resource_snapshot()),
+            "policy_check_only",
+            "eval denied before model execution",
+        )
+        return denied
+
+    results: list[dict[str, Any]] = []
+    for item in ai_runtime_contracts.eval_suite_execution_plan(suites):
+        suite_name = str(item.get("suite"))
+        runner = suite_runners.get(suite_name)
+        if runner is not None:
+            results.append(dict(runner()))
+            continue
+        result = item.get("result") if isinstance(item.get("result"), Mapping) else ai_runtime_contracts.eval_unknown_suite_result(suite_name)
+        results.append(dict(result))
+
+    resources_after = dict(resource_snapshot())
+    data = ai_runtime_contracts.eval_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        requested_suite=requested_suite,
+        declared_class=declared_class,
+        policy_gate=gate,
+        results=results,
+        resource_profile=resource_profile(resources_before, resources_after, "mixed_eval_command", "whole eval command"),
+        openvino_cache_root=openvino_cache_root,
+    )
+    if write_latest:
+        latest_error = write_json(latest_path, data, 0o664)
+        daily_error = append_jsonl(daily_path(), data, 0o664)
+        write_errors = [error for error in (latest_error, daily_error) if error]
+        if write_errors:
+            data["write_errors"] = write_errors
+        if workload_update is not None:
+            data["workload_update"] = dict(workload_update(data))
+    return data
 
 
 def rpm_package_status(

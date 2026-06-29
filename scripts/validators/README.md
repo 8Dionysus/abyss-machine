@@ -175,15 +175,16 @@ OpenVINO runtime probes, RPM/ldconfig/NPU driver discovery, model inventory
 filesystem walks, `llama.cpp` runtime/profile file probes, tokenizer/library
 discovery, OpenVINO python package-version probes, kernel-module snapshots, and
 bounded OpenVINO smoke/embedding/text eval child-process runners plus
-token-accounting tokenizer subprocess command/env/timeout/timing execution and
-resident LLM controller command/timeout/subprocess execution live in
-`abyss_machine.ai_runtime_adapters` through fakeable ports. `.aoa`
-generated-summary reads, latest-input collection, benchmark/eval suite and
-device-plan orchestration, TTS profile/config policy orchestration, STT
-fixture/dictation transport, resident LLM parser/result rendering,
-token-accounting
-profile/latest routing, resource sampling, latest writes, and command rendering
-remain at the CLI edge.
+benchmark/eval device-plan and suite execution orchestration, whole-command
+resource before/after sampling, benchmark/eval latest and daily JSONL write
+routing, workload-measurement callback routing, token-accounting tokenizer
+subprocess command/env/timeout/timing execution, and resident LLM controller
+command/timeout/subprocess execution live in `abyss_machine.ai_runtime_adapters`
+through fakeable ports. `.aoa` generated-summary reads, latest-input
+collection, TTS profile/config policy orchestration, STT fixture/dictation
+transport, resident LLM parser/result rendering, token-accounting
+profile/latest routing, broader resource sampling, remaining latest writes, and
+command rendering remain at the CLI edge.
 TTS profile/artifact/status decisions, policy-denial/error summaries, server
 response/payload shaping, synth subprocess script/argv/result contracts,
 synth/eval/compare envelopes, and success-index entries live in
