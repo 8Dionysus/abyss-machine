@@ -103,15 +103,18 @@ should report only ok/classification/focus counts/candidate counts/unattended
 caps and route policy status, not raw command payloads, window titles, local
 paths, generated histories, or full process lists.
 
-For memory orchestration execution adapter changes, public CI should rely on
-fake-port tests for Podman inspect/restart routing, target snapshot assembly,
-local HTTP JSON/status probes, cgroup CPU sampling, live lock behavior, and
-rehydrate polling. Live-host closeout may use compact `memory orchestrate plan
---json`, `memory orchestrate idle --candidate ID --json`, and dry-run/confirmed
-preflight summaries only when an operator-safe candidate exists; report only
-status/decision/guard counts/idle status and never raw prompts, container
-environment, local model payloads, full process command lines, or live restart
-execution output.
+For memory read/orchestration adapter changes, public CI should rely on
+fake-root and fake-port tests for PSI/vmstat/sysctl/swap/zram/zswap/meminfo,
+cgroup memory/swap attribution, process `smaps_rollup`, residency systemd
+snapshots, Podman inspect/restart routing, target snapshot assembly, local HTTP
+JSON/status probes, cgroup CPU sampling, live lock behavior, and rehydrate
+polling. Live-host closeout may use compact `memory status --json`, `memory
+pressure --json`, `memory residency --json`, `memory orchestrate plan --json`,
+`memory orchestrate idle --candidate ID --json`, and dry-run/confirmed preflight
+summaries only when an operator-safe candidate exists; report only
+ok/class/status/decision/counts/guard/idle summaries and never raw prompts,
+container environment, local model payloads, full process command lines, full
+process lists, or live restart execution output.
 
 For process container-health adapter changes, public CI should rely on
 fake-runner tests for Podman unavailable/failure/invalid-JSON behavior,

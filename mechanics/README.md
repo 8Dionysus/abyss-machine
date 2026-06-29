@@ -44,8 +44,9 @@ Use these mechanic owners for the next extraction slices:
   `process_adapters`; process thermal attribution/plan read-only orchestration
   also lives in `process_adapters`; memory orchestration target snapshots,
   local model HTTP probes, cgroup CPU sampling, live locks, narrow Podman
-  restart/rerank unload execution, and rehydrate polling live in
-  `memory_adapters`. Continue broader container, mode, cooling, and deeper
-  memory collection only as bounded public-safe adapter slices.
+  restart/rerank unload execution, rehydrate polling, read-only memory
+  pressure/process/cgroup collection, and residency service snapshots live in
+  `memory_adapters`. Continue broader container, mode, cooling, and hotpath
+  execution only as bounded public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.
