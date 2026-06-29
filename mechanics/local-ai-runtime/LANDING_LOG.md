@@ -39,6 +39,12 @@
   JSON error documents, no-output fallback, and text-mode stdout/stderr
   selection now pass through public-safe result envelopes. CLI remains the
   print/argparse/dispatch edge.
+- Extracted AI policy-gate binding into
+  `abyss_machine.ai_runtime_adapters`; `ai_policy(write_latest=True)` callback
+  routing, generated-at binding, declared class/operation/force/class-level
+  forwarding, and gate document assembly now pass through fakeable policy and
+  clock ports. CLI remains the concrete policy-readmodel/dispatch/rendering
+  edge.
 - Extracted STT eval dictation transport into
   `abyss_machine.ai_runtime_adapters`; per-profile dictation-client calls,
   monotonic timing, before/after resource snapshots, and client-side

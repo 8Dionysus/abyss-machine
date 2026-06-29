@@ -58,7 +58,8 @@ gating, and workload taxonomy/stats/refresh/status write routing, LLM
 registry/latest/validate store/readmodel routing, plus token-accounting
 contract/profiles/latest/count store/readmodel routing and `.aoa`
 generated-summary session-registry/manifest/index reads plus latest/history
-write routing through fakeable ports.
+write routing plus policy-gate callback/clock/class-level binding through
+fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
@@ -66,9 +67,9 @@ shutdown/unload cleanup, synth subprocess cache/env binding, and cold
 BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Core devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and store routing also live in
-`ai_runtime_adapters`. Remaining AI runtime adapters should focus on policy-gate
-binding, live input/env binding, and broader resource-sampling evidence. Keep
-model weights, benchmark outputs, and
+`ai_runtime_adapters`. Remaining AI runtime adapters should focus on live
+input/env binding and broader resource-sampling evidence. Keep model weights,
+benchmark outputs, and
 generated runtime state outside Git; only plans, contracts, and bounded
 summaries belong in the public seed.
 
@@ -160,6 +161,12 @@ summaries belong in the public seed.
   bounded invalid-JSON error documents, no-output fallback, and text-mode
   stdout/stderr selection for controller results. CLI still owns printing,
   argparse binding, and command dispatch.
+- Extracted AI policy-gate binding into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns
+  `ai_policy(write_latest=True)` callback routing, generated-at binding,
+  declared class/operation/force/class-level forwarding, and gate document
+  assembly through fakeable policy and clock ports. CLI still owns concrete
+  policy readmodel collection, command dispatch, and rendering.
 - Extracted STT eval dictation transport and resource sampling into
   `abyss_machine.ai_runtime_adapters`; the adapter owns per-profile
   dictation-client calls, monotonic timing, before/after resource snapshots,

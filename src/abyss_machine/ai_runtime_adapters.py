@@ -32,6 +32,7 @@ WalkPort = Callable[[Path], Iterable[tuple[str, list[str], list[str]]]]
 TimestampPort = Callable[[], str]
 RuntimeInfoPort = Callable[[], Mapping[str, Any]]
 PolicyGatePort = Callable[[str, str, bool], Mapping[str, Any]]
+PolicyReadPort = Callable[..., Mapping[str, Any]]
 OpenVINOSmokePort = Callable[[str, float], Mapping[str, Any]]
 EvalSuiteRunnerPort = Callable[[], Mapping[str, Any]]
 JsonWritePort = Callable[[Path, Mapping[str, Any], int], Any]
@@ -819,6 +820,29 @@ def policy_readmodel(
     )
     _write_latest_if_requested(data, write_latest=write_latest, latest_path=latest_path, write_json=write_json)
     return data
+
+
+def policy_gate_binding(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    declared_class: str,
+    operation: str,
+    policy: PolicyReadPort,
+    force: bool,
+    class_levels: Mapping[str, int],
+) -> dict[str, Any]:
+    return ai_runtime_contracts.policy_gate_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        declared_class=declared_class,
+        operation=operation,
+        policy=dict(policy(write_latest=True)),
+        force=force,
+        class_levels=dict(class_levels),
+    )
 
 
 def runtime_snapshot_readmodel(
