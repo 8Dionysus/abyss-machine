@@ -240,9 +240,12 @@ binding, and latest/history writes remain at the CLI edge.
 Mode policy/path/state, definitions, target-profile, thermal classification/
 launch caps, external power-profile guard decisions, plan/status document
 shape, validate document, and lightweight reconcile status contracts live in
-`abyss_machine.mode_contracts`; live battery/power-profile/sensor/cooling/AI
-CPU/storage/memory/process sampling, `set`/`reconcile` host mutation, cooling
-apply, systemd/file reads, and latest/history writes remain at the CLI edge.
+`abyss_machine.mode_contracts`; mode state load/save, `powerprofilesctl`
+get/set execution, recent GameMode journal probes, and external profile-guard
+input collection live in `abyss_machine.mode_adapters` through fakeable ports.
+Live battery/sensor/cooling/AI CPU/storage/memory/process sampling, reconcile
+orchestration, cooling apply, systemd reads, and latest/history writes remain
+at the CLI edge.
 Observability path, latest-read, manual-collect probe, status, and sample
 temperature contracts live in `abyss_machine.observability_contracts`;
 collector subprocess execution, filesystem permission probing, line counts,
