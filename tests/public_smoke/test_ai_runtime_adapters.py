@@ -742,6 +742,104 @@ def test_cli_llm_resident_command_delegates_to_runner(monkeypatch, capsys) -> No
     assert calls["run_command"] is cli.run
 
 
+def test_llm_workhorse_controller_runner_binds_command_timeout_and_output() -> None:
+    controller = Path("/srv/abyss-machine/tools/abyss-gemma4-e4b-harness")
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> dict[str, Any]:
+        calls.append((command, kwargs))
+        return {"returncode": 0, "stdout": '{"ok": true}\\n', "stderr": ""}
+
+    pack = ai_runtime_adapters.llm_workhorse_controller_run(
+        controller=controller,
+        command="pack",
+        limit=3,
+        refresh_candidates=True,
+        json_output=True,
+        run_command=fake_run,
+    )
+    review = ai_runtime_adapters.llm_workhorse_controller_run(
+        controller=controller,
+        command="review",
+        run_model=True,
+        n_predict=64,
+        timeout=8.5,
+        json_output=True,
+        run_command=fake_run,
+    )
+
+    assert calls[0] == (
+        [str(controller), "pack", "--limit", "3", "--refresh-candidates", "--json"],
+        {"timeout": 120.0},
+    )
+    assert calls[1] == (
+        [
+            str(controller),
+            "review",
+            "--run-model",
+            "--n-predict",
+            "64",
+            "--timeout",
+            "8.5",
+            "--json",
+        ],
+        {"timeout": 38.5},
+    )
+    assert pack["stdout"] == '{"ok": true}\\n'
+    assert pack["returncode"] == 0
+    assert review["timeout"] == 38.5
+
+
+def test_llm_workhorse_controller_runner_reports_json_no_output_error() -> None:
+    controller = Path("/srv/abyss-machine/tools/abyss-gemma4-e4b-harness")
+
+    def fake_run(command: list[str], **kwargs: Any) -> dict[str, Any]:
+        return {"returncode": 2, "stdout": "", "stderr": "workhorse failed"}
+
+    result = ai_runtime_adapters.llm_workhorse_controller_run(
+        controller=controller,
+        command="validate",
+        json_output=True,
+        run_command=fake_run,
+    )
+
+    assert result["command"] == [str(controller), "validate", "--json"]
+    assert result["timeout"] == 120.0
+    assert result["returncode"] == 2
+    assert result["json_error"] == {
+        "ok": False,
+        "error": "workhorse failed",
+        "command": [str(controller), "validate", "--json"],
+    }
+
+
+def test_cli_llm_workhorse_command_delegates_to_runner(monkeypatch, capsys) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+
+    def fake_controller_run(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"returncode": 0, "stdout": '{"ok": true, "source": "workhorse"}\n', "stderr": ""}
+
+    monkeypatch.setattr(cli.ai_runtime_adapters, "llm_workhorse_controller_run", fake_controller_run)
+
+    rc = cli.main(["ai", "llm", "workhorse", "review", "--run-model", "--timeout", "7", "--json"])
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert captured.out == '{"ok": true, "source": "workhorse"}\n'
+    assert calls["controller"] == cli.AI_LLM_WORKHORSE_CONTROLLER
+    assert calls["command"] == "review"
+    assert calls["limit"] == 24
+    assert calls["refresh_candidates"] is False
+    assert calls["run_model"] is True
+    assert calls["n_predict"] == 768
+    assert calls["timeout"] == 7.0
+    assert calls["json_output"] is True
+    assert calls["run_command"] is cli.run
+
+
 def test_token_accounting_count_subprocess_binds_command_env_timeout_and_clock() -> None:
     profile = {
         "profile": "gemma4.spark",

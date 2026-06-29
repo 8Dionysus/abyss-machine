@@ -1550,6 +1550,91 @@ def llm_resident_controller_run(
     return result
 
 
+def llm_workhorse_controller_timeout(
+    command: str | None,
+    *,
+    run_model: bool = False,
+    timeout: float | None = None,
+) -> float:
+    if command == "review" and run_model:
+        return float(timeout if timeout is not None else 420.0) + 30.0
+    return 120.0
+
+
+def llm_workhorse_controller_command(
+    controller: Path,
+    command: str | None,
+    *,
+    limit: int | None = None,
+    refresh_candidates: bool = False,
+    run_model: bool = False,
+    n_predict: int | None = None,
+    timeout: float | None = None,
+    json_output: bool = False,
+) -> list[str]:
+    command_text = str(command or "")
+    argv = [str(controller), command_text]
+    if limit is not None and command_text in {"pack", "review"}:
+        argv += ["--limit", str(limit)]
+    if refresh_candidates and command_text in {"pack", "review"}:
+        argv.append("--refresh-candidates")
+    if run_model and command_text == "review":
+        argv.append("--run-model")
+    if n_predict is not None and command_text == "review":
+        argv += ["--n-predict", str(n_predict)]
+    if timeout is not None and command_text == "review":
+        argv += ["--timeout", str(timeout)]
+    if json_output:
+        argv.append("--json")
+    return argv
+
+
+def llm_workhorse_controller_run(
+    *,
+    controller: Path,
+    command: str | None,
+    run_command: RunPort,
+    limit: int | None = None,
+    refresh_candidates: bool = False,
+    run_model: bool = False,
+    n_predict: int | None = None,
+    timeout: float | None = None,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    argv = llm_workhorse_controller_command(
+        controller,
+        command,
+        limit=limit,
+        refresh_candidates=refresh_candidates,
+        run_model=run_model,
+        n_predict=n_predict,
+        timeout=timeout,
+        json_output=json_output,
+    )
+    run_timeout = llm_workhorse_controller_timeout(
+        command,
+        run_model=run_model,
+        timeout=timeout,
+    )
+    out = dict(run_command(argv, timeout=run_timeout))
+    stdout = str(out.get("stdout") or "")
+    stderr = str(out.get("stderr") or "")
+    result = {
+        "command": argv,
+        "timeout": run_timeout,
+        "stdout": stdout,
+        "stderr": stderr,
+        "returncode": int(out.get("returncode") or 0),
+    }
+    if json_output and not stdout.strip():
+        result["json_error"] = {
+            "ok": False,
+            "error": stderr or "workhorse command produced no output",
+            "command": argv,
+        }
+    return result
+
+
 def token_accounting_library_paths(
     tokenizer: Path,
     profile: Mapping[str, Any],
