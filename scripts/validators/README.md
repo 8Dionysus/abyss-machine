@@ -192,8 +192,10 @@ execution plus JSON/result projection, STT eval dictation-client transport
 timing/resource envelopes, STT synthetic fixture directory/path setup,
 `espeak-ng`/`ffmpeg` execution, raw WAV cleanup, WAV metadata reads, and `.aoa`
 generated-summary session-registry/manifest/index reads plus latest/history
-write routing live in `abyss_machine.ai_runtime_adapters` through fakeable
-ports. Latest-input collection, TTS profile/config policy orchestration,
+write routing, and capabilities input collection through fakeable
+devices/models/dictation/TTS/LLM registry/resident-latest ports live in
+`abyss_machine.ai_runtime_adapters` through fakeable ports. Remaining
+latest-input collection, TTS profile/config policy orchestration,
 token-accounting live text binding, concrete live reader/env source selection,
 and command rendering remain at the CLI edge.
 Devices/models/capabilities/
