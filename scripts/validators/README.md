@@ -175,8 +175,10 @@ OpenVINO runtime probes, RPM/ldconfig/NPU driver discovery, model inventory
 filesystem walks, `llama.cpp` runtime/profile file probes, tokenizer/library
 discovery, OpenVINO python package-version probes, kernel-module snapshots, and
 bounded OpenVINO smoke/embedding/text eval child-process runners plus
-benchmark/eval device-plan and suite execution orchestration, whole-command
-resource before/after sampling, benchmark/eval latest and daily JSONL write
+AI subprocess env binding through fakeable environment/root ports, resource
+snapshot/profile assembly through fakeable memory/thermal/battery/rusage/load
+ports, benchmark/eval device-plan and suite execution orchestration,
+whole-command resource before/after sampling, benchmark/eval latest and daily JSONL write
 routing, workload-measurement callback routing, workload run JSONL
 discovery/tolerant reads/dedupe append, refresh-from-latest source gating,
 workload taxonomy/stats/refresh/status write routing, token-accounting
@@ -191,8 +193,9 @@ timing/resource envelopes, STT synthetic fixture directory/path setup,
 generated-summary session-registry/manifest/index reads plus latest/history
 write routing live in `abyss_machine.ai_runtime_adapters` through fakeable
 ports. Latest-input collection, TTS profile/config policy orchestration,
-concrete AI policy readmodel collection, token-accounting live text/env binding,
-broader resource sampling, and command rendering remain at the CLI edge.
+concrete AI policy readmodel collection, token-accounting live text binding,
+concrete live reader/env source selection, and command rendering remain at the
+CLI edge.
 Devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and latest/history write
 routing live in `abyss_machine.ai_runtime_adapters` through fakeable ports.
