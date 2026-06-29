@@ -41,9 +41,12 @@ Use dry-run audits and public boundary scans.
 
 Storage cleanup planning uses `abyss_machine.storage_adapters` for the
 active-process guard: process snapshot projection, path matching, and
-`/proc/<pid>/fd` target inspection are fakeable adapter-owned IO. Cleanup action
-policy remains in `storage_contracts`; live inventory/disk scans, hooks, apply
-execution, and latest/history writes remain CLI edge.
+`/proc/<pid>/fd` target inspection are fakeable adapter-owned IO. The same
+adapter owns allowlisted cleanup apply execution for package-manager clean, npm
+cache verify/clean, and generated temp cleanup through fakeable command/euid/
+clock ports. Cleanup action policy remains in `storage_contracts`; live
+inventory/disk scans, hooks, apply preflight orchestration, latest/history
+writes, and rendering remain CLI edge.
 
 ### Next route
 

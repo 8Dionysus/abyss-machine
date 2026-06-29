@@ -263,11 +263,12 @@ action contracts, protected-root decisions, write-preflight decision logic,
 dry-run apply shape, and storage paths read models live in
 `abyss_machine.storage_contracts`. Cleanup-plan active-process guard path
 matching, process snapshot projection, `/proc` fd target inspection, fd scan
-error accounting, and non-claim text live in `abyss_machine.storage_adapters`
-through fakeable process snapshot/fd ports. Policy file reads, directory scans,
-disk usage, process snapshot binding, hook execution, monitor/status
-orchestration, actual apply execution, and latest/history writes remain at the
-CLI edge.
+error accounting, non-claim text, and allowlisted cleanup apply execution live
+in `abyss_machine.storage_adapters` through fakeable process snapshot/fd,
+command-runner, euid, and clock ports. Policy file reads, directory scans, disk
+usage, process snapshot binding, hook execution, monitor/status orchestration,
+apply preflight orchestration, latest/history writes, and command rendering
+remain at the CLI edge.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`; active/closed

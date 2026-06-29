@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import time
 from typing import Any, Callable, Mapping, Sequence
+
+from . import storage_contracts
 
 
 ProcessSnapshotPort = Callable[[int, float], Mapping[str, Any]]
 FdTargetsPort = Callable[[int, int], tuple[Sequence[str], bool]]
+CommandRunnerPort = Callable[[Sequence[str], float], Mapping[str, Any]]
+EuidPort = Callable[[], int]
+ClockPort = Callable[[], float]
+
+
+def current_euid() -> int:
+    geteuid = getattr(os, "geteuid", None)
+    if callable(geteuid):
+        return int(geteuid())
+    return 0
 
 
 def path_text_matches(candidate: str, text: str | None) -> bool:
@@ -139,4 +153,76 @@ def process_path_usage_document(
             "A clear guard means no active accessible process reference was observed in this short sample, not proof that deletion is globally safe.",
             "Inaccessible root-owned process file descriptors may be omitted when the command is run without elevated privileges.",
         ],
+    }
+
+
+def execute_cleanup_action(
+    action: Mapping[str, Any],
+    *,
+    age_days: float,
+    abyss_machine_tmp_root: Path,
+    command_runner: CommandRunnerPort,
+    euid: EuidPort = current_euid,
+    clock: ClockPort = time.time,
+) -> dict[str, Any]:
+    action_type = str(action.get("action_type") or "")
+    action_id = str(action.get("id") or "")
+    path = Path(str(action.get("path") or ""))
+    if action_type == "package_manager_clean" and action_id == "var_cache_libdnf5":
+        if euid() != 0:
+            return {"ok": False, "blocked": True, "reason": "requires_root_pkexec"}
+        command = ["dnf5", "clean", "all"]
+        out = dict(command_runner(command, 120.0))
+        return {"ok": bool(out.get("ok")), "command": command, "result": out}
+    if action_type == "rebuildable_cache_pressure_valve" and action_id == "home_npm_cache":
+        verify = dict(command_runner(["npm", "cache", "verify"], 120.0))
+        clean = (
+            dict(command_runner(["npm", "cache", "clean", "--force"], 120.0))
+            if verify.get("ok")
+            else {"ok": False, "skipped": True, "reason": "npm cache verify failed"}
+        )
+        return {"ok": bool(verify.get("ok")) and bool(clean.get("ok")), "commands": [verify, clean]}
+    if action_type == "age_based_generated_temp_cleanup" and storage_contracts.is_relative_to_path(path, abyss_machine_tmp_root):
+        return _execute_age_based_temp_cleanup(path, age_days=age_days, clock=clock)
+    return {"ok": False, "blocked": True, "reason": "manual_review_only_or_not_allowlisted"}
+
+
+def _execute_age_based_temp_cleanup(path: Path, *, age_days: float, clock: ClockPort) -> dict[str, Any]:
+    cutoff = clock() - (max(1.0, float(age_days)) * 86400.0)
+    removed_files: list[str] = []
+    removed_dirs: list[str] = []
+    errors: list[dict[str, str]] = []
+    try:
+        for current, dirnames, filenames in os.walk(path, topdown=False):
+            current_path = Path(current)
+            if current_path.is_symlink():
+                continue
+            for filename in filenames:
+                candidate = current_path / filename
+                try:
+                    stat = candidate.lstat()
+                    if candidate.is_symlink() or stat.st_mtime > cutoff:
+                        continue
+                    candidate.unlink()
+                    removed_files.append(str(candidate))
+                except OSError as exc:
+                    errors.append({"path": str(candidate), "error": str(exc)})
+            for dirname in dirnames:
+                candidate_dir = current_path / dirname
+                try:
+                    if candidate_dir.is_symlink() or candidate_dir.stat().st_mtime > cutoff:
+                        continue
+                    candidate_dir.rmdir()
+                    removed_dirs.append(str(candidate_dir))
+                except OSError:
+                    pass
+    except OSError as exc:
+        errors.append({"path": str(path), "error": str(exc)})
+    return {
+        "ok": not errors,
+        "removed_files": removed_files[:200],
+        "removed_dirs": removed_dirs[:200],
+        "removed_file_count": len(removed_files),
+        "removed_dir_count": len(removed_dirs),
+        "errors": errors[:50],
     }

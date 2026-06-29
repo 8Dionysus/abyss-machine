@@ -66,6 +66,11 @@ PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runt
 PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile storage-refresh --allow-runtime-refresh --json
 ```
 
+For storage apply adapter changes, public CI should rely on fake-port tests and
+live-safe `storage cleanup-plan` / `storage apply --dry-run` summaries. Do not
+run `storage apply --confirm` as validation unless the operator explicitly
+requests that live mutation and the report stays compact.
+
 Use a longer timeout for full doctor/machine-report refresh closeout:
 
 ```bash
