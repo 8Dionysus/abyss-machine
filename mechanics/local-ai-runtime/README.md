@@ -44,12 +44,13 @@ first bounded OpenVINO runner seam: model-root normalization, OpenVINO
 runtime/package/NPU driver probes, model inventory walks, `llama.cpp`
 runtime/profile file probes, tokenizer/library discovery, OpenVINO python
 package versions, kernel-module snapshots, and OpenVINO smoke/embedding/text
-child-process execution through fakeable ports. `abyss_machine.ai_tts_adapters`
-owns the first TTS execution seam: Unix-socket client transport, server
-status/stop request exchange, synth subprocess cache/env binding, and cold
-BabelVox/Qwen3 OpenVINO synth child-process invocation. Remaining AI runtime
-adapters should focus on resident TTS server loop/audio summaries, resident LLM
-execution, tokenizer subprocess execution, and broader resource-sampling
+child-process execution plus token-accounting tokenizer subprocess
+command/env/timeout/timing execution through fakeable ports.
+`abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
+client transport, server status/stop request exchange, synth subprocess
+cache/env binding, and cold BabelVox/Qwen3 OpenVINO synth child-process
+invocation. Remaining AI runtime adapters should focus on resident TTS server
+loop/audio summaries, resident LLM execution, and broader resource-sampling
 evidence. Keep model weights, benchmark outputs, and generated runtime state
 outside Git; only plans, contracts, and bounded summaries belong in the public
 seed.
@@ -71,6 +72,12 @@ seed.
   through fakeable ports. CLI still owns concrete config binding, policy gates,
   suite/device orchestration, latest/history writes, `.aoa` reads, STT/TTS/
   resident/tokenizer execution, and rendering.
+- Extracted token-accounting tokenizer runner execution into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns exact-count tokenizer
+  subprocess command/env/timeout/timing execution through fakeable runner and
+  clock ports while `ai_runtime_contracts` keeps count privacy/result shapes.
+  CLI still owns profile selection, generated-at binding, latest/history
+  writes, and rendering.
 - Extracted explicit-file dictation transcription runtime into
   `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
   socket transport, client-side 16 kHz runtime preprocessing, helper subprocess

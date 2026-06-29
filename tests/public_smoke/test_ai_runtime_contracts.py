@@ -1996,32 +1996,29 @@ def test_token_accounting_cli_count_text_delegates_count_execution_contract(monk
     }
     profiles = {"profiles": {"gemma4.spark": profile}}
     captured: dict[str, object] = {}
-    monotonic_values = iter([100.0, 100.25])
 
-    class FakeProc:
-        returncode = 0
-        stdout = "Total number of tokens: 7\n"
-        stderr = "diagnostic"
-
-    def fake_run(cmd, input, text, stdout, stderr, timeout, check, env):
+    def fake_count_subprocess(*, profile, text, timeout, environ):
         captured.update(
             {
-                "cmd": cmd,
-                "input": input,
+                "profile": profile,
                 "text": text,
-                "stdout": stdout,
-                "stderr": stderr,
                 "timeout": timeout,
-                "check": check,
-                "env": env,
+                "ld_library_path": environ.get("LD_LIBRARY_PATH"),
             }
         )
-        return FakeProc()
+        return {
+            "elapsed_sec": 0.25,
+            "input_bytes": text.encode("utf-8", errors="replace"),
+            "outcome": token_accounting_count_execution_result(
+                stdout="Total number of tokens: 7\n",
+                stderr="diagnostic",
+                returncode=0,
+            ),
+        }
 
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli.time, "monotonic", lambda: next(monotonic_values))
     monkeypatch.setattr(cli, "ai_token_accounting_profiles", lambda write_latest=True: profiles)
-    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    monkeypatch.setattr(cli.ai_runtime_adapters, "token_accounting_count_subprocess", fake_count_subprocess)
     monkeypatch.setenv("LD_LIBRARY_PATH", "/existing/lib")
 
     result = cli.ai_token_accounting_count_text(
@@ -2032,14 +2029,10 @@ def test_token_accounting_cli_count_text_delegates_count_execution_contract(monk
     )
     encoded = json.dumps(result, ensure_ascii=False, sort_keys=True)
 
-    assert captured["cmd"] == token_accounting_count_command(profile)
-    assert captured["input"] == "SECRET_PROMPT_TEXT"
-    assert captured["text"] is True
-    assert captured["stdout"] == cli.subprocess.PIPE
-    assert captured["stderr"] == cli.subprocess.PIPE
+    assert captured["profile"] == profile
+    assert captured["text"] == "SECRET_PROMPT_TEXT"
     assert captured["timeout"] == 12.5
-    assert captured["check"] is False
-    assert captured["env"]["LD_LIBRARY_PATH"] == "/srv/abyss-machine/runtimes/llama.cpp/current/lib:/existing/lib"
+    assert captured["ld_library_path"] == "/existing/lib"
     assert result["schema"] == "abyss_machine_ai_token_accounting_count_v1"
     assert result["ok"] is True
     assert result["elapsed_sec"] == 0.25
