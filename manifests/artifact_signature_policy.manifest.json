@@ -131,6 +131,7 @@
     "abyss-machine": {
       "profile_id": "abyss-machine",
       "owner_repo": "abyss-machine",
+      "owner_source_root_hints": ["${ABYSS_MACHINE_SOURCE_ROOT}", "~/src/abyss-machine"],
       "owner_route_refs": ["AGENTS.md", "BOUNDARIES.md", "docs/publication/PUBLICATION_BOUNDARY.md", "mechanics/local-ai-runtime/README.md"],
       "artifact_classes": [
         "public_source_seed",

@@ -419,6 +419,37 @@ def _expand_owner_source_root_hint(hint: str) -> Path | None:
     return Path(expanded).expanduser()
 
 
+def _owner_local_refs_for_command(command: str) -> list[str]:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return []
+    if not parts:
+        return []
+    if _looks_like_python_executable(parts[0]):
+        for token in parts[1:]:
+            if token == "-m":
+                break
+            if _looks_like_owner_local_ref(token):
+                return [token.removeprefix("./")]
+        return []
+    if _looks_like_owner_local_ref(parts[0]):
+        return [parts[0].removeprefix("./")]
+    return []
+
+
+def _owner_root_has_declared_command_refs(root: Path, row: dict[str, Any]) -> bool:
+    saw_local_ref = False
+    for command in _string_list(row.get("producer_commands")):
+        refs = _owner_local_refs_for_command(command)
+        if not refs:
+            continue
+        saw_local_ref = True
+        if any(not (root / ref).is_file() for ref in refs):
+            return False
+    return saw_local_ref and root.exists()
+
+
 def _owner_repo_root_for_profile(
     row: dict[str, Any],
     *,
@@ -431,6 +462,12 @@ def _owner_repo_root_for_profile(
     if owner_repo in overrides:
         return overrides[owner_repo], "owner_repo_root_override"
     if owner_repo == "abyss-machine":
+        if _owner_root_has_declared_command_refs(repo_root, row):
+            return repo_root, "policy_repo_root"
+        for hint in _string_list(row.get("owner_source_root_hints")):
+            candidate = _expand_owner_source_root_hint(hint)
+            if candidate is not None and _owner_root_has_declared_command_refs(candidate, row):
+                return candidate, "owner_source_root_hint"
         return repo_root, "policy_repo_root"
     for hint in _string_list(row.get("owner_source_root_hints")):
         candidate = _expand_owner_source_root_hint(hint)
@@ -494,16 +531,7 @@ def _producer_command_resolution(
             errors.append("producer_command_empty")
             missing_command_refs.append({"command": command, "reason": "empty"})
             continue
-        local_refs: list[str] = []
-        if _looks_like_python_executable(parts[0]):
-            for token in parts[1:]:
-                if token == "-m":
-                    break
-                if _looks_like_owner_local_ref(token):
-                    local_refs.append(token.removeprefix("./"))
-                    break
-        elif _looks_like_owner_local_ref(parts[0]):
-            local_refs.append(parts[0].removeprefix("./"))
+        local_refs = _owner_local_refs_for_command(command)
         if local_refs:
             if owner_root is None:
                 for ref in local_refs:
