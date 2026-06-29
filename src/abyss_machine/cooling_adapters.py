@@ -42,6 +42,14 @@ SetPlatformProfilePort = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
 SetFanModePort = Callable[[Any, Mapping[str, Any]], Mapping[str, Any]]
 WritePermissionPort = Callable[[Path], bool]
 FanValidateRunPort = Callable[..., Mapping[str, Any]]
+StatePort = Callable[[], Mapping[str, Any]]
+SaveStatePort = Callable[[dict[str, Any], str], Mapping[str, Any] | None]
+ModeStatePort = Callable[[], Mapping[str, Any]]
+TargetProfilePort = Callable[[str, bool], tuple[str, str, str | None]]
+RaplStatusPort = Callable[[], Mapping[str, Any]]
+PackageThrottlePort = Callable[[], int | None]
+WriteRaplPort = Callable[[Mapping[str, Any], int], Mapping[str, Any]]
+EpochPort = Callable[[], float]
 
 
 PLATFORM_PROFILE_PATH = Path("/sys/firmware/acpi/platform_profile")
@@ -818,6 +826,308 @@ def write_rapl_pl1(
     result = dict(write_text(path, f"{target}\n"))
     result["target_pl1_uw"] = target
     return result
+
+
+def rapl_smoothing_apply_document(
+    updated_by: str = "auto",
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: NowIsoPort,
+    now_epoch: EpochPort,
+    config_port: CoolingConfigPort,
+    state_port: StatePort,
+    save_state_port: SaveStatePort,
+    fan_status_port: FanStatusPort,
+    mode_state_port: ModeStatePort,
+    battery_summary_port: BatterySummaryPort,
+    target_profile_port: TargetProfilePort,
+    rapl_status_port: RaplStatusPort,
+    package_throttle_port: PackageThrottlePort,
+    temperature_summary_port: TemperatureSummaryPort,
+    write_rapl_port: WriteRaplPort = write_rapl_pl1,
+    paths_refs: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    config = dict(config_port())
+    state = dict(state_port())
+    now_epoch_value = float(now_epoch())
+    fan_mode = dict(fan_status_port()).get("fan_mode")
+    mode_state = dict(mode_state_port())
+    selected_mode = str(mode_state.get("selected_mode", "balanced"))
+    ac_online = bool(dict(battery_summary_port()).get("ac_online"))
+    effective_mode, _, _ = target_profile_port(selected_mode, ac_online)
+    refs = dict(paths_refs or {})
+
+    normal_pl1 = cooling_contracts.int_config(config, "normal_pl1_uw", 35000000)
+    cap_pl1 = cooling_contracts.int_config(config, "cap_pl1_uw", 28000000)
+    engage_temp = cooling_contracts.float_config(config, "engage_temperature_c", 98.0)
+    engage_rate = cooling_contracts.float_config(config, "engage_package_throttle_per_s", 1200.0)
+    engage_samples = max(1, cooling_contracts.int_config(config, "engage_sample_count", 1))
+    release_temp = cooling_contracts.float_config(config, "release_temperature_c", 92.0)
+    release_rate = cooling_contracts.float_config(config, "release_package_throttle_per_s", 250.0)
+    release_samples = max(1, cooling_contracts.int_config(config, "release_sample_count", 2))
+    min_sample_seconds = max(1.0, cooling_contracts.float_config(config, "min_sample_seconds", 5.0))
+    max_sample_seconds = max(min_sample_seconds, cooling_contracts.float_config(config, "max_sample_seconds", 180.0))
+    apply_modes = config.get("apply_modes") if isinstance(config.get("apply_modes"), list) else ["performance", "ai"]
+    applicable = bool(config.get("enabled", False)) and effective_mode in {str(item) for item in apply_modes} and ac_online and fan_mode == 4
+
+    action = "observe"
+    write_result: dict[str, Any] | None = None
+    reasons: list[str] = []
+    permission_required = False
+    active = bool(state.get("active", False))
+    paths = {
+        "latest": str(refs.get("latest")),
+        "state": str(refs.get("state")),
+        "daily_glob": str(Path(str(refs.get("root", ""))) / "YYYY" / "MM" / "YYYY-MM-DD.jsonl")
+        if refs.get("root")
+        else None,
+    }
+
+    if not bool(config.get("enabled", False)) and not active:
+        action = "disabled"
+        reasons.append("config_disabled")
+        return {
+            "schema": f"{schema_prefix}_cooling_rapl_smoothing_apply_v1",
+            "version": version,
+            "generated_at": now_iso(),
+            "ok": True,
+            "enabled": False,
+            "action": action,
+            "active": active,
+            "permission_required": False,
+            "reasons": reasons,
+            "selected_mode": selected_mode,
+            "effective_mode": effective_mode,
+            "ac_online": ac_online,
+            "fan_mode": fan_mode,
+            "temperature": {
+                "class": None,
+                "max_c": None,
+                "package_c": None,
+                "skipped": True,
+                "reason": "smoothing_disabled_inactive",
+            },
+            "throttle": {
+                "package_count": None,
+                "previous_package_count": state.get("last_package_throttle_count"),
+                "elapsed_seconds": None,
+                "package_delta": None,
+                "package_rate_per_s": None,
+                "skipped": True,
+                "reason": "smoothing_disabled_inactive",
+            },
+            "thresholds": {
+                "engage_temperature_c": engage_temp,
+                "engage_package_throttle_per_s": engage_rate,
+                "engage_sample_count": engage_samples,
+                "release_temperature_c": release_temp,
+                "release_package_throttle_per_s": release_rate,
+                "release_sample_count": release_samples,
+                "cap_pl1_uw": cap_pl1,
+                "normal_pl1_uw": normal_pl1,
+            },
+            "rapl_mmio": {
+                "skipped": True,
+                "reason": "smoothing_disabled_inactive",
+            },
+            "write_result": None,
+            "state": state,
+            "paths": paths,
+            "write_skipped": "disabled_inactive",
+        }
+    if not applicable and not active:
+        action = "not_applicable"
+        reasons.append("not_applicable")
+        return {
+            "schema": f"{schema_prefix}_cooling_rapl_smoothing_apply_v1",
+            "version": version,
+            "generated_at": now_iso(),
+            "ok": True,
+            "enabled": bool(config.get("enabled", False)),
+            "action": action,
+            "active": active,
+            "permission_required": False,
+            "reasons": reasons,
+            "selected_mode": selected_mode,
+            "effective_mode": effective_mode,
+            "ac_online": ac_online,
+            "fan_mode": fan_mode,
+            "temperature": {
+                "class": None,
+                "max_c": None,
+                "package_c": None,
+                "skipped": True,
+                "reason": "smoothing_not_applicable_inactive",
+            },
+            "throttle": {
+                "package_count": None,
+                "previous_package_count": state.get("last_package_throttle_count"),
+                "elapsed_seconds": None,
+                "package_delta": None,
+                "package_rate_per_s": None,
+                "skipped": True,
+                "reason": "smoothing_not_applicable_inactive",
+            },
+            "thresholds": {
+                "engage_temperature_c": engage_temp,
+                "engage_package_throttle_per_s": engage_rate,
+                "engage_sample_count": engage_samples,
+                "release_temperature_c": release_temp,
+                "release_package_throttle_per_s": release_rate,
+                "release_sample_count": release_samples,
+                "cap_pl1_uw": cap_pl1,
+                "normal_pl1_uw": normal_pl1,
+            },
+            "rapl_mmio": {
+                "skipped": True,
+                "reason": "smoothing_not_applicable_inactive",
+            },
+            "write_result": None,
+            "state": state,
+            "paths": paths,
+            "write_skipped": "not_applicable_inactive",
+        }
+
+    rapl = dict(rapl_status_port())
+    package_count = package_throttle_port()
+    temperature = dict(temperature_summary_port())
+    max_temp = temperature.get("temperature_c_max")
+    package_temp = temperature.get("package_temperature_c_max")
+
+    previous_epoch = state.get("last_sample_epoch")
+    previous_count = state.get("last_package_throttle_count")
+    elapsed: float | None = None
+    package_delta: int | None = None
+    package_rate: float | None = None
+    if isinstance(previous_epoch, (int, float)) and isinstance(previous_count, int) and isinstance(package_count, int):
+        elapsed = max(0.0, now_epoch_value - float(previous_epoch))
+        package_delta = max(0, package_count - previous_count)
+        if min_sample_seconds <= elapsed <= max_sample_seconds:
+            package_rate = package_delta / elapsed
+
+    if not rapl.get("available"):
+        action = "unavailable"
+        reasons.append("rapl_mmio_unavailable")
+    elif not bool(config.get("enabled", False)):
+        action = "disabled"
+        reasons.append("config_disabled")
+    elif not applicable:
+        reasons.append("not_applicable")
+        if active and bool(config.get("restore_when_not_applicable", True)):
+            write_result = dict(write_rapl_port(rapl, int(state.get("baseline_pl1_uw") or normal_pl1)))
+            permission_required = bool(write_result.get("permission_required"))
+            if write_result.get("ok"):
+                action = "restore_not_applicable"
+                active = False
+                state["engage_count"] = 0
+                state["release_count"] = 0
+            else:
+                action = "restore_not_applicable_failed"
+        else:
+            action = "not_applicable"
+    elif package_rate is None:
+        action = "sample_seed"
+        reasons.append("need_previous_throttle_sample")
+    else:
+        temp_value = max_temp if isinstance(max_temp, (int, float)) else package_temp
+        if active:
+            write_result = dict(write_rapl_port(rapl, cap_pl1))
+            permission_required = bool(write_result.get("permission_required"))
+            release_ready = (
+                isinstance(temp_value, (int, float))
+                and temp_value <= release_temp
+                and package_rate <= release_rate
+            )
+            if release_ready:
+                state["release_count"] = int(state.get("release_count") or 0) + 1
+            else:
+                state["release_count"] = 0
+            state["engage_count"] = 0
+            if int(state.get("release_count") or 0) >= release_samples:
+                write_result = dict(write_rapl_port(rapl, int(state.get("baseline_pl1_uw") or normal_pl1)))
+                permission_required = bool(write_result.get("permission_required"))
+                if write_result.get("ok"):
+                    action = "release_cap"
+                    active = False
+                    state["release_count"] = 0
+                else:
+                    action = "release_cap_failed"
+            else:
+                action = "hold_cap"
+        else:
+            engage_ready = (
+                isinstance(temp_value, (int, float))
+                and temp_value >= engage_temp
+                and package_rate >= engage_rate
+            )
+            if engage_ready:
+                state["engage_count"] = int(state.get("engage_count") or 0) + 1
+            else:
+                state["engage_count"] = 0
+            state["release_count"] = 0
+            if int(state.get("engage_count") or 0) >= engage_samples:
+                baseline = rapl.get("pl1_uw") if isinstance(rapl.get("pl1_uw"), int) else normal_pl1
+                state["baseline_pl1_uw"] = baseline if baseline and baseline > cap_pl1 else normal_pl1
+                write_result = dict(write_rapl_port(rapl, cap_pl1))
+                permission_required = bool(write_result.get("permission_required"))
+                if write_result.get("ok"):
+                    action = "engage_cap"
+                    active = True
+                else:
+                    action = "engage_cap_failed"
+            else:
+                action = "observe_ready" if engage_ready else "observe"
+
+    state["active"] = active
+    state["last_sample_epoch"] = now_epoch_value
+    state["last_package_throttle_count"] = package_count
+    state["last_action"] = action
+    state_error = save_state_port(state, updated_by)
+    data = {
+        "schema": f"{schema_prefix}_cooling_rapl_smoothing_apply_v1",
+        "version": version,
+        "generated_at": now_iso(),
+        "ok": not (write_result and not write_result.get("ok")) and state_error is None,
+        "enabled": bool(config.get("enabled", False)),
+        "action": action,
+        "active": active,
+        "permission_required": permission_required,
+        "reasons": reasons,
+        "selected_mode": selected_mode,
+        "effective_mode": effective_mode,
+        "ac_online": ac_online,
+        "fan_mode": fan_mode,
+        "temperature": {
+            "class": temperature.get("class"),
+            "max_c": max_temp,
+            "package_c": package_temp,
+        },
+        "throttle": {
+            "package_count": package_count,
+            "previous_package_count": previous_count,
+            "elapsed_seconds": round(elapsed, 3) if isinstance(elapsed, (int, float)) else None,
+            "package_delta": package_delta,
+            "package_rate_per_s": round(package_rate, 3) if isinstance(package_rate, (int, float)) else None,
+        },
+        "thresholds": {
+            "engage_temperature_c": engage_temp,
+            "engage_package_throttle_per_s": engage_rate,
+            "engage_sample_count": engage_samples,
+            "release_temperature_c": release_temp,
+            "release_package_throttle_per_s": release_rate,
+            "release_sample_count": release_samples,
+            "cap_pl1_uw": cap_pl1,
+            "normal_pl1_uw": normal_pl1,
+        },
+        "rapl_mmio": dict(rapl_status_port()),
+        "write_result": write_result,
+        "state": state,
+        "paths": paths,
+    }
+    if state_error:
+        data["write_errors"] = [state_error]
+    return data
 
 
 def kernel_fan_errors(

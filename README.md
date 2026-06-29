@@ -190,8 +190,8 @@ series decision contracts live in `abyss_machine.cooling_contracts`. Cooling
 platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle, kernel
 fan-error, thermal-zone/cooling-device sysfs sampling, trusted sensor
 projection, temperature summary/sample, sample-series ports, profile apply
-orchestration, guarded TFN1 write, fan-validate, and fan-series orchestration live in
-`abyss_machine.cooling_adapters`. Process
+orchestration, guarded TFN1 write, fan-validate, fan-series orchestration, and
+RAPL smoothing decision/state orchestration live in `abyss_machine.cooling_adapters`. Process
 role/workload/game classifiers, paths/latest read models, game-guard envelope,
 and snapshot summary/top-list contracts live in `abyss_machine.process_contracts`.
 Low-level process `/proc` stat/status/cmdline/io/cgroup/fd reads, storage-root
@@ -467,9 +467,9 @@ contracts are module-owned; platform-profile, Lenovo fan-mode, RAPL-MMIO,
 package-throttle, kernel fan-error, thermal-zone/cooling-device sysfs sampling,
 trusted sensor projection, temperature summary/sample, sample-series ports,
 profile apply orchestration, guarded TFN1 write, fan-validate, and fan-series
-orchestration are adapter-owned through `cooling_adapters`. Systemd reads,
-concrete config/battery/sensors binding, RAPL smoothing decision/state
-orchestration, latest/history writes, and rendering remain at the CLI edge.
+orchestration, and RAPL smoothing decision/state orchestration are adapter-owned
+through `cooling_adapters`. Systemd reads, concrete config/battery/sensors/mode
+binding, latest/history writes, and rendering remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts are module-owned while live
 `/proc` process-info collection is adapter-owned through `process_adapters`;
