@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import subprocess
 import time
 from typing import Any, Callable, Mapping, Sequence
 
@@ -13,6 +15,7 @@ FdTargetsPort = Callable[[int, int], tuple[Sequence[str], bool]]
 CommandRunnerPort = Callable[[Sequence[str], float], Mapping[str, Any]]
 EuidPort = Callable[[], int]
 ClockPort = Callable[[], float]
+HookRunnerPort = Callable[[Path, str, Mapping[str, str], float], Mapping[str, Any]]
 
 
 def current_euid() -> int:
@@ -20,6 +23,136 @@ def current_euid() -> int:
     if callable(geteuid):
         return int(geteuid())
     return 0
+
+
+def hook_directory_status(path: Path) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    errors: list[str] = []
+    if path.exists():
+        try:
+            children = sorted(path.iterdir(), key=lambda item: item.name)
+        except OSError as exc:
+            children = []
+            errors.append(str(exc))
+        for child in children:
+            if child.name.startswith("."):
+                continue
+            is_file = child.is_file()
+            entries.append({
+                "name": child.name,
+                "path": str(child),
+                "is_file": is_file,
+                "is_dir": child.is_dir(),
+                "executable": is_file and os.access(child, os.X_OK),
+                "disabled": child.name.endswith(".disabled"),
+            })
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "entries": entries,
+        "executable_count": sum(1 for item in entries if item.get("executable") and not item.get("disabled")),
+        "errors": errors,
+    }
+
+
+def run_hook_process(path: Path, stdin: str, env: Mapping[str, str], timeout: float) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(
+            [str(path)],
+            input=stdin,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+            env=dict(env),
+        )
+        return {
+            "path": str(path),
+            "returncode": proc.returncode,
+            "ok": proc.returncode == 0,
+            "stdout": proc.stdout.strip()[-4000:],
+            "stderr": proc.stderr.strip()[-4000:],
+        }
+    except subprocess.TimeoutExpired:
+        return {"path": str(path), "returncode": 124, "ok": False, "stderr": "timeout"}
+    except OSError as exc:
+        return {"path": str(path), "returncode": 127, "ok": False, "stderr": str(exc)}
+
+
+def run_hook_stage_document(
+    *,
+    stage: str,
+    valid_stages: Sequence[str],
+    directories: Sequence[Path],
+    payload: Mapping[str, Any] | None,
+    enforce: bool,
+    timeout: float,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    storage_policy_path: Path,
+    abyss_machine_root: Path,
+    cache_root: Path,
+    runtime_root: Path,
+    storage_root: Path,
+    base_env: Mapping[str, str] | None = None,
+    hook_runner: HookRunnerPort = run_hook_process,
+) -> dict[str, Any]:
+    valid_stage_names = {str(item) for item in valid_stages}
+    if stage not in valid_stage_names:
+        return {
+            "schema": f"{schema_prefix}_storage_hooks_run_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "stage": stage,
+            "error": "invalid hook stage",
+            "valid_stages": sorted(valid_stage_names),
+        }
+    hook_payload = {
+        "schema": f"{schema_prefix}_storage_hook_event_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "stage": stage,
+        "payload": dict(payload or {}),
+    }
+    stdin = json.dumps(hook_payload, sort_keys=False)
+    results: list[dict[str, Any]] = []
+    for directory in directories:
+        status = hook_directory_status(directory)
+        for entry in status.get("entries", []):
+            if not isinstance(entry, dict) or not entry.get("executable") or entry.get("disabled"):
+                continue
+            path = Path(str(entry.get("path")))
+            env = dict(base_env or {})
+            env.update({
+                "ABYSS_MACHINE_HOOK_STAGE": stage,
+                "ABYSS_MACHINE_STORAGE_POLICY": str(storage_policy_path),
+                "ABYSS_MACHINE_ROOT": str(abyss_machine_root),
+                "ABYSS_MACHINE_CACHE_ROOT": str(cache_root),
+                "ABYSS_MACHINE_RUNTIME_ROOT": str(runtime_root),
+                "ABYSS_MACHINE_STORAGE_ROOT": str(storage_root),
+            })
+            result = dict(hook_runner(path, stdin, env, timeout))
+            result.setdefault("path", str(path))
+            results.append(result)
+    failed = [item for item in results if not item.get("ok")]
+    return {
+        "schema": f"{schema_prefix}_storage_hooks_run_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": not failed or not enforce,
+        "stage": stage,
+        "enforce": enforce,
+        "payload": hook_payload,
+        "results": results,
+        "summary": {
+            "executed": len(results),
+            "failed": len(failed),
+            "blocked": bool(failed and enforce),
+        },
+    }
 
 
 def path_text_matches(candidate: str, text: str | None) -> bool:

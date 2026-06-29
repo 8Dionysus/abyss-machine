@@ -23,7 +23,7 @@ package modules keep stable contracts, policy, and read-model shapes.
 | `dictation` | audio devices, runtime config/env, runtime paths, transcripts, WAV metadata, recording/server state. | transcript latest/JSONL, dictation index, validation latest. | recording, server transport, clipboard/text insertion, audio runtime subprocesses, desktop notifications. | `dictation_contracts` owns shapes; `dictation_runtime_adapters` owns XDG runtime path/socket/max-duration env translation; `dictation_profile_adapters` owns config load/save, concrete profile defaults, env-bound runtime/postprocess/profile selection, runtime env projection, and config/profile read documents; `dictation_docs_adapters` owns path/index/AGENTS.md documents and dictation docs scaffolding; `dictation_execution_adapters` owns explicit-file transcription via warm-server/helper runtime, client-side 16 kHz preprocessing, recording lifecycle/process-state execution, toggle debounce, WAV inspection/recent-audio scan, audio-doctor `pactl`/`wpctl` probes, transcript journal policy/JSONL/Markdown/latest/index IO, clipboard/text insertion execution, and mic-calibration recording/apply; `dictation_lock_adapters` owns file-lock execution; `dictation_postprocess_adapters` owns transcript postprocess/intent glue; `dictation_notifications_adapters` owns notification policy and `notify-send` command spawning; `dictation_status_adapters` owns status read-model assembly and readiness path/command probes; `dictation_validation_adapters` owns dictation validation checks and validate latest/history write routing; `dictation_replacements_adapters` owns replacements load/save/list/test/add/remove flow. Rendering remains CLI edge. |
 | `ai` | runtime config, model/cache roots, package availability, OpenVINO/runtime package probes, tokenizer/model inventories, generated AoA summaries. | AI runtime/status/eval/LLM registry/token-accounting latest and histories. | OpenVINO, tokenizer, STT/TTS, resident LLM, workhorse LLM, and benchmark subprocesses. | `ai_runtime_contracts`, `ai_runtime_adapters`, `ai_tts_contracts`, `ai_tts_adapters`, and `ai_cpu_routing` own contracts, discovery adapters, bounded OpenVINO benchmark/eval child-process runners, subprocess env binding through fakeable environment/root ports, resource snapshot/profile assembly through fakeable memory/thermal/battery/rusage/load ports, STT eval dictation-transport timing/resource envelopes, STT synthetic fixture generation and WAV metadata checks, benchmark/eval suite orchestration and latest/daily write routing, workload JSONL discovery/read/dedupe append plus workload taxonomy/stats/refresh/status write routing, devices/models/capabilities/policy/runtime/status/report readmodel assembly and latest/history write routing, capabilities live input collection through fakeable devices/models/dictation/TTS/LLM registry/resident-latest ports, policy readmodel input collection through fakeable observability/mode/battery/thermal/CPU ports, policy-gate binding through fakeable policy/clock ports, LLM registry/latest/validate readmodel assembly, validate live input collection, and write routing through fakeable ports, token-accounting tokenizer subprocess env/runner execution, token-accounting contract/profiles/latest/count readmodel and store routing, `.aoa` generated-summary session-registry/manifest/index reads plus latest/history write routing, resident LLM controller command/timeout runner execution and JSON/result projection, workhorse LLM controller command/timeout runner execution and JSON/result projection, TTS Unix-socket client transport, server status/stop exchanges, warm server socket/request loop, OpenVINO import/load/generate/write lifecycle, shutdown/unload cleanup, cold TTS synth subprocess env/runner execution, and TTS output audio summary/resource-report assembly; concrete live reader/env source selection and concrete command rendering remain CLI edge. |
 | `self-awareness` | stack/runtime latest files, observability probes, generated event/fabric stores, systemd state. | self-awareness timeline/context/episode/brief/query/probe/latest surfaces. | probe/cycle/replay/investigate orchestration and stack handoff checks. | `self_awareness_contracts` owns read-model shapes; orchestration remains CLI edge. |
-| `storage/process/memory/mode/cooling` | disk usage, `/proc`, cgroups, sensors, power profile, process tables, systemd state. | status/plan/monitor/latest histories and indexes. | cleanup apply, resource launch, profile switch, cooling apply, process/container probes. | Contract modules own policy decisions; `storage_adapters` owns the cleanup-plan active-process guard over process snapshots and `/proc` fd targets plus allowlisted cleanup apply execution; broader live host reads, hooks, orchestration, and non-storage mutation remain CLI edge. |
+| `storage/process/memory/mode/cooling` | disk usage, `/proc`, cgroups, sensors, power profile, process tables, systemd state. | status/plan/monitor/latest histories and indexes. | cleanup apply, storage hook subprocesses, resource launch, profile switch, cooling apply, process/container probes. | Contract modules own policy decisions; `storage_adapters` owns the cleanup-plan active-process guard over process snapshots and `/proc` fd targets, allowlisted cleanup apply execution, and storage hook directory scan/execution through fakeable ports; broader live host reads, storage inventory, orchestration, and non-storage mutation remain CLI edge. |
 | `artifact/release trust` | source manifests, bundle evidence, local statement/receipt files, OCI/TUF/C2PA/SCITT proof surfaces. | artifact latest/history, trust coverage, update-lane status. | local trust-tool subprocesses and publication probes. | Real but separate lane; do not fold into typing/nervous adapter work. |
 
 ## Extracted First Seam
@@ -173,7 +173,7 @@ The CLI still owns configured policy reads, `typing_ingest` execution,
 state/latest/index writes under `/var/lib/abyss-machine`, timer/service status
 reads, and command rendering.
 
-## Extracted Storage Guard And Apply Execution Seam
+## Extracted Storage Guard, Hook, And Apply Execution Seam
 
 `abyss_machine.storage_adapters` owns bounded storage cleanup live-adapter
 mechanics:
@@ -186,12 +186,18 @@ mechanics:
   and non-claims that a clear sample is not deletion permission;
 - allowlisted cleanup apply execution for package-manager clean, npm cache
   verify/clean, and age-based generated temp cleanup through fakeable
-  command-runner, euid, and clock ports.
+  command-runner, euid, and clock ports;
+- hook directory status scans with hidden-file filtering, executable counts,
+  disabled suffix accounting, and error projection;
+- hook payload serialization, bounded environment projection, subprocess result
+  mapping, timeout/OSError mapping, and enforce-block summaries through a
+  fakeable hook-runner port.
 
 `abyss_machine.storage_contracts` remains the owner of cleanup action decisions,
-protected-root policy, and dry-run apply shapes. The CLI still binds the live
-process snapshot, storage policy/inventory/pressure reads, hook execution,
-process guard/preflight orchestration, apply latest/history writes, and command
+protected-root policy, hook stage/status contracts, and dry-run apply shapes.
+The CLI still binds configured hook directories, current environment, current
+time, the live process snapshot, storage policy/inventory/pressure reads,
+process guard/preflight orchestration, latest/history writes, and command
 rendering.
 
 ## Extracted Nervous Lexical Index Lifecycle Seam
@@ -688,7 +694,7 @@ downloads, or destructive cleanup.
 
 1. Storage/process/memory/mode/cooling adapters: continue with concrete
    mutation-safety seams after the storage cleanup guard/apply execution
-   adapters, such as storage hook execution and inventory adapters,
+   and storage hook execution adapters, such as storage inventory adapters,
    process/container live probes,
    memory orchestration execution, mode mutation, or cooling writes. Keep
    dry-run/preflight and operator intent ahead of every mutating route.

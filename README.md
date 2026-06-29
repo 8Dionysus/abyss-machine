@@ -195,9 +195,10 @@ Storage policy/env read models, hook stage/status contracts, cache env routes,
 inventory drift, pressure classes/recommendations, cleanup action contracts,
 protected-root decisions, write-preflight decisions, dry-run apply shape, and
 paths read models live in `abyss_machine.storage_contracts`; cleanup-plan
-active-process guard path matching, `/proc` fd target inspection, and
-allowlisted cleanup apply execution live in `abyss_machine.storage_adapters`
-through fakeable process snapshot/fd, command-runner, euid, and clock ports.
+active-process guard path matching, `/proc` fd target inspection, allowlisted
+cleanup apply execution, and storage hook directory scan/execution live in
+`abyss_machine.storage_adapters` through fakeable process snapshot/fd,
+command-runner, euid, clock, hook-runner, and environment ports.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`.
@@ -440,9 +441,10 @@ contracts are module-owned while `/sys`, `systemd`, `journalctl`, platform/fan/
 RAPL writes, live samples, and latest/history writes remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts are module-owned while live
-`/proc`, podman, DBus, AT-SPI, desktop/window probes, storage hooks, thermal
-sampling, and latest/history writes remain at the CLI edge. Heartbeat/reaction/
-response path surfaces, heartbeat source freshness/rhythm/
+`/proc`, podman, DBus, AT-SPI, desktop/window probes, thermal sampling, and
+latest/history writes remain at the CLI edge. Storage hook execution belongs to
+the storage adapter boundary. Heartbeat/reaction/response path surfaces,
+heartbeat source freshness/rhythm/
 candidate lifecycle, reaction candidate/status envelopes, and owner-gated
 response command profiles/routes/status envelopes plus validate documents are module-owned while live
 latest reads, systemd/PSI probes, self-awareness refreshes, reaction source
@@ -450,11 +452,12 @@ collection, response route-depth validation, and latest/history writes remain at
 the CLI edge. Storage policy/env read models, hook stage/status contracts,
 inventory drift, pressure classification/recommendation rules, cleanup action
 contracts, protected-root decisions, write-preflight decision logic, dry-run
-apply shape, paths read models, cleanup-plan process guards, and allowlisted
-cleanup apply execution are module/adapter-owned while policy file reads,
-directory scans, disk usage, process snapshot binding, hook execution,
-monitor/status orchestration, apply preflight orchestration, latest/history
-writes, and command rendering remain at the CLI edge. Changes ledger
+apply shape, paths read models, cleanup-plan process guards, allowlisted cleanup
+apply execution, and storage hook directory scan/execution are
+module/adapter-owned while policy file reads, configured hook directory/env
+binding, inventory/disk scans, process snapshot binding, monitor/status
+orchestration, apply preflight orchestration, latest/history writes, and command
+rendering remain at the CLI edge. Changes ledger
 paths/index/status/latest read models,
 id and decision-review contracts, record/event/result shapes, surface
 classification, and preflight decision envelopes are module-owned while

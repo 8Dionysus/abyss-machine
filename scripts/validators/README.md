@@ -249,8 +249,8 @@ fan/RAPL writes, live samples, and latest/history writes remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts live in
 `abyss_machine.process_contracts`; live `/proc`, podman, DBus, AT-SPI, desktop/
-window probes, storage hooks, thermal sampling, and latest/history writes remain
-at the CLI edge.
+window probes, thermal sampling, and latest/history writes remain at the CLI
+edge. Storage hook execution belongs to the storage adapter boundary.
 Heartbeat/reaction/response path surfaces, heartbeat source freshness/rhythm/
 candidate lifecycle, reaction candidate/status envelopes, and owner-gated
 response command profiles/routes/status envelopes plus validate documents live in
@@ -263,12 +263,13 @@ action contracts, protected-root decisions, write-preflight decision logic,
 dry-run apply shape, and storage paths read models live in
 `abyss_machine.storage_contracts`. Cleanup-plan active-process guard path
 matching, process snapshot projection, `/proc` fd target inspection, fd scan
-error accounting, non-claim text, and allowlisted cleanup apply execution live
-in `abyss_machine.storage_adapters` through fakeable process snapshot/fd,
-command-runner, euid, and clock ports. Policy file reads, directory scans, disk
-usage, process snapshot binding, hook execution, monitor/status orchestration,
-apply preflight orchestration, latest/history writes, and command rendering
-remain at the CLI edge.
+error accounting, non-claim text, allowlisted cleanup apply execution, and
+storage hook directory scan/execution live in `abyss_machine.storage_adapters`
+through fakeable process snapshot/fd, command-runner, euid, clock, hook-runner,
+and environment ports. Policy file reads, configured hook directory/env/time
+binding, inventory/disk scans, process snapshot binding, monitor/status
+orchestration, apply preflight orchestration, latest/history writes, and command
+rendering remain at the CLI edge.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`; active/closed
