@@ -4165,6 +4165,72 @@ def test_oci_layout_publish_and_consume_materializes_digest_pinned_subject_with_
     assert consumed["verification"]["consumer_admission"]["trust_gate"]["verdict"] == "allow"
     assert len(consumed["pulled"]["referrers"]) == 3
 
+    wrapper_path = tmp_path / "oci-layout-publish-wrapper.json"
+    wrapper_path.write_text(json.dumps(published, sort_keys=True) + "\n", encoding="utf-8")
+    verify_wrapper = _run_artifact_cli(
+        tmp_path,
+        "oci-verify",
+        str(wrapper_path),
+        "--artifact-class",
+        "runtime_or_container_artifact",
+        "--subject-digest",
+        published["subject_digest"],
+        "--required-referrer-type",
+        "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "--required-referrer-type",
+        "application/vnd.cyclonedx+json",
+        "--required-referrer-type",
+        "application/vnd.in-toto+jsonl",
+        "--registry-dir",
+        str(registry),
+        "--record-id",
+        record_id,
+        "--record-subject-digest",
+        record_subject_digest,
+        "--source-repo",
+        "abyss-machine",
+        "--trust-root-mode",
+        "oci_registry",
+        "--require-trust-gate",
+    )
+    assert verify_wrapper.returncode == 0, verify_wrapper.stderr[-1000:]
+    verified_wrapper = json.loads(verify_wrapper.stdout)
+    assert verified_wrapper["evidence_unwrapped"] is True
+    assert verified_wrapper["verdict"] == "warn"
+    assert verified_wrapper["consumer_admission"]["trust_gate"]["verdict"] == "allow"
+
+    consume_wrapper = _run_artifact_cli(
+        tmp_path,
+        "oci-consume",
+        str(wrapper_path),
+        "--output-dir",
+        str(tmp_path / "pulled-wrapper"),
+        "--artifact-class",
+        "runtime_or_container_artifact",
+        "--subject-digest",
+        published["subject_digest"],
+        "--required-referrer-type",
+        "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "--required-referrer-type",
+        "application/vnd.cyclonedx+json",
+        "--required-referrer-type",
+        "application/vnd.in-toto+jsonl",
+        "--registry-dir",
+        str(registry),
+        "--record-id",
+        record_id,
+        "--record-subject-digest",
+        record_subject_digest,
+        "--source-repo",
+        "abyss-machine",
+        "--trust-root-mode",
+        "oci_registry",
+    )
+    assert consume_wrapper.returncode == 0, consume_wrapper.stderr[-1000:]
+    consumed_wrapper = json.loads(consume_wrapper.stdout)
+    assert consumed_wrapper["evidence_unwrapped"] is True
+    assert Path(consumed_wrapper["pulled"]["subject"]["path"]).read_bytes() == subject.read_bytes()
+
 
 def test_oci_consume_denies_tag_only_or_missing_trust_gate_registry(tmp_path: Path) -> None:
     registry, record_id, record_subject_digest = _write_oci_runtime_registry_record(tmp_path)
