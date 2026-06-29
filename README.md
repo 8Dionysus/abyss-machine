@@ -376,10 +376,14 @@ OpenVINO benchmark-plan/probe/eval command/result contracts, AI eval suite-polic
 envelopes, token-accounting privacy/count/count-execution/profile/tokenizer-route/aoa-summary contracts,
 capabilities projection, AI policy decision/gate, workload taxonomy/measurement
 extraction plus stats/refresh/status routing, and paths/status/runtime/report
-read-model envelopes are module-owned while filesystem walks, package/runtime
-discovery, tokenizer discovery, `.aoa` generated-summary reads, latest-input
-collection, subprocess execution, and latest writes remain at the
-CLI edge. TTS profile/artifact/status decisions,
+read-model envelopes are module-owned. AI runtime adapters own filesystem
+walks, package/runtime discovery, tokenizer discovery, bounded subprocess
+runner seams, benchmark/eval/workload/core readmodel write routing, LLM
+registry/latest/validate store routing, token-accounting store/readmodel and runner seams,
+and resident controller execution through fakeable ports; concrete config/path
+binding, policy gates, STT/dictation transport, `.aoa` generated-summary reads,
+live input/env binding, resident parser/result rendering, broader resource
+sampling, and command rendering remain at the CLI edge. TTS profile/artifact/status decisions,
 policy-denial/error summaries, server response/payload shaping, synth
 subprocess script/argv/result contracts, synth/eval/compare envelopes, and
 success-index entries are module-owned while module probing, server/socket
