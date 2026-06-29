@@ -18,4 +18,9 @@
   `llama.cpp` runtime/profile probes, tokenizer/library discovery, OpenVINO
   python package-version probes, and kernel-module snapshots now route through
   fakeable ports. CLI remains the concrete binding/latest-write/execution edge.
+- Extracted token-accounting store/readmodel routing into
+  `abyss_machine.ai_runtime_adapters`; contract/profile/latest/count document
+  assembly and latest/history writes now pass through fakeable registry,
+  tokenizer resolver, reader, writer, path, subprocess, environment, and clock
+  ports. CLI remains the concrete registry/env/text/command rendering edge.
 - Initial skeleton: package created to route host-managed AI runtime work.
