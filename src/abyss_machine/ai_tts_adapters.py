@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import os
 import socket
+import socketserver
 import time
 import wave
 from pathlib import Path
@@ -15,11 +18,14 @@ PathExistsPort = Callable[[Path], bool]
 RunPort = Callable[..., Mapping[str, Any]]
 ServerRequestPort = Callable[..., Mapping[str, Any]]
 SocketFactoryPort = Callable[[int, int], Any]
+ServerSynthPort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+UnloadModelPort = Callable[[], Any]
 SubprocessEnvPort = Callable[[Mapping[str, str]], Mapping[str, str]]
 ResourceSnapshotPort = Callable[[], Mapping[str, Any]]
 ResourceProfilePort = Callable[[Mapping[str, Any], Mapping[str, Any], str, str], Mapping[str, Any]]
 TimePort = Callable[[], float]
 SleepPort = Callable[[float], None]
+TimestampPort = Callable[[], str]
 
 
 def _path_exists(path: Path, path_exists: PathExistsPort) -> bool:
@@ -99,6 +105,99 @@ def server_stop_probe(
         "response": response,
         "socket_exists_after": _path_exists(socket_path, path_exists),
     }
+
+
+def server_loop_response(
+    *,
+    request: Mapping[str, Any],
+    server_state: Mapping[str, Any],
+    profile: str,
+    synth_once: ServerSynthPort,
+) -> tuple[dict[str, Any], bool]:
+    command = str(request.get("command") or "status")
+    if command == "ping":
+        response = dict(server_state)
+        response["command"] = "ping"
+        return response, False
+    if command == "status":
+        response = dict(server_state)
+        response["command"] = "status"
+        return response, False
+    if command == "synth":
+        return dict(synth_once(dict(request))), False
+    if command == "shutdown":
+        return {"ok": True, "command": "shutdown", "profile": profile}, True
+    return {"ok": False, "error": f"unknown command: {command}"}, False
+
+
+def _unload_model(unload_model: UnloadModelPort | None) -> None:
+    if unload_model is None:
+        return
+    try:
+        unload_result = unload_model()
+        if inspect.isawaitable(unload_result):
+            asyncio.run(unload_result)
+    except Exception:
+        pass
+
+
+def run_server_loop(
+    *,
+    socket_path: Path,
+    server_state: Mapping[str, Any],
+    profile: str,
+    synth_once: ServerSynthPort,
+    stopped_at: TimestampPort,
+    unload_model: UnloadModelPort | None = None,
+    chmod_mode: int = 0o660,
+    read_limit: int = 2 * 1024 * 1024,
+) -> dict[str, Any]:
+    socket_path = Path(socket_path).expanduser()
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        socket_path.unlink()
+    except FileNotFoundError:
+        pass
+
+    class Handler(socketserver.StreamRequestHandler):
+        def handle(self) -> None:
+            should_shutdown = False
+            try:
+                raw = self.rfile.readline(read_limit).decode("utf-8", errors="replace")
+                request = json.loads(raw) if raw.strip() else {}
+                if not isinstance(request, dict):
+                    raise ValueError("request must be a JSON object")
+                response, should_shutdown = server_loop_response(
+                    request=request,
+                    server_state=server_state,
+                    profile=profile,
+                    synth_once=synth_once,
+                )
+            except Exception as exc:
+                response = {"ok": False, "error": repr(exc)}
+            if should_shutdown:
+                self.server.should_shutdown = True  # type: ignore[attr-defined]
+            self.wfile.write(json.dumps(response, ensure_ascii=False, sort_keys=False).encode("utf-8") + b"\n")
+
+    class UnixServer(socketserver.UnixStreamServer):
+        allow_reuse_address = True
+
+    server: UnixServer | None = None
+    try:
+        server = UnixServer(str(socket_path), Handler)
+        server.should_shutdown = False  # type: ignore[attr-defined]
+        os.chmod(socket_path, chmod_mode)
+        while not getattr(server, "should_shutdown", False):
+            server.handle_request()
+    finally:
+        _unload_model(unload_model)
+        if server is not None:
+            server.server_close()
+        try:
+            socket_path.unlink()
+        except FileNotFoundError:
+            pass
+    return {"ok": True, "profile": profile, "socket": str(socket_path), "stopped_at": stopped_at()}
 
 
 def synth_subprocess_env(
