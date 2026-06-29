@@ -43,8 +43,13 @@
   `abyss_machine.ai_runtime_adapters`; `ai_policy(write_latest=True)` callback
   routing, generated-at binding, declared class/operation/force/class-level
   forwarding, and gate document assembly now pass through fakeable policy and
-  clock ports. CLI remains the concrete policy-readmodel/dispatch/rendering
+  clock ports. CLI remains the concrete policy-callback/dispatch/rendering
   edge.
+- Extracted AI policy readmodel input collection into
+  `abyss_machine.ai_runtime_adapters`; observability status/latest collection,
+  mode status, battery fallback, thermal-policy snapshot, and CPU thermal-map
+  selection now pass through fakeable ports. CLI remains the concrete
+  live-reader/dispatch/rendering edge.
 - Extracted AI env/resource binding into
   `abyss_machine.ai_runtime_adapters`; subprocess env construction, resource
   snapshot envelope assembly, and resource-profile document forwarding now pass

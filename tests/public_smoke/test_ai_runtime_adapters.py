@@ -1585,6 +1585,125 @@ def test_core_readmodel_store_adapters_route_writes(tmp_path: Path) -> None:
     ]
 
 
+def test_policy_readmodel_from_live_inputs_uses_fake_ports(tmp_path: Path) -> None:
+    writes: list[tuple[Path, str, int]] = []
+    cpu_calls: list[dict[str, Any]] = []
+    fallback_battery_calls = 0
+    thermal_calls: list[tuple[dict[str, Any], dict[str, Any]]] = []
+
+    config = {
+        "thermal_policy": {
+            "warm_temperature_c": 80.0,
+            "hot_temperature_c": 106.0,
+            "critical_temperature_c": 109.0,
+            "balanced_warm_heavy_max_c": 105.0,
+            "min_battery_percent_for_heavy": 35,
+            "telemetry_max_age_sec": 300,
+        },
+        "cpu_routing": {"thread_limits": {"heavy": 4}},
+    }
+    mode = {"effective_mode": "balanced", "selected_mode": "balanced", "actual_power_profile": "balanced"}
+    cpu_map = {"ok": True, "available_by_role": {"p_cores": [0, 1]}, "summary": {}}
+
+    def write_json(path: Path, data: dict[str, Any], mode_bits: int) -> None:
+        writes.append((path, data["schema"], mode_bits))
+
+    def thermal_policy_snapshot(latest: dict[str, Any], thresholds: dict[str, Any]) -> dict[str, Any]:
+        thermal_calls.append((latest, thresholds))
+        return {"current_temperature_c": 84.0, "trend": "stable", "episode": {"class": "warm"}}
+
+    def cpu_thermal_map(**kwargs: Any) -> dict[str, Any]:
+        cpu_calls.append(dict(kwargs))
+        return cpu_map
+
+    def fallback_battery() -> dict[str, Any]:
+        nonlocal fallback_battery_calls
+        fallback_battery_calls += 1
+        return {"ac_online": True, "capacity_percent": 77}
+
+    collected = ai_runtime_adapters.policy_readmodel_from_live_inputs(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        config=config,
+        observability_status=lambda: {"latest": {"age_sec": 12, "battery": {"ac_online": True, "capacity_percent": 90}}},
+        observability_latest=lambda: {"latest": "thermal-source"},
+        mode_status=lambda: mode,
+        battery_summary=fallback_battery,
+        thermal_policy_snapshot=thermal_policy_snapshot,
+        cpu_thermal_map=cpu_thermal_map,
+        cpu_thermal_map_input=None,
+        observability_latest_path="/var/lib/abyss-machine/observability/thermal-battery/latest.json",
+        cpu_thermal_map_latest_path="/var/lib/abyss-machine/ai/cpu/thermal-map/latest.json",
+        write_latest=True,
+        latest_path=tmp_path / "policy.json",
+        write_json=write_json,
+    )
+    provided = ai_runtime_adapters.policy_readmodel_from_live_inputs(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        config=config,
+        observability_status=lambda: {"latest": {"age_sec": 18}},
+        observability_latest=lambda: {"latest": "thermal-source-2"},
+        mode_status=lambda: mode,
+        battery_summary=fallback_battery,
+        thermal_policy_snapshot=thermal_policy_snapshot,
+        cpu_thermal_map=lambda **kwargs: (_ for _ in ()).throw(AssertionError("cpu port should not run")),
+        cpu_thermal_map_input={"ok": True, "available_by_role": {"e_cores": [2, 3]}, "summary": {"provided": True}},
+        observability_latest_path="/var/lib/abyss-machine/observability/thermal-battery/latest.json",
+        cpu_thermal_map_latest_path="/var/lib/abyss-machine/ai/cpu/thermal-map/latest.json",
+        write_latest=False,
+        latest_path=tmp_path / "policy.json",
+        write_json=write_json,
+    )
+
+    assert collected["schema"] == "abyss_machine_ai_policy_v1"
+    assert collected["generated_at"] == STAMP
+    assert collected["current"]["battery"]["capacity_percent"] == 90
+    assert collected["current"]["telemetry_age_sec"] == 12
+    assert cpu_calls == [{"write_latest": True}]
+    assert fallback_battery_calls == 1
+    assert provided["current"]["battery"]["capacity_percent"] == 77
+    assert provided["current"]["telemetry_age_sec"] == 18
+    assert provided["current"]["cpu_thermal_map"]["summary"] == {"provided": True}
+    assert thermal_calls == [
+        ({"latest": "thermal-source"}, config["thermal_policy"]),
+        ({"latest": "thermal-source-2"}, config["thermal_policy"]),
+    ]
+    assert writes == [(tmp_path / "policy.json", "abyss_machine_ai_policy_v1", 0o664)]
+
+
+def test_cli_ai_policy_delegates_live_input_collection_to_runtime_adapter(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+    provided_cpu_map = {"ok": True}
+
+    def fake_policy_from_live_inputs(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"schema": "fixture_policy", "ok": True}
+
+    monkeypatch.setattr(cli, "ai_config", lambda: {"thermal_policy": {}})
+    monkeypatch.setattr(cli.ai_runtime_adapters, "policy_readmodel_from_live_inputs", fake_policy_from_live_inputs)
+
+    assert cli.ai_policy(write_latest=False, cpu_thermal_map=provided_cpu_map) == {"schema": "fixture_policy", "ok": True}
+    assert calls["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert calls["version"] == cli.VERSION
+    assert calls["now_iso"] is cli.now_iso
+    assert calls["config"] == {"thermal_policy": {}}
+    assert calls["observability_status"] is cli.observability_status
+    assert calls["observability_latest"] is cli.observability_latest
+    assert calls["mode_status"] is cli.mode_status
+    assert calls["battery_summary"] is cli.battery_summary
+    assert calls["thermal_policy_snapshot"] is cli.ai_thermal_policy_snapshot
+    assert calls["cpu_thermal_map"] is cli.ai_cpu_thermal_map
+    assert calls["cpu_thermal_map_input"] is provided_cpu_map
+    assert calls["write_latest"] is False
+    assert calls["latest_path"] == cli.AI_POLICY_LATEST_PATH
+    assert calls["write_json"] is cli.safe_atomic_write_json
+
+
 def test_policy_gate_binding_uses_fake_policy_clock_and_class_levels() -> None:
     calls: list[dict[str, Any]] = []
 

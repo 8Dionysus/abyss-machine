@@ -50,6 +50,8 @@ TokenCountSubprocessPort = Callable[..., Mapping[str, Any]]
 LLMRuntimeStatusPort = Callable[[Mapping[str, Any], Mapping[str, Any] | None], Mapping[str, Any]]
 LLMProfileStatusPort = Callable[[str, str, Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]]
 SttTranscribePort = Callable[[str, str], Mapping[str, Any]]
+ThermalPolicySnapshotPort = Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]]
+CpuThermalMapPort = Callable[..., Mapping[str, Any]]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -888,6 +890,52 @@ def policy_readmodel(
     )
     _write_latest_if_requested(data, write_latest=write_latest, latest_path=latest_path, write_json=write_json)
     return data
+
+
+def policy_readmodel_from_live_inputs(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    config: Mapping[str, Any],
+    observability_status: NoArgMappingPort,
+    observability_latest: NoArgMappingPort,
+    mode_status: NoArgMappingPort,
+    battery_summary: NoArgMappingPort,
+    thermal_policy_snapshot: ThermalPolicySnapshotPort,
+    cpu_thermal_map: CpuThermalMapPort,
+    cpu_thermal_map_input: Mapping[str, Any] | None,
+    observability_latest_path: str,
+    cpu_thermal_map_latest_path: str,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    thermal_policy = config.get("thermal_policy", {}) if isinstance(config.get("thermal_policy"), Mapping) else {}
+    observability = dict(observability_status())
+    latest = observability.get("latest") if isinstance(observability.get("latest"), Mapping) else {}
+    battery = latest.get("battery") if isinstance(latest.get("battery"), Mapping) else None
+    selected_cpu_thermal_map = (
+        cpu_thermal_map_input
+        if isinstance(cpu_thermal_map_input, Mapping)
+        else cpu_thermal_map(write_latest=write_latest)
+    )
+    return policy_readmodel(
+        schema_prefix=schema_prefix,
+        version=version,
+        now_iso=now_iso,
+        config=config,
+        telemetry_age_sec=latest.get("age_sec"),
+        battery=battery if isinstance(battery, Mapping) else battery_summary(),
+        mode=mode_status(),
+        thermal=thermal_policy_snapshot(observability_latest(), thermal_policy),
+        cpu_thermal_map=selected_cpu_thermal_map,
+        observability_latest_path=observability_latest_path,
+        cpu_thermal_map_latest_path=cpu_thermal_map_latest_path,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        write_json=write_json,
+    )
 
 
 def policy_gate_binding(
