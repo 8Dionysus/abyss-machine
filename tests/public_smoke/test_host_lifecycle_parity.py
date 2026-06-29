@@ -81,6 +81,99 @@ def test_runtime_projection_summarizes_json_without_raw_payload() -> None:
     assert "do not copy me" not in json.dumps(row)
 
 
+def test_runtime_projection_omits_nested_status_payloads() -> None:
+    stdout = json.dumps(
+        {
+            "schema": "example_v1",
+            "ok": True,
+            "status": {"private_path": "/var/lib/abyss-machine/private/latest.json"},
+            "summary": {"status": "ok"},
+        }
+    )
+
+    row = host_lifecycle_parity.compact_command_result(
+        name="example",
+        command=["abyss-machine", "example", "--json"],
+        returncode=0,
+        stdout=stdout,
+        stderr="",
+    )
+
+    assert row["projection"]["status"] == "ok"
+    assert "/var/lib/abyss-machine/private" not in json.dumps(row)
+
+
+def test_runtime_check_profiles_are_module_owned_and_deduped() -> None:
+    assert host_lifecycle_parity.select_runtime_check_names() == ["enter"]
+    assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["diagnostic-read"]) == ["doctor-paths"]
+    assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["ai-llm-refresh"]) == [
+        "ai-validate",
+        "ai-llm-validate",
+        "ai-llm-resident-validate",
+        "ai-llm-workhorse-validate",
+    ]
+    assert host_lifecycle_parity.select_runtime_check_names(
+        runtime_profiles=["base", "ai-llm-refresh"],
+        runtime_checks=["enter", "doctor-paths"],
+    ) == [
+        "enter",
+        "ai-validate",
+        "ai-llm-validate",
+        "ai-llm-resident-validate",
+        "ai-llm-workhorse-validate",
+        "doctor-paths",
+    ]
+    assert host_lifecycle_parity.runtime_command_effect_catalog()["doctor-paths"] == "read_only"
+    assert set(host_lifecycle_parity.runtime_command_effect_catalog()) == set(host_lifecycle_parity.runtime_command_catalog())
+    assert host_lifecycle_parity.runtime_refresh_check_names(["enter", "doctor", "ai-validate"]) == [
+        "doctor",
+        "ai-validate",
+    ]
+    assert host_lifecycle_parity.runtime_command_catalog()["doctor-machine-report"] == [
+        "abyss-machine",
+        "doctor",
+        "machine-report",
+        "--json",
+        "--no-thermal-sample",
+    ]
+
+
+def test_collect_runtime_checks_uses_fake_runner_and_catalog() -> None:
+    calls: list[tuple[str, list[str], float]] = []
+
+    def fake_run(name: str, command: list[str], timeout: float) -> dict[str, object]:
+        calls.append((name, command, timeout))
+        return {"name": name, "command": command, "status": "ok"}
+
+    rows = host_lifecycle_parity.collect_runtime_checks(
+        selected_checks=["enter", "ai-llm-validate"],
+        command_catalog=host_lifecycle_parity.runtime_command_catalog(),
+        run_check=fake_run,
+        timeout=7.5,
+    )
+
+    assert [row["name"] for row in rows] == ["enter", "ai-llm-validate"]
+    assert calls == [
+        ("enter", ["abyss-machine", "enter", "--json"], 7.5),
+        ("ai-llm-validate", ["abyss-machine", "ai", "llm", "validate", "--json"], 7.5),
+    ]
+
+
+def test_runtime_summary_treats_json_blocked_as_failure() -> None:
+    row = host_lifecycle_parity.compact_command_result(
+        name="doctor-machine-report",
+        command=["abyss-machine", "doctor", "machine-report", "--json"],
+        returncode=0,
+        stdout=json.dumps({"ok": False, "status": "blocked", "checks": []}),
+        stderr="",
+    )
+
+    summary = host_lifecycle_parity.runtime_summary([row])
+
+    assert summary["status"] == "failed"
+    assert summary["failure_checks"] == ["doctor-machine-report"]
+
+
 def test_build_parity_document_combines_content_and_runtime(tmp_path: Path) -> None:
     repo = _seed_source_tree(tmp_path)
     installed_libexec = tmp_path / "installed" / "libexec"
@@ -151,3 +244,37 @@ def test_source_install_runtime_parity_script_supports_advisory_mode(tmp_path: P
     assert payload["schema"] == host_lifecycle_parity.SCHEMA
     assert payload["ok"] is False
     assert payload["content_parity"]["cli"]["status"] == "failed"
+
+
+def test_source_install_runtime_parity_requires_explicit_refresh_allowance(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "validators" / "source_install_runtime_parity.py"),
+            "--host-cli",
+            str(tmp_path / "missing-cli"),
+            "--host-libexec-dir",
+            str(tmp_path / "missing-libexec"),
+            "--host-share-root",
+            str(tmp_path / "missing-share"),
+            "--runtime-profile",
+            "ai-llm-refresh",
+            "--json",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "blocked"
+    assert payload["refresh_checks"] == [
+        "ai-validate",
+        "ai-llm-validate",
+        "ai-llm-resident-validate",
+        "ai-llm-workhorse-validate",
+    ]
+    assert "--allow-runtime-refresh" in payload["error"]

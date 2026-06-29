@@ -41,7 +41,12 @@ Run public smoke tests and bootstrap dry-runs.
 Host lifecycle owns the source/install/runtime parity route: source CLI,
 installed projection, bootstrap dry-runs, and host quick checks must agree on
 public-safe behavior while private `/etc`, `/var/lib`, `/srv`, captures,
-indexes, and secrets remain target-host state.
+indexes, and secrets remain target-host state. Runtime closeout command
+catalogs, profiles, and read-only vs latest/readmodel-refresh effect labels
+live in `abyss_machine.host_lifecycle_parity`; validator scripts bind those
+profiles to concrete installed paths and subprocess execution. Default/read
+profiles stay read-only; explicit `*-refresh` profiles may update live
+latest/readmodel state.
 
 ### Next route
 

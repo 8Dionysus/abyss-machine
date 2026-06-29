@@ -499,13 +499,19 @@ parity summary used during release and installed-host closeout:
   of full file lists;
 - installed path identity summaries without file contents;
 - runtime command JSON projection into status/check/warning/failure counts;
+- runtime closeout command catalog, profile selection, de-duplication, and
+  fake-runner collection for base/read profiles and explicit `*-refresh`
+  typing/nervous, diagnostic, AI, and AI LLM closeout profiles;
+- runtime command effect labels that separate read-only checks from commands
+  that refresh latest/readmodel state;
 - privacy flags proving raw runtime stdout and raw runtime JSON are omitted.
 
-`scripts/validators/source_install_runtime_parity.py` is the read-only adapter
-that binds the contract to concrete host paths and bounded runtime commands
-such as `abyss-machine enter --json`, `typing validate`, and
-`nervous validate`. It does not install, repair, or mutate host state; failed
-content parity is evidence for an install closeout, not an automatic action.
+`scripts/validators/source_install_runtime_parity.py` binds the contract to
+concrete host paths and subprocess invocation. It does not own the runtime
+command law and does not install or repair host state. Default/read profiles are
+read-only; `*-refresh` profiles require `--allow-runtime-refresh` because they
+may update live latest/readmodel state. Failed content parity is evidence for an
+install closeout, not an automatic action.
 
 ## Extracted Doctor Validate Probe Seam
 
