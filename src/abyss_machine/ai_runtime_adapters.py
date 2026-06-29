@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import wave
 from typing import Any, Callable, Iterable, Mapping
 
 from . import ai_runtime_contracts
@@ -18,6 +19,10 @@ CommandExistsPort = Callable[[str], bool]
 WhichPort = Callable[[str], str | None]
 PathExistsPort = Callable[[Path], bool]
 PathAccessPort = Callable[[Path, int], bool]
+PathMkdirPort = Callable[[Path], Any]
+PathSizePort = Callable[[Path], int | None]
+PathReplacePort = Callable[[Path, Path], Any]
+PathUnlinkPort = Callable[[Path], Any]
 ResourceSnapshotPort = Callable[[], Mapping[str, Any]]
 ResourceProfilePort = Callable[[dict[str, Any], dict[str, Any], str, str], dict[str, Any]]
 SystemdUnitPort = Callable[[str], Mapping[str, Any]]
@@ -101,6 +106,18 @@ def _path_size(path: Path) -> int | None:
         return path.stat().st_size
     except OSError:
         return None
+
+
+def _mkdir_parents(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _replace_path(source: Path, target: Path) -> None:
+    os.replace(source, target)
+
+
+def _unlink_path(path: Path) -> None:
+    path.unlink()
 
 
 def _python_exists(python: str | None, path_exists: PathExistsPort) -> bool:
@@ -1812,6 +1829,163 @@ def llm_workhorse_controller_run(
             "command": argv,
         }
     return result
+
+
+def stt_fixture_wav_duration(path: Path) -> float | None:
+    try:
+        with wave.open(str(path), "rb") as wav:
+            frames = wav.getnframes()
+            rate = wav.getframerate()
+        return round(frames / rate, 3) if rate else None
+    except (OSError, wave.Error):
+        return None
+
+
+def stt_fixture_wav_sample_rate(path: Path) -> int | None:
+    try:
+        with wave.open(str(path), "rb") as wav:
+            return int(wav.getframerate())
+    except (OSError, wave.Error):
+        return None
+
+
+def _stt_fixture_is_ready(
+    fixture: Path,
+    *,
+    path_exists: PathExistsPort,
+    path_size: PathSizePort,
+    wav_sample_rate: Callable[[Path], int | None],
+    min_size_bytes: int = 1000,
+    expected_sample_rate: int = 16000,
+) -> bool:
+    if not _path_exists(fixture, path_exists):
+        return False
+    try:
+        size = path_size(fixture)
+    except (OSError, TypeError, ValueError):
+        return False
+    try:
+        size_int = int(size) if size is not None else 0
+    except (TypeError, ValueError):
+        return False
+    return size_int > min_size_bytes and wav_sample_rate(fixture) == expected_sample_rate
+
+
+def stt_eval_fixture(
+    *,
+    reference_text: str,
+    fixture: Path,
+    command_exists: CommandExistsPort,
+    run_command: RunPort,
+    path_exists: PathExistsPort | None = None,
+    path_size: PathSizePort | None = None,
+    mkdir: PathMkdirPort | None = None,
+    replace: PathReplacePort | None = None,
+    unlink: PathUnlinkPort | None = None,
+    wav_duration: Callable[[Path], float | None] | None = None,
+    wav_sample_rate: Callable[[Path], int | None] | None = None,
+) -> dict[str, Any]:
+    path_exists = path_exists or Path.exists
+    path_size = path_size or _path_size
+    mkdir = mkdir or _mkdir_parents
+    replace = replace or _replace_path
+    unlink = unlink or _unlink_path
+    wav_duration = wav_duration or stt_fixture_wav_duration
+    wav_sample_rate = wav_sample_rate or stt_fixture_wav_sample_rate
+
+    try:
+        mkdir(fixture.parent)
+    except OSError as exc:
+        return {
+            "ok": False,
+            "path": str(fixture),
+            "error": str(exc),
+        }
+
+    if _stt_fixture_is_ready(
+        fixture,
+        path_exists=path_exists,
+        path_size=path_size,
+        wav_sample_rate=wav_sample_rate,
+    ):
+        return {
+            "ok": True,
+            "path": str(fixture),
+            "created": False,
+            "duration_sec": wav_duration(fixture),
+            "sample_rate": wav_sample_rate(fixture),
+            "generator": "espeak-ng",
+        }
+
+    if not command_exists("espeak-ng"):
+        return {
+            "ok": False,
+            "path": str(fixture),
+            "error": "espeak-ng not found",
+        }
+
+    raw_fixture = fixture.with_suffix(".raw.wav")
+    out = dict(
+        run_command(
+            ["espeak-ng", "-v", "ru", "-s", "145", "-w", str(raw_fixture), reference_text],
+            timeout=20.0,
+        )
+    )
+    ffmpeg_available = command_exists("ffmpeg")
+    if out.get("ok") and ffmpeg_available:
+        converted = dict(
+            run_command(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(raw_fixture),
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    str(fixture),
+                ],
+                timeout=20.0,
+            )
+        )
+        if not converted.get("ok"):
+            out["ok"] = False
+            out["stderr"] = converted.get("stderr") or converted.get("stdout")
+            out["returncode"] = converted.get("returncode")
+    elif out.get("ok"):
+        try:
+            replace(raw_fixture, fixture)
+        except OSError as exc:
+            out["ok"] = False
+            out["stderr"] = str(exc)
+            out["returncode"] = 1
+
+    try:
+        unlink(raw_fixture)
+    except OSError:
+        pass
+
+    return {
+        "ok": bool(out.get("ok"))
+        and _stt_fixture_is_ready(
+            fixture,
+            path_exists=path_exists,
+            path_size=path_size,
+            wav_sample_rate=wav_sample_rate,
+        ),
+        "path": str(fixture),
+        "created": bool(out.get("ok")),
+        "duration_sec": wav_duration(fixture),
+        "sample_rate": wav_sample_rate(fixture),
+        "generator": "espeak-ng",
+        "resampler": "ffmpeg" if ffmpeg_available else None,
+        "stderr": out.get("stderr"),
+        "returncode": out.get("returncode"),
+    }
 
 
 def stt_eval_run(
