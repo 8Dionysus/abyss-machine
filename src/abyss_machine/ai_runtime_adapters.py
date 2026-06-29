@@ -36,6 +36,8 @@ WorkloadAppendPort = Callable[[list[dict[str, Any]], bool], Mapping[str, Any]]
 WorkloadExtractPort = Callable[[dict[str, Any]], list[dict[str, Any]]]
 NoArgMappingPort = Callable[[], Mapping[str, Any]]
 JsonReadPort = Callable[[Path], tuple[Any, str | None]]
+TokenResolverPort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+TokenCountSubprocessPort = Callable[..., Mapping[str, Any]]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -428,6 +430,40 @@ def _write_latest_history_if_requested(
     daily_error = append_jsonl(daily_path(), data, 0o664)
     errors = [error for error in (latest_error, daily_error) if error]
     if errors:
+        data["write_errors"] = errors
+
+
+def _write_latest_with_error_status(
+    data: dict[str, Any],
+    *,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> None:
+    if not write_latest:
+        return
+    error = write_json(latest_path, data, 0o664)
+    if error:
+        data["ok"] = False
+        data["write_errors"] = [error]
+
+
+def _write_latest_history_with_error_status(
+    data: dict[str, Any],
+    *,
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+) -> None:
+    if not write_latest:
+        return
+    latest_error = write_json(latest_path, data, 0o664)
+    daily_error = append_jsonl(daily_path(), data, 0o664)
+    errors = [error for error in (latest_error, daily_error) if error]
+    if errors:
+        data["ok"] = False
         data["write_errors"] = errors
 
 
@@ -1463,6 +1499,176 @@ def token_accounting_count_subprocess(
         "input_bytes": input_bytes,
         "outcome": outcome,
     }
+
+
+def token_accounting_contract_readmodel(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    root: Path,
+    latest_path: Path,
+    profiles_latest_path: Path,
+    counts_latest_path: Path,
+    write_latest: bool,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    data = ai_runtime_contracts.token_accounting_contract_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        root=root,
+        latest_path=latest_path,
+        profiles_latest_path=profiles_latest_path,
+        counts_latest_path=counts_latest_path,
+    )
+    _write_latest_with_error_status(
+        data,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        write_json=write_json,
+    )
+    return data
+
+
+def token_accounting_profiles_readmodel(
+    *,
+    registry: Mapping[str, Any],
+    resolve_tokenizer: TokenResolverPort,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    root: Path,
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+) -> dict[str, Any]:
+    profiles = registry.get("profiles") if isinstance(registry.get("profiles"), Mapping) else {}
+    profile_rows: dict[str, Any] = {}
+    for name, profile in profiles.items():
+        if not isinstance(profile, Mapping):
+            continue
+        profile_doc = dict(profile)
+        tokenizer = dict(resolve_tokenizer(profile_doc))
+        profile_rows[str(name)] = ai_runtime_contracts.token_accounting_profile_entry(str(name), profile_doc, tokenizer)
+    data = ai_runtime_contracts.token_accounting_profiles_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        root=root,
+        profile_rows=profile_rows,
+    )
+    _write_latest_history_with_error_status(
+        data,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        daily_path=daily_path,
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
+    return data
+
+
+def token_accounting_latest_readmodel(
+    *,
+    latest_path: Path,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    read_json: JsonReadPort,
+) -> dict[str, Any]:
+    data, error = read_json(latest_path)
+    if data is None:
+        return {
+            "schema": f"{schema_prefix}_ai_token_accounting_latest_read_v1",
+            "version": version,
+            "generated_at": now_iso(),
+            "ok": False,
+            "path": str(latest_path),
+            "error": error or "missing",
+        }
+    if not isinstance(data, Mapping):
+        return {
+            "schema": f"{schema_prefix}_ai_token_accounting_latest_read_v1",
+            "version": version,
+            "generated_at": now_iso(),
+            "ok": False,
+            "path": str(latest_path),
+            "error": "invalid_latest_json",
+        }
+    result = dict(data)
+    result["read_at"] = now_iso()
+    return result
+
+
+def token_accounting_count_text_readmodel(
+    *,
+    profile_name: str,
+    text: str,
+    profiles_payload: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+    timeout: float,
+    environ: Mapping[str, str],
+    count_subprocess: TokenCountSubprocessPort | None = None,
+) -> dict[str, Any]:
+    profiles = profiles_payload.get("profiles") if isinstance(profiles_payload.get("profiles"), Mapping) else {}
+    profile = profiles.get(profile_name)
+    generated_at = now_iso()
+    if not isinstance(profile, Mapping):
+        return ai_runtime_contracts.token_accounting_count_error_result(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+            profile_name=profile_name,
+            error="profile_not_found",
+            known_profiles=sorted(str(name) for name in profiles),
+        )
+    profile_doc = dict(profile)
+    if not profile_doc.get("exact_supported"):
+        return ai_runtime_contracts.token_accounting_count_error_result(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+            profile_name=profile_name,
+            error="exact_tokenizer_not_ready",
+            profile_status=profile_doc,
+        )
+
+    runner = count_subprocess or token_accounting_count_subprocess
+    execution = dict(runner(profile=profile_doc, text=text, timeout=timeout, environ=environ))
+    outcome = dict(execution["outcome"])
+    data = ai_runtime_contracts.token_accounting_count_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        profile_name=profile_name,
+        profile=profile_doc,
+        input_bytes=execution["input_bytes"],
+        elapsed_sec=execution["elapsed_sec"],
+        total_tokens=outcome["total_tokens"],
+        ok=bool(outcome["ok"]),
+        error=outcome["error"],
+        returncode=outcome["returncode"],
+        stderr=outcome["stderr"],
+    )
+    _write_latest_history_with_error_status(
+        data,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        daily_path=daily_path,
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
+    return data
 
 
 def python_runtime_versions(

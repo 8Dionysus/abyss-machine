@@ -50,7 +50,8 @@ command/timeout/subprocess execution, benchmark/eval suite orchestration,
 whole-command resource before/after sampling, latest/daily JSONL write routing,
 workload-measurement callback routing, workload run JSONL discovery/read/dedupe
 append, refresh-from-latest source gating, and workload taxonomy/stats/refresh/
-status write routing through fakeable ports.
+status write routing, plus token-accounting contract/profiles/latest/count
+store/readmodel routing through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
@@ -59,8 +60,8 @@ BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Core devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and store routing also live in
 `ai_runtime_adapters`. Remaining AI runtime adapters should focus on broader
-resource-sampling evidence, token-accounting latest/write routing, and any
-still-proven resident parser/readmodel orchestration. Keep model weights, benchmark outputs, and
+resource-sampling evidence and any still-proven resident parser/readmodel
+orchestration. Keep model weights, benchmark outputs, and
 generated runtime state outside Git; only plans, contracts, and bounded
 summaries belong in the public seed.
 
@@ -105,14 +106,21 @@ summaries belong in the public seed.
   writes, and runtime/report daily history appends through fakeable reader,
   writer, path, clock, and input ports. CLI still owns concrete live input
   collection, policy-gate binding, `.aoa` generated-summary reads,
-  token-accounting profile/count/latest routing, resident parser/rendering,
-  command dispatch, and rendering.
+  token-accounting live text/env binding, resident parser/rendering, command
+  dispatch, and rendering.
 - Extracted token-accounting tokenizer runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns exact-count tokenizer
   subprocess command/env/timeout/timing execution through fakeable runner and
   clock ports while `ai_runtime_contracts` keeps count privacy/result shapes.
   CLI still owns profile selection, generated-at binding, latest/history
   writes, and rendering.
+- Extracted token-accounting store/readmodel routing into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns contract/profile/latest
+  readmodel assembly, count-text document assembly, and latest/history write
+  routing through fakeable registry, tokenizer resolver, reader, writer, path,
+  subprocess, environment, and clock ports. CLI still owns concrete registry,
+  env/text input binding, `.aoa` generated-summary reads, command dispatch, and
+  rendering.
 - Extracted resident LLM controller runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns
   `abyss-gemma4-spark-resident` command construction, timeout routing,

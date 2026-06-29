@@ -823,6 +823,117 @@ def test_token_accounting_count_subprocess_reports_timeout_without_stdout() -> N
     }
 
 
+def test_token_accounting_store_readmodels_route_writes_and_count(tmp_path: Path) -> None:
+    latest_contract = tmp_path / "token-accounting" / "latest.json"
+    latest_profiles = tmp_path / "token-accounting" / "profiles" / "latest.json"
+    latest_counts = tmp_path / "token-accounting" / "counts" / "latest.json"
+    daily_profiles = tmp_path / "token-accounting" / "profiles" / "2026-06-29.jsonl"
+    daily_counts = tmp_path / "token-accounting" / "counts" / "2026-06-29.jsonl"
+    writes: list[dict[str, Any]] = []
+    appends: list[dict[str, Any]] = []
+
+    def fake_write(path: Path, data: dict[str, Any], mode: int) -> None:
+        writes.append({"path": path, "schema": data.get("schema"), "mode": mode})
+        return None
+
+    def fake_append(path: Path, data: dict[str, Any], mode: int) -> None:
+        appends.append({"path": path, "schema": data.get("schema"), "mode": mode})
+        return None
+
+    registry = {
+        "profiles": {
+            "gemma4.spark": {
+                "local_exists": True,
+                "local_path": "/models/gemma.gguf",
+                "model_id": "fixture-model",
+                "backend": "llama.cpp",
+                "runtime": {"configured_version": "fixture"},
+            }
+        }
+    }
+    tokenizer = {
+        "tokenizer_path": "/runtime/llama-tokenize",
+        "tokenizer_exists": True,
+        "candidate_paths": ["/runtime/llama-tokenize"],
+        "library_paths": [],
+    }
+    contract = ai_runtime_adapters.token_accounting_contract_readmodel(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        root=tmp_path / "token-accounting",
+        latest_path=latest_contract,
+        profiles_latest_path=latest_profiles,
+        counts_latest_path=latest_counts,
+        write_latest=True,
+        write_json=fake_write,
+    )
+    profiles = ai_runtime_adapters.token_accounting_profiles_readmodel(
+        registry=registry,
+        resolve_tokenizer=lambda profile: tokenizer,
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        root=tmp_path / "token-accounting",
+        write_latest=True,
+        latest_path=latest_profiles,
+        daily_path=lambda: daily_profiles,
+        write_json=fake_write,
+        append_jsonl=fake_append,
+    )
+    latest = ai_runtime_adapters.token_accounting_latest_readmodel(
+        latest_path=latest_counts,
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        read_json=lambda path: ({"schema": "existing", "ok": True, "path": str(path)}, None),
+    )
+    count = ai_runtime_adapters.token_accounting_count_text_readmodel(
+        profile_name="gemma4.spark",
+        text="SECRET_PROMPT_TEXT",
+        profiles_payload=profiles,
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        write_latest=True,
+        latest_path=latest_counts,
+        daily_path=lambda: daily_counts,
+        write_json=fake_write,
+        append_jsonl=fake_append,
+        timeout=12.5,
+        environ={"KEEP": "1"},
+        count_subprocess=lambda **kwargs: {
+            "elapsed_sec": 0.25,
+            "input_bytes": kwargs["text"].encode("utf-8", errors="replace"),
+            "outcome": {
+                "ok": True,
+                "total_tokens": 7,
+                "error": None,
+                "returncode": 0,
+                "stderr": "diagnostic",
+            },
+        },
+    )
+
+    assert contract["schema"] == "abyss_machine_ai_token_accounting_contract_v1"
+    assert profiles["summary"] == {"profiles": 1, "exact_ready_profiles": 1, "unknown_profiles": 0}
+    assert latest["read_at"] == STAMP
+    assert count["schema"] == "abyss_machine_ai_token_accounting_count_v1"
+    assert count["ok"] is True
+    assert count["input_bytes"] == len(b"SECRET_PROMPT_TEXT")
+    assert count["token_accounting"]["total_tokens"] == 7
+    assert "SECRET_PROMPT_TEXT" not in str(count)
+    assert writes == [
+        {"path": latest_contract, "schema": "abyss_machine_ai_token_accounting_contract_v1", "mode": 0o664},
+        {"path": latest_profiles, "schema": "abyss_machine_ai_token_accounting_profiles_v1", "mode": 0o664},
+        {"path": latest_counts, "schema": "abyss_machine_ai_token_accounting_count_v1", "mode": 0o664},
+    ]
+    assert appends == [
+        {"path": daily_profiles, "schema": "abyss_machine_ai_token_accounting_profiles_v1", "mode": 0o664},
+        {"path": daily_counts, "schema": "abyss_machine_ai_token_accounting_count_v1", "mode": 0o664},
+    ]
+
+
 def test_python_runtime_and_kernel_module_probes_use_ports() -> None:
     def fake_run(command: list[str], **kwargs: Any) -> dict[str, Any]:
         if command[:2] == ["/runtime/python", "-c"]:
