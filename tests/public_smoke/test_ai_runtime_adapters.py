@@ -853,23 +853,175 @@ def test_python_runtime_and_kernel_module_probes_use_ports() -> None:
     assert modules["modinfo"]["xe"]["ok"] is False
 
 
+def test_core_readmodel_store_adapters_route_writes(tmp_path: Path) -> None:
+    writes: list[tuple[Path, str, int]] = []
+    appends: list[tuple[Path, str, int]] = []
+
+    def write_json(path: Path, data: dict[str, Any], mode: int) -> None:
+        writes.append((path, data["schema"], mode))
+        return None
+
+    def append_jsonl(path: Path, data: dict[str, Any], mode: int) -> None:
+        appends.append((path, data["schema"], mode))
+        return None
+
+    policy = ai_runtime_adapters.policy_readmodel(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        config={},
+        telemetry_age_sec=1,
+        battery={"ac_online": True, "capacity_percent": 90},
+        mode={"effective_mode": "performance", "selected_mode": "performance", "actual_power_profile": "performance"},
+        thermal={"current_temperature_c": 40.0, "trend": "stable"},
+        cpu_thermal_map={"ok": True, "available_by_role": {"p_cores": [0]}, "summary": {}},
+        observability_latest_path="/var/lib/abyss-machine/observability/thermal-battery/latest.json",
+        cpu_thermal_map_latest_path="/var/lib/abyss-machine/ai/cpu/thermal-map/latest.json",
+        write_latest=True,
+        latest_path=tmp_path / "policy.json",
+        write_json=write_json,
+    )
+    runtime = ai_runtime_adapters.runtime_snapshot_readmodel(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        kernel="test-kernel",
+        os_release={"NAME": "TestOS"},
+        devices={
+            "openvino": {"ok": True, "openvino_version": "fixture", "available_devices": ["CPU"]},
+            "npu_user_driver": {"exists": False},
+            "packages": {},
+        },
+        python_runtime={"packages": {"openvino": "fixture"}},
+        kernel_modules={},
+        previous_latest={"current": {"kernel": "old-kernel"}},
+        write_latest=True,
+        latest_path=tmp_path / "runtime.json",
+        daily_path=lambda: tmp_path / "runtime.jsonl",
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
+    status = ai_runtime_adapters.status_readmodel(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        paths={"schema": "abyss_machine_ai_paths_v1"},
+        config_path=tmp_path / "config.json",
+        config_exists=True,
+        config_load_error=None,
+        devices={"ready": {"openvino": True, "gpu": False, "npu": False}},
+        models={"summary": {"entries": 1}, "roots": []},
+        llm_registry={"summary": {"ready_profiles": 1}, "profiles": {}},
+        latest_benchmark={"ok": True},
+        latest_eval={"ok": True},
+        latest_tts_eval={},
+        latest_tts_success={},
+        tts_profiles={"summary": {}},
+        tts_server={"ok": False},
+        dictation={"profiles": {}, "server_socket_exists": False},
+        cpu_route_latest={},
+        cpu_thermal_latest={},
+        cooling_latest={},
+        refs={"AI_REPORT_LATEST_PATH": str(tmp_path / "report.json")},
+        include_report=True,
+        report_latest_path=tmp_path / "report.json",
+        report_exists=False,
+    )
+    report = ai_runtime_adapters.report_readmodel(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        paths={"schema": "abyss_machine_ai_paths_v1"},
+        status_data=status,
+        capabilities={"ok": True, "capabilities": {"npu": {"status": "ready"}}},
+        policy=policy,
+        runtime=runtime,
+        storage={"summary": {}},
+        llm_registry={"summary": {}},
+        llm_validate={"ok": True},
+        token_accounting_profiles={"summary": {}},
+        aoa_token_summary={"summary": {}},
+        latest_eval={"ok": True},
+        latest_benchmark={"ok": True},
+        latest_tts_eval={},
+        latest_tts_success={},
+        tts_profiles={},
+        tts_server={"ok": False},
+        workload={"summary": {}},
+        cpu_route_latest={},
+        cpu_thermal_latest={},
+        cooling_latest={},
+        observability={},
+        dictation={},
+        refs={},
+        write_latest=True,
+        latest_path=tmp_path / "report.json",
+        daily_path=lambda: tmp_path / "report.jsonl",
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
+
+    assert policy["schema"] == "abyss_machine_ai_policy_v1"
+    assert runtime["schema"] == "abyss_machine_ai_runtime_v1"
+    assert status["schema"] == "abyss_machine_ai_status_v1"
+    assert report["schema"] == "abyss_machine_ai_report_v1"
+    assert writes == [
+        (tmp_path / "policy.json", "abyss_machine_ai_policy_v1", 0o664),
+        (tmp_path / "runtime.json", "abyss_machine_ai_runtime_v1", 0o664),
+        (tmp_path / "report.json", "abyss_machine_ai_report_v1", 0o664),
+    ]
+    assert appends == [
+        (tmp_path / "runtime.jsonl", "abyss_machine_ai_runtime_v1", 0o664),
+        (tmp_path / "report.jsonl", "abyss_machine_ai_report_v1", 0o664),
+    ]
+
+
+def test_resident_latest_readmodels_use_fake_reader(tmp_path: Path) -> None:
+    paths = {
+        "status_path": tmp_path / "status.json",
+        "digest_path": tmp_path / "digest.json",
+        "micro_path": tmp_path / "micro.json",
+        "jobs_path": tmp_path / "jobs.json",
+    }
+    payloads = {
+        paths["status_path"]: {"ok": True, "status": "running"},
+        paths["digest_path"]: [],
+        paths["micro_path"]: {"ok": True, "summary": {"ticks": 1}},
+        paths["jobs_path"]: {"ok": True, "summary": {"jobs": 2}},
+    }
+
+    result = ai_runtime_adapters.resident_latest_readmodels(
+        **paths,
+        read_json=lambda path: (payloads[path], None),
+    )
+
+    assert result == {
+        "status": {"ok": True, "status": "running"},
+        "digest": {},
+        "micro": {"ok": True, "summary": {"ticks": 1}},
+        "jobs": {"ok": True, "summary": {"jobs": 2}},
+    }
+
+
 def test_cli_model_inventory_wrapper_binds_adapter_without_writing(monkeypatch) -> None:
     from abyss_machine import cli
 
     calls: dict[str, Any] = {}
 
-    def fake_models_inventory(**kwargs: Any) -> dict[str, Any]:
+    def fake_models_inventory_readmodel(**kwargs: Any) -> dict[str, Any]:
         calls.update(kwargs)
         return {"ok": True, "summary": {"entries": 0}}
 
     monkeypatch.setattr(cli, "ai_config", lambda: {"model_roots": []})
     monkeypatch.setattr(cli, "now_iso", lambda: STAMP)
-    monkeypatch.setattr(cli.ai_runtime_adapters, "models_inventory", fake_models_inventory)
+    monkeypatch.setattr(cli.ai_runtime_adapters, "models_inventory_readmodel", fake_models_inventory_readmodel)
 
     assert cli.ai_models_inventory(write_latest=False) == {"ok": True, "summary": {"entries": 0}}
     assert calls["config"] == {"model_roots": []}
     assert calls["schema_prefix"] == cli.SCHEMA_PREFIX
-    assert calls["generated_at"] == STAMP
+    assert calls["now_iso"] is cli.now_iso
+    assert calls["write_latest"] is False
+    assert calls["latest_path"] == cli.AI_MODELS_LATEST_PATH
 
 
 def test_cli_openvino_runner_wrappers_bind_adapter_ports(monkeypatch, tmp_path: Path) -> None:

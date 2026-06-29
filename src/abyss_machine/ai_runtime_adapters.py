@@ -35,6 +35,7 @@ WorkloadUpdatePort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 WorkloadAppendPort = Callable[[list[dict[str, Any]], bool], Mapping[str, Any]]
 WorkloadExtractPort = Callable[[dict[str, Any]], list[dict[str, Any]]]
 NoArgMappingPort = Callable[[], Mapping[str, Any]]
+JsonReadPort = Callable[[Path], tuple[Any, str | None]]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -395,6 +396,371 @@ def run_eval_suite(
             data["write_errors"] = write_errors
         if workload_update is not None:
             data["workload_update"] = dict(workload_update(data))
+    return data
+
+
+def _write_latest_if_requested(
+    data: dict[str, Any],
+    *,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> None:
+    if not write_latest:
+        return
+    error = write_json(latest_path, data, 0o664)
+    if error:
+        data["write_error"] = error
+
+
+def _write_latest_history_if_requested(
+    data: dict[str, Any],
+    *,
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+) -> None:
+    if not write_latest:
+        return
+    latest_error = write_json(latest_path, data, 0o664)
+    daily_error = append_jsonl(daily_path(), data, 0o664)
+    errors = [error for error in (latest_error, daily_error) if error]
+    if errors:
+        data["write_errors"] = errors
+
+
+def devices_status_readmodel(
+    *,
+    device_nodes: Mapping[str, Any],
+    paths: Mapping[str, Any],
+    config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    run_command: RunPort,
+    command_exists: CommandExistsPort,
+    which: WhichPort,
+    user_systemd_unit: SystemdUnitPort,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+    path_exists: PathExistsPort | None = None,
+    npu_driver_root: Path = Path("/opt/intel/linux-npu-driver"),
+) -> dict[str, Any]:
+    data = devices_status(
+        device_nodes=device_nodes,
+        paths=paths,
+        config=config,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        run_command=run_command,
+        command_exists=command_exists,
+        which=which,
+        user_systemd_unit=user_systemd_unit,
+        path_exists=path_exists,
+        npu_driver_root=npu_driver_root,
+    )
+    _write_latest_if_requested(data, write_latest=write_latest, latest_path=latest_path, write_json=write_json)
+    return data
+
+
+def models_inventory_readmodel(
+    *,
+    config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    data = models_inventory(
+        config=config,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+    )
+    _write_latest_if_requested(data, write_latest=write_latest, latest_path=latest_path, write_json=write_json)
+    return data
+
+
+def resident_latest_readmodels(
+    *,
+    status_path: Path,
+    digest_path: Path,
+    micro_path: Path,
+    jobs_path: Path,
+    read_json: JsonReadPort,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for key, path in (
+        ("status", status_path),
+        ("digest", digest_path),
+        ("micro", micro_path),
+        ("jobs", jobs_path),
+    ):
+        data, _error = read_json(path)
+        result[key] = data if isinstance(data, dict) else {}
+    return result
+
+
+def capabilities_readmodel(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    devices: Mapping[str, Any],
+    models: Mapping[str, Any],
+    dictation: Mapping[str, Any],
+    tts_profiles: Mapping[str, Any],
+    latest_tts_eval: Mapping[str, Any],
+    latest_tts_success: Mapping[str, Any],
+    llm_registry: Mapping[str, Any],
+    llm_resident_status: Mapping[str, Any],
+    llm_resident_digest: Mapping[str, Any],
+    llm_resident_micro: Mapping[str, Any],
+    llm_resident_jobs: Mapping[str, Any],
+    refs: Mapping[str, Any],
+    resident_refs: Mapping[str, Any],
+    resident_job_names: list[str],
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    data = ai_runtime_contracts.ai_capabilities_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        devices=dict(devices),
+        models=dict(models),
+        dictation=dict(dictation),
+        tts_profiles=dict(tts_profiles),
+        latest_tts_eval=dict(latest_tts_eval),
+        latest_tts_success=dict(latest_tts_success),
+        llm_registry=dict(llm_registry),
+        llm_resident_status=dict(llm_resident_status),
+        llm_resident_digest=dict(llm_resident_digest),
+        llm_resident_micro=dict(llm_resident_micro),
+        llm_resident_jobs=dict(llm_resident_jobs),
+        refs=dict(refs),
+        resident_refs=dict(resident_refs),
+        resident_job_names=list(resident_job_names),
+    )
+    _write_latest_if_requested(data, write_latest=write_latest, latest_path=latest_path, write_json=write_json)
+    return data
+
+
+def policy_readmodel(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    config: Mapping[str, Any],
+    telemetry_age_sec: Any,
+    battery: Mapping[str, Any],
+    mode: Mapping[str, Any],
+    thermal: Mapping[str, Any],
+    cpu_thermal_map: Mapping[str, Any],
+    observability_latest_path: str,
+    cpu_thermal_map_latest_path: str,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    data = ai_runtime_contracts.ai_policy_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        config=dict(config),
+        telemetry_age_sec=telemetry_age_sec,
+        battery=dict(battery),
+        mode=dict(mode),
+        thermal=dict(thermal),
+        cpu_thermal_map=dict(cpu_thermal_map),
+        observability_latest_path=observability_latest_path,
+        cpu_thermal_map_latest_path=cpu_thermal_map_latest_path,
+    )
+    _write_latest_if_requested(data, write_latest=write_latest, latest_path=latest_path, write_json=write_json)
+    return data
+
+
+def runtime_snapshot_readmodel(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    kernel: str,
+    os_release: Mapping[str, Any],
+    devices: Mapping[str, Any],
+    python_runtime: Mapping[str, Any],
+    kernel_modules: Mapping[str, Any],
+    previous_latest: Mapping[str, Any] | None,
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+) -> dict[str, Any]:
+    device_data = dict(devices)
+    openvino = device_data.get("openvino") if isinstance(device_data.get("openvino"), dict) else {}
+    current = {
+        "kernel": kernel,
+        "os_release": dict(os_release),
+        "openvino_version": openvino.get("openvino_version"),
+        "available_devices": openvino.get("available_devices"),
+        "python_packages": dict(python_runtime).get("packages", {}),
+        "npu_user_driver": device_data.get("npu_user_driver", {}),
+        "packages": device_data.get("packages", {}),
+    }
+    data = ai_runtime_contracts.ai_runtime_snapshot_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        current=current,
+        devices=device_data,
+        python_runtime=dict(python_runtime),
+        kernel_modules=dict(kernel_modules),
+        previous_latest=dict(previous_latest) if isinstance(previous_latest, Mapping) else None,
+    )
+    _write_latest_history_if_requested(
+        data,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        daily_path=daily_path,
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
+    return data
+
+
+def status_readmodel(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    paths: Mapping[str, Any],
+    config_path: Path,
+    config_exists: bool,
+    config_load_error: Any,
+    devices: Mapping[str, Any],
+    models: Mapping[str, Any],
+    llm_registry: Mapping[str, Any],
+    latest_benchmark: Mapping[str, Any],
+    latest_eval: Mapping[str, Any],
+    latest_tts_eval: Mapping[str, Any],
+    latest_tts_success: Mapping[str, Any],
+    tts_profiles: Mapping[str, Any],
+    tts_server: Mapping[str, Any],
+    dictation: Mapping[str, Any],
+    cpu_route_latest: Mapping[str, Any],
+    cpu_thermal_latest: Mapping[str, Any],
+    cooling_latest: Mapping[str, Any],
+    refs: Mapping[str, Any],
+    include_report: bool,
+    report_latest_path: Path,
+    report_exists: bool,
+) -> dict[str, Any]:
+    return ai_runtime_contracts.ai_status_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        paths=dict(paths),
+        config_path=str(config_path),
+        config_exists=config_exists,
+        config_load_error=config_load_error,
+        devices=dict(devices),
+        models=dict(models),
+        llm_registry=dict(llm_registry),
+        latest_benchmark=dict(latest_benchmark),
+        latest_eval=dict(latest_eval),
+        latest_tts_eval=dict(latest_tts_eval),
+        latest_tts_success=dict(latest_tts_success),
+        tts_profiles=dict(tts_profiles),
+        tts_server=dict(tts_server),
+        dictation=dict(dictation),
+        cpu_route_latest=dict(cpu_route_latest),
+        cpu_thermal_latest=dict(cpu_thermal_latest),
+        cooling_latest=dict(cooling_latest),
+        refs=dict(refs),
+        include_report=include_report,
+        report_latest_path=str(report_latest_path),
+        report_exists=report_exists,
+    )
+
+
+def report_readmodel(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    paths: Mapping[str, Any],
+    status_data: Mapping[str, Any],
+    capabilities: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    runtime: Mapping[str, Any],
+    storage: Mapping[str, Any],
+    llm_registry: Mapping[str, Any],
+    llm_validate: Mapping[str, Any],
+    token_accounting_profiles: Mapping[str, Any],
+    aoa_token_summary: Mapping[str, Any],
+    latest_eval: Mapping[str, Any],
+    latest_benchmark: Mapping[str, Any],
+    latest_tts_eval: Mapping[str, Any],
+    latest_tts_success: Mapping[str, Any],
+    tts_profiles: Mapping[str, Any],
+    tts_server: Mapping[str, Any],
+    workload: Mapping[str, Any],
+    cpu_route_latest: Mapping[str, Any],
+    cpu_thermal_latest: Mapping[str, Any],
+    cooling_latest: Mapping[str, Any],
+    observability: Mapping[str, Any],
+    dictation: Mapping[str, Any],
+    refs: Mapping[str, Any],
+    write_latest: bool,
+    latest_path: Path,
+    daily_path: DailyPathPort,
+    write_json: JsonWritePort,
+    append_jsonl: JsonlAppendPort,
+) -> dict[str, Any]:
+    data = ai_runtime_contracts.ai_report_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=now_iso(),
+        paths=dict(paths),
+        status_data=dict(status_data),
+        capabilities=dict(capabilities),
+        policy=dict(policy),
+        runtime=dict(runtime),
+        storage=dict(storage),
+        llm_registry=dict(llm_registry),
+        llm_validate=dict(llm_validate),
+        token_accounting_profiles=dict(token_accounting_profiles),
+        aoa_token_summary=dict(aoa_token_summary),
+        latest_eval=dict(latest_eval),
+        latest_benchmark=dict(latest_benchmark),
+        latest_tts_eval=dict(latest_tts_eval),
+        latest_tts_success=dict(latest_tts_success),
+        tts_profiles=dict(tts_profiles),
+        tts_server=dict(tts_server),
+        workload=dict(workload),
+        cpu_route_latest=dict(cpu_route_latest),
+        cpu_thermal_latest=dict(cpu_thermal_latest),
+        cooling_latest=dict(cooling_latest),
+        observability=dict(observability),
+        dictation=dict(dictation),
+        refs=dict(refs),
+    )
+    _write_latest_history_if_requested(
+        data,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        daily_path=daily_path,
+        write_json=write_json,
+        append_jsonl=append_jsonl,
+    )
     return data
 
 
