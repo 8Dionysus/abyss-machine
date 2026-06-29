@@ -14,6 +14,22 @@ CommandRunnerPort = Callable[[Sequence[str], float], dict[str, Any]]
 GameModeStatusPort = Callable[[], dict[str, Any]]
 GameGuardPort = Callable[[], dict[str, Any]]
 WriteJsonDocument = Callable[[Path, dict[str, Any], int], None]
+BatterySummaryPort = Callable[[], dict[str, Any]]
+PowerProfilePort = Callable[[], str | None]
+TargetProfilePort = Callable[[str, bool], tuple[str, str, str | None]]
+ProfilePolicyPort = Callable[[str], dict[str, Any]]
+CurrentModePort = Callable[[str | None], str | None]
+ExternalProfileGuardPort = Callable[[str | None, str | None], dict[str, Any]]
+CoolingRecommendPort = Callable[[], dict[str, Any]]
+CoolingProfileTargetsPort = Callable[[str], tuple[str, dict[str, Any], Any]]
+ThermalClassPort = Callable[[dict[str, Any]], str]
+CpuThermalMapPort = Callable[[bool], dict[str, Any]]
+CpuRoutedHeavyPort = Callable[..., dict[str, Any]]
+LoadJsonDocumentPort = Callable[[Path], tuple[Any, Any]]
+PathExistsPort = Callable[[Path], bool]
+AiDevicesPort = Callable[[], dict[str, Any]]
+SensorsSummaryPort = Callable[[], dict[str, Any]]
+ModePlanPort = Callable[[], dict[str, Any]]
 
 
 def tool_available(command: str) -> bool:
@@ -40,6 +56,166 @@ def run_tool_process(command: Sequence[str], timeout: float) -> dict[str, Any]:
         return {"ok": False, "returncode": 124, "stdout": "", "stderr": "timeout"}
     except OSError as exc:
         return {"ok": False, "returncode": 127, "stdout": "", "stderr": str(exc)}
+
+
+def nested_get(data: Any, path: Sequence[str]) -> Any:
+    current = data
+    for item in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(item)
+    return current
+
+
+def latest_json_summary(
+    path: Path,
+    *,
+    load_json_document: LoadJsonDocumentPort,
+    path_exists: PathExistsPort = lambda path: path.exists(),
+    kind: str,
+) -> dict[str, Any]:
+    data, error = load_json_document(path)
+    summary: Any = None
+    if isinstance(data, dict):
+        if kind == "memory_plan":
+            summary = {
+                "class": data.get("class"),
+                "reasons": data.get("reasons"),
+                "recommended_new_work": data.get("recommended_new_work"),
+            }
+        else:
+            summary = data.get("summary")
+    return {
+        "path": str(path),
+        "exists": path_exists(path),
+        "load_error": error,
+        "summary": summary,
+    }
+
+
+def collect_plan_inputs(
+    *,
+    state: dict[str, Any],
+    battery_summary: BatterySummaryPort,
+    target_profile: TargetProfilePort,
+    profile_policy: ProfilePolicyPort,
+    power_profile: PowerProfilePort,
+    current_mode_from_power_profile: CurrentModePort,
+    external_profile_guard: ExternalProfileGuardPort,
+    cooling_recommend: CoolingRecommendPort,
+    cooling_profile_targets: CoolingProfileTargetsPort,
+    thermal_class_from_summary: ThermalClassPort,
+    cpu_thermal_map: CpuThermalMapPort,
+    cpu_routed_heavy_policy: CpuRoutedHeavyPort,
+    load_json_document: LoadJsonDocumentPort,
+    storage_pressure_path: Path,
+    memory_plan_path: Path,
+    process_latest_path: Path,
+    path_exists: PathExistsPort = lambda path: path.exists(),
+    write_latest: bool = True,
+) -> dict[str, Any]:
+    battery = battery_summary()
+    ac_online = bool(battery.get("ac_online"))
+    selected = str(state.get("selected_mode", "balanced"))
+    effective, target_profile_name, degraded_reason = target_profile(selected, ac_online)
+    profile = profile_policy(effective)
+    current_profile = power_profile()
+    current_mode = current_mode_from_power_profile(current_profile)
+    guard = external_profile_guard(current_profile, target_profile_name)
+    cooling = cooling_recommend()
+    cooling_profile = str(cooling.get("recommended_profile") or profile.get("cooling_profile") or effective)
+    cooling_normalized, cooling_target, _ = cooling_profile_targets(cooling_profile)
+    temperature = cooling.get("temperature", {}) if isinstance(cooling.get("temperature"), dict) else {}
+    thermal_class = thermal_class_from_summary(
+        {
+            "class": temperature.get("class") or nested_get(temperature, ["cpu_hotspot", "class"]),
+            "temperature_c_max": temperature.get("temperature_c_max"),
+        }
+    )
+    cpu_map = cpu_thermal_map(write_latest)
+    cpu_routed_heavy = cpu_routed_heavy_policy(
+        cpu_map,
+        thermal_class,
+        effective,
+        ac_online,
+        capacity_percent=battery.get("capacity_percent"),
+        trend=str(nested_get(temperature, ["cpu_hotspot", "trend"]) or "unknown"),
+    )
+    return {
+        "state": state,
+        "battery": battery,
+        "ac_online": ac_online,
+        "selected": selected,
+        "effective": effective,
+        "target_profile_name": target_profile_name,
+        "degraded_reason": degraded_reason,
+        "profile": profile,
+        "current_profile": current_profile,
+        "current_mode": current_mode,
+        "external_profile_guard": guard,
+        "cooling": cooling,
+        "cooling_normalized": cooling_normalized,
+        "cooling_target": cooling_target,
+        "temperature": temperature,
+        "thermal_class": thermal_class,
+        "cpu_thermal_map": cpu_map,
+        "cpu_routed_heavy": cpu_routed_heavy,
+        "storage_pressure_latest": latest_json_summary(
+            storage_pressure_path,
+            load_json_document=load_json_document,
+            path_exists=path_exists,
+            kind="storage_pressure",
+        ),
+        "memory_plan_latest": latest_json_summary(
+            memory_plan_path,
+            load_json_document=load_json_document,
+            path_exists=path_exists,
+            kind="memory_plan",
+        ),
+        "process_latest": latest_json_summary(
+            process_latest_path,
+            load_json_document=load_json_document,
+            path_exists=path_exists,
+            kind="process_latest",
+        ),
+    }
+
+
+def collect_status_inputs(
+    *,
+    state: dict[str, Any],
+    battery_summary: BatterySummaryPort,
+    target_profile: TargetProfilePort,
+    power_profile: PowerProfilePort,
+    external_profile_guard: ExternalProfileGuardPort,
+    ai_devices: AiDevicesPort,
+    sensors_summary: SensorsSummaryPort,
+    mode_plan: ModePlanPort,
+) -> dict[str, Any]:
+    battery = battery_summary()
+    ac_online = bool(battery.get("ac_online"))
+    selected = str(state.get("selected_mode", "balanced"))
+    effective, target_profile_name, degraded_reason = target_profile(selected, ac_online)
+    current_profile = power_profile()
+    guard = external_profile_guard(current_profile, target_profile_name)
+    ai = ai_devices()
+    sensors = sensors_summary()
+    ai_ready = bool(ai.get("dev_dri_present") and ai.get("dev_accel_present") and ai.get("openvino_venv_exists"))
+    return {
+        "state": state,
+        "battery": battery,
+        "ac_online": ac_online,
+        "selected": selected,
+        "effective": effective,
+        "target_profile_name": target_profile_name,
+        "degraded_reason": degraded_reason,
+        "current_profile": current_profile,
+        "external_profile_guard": guard,
+        "ai": ai,
+        "sensors": sensors,
+        "ai_ready": ai_ready,
+        "plan": mode_plan(),
+    }
 
 
 def default_state(
