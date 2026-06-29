@@ -403,6 +403,7 @@ def test_cli_openvino_runner_wrappers_bind_adapter_ports(monkeypatch, tmp_path: 
     monkeypatch.setattr(cli, "ai_config", lambda: config)
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/which/python" if name == "abyss-openvino-python" else None)
     monkeypatch.setattr(cli, "ai_subprocess_env", lambda extra=None: {"ENV": "1"})
+    monkeypatch.setattr(cli, "ai_openvino_cache_dir", lambda label="general": tmp_path / "cache" / str(label))
     monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_smoke_device", fake_smoke)
     monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_embedding_eval", fake_embedding)
     monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_text_eval", fake_text)
