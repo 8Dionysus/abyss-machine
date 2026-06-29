@@ -2176,6 +2176,126 @@ def test_llm_latest_and_validate_readmodels_use_fake_store_ports(tmp_path: Path)
     assert writes == [(validate_path, "abyss_machine_ai_llm_validate_v1", 0o664)]
 
 
+def test_llm_validate_live_input_collection_uses_fake_ports(tmp_path: Path) -> None:
+    writes: list[tuple[Path, str, int]] = []
+    events: list[tuple[str, Any]] = []
+    registry_doc = {
+        "schema": "abyss_machine_ai_llm_registry_v1",
+        "ok": True,
+        "runtime": {"ok": True, "backend": "llama.cpp"},
+        "summary": {"ready_profiles": 1},
+        "profiles": {
+            "gemma4.spark": {
+                "status": "ready",
+                "local_exists": True,
+                "local_path": "/srv/abyss-machine/cache/ai/gemma-e2b.gguf",
+                "storage": {"under_host_cache": True, "protection": {"decision": "allow"}},
+            }
+        },
+    }
+    config = {
+        "families": {
+            "gemma4": {
+                "profiles": {
+                    "spark": {"local_path": "/srv/abyss-machine/cache/ai/gemma-e2b.gguf"}
+                }
+            }
+        }
+    }
+
+    def path_check(checks: list[dict[str, Any]], key: str, path: Path, kind: str, required: bool) -> None:
+        events.append(("path", key, str(path), kind, required))
+        checks.append({"level": "ok", "key": key, "message": "path ok", "details": {"path": str(path), "kind": kind}})
+
+    def json_check(checks: list[dict[str, Any]], key: str, path: Path, expected_schema: str | None, required: bool) -> None:
+        events.append(("json", key, str(path), expected_schema, required))
+        checks.append({"level": "ok", "key": key, "message": "json ok", "details": {"path": str(path), "schema": expected_schema}})
+
+    def registry(**kwargs: Any) -> dict[str, Any]:
+        events.append(("registry", kwargs))
+        return registry_doc
+
+    def token_profiles(**kwargs: Any) -> dict[str, Any]:
+        events.append(("token_profiles", kwargs))
+        assert kwargs["registry"] is registry_doc
+        return {"summary": {"exact_ready_profiles": 1}}
+
+    def write_json(path: Path, data: dict[str, Any], mode: int) -> None:
+        writes.append((path, data["schema"], mode))
+        return None
+
+    result = ai_runtime_adapters.llm_validate_readmodel_from_live_inputs(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        config=config,
+        registry=registry,
+        token_profiles=token_profiles,
+        paths=lambda: {"schema": "abyss_machine_ai_llm_paths_v1", "root": "/var/lib/abyss-machine/ai/llm"},
+        protected_roots=["/srv/AbyssOS/abyss-stack", "/work"],
+        llm_root=tmp_path / "llm",
+        llm_agents_path=tmp_path / "llm" / "AGENTS.md",
+        workhorse_controller=tmp_path / "tools" / "workhorse",
+        ai_config_path=tmp_path / "config" / "ai.json",
+        path_check=path_check,
+        json_file_check=json_check,
+        write_latest=True,
+        latest_path=tmp_path / "validate.json",
+        write_json=write_json,
+    )
+
+    assert result["schema"] == "abyss_machine_ai_llm_validate_v1"
+    assert result["ok"] is True
+    assert result["summary"] == {"fails": 0, "warnings": 0, "checks": 10, "profiles": 1, "ready_profiles": 1}
+    assert [item["key"] for item in result["checks"][:4]] == [
+        "dir:llm_root",
+        "doc:llm_agents",
+        "tool:workhorse_harness",
+        "json:ai_config",
+    ]
+    assert events[:6] == [
+        ("path", "dir:llm_root", str(tmp_path / "llm"), "dir", True),
+        ("path", "doc:llm_agents", str(tmp_path / "llm" / "AGENTS.md"), "file", True),
+        ("path", "tool:workhorse_harness", str(tmp_path / "tools" / "workhorse"), "file", True),
+        ("json", "json:ai_config", str(tmp_path / "config" / "ai.json"), "abyss_machine_ai_config_v1", True),
+        ("registry", {"write_latest": False}),
+        ("token_profiles", {"write_latest": False, "registry": registry_doc}),
+    ]
+    assert writes == [(tmp_path / "validate.json", "abyss_machine_ai_llm_validate_v1", 0o664)]
+
+
+def test_cli_ai_llm_validate_delegates_live_input_collection_to_runtime_adapter(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+
+    def fake_validate_from_live_inputs(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"schema": "fixture_llm_validate", "ok": True}
+
+    monkeypatch.setattr(cli, "ai_llm_config", lambda: {"families": {}})
+    monkeypatch.setattr(cli.ai_runtime_adapters, "llm_validate_readmodel_from_live_inputs", fake_validate_from_live_inputs)
+
+    assert cli.ai_llm_validate(write_latest=False) == {"schema": "fixture_llm_validate", "ok": True}
+    assert calls["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert calls["version"] == cli.VERSION
+    assert calls["now_iso"] is cli.now_iso
+    assert calls["config"] == {"families": {}}
+    assert calls["registry"] is cli.ai_llm_registry
+    assert calls["token_profiles"] is cli.ai_token_accounting_profiles
+    assert calls["paths"] is cli.ai_llm_paths
+    assert calls["protected_roots"] == [*cli.ABYSS_STACK_READONLY_ROOTS, "/work"]
+    assert calls["llm_root"] == cli.AI_LLM_ROOT
+    assert calls["llm_agents_path"] == cli.AI_LLM_ROOT / "AGENTS.md"
+    assert calls["workhorse_controller"] == cli.AI_LLM_WORKHORSE_CONTROLLER
+    assert calls["ai_config_path"] == cli.AI_CONFIG_PATH
+    assert calls["path_check"] is cli.validation_add_path_exists
+    assert calls["json_file_check"] is cli.validation_json_file
+    assert calls["write_latest"] is False
+    assert calls["latest_path"] == cli.AI_LLM_VALIDATE_LATEST_PATH
+    assert calls["write_json"] is cli.safe_atomic_write_json
+
+
 def test_cli_model_inventory_wrapper_binds_adapter_without_writing(monkeypatch) -> None:
     from abyss_machine import cli
 

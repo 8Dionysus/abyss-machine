@@ -58,7 +58,8 @@ resource before/after sampling, STT synthetic fixture directory/path setup,
 latest/daily JSONL write routing, workload-measurement callback routing,
 workload run JSONL discovery/read/dedupe append, refresh-from-latest source
 gating, and workload taxonomy/stats/refresh/status write routing, LLM
-registry/latest/validate store/readmodel routing, plus token-accounting
+registry/latest/validate store/readmodel routing plus validate input collection
+through fakeable path/JSON/registry/token/path ports, plus token-accounting
 contract/profiles/latest/count store/readmodel routing and `.aoa`
 generated-summary session-registry/manifest/index reads plus latest/history
 write routing, capabilities input collection through fakeable devices/models/
@@ -149,6 +150,12 @@ only plans, contracts, and bounded summaries belong in the public seed.
   profile, token-profile, reader, writer, path, and clock ports. CLI still owns
   concrete config/path binding, path validation input collection, command
   dispatch, and rendering.
+- Extracted LLM validate input collection into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns live path/JSON check
+  selection, registry/token-profile callback routing, paths callback routing,
+  validate document assembly, and latest writes through fakeable ports. CLI
+  still owns concrete constants, callback binding, command dispatch, and
+  rendering.
 - Extracted resident LLM controller runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns
   `abyss-gemma4-spark-resident` command construction, timeout routing,

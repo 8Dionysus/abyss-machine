@@ -52,6 +52,8 @@ LLMProfileStatusPort = Callable[[str, str, Mapping[str, Any], Mapping[str, Any]]
 SttTranscribePort = Callable[[str, str], Mapping[str, Any]]
 ThermalPolicySnapshotPort = Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]]
 CpuThermalMapPort = Callable[..., Mapping[str, Any]]
+ValidationPathCheckPort = Callable[[list[dict[str, Any]], str, Path, str, bool], Any]
+ValidationJsonFilePort = Callable[[list[dict[str, Any]], str, Path, str | None, bool], Any]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -1861,6 +1863,49 @@ def llm_validate_readmodel(
         write_json=write_json,
     )
     return data
+
+
+def llm_validate_readmodel_from_live_inputs(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    config: Mapping[str, Any],
+    registry: Callable[..., Mapping[str, Any]],
+    token_profiles: Callable[..., Mapping[str, Any]],
+    paths: NoArgMappingPort,
+    protected_roots: Iterable[str],
+    llm_root: Path,
+    llm_agents_path: Path,
+    workhorse_controller: Path,
+    ai_config_path: Path,
+    path_check: ValidationPathCheckPort,
+    json_file_check: ValidationJsonFilePort,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    path_check(checks, "dir:llm_root", llm_root, "dir", True)
+    path_check(checks, "doc:llm_agents", llm_agents_path, "file", True)
+    path_check(checks, "tool:workhorse_harness", workhorse_controller, "file", True)
+    json_file_check(checks, "json:ai_config", ai_config_path, f"{schema_prefix}_ai_config_v1", True)
+    registry_doc = registry(write_latest=False)
+    token_profiles_doc = token_profiles(write_latest=False, registry=registry_doc)
+    return llm_validate_readmodel(
+        base_checks=checks,
+        registry=registry_doc,
+        token_profiles=token_profiles_doc,
+        config=config,
+        protected_roots=protected_roots,
+        paths=paths(),
+        schema_prefix=schema_prefix,
+        version=version,
+        now_iso=now_iso,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        write_json=write_json,
+    )
 
 
 def llm_resident_controller_timeout(command: str | None, jobs_action: str | None = None) -> float:
