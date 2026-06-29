@@ -429,6 +429,171 @@ def test_eval_suite_adapter_denies_before_execution_and_writes_nothing(tmp_path:
     assert writes == []
 
 
+def test_workload_store_reads_dedupes_appends_and_updates_stats(tmp_path: Path) -> None:
+    runs_root = tmp_path / "workloads" / "runs"
+    existing_path = runs_root / "2026" / "06" / "2026-06-28.jsonl"
+    existing_path.parent.mkdir(parents=True)
+    existing_path.write_text(
+        '{"record_id":"old","workload_id":"existing"}\n'
+        "not json\n"
+        "[]\n"
+        '{"record_id":"second","workload_id":"existing"}\n',
+        encoding="utf-8",
+    )
+    daily_path = runs_root / "2026" / "06" / "2026-06-29.jsonl"
+    appends: list[dict[str, Any]] = []
+
+    result = ai_runtime_adapters.workload_append_measurements(
+        [
+            {"record_id": "old", "workload_id": "duplicate"},
+            {"record_id": "", "workload_id": "invalid"},
+            {"record_id": "new", "workload_id": "fresh"},
+        ],
+        runs_root=runs_root,
+        runs_daily_path=lambda: daily_path,
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        append_jsonl=lambda path, data, mode: appends.append({"path": path, "data": dict(data), "mode": mode}) or None,
+        stats_latest_path=tmp_path / "workloads" / "stats" / "latest.json",
+        stats_update=lambda: {"ok": True},
+        write_stats=True,
+    )
+
+    assert ai_runtime_adapters.workload_measurement_files(runs_root) == [existing_path]
+    assert [item["record_id"] for item in ai_runtime_adapters.workload_read_measurements(runs_root)] == ["old", "second"]
+    assert result == {
+        "schema": "abyss_machine_ai_workload_update_v1",
+        "version": "test",
+        "generated_at": STAMP,
+        "ok": True,
+        "records_seen": 3,
+        "records_appended": 1,
+        "records_skipped_existing_or_invalid": 2,
+        "errors": [],
+        "stats": {"latest": str(tmp_path / "workloads" / "stats" / "latest.json"), "updated": True},
+    }
+    assert appends == [{"path": daily_path, "data": {"record_id": "new", "workload_id": "fresh"}, "mode": 0o664}]
+
+
+def test_workload_refresh_from_latest_uses_source_gates_and_append_port() -> None:
+    append_calls: list[tuple[list[dict[str, Any]], bool]] = []
+
+    def extract(label: str) -> Any:
+        return lambda data: [{"record_id": label, "source_generated_at": data.get("generated_at")}]
+
+    result = ai_runtime_adapters.workload_refresh_from_latest(
+        latest_benchmark={"ok": True, "generated_at": "benchmark-at"},
+        latest_eval={"ok": True, "generated_at": "eval-at"},
+        latest_tts_eval={"schema": "abyss_machine_ai_tts_eval_v1", "generated_at": "tts-at"},
+        latest_resident_audit={"schema": "abyss_machine_gemma4_spark_resident_audit_v1", "generated_at": "resident-at"},
+        schema_prefix="abyss_machine",
+        benchmark_measurements=extract("benchmark"),
+        eval_measurements=extract("eval"),
+        tts_eval_measurements=extract("tts"),
+        resident_audit_measurements=extract("resident"),
+        append_measurements=lambda records, write_stats: append_calls.append((records, write_stats)) or {"ok": True, "records_seen": len(records)},
+    )
+
+    assert [item["record_id"] for item in append_calls[0][0]] == ["benchmark", "eval", "tts", "resident"]
+    assert append_calls[0][1] is True
+    assert result["records_seen"] == 4
+    assert result["sources"] == {
+        "benchmark_generated_at": "benchmark-at",
+        "eval_generated_at": "eval-at",
+        "tts_eval_generated_at": "tts-at",
+        "resident_audit_generated_at": "resident-at",
+    }
+
+
+def test_workload_stats_taxonomy_refresh_and_status_write_routing(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    run_path = runs_root / "2026" / "06" / "2026-06-29.jsonl"
+    run_path.parent.mkdir(parents=True)
+    run_path.write_text(
+        '{"record_id":"r1","workload_id":"embedding_eval","declared_class":"medium","metrics":{"elapsed_sec":1.0}}\n',
+        encoding="utf-8",
+    )
+    writes: list[dict[str, Any]] = []
+    appends: list[dict[str, Any]] = []
+
+    def write_json(path: Path, data: dict[str, Any], mode: int) -> None:
+        writes.append({"path": path, "schema": data.get("schema"), "mode": mode})
+        return None
+
+    taxonomy = ai_runtime_adapters.workload_taxonomy(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        class_levels=ai_runtime_contracts.WORKLOAD_CLASS_LEVELS,
+        write_latest=True,
+        taxonomy_path=tmp_path / "taxonomy.json",
+        write_json=write_json,
+    )
+    stats = ai_runtime_adapters.workload_stats(
+        config={},
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        runs_root=runs_root,
+        runs_daily_glob="/var/lib/abyss-machine/ai/workloads/runs/YYYY/MM/YYYY-MM-DD.jsonl",
+        latest_path=tmp_path / "stats.json",
+        write_latest=True,
+        write_json=write_json,
+    )
+    refresh = ai_runtime_adapters.workload_refresh(
+        config={"workload": {"auto_refresh": {"run_quick_benchmark": True}}},
+        policy={"class": "normal"},
+        run_probe=None,
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        benchmark_runner=lambda: {"ok": True, "summary": {"devices_tested": 1}},
+        refresh_from_latest=lambda: {"ok": True, "records_seen": 1},
+        stats=lambda: stats,
+        stats_latest_path=tmp_path / "stats.json",
+        write_latest=True,
+        refresh_daily_path=lambda: tmp_path / "refresh.jsonl",
+        append_jsonl=lambda path, data, mode: appends.append({"path": path, "schema": data.get("schema"), "mode": mode}) or None,
+    )
+    status = ai_runtime_adapters.workload_status(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        taxonomy=lambda: taxonomy,
+        refresh_from_latest=lambda: {"ok": True, "records_seen": 1},
+        stats=lambda: stats,
+        policy=lambda: {"class": "normal", "can_run_heavy": False},
+        refresh_from_latest_enabled=True,
+        paths={
+            "root": "/var/lib/abyss-machine/ai/workloads",
+            "latest": "/var/lib/abyss-machine/ai/workloads/latest.json",
+            "taxonomy": "/var/lib/abyss-machine/ai/workloads/taxonomy.json",
+            "stats_latest": "/var/lib/abyss-machine/ai/workloads/stats/latest.json",
+            "runs_today": "/var/lib/abyss-machine/ai/workloads/runs/2026/06/2026-06-29.jsonl",
+            "refresh_today": "/var/lib/abyss-machine/ai/workloads/refresh/2026/06/2026-06-29.jsonl",
+        },
+        auto_refresh={"service": {"active": "active"}, "timer": {"active": "active"}, "command": "abyss-machine ai workload refresh --json"},
+        write_latest=True,
+        latest_path=tmp_path / "status.json",
+        write_json=write_json,
+    )
+
+    assert taxonomy["schema"] == "abyss_machine_ai_workload_taxonomy_v1"
+    assert stats["schema"] == "abyss_machine_ai_workload_stats_v1"
+    assert stats["summary"]["records"] == 1
+    assert refresh["schema"] == "abyss_machine_ai_workload_refresh_v1"
+    assert refresh["actions"]["quick_benchmark_ran"] is True
+    assert status["schema"] == "abyss_machine_ai_workload_status_v1"
+    assert status["refresh"] == {"ok": True, "records_seen": 1}
+    assert writes == [
+        {"path": tmp_path / "taxonomy.json", "schema": "abyss_machine_ai_workload_taxonomy_v1", "mode": 0o664},
+        {"path": tmp_path / "stats.json", "schema": "abyss_machine_ai_workload_stats_v1", "mode": 0o664},
+        {"path": tmp_path / "status.json", "schema": "abyss_machine_ai_workload_status_v1", "mode": 0o664},
+    ]
+    assert appends == [{"path": tmp_path / "refresh.jsonl", "schema": "abyss_machine_ai_workload_refresh_v1", "mode": 0o664}]
+
+
 def test_llm_runtime_profile_and_tokenizer_discovery_are_fakeable(tmp_path: Path) -> None:
     runtime_root = tmp_path / "llama.cpp"
     bin_root = runtime_root / "bin"
