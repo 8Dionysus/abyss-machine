@@ -169,7 +169,12 @@ latest/history/markdown writes live in
 `abyss_machine.doctor_adapters`.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
-`abyss_machine.memory_contracts`. Mode policy/path/state, definitions,
+`abyss_machine.memory_contracts`. Memory orchestration target snapshots,
+Podman inspect/restart execution, local model HTTP probes, cgroup CPU sampling,
+live locks, and rehydrate polling live in `abyss_machine.memory_adapters`
+through fakeable ports; pressure/residency/hotpath collection, candidate
+ranking, authorization checks, latest writes, and rendering remain at the CLI
+edge. Mode policy/path/state, definitions,
 target-profile, thermal launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts live in
 `abyss_machine.mode_contracts`. Observability path, latest-read, manual-collect
