@@ -37,6 +37,14 @@ be moved by host-layer automation.
 
 Use dry-run audits and public boundary scans.
 
+### Live adapter route
+
+Storage cleanup planning uses `abyss_machine.storage_adapters` for the
+active-process guard: process snapshot projection, path matching, and
+`/proc/<pid>/fd` target inspection are fakeable adapter-owned IO. Cleanup action
+policy remains in `storage_contracts`; live inventory/disk scans, hooks, apply
+execution, and latest/history writes remain CLI edge.
+
 ### Next route
 
 Use `host-facts` for machine posture and `local-ai-runtime` for AI caches.
