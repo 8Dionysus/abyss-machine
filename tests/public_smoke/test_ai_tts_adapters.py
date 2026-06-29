@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import threading
+import time
+import types
 from typing import Any
 import wave
 
@@ -100,6 +103,118 @@ def test_tts_server_status_and_stop_probes_keep_wait_loop_fakeable() -> None:
         {"payload": {"command": "shutdown"}, "timeout": 3.0},
     ]
     assert sleeps == [0.1]
+
+
+def test_tts_server_loop_response_dispatch_is_fakeable() -> None:
+    synth_calls: list[dict[str, Any]] = []
+
+    def fake_synth(request: dict[str, Any]) -> dict[str, Any]:
+        synth_calls.append(request)
+        return {"ok": True, "command": "synth", "output": "/tmp/out.wav"}
+
+    server_state = {"ok": True, "profile": "quality", "socket": "/tmp/tts.sock"}
+
+    ping, stop_ping = ai_tts_adapters.server_loop_response(
+        request={"command": "ping"},
+        server_state=server_state,
+        profile="quality",
+        synth_once=fake_synth,
+    )
+    status, stop_status = ai_tts_adapters.server_loop_response(
+        request={},
+        server_state=server_state,
+        profile="quality",
+        synth_once=fake_synth,
+    )
+    synth, stop_synth = ai_tts_adapters.server_loop_response(
+        request={"command": "synth", "text": "hello"},
+        server_state=server_state,
+        profile="quality",
+        synth_once=fake_synth,
+    )
+    shutdown, stop_shutdown = ai_tts_adapters.server_loop_response(
+        request={"command": "shutdown"},
+        server_state=server_state,
+        profile="quality",
+        synth_once=fake_synth,
+    )
+    unknown, stop_unknown = ai_tts_adapters.server_loop_response(
+        request={"command": "bad"},
+        server_state=server_state,
+        profile="quality",
+        synth_once=fake_synth,
+    )
+
+    assert ping["command"] == "ping"
+    assert ping["profile"] == "quality"
+    assert stop_ping is False
+    assert status["command"] == "status"
+    assert stop_status is False
+    assert synth == {"ok": True, "command": "synth", "output": "/tmp/out.wav"}
+    assert synth_calls == [{"command": "synth", "text": "hello"}]
+    assert stop_synth is False
+    assert shutdown == {"ok": True, "command": "shutdown", "profile": "quality"}
+    assert stop_shutdown is True
+    assert unknown == {"ok": False, "error": "unknown command: bad"}
+    assert stop_unknown is False
+
+
+def test_tts_server_loop_handles_socket_requests_and_cleanup(tmp_path: Path) -> None:
+    socket_path = tmp_path / "tts.sock"
+    synth_calls: list[dict[str, Any]] = []
+    unload_calls: list[str] = []
+    thread_result: dict[str, Any] = {}
+
+    def fake_synth(request: dict[str, Any]) -> dict[str, Any]:
+        synth_calls.append(request)
+        return {"ok": True, "command": "synth", "output": str(tmp_path / "out.wav")}
+
+    def target() -> None:
+        try:
+            thread_result["result"] = ai_tts_adapters.run_server_loop(
+                socket_path=socket_path,
+                server_state={"ok": True, "profile": "quality", "socket": str(socket_path)},
+                profile="quality",
+                synth_once=fake_synth,
+                stopped_at=lambda: STAMP,
+                unload_model=lambda: unload_calls.append("unloaded"),
+            )
+        except BaseException as exc:  # pragma: no cover - surfaced after join.
+            thread_result["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    deadline = time.time() + 2.0
+    while not socket_path.exists() and thread.is_alive() and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert socket_path.exists()
+
+    ping = ai_tts_adapters.server_request(payload={"command": "ping"}, socket_path=socket_path, timeout=1.0)
+    synth = ai_tts_adapters.server_request(
+        payload={"command": "synth", "text": "hello", "profile": "quality"},
+        socket_path=socket_path,
+        timeout=1.0,
+    )
+    shutdown = ai_tts_adapters.server_request(payload={"command": "shutdown"}, socket_path=socket_path, timeout=1.0)
+
+    thread.join(timeout=2.0)
+    if "error" in thread_result:
+        raise thread_result["error"]
+
+    assert ping["command"] == "ping"
+    assert ping["profile"] == "quality"
+    assert synth == {"ok": True, "command": "synth", "output": str(tmp_path / "out.wav")}
+    assert synth_calls == [{"command": "synth", "text": "hello", "profile": "quality"}]
+    assert shutdown == {"ok": True, "command": "shutdown", "profile": "quality"}
+    assert thread_result["result"] == {
+        "ok": True,
+        "profile": "quality",
+        "socket": str(socket_path),
+        "stopped_at": STAMP,
+    }
+    assert unload_calls == ["unloaded"]
+    assert not socket_path.exists()
 
 
 def test_tts_synth_subprocess_env_and_runner_are_fakeable(tmp_path: Path) -> None:
@@ -256,6 +371,101 @@ def test_cli_tts_server_wrappers_bind_adapter_ports(monkeypatch) -> None:
     assert status["socket_exists"] is True
     assert stop["ok"] is True
     assert stop["socket_exists_after"] is False
+
+
+def test_cli_tts_server_run_binds_loop_adapter_port(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import cli
+
+    profile = {
+        "engine": "qwen3_tts_openvino",
+        "adapter_src": str(tmp_path / "adapter-src"),
+        "ov_dir": str(tmp_path / "ov"),
+        "model_type": "custom_voice",
+        "device": "GPU",
+        "cp_device": "",
+        "precision": "fp16",
+    }
+    status = {
+        "status": "executable",
+        "model": {"complete": True},
+        "openvino": {"complete": True},
+        "device": "GPU",
+        "precision": "fp16",
+    }
+    socket_path = tmp_path / "server.sock"
+    calls: dict[str, Any] = {}
+    writes: list[dict[str, Any]] = []
+
+    class FakeValue:
+        def __init__(self, value: Any = None, **kwargs: Any) -> None:
+            self.value = value
+            self.kwargs = kwargs
+
+    class FakeEngine:
+        instances: list["FakeEngine"] = []
+
+        def __init__(self) -> None:
+            self.loaded: list[Any] = []
+            FakeEngine.instances.append(self)
+
+        def load_model(self, config: Any) -> None:
+            self.loaded.append(config)
+
+        def unload_model(self) -> None:
+            calls["engine_unloaded"] = True
+
+        def generate(self, _request: Any) -> tuple[list[int], int]:
+            return [0, 0, 0], 16000
+
+    soundfile_module = types.ModuleType("soundfile")
+    soundfile_module.write = lambda *_args, **_kwargs: None  # type: ignore[attr-defined]
+    openvino_module = types.ModuleType("openvino")
+    ov_infer_module = types.ModuleType("openvino.ov_infer")
+    ov_infer_module.CustomVoiceRequest = FakeValue  # type: ignore[attr-defined]
+    ov_infer_module.Language = FakeValue  # type: ignore[attr-defined]
+    ov_infer_module.ModelLoadConfig = FakeValue  # type: ignore[attr-defined]
+    ov_infer_module.ModelType = FakeValue  # type: ignore[attr-defined]
+    ov_infer_module.OVQwen3TTS = FakeEngine  # type: ignore[attr-defined]
+    ov_infer_module.SamplingParams = FakeValue  # type: ignore[attr-defined]
+    ov_infer_module.Speaker = FakeValue  # type: ignore[attr-defined]
+
+    def fake_run_server_loop(**kwargs: Any) -> dict[str, Any]:
+        calls["run_server_loop"] = kwargs
+        return {"ok": True, "profile": kwargs["profile"], "socket": str(kwargs["socket_path"]), "stopped_at": STAMP}
+
+    perf_ticks = iter([10.0, 10.75])
+    monkeypatch.setitem(sys.modules, "soundfile", soundfile_module)
+    monkeypatch.setitem(sys.modules, "openvino", openvino_module)
+    monkeypatch.setitem(sys.modules, "openvino.ov_infer", ov_infer_module)
+    monkeypatch.setattr(cli.time, "perf_counter", lambda: next(perf_ticks))
+    monkeypatch.setattr(cli, "now_iso", lambda: STAMP)
+    monkeypatch.setattr(cli.os, "getpid", lambda: 4242)
+    monkeypatch.setattr(cli, "ai_tts_profile_for_request", lambda name: ("quality", profile, {"language": "Russian"}))
+    monkeypatch.setattr(cli, "ai_tts_profile_status", lambda name, profile: status)
+    monkeypatch.setattr(cli, "safe_atomic_write_json", lambda path, data, mode: writes.append({"path": path, "data": data, "mode": mode}) or None)
+    monkeypatch.setattr(cli.ai_tts_adapters, "run_server_loop", fake_run_server_loop)
+
+    result = cli.ai_tts_server_run("quality", socket_path=str(socket_path))
+
+    assert result == {"ok": True, "profile": "quality", "socket": str(socket_path), "stopped_at": STAMP}
+    assert len(FakeEngine.instances) == 1
+    assert FakeEngine.instances[0].loaded
+    assert writes == [
+        {
+            "path": cli.AI_TTS_SERVER_LATEST_PATH,
+            "data": calls["run_server_loop"]["server_state"],
+            "mode": 0o664,
+        }
+    ]
+    assert calls["run_server_loop"]["socket_path"] == socket_path
+    assert calls["run_server_loop"]["server_state"]["profile"] == "quality"
+    assert calls["run_server_loop"]["server_state"]["socket"] == str(socket_path)
+    assert calls["run_server_loop"]["server_state"]["pid"] == 4242
+    assert calls["run_server_loop"]["server_state"]["load_sec"] == 0.75
+    assert calls["run_server_loop"]["profile"] == "quality"
+    assert callable(calls["run_server_loop"]["synth_once"])
+    assert calls["run_server_loop"]["stopped_at"] is cli.now_iso
+    assert calls["run_server_loop"]["unload_model"].__self__ is FakeEngine.instances[0]
 
 
 def test_cli_tts_synth_binds_subprocess_adapter_ports(monkeypatch, tmp_path: Path) -> None:
