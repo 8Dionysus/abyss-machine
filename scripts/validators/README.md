@@ -182,10 +182,11 @@ whole-command resource before/after sampling, benchmark/eval latest and daily JS
 routing, workload-measurement callback routing, workload run JSONL
 discovery/tolerant reads/dedupe append, refresh-from-latest source gating,
 workload taxonomy/stats/refresh/status write routing, token-accounting
-tokenizer subprocess command/env/timeout/timing execution, LLM registry/latest/
-validate store/readmodel routing, token-accounting contract/profiles/latest/
-count readmodel and store routing, policy-gate callback/clock/class-level
-binding, resident LLM controller command/timeout/subprocess execution plus
+tokenizer subprocess command/env/timeout/timing execution, policy readmodel
+input collection through fakeable observability/mode/battery/thermal/CPU ports,
+LLM registry/latest/validate store/readmodel routing, token-accounting
+contract/profiles/latest/count readmodel and store routing, policy-gate
+callback/clock/class-level binding, resident LLM controller command/timeout/subprocess execution plus
 JSON/result projection, workhorse LLM controller command/timeout/subprocess
 execution plus JSON/result projection, STT eval dictation-client transport
 timing/resource envelopes, STT synthetic fixture directory/path setup,
@@ -193,9 +194,8 @@ timing/resource envelopes, STT synthetic fixture directory/path setup,
 generated-summary session-registry/manifest/index reads plus latest/history
 write routing live in `abyss_machine.ai_runtime_adapters` through fakeable
 ports. Latest-input collection, TTS profile/config policy orchestration,
-concrete AI policy readmodel collection, token-accounting live text binding,
-concrete live reader/env source selection, and command rendering remain at the
-CLI edge.
+token-accounting live text binding, concrete live reader/env source selection,
+and command rendering remain at the CLI edge.
 Devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and latest/history write
 routing live in `abyss_machine.ai_runtime_adapters` through fakeable ports.

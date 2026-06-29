@@ -50,7 +50,8 @@ command/timeout/subprocess execution plus JSON/result projection, and workhorse
 LLM controller command/timeout/subprocess execution plus JSON/result
 projection, AI subprocess env binding through fakeable environment/root ports,
 resource snapshot/profile assembly through fakeable memory/thermal/battery/
-rusage/load ports, benchmark/eval suite orchestration,
+rusage/load ports, policy readmodel input collection through fakeable
+observability/mode/battery/thermal/CPU ports, benchmark/eval suite orchestration,
 STT eval dictation-client transport timing/resource envelopes, whole-command
 resource before/after sampling, STT synthetic fixture directory/path setup,
 `espeak-ng`/`ffmpeg` execution, raw WAV cleanup, WAV metadata reads,
@@ -70,11 +71,10 @@ BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Core devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and store routing also live in
 `ai_runtime_adapters`. Remaining AI runtime adapters should focus on live
-policy readmodel collection and any remaining readmodel/write orchestration
-that proves reusable; concrete live readers and env source selection stay at
-the CLI edge unless a reusable center appears. Keep model weights, benchmark
-outputs, and generated runtime state outside Git; only plans, contracts, and
-bounded summaries belong in the public seed.
+readmodel/write orchestration that proves reusable; concrete live readers and
+env source selection stay at the CLI edge unless a reusable center appears.
+Keep model weights, benchmark outputs, and generated runtime state outside Git;
+only plans, contracts, and bounded summaries belong in the public seed.
 
 ### Landing log
 
@@ -168,8 +168,13 @@ bounded summaries belong in the public seed.
   `abyss_machine.ai_runtime_adapters`; the adapter owns
   `ai_policy(write_latest=True)` callback routing, generated-at binding,
   declared class/operation/force/class-level forwarding, and gate document
-  assembly through fakeable policy and clock ports. CLI still owns concrete
-  policy readmodel collection, command dispatch, and rendering.
+  assembly through fakeable policy and clock ports. CLI still owns the
+  concrete policy callback route, command dispatch, and rendering.
+- Extracted AI policy readmodel input collection into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns observability
+  status/latest collection, mode status, battery fallback, thermal-policy
+  snapshot, and CPU thermal-map selection through fakeable ports. CLI still
+  owns concrete live reader implementations, command dispatch, and rendering.
 - Extracted AI env/resource binding into
   `abyss_machine.ai_runtime_adapters`; the adapter owns subprocess env
   construction through fakeable environment/root ports, resource snapshot
