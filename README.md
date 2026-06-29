@@ -179,9 +179,10 @@ target-profile, thermal launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts live in
 `abyss_machine.mode_contracts`. Mode runtime state load/save,
 `powerprofilesctl` get/set execution, recent GameMode journal probes, and
-external profile-guard input collection live in `abyss_machine.mode_adapters`
-through fakeable ports; broader live sampling, cooling apply orchestration,
-latest writes, and rendering remain at the CLI edge. Observability path, latest-read, manual-collect
+external profile-guard input collection plus mode plan/status live input
+collection live in `abyss_machine.mode_adapters` through fakeable ports;
+concrete live reader binding, cooling apply orchestration, latest writes, and
+rendering remain at the CLI edge. Observability path, latest-read, manual-collect
 probe, status, and sample-temperature contracts live in
 `abyss_machine.observability_contracts`. Cooling config/path/status,
 recommendation, apply-envelope, RAPL smoothing state/status, and guarded fan
@@ -450,9 +451,9 @@ remain at the CLI edge. Mode policy/path/state, definitions, target-profile,
 thermal classification/launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts are
 module-owned; mode state load/save, `powerprofilesctl` get/set, GameMode
-journal probing, and external guard input collection are adapter-owned through
-fakeable ports. Live battery/sensor/cooling/AI CPU/storage/memory/process
-sampling, reconcile orchestration, cooling apply orchestration, systemd reads,
+journal probing, external guard input collection, and mode plan/status input
+collection are adapter-owned through fakeable ports. Concrete live reader
+binding, reconcile orchestration, cooling apply orchestration, systemd reads,
 latest/history writes, and rendering remain at the CLI edge.
 Observability path, latest-read, manual-collect probe, status, and sample
 temperature contracts are module-owned while collector subprocess execution,
