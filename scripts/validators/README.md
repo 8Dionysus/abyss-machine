@@ -188,9 +188,10 @@ response/payload shaping, synth subprocess script/argv/result contracts,
 synth/eval/compare envelopes, and success-index entries live in
 `abyss_machine.ai_tts_contracts`; server/socket transport, server status/stop
 request exchange, synth subprocess env binding, and cold synth child-process
-execution live in `abyss_machine.ai_tts_adapters` through fakeable ports. Module
-probes, resident server loop/model lifecycle, audio summaries, resource
-snapshots, and latest writes remain at the CLI edge.
+execution, output WAV summary, wall-clock runtime reporting, RTF derivation, and
+resource-profile callback routing live in `abyss_machine.ai_tts_adapters`
+through fakeable ports. Module probes, resident server loop/model lifecycle,
+broader resource sampling, and latest writes remain at the CLI edge.
 Doctor policy/path/status/report, validate document, and machine-report document
 contracts live in `abyss_machine.doctor_contracts`; `doctor validate`
 file/latest/systemd/bridge probe collection and `doctor` core status probe
