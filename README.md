@@ -180,12 +180,14 @@ plan/status, validate document, and lightweight reconcile status document contra
 `abyss_machine.mode_contracts`. Mode runtime state load/save,
 `powerprofilesctl` get/set execution, recent GameMode journal probes, and
 external profile-guard input collection live in `abyss_machine.mode_adapters`
-through fakeable ports; broader live sampling, cooling apply, latest writes,
-and rendering remain at the CLI edge. Observability path, latest-read, manual-collect
+through fakeable ports; broader live sampling, cooling apply orchestration,
+latest writes, and rendering remain at the CLI edge. Observability path, latest-read, manual-collect
 probe, status, and sample-temperature contracts live in
 `abyss_machine.observability_contracts`. Cooling config/path/status,
 recommendation, apply-envelope, RAPL smoothing state/status, and guarded fan
-series decision contracts live in `abyss_machine.cooling_contracts`. Process
+series decision contracts live in `abyss_machine.cooling_contracts`. Cooling
+platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle, and kernel
+fan-error live ports live in `abyss_machine.cooling_adapters`. Process
 role/workload/game classifiers, paths/latest read models, game-guard envelope,
 and snapshot summary/top-list contracts live in `abyss_machine.process_contracts`.
 Low-level process `/proc` stat/status/cmdline/io/cgroup/fd reads, storage-root
@@ -450,15 +452,17 @@ plan/status, validate document, and lightweight reconcile status document contra
 module-owned; mode state load/save, `powerprofilesctl` get/set, GameMode
 journal probing, and external guard input collection are adapter-owned through
 fakeable ports. Live battery/sensor/cooling/AI CPU/storage/memory/process
-sampling, reconcile orchestration, cooling apply, systemd reads, latest/history
-writes, and rendering remain at the CLI edge.
+sampling, reconcile orchestration, cooling apply orchestration, systemd reads,
+latest/history writes, and rendering remain at the CLI edge.
 Observability path, latest-read, manual-collect probe, status, and sample
 temperature contracts are module-owned while collector subprocess execution,
 filesystem permission probing, line counts, systemd reads, and live latest reads
 remain at the CLI edge. Cooling config/path/status/recommend/apply envelope,
 RAPL smoothing state/status, fan-level parsing, and guarded fan-series decision
-contracts are module-owned while `/sys`, `systemd`, `journalctl`, platform/fan/
-RAPL writes, live samples, and latest/history writes remain at the CLI edge.
+contracts are module-owned; platform-profile, Lenovo fan-mode, RAPL-MMIO,
+package-throttle, and kernel fan-error live ports are adapter-owned through
+`cooling_adapters`. Systemd reads, live samples, validation/apply
+orchestration, latest/history writes, and rendering remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts are module-owned while live
 `/proc` process-info collection is adapter-owned through `process_adapters`;
@@ -527,6 +531,6 @@ nervous event/episode live latest/write adapters, screenshot live probe/capture
 adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
 execution adapters, TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness live probe/readmodel orchestration, process thermal
-probes, broader container orchestration, and cooling host-control
+probes, broader container orchestration, and remaining cooling host-control orchestration
 adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.
