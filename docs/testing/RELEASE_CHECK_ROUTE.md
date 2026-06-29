@@ -100,10 +100,11 @@ classification, and redaction. Live-host closeout may use compact
 not raw container payloads, environment variables, create commands, or mount
 contents.
 
-For process desktop-compositor command/proc adapter changes, public CI should
-rely on fake-port tests for `/proc` GNOME Shell sampling and synthetic
+For process desktop-compositor command/proc/AT-SPI adapter changes, public CI
+should rely on fake-port tests for `/proc` GNOME Shell sampling, synthetic
 `systemctl`/`gdbus`/`busctl`/`gsettings`/`dbus-monitor`/`wmctrl`/`xprop`/`ss`/
-`ps` outputs. Live-host closeout may use compact
+`ps` outputs, fake `pyatspi` registry modules, and fake bounded subprocess/
+latest-fallback ports. Live-host closeout may use compact
 `processes desktop-compositor --json` summaries, but should report only
 ok/classification/counts/rates and observe-only policy status, not raw window
 titles, process command payloads, local extension paths, or generated desktop

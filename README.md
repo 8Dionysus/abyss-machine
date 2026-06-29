@@ -184,8 +184,8 @@ matching, CPU jiffy sampling, process info collection, sanitized Podman
 container health reads, and container inspect redaction live in
 `abyss_machine.process_adapters` through fakeable proc-root/sysconf/sleep and
 command-runner ports. Read-only GNOME Shell desktop-compositor command/proc
-probes and document assembly live there too; AT-SPI hard-timeout desktop
-capture, thermal sampling, gamemode binding, broader container orchestration,
+probes, AT-SPI hard-timeout desktop capture, and document assembly live there
+too; thermal sampling, gamemode binding, broader container orchestration,
 latest/history writes, and command rendering remain at the CLI edge.
 Runtime evidence path/read-model contracts, heartbeat source freshness/rhythm/
 lifecycle helpers, reaction candidate/status envelopes, and owner-gated response
@@ -453,9 +453,10 @@ envelope, and snapshot summary/top-list contracts are module-owned while live
 `/proc` process-info collection is adapter-owned through `process_adapters`;
 Podman container health reads are adapter-owned through fakeable command ports;
 read-only GNOME Shell desktop-compositor command/proc probes are adapter-owned;
-AT-SPI hard-timeout desktop capture, thermal sampling, gamemode binding,
-broader container orchestration, and latest/history writes remain at the CLI
-edge.
+AT-SPI hard-timeout desktop capture is adapter-owned through fakeable
+`pyatspi`, timer/signal, subprocess, and latest-loader ports; thermal sampling,
+gamemode binding, broader container orchestration, and latest/history writes
+remain at the CLI edge.
 Storage hook execution belongs to the storage adapter boundary. Heartbeat/reaction/response path surfaces,
 heartbeat source freshness/rhythm/
 candidate lifecycle, reaction candidate/status envelopes, and owner-gated
@@ -514,8 +515,7 @@ provenance adapters, nervous retention filesystem/unlink/latest adapters,
 nervous event/episode live latest/write adapters, screenshot live probe/capture
 adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
 execution adapters, TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
-remaining self-awareness live probe/readmodel orchestration, process AT-SPI
-desktop hard-timeout probes, thermal probes, broader container orchestration,
-and cooling host-control
+remaining self-awareness live probe/readmodel orchestration, process thermal
+probes, broader container orchestration, and cooling host-control
 adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.

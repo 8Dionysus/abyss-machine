@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import types
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -501,3 +502,171 @@ def test_desktop_compositor_document_preserves_observe_only_policy() -> None:
     assert document["policy"]["do_not_toggle_gnome_extensions_from_this_result"] is True
     assert document["summary"]["classification"] == "panel_telemetry_compositor_churn"
     assert "not as proof that Vitals" in document["summary"]["route_guidance"]
+
+
+class _FakeSignal:
+    SIGALRM = 14
+    ITIMER_REAL = 0
+
+    def __init__(self) -> None:
+        self.handler = None
+        self.timers: list[float] = []
+
+    def getsignal(self, signum: int):
+        assert signum == self.SIGALRM
+        return self.handler
+
+    def signal(self, signum: int, handler):
+        assert signum == self.SIGALRM
+        self.handler = handler
+
+    def setitimer(self, which: int, seconds: float) -> None:
+        assert which == self.ITIMER_REAL
+        self.timers.append(seconds)
+
+
+class _FakeTimer:
+    def __init__(self, seconds: float, callback) -> None:
+        self.seconds = seconds
+        self.callback = callback
+        self.daemon = False
+        self.started = False
+        self.cancelled = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
+def test_atspi_panel_telemetry_churn_counts_fake_metric_events() -> None:
+    class FakeSource:
+        name = "42%"
+
+        @staticmethod
+        def getApplication():
+            return types.SimpleNamespace(name="gnome-shell")
+
+        @staticmethod
+        def getRoleName():
+            return "label"
+
+    class FakeRegistry:
+        callback = None
+        stopped = False
+
+        @classmethod
+        def registerEventListener(cls, callback, event_name):  # noqa: N802 - mirrors pyatspi API
+            assert event_name == "object:property-change:accessible-name"
+            cls.callback = callback
+
+        @classmethod
+        def start(cls):
+            assert cls.callback is not None
+            cls.callback(types.SimpleNamespace(source=FakeSource(), type="object:property-change:accessible-name"))
+
+        @classmethod
+        def stop(cls):
+            cls.stopped = True
+
+    monotonic_values = iter([0.0, 0.25, 1.0])
+    signal_module = _FakeSignal()
+
+    result = process_adapters.process_atspi_panel_telemetry_churn(
+        1.0,
+        pyatspi_module=types.SimpleNamespace(Registry=FakeRegistry),
+        timer_factory=_FakeTimer,
+        signal_module=signal_module,
+        monotonic=lambda: next(monotonic_values, 1.0),
+    )
+
+    assert result["ok"] is True
+    assert result["timed_out"] is False
+    assert result["event_counts"]["gnome_shell_label_accessible_name"] == 1
+    assert result["event_counts"]["gnome_shell_metric_label_accessible_name"] == 1
+    assert result["top_metric_labels"] == [{"label": "42%", "count": 1}]
+    assert result["samples"][0]["name"] == "42%"
+    assert signal_module.timers == [2.0, 0.0]
+
+
+def test_atspi_window_snapshot_reads_fake_desktop_tree() -> None:
+    class FakeAccessible:
+        def __init__(self, name: str, role: str, children: list["FakeAccessible"] | None = None) -> None:
+            self.name = name
+            self._role = role
+            self._children = children or []
+
+        def getRoleName(self) -> str:  # noqa: N802 - mirrors AT-SPI API
+            return self._role
+
+        def __iter__(self):
+            return iter(self._children)
+
+    class FakeRegistry:
+        @staticmethod
+        def getDesktop(index: int):  # noqa: N802 - mirrors pyatspi API
+            assert index == 0
+            return [
+                FakeAccessible(
+                    "org.gnome.Nautilus",
+                    "application",
+                    [FakeAccessible("Files", "frame"), FakeAccessible("Sidebar", "panel")],
+                )
+            ]
+
+    result = process_adapters.process_atspi_window_snapshot(
+        pyatspi_module=types.SimpleNamespace(Registry=FakeRegistry),
+        signal_module=_FakeSignal(),
+    )
+
+    assert result["ok"] is True
+    assert result["application_count"] == 1
+    assert result["count"] == 2
+    assert result["counts_by_app"] == {"org.gnome.Nautilus": 2}
+    assert result["counts_by_role"] == {"application": 1, "frame": 1}
+    assert result["windows"][1]["name"] == "Files"
+    assert result["mutates_desktop_state"] is False
+
+
+def test_atspi_window_snapshot_bounded_falls_back_to_latest_on_timeout(tmp_path: Path) -> None:
+    latest_path = tmp_path / "desktop-compositor" / "latest.json"
+    calls: list[tuple[list[str], float]] = []
+
+    def runner(command: list[str], timeout: float = 0) -> dict[str, object]:
+        calls.append((command, timeout))
+        return {"ok": False, "returncode": 124, "error": "timeout", "command": command}
+
+    def latest_loader(path: Path):
+        assert path == latest_path
+        return (
+            {
+                "generated_at": "2026-06-29T00:00:00Z",
+                "atspi_windows": {
+                    "ok": True,
+                    "count": 3,
+                    "windows": [{"app": "cached", "name": "Cached Window"}],
+                    "applications": [],
+                },
+            },
+            None,
+        )
+
+    result = process_adapters.process_atspi_window_snapshot_bounded(
+        timeout_sec=0.1,
+        command_runner_json=runner,
+        latest_loader=latest_loader,
+        latest_path=latest_path,
+        python_executable="/usr/bin/python-test",
+        probe_path="/tmp/abyss-machine-probe",
+    )
+
+    assert calls
+    assert calls[0][0][:2] == ["/usr/bin/python-test", "-c"]
+    assert calls[0][1] == 0.8
+    assert result["ok"] is True
+    assert result["count"] == 3
+    assert result["degraded"] is True
+    assert result["fresh_timeout"] is True
+    assert result["fallback"]["source"] == "latest_desktop_compositor"
+    assert result["_bounded_source"] == "latest_fallback_after_subprocess_failure"
