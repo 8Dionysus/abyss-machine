@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 from typing import Any
+import wave
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
@@ -161,6 +162,55 @@ def test_tts_synth_subprocess_env_and_runner_are_fakeable(tmp_path: Path) -> Non
     assert unsupported["error"] == "TTS engine is not executable by this host adapter: other"
 
 
+def test_tts_audio_summary_and_runtime_report_are_fakeable(tmp_path: Path) -> None:
+    output = tmp_path / "out.wav"
+    with wave.open(str(output), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\x00\x00" * 8000)
+
+    missing = ai_tts_adapters.audio_file_summary(tmp_path / "missing.wav")
+    assert missing == {"exists": False, "duration_sec": None, "sample_rate": None, "size_bytes": None}
+
+    summary = ai_tts_adapters.audio_file_summary(output)
+    assert summary["exists"] is True
+    assert summary["duration_sec"] == 0.5
+    assert summary["sample_rate"] == 16000
+    assert summary["size_bytes"] and summary["size_bytes"] > 44
+
+    profile_calls: list[dict[str, Any]] = []
+
+    def fake_resource_profile(before: dict[str, Any], after: dict[str, Any], scope: str, basis: str) -> dict[str, Any]:
+        profile_calls.append({"before": before, "after": after, "scope": scope, "basis": basis})
+        return {"scope": scope, "basis": basis}
+
+    report = ai_tts_adapters.synth_runtime_report(
+        result={"ok": True},
+        output=output,
+        started_at=10.0,
+        time_now=lambda: 11.0,
+        resources_before={"cpu": "before"},
+        resource_snapshot=lambda: {"cpu": "after"},
+        resource_profile=fake_resource_profile,
+        scope="child_process",
+        basis="TTS synth subprocess",
+    )
+
+    assert report["wall_sec"] == 1.0
+    assert report["audio"]["duration_sec"] == 0.5
+    assert report["rtf"] == 2.0
+    assert report["resource_profile"] == {"scope": "child_process", "basis": "TTS synth subprocess"}
+    assert profile_calls == [
+        {
+            "before": {"cpu": "before"},
+            "after": {"cpu": "after"},
+            "scope": "child_process",
+            "basis": "TTS synth subprocess",
+        }
+    ]
+
+
 def test_cli_tts_server_wrappers_bind_adapter_ports(monkeypatch) -> None:
     from abyss_machine import cli
 
@@ -222,8 +272,17 @@ def test_cli_tts_synth_binds_subprocess_adapter_ports(monkeypatch, tmp_path: Pat
 
     def fake_synth_subprocess(**kwargs: Any) -> dict[str, Any]:
         calls["subprocess"] = kwargs
-        output.write_bytes(b"not-a-real-wav")
         return {"ok": True, "subprocess": {"ok": True, "engine": "babelvox", "synth_sec": 0.2}}
+
+    def fake_runtime_report(**kwargs: Any) -> dict[str, Any]:
+        calls["runtime_report"] = kwargs
+        return {
+            **dict(kwargs["result"]),
+            "wall_sec": 1.0,
+            "audio": {"exists": True, "duration_sec": 0.5, "sample_rate": 16000, "size_bytes": 123},
+            "rtf": 2.0,
+            "resource_profile": {"scope": kwargs["scope"], "basis": kwargs["basis"]},
+        }
 
     monkeypatch.setattr(cli, "now_iso", lambda: STAMP)
     monkeypatch.setattr(cli, "ai_resource_snapshot", lambda: {"snapshot": "ok"})
@@ -237,6 +296,7 @@ def test_cli_tts_synth_binds_subprocess_adapter_ports(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(cli, "ai_subprocess_env", lambda extra=None: {"BASE": "1", **dict(extra or {})})
     monkeypatch.setattr(cli.ai_tts_adapters, "synth_subprocess_env", fake_synth_env)
     monkeypatch.setattr(cli.ai_tts_adapters, "synth_subprocess", fake_synth_subprocess)
+    monkeypatch.setattr(cli.ai_tts_adapters, "synth_runtime_report", fake_runtime_report)
 
     result = cli.ai_tts_synth(
         "quality",
@@ -262,3 +322,11 @@ def test_cli_tts_synth_binds_subprocess_adapter_ports(monkeypatch, tmp_path: Pat
     assert calls["subprocess"]["subprocess_env"] == {"ENV": "1"}
     assert calls["subprocess"]["run_command"] is cli.run
     assert calls["subprocess"]["path_exists"] is Path.exists
+    assert calls["runtime_report"]["result"]["ok"] is True
+    assert calls["runtime_report"]["output"] == output
+    assert calls["runtime_report"]["time_now"] is cli.time.monotonic
+    assert calls["runtime_report"]["resource_snapshot"] is cli.ai_resource_snapshot
+    assert calls["runtime_report"]["resource_profile"] is cli.ai_resource_profile
+    assert calls["runtime_report"]["scope"] == "child_process"
+    assert calls["runtime_report"]["basis"] == "TTS synth subprocess"
+    assert calls["runtime_report"]["path_exists"] is Path.exists

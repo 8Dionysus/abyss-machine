@@ -50,11 +50,12 @@ command/timeout/subprocess execution through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, synth subprocess
 cache/env binding, and cold BabelVox/Qwen3 OpenVINO synth child-process
-invocation. Remaining AI runtime adapters should focus on resident TTS server
-loop/audio summaries, benchmark/eval suite orchestration, and broader
-resource-sampling evidence. Keep model weights, benchmark outputs, and
-generated runtime state outside Git; only plans, contracts, and bounded
-summaries belong in the public seed.
+invocation plus output WAV summary and synth runtime resource-report assembly.
+Remaining AI runtime adapters should focus on resident TTS server loop/model
+lifecycle, benchmark/eval suite orchestration, and broader resource-sampling
+evidence. Keep model weights, benchmark outputs, and generated runtime state
+outside Git; only plans, contracts, and bounded summaries belong in the public
+seed.
 
 ### Landing log
 
@@ -85,6 +86,13 @@ summaries belong in the public seed.
   subprocess invocation, stdout/stderr/returncode mapping, and no-output JSON
   error envelopes through a fakeable command port. CLI still owns argparse
   binding, user-visible result rendering, and command dispatch.
+- Extracted TTS output audio summary and synth resource-report assembly into
+  `abyss_machine.ai_tts_adapters`; the adapter owns WAV stat/duration/sample
+  rate inspection, wall-clock result timing, RTF derivation, and resource-profile
+  callback routing through fakeable path, clock, resource snapshot, and
+  resource-profile ports. CLI still owns profile/config selection, policy gates,
+  latest writes, resident server loop/model lifecycle, command dispatch, and
+  rendering.
 - Extracted explicit-file dictation transcription runtime into
   `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
   socket transport, client-side 16 kHz runtime preprocessing, helper subprocess
