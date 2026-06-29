@@ -248,9 +248,13 @@ fan-level parsing, and guarded fan-series decision contracts live in
 fan/RAPL writes, live samples, and latest/history writes remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts live in
-`abyss_machine.process_contracts`; live `/proc`, podman, DBus, AT-SPI, desktop/
-window probes, thermal sampling, and latest/history writes remain at the CLI
-edge. Storage hook execution belongs to the storage adapter boundary.
+`abyss_machine.process_contracts`; low-level `/proc` stat/status/cmdline/io/
+cgroup/fd reads, process storage-root matching, process info assembly, and CPU
+jiffy sampling live in `abyss_machine.process_adapters` through fakeable
+proc-root/sysconf/sleep ports. Podman, DBus, AT-SPI, desktop/window probes,
+thermal sampling, gamemode binding, latest/history writes, and command rendering
+remain at the CLI edge. Storage hook execution belongs to the storage adapter
+boundary.
 Heartbeat/reaction/response path surfaces, heartbeat source freshness/rhythm/
 candidate lifecycle, reaction candidate/status envelopes, and owner-gated
 response command profiles/routes/status envelopes plus validate documents live in
