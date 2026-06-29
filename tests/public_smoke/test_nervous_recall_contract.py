@@ -77,7 +77,8 @@ def test_recall_execution_plan_selects_search_adapter_and_flags() -> None:
             "automatic_action": False,
             "model_used": False,
             "repo_mutation": False,
-            "live_execution_at_cli_edge": True,
+            "live_execution_at_cli_edge": False,
+            "live_execution_adapter": "nervous_retrieval_adapters",
         },
     }
     assert hybrid["mode"] == "hybrid"

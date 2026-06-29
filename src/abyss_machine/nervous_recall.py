@@ -66,7 +66,8 @@ def pack_execution_plan(
             "automatic_action": False,
             "model_used": normalized_mode == "hybrid",
             "repo_mutation": False,
-            "live_execution_at_cli_edge": True,
+            "live_execution_at_cli_edge": False,
+            "live_execution_adapter": "nervous_retrieval_adapters",
         },
     }
 
