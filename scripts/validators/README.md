@@ -184,7 +184,8 @@ discovery/tolerant reads/dedupe append, refresh-from-latest source gating,
 workload taxonomy/stats/refresh/status write routing, token-accounting
 tokenizer subprocess command/env/timeout/timing execution, policy readmodel
 input collection through fakeable observability/mode/battery/thermal/CPU ports,
-LLM registry/latest/validate store/readmodel routing, token-accounting
+LLM registry/latest/validate store/readmodel routing plus validate input
+collection through fakeable path/JSON/registry/token/path ports, token-accounting
 contract/profiles/latest/count readmodel and store routing, policy-gate
 callback/clock/class-level binding, resident LLM controller command/timeout/subprocess execution plus
 JSON/result projection, workhorse LLM controller command/timeout/subprocess
@@ -194,10 +195,10 @@ timing/resource envelopes, STT synthetic fixture directory/path setup,
 generated-summary session-registry/manifest/index reads plus latest/history
 write routing, and capabilities input collection through fakeable
 devices/models/dictation/TTS/LLM registry/resident-latest ports live in
-`abyss_machine.ai_runtime_adapters` through fakeable ports. Remaining
-latest-input collection, TTS profile/config policy orchestration,
-token-accounting live text binding, concrete live reader/env source selection,
-and command rendering remain at the CLI edge.
+`abyss_machine.ai_runtime_adapters` through fakeable ports. Remaining TTS
+profile/config policy orchestration, token-accounting live text binding,
+concrete live reader/env source selection, and command rendering remain at the
+CLI edge.
 Devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and latest/history write
 routing live in `abyss_machine.ai_runtime_adapters` through fakeable ports.
