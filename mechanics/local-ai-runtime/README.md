@@ -39,15 +39,16 @@ Use dry-run resource planning and public boundary scans.
 
 ### Live adapter route
 
-`abyss_machine.ai_runtime_adapters` owns the first local-AI discovery seam:
-model-root normalization, OpenVINO runtime/package/NPU driver probes, model
-inventory walks, `llama.cpp` runtime/profile file probes, tokenizer/library
-discovery, OpenVINO python package versions, and kernel-module snapshots through
-fakeable ports. Remaining AI runtime adapters should focus on policy-gated
-benchmark/eval subprocess execution, TTS server/audio execution, and
-resource-sampling evidence. Keep model weights, benchmark outputs, and
-generated runtime state outside Git; only plans, contracts, and bounded
-summaries belong in the public seed.
+`abyss_machine.ai_runtime_adapters` owns the local-AI discovery seam and the
+first bounded OpenVINO runner seam: model-root normalization, OpenVINO
+runtime/package/NPU driver probes, model inventory walks, `llama.cpp`
+runtime/profile file probes, tokenizer/library discovery, OpenVINO python
+package versions, kernel-module snapshots, and OpenVINO smoke/embedding/text
+child-process execution through fakeable ports. Remaining AI runtime adapters
+should focus on TTS server/audio execution, resident LLM execution, tokenizer
+subprocess execution, and broader resource-sampling evidence. Keep model
+weights, benchmark outputs, and generated runtime state outside Git; only
+plans, contracts, and bounded summaries belong in the public seed.
 
 ### Landing log
 
@@ -59,6 +60,13 @@ summaries belong in the public seed.
   kernel-module snapshots through fakeable ports. CLI still owns concrete
   config binding, latest/history writes, policy-gated benchmark/eval/TTS
   execution, resource sampling, `.aoa` reads, and rendering.
+- Extracted bounded OpenVINO benchmark/eval runner execution into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns smoke,
+  embedding-eval, and text-eval child-process invocation, timeout/env binding,
+  missing-python/model handling, and per-run resource-profile callback routing
+  through fakeable ports. CLI still owns concrete config binding, policy gates,
+  suite/device orchestration, latest/history writes, `.aoa` reads, STT/TTS/
+  resident/tokenizer execution, and rendering.
 - Extracted explicit-file dictation transcription runtime into
   `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
   socket transport, client-side 16 kHz runtime preprocessing, helper subprocess

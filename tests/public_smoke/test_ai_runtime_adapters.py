@@ -121,6 +121,153 @@ def test_openvino_discovery_reports_missing_and_invalid_json() -> None:
     assert invalid["stdout_tail"] == "not json"
 
 
+def test_openvino_smoke_runner_uses_fake_ports() -> None:
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+    snapshots = iter([{"marker": "before"}, {"marker": "after"}])
+    profiles: list[tuple[dict[str, Any], dict[str, Any], str, str]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> dict[str, Any]:
+        calls.append((command, kwargs))
+        return {
+            "ok": True,
+            "returncode": 0,
+            "stdout": '{"device":"GPU","ok":true,"compile_sec":0.1,"runs":5}\n',
+            "stderr": "diagnostic",
+        }
+
+    def fake_profile(before: dict[str, Any], after: dict[str, Any], scope: str, basis: str) -> dict[str, Any]:
+        profiles.append((before, after, scope, basis))
+        return {"scope": scope, "basis": basis, "before": before["marker"], "after": after["marker"]}
+
+    data = ai_runtime_adapters.openvino_smoke_device(
+        device="GPU",
+        timeout_sec=7.5,
+        python="/runtime/python",
+        run_command=fake_run,
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        path_exists=lambda path: str(path) == "/runtime/python",
+    )
+    missing = ai_runtime_adapters.openvino_smoke_device(
+        device="CPU",
+        timeout_sec=7.5,
+        python="/missing/python",
+        run_command=lambda command, **kwargs: (_ for _ in ()).throw(AssertionError(command)),
+        resource_snapshot=lambda: (_ for _ in ()).throw(AssertionError("snapshot should not run")),
+        resource_profile=fake_profile,
+        path_exists=lambda path: False,
+    )
+
+    assert calls[0][0][:2] == ["/runtime/python", "-c"]
+    assert calls[0][0][-1] == "GPU"
+    assert calls[0][1] == {"timeout": 7.5}
+    assert profiles == [({"marker": "before"}, {"marker": "after"}, "child_process", "OpenVINO smoke subprocess")]
+    assert data["ok"] is True
+    assert data["resource_profile"] == {
+        "scope": "child_process",
+        "basis": "OpenVINO smoke subprocess",
+        "before": "before",
+        "after": "after",
+    }
+    assert missing == {"device": "CPU", "ok": False, "error": "abyss-openvino-python not found"}
+
+
+def test_openvino_eval_runners_bind_env_timeout_and_resource_ports(tmp_path: Path) -> None:
+    embedding_model = tmp_path / "embedding"
+    text_model = tmp_path / "text"
+    embedding_model.mkdir()
+    text_model.mkdir()
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+    snapshots = iter([
+        {"marker": "embedding-before"},
+        {"marker": "embedding-after"},
+        {"marker": "text-before"},
+        {"marker": "text-after"},
+    ])
+
+    def fake_run(command: list[str], **kwargs: Any) -> dict[str, Any]:
+        calls.append((command, kwargs))
+        if "OVModelForFeatureExtraction" in command[2]:
+            return {
+                "ok": True,
+                "returncode": 0,
+                "stdout": '{"ok":true,"duplicate_cosine":0.99,"shape":[3,768]}\n',
+                "stderr": "embedding stderr",
+            }
+        if "openvino_genai" in command[2]:
+            return {"ok": True, "returncode": 0, "stdout": '{"ok":true,"text":"4"}\n', "stderr": "text stderr"}
+        raise AssertionError(command)
+
+    def fake_profile(before: dict[str, Any], after: dict[str, Any], scope: str, basis: str) -> dict[str, Any]:
+        return {"scope": scope, "basis": basis, "before": before["marker"], "after": after["marker"]}
+
+    path_exists = lambda path: str(path) == "/runtime/python" or Path(path).exists()
+    missing_model = ai_runtime_adapters.openvino_embedding_eval(
+        model_dir=tmp_path / "missing",
+        device="CPU",
+        cache_dir=tmp_path / "cache",
+        timeout_sec=12,
+        python="/runtime/python",
+        subprocess_env={"ENV": "1"},
+        run_command=fake_run,
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        path_exists=path_exists,
+    )
+    missing_python = ai_runtime_adapters.openvino_text_eval(
+        model_dir=text_model,
+        device="CPU",
+        cache_dir=tmp_path / "cache",
+        prompt="hi",
+        timeout_sec=12,
+        python="/missing/python",
+        subprocess_env={"ENV": "1"},
+        run_command=fake_run,
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        path_exists=path_exists,
+    )
+    embedding = ai_runtime_adapters.openvino_embedding_eval(
+        model_dir=embedding_model,
+        device="AUTO:GPU,CPU",
+        cache_dir=tmp_path / "cache" / "embedding",
+        timeout_sec=13,
+        python="/runtime/python",
+        subprocess_env={"ENV": "1"},
+        run_command=fake_run,
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        path_exists=path_exists,
+    )
+    text = ai_runtime_adapters.openvino_text_eval(
+        model_dir=text_model,
+        device="NPU",
+        cache_dir=tmp_path / "cache" / "text",
+        prompt="Answer with one token",
+        timeout_sec=14,
+        python="/runtime/python",
+        subprocess_env={"ENV": "1"},
+        run_command=fake_run,
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        path_exists=path_exists,
+    )
+
+    assert missing_model["error"] == "model directory missing"
+    assert missing_python["error"] == "abyss-openvino-python not found"
+    assert calls[0][0][:2] == ["/runtime/python", "-c"]
+    assert calls[0][0][-3:] == [str(embedding_model), "AUTO:GPU,CPU", str(tmp_path / "cache" / "embedding")]
+    assert calls[0][1] == {"timeout": 13, "env": {"ENV": "1"}}
+    assert calls[1][0][-4:] == [str(text_model), "NPU", str(tmp_path / "cache" / "text"), "Answer with one token"]
+    assert calls[1][1] == {"timeout": 14, "env": {"ENV": "1"}}
+    assert embedding["suite"] == "embeddings"
+    assert embedding["ok"] is True
+    assert embedding["resource_profile"]["basis"] == "embedding eval subprocess"
+    assert text["suite"] == "text"
+    assert text["ok"] is True
+    assert text["resource_profile"]["basis"] == "OpenVINO GenAI text eval subprocess"
+
+
 def test_llm_runtime_profile_and_tokenizer_discovery_are_fakeable(tmp_path: Path) -> None:
     runtime_root = tmp_path / "llama.cpp"
     bin_root = runtime_root / "bin"
@@ -221,3 +368,60 @@ def test_cli_model_inventory_wrapper_binds_adapter_without_writing(monkeypatch) 
     assert calls["config"] == {"model_roots": []}
     assert calls["schema_prefix"] == cli.SCHEMA_PREFIX
     assert calls["generated_at"] == STAMP
+
+
+def test_cli_openvino_runner_wrappers_bind_adapter_ports(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, dict[str, Any]] = {}
+    embedding_model = tmp_path / "embedding"
+    text_model = tmp_path / "text"
+    config = {
+        "openvino": {"python": "/config/python"},
+        "eval": {
+            "embedding_model": str(embedding_model),
+            "embedding_device": "CPU",
+            "text_model": str(text_model),
+            "text_device": "NPU",
+            "text_prompt": "Answer with one token",
+            "timeout_sec": 17,
+        },
+    }
+
+    def fake_smoke(**kwargs: Any) -> dict[str, Any]:
+        calls["smoke"] = kwargs
+        return {"device": kwargs["device"], "ok": True}
+
+    def fake_embedding(**kwargs: Any) -> dict[str, Any]:
+        calls["embedding"] = kwargs
+        return {"suite": "embeddings", "ok": True}
+
+    def fake_text(**kwargs: Any) -> dict[str, Any]:
+        calls["text"] = kwargs
+        return {"suite": "text", "ok": True}
+
+    monkeypatch.setattr(cli, "ai_config", lambda: config)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/which/python" if name == "abyss-openvino-python" else None)
+    monkeypatch.setattr(cli, "ai_subprocess_env", lambda extra=None: {"ENV": "1"})
+    monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_smoke_device", fake_smoke)
+    monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_embedding_eval", fake_embedding)
+    monkeypatch.setattr(cli.ai_runtime_adapters, "openvino_text_eval", fake_text)
+
+    assert cli.ai_openvino_smoke_device("CPU", 3) == {"device": "CPU", "ok": True}
+    assert cli.ai_eval_embeddings() == {"suite": "embeddings", "ok": True}
+    assert cli.ai_eval_text() == {"suite": "text", "ok": True}
+
+    assert calls["smoke"]["python"] == "/which/python"
+    assert calls["smoke"]["timeout_sec"] == 3
+    assert calls["smoke"]["run_command"] is cli.run
+    assert calls["smoke"]["resource_snapshot"] is cli.ai_resource_snapshot
+    assert calls["smoke"]["resource_profile"] is cli.ai_resource_profile
+    assert calls["embedding"]["model_dir"] == embedding_model
+    assert calls["embedding"]["device"] == "CPU"
+    assert calls["embedding"]["cache_dir"] == cli.ai_openvino_cache_dir(cli.ai_model_cache_label(embedding_model, "embedding"))
+    assert calls["embedding"]["timeout_sec"] == 17.0
+    assert calls["embedding"]["subprocess_env"] == {"ENV": "1"}
+    assert calls["text"]["model_dir"] == text_model
+    assert calls["text"]["device"] == "NPU"
+    assert calls["text"]["cache_dir"] == cli.ai_openvino_cache_dir(cli.ai_model_cache_label(text_model, "text"))
+    assert calls["text"]["prompt"] == "Answer with one token"
