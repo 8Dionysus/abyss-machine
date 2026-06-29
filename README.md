@@ -380,10 +380,10 @@ read-model envelopes are module-owned. AI runtime adapters own filesystem
 walks, package/runtime discovery, tokenizer discovery, bounded subprocess
 runner seams, benchmark/eval/workload/core readmodel write routing, LLM
 registry/latest/validate store routing, token-accounting store/readmodel and runner seams,
-and resident controller execution through fakeable ports; concrete config/path
-binding, policy gates, STT/dictation transport, `.aoa` generated-summary reads,
-live input/env binding, resident parser/result rendering, broader resource
-sampling, and command rendering remain at the CLI edge. TTS profile/artifact/status decisions,
+`.aoa` generated-summary read/write routing, and resident controller execution
+through fakeable ports; concrete config/path binding, policy gates, STT fixture
+generation, live input/env binding, resident parser/result rendering, broader
+resource sampling, and command rendering remain at the CLI edge. TTS profile/artifact/status decisions,
 policy-denial/error summaries, server response/payload shaping, synth
 subprocess script/argv/result contracts, synth/eval/compare envelopes, and
 success-index entries are module-owned while module probing, server/socket

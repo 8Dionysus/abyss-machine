@@ -40,4 +40,10 @@
   resource-profile envelopes now pass through fakeable transport, clock, and
   resource ports. CLI remains the eval config, fixture generation, dispatch,
   and rendering edge.
+- Extracted `.aoa` token-accounting generated-summary routing into
+  `abyss_machine.ai_runtime_adapters`; session-registry reads, session
+  manifest/index fallback reads, generated-summary sanitization, outside-root
+  rejection, registry hashing, and latest/history writes now pass through
+  fakeable reader, writer, hash, root-check, path, and clock ports. CLI remains
+  the argument/env binding, command dispatch, and rendering edge.
 - Initial skeleton: package created to route host-managed AI runtime work.
