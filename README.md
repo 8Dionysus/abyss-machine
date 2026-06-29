@@ -187,8 +187,10 @@ probe, status, and sample-temperature contracts live in
 `abyss_machine.observability_contracts`. Cooling config/path/status,
 recommendation, apply-envelope, RAPL smoothing state/status, and guarded fan
 series decision contracts live in `abyss_machine.cooling_contracts`. Cooling
-platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle, and kernel
-fan-error live ports live in `abyss_machine.cooling_adapters`. Process
+platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle, kernel
+fan-error, thermal-zone/cooling-device sysfs sampling, trusted sensor
+projection, temperature summary/sample, and sample-series ports live in
+`abyss_machine.cooling_adapters`. Process
 role/workload/game classifiers, paths/latest read models, game-guard envelope,
 and snapshot summary/top-list contracts live in `abyss_machine.process_contracts`.
 Low-level process `/proc` stat/status/cmdline/io/cgroup/fd reads, storage-root
@@ -461,9 +463,11 @@ filesystem permission probing, line counts, systemd reads, and live latest reads
 remain at the CLI edge. Cooling config/path/status/recommend/apply envelope,
 RAPL smoothing state/status, fan-level parsing, and guarded fan-series decision
 contracts are module-owned; platform-profile, Lenovo fan-mode, RAPL-MMIO,
-package-throttle, and kernel fan-error live ports are adapter-owned through
-`cooling_adapters`. Systemd reads, live samples, validation/apply
-orchestration, latest/history writes, and rendering remain at the CLI edge.
+package-throttle, kernel fan-error, thermal-zone/cooling-device sysfs sampling,
+trusted sensor projection, temperature summary/sample, and sample-series ports
+are adapter-owned through `cooling_adapters`. Systemd reads, concrete
+config/battery/sensors binding, validation/apply orchestration, latest/history
+writes, and rendering remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts are module-owned while live
 `/proc` process-info collection is adapter-owned through `process_adapters`;

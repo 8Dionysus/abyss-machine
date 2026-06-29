@@ -253,10 +253,11 @@ systemd reads, and live latest reads remain at the CLI edge.
 Cooling config/path/status/recommend/apply envelope, RAPL smoothing state/status,
 fan-level parsing, and guarded fan-series decision contracts live in
 `abyss_machine.cooling_contracts`; platform-profile, Lenovo fan-mode, RAPL-MMIO,
-package-throttle, and kernel fan-error live ports live in
-`abyss_machine.cooling_adapters` through fakeable ports. Systemd reads, live
-samples, validation/apply orchestration, and latest/history writes remain at
-the CLI edge.
+package-throttle, kernel fan-error, thermal-zone/cooling-device sysfs sampling,
+trusted sensor projection, temperature summary/sample, and sample-series ports
+live in `abyss_machine.cooling_adapters` through fakeable ports. Systemd reads,
+concrete config/battery/sensors binding, validation/apply orchestration, and
+latest/history writes remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts live in
 `abyss_machine.process_contracts`; low-level `/proc` stat/status/cmdline/io/

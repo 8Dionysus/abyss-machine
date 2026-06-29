@@ -49,9 +49,11 @@ Use these mechanic owners for the next extraction slices:
   `memory_adapters`; mode-state IO, `powerprofilesctl` get/set, recent GameMode
   journal probes, external profile-guard input collection, mode plan/status
   live input collection, and reconcile orchestration live in `mode_adapters`;
-  cooling platform-profile, Lenovo fan-mode, RAPL-MMIO,
-  package-throttle, and kernel fan-error live ports live in `cooling_adapters`.
-  Continue broader container orchestration, cooling live orchestration, and
-  hotpath execution only as bounded public-safe adapter slices.
+  cooling platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle,
+  kernel fan-error, thermal-zone/cooling-device sysfs sampling, trusted sensor
+  projection, temperature summary/sample, and sample-series ports live in
+  `cooling_adapters`. Continue broader container orchestration, cooling
+  validation/apply orchestration, and hotpath execution only as bounded
+  public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.
