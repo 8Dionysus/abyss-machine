@@ -297,3 +297,173 @@ def test_collect_status_inputs_routes_status_reads_through_fake_ports() -> None:
         ("guard", "performance", "performance"),
         "mode_plan",
     ]
+
+
+def test_reconcile_mode_forces_saver_on_battery_through_fake_mutation_ports() -> None:
+    state = {
+        "selected_mode": "balanced",
+        "last_non_ai_mode": "balanced",
+        "forced_saver_on_battery": False,
+    }
+    power_profiles = iter(["performance", "power-saver"])
+    calls: list[Any] = []
+    saved: list[dict[str, Any]] = []
+
+    def power_profile() -> str:
+        value = next(power_profiles)
+        calls.append(("power_profile", value))
+        return value
+
+    def light_status(*args: Any) -> dict[str, Any]:
+        calls.append(("light_status", args[2], args[3], args[4], args[5], args[6]))
+        return {"schema": "abyss_machine_mode_reconcile_light_status_v1", "effective_mode": args[3]}
+
+    result = mode_adapters.reconcile_mode(
+        state=state,
+        battery_summary=lambda: {"ac_online": False, "capacity_percent": 41},
+        power_profile=power_profile,
+        current_mode_from_power_profile=lambda profile: "performance" if profile == "performance" else "saver",
+        target_profile=lambda selected, ac_online: ("saver", "power-saver", "battery"),
+        external_profile_guard=lambda current, target: {"active": False, "preserve_external_boost": False},
+        set_power_profile=lambda target: calls.append(("set_power_profile", target)) or {"ok": True, "changed": True, "target": target},
+        save_state=lambda payload, updated_by: saved.append(dict(payload, updated_by=updated_by)),
+        cooling_apply=lambda profile, write_latest, updated_by: calls.append(("cooling_apply", profile, write_latest, updated_by)) or {"ok": True},
+        mode_plan=lambda write_latest: {"ok": True},
+        mode_status=lambda: {"schema": "abyss_machine_mode_status_v1"},
+        light_status=light_status,
+        updated_by="fixture",
+        lightweight=True,
+    )
+
+    assert state["selected_mode"] == "performance"
+    assert state["last_non_ai_mode"] == "performance"
+    assert state["forced_saver_on_battery"] is True
+    assert saved == [
+        {
+            "selected_mode": "performance",
+            "last_non_ai_mode": "performance",
+            "forced_saver_on_battery": True,
+            "updated_by": "fixture",
+        }
+    ]
+    assert result["effective_mode"] == "saver"
+    assert result["actions"] == [
+        {"action": "set_power_profile", "ok": True, "changed": True, "target": "power-saver"},
+        {"action": "cooling_apply", "ok": True},
+    ]
+    assert calls == [
+        ("power_profile", "performance"),
+        ("set_power_profile", "power-saver"),
+        ("cooling_apply", "auto", True, "fixture"),
+        ("power_profile", "power-saver"),
+        ("light_status", "performance", "saver", "power-saver", "power-saver", "battery"),
+    ]
+
+
+def test_reconcile_mode_preserves_active_external_boost() -> None:
+    state = {
+        "selected_mode": "balanced",
+        "last_non_ai_mode": "balanced",
+        "forced_saver_on_battery": False,
+    }
+    calls: list[Any] = []
+
+    def set_power_profile(target: str) -> dict[str, Any]:
+        raise AssertionError(f"external boost should defer set_power_profile({target})")
+
+    result = mode_adapters.reconcile_mode(
+        state=state,
+        battery_summary=lambda: {"ac_online": True},
+        power_profile=lambda: "performance",
+        current_mode_from_power_profile=lambda profile: "performance",
+        target_profile=lambda selected, ac_online: (selected, selected, None),
+        external_profile_guard=lambda current, target: {
+            "active": True,
+            "preserve_external_boost": True,
+            "current": current,
+            "target": target,
+        },
+        set_power_profile=set_power_profile,
+        save_state=lambda payload, updated_by: calls.append(("save_state", dict(payload), updated_by)),
+        cooling_apply=lambda profile, write_latest, updated_by: calls.append(("cooling_apply", profile, write_latest, updated_by)) or {"ok": True},
+        mode_plan=lambda write_latest: {"ok": True},
+        mode_status=lambda: {"schema": "abyss_machine_mode_status_v1"},
+        light_status=lambda *args: {"schema": "abyss_machine_mode_reconcile_light_status_v1"},
+        updated_by="fixture",
+        lightweight=True,
+    )
+
+    assert state["selected_mode"] == "balanced"
+    assert result["actions"][0]["action"] == "infer_operator_profile_change"
+    assert result["actions"][0]["suppressed"] is True
+    assert result["actions"][1]["action"] == "set_power_profile"
+    assert result["actions"][1]["deferred"] is True
+    assert result["actions"][1]["target"] == "balanced"
+    assert calls == [
+        ("save_state", state, "fixture"),
+        ("cooling_apply", "auto", True, "fixture"),
+    ]
+
+
+def test_reconcile_mode_adopts_operator_profile_drift_when_guard_inactive() -> None:
+    state = {
+        "selected_mode": "balanced",
+        "last_non_ai_mode": "balanced",
+        "forced_saver_on_battery": False,
+    }
+    calls: list[Any] = []
+    saved: list[dict[str, Any]] = []
+
+    def target_profile(selected: str, ac_online: bool) -> tuple[str, str, str | None]:
+        calls.append(("target_profile", selected, ac_online))
+        return (selected, selected, None)
+
+    result = mode_adapters.reconcile_mode(
+        state=state,
+        battery_summary=lambda: {"ac_online": True},
+        power_profile=lambda: "performance",
+        current_mode_from_power_profile=lambda profile: "performance",
+        target_profile=target_profile,
+        external_profile_guard=lambda current, target: calls.append(("guard", current, target)) or {"active": False, "preserve_external_boost": False},
+        set_power_profile=lambda target: calls.append(("set_power_profile", target)) or {"ok": True, "changed": False, "target": target},
+        save_state=lambda payload, updated_by: saved.append(dict(payload, updated_by=updated_by)),
+        cooling_apply=lambda profile, write_latest, updated_by: calls.append(("cooling_apply", profile, write_latest, updated_by)) or {"ok": True},
+        mode_plan=lambda write_latest: {"ok": True},
+        mode_status=lambda: {"schema": "abyss_machine_mode_status_v1"},
+        light_status=lambda *args: {"schema": "abyss_machine_mode_reconcile_light_status_v1"},
+        updated_by="fixture",
+        lightweight=True,
+    )
+
+    assert state["selected_mode"] == "performance"
+    assert state["last_non_ai_mode"] == "performance"
+    assert saved == [
+        {
+            "selected_mode": "performance",
+            "last_non_ai_mode": "performance",
+            "forced_saver_on_battery": False,
+            "updated_by": "fixture",
+        }
+    ]
+    assert result["actions"][0] == {
+        "action": "infer_operator_profile_change",
+        "ok": True,
+        "changed": True,
+        "selected_mode": "performance",
+        "reason": "powerprofilesctl_profile_drift_without_external_guard",
+    }
+    assert result["actions"][1] == {
+        "action": "set_power_profile",
+        "ok": True,
+        "changed": False,
+        "target": "performance",
+    }
+    assert calls == [
+        ("target_profile", "balanced", True),
+        ("guard", "performance", "balanced"),
+        ("target_profile", "performance", True),
+        ("guard", "performance", "performance"),
+        ("set_power_profile", "performance"),
+        ("cooling_apply", "auto", True, "fixture"),
+        ("target_profile", "performance", True),
+    ]
