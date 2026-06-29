@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 import json
 import os
 import socket
 import socketserver
+import sys
 import time
 import wave
 from pathlib import Path
@@ -20,12 +22,122 @@ ServerRequestPort = Callable[..., Mapping[str, Any]]
 SocketFactoryPort = Callable[[int, int], Any]
 ServerSynthPort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 UnloadModelPort = Callable[[], Any]
+ModuleImportPort = Callable[[str], Any]
+PathInsertPort = Callable[[str], None]
+DefaultOutputPathPort = Callable[[str], Path]
 SubprocessEnvPort = Callable[[Mapping[str, str]], Mapping[str, str]]
 ResourceSnapshotPort = Callable[[], Mapping[str, Any]]
 ResourceProfilePort = Callable[[Mapping[str, Any], Mapping[str, Any], str, str], Mapping[str, Any]]
 TimePort = Callable[[], float]
 SleepPort = Callable[[float], None]
 TimestampPort = Callable[[], str]
+
+
+class Qwen3OpenVINOServerImportError(RuntimeError):
+    def __init__(self, original: Exception) -> None:
+        super().__init__(repr(original))
+        self.original = original
+
+
+class Qwen3OpenVINOServerRuntime:
+    def __init__(
+        self,
+        *,
+        profile_key: str,
+        profile: Mapping[str, Any],
+        config: Mapping[str, Any],
+        schema_prefix: str,
+        version: str,
+        started_at: str,
+        load_sec: float,
+        server_pid: int,
+        engine: Any,
+        soundfile_module: Any,
+        custom_voice_request: Any,
+        language_type: Any,
+        sampling_params: Any,
+        speaker_type: Any,
+        now_iso: TimestampPort,
+        time_now: TimePort,
+        default_output_path: DefaultOutputPathPort,
+    ) -> None:
+        self.profile_key = profile_key
+        self.profile = dict(profile)
+        self.config = dict(config)
+        self.schema_prefix = schema_prefix
+        self.version = version
+        self.started_at = started_at
+        self.load_sec = load_sec
+        self.server_pid = server_pid
+        self.engine = engine
+        self.soundfile_module = soundfile_module
+        self.CustomVoiceRequest = custom_voice_request
+        self.Language = language_type
+        self.SamplingParams = sampling_params
+        self.Speaker = speaker_type
+        self.now_iso = now_iso
+        self.time_now = time_now
+        self.default_output_path = default_output_path
+
+    def unload_model(self) -> Any:
+        return self.engine.unload_model()
+
+    def synth_once(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        text = str(request.get("text") or "").strip()
+        if not text:
+            return ai_tts_contracts.server_synth_error_result("text is empty", self.profile_key)
+        requested_profile = str(request.get("profile") or self.profile_key)
+        if requested_profile != self.profile_key:
+            return ai_tts_contracts.server_synth_error_result(
+                "server profile mismatch",
+                self.profile_key,
+                server_profile=self.profile_key,
+                requested_profile=requested_profile,
+            )
+        output = Path(str(request.get("output") or self.default_output_path(f"server-{self.profile_key}"))).expanduser()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        options = dict(request.get("options") or {}) if isinstance(request.get("options"), dict) else {}
+        for key in ai_tts_contracts.TTS_SYNTH_OPTION_KEYS:
+            options.setdefault(key, self.profile.get(key))
+        sampling = self.SamplingParams(
+            max_new_tokens=int(options.get("max_new_tokens") or 512),
+            do_sample=not bool(options.get("no_sample", False)),
+            temperature=float(options.get("temperature") if options.get("temperature") is not None else 0.8),
+            top_k=int(options.get("top_k") if options.get("top_k") is not None else 30),
+            top_p=float(options.get("top_p") if options.get("top_p") is not None else 1.0),
+            repetition_penalty=float(options.get("repetition_penalty") if options.get("repetition_penalty") is not None else 1.05),
+        )
+        language = str(request.get("language") or self.profile.get("language") or self.config.get("language") or "russian")
+        req_language = None if language.lower() in {"auto", "none", "null"} else self.Language(language.lower())
+        tts_request = self.CustomVoiceRequest(
+            text=text,
+            speaker=self.Speaker(str(request.get("speaker") or self.profile.get("speaker") or "ryan").lower()),
+            language=req_language,
+            instruct=str(request.get("instruct") or self.profile.get("instruct") or "") or None,
+            sampling=sampling,
+        )
+        synth_started = self.time_now()
+        wav, sr = self.engine.generate(tts_request)
+        synth_sec = round(self.time_now() - synth_started, 3)
+        self.soundfile_module.write(str(output), wav, sr)
+        audio_sec = round(float(len(wav)) / float(sr), 3) if sr else None
+        return ai_tts_contracts.server_synth_success_document(
+            schema_prefix=self.schema_prefix,
+            version=self.version,
+            generated_at=self.now_iso(),
+            profile=self.profile_key,
+            server_pid=self.server_pid,
+            server_started_at=self.started_at,
+            server_load_sec=self.load_sec,
+            device=self.profile.get("device"),
+            precision=self.profile.get("precision"),
+            output=output,
+            text_chars=len(text),
+            synth_sec=synth_sec,
+            sample_rate=int(sr),
+            samples=int(len(wav)),
+            audio_sec=audio_sec,
+        )
 
 
 def _path_exists(path: Path, path_exists: PathExistsPort) -> bool:
@@ -198,6 +310,76 @@ def run_server_loop(
         except FileNotFoundError:
             pass
     return {"ok": True, "profile": profile, "socket": str(socket_path), "stopped_at": stopped_at()}
+
+
+def _insert_path(path: str) -> None:
+    sys.path.insert(0, path)
+
+
+def load_qwen3_openvino_server_runtime(
+    *,
+    profile_key: str,
+    profile: Mapping[str, Any],
+    config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    server_pid: int,
+    default_output_path: DefaultOutputPathPort,
+    time_now: TimePort | None = None,
+    import_module: ModuleImportPort | None = None,
+    path_insert: PathInsertPort | None = None,
+) -> Qwen3OpenVINOServerRuntime:
+    time_now = time_now or time.perf_counter
+    import_module = import_module or importlib.import_module
+    path_insert = path_insert or _insert_path
+    adapter_src = str(profile.get("adapter_src") or "")
+    if adapter_src:
+        path_insert(adapter_src)
+    try:
+        soundfile_module = import_module("soundfile")
+        ov_infer = import_module("openvino.ov_infer")
+        CustomVoiceRequest = getattr(ov_infer, "CustomVoiceRequest")
+        Language = getattr(ov_infer, "Language")
+        ModelLoadConfig = getattr(ov_infer, "ModelLoadConfig")
+        ModelType = getattr(ov_infer, "ModelType")
+        OVQwen3TTS = getattr(ov_infer, "OVQwen3TTS")
+        SamplingParams = getattr(ov_infer, "SamplingParams")
+        Speaker = getattr(ov_infer, "Speaker")
+    except Exception as exc:
+        raise Qwen3OpenVINOServerImportError(exc) from exc
+
+    model_type = ModelType(str(profile.get("model_type") or "custom_voice"))
+    engine = OVQwen3TTS()
+    load_started = time_now()
+    engine.load_model(
+        ModelLoadConfig(
+            ov_dir=str(profile.get("ov_dir") or ""),
+            device=str(profile.get("device") or "GPU"),
+            cp_device=str(profile.get("cp_device") or "") or None,
+            model_type=model_type,
+        )
+    )
+    load_sec = round(time_now() - load_started, 3)
+    return Qwen3OpenVINOServerRuntime(
+        profile_key=profile_key,
+        profile=profile,
+        config=config,
+        schema_prefix=schema_prefix,
+        version=version,
+        started_at=now_iso(),
+        load_sec=load_sec,
+        server_pid=server_pid,
+        engine=engine,
+        soundfile_module=soundfile_module,
+        custom_voice_request=CustomVoiceRequest,
+        language_type=Language,
+        sampling_params=SamplingParams,
+        speaker_type=Speaker,
+        now_iso=now_iso,
+        time_now=time_now,
+        default_output_path=default_output_path,
+    )
 
 
 def synth_subprocess_env(

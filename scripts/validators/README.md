@@ -189,10 +189,11 @@ response/payload shaping, synth subprocess script/argv/result contracts,
 synth/eval/compare envelopes, and success-index entries live in
 `abyss_machine.ai_tts_contracts`; server/socket transport, server status/stop
 request exchange, warm server socket/request loop and shutdown/unload cleanup,
-synth subprocess env binding, cold synth child-process execution, output WAV
-summary, wall-clock runtime reporting, RTF derivation, and resource-profile
-callback routing live in `abyss_machine.ai_tts_adapters` through fakeable ports.
-Module probes, resident OpenVINO import/load/generate model lifecycle, broader
+synth subprocess env binding, Qwen3 OpenVINO SDK import/path injection, model
+load/unload callback, synth request mapping, generate call, `soundfile` WAV
+write, cold synth child-process execution, output WAV summary, wall-clock
+runtime reporting, RTF derivation, and resource-profile callback routing live in
+`abyss_machine.ai_tts_adapters` through fakeable ports. Module probes, broader
 resource sampling, and latest writes remain at the CLI edge.
 Doctor policy/path/status/report, validate document, and machine-report document
 contracts live in `abyss_machine.doctor_contracts`; `doctor validate`
