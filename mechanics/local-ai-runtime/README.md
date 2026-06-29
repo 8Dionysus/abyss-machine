@@ -46,6 +46,7 @@ runtime/profile file probes, tokenizer/library discovery, OpenVINO python
 package versions, kernel-module snapshots, and OpenVINO smoke/embedding/text
 child-process execution plus token-accounting tokenizer subprocess
 command/env/timeout/timing execution and resident LLM controller
+command/timeout/subprocess execution and workhorse LLM controller
 command/timeout/subprocess execution, benchmark/eval suite orchestration,
 whole-command resource before/after sampling, latest/daily JSONL write routing,
 workload-measurement callback routing, workload run JSONL discovery/read/dedupe
@@ -135,6 +136,12 @@ summaries belong in the public seed.
   subprocess invocation, stdout/stderr/returncode mapping, and no-output JSON
   error envelopes through a fakeable command port. CLI still owns argparse
   binding, user-visible result rendering, and command dispatch.
+- Extracted workhorse LLM controller runner execution into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns
+  `abyss-gemma4-e4b-harness` command construction, timeout routing, subprocess
+  invocation, stdout/stderr/returncode mapping, and no-output JSON error
+  envelopes through a fakeable command port. CLI still owns argparse binding,
+  user-visible result rendering, and command dispatch.
 - Extracted TTS output audio summary and synth resource-report assembly into
   `abyss_machine.ai_tts_adapters`; the adapter owns WAV stat/duration/sample
   rate inspection, wall-clock result timing, RTF derivation, and resource-profile

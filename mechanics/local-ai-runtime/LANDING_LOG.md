@@ -29,4 +29,9 @@
   validate latest writes now pass through fakeable runtime, profile,
   token-profile, reader, writer, path, and clock ports. CLI remains the
   concrete config/path/validation-input/command rendering edge.
+- Extracted workhorse LLM controller runner execution into
+  `abyss_machine.ai_runtime_adapters`; `abyss-gemma4-e4b-harness` command
+  construction, timeout routing, subprocess invocation, stdout/stderr/
+  returncode mapping, and no-output JSON error envelopes now pass through a
+  fakeable command port. CLI remains the argparse binding and rendering edge.
 - Initial skeleton: package created to route host-managed AI runtime work.
