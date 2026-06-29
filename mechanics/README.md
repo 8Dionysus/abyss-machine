@@ -41,7 +41,8 @@ Use these mechanic owners for the next extraction slices:
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
-  `process_adapters`; continue thermal probes and broader container
-  orchestration only as bounded public-safe adapter slices.
+  `process_adapters`; process thermal attribution/plan read-only orchestration
+  also lives in `process_adapters`; continue broader container orchestration
+  only as bounded public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.
