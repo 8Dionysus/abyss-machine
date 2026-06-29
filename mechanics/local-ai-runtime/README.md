@@ -44,11 +44,15 @@ first bounded OpenVINO runner seam: model-root normalization, OpenVINO
 runtime/package/NPU driver probes, model inventory walks, `llama.cpp`
 runtime/profile file probes, tokenizer/library discovery, OpenVINO python
 package versions, kernel-module snapshots, and OpenVINO smoke/embedding/text
-child-process execution through fakeable ports. Remaining AI runtime adapters
-should focus on TTS server/audio execution, resident LLM execution, tokenizer
-subprocess execution, and broader resource-sampling evidence. Keep model
-weights, benchmark outputs, and generated runtime state outside Git; only
-plans, contracts, and bounded summaries belong in the public seed.
+child-process execution through fakeable ports. `abyss_machine.ai_tts_adapters`
+owns the first TTS execution seam: Unix-socket client transport, server
+status/stop request exchange, synth subprocess cache/env binding, and cold
+BabelVox/Qwen3 OpenVINO synth child-process invocation. Remaining AI runtime
+adapters should focus on resident TTS server loop/audio summaries, resident LLM
+execution, tokenizer subprocess execution, and broader resource-sampling
+evidence. Keep model weights, benchmark outputs, and generated runtime state
+outside Git; only plans, contracts, and bounded summaries belong in the public
+seed.
 
 ### Landing log
 
