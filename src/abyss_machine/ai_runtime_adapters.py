@@ -527,6 +527,93 @@ def llm_profile_status(
     )
 
 
+def llm_resident_controller_timeout(command: str | None, jobs_action: str | None = None) -> float:
+    if command == "jobs" and jobs_action in {"run", "refresh"}:
+        return 900.0
+    if command in {"job", "micro"}:
+        return 360.0
+    if command in {"digest", "smoke", "audit", "start", "stop"}:
+        return 180.0
+    return 60.0
+
+
+def llm_resident_controller_command(
+    controller: Path,
+    command: str | None,
+    *,
+    job_name: str | None = None,
+    jobs_action: str | None = None,
+    request_class: str = "job",
+    force: bool = False,
+    no_generation: bool = False,
+    limit: int | None = None,
+    json_output: bool = False,
+) -> list[str]:
+    command_text = str(command or "")
+    argv = [str(controller), command_text]
+    if command_text == "job":
+        argv.append(str(job_name or ""))
+    elif command_text == "jobs":
+        argv.append(str(jobs_action or "latest"))
+    elif command_text == "policy":
+        if job_name:
+            argv.append(str(job_name))
+        argv += ["--request-class", str(request_class)]
+    if force:
+        argv.append("--force")
+    if no_generation:
+        argv.append("--no-generation")
+    if limit is not None and command_text in {"digest", "job", "micro", "jobs", "candidates"}:
+        argv += ["--limit", str(limit)]
+    if json_output:
+        argv.append("--json")
+    return argv
+
+
+def llm_resident_controller_run(
+    *,
+    controller: Path,
+    command: str | None,
+    run_command: RunPort,
+    job_name: str | None = None,
+    jobs_action: str | None = None,
+    request_class: str = "job",
+    force: bool = False,
+    no_generation: bool = False,
+    limit: int | None = None,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    argv = llm_resident_controller_command(
+        controller,
+        command,
+        job_name=job_name,
+        jobs_action=jobs_action,
+        request_class=request_class,
+        force=force,
+        no_generation=no_generation,
+        limit=limit,
+        json_output=json_output,
+    )
+    timeout = llm_resident_controller_timeout(command, jobs_action)
+    out = dict(run_command(argv, timeout=timeout))
+    stdout = str(out.get("stdout") or "")
+    stderr = str(out.get("stderr") or "")
+    result = {
+        "command": argv,
+        "timeout": timeout,
+        "stdout": stdout,
+        "stderr": stderr,
+        "returncode": int(out.get("returncode") or 0),
+    }
+    if json_output and not stdout.strip():
+        result["json_error"] = {
+            "ok": False,
+            "error": stderr or "resident command produced no output",
+            "command": argv,
+        }
+    return result
+
+
 def token_accounting_library_paths(
     tokenizer: Path,
     profile: Mapping[str, Any],
