@@ -49,14 +49,14 @@ command/env/timeout/timing execution and resident LLM controller
 command/timeout/subprocess execution through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
-socket/request loop and shutdown/unload cleanup, synth subprocess cache/env
-binding, and cold BabelVox/Qwen3 OpenVINO synth child-process invocation plus
-output WAV summary and synth runtime resource-report assembly. Remaining AI
-runtime adapters should focus on resident TTS OpenVINO import/load/generate
-model lifecycle, benchmark/eval suite orchestration, and broader
-resource-sampling evidence. Keep model weights, benchmark outputs, and
-generated runtime state outside Git; only plans, contracts, and bounded
-summaries belong in the public seed.
+socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
+shutdown/unload cleanup, synth subprocess cache/env binding, and cold
+BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
+and synth runtime resource-report assembly. Remaining AI runtime adapters should
+focus on benchmark/eval suite orchestration and broader resource-sampling
+evidence. Keep model weights, benchmark outputs, and generated runtime state
+outside Git; only plans, contracts, and bounded summaries belong in the public
+seed.
 
 ### Landing log
 
@@ -92,15 +92,21 @@ summaries belong in the public seed.
   rate inspection, wall-clock result timing, RTF derivation, and resource-profile
   callback routing through fakeable path, clock, resource snapshot, and
   resource-profile ports. CLI still owns profile/config selection, policy gates,
-  latest writes, resident OpenVINO import/load/generate model lifecycle, command
-  dispatch, and rendering.
+  latest writes, command dispatch, and rendering.
 - Extracted resident TTS warm server loop/socket lifecycle into
   `abyss_machine.ai_tts_adapters`; the adapter owns Unix-socket bind/unlink,
   JSON-line request parsing, ping/status/synth/shutdown command dispatch,
   shutdown loop termination, socket cleanup, and sync/awaitable unload callback
   execution through fakeable ports. CLI still owns profile/config selection,
-  policy gates, OpenVINO import/load/generate model work, latest writes, command
-  dispatch, and rendering.
+  policy gates, latest writes, command dispatch, and rendering.
+- Extracted resident TTS Qwen3 OpenVINO server runtime lifecycle into
+  `abyss_machine.ai_tts_adapters`; the adapter owns SDK import/path injection,
+  model-load config construction, model load/unload callback, synth request
+  option/language/speaker mapping, model generate call, `soundfile` WAV write,
+  and server synth success/error document assembly through fakeable importer,
+  path, clock, and output-path ports. CLI still owns profile/config/status
+  selection, policy gates, server-state latest write, command dispatch, and
+  rendering.
 - Extracted explicit-file dictation transcription runtime into
   `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
   socket transport, client-side 16 kHz runtime preprocessing, helper subprocess

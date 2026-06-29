@@ -326,6 +326,135 @@ def test_tts_audio_summary_and_runtime_report_are_fakeable(tmp_path: Path) -> No
     ]
 
 
+def test_tts_qwen3_openvino_server_runtime_loads_and_synthesizes_with_fake_modules(tmp_path: Path) -> None:
+    profile = {
+        "adapter_src": "/srv/abyss-machine/tools/tts/qwen3-openvino",
+        "ov_dir": "/srv/abyss-machine/cache/ai/tts/qwen3-openvino",
+        "model_type": "custom_voice",
+        "device": "GPU",
+        "cp_device": "",
+        "precision": "fp16",
+        "speaker": "Ryan",
+        "language": "Russian",
+        "temperature": 0.7,
+    }
+    writes: list[dict[str, Any]] = []
+    path_inserts: list[str] = []
+
+    class FakeValue:
+        def __init__(self, value: Any = None, **kwargs: Any) -> None:
+            self.value = value
+            self.kwargs = kwargs
+
+    class FakeEngine:
+        instances: list["FakeEngine"] = []
+
+        def __init__(self) -> None:
+            self.loaded: list[Any] = []
+            self.generated: list[Any] = []
+            self.unloaded = False
+            FakeEngine.instances.append(self)
+
+        def load_model(self, config: Any) -> None:
+            self.loaded.append(config)
+
+        def unload_model(self) -> None:
+            self.unloaded = True
+
+        def generate(self, request: Any) -> tuple[list[int], int]:
+            self.generated.append(request)
+            return [0, 0, 0, 0], 2
+
+    soundfile_module = types.SimpleNamespace(write=lambda path, wav, sr: writes.append({"path": path, "wav": wav, "sr": sr}))
+    ov_infer_module = types.SimpleNamespace(
+        CustomVoiceRequest=FakeValue,
+        Language=FakeValue,
+        ModelLoadConfig=FakeValue,
+        ModelType=FakeValue,
+        OVQwen3TTS=FakeEngine,
+        SamplingParams=FakeValue,
+        Speaker=FakeValue,
+    )
+    imports = {"soundfile": soundfile_module, "openvino.ov_infer": ov_infer_module}
+    ticks = iter([10.0, 10.5, 20.0, 20.25])
+
+    runtime = ai_tts_adapters.load_qwen3_openvino_server_runtime(
+        profile_key="quality",
+        profile=profile,
+        config={"language": "Russian"},
+        schema_prefix="abyss_machine",
+        version="0.8.86",
+        now_iso=lambda: STAMP,
+        server_pid=4242,
+        default_output_path=lambda label: tmp_path / f"{label}.wav",
+        time_now=lambda: next(ticks),
+        import_module=lambda name: imports[name],
+        path_insert=path_inserts.append,
+    )
+    empty = runtime.synth_once({})
+    mismatch = runtime.synth_once({"text": "hello", "profile": "other"})
+    output = tmp_path / "out.wav"
+    success = runtime.synth_once(
+        {
+            "text": "hello",
+            "profile": "quality",
+            "output": str(output),
+            "options": {"temperature": 0.6, "top_k": 20},
+        }
+    )
+    runtime.unload_model()
+
+    assert path_inserts == ["/srv/abyss-machine/tools/tts/qwen3-openvino"]
+    assert runtime.load_sec == 0.5
+    assert runtime.started_at == STAMP
+    assert len(FakeEngine.instances) == 1
+    assert FakeEngine.instances[0].loaded[0].kwargs["ov_dir"] == "/srv/abyss-machine/cache/ai/tts/qwen3-openvino"
+    assert FakeEngine.instances[0].loaded[0].kwargs["device"] == "GPU"
+    assert FakeEngine.instances[0].loaded[0].kwargs["cp_device"] is None
+    assert FakeEngine.instances[0].loaded[0].kwargs["model_type"].value == "custom_voice"
+    assert empty == {"ok": False, "error": "text is empty", "profile": "quality"}
+    assert mismatch["error"] == "server profile mismatch"
+    assert success["ok"] is True
+    assert success["profile"] == "quality"
+    assert success["server_pid"] == 4242
+    assert success["server_started_at"] == STAMP
+    assert success["server_load_sec"] == 0.5
+    assert success["output"] == str(output)
+    assert success["synth_sec"] == 0.25
+    assert success["sample_rate"] == 2
+    assert success["samples"] == 4
+    assert success["audio_sec"] == 2.0
+    assert writes == [{"path": str(output), "wav": [0, 0, 0, 0], "sr": 2}]
+    request = FakeEngine.instances[0].generated[0]
+    assert request.kwargs["text"] == "hello"
+    assert request.kwargs["speaker"].value == "ryan"
+    assert request.kwargs["language"].value == "russian"
+    assert request.kwargs["sampling"].kwargs["temperature"] == 0.6
+    assert request.kwargs["sampling"].kwargs["top_k"] == 20
+    assert FakeEngine.instances[0].unloaded is True
+
+
+def test_tts_qwen3_openvino_server_runtime_import_error_is_explicit() -> None:
+    error = RuntimeError("missing runtime")
+    try:
+        ai_tts_adapters.load_qwen3_openvino_server_runtime(
+            profile_key="quality",
+            profile={},
+            config={},
+            schema_prefix="abyss_machine",
+            version="0.8.86",
+            now_iso=lambda: STAMP,
+            server_pid=4242,
+            default_output_path=lambda label: Path(label),
+            import_module=lambda _name: (_ for _ in ()).throw(error),
+            path_insert=lambda _path: None,
+        )
+    except ai_tts_adapters.Qwen3OpenVINOServerImportError as exc:
+        assert exc.original is error
+    else:  # pragma: no cover - should raise for this fake importer.
+        raise AssertionError("expected Qwen3OpenVINOServerImportError")
+
+
 def test_cli_tts_server_wrappers_bind_adapter_ports(monkeypatch) -> None:
     from abyss_machine import cli
 
@@ -396,60 +525,47 @@ def test_cli_tts_server_run_binds_loop_adapter_port(monkeypatch, tmp_path: Path)
     calls: dict[str, Any] = {}
     writes: list[dict[str, Any]] = []
 
-    class FakeValue:
-        def __init__(self, value: Any = None, **kwargs: Any) -> None:
-            self.value = value
-            self.kwargs = kwargs
+    class FakeRuntime:
+        started_at = STAMP
+        load_sec = 0.75
 
-    class FakeEngine:
-        instances: list["FakeEngine"] = []
-
-        def __init__(self) -> None:
-            self.loaded: list[Any] = []
-            FakeEngine.instances.append(self)
-
-        def load_model(self, config: Any) -> None:
-            self.loaded.append(config)
+        def synth_once(self, request: dict[str, Any]) -> dict[str, Any]:
+            calls["synth_once_request"] = request
+            return {"ok": True}
 
         def unload_model(self) -> None:
-            calls["engine_unloaded"] = True
-
-        def generate(self, _request: Any) -> tuple[list[int], int]:
-            return [0, 0, 0], 16000
-
-    soundfile_module = types.ModuleType("soundfile")
-    soundfile_module.write = lambda *_args, **_kwargs: None  # type: ignore[attr-defined]
-    openvino_module = types.ModuleType("openvino")
-    ov_infer_module = types.ModuleType("openvino.ov_infer")
-    ov_infer_module.CustomVoiceRequest = FakeValue  # type: ignore[attr-defined]
-    ov_infer_module.Language = FakeValue  # type: ignore[attr-defined]
-    ov_infer_module.ModelLoadConfig = FakeValue  # type: ignore[attr-defined]
-    ov_infer_module.ModelType = FakeValue  # type: ignore[attr-defined]
-    ov_infer_module.OVQwen3TTS = FakeEngine  # type: ignore[attr-defined]
-    ov_infer_module.SamplingParams = FakeValue  # type: ignore[attr-defined]
-    ov_infer_module.Speaker = FakeValue  # type: ignore[attr-defined]
+            calls["runtime_unloaded"] = True
 
     def fake_run_server_loop(**kwargs: Any) -> dict[str, Any]:
         calls["run_server_loop"] = kwargs
         return {"ok": True, "profile": kwargs["profile"], "socket": str(kwargs["socket_path"]), "stopped_at": STAMP}
 
-    perf_ticks = iter([10.0, 10.75])
-    monkeypatch.setitem(sys.modules, "soundfile", soundfile_module)
-    monkeypatch.setitem(sys.modules, "openvino", openvino_module)
-    monkeypatch.setitem(sys.modules, "openvino.ov_infer", ov_infer_module)
-    monkeypatch.setattr(cli.time, "perf_counter", lambda: next(perf_ticks))
+    fake_runtime = FakeRuntime()
+
+    def fake_load_runtime(**kwargs: Any) -> FakeRuntime:
+        calls["load_runtime"] = kwargs
+        return fake_runtime
+
     monkeypatch.setattr(cli, "now_iso", lambda: STAMP)
     monkeypatch.setattr(cli.os, "getpid", lambda: 4242)
     monkeypatch.setattr(cli, "ai_tts_profile_for_request", lambda name: ("quality", profile, {"language": "Russian"}))
     monkeypatch.setattr(cli, "ai_tts_profile_status", lambda name, profile: status)
     monkeypatch.setattr(cli, "safe_atomic_write_json", lambda path, data, mode: writes.append({"path": path, "data": data, "mode": mode}) or None)
+    monkeypatch.setattr(cli.ai_tts_adapters, "load_qwen3_openvino_server_runtime", fake_load_runtime)
     monkeypatch.setattr(cli.ai_tts_adapters, "run_server_loop", fake_run_server_loop)
 
     result = cli.ai_tts_server_run("quality", socket_path=str(socket_path))
 
     assert result == {"ok": True, "profile": "quality", "socket": str(socket_path), "stopped_at": STAMP}
-    assert len(FakeEngine.instances) == 1
-    assert FakeEngine.instances[0].loaded
+    assert calls["load_runtime"]["profile_key"] == "quality"
+    assert calls["load_runtime"]["profile"] == profile
+    assert calls["load_runtime"]["config"] == {"language": "Russian"}
+    assert calls["load_runtime"]["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert calls["load_runtime"]["version"] == cli.VERSION
+    assert calls["load_runtime"]["now_iso"] is cli.now_iso
+    assert calls["load_runtime"]["server_pid"] == 4242
+    assert calls["load_runtime"]["default_output_path"] is cli.ai_tts_default_output_path
+    assert calls["load_runtime"]["time_now"] is cli.time.perf_counter
     assert writes == [
         {
             "path": cli.AI_TTS_SERVER_LATEST_PATH,
@@ -463,9 +579,9 @@ def test_cli_tts_server_run_binds_loop_adapter_port(monkeypatch, tmp_path: Path)
     assert calls["run_server_loop"]["server_state"]["pid"] == 4242
     assert calls["run_server_loop"]["server_state"]["load_sec"] == 0.75
     assert calls["run_server_loop"]["profile"] == "quality"
-    assert callable(calls["run_server_loop"]["synth_once"])
+    assert calls["run_server_loop"]["synth_once"].__self__ is fake_runtime
     assert calls["run_server_loop"]["stopped_at"] is cli.now_iso
-    assert calls["run_server_loop"]["unload_model"].__self__ is FakeEngine.instances[0]
+    assert calls["run_server_loop"]["unload_model"].__self__ is fake_runtime
 
 
 def test_cli_tts_synth_binds_subprocess_adapter_ports(monkeypatch, tmp_path: Path) -> None:
