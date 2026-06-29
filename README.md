@@ -173,8 +173,10 @@ launch-gate, and plan document contracts live in
 Podman inspect/restart execution, local model HTTP probes, cgroup CPU sampling,
 live locks, rehydrate polling, read-only pressure/process/cgroup collection,
 and residency service snapshots live in `abyss_machine.memory_adapters`
-through fakeable ports; hotpath probe execution, candidate ranking,
-authorization checks, latest writes, and rendering remain at the CLI edge. Mode policy/path/state, definitions,
+through fakeable ports; memory hotpath probe document assembly and orchestration
+live there through fakeable TTS/STT/LLM, residency, and AI-policy ports.
+Concrete hotpath probe execution, candidate ranking, authorization checks,
+latest writes, and rendering remain at the CLI edge. Mode policy/path/state, definitions,
 target-profile, thermal launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts live in
 `abyss_machine.mode_contracts`. Mode runtime state load/save,

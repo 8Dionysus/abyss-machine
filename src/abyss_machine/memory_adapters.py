@@ -27,6 +27,13 @@ ProcessInfoPort = Callable[[int], dict[str, Any] | None]
 SystemdPropertiesPort = Callable[[str, list[str], bool, float], dict[str, Any]]
 ControlValuePort = Callable[[Any], dict[str, Any]]
 KibToMibPort = Callable[[Any], float | None]
+ResidencyPort = Callable[[int], dict[str, Any]]
+TtsStatusPort = Callable[[], dict[str, Any]]
+AiPolicyPort = Callable[[], dict[str, Any]]
+TtsProbePort = Callable[[str, int], dict[str, Any]]
+SttProbePort = Callable[[str, str], dict[str, Any]]
+LlmProbePort = Callable[[bool, int], dict[str, Any]]
+OutputExistsPort = Callable[[str], bool]
 
 
 def tool_available(name: str) -> bool:
@@ -85,6 +92,224 @@ def nested_get(data: Any, path: Sequence[str]) -> Any:
             return None
         current = current.get(key)
     return current
+
+
+def hotpath_residency_brief(data: dict[str, Any]) -> dict[str, Any]:
+    summary = data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}
+    services: dict[str, Any] = {}
+    for item in data.get("services", []) if isinstance(data.get("services"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        unit = str(item.get("unit") or "")
+        if not unit:
+            continue
+        services[unit] = {
+            "active": nested_get(item, ["systemd", "active_state"]),
+            "class": item.get("class"),
+            "memory_current_mib": nested_get(item, ["controls", "memory_current", "mib"]),
+            "memory_peak_mib": nested_get(item, ["controls", "memory_peak", "mib"]),
+            "memory_swap_mib": nested_get(item, ["controls", "memory_swap_current", "mib"]),
+            "memory_low_mib": nested_get(item, ["controls", "memory_low", "mib"]),
+            "memory_high_mib": nested_get(item, ["controls", "memory_high", "mib"]),
+            "memory_swap_max": nested_get(item, ["controls", "memory_swap_max", "raw"]),
+            "pss_mib": nested_get(item, ["derived", "sampled_process_pss_mib"]),
+            "process_swap_mib": nested_get(item, ["derived", "sampled_process_swap_mib"]),
+            "swap_to_pss_ratio": nested_get(item, ["derived", "cgroup_swap_to_sampled_pss_ratio"]),
+            "runtime_pilot_active": nested_get(item, ["target", "runtime_pilot_active"]),
+            "issues": [issue.get("code") for issue in item.get("issues", []) if isinstance(issue, dict)],
+        }
+    return {
+        "status": data.get("status"),
+        "memory_class": summary.get("memory_class"),
+        "zram_disk_mib": summary.get("zram_disk_mib"),
+        "zram_data_mib": summary.get("zram_data_mib"),
+        "zram_resident_mib": summary.get("zram_resident_mib"),
+        "zram_logical_free_mib": summary.get("zram_logical_free_mib"),
+        "zram_logical_to_memory_ratio": summary.get("zram_logical_to_memory_ratio"),
+        "swap_used_percent": summary.get("swap_used_percent"),
+        "psi_some_avg10": summary.get("psi_some_avg10"),
+        "psi_full_avg10": summary.get("psi_full_avg10"),
+        "protected_high_swap_units": summary.get("protected_high_swap_units"),
+        "services": services,
+    }
+
+
+def hotpath_probe_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    text: str,
+    repeat_tts: int,
+    stt_profiles: Sequence[str] | None,
+    include_llm: bool,
+    llm_limit: int,
+    top: int,
+    monotonic: MonotonicPort,
+    residency_port: ResidencyPort,
+    tts_status_port: TtsStatusPort,
+    ai_policy_port: AiPolicyPort,
+    tts_probe_port: TtsProbePort,
+    stt_probe_port: SttProbePort,
+    llm_probe_port: LlmProbePort,
+    output_exists_port: OutputExistsPort,
+    paths_refs: dict[str, Any],
+) -> dict[str, Any]:
+    text = str(text or "").strip()
+    repeat_tts = max(1, min(int(repeat_tts), 3))
+    profiles = [str(item).strip() for item in (stt_profiles or ["command", "quality"]) if str(item).strip()]
+    if not profiles:
+        profiles = ["command"]
+
+    started = monotonic()
+    before = residency_port(top)
+    tts_status_before = tts_status_port()
+    ai_policy_before = ai_policy_port()
+
+    tts_runs: list[dict[str, Any]] = []
+    audio_for_stt: str | None = None
+    for index in range(1, repeat_tts + 1):
+        probe = tts_probe_port(text, index)
+        tts_runs.append(probe)
+        if audio_for_stt is None and probe.get("ok") and probe.get("output"):
+            output = str(probe.get("output"))
+            if output_exists_port(output):
+                audio_for_stt = output
+
+    after_tts = residency_port(top)
+    stt_runs = [stt_probe_port(audio_for_stt, profile) for profile in profiles] if audio_for_stt else []
+    llm = llm_probe_port(include_llm, llm_limit)
+    after = residency_port(top)
+    ai_policy_after = ai_policy_port()
+
+    before_brief = hotpath_residency_brief(before)
+    after_tts_brief = hotpath_residency_brief(after_tts)
+    after_brief = hotpath_residency_brief(after)
+
+    first_tts = tts_runs[0] if tts_runs else {}
+    last_tts = tts_runs[-1] if tts_runs else {}
+    first_tts_wall = _safe_float(first_tts.get("reported_wall_sec") or first_tts.get("client_wall_sec"), None)
+    last_tts_wall = _safe_float(last_tts.get("reported_wall_sec") or last_tts.get("client_wall_sec"), None)
+    swap_before = _safe_float(before_brief.get("swap_used_percent"), None)
+    swap_after_tts = _safe_float(after_tts_brief.get("swap_used_percent"), None)
+    swap_after = _safe_float(after_brief.get("swap_used_percent"), None)
+
+    findings: list[str] = []
+    issues: list[str] = []
+    if swap_before is not None and swap_after_tts is not None and swap_after_tts <= swap_before - 10.0:
+        findings.append("tts_warmup_reclaimed_zram_headroom")
+    if first_tts_wall is not None and last_tts_wall is not None and repeat_tts > 1 and last_tts_wall <= first_tts_wall * 0.75:
+        findings.append("tts_second_run_faster_after_swapin")
+    if first_tts_wall is not None and first_tts_wall > 15.0:
+        issues.append("first_tts_slow")
+    if last_tts_wall is not None and last_tts_wall > 8.0:
+        issues.append("warm_tts_still_slow")
+    for item in stt_runs:
+        wall = _safe_float(item.get("client_elapsed_sec") or item.get("client_wall_sec"), None)
+        if item.get("profile") == "command" and wall is not None and wall <= 2.0:
+            findings.append("dictation_command_path_interactive")
+        if item.get("profile") == "quality" and wall is not None and wall > 4.0:
+            issues.append("dictation_quality_path_slow")
+    if _safe_float(after_brief.get("psi_full_avg10"), 0.0) and float(after_brief.get("psi_full_avg10") or 0.0) > 0.5:
+        issues.append("active_memory_stalls_after_probe")
+    if include_llm:
+        llm_elapsed = _safe_float(llm.get("elapsed_ms"), None)
+        if llm_elapsed is not None and llm_elapsed > 30000.0:
+            issues.append("resident_llm_micro_slow")
+        if llm.get("fallback_used"):
+            issues.append("resident_llm_fallback_used")
+
+    probe_failed = any(not item.get("ok") for item in tts_runs) or any(not item.get("ok") for item in stt_runs)
+    status = "failed" if probe_failed else ("watch" if issues else "ok")
+    root = Path(str(paths_refs.get("root", ""))) if paths_refs.get("root") else None
+    return {
+        "schema": f"{schema_prefix}_memory_hotpath_probe_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": not probe_failed,
+        "status": status,
+        "summary": {
+            "status": status,
+            "findings": sorted(set(findings)),
+            "issues": sorted(set(issues)),
+            "duration_sec": round(monotonic() - started, 3),
+            "tts_runs": len(tts_runs),
+            "stt_runs": len(stt_runs),
+            "llm_executed": bool(include_llm),
+            "first_tts_wall_sec": first_tts_wall,
+            "last_tts_wall_sec": last_tts_wall,
+            "command_stt_client_sec": next((item.get("client_elapsed_sec") for item in stt_runs if item.get("profile") == "command"), None),
+            "quality_stt_client_sec": next((item.get("client_elapsed_sec") for item in stt_runs if item.get("profile") == "quality"), None),
+            "llm_elapsed_ms": llm.get("elapsed_ms") if include_llm else None,
+            "llm_latest_elapsed_ms": llm.get("elapsed_ms") if not include_llm else None,
+            "swap_used_percent_before": swap_before,
+            "swap_used_percent_after_tts": swap_after_tts,
+            "swap_used_percent_after": swap_after,
+        },
+        "request": {
+            "text_chars": len(text),
+            "tts_profile": "quality-compact",
+            "repeat_tts": repeat_tts,
+            "stt_profiles": profiles,
+            "include_llm": bool(include_llm),
+            "llm_limit": int(llm_limit),
+            "top": int(top),
+        },
+        "before": {
+            "memory": before_brief,
+            "tts_server": {
+                "ok": tts_status_before.get("ok"),
+                "active": nested_get(tts_status_before, ["service", "active"]),
+                "enabled": nested_get(tts_status_before, ["service", "enabled"]),
+                "profile": nested_get(tts_status_before, ["ping", "profile"]),
+            },
+            "ai_policy": {
+                "class": ai_policy_before.get("class"),
+                "heavy_policy": ai_policy_before.get("heavy_policy"),
+                "can_run_heavy": ai_policy_before.get("can_run_heavy"),
+                "temperature_c": nested_get(ai_policy_before, ["current", "thermal", "current_temperature_c"]),
+                "hot_temperature_c": nested_get(ai_policy_before, ["thresholds", "hot_temperature_c"]),
+            },
+        },
+        "probes": {
+            "tts": tts_runs,
+            "dictation": stt_runs,
+            "resident_llm": llm,
+        },
+        "after_tts": {
+            "memory": after_tts_brief,
+        },
+        "after": {
+            "memory": after_brief,
+            "ai_policy": {
+                "class": ai_policy_after.get("class"),
+                "heavy_policy": ai_policy_after.get("heavy_policy"),
+                "can_run_heavy": ai_policy_after.get("can_run_heavy"),
+                "temperature_c": nested_get(ai_policy_after, ["current", "thermal", "current_temperature_c"]),
+                "hot_temperature_c": nested_get(ai_policy_after, ["thresholds", "hot_temperature_c"]),
+            },
+        },
+        "paths": {
+            "latest": str(paths_refs.get("latest")),
+            "daily_glob": str(root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl") if root else None,
+            "memory_residency_latest": str(paths_refs.get("memory_residency_latest")),
+            "tts_latest": str(paths_refs.get("tts_latest")),
+            "llm_micro_latest": str(paths_refs.get("llm_micro_latest")),
+        },
+        "policy": {
+            "facts_only": True,
+            "does_not_stop_disable_restart_or_throttle_services": True,
+            "does_not_apply_cgroup_properties": True,
+            "does_not_record_microphone": True,
+            "synthetic_tts_audio_only": True,
+            "memory_swapmax_deferred": True,
+        },
+        "non_claims": [
+            "This probe measures synthetic hot-path latency and zram impact; it is not a full TTS or STT quality eval.",
+            "Slow protected-service latency is evidence for warmup/cgroup/zram policy, not a recommendation to stop the service.",
+            "The resident LLM probe is latest-only unless --include-llm is passed.",
+        ],
+    }
 
 
 def parse_key_value_file(path: Path) -> dict[str, int]:
