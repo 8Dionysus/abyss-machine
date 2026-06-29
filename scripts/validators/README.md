@@ -252,10 +252,11 @@ envelope, and snapshot summary/top-list contracts live in
 cgroup/fd reads, process storage-root matching, process info assembly, CPU
 jiffy sampling, and sanitized Podman container-health reads live in
 `abyss_machine.process_adapters` through fakeable proc-root/sysconf/sleep/
-command-runner ports. DBus, AT-SPI, desktop/window probes, thermal sampling,
-gamemode binding, broader container orchestration, latest/history writes, and
-command rendering remain at the CLI edge. Storage hook execution belongs to the
-storage adapter boundary.
+command-runner ports. Read-only GNOME Shell desktop-compositor command/proc
+probes also live in `process_adapters`; AT-SPI hard-timeout desktop capture,
+thermal sampling, gamemode binding, broader container orchestration,
+latest/history writes, and command rendering remain at the CLI edge. Storage
+hook execution belongs to the storage adapter boundary.
 Heartbeat/reaction/response path surfaces, heartbeat source freshness/rhythm/
 candidate lifecycle, reaction candidate/status envelopes, and owner-gated
 response command profiles/routes/status envelopes plus validate documents live in

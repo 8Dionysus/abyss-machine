@@ -285,3 +285,219 @@ def test_safe_container_summary_redacts_mounts_and_ports() -> None:
     assert summary["ports"] == {"8080/tcp": [{"host_ip": "127.0.0.1", "host_port": "18080"}]}
     assert summary["work_mounts"][0]["source"] == "/srv/work/project/db"
     assert summary["named_volumes"][0]["name"] == "pgdata"
+
+
+def _write_task(proc_root: Path, pid: int, tid: int, *, comm: str, utime: int, stime: int, wchan: str = "poll_schedule_timeout") -> None:
+    task = proc_root / str(pid) / "task" / str(tid)
+    task.mkdir(parents=True, exist_ok=True)
+    (task / "stat").write_text(_stat_text(comm, utime=utime, stime=stime), encoding="utf-8")
+    (task / "wchan").write_text(wchan, encoding="utf-8")
+
+
+def test_gnome_shell_cpu_samples_reads_fake_proc_and_units(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    (proc_root / "stat").write_text("cpu 100 0 0 0\n", encoding="utf-8")
+    shell_root = _write_proc(
+        proc_root,
+        777,
+        comm="gnome-shell",
+        cmdline=b"/usr/bin/gnome-shell\x00--mode=user",
+        utime=10,
+        stime=0,
+    )
+    (shell_root / "comm").write_text("gnome-shell\n", encoding="utf-8")
+    (shell_root / "fd" / "1").symlink_to("anon_inode:[pidfd]")
+    (shell_root / "fd" / "2").symlink_to("/dmabuf-gpu-buffer")
+    (shell_root / "fd" / "3").symlink_to("socket:[123]")
+    _write_task(proc_root, 777, 777, comm="gnome-shell", utime=10, stime=0)
+    _write_task(proc_root, 777, 778, comm="KMS thread", utime=4, stime=1)
+
+    assert process_adapters.process_gnome_shell_pid(proc_root=proc_root, sysconf=lambda name: 100) == 777
+
+    monotonic_values = iter([0.0, 0.0, 0.0, 1.0, 1.0])
+
+    def fake_monotonic() -> float:
+        return next(monotonic_values, 1.0)
+
+    def fake_sleep(seconds: float) -> None:
+        assert seconds == 1.0
+        (shell_root / "stat").write_text(_stat_text("gnome-shell", utime=35, stime=5), encoding="utf-8")
+        _write_task(proc_root, 777, 777, comm="gnome-shell", utime=30, stime=5)
+        _write_task(proc_root, 777, 778, comm="KMS thread", utime=5, stime=2)
+
+    def runner(command: list[str], timeout: float = 0) -> dict[str, object]:
+        assert command[:3] == ["systemctl", "--user", "is-active"]
+        return {"ok": True, "stdout": "active\n", "stderr": "", "returncode": 0}
+
+    samples = process_adapters.process_gnome_shell_cpu_samples(
+        777,
+        seconds=1.0,
+        interval=1.0,
+        units=["abyss-passive-chronicle.service"],
+        proc_root=proc_root,
+        sysconf=lambda name: 100,
+        sleep=fake_sleep,
+        monotonic=fake_monotonic,
+        command_exists=lambda name: name == "systemctl",
+        runner=runner,
+    )
+
+    assert len(samples) == 1
+    sample = samples[0]
+    assert sample["cpu_one_core_percent"] == 30.0
+    assert sample["fd"] == {"total": 4, "pidfd": 1, "dmabuf": 1, "socket": 1, "timerfd": 0, "eventfd": 0}
+    assert sample["top_threads"][0]["comm"] == "gnome-shell"
+    assert sample["top_threads"][0]["cpu_one_core_percent"] == 25.0
+    assert sample["units"] == {"abyss-passive-chronicle.service": "active"}
+
+
+def test_desktop_command_probes_parse_fake_runner_outputs(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    shell_root = _write_proc(
+        proc_root,
+        777,
+        comm="gnome-shell",
+        cmdline=b"/usr/bin/gnome-shell\x00--mode=user",
+    )
+    (shell_root / "comm").write_text("gnome-shell\n", encoding="utf-8")
+    status_root = _write_proc(proc_root, 456, comm="firefox", cmdline=b"firefox\x00--wayland")
+    (status_root / "comm").write_text("firefox\n", encoding="utf-8")
+
+    home = tmp_path / "home"
+    vitals_path = home / ".local" / "share" / "gnome-shell" / "extensions" / "Vitals@CoreCoding.com"
+    vitals_path.mkdir(parents=True)
+    (vitals_path / "metadata.json").write_text(json.dumps({"name": "Vitals", "version": 70, "url": "https://example.invalid/vitals"}), encoding="utf-8")
+    (vitals_path / "schemas").mkdir()
+    system_extensions = tmp_path / "system-extensions"
+    other_path = system_extensions / "Other@Example"
+    other_path.mkdir(parents=True)
+    (other_path / "metadata.json").write_text(json.dumps({"name": "Other", "version": 1}), encoding="utf-8")
+
+    available = {"gdbus", "busctl", "gsettings", "timeout", "dbus-monitor", "wmctrl", "xprop", "ss", "ps"}
+
+    def command_exists(name: str) -> bool:
+        return name in available
+
+    def result(stdout: str, *, ok: bool = True, returncode: int = 0, stderr: str = "") -> dict[str, object]:
+        return {"ok": ok, "stdout": stdout, "stderr": stderr, "returncode": returncode}
+
+    def runner(command: list[str], timeout: float = 0) -> dict[str, object]:
+        if command == ["busctl", "--user", "status", "org.gnome.Shell"]:
+            return result("PID=777\nUniqueName=:1.42\nComm=gnome-shell\nCommandLine=/usr/bin/gnome-shell --mode=user\n")
+        if command[:3] == ["busctl", "--user", "status"]:
+            return result("PID=456\nComm=firefox\n")
+        if command[:3] == ["busctl", "--user", "tree"]:
+            service = command[3]
+            return result(f"`-/org/gnome/Mutter/{service.rsplit('.', 1)[-1]}/Session/u1\n`-/org/gnome/Mutter/{service.rsplit('.', 1)[-1]}/Stream/u2\n")
+        if command[:2] == ["gsettings", "get"] and command[-1] == "enabled-extensions":
+            return result("['Vitals@CoreCoding.com', 'Other@Example']\n")
+        if command[:2] == ["gsettings", "get"] and command[-1] == "disabled-extensions":
+            return result("[]\n")
+        if command[:2] == ["gsettings", "--schemadir"]:
+            return result(
+                "\n".join([
+                    "org.gnome.shell.extensions.vitals update-time 1",
+                    "org.gnome.shell.extensions.vitals hot-sensors ['_processor_usage_']",
+                    "org.gnome.shell.extensions.vitals show-temperature true",
+                ])
+            )
+        if command[:4] == ["gdbus", "call", "--session", "--dest"]:
+            dest = command[command.index("--dest") + 1]
+            method = command[command.index("--method") + 1]
+            if dest == "org.gnome.Mutter.DisplayConfig" and method == "org.gnome.Mutter.DisplayConfig.GetCurrentState":
+                return result("('mode-id', 2560, 1440, 120.0, 1.0, {'is-current': <true>, 'display-name': <'Panel'>, 'min-refresh-rate': <48.0>}), [(0, 0, 1.0, uint32 1, true)]")
+            if method == "org.freedesktop.DBus.Properties.Get" and command[-1] == "AnimationsEnabled":
+                return result("(<true>,)\n")
+            if method == "org.freedesktop.DBus.Properties.Get" and command[-1] == "ScreenSize":
+                return result("(<(2560, 1440)>,)\n")
+            if method == "org.freedesktop.DBus.Properties.Get" and command[-1] == "RegisteredStatusNotifierItems":
+                return result("(['org.example.StatusNotifierItem-1-1@/StatusNotifierItem'],)\n")
+            if method == "org.freedesktop.DBus.Properties.GetAll":
+                return result("({'Id': <'firefox'>, 'Title': <'Firefox'>, 'Status': <'Active'>, 'IconName': <'firefox'>},)\n")
+        if command[:2] == ["timeout", "1.00"]:
+            return result(
+                "\n".join([
+                    "signal time=10.000 sender=:1.42 -> destination=(null destination) serial=1 path=/org/gnome/Shell/Introspect; interface=org.gnome.Shell.Introspect; member=WindowsChanged",
+                    "signal time=10.500 sender=:1.42 -> destination=(null destination) serial=2 path=/org/gnome/Shell/Introspect; interface=org.gnome.Shell.Introspect; member=RunningApplicationsChanged",
+                ]),
+                returncode=124,
+            )
+        if command == ["env", "DISPLAY=:0", "wmctrl", "-lpGx"]:
+            return result("0x01  0  999 0 0 800 600 steam.Steam Steam\n")
+        if command[:4] == ["env", "DISPLAY=:0", "xprop", "-id"]:
+            return result('WM_CLASS(STRING) = "steam", "Steam"\n_NET_WM_PID(CARDINAL) = 999\n')
+        if command == ["ss", "-xapH", "-n", "-O"]:
+            return result(
+                "\n".join([
+                    '/run/user/1000/wayland-0 111 * 222 users:(("gnome-shell",pid=777,fd=10))',
+                    '* 222 /run/user/1000/wayland-0 111 users:(("firefox",pid=456,fd=11))',
+                ])
+            )
+        if command[:2] == ["ps", "-eo"]:
+            return result(
+                "\n".join([
+                    "PID PPID COMM %CPU %MEM RSS ELAPSED COMMAND",
+                    "777 1 gnome-shell 12.5 1.0 100000 00:01 /usr/bin/gnome-shell --mode=user",
+                    "456 1 firefox 5.0 2.0 200000 00:02 firefox --wayland",
+                ])
+            )
+        raise AssertionError(command)
+
+    probes = process_adapters.process_desktop_compositor_command_probes(
+        seconds=1.0,
+        command_exists=command_exists,
+        runner=runner,
+        proc_root=proc_root,
+        home_path=home,
+        system_extension_root=system_extensions,
+    )
+
+    assert probes["shell_bus"]["unique_name"] == ":1.42"
+    assert probes["display"]["display"]["current_mode"]["refresh_hz"] == 120.0
+    assert probes["display"]["screen_size"] == {"width": 2560, "height": 1440}
+    assert probes["status_notifiers"]["count"] == 1
+    assert probes["screencast"]["active_session_like_paths"] == 2
+    assert probes["vitals"]["enabled"] is True
+    assert probes["vitals"]["metadata"]["name"] == "Vitals"
+    assert probes["gnome_extensions"]["enabled_count"] == 2
+    assert probes["shell_signals"]["signal_counts"] == {"WindowsChanged": 1, "RunningApplicationsChanged": 1}
+    assert probes["x11_windows"]["windows"][0]["wm_class"] == "steam.Steam"
+    assert probes["wayland_clients"]["clients"][0]["cmdline"] == "firefox --wayland"
+    assert probes["desktop_processes"]["top"][0]["comm"] == "gnome-shell"
+
+
+def test_desktop_compositor_document_preserves_observe_only_policy() -> None:
+    document = process_adapters.process_desktop_compositor_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T00:00:00Z",
+        paths={"desktop_compositor_latest": "/tmp/latest.json"},
+        seconds=1.0,
+        interval=1.0,
+        pid=777,
+        process_info_data={"pid": 777, "comm": "gnome-shell"},
+        samples=[{"cpu_one_core_percent": 18.0, "fd": {"total": 4, "pidfd": 1, "dmabuf": 1}, "top_threads": [{"tid": 777, "comm": "gnome-shell"}]}],
+        display={"display": {"current_mode": {"refresh_hz": 120.0}}},
+        shell_bus={"unique_name": ":1.42"},
+        shell_signals={"signal_rates_hz": {"WindowsChanged": 0.0, "RunningApplicationsChanged": 0.0}},
+        panel_telemetry={"gnome_shell_metric_label_rate_hz": 8.0},
+        atspi_windows={"count": 1, "windows": [], "counts_by_app": {}},
+        vitals={"enabled": True},
+        gnome_extensions={"enabled_count": 1},
+        x11_windows={"count": 0, "windows": []},
+        wayland_clients={"count": 1},
+        desktop_processes={"top": []},
+        status_notifiers={"count": 1},
+        screen_cast={"active_session_like_paths": 0},
+        remote_desktop={"active_session_like_paths": 0},
+    )
+
+    assert document["ok"] is True
+    assert document["capture"]["facts_only"] is True
+    assert document["capture"]["mutates_desktop_state"] is False
+    assert document["policy"]["automation"] == "observe_only"
+    assert document["policy"]["do_not_toggle_gnome_extensions_from_this_result"] is True
+    assert document["summary"]["classification"] == "panel_telemetry_compositor_churn"
+    assert "not as proof that Vitals" in document["summary"]["route_guidance"]
