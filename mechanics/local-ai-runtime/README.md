@@ -39,13 +39,26 @@ Use dry-run resource planning and public boundary scans.
 
 ### Live adapter route
 
-AI runtime adapters should own concrete subprocess execution, cache/runtime
-path translation, model/tool discovery, and resource-sampling evidence. Keep
-model weights, benchmark outputs, and generated runtime state outside Git; only
-plans, contracts, and bounded summaries belong in the public seed.
+`abyss_machine.ai_runtime_adapters` owns the first local-AI discovery seam:
+model-root normalization, OpenVINO runtime/package/NPU driver probes, model
+inventory walks, `llama.cpp` runtime/profile file probes, tokenizer/library
+discovery, OpenVINO python package versions, and kernel-module snapshots through
+fakeable ports. Remaining AI runtime adapters should focus on policy-gated
+benchmark/eval subprocess execution, TTS server/audio execution, and
+resource-sampling evidence. Keep model weights, benchmark outputs, and
+generated runtime state outside Git; only plans, contracts, and bounded
+summaries belong in the public seed.
 
 ### Landing log
 
+- Extracted local-AI runtime discovery into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns model-root
+  normalization, OpenVINO runtime probes, RPM/ldconfig/NPU driver discovery,
+  model inventory filesystem walks, `llama.cpp` runtime/profile probes,
+  tokenizer/library discovery, OpenVINO python package-version probes, and
+  kernel-module snapshots through fakeable ports. CLI still owns concrete
+  config binding, latest/history writes, policy-gated benchmark/eval/TTS
+  execution, resource sampling, `.aoa` reads, and rendering.
 - Extracted explicit-file dictation transcription runtime into
   `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
   socket transport, client-side 16 kHz runtime preprocessing, helper subprocess

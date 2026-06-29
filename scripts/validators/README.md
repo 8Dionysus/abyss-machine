@@ -170,10 +170,14 @@ envelopes, AI eval suite-policy/execution-plan/STT scoring/result envelopes, tok
 count/count-execution/profile/tokenizer-route/aoa-summary contracts, AI capabilities projection, AI policy
 decision/gate, workload taxonomy/measurement extraction plus stats/refresh/status
 routing, and AI paths/status/runtime/report read-model envelopes live in
-`abyss_machine.ai_runtime_contracts`; live filesystem walks, package/runtime
-discovery, tokenizer discovery, `.aoa` generated-summary reads, latest-input
-collection, subprocess execution, resource sampling, and latest writes remain at
-the CLI edge.
+`abyss_machine.ai_runtime_contracts`; configured model-root normalization,
+OpenVINO runtime probes, RPM/ldconfig/NPU driver discovery, model inventory
+filesystem walks, `llama.cpp` runtime/profile file probes, tokenizer/library
+discovery, OpenVINO python package-version probes, and kernel-module snapshots
+live in `abyss_machine.ai_runtime_adapters` through fakeable ports. `.aoa`
+generated-summary reads, latest-input collection, benchmark/eval/TTS subprocess
+execution, STT fixture/dictation transport, resource sampling, latest writes,
+and command rendering remain at the CLI edge.
 TTS profile/artifact/status decisions, policy-denial/error summaries, server
 response/payload shaping, synth subprocess script/argv/result contracts,
 synth/eval/compare envelopes, and success-index entries live in
