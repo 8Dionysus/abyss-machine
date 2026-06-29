@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import stat
@@ -1331,6 +1332,163 @@ def test_resident_latest_readmodels_use_fake_reader(tmp_path: Path) -> None:
         "micro": {"ok": True, "summary": {"ticks": 1}},
         "jobs": {"ok": True, "summary": {"jobs": 2}},
     }
+
+
+def test_token_accounting_aoa_summary_adapter_reads_generated_summaries_without_raw_transcripts(tmp_path: Path) -> None:
+    aoa_root = tmp_path / ".aoa"
+    sessions_root = aoa_root / "sessions"
+    session_with_registry = sessions_root / "2026-06-02__001__registry"
+    session_with_index = sessions_root / "2026-06-03__002__index"
+    session_with_registry.mkdir(parents=True)
+    session_with_index.mkdir(parents=True)
+    forbidden = "SECRET_PROMPT_TEXT_SHOULD_NOT_LEAK"
+    provider_summary = {
+        "schema": ai_runtime_contracts.TOKEN_ACCOUNTING_CONTRACT,
+        "schema_version": ai_runtime_contracts.TOKEN_ACCOUNTING_SCHEMA_VERSION,
+        "generator_version": 2,
+        "provider_reported_event_count": 1,
+        "count_by_basis": {"provider_reported": 1},
+        "totals_by_basis": {"provider_reported": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}},
+    }
+    estimated_summary = {
+        "schema": ai_runtime_contracts.TOKEN_ACCOUNTING_CONTRACT,
+        "schema_version": ai_runtime_contracts.TOKEN_ACCOUNTING_SCHEMA_VERSION,
+        "generator_version": 2,
+        "estimated_event_count": 1,
+        "count_by_basis": {"estimated": 1},
+        "totals_by_basis": {"estimated": {"total_tokens": 9}},
+    }
+    registry = {
+        "sessions": [
+            {
+                "session_id": "registry-summary",
+                "session_label": f"2026-06-02__001__{forbidden}",
+                "session_title": forbidden,
+                "path": str(session_with_registry),
+                "transcript_path": f"/tmp/{forbidden}.jsonl",
+                "updated_at": "2026-06-02T00:00:00Z",
+                "archive_status": "indexed",
+                "event_count": 2,
+                "segment_count": 1,
+                "raw": {"path": f"/tmp/{forbidden}/session.raw.jsonl"},
+                "token_accounting": provider_summary,
+            },
+            {
+                "session_id": "index-summary",
+                "session_label": "2026-06-03__002__index",
+                "path": str(session_with_index),
+                "updated_at": "2026-06-03T00:00:00Z",
+                "archive_status": "indexed",
+                "event_count": 1,
+                "segment_count": 1,
+            },
+            {
+                "session_id": "outside-root",
+                "session_label": "2026-06-04__003__outside",
+                "path": str(tmp_path / "outside"),
+                "updated_at": "2026-06-04T00:00:00Z",
+            },
+            {
+                "session_id": "missing-path",
+                "session_label": "2026-06-05__004__missing",
+                "updated_at": "2026-06-05T00:00:00Z",
+            },
+        ]
+    }
+    (aoa_root / "session-registry.json").write_text(json.dumps(registry), encoding="utf-8")
+    (session_with_index / "session.index.json").write_text(json.dumps({"token_accounting": estimated_summary}), encoding="utf-8")
+    read_paths: list[Path] = []
+    writes: list[tuple[Path, Path, str]] = []
+
+    def read_json(path: Path) -> tuple[Any, str | None]:
+        read_paths.append(path)
+        try:
+            return json.loads(path.read_text(encoding="utf-8")), None
+        except FileNotFoundError:
+            return None, "missing"
+
+    def is_relative(path: Path, root: Path) -> bool:
+        try:
+            path.resolve().relative_to(root.resolve())
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def write_latest_history(data: dict[str, Any], latest_path: Path, history_root: Path) -> list[dict[str, Any]]:
+        writes.append((latest_path, history_root, data["schema"]))
+        return []
+
+    result = ai_runtime_adapters.token_accounting_aoa_summary_readmodel(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        aoa_root=aoa_root,
+        target="all",
+        since=None,
+        since_days=None,
+        until=None,
+        limit=None,
+        write_latest=True,
+        latest_path=tmp_path / "latest.json",
+        history_root=tmp_path / "history",
+        read_json=read_json,
+        sha256_path=lambda path: "sha256-fixture",
+        write_latest_history=write_latest_history,
+        is_relative_to_path=is_relative,
+    )
+
+    encoded = json.dumps(result, ensure_ascii=False, sort_keys=True)
+    assert result["ok"] is True
+    assert result["summary"]["selected_sessions"] == 4
+    assert result["summary"]["generated_token_accounting_sessions"] == 2
+    assert result["summary"]["missing_generated_token_accounting"] == 2
+    assert result["summary"]["source_counts"] == {"missing": 2, "session_index": 1, "session_registry": 1}
+    assert result["aggregate"]["totals_by_basis"]["provider_reported"]["total_tokens"] == 5
+    assert result["aggregate"]["totals_by_basis"]["estimated"]["total_tokens"] == 9
+    assert result["source_refs"]["session_registry_sha256"] == "sha256-fixture"
+    assert forbidden not in encoded
+    assert f"/tmp/{forbidden}.jsonl" not in encoded
+    assert "session.raw.jsonl" not in encoded
+    assert writes == [
+        (tmp_path / "latest.json", tmp_path / "history", "abyss_machine_ai_token_accounting_aoa_session_memory_summary_v1")
+    ]
+    assert session_with_registry / "session.manifest.json" not in read_paths
+    assert session_with_index / "session.manifest.json" in read_paths
+    assert session_with_index / "session.index.json" in read_paths
+
+
+def test_cli_token_accounting_aoa_summary_delegates_filesystem_route_to_adapter(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+
+    def fake_summary(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"ok": True, "schema": "adapter"}
+
+    monkeypatch.setattr(cli.ai_runtime_adapters, "token_accounting_aoa_summary_readmodel", fake_summary)
+    result = cli.ai_token_accounting_aoa_summary(
+        aoa_root=tmp_path / ".aoa",
+        target="latest",
+        since="2026-06-01",
+        since_days=None,
+        until="2026-06-29",
+        limit=3,
+        write_latest=False,
+    )
+
+    assert result == {"ok": True, "schema": "adapter"}
+    assert calls["aoa_root"] == tmp_path / ".aoa"
+    assert calls["target"] == "latest"
+    assert calls["since"] == "2026-06-01"
+    assert calls["since_days"] is None
+    assert calls["until"] == "2026-06-29"
+    assert calls["limit"] == 3
+    assert calls["write_latest"] is False
+    assert calls["read_json"] is cli.load_json_document
+    assert calls["sha256_path"] is cli.sha256_path
+    assert calls["write_latest_history"] is cli.write_latest_and_history
+    assert calls["is_relative_to_path"] is cli.is_relative_to_path
 
 
 def test_llm_registry_readmodel_uses_fake_runtime_profile_and_store_ports(tmp_path: Path) -> None:

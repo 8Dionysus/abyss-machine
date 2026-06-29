@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,8 @@ EvalSuiteRunnerPort = Callable[[], Mapping[str, Any]]
 JsonWritePort = Callable[[Path, Mapping[str, Any], int], Any]
 JsonlAppendPort = Callable[[Path, Mapping[str, Any], int], Any]
 DailyPathPort = Callable[[], Path]
+Sha256PathPort = Callable[[Path], str]
+LatestHistoryWritePort = Callable[[dict[str, Any], Path, Path], list[dict[str, Any]]]
 WorkloadUpdatePort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 WorkloadAppendPort = Callable[[list[dict[str, Any]], bool], Mapping[str, Any]]
 WorkloadExtractPort = Callable[[dict[str, Any]], list[dict[str, Any]]]
@@ -544,6 +547,181 @@ def resident_latest_readmodels(
         data, _error = read_json(path)
         result[key] = data if isinstance(data, dict) else {}
     return result
+
+
+def token_accounting_aoa_registry_sessions(
+    *,
+    aoa_root: Path,
+    read_json: JsonReadPort,
+) -> tuple[list[dict[str, Any]], Path, str | None]:
+    registry_path = aoa_root / "session-registry.json"
+    data, error = read_json(registry_path)
+    if error or not isinstance(data, Mapping):
+        return [], registry_path, error or "registry_missing"
+    sessions = data.get("sessions") if isinstance(data.get("sessions"), list) else []
+    return [dict(item) for item in sessions if isinstance(item, Mapping)], registry_path, None
+
+
+def token_accounting_aoa_generated_summary(
+    *,
+    record: Mapping[str, Any],
+    aoa_root: Path,
+    read_json: JsonReadPort,
+    is_relative_to_path: RelativeToPort,
+) -> tuple[dict[str, Any], str, list[str]]:
+    diagnostics: list[str] = []
+    registry_summary = ai_runtime_contracts.token_accounting_sanitize_summary(record.get("token_accounting"))
+    registry_has_generated_counts = (
+        registry_summary
+        and (
+            ai_runtime_contracts.token_accounting_summary_has_counts(registry_summary)
+            or ai_runtime_contracts.token_accounting_int(registry_summary.get("schema_version"))
+            == ai_runtime_contracts.TOKEN_ACCOUNTING_SCHEMA_VERSION
+        )
+    )
+    if registry_has_generated_counts and ai_runtime_contracts.token_accounting_int(registry_summary.get("generator_version")) is not None:
+        return registry_summary, "session_registry", diagnostics
+
+    session_path_text = str(record.get("path") or "")
+    session_path = Path(session_path_text) if session_path_text else Path()
+    if not session_path_text:
+        return {}, "missing", ["session_path_missing"]
+    if not is_relative_to_path(session_path, aoa_root / "sessions"):
+        return {}, "missing", ["session_path_outside_aoa_sessions"]
+
+    for filename, source in (("session.manifest.json", "session_manifest"), ("session.index.json", "session_index")):
+        payload, error = read_json(session_path / filename)
+        if error:
+            diagnostics.append(f"{source}_{error}")
+            continue
+        summary = ai_runtime_contracts.token_accounting_sanitize_summary(
+            payload.get("token_accounting") if isinstance(payload, Mapping) else None
+        )
+        if summary:
+            return summary, source, diagnostics
+        diagnostics.append(f"{source}_missing_token_accounting")
+    if registry_has_generated_counts:
+        diagnostics.append("session_registry_token_accounting_generator_unknown")
+        return registry_summary, "session_registry", diagnostics
+    return {}, "missing", diagnostics or ["generated_token_accounting_missing"]
+
+
+def token_accounting_aoa_summary_readmodel(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    aoa_root: Path,
+    target: str,
+    since: str | None,
+    since_days: int | None,
+    until: str | None,
+    limit: int | None,
+    write_latest: bool,
+    latest_path: Path,
+    history_root: Path,
+    read_json: JsonReadPort,
+    sha256_path: Sha256PathPort,
+    write_latest_history: LatestHistoryWritePort,
+    is_relative_to_path: RelativeToPort,
+) -> dict[str, Any]:
+    generated_at = now_iso()
+    sessions, registry_path, registry_error = token_accounting_aoa_registry_sessions(
+        aoa_root=aoa_root,
+        read_json=read_json,
+    )
+    diagnostics: list[str] = []
+    if registry_error:
+        diagnostics.append(f"session_registry_{registry_error}")
+    selected, selection_diagnostics, effective_since = ai_runtime_contracts.token_accounting_aoa_select_records(
+        sessions,
+        target=target,
+        since=since,
+        since_days=since_days,
+        until=until,
+        limit=limit,
+    )
+    diagnostics.extend(selection_diagnostics)
+    entries: list[dict[str, Any]] = []
+    generated_summaries: list[dict[str, Any]] = []
+    missing_generated = 0
+    provider_sessions = 0
+    estimated_only_sessions = 0
+    source_counts: collections.Counter[str] = collections.Counter()
+    for record in selected:
+        summary, summary_source, record_diagnostics = token_accounting_aoa_generated_summary(
+            record=record,
+            aoa_root=aoa_root,
+            read_json=read_json,
+            is_relative_to_path=is_relative_to_path,
+        )
+        source_counts[summary_source] += 1
+        if summary:
+            generated_summaries.append(summary)
+        else:
+            missing_generated += 1
+            record_diagnostics.append("generated_token_accounting_missing")
+        provider_events = ai_runtime_contracts.token_accounting_int(summary.get("provider_reported_event_count")) if summary else 0
+        estimated_events = ai_runtime_contracts.token_accounting_int(summary.get("estimated_event_count")) if summary else 0
+        if provider_events and provider_events > 0:
+            provider_sessions += 1
+        elif estimated_events and estimated_events > 0:
+            estimated_only_sessions += 1
+        diagnostics.extend(record_diagnostics)
+        entries.append(
+            {
+                "session_id": str(record.get("session_id") or ""),
+                "date": ai_runtime_contracts.token_accounting_aoa_record_date(record) or None,
+                "sequence": ai_runtime_contracts.token_accounting_aoa_record_sequence(record),
+                "updated_at": record.get("updated_at"),
+                "archive_status": record.get("archive_status"),
+                "event_count": ai_runtime_contracts.token_accounting_int(record.get("event_count")),
+                "segment_count": ai_runtime_contracts.token_accounting_int(record.get("segment_count")),
+                "summary_source": summary_source,
+                "token_accounting": summary,
+                "context_pressure": ai_runtime_contracts.token_accounting_context_pressure(summary)
+                if summary
+                else {"available": False, "basis": None},
+                "diagnostics": sorted(set(str(item) for item in record_diagnostics if item)),
+            }
+        )
+    aggregate = ai_runtime_contracts.token_accounting_merge_summaries(
+        generated_summaries,
+        {"kind": "aoa_session_memory_session_set", "target": target, "session_count": len(entries)},
+    )
+    summary_payload = {
+        "selected_sessions": len(entries),
+        "available_sessions": len(sessions),
+        "generated_token_accounting_sessions": len(generated_summaries),
+        "missing_generated_token_accounting": missing_generated,
+        "provider_reported_sessions": provider_sessions,
+        "estimated_only_sessions": estimated_only_sessions,
+        "source_counts": dict(sorted(source_counts.items())),
+        "diagnostics": len(set(diagnostics)),
+    }
+    data = ai_runtime_contracts.token_accounting_aoa_summary_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        ok=registry_error is None,
+        aoa_root=aoa_root,
+        target=target,
+        since=effective_since,
+        until=until,
+        limit=limit,
+        summary=summary_payload,
+        aggregate=aggregate,
+        sessions=entries,
+        diagnostics=diagnostics,
+        session_registry_path=registry_path,
+        session_registry_sha256=sha256_path(registry_path) if registry_path.exists() else None,
+    )
+    if write_latest:
+        errors = write_latest_history(data, latest_path, history_root)
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    return data
 
 
 def capabilities_readmodel(

@@ -54,7 +54,8 @@ workload-measurement callback routing, workload run JSONL discovery/read/dedupe
 append, refresh-from-latest source gating, and workload taxonomy/stats/refresh/
 status write routing, LLM registry/latest/validate store/readmodel routing,
 plus token-accounting contract/profiles/latest/count store/readmodel routing
-through fakeable ports.
+and `.aoa` generated-summary session-registry/manifest/index reads plus
+latest/history write routing through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
@@ -108,10 +109,10 @@ summaries belong in the public seed.
   devices/models/capabilities/policy/runtime/status/report document assembly,
   resident latest readmodel reads for capabilities, runtime/report latest
   writes, and runtime/report daily history appends through fakeable reader,
-  writer, path, clock, and input ports. CLI still owns concrete live input
-  collection, policy-gate binding, `.aoa` generated-summary reads,
-  token-accounting live text/env binding, resident parser/rendering, command
-  dispatch, and rendering.
+  writer, path, clock, and input ports. At that landing, CLI still owned
+  concrete live input collection, policy-gate binding, `.aoa`
+  generated-summary reads, token-accounting live text/env binding, resident
+  parser/rendering, command dispatch, and rendering.
 - Extracted token-accounting tokenizer runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns exact-count tokenizer
   subprocess command/env/timeout/timing execution through fakeable runner and
@@ -122,9 +123,16 @@ summaries belong in the public seed.
   `abyss_machine.ai_runtime_adapters`; the adapter owns contract/profile/latest
   readmodel assembly, count-text document assembly, and latest/history write
   routing through fakeable registry, tokenizer resolver, reader, writer, path,
-  subprocess, environment, and clock ports. CLI still owns concrete registry,
-  env/text input binding, `.aoa` generated-summary reads, command dispatch, and
-  rendering.
+  subprocess, environment, and clock ports. At that landing, CLI still owned
+  concrete registry, env/text input binding, `.aoa` generated-summary reads,
+  command dispatch, and rendering.
+- Extracted `.aoa` token-accounting generated-summary routing into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns session-registry reads,
+  session manifest/index fallback reads, generated token-summary sanitization,
+  outside-root rejection, session projection without titles/labels/raw paths,
+  registry hashing, and latest/history writes through fakeable reader, writer,
+  hash, root-check, path, and clock ports. CLI still owns argument/env binding,
+  command dispatch, and rendering.
 - Extracted LLM registry/latest/validate store/readmodel routing into
   `abyss_machine.ai_runtime_adapters`; the adapter owns registry document
   assembly, registry latest/history routing, latest readmodel reads, validate
