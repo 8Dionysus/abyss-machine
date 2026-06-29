@@ -25,3 +25,10 @@
   resource-profile callback routing. CLI still owns lexical/semantic source
   collection, semantic maintenance assessment, latest/history writes, and
   command rendering.
+- Retrieval/rerank live search seam: `abyss_machine.nervous_retrieval_adapters`
+  owns lexical/semantic search-port collection, semantic maintenance assessment
+  routing, hybrid rerank result assembly, recall search-plan dispatch,
+  retrieval-pack assembly through `nervous_recall`, and latest/history write
+  routing for rerank search, rerank eval, and retrieval packs. CLI still owns
+  privacy refusal binding, concrete config/path/callback binding, and command
+  rendering.

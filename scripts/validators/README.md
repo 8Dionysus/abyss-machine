@@ -135,11 +135,14 @@ envelopes live in
 subprocess runner invocation, stdout/output JSON parsing, policy-gate callback
 routing, debug input/output path reporting, and resource-profile callback
 routing live in `abyss_machine.nervous_rerank_adapters`; lexical/semantic
-source collection, semantic maintenance assessment, and latest/history writes
-remain at the CLI edge. Nervous recall refusal, mode normalization,
-search execution-plan, evidence projection, summary counts, pack identity, and
-retrieval-pack document contracts live in `abyss_machine.nervous_recall`;
-lexical/hybrid search adapter calls and latest/history writes remain at the CLI edge.
+source collection through fakeable search ports, semantic maintenance
+assessment routing, hybrid rerank document assembly, recall search dispatch,
+retrieval-pack assembly through recall contracts, and rerank/eval/retrieval
+latest-history write routing live in
+`abyss_machine.nervous_retrieval_adapters`. Nervous recall refusal, mode
+normalization, search execution-plan, evidence projection, summary counts, pack
+identity, and retrieval-pack document contracts live in
+`abyss_machine.nervous_recall`.
 Nervous brief scope/limit/cache keys, semantic-maintenance thresholds,
 recent-episode compact projection, readiness/gap/next-action decisions, and
 document envelope live in

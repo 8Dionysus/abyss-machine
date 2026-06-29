@@ -59,6 +59,11 @@ cleanup, and resource-profile callback routing.
 subprocess seam for temp-payload staging, command invocation, stdout/output JSON
 parsing, policy-gate callback routing, debug path reporting, and
 resource-profile callback routing.
+`abyss_machine.nervous_retrieval_adapters` now owns the recall/rerank live
+search seam: lexical and semantic search-port collection, semantic maintenance
+assessment routing, hybrid rerank result document assembly, recall search-plan
+dispatch, retrieval-pack assembly through the recall contracts, and latest/
+history write routing for rerank search, rerank eval, and retrieval packs.
 The public repo owns adapter mechanics and contract shape; local memory
 evidence stays under the host runtime roots.
 
