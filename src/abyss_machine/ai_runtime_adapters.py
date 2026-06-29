@@ -12,6 +12,8 @@ CommandExistsPort = Callable[[str], bool]
 WhichPort = Callable[[str], str | None]
 PathExistsPort = Callable[[Path], bool]
 PathAccessPort = Callable[[Path, int], bool]
+ResourceSnapshotPort = Callable[[], Mapping[str, Any]]
+ResourceProfilePort = Callable[[dict[str, Any], dict[str, Any], str, str], dict[str, Any]]
 SystemdUnitPort = Callable[[str], Mapping[str, Any]]
 StorageProtectionPort = Callable[[Path], Mapping[str, Any]]
 RelativeToPort = Callable[[Path, Path], bool]
@@ -75,6 +77,12 @@ def _path_size(path: Path) -> int | None:
         return None
 
 
+def _python_exists(python: str | None, path_exists: PathExistsPort) -> bool:
+    if not python:
+        return False
+    return _path_exists(Path(str(python)), path_exists)
+
+
 def model_roots(config: Mapping[str, Any]) -> list[Path]:
     roots: list[Path] = []
     raw_roots = config.get("model_roots", []) if isinstance(config, Mapping) else []
@@ -134,6 +142,99 @@ def openvino_runtime_info(
     data["returncode"] = out.get("returncode")
     data["stderr"] = out.get("stderr")
     return data
+
+
+def openvino_smoke_device(
+    *,
+    device: str,
+    timeout_sec: float,
+    python: str | None,
+    run_command: RunPort,
+    resource_snapshot: ResourceSnapshotPort,
+    resource_profile: ResourceProfilePort,
+    path_exists: PathExistsPort | None = None,
+) -> dict[str, Any]:
+    path_exists = path_exists or Path.exists
+    if not _python_exists(python, path_exists):
+        return ai_runtime_contracts.openvino_smoke_missing_python(device)
+
+    before = dict(resource_snapshot())
+    out = dict(run_command(ai_runtime_contracts.openvino_smoke_command(str(python), device), timeout=timeout_sec))
+    after = dict(resource_snapshot())
+    return ai_runtime_contracts.openvino_smoke_result(
+        device,
+        out,
+        resource_profile(before, after, "child_process", "OpenVINO smoke subprocess"),
+    )
+
+
+def openvino_embedding_eval(
+    *,
+    model_dir: Path,
+    device: str,
+    cache_dir: Path,
+    timeout_sec: float,
+    python: str | None,
+    subprocess_env: Mapping[str, str],
+    run_command: RunPort,
+    resource_snapshot: ResourceSnapshotPort,
+    resource_profile: ResourceProfilePort,
+    path_exists: PathExistsPort | None = None,
+) -> dict[str, Any]:
+    path_exists = path_exists or Path.exists
+    if not _path_exists(model_dir, path_exists):
+        return ai_runtime_contracts.embedding_eval_missing_model(model_dir)
+    if not _python_exists(python, path_exists):
+        return ai_runtime_contracts.embedding_eval_missing_python()
+
+    before = dict(resource_snapshot())
+    out = dict(
+        run_command(
+            ai_runtime_contracts.embedding_eval_command(str(python), model_dir, device, cache_dir),
+            timeout=timeout_sec,
+            env=dict(subprocess_env),
+        )
+    )
+    after = dict(resource_snapshot())
+    return ai_runtime_contracts.embedding_eval_result(
+        out,
+        resource_profile(before, after, "child_process", "embedding eval subprocess"),
+    )
+
+
+def openvino_text_eval(
+    *,
+    model_dir: Path,
+    device: str,
+    cache_dir: Path,
+    prompt: str,
+    timeout_sec: float,
+    python: str | None,
+    subprocess_env: Mapping[str, str],
+    run_command: RunPort,
+    resource_snapshot: ResourceSnapshotPort,
+    resource_profile: ResourceProfilePort,
+    path_exists: PathExistsPort | None = None,
+) -> dict[str, Any]:
+    path_exists = path_exists or Path.exists
+    if not _path_exists(model_dir, path_exists):
+        return ai_runtime_contracts.text_eval_missing_model(model_dir)
+    if not _python_exists(python, path_exists):
+        return ai_runtime_contracts.text_eval_missing_python()
+
+    before = dict(resource_snapshot())
+    out = dict(
+        run_command(
+            ai_runtime_contracts.text_eval_command(str(python), model_dir, device, cache_dir, prompt),
+            timeout=timeout_sec,
+            env=dict(subprocess_env),
+        )
+    )
+    after = dict(resource_snapshot())
+    return ai_runtime_contracts.text_eval_result(
+        out,
+        resource_profile(before, after, "child_process", "OpenVINO GenAI text eval subprocess"),
+    )
 
 
 def rpm_package_status(

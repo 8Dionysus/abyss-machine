@@ -1,5 +1,11 @@
 # Landing Log
 
+- Extracted bounded OpenVINO benchmark/eval runner execution into
+  `abyss_machine.ai_runtime_adapters`; smoke, embedding-eval, and text-eval
+  child-process invocation, timeout/env binding, missing-python/model handling,
+  and per-run resource-profile callback routing now pass through fakeable
+  ports. CLI remains the concrete config/policy/latest/suite orchestration and
+  rendering edge.
 - Extracted local-AI runtime discovery into
   `abyss_machine.ai_runtime_adapters`; model-root normalization, OpenVINO
   runtime probes, RPM/ldconfig/NPU driver discovery, model inventory walks,
