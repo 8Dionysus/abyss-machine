@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -144,3 +145,143 @@ def test_proc_task_stat_data_includes_processor(tmp_path: Path) -> None:
 
 def test_process_info_missing_proc_returns_none(tmp_path: Path) -> None:
     assert process_adapters.process_info(404, proc_root=tmp_path / "proc") is None
+
+
+def _container_doc(*, command_exists=lambda name: True, runner):
+    return process_adapters.process_container_health_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T00:00:00Z",
+        latest_path="/var/lib/abyss-machine/processes/containers/latest.json",
+        daily_glob="/var/lib/abyss-machine/processes/containers/YYYY/MM/YYYY-MM-DD.jsonl",
+        command_exists=command_exists,
+        runner=runner,
+    )
+
+
+def test_process_container_health_reports_missing_podman() -> None:
+    data = _container_doc(
+        command_exists=lambda name: False,
+        runner=lambda command, timeout=0: {"ok": True, "stdout": "[]", "stderr": "", "returncode": 0},
+    )
+
+    assert data["ok"] is False
+    assert data["error"] == "podman is not installed"
+    assert data["summary"] == {"status": "unavailable"}
+
+
+def test_process_container_health_maps_podman_ps_failure() -> None:
+    data = _container_doc(
+        runner=lambda command, timeout=0: {"ok": False, "stdout": "", "stderr": "boom", "returncode": 125},
+    )
+
+    assert data["ok"] is False
+    assert data["error"] == "boom"
+    assert data["returncode"] == 125
+    assert data["summary"] == {"status": "unavailable"}
+
+
+def test_process_container_health_sanitizes_and_flags_attention() -> None:
+    ps_rows = [
+        {
+            "Id": "abcdef1234567890",
+            "Names": ["abyss_api_1"],
+            "Image": "example/api:latest",
+            "ImageID": "imageabcdef123456",
+            "State": "exited",
+            "Status": "Exited (2) 4 minutes ago (unhealthy)",
+            "ExitCode": 2,
+            "Restarts": 3,
+            "Labels": {
+                "io.podman.compose.project": "abyss",
+                "io.podman.compose.service": "api",
+                "secret": "must-not-appear",
+            },
+        }
+    ]
+    inspect_rows = [
+        {
+            "Id": "abcdef1234567890",
+            "Name": "/abyss_api_1",
+            "Config": {
+                "Labels": {
+                    "io.podman.compose.project": "abyss",
+                    "io.podman.compose.service": "api",
+                    "secret": "must-not-appear",
+                },
+                "Env": ["SECRET=value"],
+            },
+            "HostConfig": {"RestartPolicy": {"Name": "always"}},
+            "State": {
+                "Status": "exited",
+                "Running": False,
+                "Restarting": False,
+                "Dead": False,
+                "Pid": 0,
+                "ExitCode": 2,
+                "OOMKilled": False,
+                "Health": {"Status": "unhealthy"},
+            },
+        }
+    ]
+    calls: list[tuple[list[str], float]] = []
+
+    def runner(command: list[str], timeout: float = 0) -> dict[str, object]:
+        calls.append((command, timeout))
+        if command[:4] == ["podman", "ps", "-a", "--format"]:
+            return {"ok": True, "stdout": json.dumps(ps_rows), "stderr": "", "returncode": 0}
+        if command[:2] == ["podman", "inspect"]:
+            return {"ok": True, "stdout": json.dumps(inspect_rows), "stderr": "", "returncode": 0}
+        raise AssertionError(command)
+
+    data = _container_doc(runner=runner)
+
+    assert calls == [
+        (["podman", "ps", "-a", "--format", "json"], 10.0),
+        (["podman", "inspect", "abcdef1234567890"], 20.0),
+    ]
+    assert data["ok"] is True
+    assert data["summary"]["status"] == "attention"
+    assert data["summary"]["containers"] == 1
+    assert data["summary"]["running"] == 0
+    assert data["summary"]["unhealthy"] == 1
+    assert data["summary"]["abyss_stack_managed"] == 1
+    container = data["containers"][0]
+    assert container["id"] == "abcdef123456"
+    assert container["name"] == "abyss_api_1"
+    assert container["labels"] == {
+        "io.podman.compose.project": "abyss",
+        "io.podman.compose.service": "api",
+    }
+    assert "secret" not in json.dumps(data)
+    assert data["capture"]["includes_env"] is False
+    assert set(data["attention"][0]["reasons"]) == {
+        "unhealthy",
+        "restart_count_nonzero",
+        "exited_nonzero",
+        "restart_policy_not_running",
+        "abyss_stack_not_running",
+    }
+
+
+def test_safe_container_summary_redacts_mounts_and_ports() -> None:
+    summary = process_adapters.safe_container_summary({
+        "Id": "abcdef1234567890",
+        "Name": "/worker",
+        "ImageName": "example/worker:latest",
+        "State": {"Status": "running", "Running": True, "Pid": 123},
+        "HostConfig": {"RestartPolicy": {"Name": "unless-stopped"}, "NetworkMode": "bridge"},
+        "NetworkSettings": {"Ports": {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18080"}]}},
+        "Mounts": [
+            {"Type": "bind", "Source": "/srv/work/project/db", "Destination": "/data", "RW": True},
+            {"Type": "volume", "Name": "pgdata", "Source": "/var/lib/containers/storage/volumes/pgdata", "Destination": "/pg", "RW": True},
+        ],
+        "Config": {"Env": ["SECRET=value"]},
+    })
+
+    assert summary["id"] == "abcdef123456"
+    assert summary["running"] is True
+    assert summary["redaction"] == {"env_omitted": True, "create_command_omitted": True}
+    assert summary["ports"] == {"8080/tcp": [{"host_ip": "127.0.0.1", "host_port": "18080"}]}
+    assert summary["work_mounts"][0]["source"] == "/srv/work/project/db"
+    assert summary["named_volumes"][0]["name"] == "pgdata"

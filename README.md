@@ -180,8 +180,10 @@ series decision contracts live in `abyss_machine.cooling_contracts`. Process
 role/workload/game classifiers, paths/latest read models, game-guard envelope,
 and snapshot summary/top-list contracts live in `abyss_machine.process_contracts`.
 Low-level process `/proc` stat/status/cmdline/io/cgroup/fd reads, storage-root
-matching, CPU jiffy sampling, and process info collection live in
-`abyss_machine.process_adapters` through fakeable proc-root/sysconf/sleep ports.
+matching, CPU jiffy sampling, process info collection, sanitized Podman
+container health reads, and container inspect redaction live in
+`abyss_machine.process_adapters` through fakeable proc-root/sysconf/sleep and
+command-runner ports.
 Runtime evidence path/read-model contracts, heartbeat source freshness/rhythm/
 lifecycle helpers, reaction candidate/status envelopes, and owner-gated response
 route/profile/status contracts plus validate documents live in
@@ -446,9 +448,10 @@ RAPL writes, live samples, and latest/history writes remain at the CLI edge.
 Process role/workload/game classifiers, paths/latest read models, game-guard
 envelope, and snapshot summary/top-list contracts are module-owned while live
 `/proc` process-info collection is adapter-owned through `process_adapters`;
-podman, DBus, AT-SPI, desktop/window probes, thermal sampling, gamemode binding,
-and latest/history writes remain at the CLI edge. Storage hook execution belongs
-to the storage adapter boundary. Heartbeat/reaction/response path surfaces,
+Podman container health reads are adapter-owned through fakeable command ports;
+DBus, AT-SPI, desktop/window probes, thermal sampling, gamemode binding, broader
+container orchestration, and latest/history writes remain at the CLI edge.
+Storage hook execution belongs to the storage adapter boundary. Heartbeat/reaction/response path surfaces,
 heartbeat source freshness/rhythm/
 candidate lifecycle, reaction candidate/status envelopes, and owner-gated
 response command profiles/routes/status envelopes plus validate documents are module-owned while live
@@ -506,6 +509,7 @@ provenance adapters, nervous retention filesystem/unlink/latest adapters,
 nervous event/episode live latest/write adapters, screenshot live probe/capture
 adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
 execution adapters, TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
-remaining self-awareness live probe/readmodel orchestration, process container/
-desktop/thermal probes, and cooling host-control adapters behind smaller modules before claiming full
+remaining self-awareness live probe/readmodel orchestration, process desktop/
+thermal probes, broader container orchestration, and cooling host-control
+adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.
