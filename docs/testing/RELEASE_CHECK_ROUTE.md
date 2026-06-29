@@ -86,6 +86,12 @@ home-review scanning plus live-safe compact `storage inventory --json` or
 broader home-review scan, and never copy generated inventory payloads into the
 repository.
 
+For process `/proc` adapter changes, public CI should rely on synthetic proc-root
+tests for stat/status/cmdline/io/cgroup/fd parsing, storage/game classification
+binding, and CPU interval sampling. Live-host closeout may use compact
+`processes snapshot --json` or `processes game-guard --json` summaries, but
+should report counts and status only, not raw process command payloads.
+
 Use a longer timeout for full doctor/machine-report refresh closeout:
 
 ```bash
