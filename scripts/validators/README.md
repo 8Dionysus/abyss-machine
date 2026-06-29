@@ -16,12 +16,15 @@ present, and keeps profile activation dry-run/opt-in. The live installed CLI
 comparison is advisory unless `--require-host-installed` is passed for host
 closeout.
 
-`source_install_runtime_parity.py` emits the compact read-only closeout summary
-for a source checkout, the installed host projection, and bounded runtime
-commands. The document shape lives in `abyss_machine.host_lifecycle_parity`; the
-script owns only host path binding and subprocess invocation. It reports digest
-drift, package/public-seed mismatch counts, and runtime status/check counts
-without copying raw runtime JSON or private host payloads into reports.
+`source_install_runtime_parity.py` emits the compact closeout summary for a
+source checkout, the installed host projection, and bounded runtime commands.
+The document shape lives in `abyss_machine.host_lifecycle_parity`; runtime
+command catalogs, closeout profiles, and read-only vs latest/readmodel-refresh
+effect labels live there too. The script owns only host path binding and
+subprocess invocation. It reports digest drift, package/public-seed mismatch
+counts, and runtime status/check counts without copying raw runtime JSON or
+private host payloads into reports. Default/read profiles are read-only;
+`*-refresh` profiles require `--allow-runtime-refresh`.
 
 `validation_contracts.py` owns the shared validation summary, document envelope,
 and generic subsystem validate/all envelope contracts used by CLI validators;

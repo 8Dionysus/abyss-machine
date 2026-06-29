@@ -3,11 +3,54 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 SCHEMA = "abyss_machine_source_install_runtime_parity_v1"
 MAX_SAMPLE_ITEMS = 20
+RuntimeCheckRunner = Callable[[str, Sequence[str], float], Mapping[str, Any]]
+FAILED_PROJECTION_STATUSES = frozenset({"blocked", "error", "fail", "failed"})
+WARNING_PROJECTION_STATUSES = frozenset({"warn", "warning"})
+
+
+RUNTIME_COMMANDS: dict[str, tuple[str, ...]] = {
+    "enter": ("abyss-machine", "enter", "--json"),
+    "doctor-paths": ("abyss-machine", "doctor", "paths", "--json"),
+    "doctor": ("abyss-machine", "doctor", "--json"),
+    "doctor-machine-report": ("abyss-machine", "doctor", "machine-report", "--json", "--no-thermal-sample"),
+    "ai-validate": ("abyss-machine", "ai", "validate", "--json"),
+    "ai-policy": ("abyss-machine", "ai", "policy", "--json"),
+    "ai-capabilities": ("abyss-machine", "ai", "capabilities", "--json"),
+    "ai-llm-validate": ("abyss-machine", "ai", "llm", "validate", "--json"),
+    "ai-llm-resident-validate": ("abyss-machine", "ai", "llm", "resident", "validate", "--json"),
+    "ai-llm-workhorse-validate": ("abyss-machine", "ai", "llm", "workhorse", "validate", "--json"),
+    "typing-validate": ("abyss-machine", "typing", "validate", "--json"),
+    "nervous-validate": ("abyss-machine", "nervous", "validate", "--json"),
+}
+
+RUNTIME_COMMAND_EFFECTS: dict[str, str] = {
+    "enter": "read_only",
+    "doctor-paths": "read_only",
+    "doctor": "refresh_latest",
+    "doctor-machine-report": "refresh_latest",
+    "ai-validate": "refresh_latest",
+    "ai-policy": "refresh_latest",
+    "ai-capabilities": "refresh_latest",
+    "ai-llm-validate": "refresh_latest",
+    "ai-llm-resident-validate": "refresh_latest",
+    "ai-llm-workhorse-validate": "refresh_latest",
+    "typing-validate": "refresh_latest",
+    "nervous-validate": "refresh_latest",
+}
+
+RUNTIME_PROFILES: dict[str, tuple[str, ...]] = {
+    "base": ("enter",),
+    "diagnostic-read": ("doctor-paths",),
+    "diagnostic-refresh": ("doctor", "doctor-machine-report"),
+    "typing-nervous-refresh": ("typing-validate", "nervous-validate"),
+    "ai-refresh": ("ai-validate", "ai-policy", "ai-capabilities"),
+    "ai-llm-refresh": ("ai-validate", "ai-llm-validate", "ai-llm-resident-validate", "ai-llm-workhorse-validate"),
+}
 
 
 def file_sha256(path: Path) -> str:
@@ -48,6 +91,65 @@ def relative_file_digests(root: Path) -> dict[str, str]:
 
 def _sample(items: Sequence[str], limit: int = MAX_SAMPLE_ITEMS) -> list[str]:
     return list(items[:limit])
+
+
+def runtime_command_catalog() -> dict[str, list[str]]:
+    return {name: list(command) for name, command in RUNTIME_COMMANDS.items()}
+
+
+def runtime_profile_catalog() -> dict[str, list[str]]:
+    return {name: list(checks) for name, checks in RUNTIME_PROFILES.items()}
+
+
+def runtime_command_effect_catalog() -> dict[str, str]:
+    return dict(RUNTIME_COMMAND_EFFECTS)
+
+
+def select_runtime_check_names(
+    *,
+    runtime_checks: Sequence[str] | None = None,
+    runtime_profiles: Sequence[str] | None = None,
+    default_profile: str = "base",
+) -> list[str]:
+    selected: list[str] = []
+
+    def add_check(name: str) -> None:
+        if name not in RUNTIME_COMMANDS:
+            raise KeyError(f"unknown runtime check: {name}")
+        if name not in selected:
+            selected.append(name)
+
+    profile_names = list(runtime_profiles or [])
+    if not profile_names and not runtime_checks:
+        profile_names = [default_profile]
+    for profile in profile_names:
+        if profile not in RUNTIME_PROFILES:
+            raise KeyError(f"unknown runtime profile: {profile}")
+        for check in RUNTIME_PROFILES[profile]:
+            add_check(check)
+    for check in runtime_checks or []:
+        add_check(check)
+    return selected
+
+
+def runtime_refresh_check_names(selected_checks: Sequence[str]) -> list[str]:
+    return [name for name in selected_checks if RUNTIME_COMMAND_EFFECTS.get(name) != "read_only"]
+
+
+def collect_runtime_checks(
+    *,
+    selected_checks: Sequence[str],
+    run_check: RuntimeCheckRunner,
+    timeout: float,
+    command_catalog: Mapping[str, Sequence[str]] | None = None,
+) -> list[dict[str, Any]]:
+    catalog = command_catalog or RUNTIME_COMMANDS
+    rows: list[dict[str, Any]] = []
+    for name in selected_checks:
+        if name not in catalog:
+            raise KeyError(f"unknown runtime check command: {name}")
+        rows.append(dict(run_check(name, list(catalog[name]), timeout)))
+    return rows
 
 
 def compare_digest_maps(
@@ -157,6 +259,12 @@ def content_parity_summary(
 def compact_json_projection(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"json_type": type(payload).__name__}
+
+    def scalar(value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        return None
+
     checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
     check_counts: dict[str, int] = {}
     for check in checks:
@@ -165,12 +273,14 @@ def compact_json_projection(payload: Any) -> dict[str, Any]:
         level = str(check.get("level") or check.get("status") or "unknown")
         check_counts[level] = check_counts.get(level, 0) + 1
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    status = scalar(payload.get("status"))
+    summary_status = scalar(summary.get("status"))
     return {
-        "ok": payload.get("ok"),
-        "schema": payload.get("schema"),
-        "version": payload.get("version"),
-        "status": payload.get("status") or summary.get("status"),
-        "summary_status": summary.get("status"),
+        "ok": scalar(payload.get("ok")),
+        "schema": scalar(payload.get("schema")),
+        "version": scalar(payload.get("version")),
+        "status": status or summary_status,
+        "summary_status": summary_status,
         "check_count": len(checks),
         "check_counts": check_counts,
         "failure_count": check_counts.get("fail", 0) + check_counts.get("failed", 0),
@@ -214,16 +324,23 @@ def compact_command_result(
 
 
 def runtime_summary(runtime_checks: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    failures = [
-        str(check.get("name") or check.get("command") or "runtime")
-        for check in runtime_checks
-        if check.get("status") not in {"ok", "skipped"}
-    ]
-    warnings = [
-        str(check.get("name") or check.get("command") or "runtime")
-        for check in runtime_checks
-        if isinstance(check.get("projection"), dict) and int(check["projection"].get("warning_count") or 0) > 0
-    ]
+    failures: list[str] = []
+    warnings: list[str] = []
+    for check in runtime_checks:
+        name = str(check.get("name") or check.get("command") or "runtime")
+        projection = check.get("projection") if isinstance(check.get("projection"), dict) else {}
+        projection_status = str(projection.get("status") or projection.get("summary_status") or "").lower()
+        failed = (
+            check.get("status") not in {"ok", "skipped"}
+            or projection.get("ok") is False
+            or int(projection.get("failure_count") or 0) > 0
+            or projection_status in FAILED_PROJECTION_STATUSES
+        )
+        if failed:
+            failures.append(name)
+            continue
+        if int(projection.get("warning_count") or 0) > 0 or projection_status in WARNING_PROJECTION_STATUSES:
+            warnings.append(name)
     return {
         "status": "ok" if not failures else "failed",
         "check_count": len(runtime_checks),

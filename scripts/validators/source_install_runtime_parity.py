@@ -18,13 +18,6 @@ if str(SRC_ROOT) not in sys.path:
 from abyss_machine import host_lifecycle_parity
 
 
-RUNTIME_COMMANDS = {
-    "enter": ["abyss-machine", "enter", "--json"],
-    "typing-validate": ["abyss-machine", "typing", "validate", "--json"],
-    "nervous-validate": ["abyss-machine", "nervous", "validate", "--json"],
-}
-
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -57,12 +50,12 @@ def run_runtime_check(name: str, command: list[str], timeout: float) -> dict[str
         )
 
 
-def build_report(args: argparse.Namespace) -> dict[str, Any]:
-    runtime_checks = []
-    selected_runtime_checks = args.runtime_check or ["enter"]
-    for name in dict.fromkeys(selected_runtime_checks):
-        command = RUNTIME_COMMANDS[name]
-        runtime_checks.append(run_runtime_check(name, command, float(args.runtime_timeout)))
+def build_report(args: argparse.Namespace, selected_runtime_checks: list[str]) -> dict[str, Any]:
+    runtime_checks = host_lifecycle_parity.collect_runtime_checks(
+        selected_checks=selected_runtime_checks,
+        run_check=run_runtime_check,
+        timeout=float(args.runtime_timeout),
+    )
     return host_lifecycle_parity.build_parity_document(
         generated_at=now_iso(),
         repo_root=REPO_ROOT,
@@ -80,7 +73,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host-cli", default="/usr/local/bin/abyss-machine")
     parser.add_argument("--host-libexec-dir", default="/usr/local/libexec")
     parser.add_argument("--host-share-root", default="/usr/local/share/abyss-machine")
-    parser.add_argument("--runtime-check", action="append", choices=sorted(RUNTIME_COMMANDS), default=None)
+    parser.add_argument("--runtime-check", action="append", choices=sorted(host_lifecycle_parity.runtime_command_catalog()), default=None)
+    parser.add_argument(
+        "--runtime-profile",
+        action="append",
+        choices=sorted(host_lifecycle_parity.runtime_profile_catalog()),
+        default=None,
+        help="add a module-owned runtime closeout profile; defaults to 'base' when no runtime check/profile is supplied",
+    )
+    parser.add_argument(
+        "--allow-runtime-refresh",
+        action="store_true",
+        help="allow runtime checks that refresh live latest/readmodel state; required for '*-refresh' profiles",
+    )
     parser.add_argument("--runtime-timeout", type=float, default=15.0)
     parser.add_argument("--sample-limit", type=int, default=20)
     parser.add_argument("--advisory", action="store_true", help="return zero even when drift is reported")
@@ -88,8 +93,36 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    report = build_report(args)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    selected_runtime_checks = host_lifecycle_parity.select_runtime_check_names(
+        runtime_checks=args.runtime_check,
+        runtime_profiles=args.runtime_profile,
+    )
+    refresh_checks = host_lifecycle_parity.runtime_refresh_check_names(selected_runtime_checks)
+    if refresh_checks and not args.allow_runtime_refresh:
+        message = (
+            "runtime checks may refresh live latest/readmodel state; "
+            f"re-run with --allow-runtime-refresh for: {', '.join(refresh_checks)}"
+        )
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "schema": host_lifecycle_parity.SCHEMA,
+                        "ok": False,
+                        "status": "blocked",
+                        "error": message,
+                        "refresh_checks": refresh_checks,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 2
+        parser.error(message)
+    report = build_report(args, selected_runtime_checks)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     if report.get("ok") is True or args.advisory:

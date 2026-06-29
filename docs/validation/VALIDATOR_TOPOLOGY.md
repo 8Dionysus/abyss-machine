@@ -96,12 +96,16 @@ projection, and opt-in profile dry-runs. The live
 `/usr/local/bin/abyss-machine` comparison is read-only and advisory by default;
 use `--require-host-installed` during a real host install closeout.
 
-The source/install/runtime parity validator is a compact read-only closeout
-summary. It compares source and installed CLI/package/public-seed digests,
-projects bounded runtime command JSON into status/check counts, and deliberately
-omits raw runtime stdout, raw runtime JSON, private histories, captures, caches,
-and indexes. Use `--advisory` before an install is applied; require a green
-summary after an installed-host closeout.
+The source/install/runtime parity validator is a compact closeout summary. It
+compares source and installed CLI/package/public-seed digests, projects bounded
+runtime command JSON into status/check counts, and deliberately omits raw
+runtime stdout, raw runtime JSON, private histories, captures, caches, and
+indexes. Runtime command catalogs, profile selection, and read-only vs
+latest/readmodel-refresh effect labels are module-owned in
+`abyss_machine.host_lifecycle_parity`; the validator binds those profiles to
+concrete subprocess execution. Default and read profiles are read-only.
+`*-refresh` profiles require `--allow-runtime-refresh`. Use `--advisory` before
+an install is applied; require a green summary after an installed-host closeout.
 
 The typing/nervous policy validator keeps the first subsystem split honest:
 private nervous captures, search and semantic indexes, browser/tool adapters,

@@ -57,16 +57,32 @@ abyss-machine doctor --json
 abyss-machine doctor machine-report --json --no-thermal-sample
 ```
 
+For a richer installed-host closeout, use module-owned runtime profiles instead
+of hand-maintaining command lists in the validator script:
+
+```bash
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile diagnostic-read --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile ai-llm-refresh --allow-runtime-refresh --json
+```
+
+Use a longer timeout for full doctor/machine-report refresh closeout:
+
+```bash
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile diagnostic-refresh --allow-runtime-refresh --runtime-timeout 60 --json
+```
+
 For safe repair adapter changes, public CI should rely on fake-port tests and
-read-only doctor status checks. If `abyss-machine doctor --repair --safe-only
---json --no-thermal-sample` is run on a live host, report only the compact repair
-summary and performed action names; do not copy generated latest files or raw
-repair payloads into the repository.
+read-only doctor path/status-shape checks. Runtime profiles whose names end in
+`-refresh` intentionally run commands that may refresh live latest/readmodel
+state and therefore require `--allow-runtime-refresh`. If `abyss-machine doctor
+--repair --safe-only --json --no-thermal-sample` is run on a live host, report
+only the compact repair summary and performed action names; do not copy
+generated latest files or raw repair payloads into the repository.
 
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash
-PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-check typing-validate --runtime-check nervous-validate --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile typing-nervous-refresh --allow-runtime-refresh --json
 abyss-machine typing status --json
 abyss-machine typing validate --json
 abyss-machine nervous status --json

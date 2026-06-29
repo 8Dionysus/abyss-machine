@@ -186,8 +186,11 @@ route/profile/status contracts plus validate documents live in
 Host lifecycle source/install/runtime parity document contracts, compact digest
 map comparisons, path identity summaries, runtime JSON projection, and
 privacy-preserving no-raw-runtime-output policy live in
-`abyss_machine.host_lifecycle_parity`; the validator script binds those
-contracts to live installed paths and bounded runtime commands for closeout.
+`abyss_machine.host_lifecycle_parity`; runtime closeout command catalogs and
+read-only/explicit-refresh profiles live there too. The validator script binds
+those contracts to live installed paths and bounded subprocess execution for
+closeout; runtime checks that refresh latest/readmodel state require explicit
+opt-in.
 Storage policy/env read models, hook stage/status contracts, cache env routes,
 inventory drift, pressure classes/recommendations, cleanup action contracts,
 protected-root decisions, write-preflight decisions, dry-run apply shape, and
