@@ -322,6 +322,101 @@ def test_llm_runtime_profile_and_tokenizer_discovery_are_fakeable(tmp_path: Path
     assert tokenizer_status["library_paths"] == [str(lib_root)]
 
 
+def test_llm_resident_controller_runner_binds_command_timeout_and_output() -> None:
+    controller = Path("/srv/abyss-machine/tools/abyss-gemma4-spark-resident")
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> dict[str, Any]:
+        calls.append((command, kwargs))
+        return {"returncode": 0, "stdout": '{"ok": true}\\n', "stderr": ""}
+
+    job = ai_runtime_adapters.llm_resident_controller_run(
+        controller=controller,
+        command="job",
+        job_name="dictation_quality",
+        limit=2,
+        json_output=True,
+        run_command=fake_run,
+    )
+    jobs_run = ai_runtime_adapters.llm_resident_controller_run(
+        controller=controller,
+        command="jobs",
+        jobs_action="run",
+        json_output=True,
+        run_command=fake_run,
+    )
+    policy = ai_runtime_adapters.llm_resident_controller_run(
+        controller=controller,
+        command="policy",
+        job_name="daily_brief",
+        request_class="foreground",
+        force=True,
+        run_command=fake_run,
+    )
+
+    assert calls[0] == (
+        [str(controller), "job", "dictation_quality", "--limit", "2", "--json"],
+        {"timeout": 360.0},
+    )
+    assert calls[1] == ([str(controller), "jobs", "run", "--json"], {"timeout": 900.0})
+    assert calls[2] == (
+        [str(controller), "policy", "daily_brief", "--request-class", "foreground", "--force"],
+        {"timeout": 60.0},
+    )
+    assert job["stdout"] == '{"ok": true}\\n'
+    assert job["returncode"] == 0
+    assert jobs_run["timeout"] == 900.0
+    assert policy["command"][-1] == "--force"
+
+
+def test_llm_resident_controller_runner_reports_json_no_output_error() -> None:
+    controller = Path("/srv/abyss-machine/tools/abyss-gemma4-spark-resident")
+
+    def fake_run(command: list[str], **kwargs: Any) -> dict[str, Any]:
+        return {"returncode": 2, "stdout": "", "stderr": "controller failed"}
+
+    result = ai_runtime_adapters.llm_resident_controller_run(
+        controller=controller,
+        command="audit",
+        no_generation=True,
+        json_output=True,
+        run_command=fake_run,
+    )
+
+    assert result["command"] == [str(controller), "audit", "--no-generation", "--json"]
+    assert result["timeout"] == 180.0
+    assert result["returncode"] == 2
+    assert result["json_error"] == {
+        "ok": False,
+        "error": "controller failed",
+        "command": [str(controller), "audit", "--no-generation", "--json"],
+    }
+
+
+def test_cli_llm_resident_command_delegates_to_runner(monkeypatch, capsys) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+
+    def fake_controller_run(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"returncode": 0, "stdout": '{"ok": true, "source": "adapter"}\n', "stderr": ""}
+
+    monkeypatch.setattr(cli.ai_runtime_adapters, "llm_resident_controller_run", fake_controller_run)
+
+    rc = cli.main(["ai", "llm", "resident", "jobs", "run", "--limit", "2", "--json"])
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert captured.out == '{"ok": true, "source": "adapter"}\n'
+    assert calls["controller"] == cli.AI_LLM_RESIDENT_CONTROLLER
+    assert calls["command"] == "jobs"
+    assert calls["jobs_action"] == "run"
+    assert calls["limit"] == 2
+    assert calls["json_output"] is True
+    assert calls["run_command"] is cli.run
+
+
 def test_token_accounting_count_subprocess_binds_command_env_timeout_and_clock() -> None:
     profile = {
         "profile": "gemma4.spark",

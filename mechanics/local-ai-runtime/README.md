@@ -45,15 +45,16 @@ runtime/package/NPU driver probes, model inventory walks, `llama.cpp`
 runtime/profile file probes, tokenizer/library discovery, OpenVINO python
 package versions, kernel-module snapshots, and OpenVINO smoke/embedding/text
 child-process execution plus token-accounting tokenizer subprocess
-command/env/timeout/timing execution through fakeable ports.
+command/env/timeout/timing execution and resident LLM controller
+command/timeout/subprocess execution through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, synth subprocess
 cache/env binding, and cold BabelVox/Qwen3 OpenVINO synth child-process
 invocation. Remaining AI runtime adapters should focus on resident TTS server
-loop/audio summaries, resident LLM execution, and broader resource-sampling
-evidence. Keep model weights, benchmark outputs, and generated runtime state
-outside Git; only plans, contracts, and bounded summaries belong in the public
-seed.
+loop/audio summaries, benchmark/eval suite orchestration, and broader
+resource-sampling evidence. Keep model weights, benchmark outputs, and
+generated runtime state outside Git; only plans, contracts, and bounded
+summaries belong in the public seed.
 
 ### Landing log
 
@@ -78,6 +79,12 @@ seed.
   clock ports while `ai_runtime_contracts` keeps count privacy/result shapes.
   CLI still owns profile selection, generated-at binding, latest/history
   writes, and rendering.
+- Extracted resident LLM controller runner execution into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns
+  `abyss-gemma4-spark-resident` command construction, timeout routing,
+  subprocess invocation, stdout/stderr/returncode mapping, and no-output JSON
+  error envelopes through a fakeable command port. CLI still owns argparse
+  binding, user-visible result rendering, and command dispatch.
 - Extracted explicit-file dictation transcription runtime into
   `abyss_machine.dictation_execution_adapters`; the adapter owns warm-server
   socket transport, client-side 16 kHz runtime preprocessing, helper subprocess
