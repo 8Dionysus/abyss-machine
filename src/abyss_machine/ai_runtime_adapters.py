@@ -142,6 +142,74 @@ def model_roots(config: Mapping[str, Any]) -> list[Path]:
     return roots
 
 
+def subprocess_env_binding(
+    *,
+    environ: Mapping[str, str],
+    machine_cache_root: Path,
+    ai_cache_root: Path,
+    tmp_root: Path,
+    openvino_cache_root: Path,
+    extra: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    return ai_runtime_contracts.subprocess_env(
+        {str(key): str(value) for key, value in environ.items()},
+        machine_cache_root=machine_cache_root,
+        ai_cache_root=ai_cache_root,
+        tmp_root=tmp_root,
+        openvino_cache_root=openvino_cache_root,
+        extra={str(key): str(value) for key, value in extra.items()} if extra else None,
+    )
+
+
+def resource_snapshot(
+    *,
+    now_iso: TimestampPort,
+    memory_summary: NoArgMappingPort,
+    thermal_summary: NoArgMappingPort,
+    battery_summary: NoArgMappingPort,
+    self_rusage: NoArgMappingPort,
+    children_rusage: NoArgMappingPort,
+    loadavg: Callable[[], Iterable[float]] | None = None,
+) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "captured_at": now_iso(),
+        "memory": dict(memory_summary()),
+        "thermal": dict(thermal_summary()),
+        "battery": dict(battery_summary()),
+        "rusage": {
+            "self": dict(self_rusage()),
+            "children": dict(children_rusage()),
+        },
+    }
+    if loadavg is None:
+        snapshot["loadavg"] = None
+        return snapshot
+    try:
+        snapshot["loadavg"] = [round(float(item), 4) for item in loadavg()]
+    except OSError:
+        snapshot["loadavg"] = None
+    return snapshot
+
+
+def resource_profile(
+    *,
+    schema_prefix: str,
+    version: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    scope: str,
+    basis: str,
+) -> dict[str, Any]:
+    return ai_runtime_contracts.resource_profile_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        before=before,
+        after=after,
+        scope=scope,
+        basis=basis,
+    )
+
+
 def openvino_runtime_info(
     *,
     config: Mapping[str, Any],

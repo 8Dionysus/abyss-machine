@@ -18,6 +18,108 @@ from abyss_machine import ai_runtime_adapters, ai_runtime_contracts
 STAMP = "2026-06-29T12:00:00+00:00"
 
 
+def test_env_resource_snapshot_and_profile_bindings_use_fake_ports(tmp_path: Path) -> None:
+    env = ai_runtime_adapters.subprocess_env_binding(
+        environ={"OPENVINO_LOG_LEVEL": "5", "KEEP": "yes"},
+        machine_cache_root=tmp_path / "machine-cache",
+        ai_cache_root=tmp_path / "ai-cache",
+        tmp_root=tmp_path / "tmp",
+        openvino_cache_root=tmp_path / "ov-cache",
+        extra={"HF_HOME": str(tmp_path / "custom-hf"), "EXTRA": "1"},
+    )
+
+    snapshot = ai_runtime_adapters.resource_snapshot(
+        now_iso=lambda: STAMP,
+        memory_summary=lambda: {"mem_available_mib": 512.25},
+        thermal_summary=lambda: {"temperature_c_max": 41.2},
+        battery_summary=lambda: {"capacity_percent": 88},
+        self_rusage=lambda: {"user_cpu_sec": 1.0, "system_cpu_sec": 0.5},
+        children_rusage=lambda: {"user_cpu_sec": 0.2, "system_cpu_sec": 0.1, "maxrss_kib": 1000},
+        loadavg=lambda: (1, 2.34567, 3),
+    )
+    missing_load = ai_runtime_adapters.resource_snapshot(
+        now_iso=lambda: STAMP,
+        memory_summary=lambda: {},
+        thermal_summary=lambda: {},
+        battery_summary=lambda: {},
+        self_rusage=lambda: {},
+        children_rusage=lambda: {},
+        loadavg=lambda: (_ for _ in ()).throw(OSError("load unavailable")),
+    )
+    profile = ai_runtime_adapters.resource_profile(
+        schema_prefix="abyss_machine",
+        version="test",
+        before={
+            "memory": {"mem_available_mib": 512.25},
+            "thermal": {"temperature_c_max": 41.2},
+            "battery": {"capacity_percent": 88},
+            "rusage": {
+                "self": {"user_cpu_sec": 1.0, "system_cpu_sec": 0.5},
+                "children": {"user_cpu_sec": 0.2, "system_cpu_sec": 0.1, "maxrss_kib": 1000},
+            },
+        },
+        after={
+            "memory": {"mem_available_mib": 500.0},
+            "thermal": {"temperature_c_max": 42.0},
+            "battery": {"capacity_percent": 87},
+            "rusage": {
+                "self": {"user_cpu_sec": 1.25, "system_cpu_sec": 0.6},
+                "children": {"user_cpu_sec": 0.7, "system_cpu_sec": 0.3, "maxrss_kib": 1400},
+            },
+        },
+        scope="child_process",
+        basis="fixture",
+    )
+
+    assert env["OPENVINO_LOG_LEVEL"] == "5"
+    assert env["KEEP"] == "yes"
+    assert env["HF_HOME"] == str(tmp_path / "custom-hf")
+    assert env["TMPDIR"] == str(tmp_path / "tmp" / "ai")
+    assert snapshot["captured_at"] == STAMP
+    assert snapshot["loadavg"] == [1.0, 2.3457, 3.0]
+    assert snapshot["rusage"]["children"]["maxrss_kib"] == 1000
+    assert missing_load["loadavg"] is None
+    assert profile["schema"] == "abyss_machine_ai_resource_profile_v1"
+    assert profile["delta"]["mem_available_mib"] == -12.2
+    assert profile["delta"]["children_maxrss_kib"] == 400.0
+
+
+def test_cli_ai_env_resource_and_profile_bindings_delegate_to_runtime_adapter(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+
+    def fake_env(**kwargs: Any) -> dict[str, str]:
+        calls["env"] = kwargs
+        return {"ENV": "adapter"}
+
+    def fake_snapshot(**kwargs: Any) -> dict[str, Any]:
+        calls["snapshot"] = kwargs
+        return {"snapshot": "adapter"}
+
+    def fake_profile(**kwargs: Any) -> dict[str, Any]:
+        calls["profile"] = kwargs
+        return {"profile": "adapter"}
+
+    monkeypatch.setattr(cli.ai_runtime_adapters, "subprocess_env_binding", fake_env)
+    monkeypatch.setattr(cli.ai_runtime_adapters, "resource_snapshot", fake_snapshot)
+    monkeypatch.setattr(cli.ai_runtime_adapters, "resource_profile", fake_profile)
+
+    assert cli.ai_subprocess_env({"EXTRA": "1"}) == {"ENV": "adapter"}
+    assert cli.ai_resource_snapshot() == {"snapshot": "adapter"}
+    assert cli.ai_resource_profile({"before": True}, {"after": True}, "scope", "basis") == {"profile": "adapter"}
+
+    assert calls["env"]["environ"] is cli.os.environ
+    assert calls["env"]["extra"] == {"EXTRA": "1"}
+    assert calls["snapshot"]["now_iso"] is cli.now_iso
+    assert calls["snapshot"]["memory_summary"] is cli.proc_meminfo_summary
+    assert calls["snapshot"]["thermal_summary"] is cli.sensors_summary
+    assert calls["snapshot"]["battery_summary"] is cli.battery_summary
+    assert calls["snapshot"]["loadavg"] is cli.os.getloadavg
+    assert calls["profile"]["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert calls["profile"]["version"] == cli.VERSION
+
+
 def test_model_inventory_adapter_walks_configured_roots(tmp_path: Path) -> None:
     root = tmp_path / "models"
     (root / "ovms" / "OpenVINO" / "Qwen3-Embedding").mkdir(parents=True)

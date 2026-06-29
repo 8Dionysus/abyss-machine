@@ -45,6 +45,12 @@
   forwarding, and gate document assembly now pass through fakeable policy and
   clock ports. CLI remains the concrete policy-readmodel/dispatch/rendering
   edge.
+- Extracted AI env/resource binding into
+  `abyss_machine.ai_runtime_adapters`; subprocess env construction, resource
+  snapshot envelope assembly, and resource-profile document forwarding now pass
+  through fakeable environment, root, memory, thermal, battery, rusage, load,
+  and clock ports. CLI remains the concrete live-reader/env-source/dispatch/
+  rendering edge.
 - Extracted STT eval dictation transport into
   `abyss_machine.ai_runtime_adapters`; per-profile dictation-client calls,
   monotonic timing, before/after resource snapshots, and client-side
