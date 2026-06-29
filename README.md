@@ -451,10 +451,10 @@ remain at the CLI edge. Mode policy/path/state, definitions, target-profile,
 thermal classification/launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts are
 module-owned; mode state load/save, `powerprofilesctl` get/set, GameMode
-journal probing, external guard input collection, and mode plan/status input
-collection are adapter-owned through fakeable ports. Concrete live reader
-binding, reconcile orchestration, cooling apply orchestration, systemd reads,
-latest/history writes, and rendering remain at the CLI edge.
+journal probing, external guard input collection, mode plan/status input
+collection, and reconcile orchestration are adapter-owned through fakeable
+ports. Concrete live/mutation port binding, cooling apply concrete execution,
+systemd reads, latest/history writes, and rendering remain at the CLI edge.
 Observability path, latest-read, manual-collect probe, status, and sample
 temperature contracts are module-owned while collector subprocess execution,
 filesystem permission probing, line counts, systemd reads, and live latest reads

@@ -242,9 +242,9 @@ launch caps, external power-profile guard decisions, plan/status document
 shape, validate document, and lightweight reconcile status contracts live in
 `abyss_machine.mode_contracts`; mode state load/save, `powerprofilesctl`
 get/set execution, recent GameMode journal probes, external profile-guard input
-collection, and mode plan/status live input collection live in
-`abyss_machine.mode_adapters` through fakeable ports. Concrete live reader
-binding, reconcile orchestration, cooling apply orchestration, systemd reads,
+collection, mode plan/status live input collection, and reconcile orchestration
+live in `abyss_machine.mode_adapters` through fakeable ports. Concrete
+live/mutation port binding, cooling apply concrete execution, systemd reads,
 and latest/history writes remain at the CLI edge.
 Observability path, latest-read, manual-collect probe, status, and sample
 temperature contracts live in `abyss_machine.observability_contracts`;

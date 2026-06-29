@@ -30,6 +30,12 @@ PathExistsPort = Callable[[Path], bool]
 AiDevicesPort = Callable[[], dict[str, Any]]
 SensorsSummaryPort = Callable[[], dict[str, Any]]
 ModePlanPort = Callable[[], dict[str, Any]]
+ModePlanWritePort = Callable[[bool], dict[str, Any]]
+ModeStatusPort = Callable[[], dict[str, Any]]
+SaveStatePort = Callable[[dict[str, Any], str], None]
+SetPowerProfilePort = Callable[[str], dict[str, Any]]
+CoolingApplyPort = Callable[[str, bool, str], dict[str, Any]]
+ReconcileLightStatusPort = Callable[..., dict[str, Any]]
 
 
 def tool_available(command: str) -> bool:
@@ -216,6 +222,128 @@ def collect_status_inputs(
         "ai_ready": ai_ready,
         "plan": mode_plan(),
     }
+
+
+def reconcile_mode(
+    *,
+    state: dict[str, Any],
+    battery_summary: BatterySummaryPort,
+    power_profile: PowerProfilePort,
+    current_mode_from_power_profile: CurrentModePort,
+    target_profile: TargetProfilePort,
+    external_profile_guard: ExternalProfileGuardPort,
+    set_power_profile: SetPowerProfilePort,
+    save_state: SaveStatePort,
+    cooling_apply: CoolingApplyPort,
+    mode_plan: ModePlanWritePort,
+    mode_status: ModeStatusPort,
+    light_status: ReconcileLightStatusPort,
+    updated_by: str = "reconcile",
+    infer_operator_changes: bool = True,
+    lightweight: bool = False,
+) -> dict[str, Any]:
+    battery = battery_summary()
+    ac_online = bool(battery.get("ac_online"))
+    selected = str(state.get("selected_mode", "balanced"))
+    current_profile = power_profile()
+    current_mode = current_mode_from_power_profile(current_profile)
+    actions: list[dict[str, Any]] = []
+
+    if not ac_online:
+        if current_mode in {"balanced", "performance"}:
+            state["selected_mode"] = current_mode
+            state["last_non_ai_mode"] = current_mode
+            selected = current_mode
+        state["forced_saver_on_battery"] = selected != "saver"
+        result = set_power_profile("power-saver")
+        actions.append({"action": "set_power_profile", **result})
+        save_state(state, updated_by)
+        actions.append({"action": "cooling_apply", **cooling_apply("auto", True, updated_by)})
+        if lightweight:
+            current_profile = power_profile()
+            status_data = light_status(
+                state,
+                battery,
+                selected,
+                "saver",
+                "power-saver",
+                current_profile,
+                "battery",
+                actions,
+            )
+        else:
+            actions.append({"action": "mode_plan", **{"ok": mode_plan(True).get("ok")}})
+            status_data = mode_status()
+        status_data["actions"] = actions
+        return status_data
+
+    if state.get("forced_saver_on_battery"):
+        state["forced_saver_on_battery"] = False
+    else:
+        _, target_profile_name, _ = target_profile(selected, True)
+        profile_guard = external_profile_guard(current_profile, target_profile_name)
+        if infer_operator_changes and current_mode and current_profile != target_profile_name:
+            if profile_guard.get("active"):
+                actions.append(
+                    {
+                        "action": "infer_operator_profile_change",
+                        "ok": True,
+                        "changed": False,
+                        "suppressed": True,
+                        "candidate_mode": current_mode,
+                        "guard": profile_guard,
+                    }
+                )
+            else:
+                state["selected_mode"] = current_mode
+                if current_mode != "ai":
+                    state["last_non_ai_mode"] = current_mode
+                selected = current_mode
+                actions.append(
+                    {
+                        "action": "infer_operator_profile_change",
+                        "ok": True,
+                        "changed": True,
+                        "selected_mode": current_mode,
+                        "reason": "powerprofilesctl_profile_drift_without_external_guard",
+                    }
+                )
+
+    _, target_profile_name, _ = target_profile(selected, True)
+    profile_guard = external_profile_guard(current_profile, target_profile_name)
+    if profile_guard.get("preserve_external_boost"):
+        result = {
+            "ok": True,
+            "changed": False,
+            "deferred": True,
+            "current": current_profile,
+            "target": target_profile_name,
+            "guard": profile_guard,
+            "reason": "active external GameMode boost is stronger than selected target",
+        }
+    else:
+        result = set_power_profile(target_profile_name)
+    actions.append({"action": "set_power_profile", **result})
+    save_state(state, updated_by)
+    actions.append({"action": "cooling_apply", **cooling_apply("auto", True, updated_by)})
+    if lightweight:
+        current_profile = power_profile()
+        effective, target_profile_name, degraded_reason = target_profile(selected, True)
+        status_data = light_status(
+            state,
+            battery,
+            selected,
+            effective,
+            target_profile_name,
+            current_profile,
+            degraded_reason,
+            actions,
+        )
+    else:
+        actions.append({"action": "mode_plan", **{"ok": mode_plan(True).get("ok")}})
+        status_data = mode_status()
+    status_data["actions"] = actions
+    return status_data
 
 
 def default_state(
