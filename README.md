@@ -177,7 +177,11 @@ through fakeable ports; hotpath probe execution, candidate ranking,
 authorization checks, latest writes, and rendering remain at the CLI edge. Mode policy/path/state, definitions,
 target-profile, thermal launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts live in
-`abyss_machine.mode_contracts`. Observability path, latest-read, manual-collect
+`abyss_machine.mode_contracts`. Mode runtime state load/save,
+`powerprofilesctl` get/set execution, recent GameMode journal probes, and
+external profile-guard input collection live in `abyss_machine.mode_adapters`
+through fakeable ports; broader live sampling, cooling apply, latest writes,
+and rendering remain at the CLI edge. Observability path, latest-read, manual-collect
 probe, status, and sample-temperature contracts live in
 `abyss_machine.observability_contracts`. Cooling config/path/status,
 recommendation, apply-envelope, RAPL smoothing state/status, and guarded fan
@@ -443,9 +447,11 @@ reads, process sampling, orchestration/apply routes, and latest/history writes
 remain at the CLI edge. Mode policy/path/state, definitions, target-profile,
 thermal classification/launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts are
-module-owned while live battery/power-profile/sensor/cooling/AI CPU/storage/
-memory/process sampling, `set`/`reconcile` host mutation, cooling apply,
-systemd/file reads, and latest/history writes remain at the CLI edge.
+module-owned; mode state load/save, `powerprofilesctl` get/set, GameMode
+journal probing, and external guard input collection are adapter-owned through
+fakeable ports. Live battery/sensor/cooling/AI CPU/storage/memory/process
+sampling, reconcile orchestration, cooling apply, systemd reads, latest/history
+writes, and rendering remain at the CLI edge.
 Observability path, latest-read, manual-collect probe, status, and sample
 temperature contracts are module-owned while collector subprocess execution,
 filesystem permission probing, line counts, systemd reads, and live latest reads

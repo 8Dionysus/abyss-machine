@@ -46,7 +46,9 @@ Use these mechanic owners for the next extraction slices:
   local model HTTP probes, cgroup CPU sampling, live locks, narrow Podman
   restart/rerank unload execution, rehydrate polling, read-only memory
   pressure/process/cgroup collection, and residency service snapshots live in
-  `memory_adapters`. Continue broader container, mode, cooling, and hotpath
-  execution only as bounded public-safe adapter slices.
+  `memory_adapters`; mode-state IO, `powerprofilesctl` get/set, recent GameMode
+  journal probes, and external profile-guard input collection live in
+  `mode_adapters`. Continue broader container, remaining mode live sampling,
+  cooling, and hotpath execution only as bounded public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.
