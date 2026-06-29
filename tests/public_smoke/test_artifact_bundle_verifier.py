@@ -2230,6 +2230,42 @@ def test_artifact_producer_profiles_prefer_owner_source_root_hint(tmp_path: Path
     assert resolution["resolved_commands"][0]["resolved_paths"] == [str(script)]
 
 
+def test_abyss_machine_profile_uses_source_root_hint_when_installed_seed_has_no_scripts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed_seed_root = tmp_path / "usr" / "local" / "share" / "abyss-machine"
+    installed_seed_root.mkdir(parents=True)
+    source_root = tmp_path / "source" / "abyss-machine"
+    script = source_root / "scripts" / "release_check.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    monkeypatch.setenv("ABYSS_MACHINE_SOURCE_ROOT_FOR_TEST", str(source_root))
+
+    manifest = json.loads((ROOT / artifact_bundles.POLICY_REF).read_text(encoding="utf-8"))
+    manifest["producer_profiles"]["abyss-machine"]["owner_source_root_hints"] = [
+        "${ABYSS_MACHINE_SOURCE_ROOT_FOR_TEST}"
+    ]
+    policy_path = installed_seed_root / artifact_bundles.POLICY_REF
+    policy_path.parent.mkdir(parents=True)
+    policy_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    profiles = artifact_bundles.artifact_producer_profiles(
+        owner_repo="abyss-machine",
+        repo_root=installed_seed_root,
+        workspace_root=tmp_path / "workspace",
+        require_command_resolution=True,
+    )
+    row = profiles["rows"][0]
+    resolution = row["automation_readiness"]["command_resolution"]
+
+    assert profiles["ok"] is True
+    assert row["automation_readiness"]["status"] == "owner_local_producer_validated"
+    assert resolution["owner_repo_root"] == str(source_root)
+    assert resolution["owner_repo_root_source"] == "owner_source_root_hint"
+    assert resolution["resolved_commands"][0]["resolved_paths"] == [str(script)]
+
+
 def test_artifact_producer_profiles_fail_when_owner_command_ref_is_missing(tmp_path: Path) -> None:
     owner_root = tmp_path / "workspace" / "aoa-sdk"
     owner_root.mkdir(parents=True)
