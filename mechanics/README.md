@@ -45,8 +45,8 @@ Use these mechanic owners for the next extraction slices:
   also lives in `process_adapters`; memory orchestration target snapshots,
   local model HTTP probes, cgroup CPU sampling, live locks, narrow Podman
   restart/rerank unload execution, rehydrate polling, read-only memory
-  pressure/process/cgroup collection, and residency service snapshots live in
-  `memory_adapters`; mode-state IO, `powerprofilesctl` get/set, recent GameMode
+  pressure/process/cgroup collection, residency service snapshots, and hotpath
+  probe document assembly/orchestration live in `memory_adapters`; mode-state IO, `powerprofilesctl` get/set, recent GameMode
   journal probes, external profile-guard input collection, mode plan/status
   live input collection, and reconcile orchestration live in `mode_adapters`;
   cooling platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle,
@@ -54,7 +54,7 @@ Use these mechanic owners for the next extraction slices:
   projection, temperature summary/sample, sample-series ports, profile apply
   orchestration, guarded TFN1 write, fan-validate, fan-series orchestration, and
   RAPL smoothing decision/state orchestration live in `cooling_adapters`.
-  Continue broader container orchestration and hotpath execution only as bounded
+  Continue broader container orchestration and concrete hotpath execution ports only as bounded
   public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.

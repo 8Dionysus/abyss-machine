@@ -91,6 +91,118 @@ def test_memory_status_parsers_use_fake_roots_and_runners(tmp_path: Path) -> Non
     assert memory_adapters.cgroup_status(cgroup_root=cgroup_root, uid=1000)["user"]["memory_events"]["oom"] == 1
 
 
+def test_hotpath_probe_document_uses_fake_probe_ports() -> None:
+    residency_calls: list[int] = []
+    tts_calls: list[tuple[str, int]] = []
+    stt_calls: list[tuple[str, str]] = []
+    monotonic_values = iter([10.0, 21.25])
+
+    residency_samples = [
+        {"status": "before", "summary": {"swap_used_percent": 60.0, "psi_full_avg10": 0.0}, "services": []},
+        {"status": "after_tts", "summary": {"swap_used_percent": 45.0, "psi_full_avg10": 0.0}, "services": []},
+        {"status": "after", "summary": {"swap_used_percent": 44.0, "psi_full_avg10": 0.75}, "services": []},
+    ]
+
+    def residency(top: int) -> dict[str, Any]:
+        residency_calls.append(top)
+        return residency_samples[len(residency_calls) - 1]
+
+    def tts_probe(text: str, index: int) -> dict[str, Any]:
+        tts_calls.append((text, index))
+        return {
+            "ok": True,
+            "output": f"/fake/audio-{index}.wav",
+            "reported_wall_sec": 16.0 if index == 1 else 7.0,
+        }
+
+    def stt_probe(audio: str, profile: str) -> dict[str, Any]:
+        stt_calls.append((audio, profile))
+        return {
+            "ok": True,
+            "profile": profile,
+            "client_elapsed_sec": 1.5 if profile == "command" else 5.0,
+        }
+
+    data = memory_adapters.hotpath_probe_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T12:00:00Z",
+        text="synthetic hot path",
+        repeat_tts=2,
+        stt_profiles=["command", "quality"],
+        include_llm=True,
+        llm_limit=4,
+        top=12,
+        monotonic=lambda: next(monotonic_values),
+        residency_port=residency,
+        tts_status_port=lambda: {"ok": True, "service": {"active": True, "enabled": True}, "ping": {"profile": "quality-compact"}},
+        ai_policy_port=lambda: {"class": "green", "heavy_policy": "allow", "can_run_heavy": True},
+        tts_probe_port=tts_probe,
+        stt_probe_port=stt_probe,
+        llm_probe_port=lambda include_llm, limit: {"executed": include_llm, "elapsed_ms": 31000.0, "fallback_used": True},
+        output_exists_port=lambda output: output == "/fake/audio-1.wav",
+        paths_refs={
+            "root": "/fake/memory/hotpath",
+            "latest": "/fake/memory/hotpath/latest.json",
+            "memory_residency_latest": "/fake/memory/residency/latest.json",
+            "tts_latest": "/fake/tts/latest.json",
+            "llm_micro_latest": "/fake/llm/micro/latest.json",
+        },
+    )
+
+    assert data["schema"] == "abyss_machine_memory_hotpath_probe_v1"
+    assert data["status"] == "watch"
+    assert data["summary"]["duration_sec"] == 11.25
+    assert data["summary"]["findings"] == [
+        "dictation_command_path_interactive",
+        "tts_second_run_faster_after_swapin",
+        "tts_warmup_reclaimed_zram_headroom",
+    ]
+    assert data["summary"]["issues"] == [
+        "active_memory_stalls_after_probe",
+        "dictation_quality_path_slow",
+        "first_tts_slow",
+        "resident_llm_fallback_used",
+        "resident_llm_micro_slow",
+    ]
+    assert data["summary"]["stt_runs"] == 2
+    assert residency_calls == [12, 12, 12]
+    assert tts_calls == [("synthetic hot path", 1), ("synthetic hot path", 2)]
+    assert stt_calls == [("/fake/audio-1.wav", "command"), ("/fake/audio-1.wav", "quality")]
+
+
+def test_hotpath_probe_document_failed_tts_skips_stt_ports() -> None:
+    stt_calls: list[tuple[str, str]] = []
+    monotonic_values = iter([1.0, 2.0])
+
+    data = memory_adapters.hotpath_probe_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-29T12:00:00Z",
+        text="synthetic hot path",
+        repeat_tts=1,
+        stt_profiles=["command"],
+        include_llm=False,
+        llm_limit=4,
+        top=5,
+        monotonic=lambda: next(monotonic_values),
+        residency_port=lambda top: {"status": "ok", "summary": {"swap_used_percent": 10.0, "psi_full_avg10": 0.0}, "services": []},
+        tts_status_port=lambda: {"ok": True},
+        ai_policy_port=lambda: {"class": "green"},
+        tts_probe_port=lambda text, index: {"ok": False, "output": "/fake/missing.wav", "client_wall_sec": 1.0},
+        stt_probe_port=lambda audio, profile: stt_calls.append((audio, profile)) or {"ok": True, "profile": profile},
+        llm_probe_port=lambda include_llm, limit: {"mode": "latest_only", "elapsed_ms": 1000.0},
+        output_exists_port=lambda output: False,
+        paths_refs={"root": "/fake/memory/hotpath"},
+    )
+
+    assert data["ok"] is False
+    assert data["status"] == "failed"
+    assert data["summary"]["stt_runs"] == 0
+    assert data["probes"]["dictation"] == []
+    assert stt_calls == []
+
+
 def test_process_snapshot_uses_fake_proc_cgroup_and_podman_ports(tmp_path: Path) -> None:
     proc_root = tmp_path / "proc"
     cgroup_root = tmp_path / "cgroup"
