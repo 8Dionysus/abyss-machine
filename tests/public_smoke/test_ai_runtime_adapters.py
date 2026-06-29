@@ -1483,6 +1483,40 @@ def test_core_readmodel_store_adapters_route_writes(tmp_path: Path) -> None:
     ]
 
 
+def test_policy_gate_binding_uses_fake_policy_clock_and_class_levels() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_policy(**kwargs: Any) -> dict[str, Any]:
+        calls.append(dict(kwargs))
+        return {
+            "ok": True,
+            "class": "warm",
+            "can_run_heavy": False,
+            "can_run_routed_heavy": True,
+            "heavy_policy": "routed",
+            "reasons": ["thermal"],
+        }
+
+    result = ai_runtime_adapters.policy_gate_binding(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        declared_class="heavy",
+        operation="fixture op",
+        policy=fake_policy,
+        force=True,
+        class_levels={"cold": 0, "warm": 1, "heavy": 2},
+    )
+
+    assert calls == [{"write_latest": True}]
+    assert result["schema"] == "abyss_machine_ai_policy_gate_v1"
+    assert result["generated_at"] == STAMP
+    assert result["declared_class"] == "heavy"
+    assert result["operation"] == "fixture op"
+    assert result["forced"] is False
+    assert result["ok"] is True
+
+
 def test_resident_latest_readmodels_use_fake_reader(tmp_path: Path) -> None:
     paths = {
         "status_path": tmp_path / "status.json",

@@ -994,30 +994,25 @@ def test_eval_suite_policy_and_result_envelopes_are_module_owned() -> None:
 def test_ai_policy_gate_cli_delegates_to_module(monkeypatch) -> None:
     from abyss_machine import cli
 
-    policy = {
-        "ok": True,
-        "class": "warm",
-        "can_run_heavy": False,
-        "can_run_routed_heavy": True,
-        "heavy_policy": "routed",
-        "reasons": ["thermal"],
-    }
-    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli, "ai_policy", lambda write_latest=True: policy)
+    calls: dict[str, Any] = {}
+
+    def fake_policy_gate_binding(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"ok": True, "forced": kwargs["force"], "operation": kwargs["operation"]}
+
+    monkeypatch.setattr(cli.ai_runtime_adapters, "policy_gate_binding", fake_policy_gate_binding)
 
     result = cli.ai_policy_gate_for_class("heavy", "fixture op", force=True)
-    expected = policy_gate_document(
-        schema_prefix=cli.SCHEMA_PREFIX,
-        version=cli.VERSION,
-        generated_at="2026-06-25T12:00:00+00:00",
-        declared_class="heavy",
-        operation="fixture op",
-        policy=policy,
-        force=True,
-        class_levels=cli.AI_WORKLOAD_CLASS_LEVELS,
-    )
 
-    assert result == expected
+    assert result == {"ok": True, "forced": True, "operation": "fixture op"}
+    assert calls["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert calls["version"] == cli.VERSION
+    assert calls["now_iso"] is cli.now_iso
+    assert calls["declared_class"] == "heavy"
+    assert calls["operation"] == "fixture op"
+    assert calls["policy"] is cli.ai_policy
+    assert calls["force"] is True
+    assert calls["class_levels"] == cli.AI_WORKLOAD_CLASS_LEVELS
     assert result["ok"] is True
     assert result["forced"] is True
 
