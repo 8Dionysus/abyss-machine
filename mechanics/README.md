@@ -38,8 +38,9 @@ Use these mechanic owners for the next extraction slices:
   evidence.
 - `diagnostic-spine`: doctor, validation, repair, and freshness probes that
   prove the host layer is healthy without publishing private state.
-- `host-facts`: low-level process `/proc` snapshot collection now lives in
-  `process_adapters`; continue process/container/desktop/thermal probes only as
-  bounded public-safe adapter slices.
+- `host-facts`: low-level process `/proc` snapshot collection and sanitized
+  process container-health reads now live in `process_adapters`; continue
+  desktop/thermal probes and broader container orchestration only as bounded
+  public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.

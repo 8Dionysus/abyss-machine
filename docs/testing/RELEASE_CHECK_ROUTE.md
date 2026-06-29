@@ -92,6 +92,14 @@ binding, and CPU interval sampling. Live-host closeout may use compact
 `processes snapshot --json` or `processes game-guard --json` summaries, but
 should report counts and status only, not raw process command payloads.
 
+For process container-health adapter changes, public CI should rely on
+fake-runner tests for Podman unavailable/failure/invalid-JSON behavior,
+sanitized `podman ps`/`inspect` projection, label allowlisting, attention-reason
+classification, and redaction. Live-host closeout may use compact
+`processes containers --json` summaries, but should report status/counts only,
+not raw container payloads, environment variables, create commands, or mount
+contents.
+
 Use a longer timeout for full doctor/machine-report refresh closeout:
 
 ```bash
