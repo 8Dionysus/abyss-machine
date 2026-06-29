@@ -46,17 +46,19 @@ runtime/profile file probes, tokenizer/library discovery, OpenVINO python
 package versions, kernel-module snapshots, and OpenVINO smoke/embedding/text
 child-process execution plus token-accounting tokenizer subprocess
 command/env/timeout/timing execution and resident LLM controller
-command/timeout/subprocess execution through fakeable ports.
+command/timeout/subprocess execution, benchmark/eval suite orchestration,
+whole-command resource before/after sampling, latest/daily JSONL write routing,
+and workload-measurement callback routing through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
 shutdown/unload cleanup, synth subprocess cache/env binding, and cold
 BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Remaining AI runtime adapters should
-focus on benchmark/eval suite orchestration and broader resource-sampling
-evidence. Keep model weights, benchmark outputs, and generated runtime state
-outside Git; only plans, contracts, and bounded summaries belong in the public
-seed.
+focus on broader resource-sampling evidence and any still-proven resident
+readmodel/write orchestration. Keep model weights, benchmark outputs, and
+generated runtime state outside Git; only plans, contracts, and bounded
+summaries belong in the public seed.
 
 ### Landing log
 
@@ -72,9 +74,18 @@ seed.
   `abyss_machine.ai_runtime_adapters`; the adapter owns smoke,
   embedding-eval, and text-eval child-process invocation, timeout/env binding,
   missing-python/model handling, and per-run resource-profile callback routing
-  through fakeable ports. CLI still owns concrete config binding, policy gates,
-  suite/device orchestration, latest/history writes, `.aoa` reads, STT/TTS/
-  resident/tokenizer execution, and rendering.
+  through fakeable ports. At that landing, CLI still owned concrete config
+  binding, policy gates, higher-level benchmark/eval coordination,
+  latest/history writes, `.aoa` reads, STT/TTS/resident/tokenizer execution,
+  and rendering.
+- Extracted OpenVINO benchmark/eval suite orchestration into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns benchmark device-plan
+  execution, eval suite execution-plan dispatch, policy-denial short-circuit,
+  whole-command resource before/after sampling, benchmark/eval latest and daily
+  JSONL write routing, and workload-measurement callback routing through
+  fakeable policy, runtime, suite-runner, writer, path, and resource ports. CLI
+  still owns concrete config/path binding, policy-gate binding, STT fixture and
+  dictation transport, suite callback binding, command dispatch, and rendering.
 - Extracted token-accounting tokenizer runner execution into
   `abyss_machine.ai_runtime_adapters`; the adapter owns exact-count tokenizer
   subprocess command/env/timeout/timing execution through fakeable runner and

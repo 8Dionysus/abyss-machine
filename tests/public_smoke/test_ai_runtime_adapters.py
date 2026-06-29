@@ -269,6 +269,166 @@ def test_openvino_eval_runners_bind_env_timeout_and_resource_ports(tmp_path: Pat
     assert text["resource_profile"]["basis"] == "OpenVINO GenAI text eval subprocess"
 
 
+def test_openvino_benchmark_suite_adapter_orchestrates_plan_and_writes(tmp_path: Path) -> None:
+    snapshots = iter([{"marker": "before"}, {"marker": "after"}])
+    smoke_calls: list[tuple[str, float]] = []
+    gate_calls: list[tuple[str, str, bool]] = []
+    writes: list[dict[str, Any]] = []
+    appends: list[dict[str, Any]] = []
+    latest_path = tmp_path / "benchmark" / "latest.json"
+    daily_path = tmp_path / "benchmark" / "2026-06-29.jsonl"
+
+    def fake_profile(before: dict[str, Any], after: dict[str, Any], scope: str, basis: str) -> dict[str, Any]:
+        return {"scope": scope, "basis": basis, "before": before["marker"], "after": after["marker"]}
+
+    def fake_policy_gate(declared_class: str, operation: str, force: bool) -> dict[str, Any]:
+        gate_calls.append((declared_class, operation, force))
+        return {"ok": True, "declared_class": declared_class, "operation": operation, "force": force}
+
+    def fake_smoke(device: str, timeout_sec: float) -> dict[str, Any]:
+        smoke_calls.append((device, timeout_sec))
+        return {"device": device, "ok": True, "elapsed_sec": 0.25}
+
+    result = ai_runtime_adapters.run_openvino_benchmark_suite(
+        devices=None,
+        config={"benchmark": {"default_devices": ["cpu", "npu"], "per_device_timeout_sec": 10, "npu_timeout_sec": 45}},
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        policy_gate=fake_policy_gate,
+        runtime_info=lambda: {"ok": True, "available_devices": ["CPU"], "python": "/runtime/python"},
+        smoke_device=fake_smoke,
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        write_latest=True,
+        latest_path=latest_path,
+        daily_path=lambda: daily_path,
+        write_json=lambda path, data, mode: writes.append({"path": path, "data": dict(data), "mode": mode}) or None,
+        append_jsonl=lambda path, data, mode: appends.append({"path": path, "data": dict(data), "mode": mode}) or None,
+        workload_update=lambda data: {"ok": True, "summary_devices": data.get("summary", {}).get("devices_tested")},
+    )
+    written_doc = {key: value for key, value in result.items() if key != "workload_update"}
+
+    assert gate_calls == [("probe", "ai benchmark --quick", False)]
+    assert smoke_calls == [("CPU", 10.0)]
+    assert result["schema"] == "abyss_machine_ai_benchmark_v1"
+    assert result["requested_devices"] == ["cpu", "npu"]
+    assert result["results"] == [
+        {"device": "CPU", "ok": True, "elapsed_sec": 0.25},
+        {"device": "NPU", "ok": False, "skipped": True, "reason": "device not available"},
+    ]
+    assert result["summary"]["devices_tested"] == 1
+    assert result["resource_profile"] == {
+        "scope": "child_process",
+        "basis": "whole quick benchmark command",
+        "before": "before",
+        "after": "after",
+    }
+    assert result["workload_update"] == {"ok": True, "summary_devices": 1}
+    assert writes == [{"path": latest_path, "data": written_doc, "mode": 0o664}]
+    assert appends == [{"path": daily_path, "data": written_doc, "mode": 0o664}]
+
+
+def test_eval_suite_adapter_orchestrates_runners_unknowns_and_writes(tmp_path: Path) -> None:
+    snapshots = iter([{"marker": "before"}, {"marker": "after"}])
+    gate_calls: list[tuple[str, str, bool]] = []
+    writes: list[dict[str, Any]] = []
+    appends: list[dict[str, Any]] = []
+    runner_calls: list[str] = []
+    latest_path = tmp_path / "eval" / "latest.json"
+    daily_path = tmp_path / "eval" / "2026-06-29.jsonl"
+
+    def fake_profile(before: dict[str, Any], after: dict[str, Any], scope: str, basis: str) -> dict[str, Any]:
+        return {"scope": scope, "basis": basis, "before": before["marker"], "after": after["marker"]}
+
+    def fake_policy_gate(declared_class: str, operation: str, force: bool) -> dict[str, Any]:
+        gate_calls.append((declared_class, operation, force))
+        return {"ok": True, "declared_class": declared_class}
+
+    result = ai_runtime_adapters.run_eval_suite(
+        requested_suite="quick",
+        config={"eval": {"quick_suites": ["stt", "mystery", "text"]}},
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        class_levels=ai_runtime_contracts.WORKLOAD_CLASS_LEVELS,
+        policy_gate=fake_policy_gate,
+        suite_runners={
+            "stt": lambda: runner_calls.append("stt") or {"suite": "stt", "ok": True},
+            "text": lambda: runner_calls.append("text") or {"suite": "text", "ok": True},
+        },
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        openvino_cache_root=tmp_path / "openvino-cache",
+        write_latest=True,
+        latest_path=latest_path,
+        daily_path=lambda: daily_path,
+        write_json=lambda path, data, mode: writes.append({"path": path, "data": dict(data), "mode": mode}) or None,
+        append_jsonl=lambda path, data, mode: appends.append({"path": path, "data": dict(data), "mode": mode}) or None,
+        workload_update=lambda data: {"ok": True, "results": len(data.get("results", []))},
+        force=True,
+    )
+    written_doc = {key: value for key, value in result.items() if key != "workload_update"}
+
+    assert gate_calls == [("sustained", "ai eval --suite quick", True)]
+    assert runner_calls == ["stt", "text"]
+    assert result["schema"] == "abyss_machine_ai_eval_v1"
+    assert result["requested_suite"] == "quick"
+    assert result["results"] == [
+        {"suite": "stt", "ok": True},
+        {"suite": "mystery", "ok": False, "error": "unknown eval suite"},
+        {"suite": "text", "ok": True},
+    ]
+    assert result["resource_profile"] == {
+        "scope": "mixed_eval_command",
+        "basis": "whole eval command",
+        "before": "before",
+        "after": "after",
+    }
+    assert result["workload_update"] == {"ok": True, "results": 3}
+    assert writes == [{"path": latest_path, "data": written_doc, "mode": 0o664}]
+    assert appends == [{"path": daily_path, "data": written_doc, "mode": 0o664}]
+
+
+def test_eval_suite_adapter_denies_before_execution_and_writes_nothing(tmp_path: Path) -> None:
+    snapshots = iter([{"marker": "before"}, {"marker": "after-denied"}])
+    writes: list[dict[str, Any]] = []
+
+    def fake_profile(before: dict[str, Any], after: dict[str, Any], scope: str, basis: str) -> dict[str, Any]:
+        return {"scope": scope, "basis": basis, "before": before["marker"], "after": after["marker"]}
+
+    denied = ai_runtime_adapters.run_eval_suite(
+        requested_suite="text",
+        config={},
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        class_levels=ai_runtime_contracts.WORKLOAD_CLASS_LEVELS,
+        policy_gate=lambda declared_class, operation, force: {"ok": False, "declared_class": declared_class, "operation": operation, "force": force},
+        suite_runners={"text": lambda: (_ for _ in ()).throw(AssertionError("runner should not execute"))},
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+        openvino_cache_root=tmp_path / "openvino-cache",
+        write_latest=True,
+        latest_path=tmp_path / "eval" / "latest.json",
+        daily_path=lambda: tmp_path / "eval" / "2026-06-29.jsonl",
+        write_json=lambda path, data, mode: writes.append({"path": path, "data": dict(data), "mode": mode}) or None,
+        append_jsonl=lambda path, data, mode: writes.append({"path": path, "data": dict(data), "mode": mode}) or None,
+        workload_update=lambda data: {"ok": True},
+    )
+
+    assert denied["schema"] == "abyss_machine_ai_policy_denied_v1"
+    assert denied["ok"] is False
+    assert denied["suites"] == ["text"]
+    assert denied["resource_profile"] == {
+        "scope": "policy_check_only",
+        "basis": "eval denied before model execution",
+        "before": "before",
+        "after": "after-denied",
+    }
+    assert writes == []
+
+
 def test_llm_runtime_profile_and_tokenizer_discovery_are_fakeable(tmp_path: Path) -> None:
     runtime_root = tmp_path / "llama.cpp"
     bin_root = runtime_root / "bin"
