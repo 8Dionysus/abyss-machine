@@ -1,5 +1,11 @@
 # Landing Log
 
+- Extracted the first TTS execution adapter seam into
+  `abyss_machine.ai_tts_adapters`; Unix-socket JSON-line client transport,
+  server status/stop exchanges, synth subprocess cache/env binding, and
+  BabelVox/Qwen3 OpenVINO cold synth child-process invocation now pass through
+  fakeable ports. CLI remains the concrete profile/config/policy/latest,
+  resident server loop, audio summary, resource-reporting, and rendering edge.
 - Extracted bounded OpenVINO benchmark/eval runner execution into
   `abyss_machine.ai_runtime_adapters`; smoke, embedding-eval, and text-eval
   child-process invocation, timeout/env binding, missing-python/model handling,
