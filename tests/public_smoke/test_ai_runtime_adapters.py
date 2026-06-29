@@ -840,6 +840,127 @@ def test_cli_llm_workhorse_command_delegates_to_runner(monkeypatch, capsys) -> N
     assert calls["run_command"] is cli.run
 
 
+def test_stt_eval_runner_uses_dictation_transport_timing_and_resources() -> None:
+    reference = "локальный искусственный интеллект готов к работе"
+    fixture = {"ok": True, "path": "/tmp/ru-smoke.wav", "duration_sec": 2.0, "sample_rate": 16000}
+    transcript = {
+        "ok": True,
+        "text": reference,
+        "raw_text": reference,
+        "client_elapsed_sec": 0.7,
+        "via": "dictation-client",
+        "profile_selection": {"profile": "fast"},
+    }
+    before = {"memory": {"mem_available_mib": 1000.0}, "rusage": {"self": {}, "children": {}}}
+    after = {"memory": {"mem_available_mib": 990.0}, "rusage": {"self": {}, "children": {}}}
+    snapshots = iter([before, after])
+    ticks = iter([20.0, 20.375])
+    transcribe_calls: list[tuple[str, str]] = []
+    profile_calls: list[tuple[dict[str, Any], dict[str, Any], str, str]] = []
+
+    def fake_transcribe(path: str, profile: str) -> dict[str, Any]:
+        transcribe_calls.append((path, profile))
+        return transcript
+
+    def fake_profile(before_doc: dict[str, Any], after_doc: dict[str, Any], scope: str, basis: str) -> dict[str, Any]:
+        profile_calls.append((before_doc, after_doc, scope, basis))
+        return {"scope": scope, "basis": basis, "delta": {"mem_available_mib": -10.0}}
+
+    result = ai_runtime_adapters.stt_eval_run(
+        reference_text=reference,
+        fixture=fixture,
+        profiles=["fast"],
+        similarity_warn_below=0.9,
+        transcribe_audio=fake_transcribe,
+        monotonic=lambda: next(ticks),
+        resource_snapshot=lambda: next(snapshots),
+        resource_profile=fake_profile,
+    )
+
+    expected_profile = ai_runtime_contracts.stt_eval_profile_result(
+        profile="fast",
+        reference_text=reference,
+        transcript=transcript,
+        elapsed_sec=0.375,
+        similarity_warn_below=0.9,
+        resource_profile={
+            "scope": "client_wall_and_system_context",
+            "basis": "dictation client call around warm server; server CPU/RAM is not directly attributed",
+            "delta": {"mem_available_mib": -10.0},
+        },
+    )
+    assert result == ai_runtime_contracts.stt_eval_result(
+        reference_text=reference,
+        fixture=fixture,
+        profiles=[expected_profile],
+    )
+    assert transcribe_calls == [("/tmp/ru-smoke.wav", "fast")]
+    assert profile_calls == [
+        (
+            before,
+            after,
+            "client_wall_and_system_context",
+            "dictation client call around warm server; server CPU/RAM is not directly attributed",
+        )
+    ]
+
+
+def test_stt_eval_runner_skips_transport_when_fixture_failed() -> None:
+    fixture = {"ok": False, "path": "/tmp/missing.wav", "error": "fixture generation failed"}
+
+    def fail_transcribe(path: str, profile: str) -> dict[str, Any]:
+        raise AssertionError("transport should not run for failed fixture")
+
+    result = ai_runtime_adapters.stt_eval_run(
+        reference_text="ref",
+        fixture=fixture,
+        profiles=["fast"],
+        similarity_warn_below=0.5,
+        transcribe_audio=fail_transcribe,
+        monotonic=lambda: 1.0,
+        resource_snapshot=lambda: {"unexpected": True},
+        resource_profile=lambda before, after, scope, basis: {"unexpected": True},
+    )
+
+    assert result == ai_runtime_contracts.stt_eval_result(
+        reference_text="ref",
+        fixture=fixture,
+        profiles=[],
+    )
+
+
+def test_cli_stt_eval_delegates_transport_to_runtime_adapter(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    reference = "локальный искусственный интеллект готов к работе"
+    fixture = {"ok": True, "path": "/fixture/ru-smoke.wav"}
+    calls: dict[str, Any] = {}
+
+    def fake_stt_eval_run(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"suite": "stt", "ok": True, "source": "adapter"}
+
+    monkeypatch.setattr(
+        cli,
+        "ai_config",
+        lambda: {"eval": {"stt_reference_text": reference, "stt_profiles": ["fast"], "stt_similarity_warn_below": 0.9}},
+    )
+    monkeypatch.setattr(cli, "ensure_stt_fixture", lambda text: fixture)
+    monkeypatch.setattr(cli.ai_runtime_adapters, "stt_eval_run", fake_stt_eval_run)
+
+    result = cli.ai_eval_stt()
+
+    assert result == {"suite": "stt", "ok": True, "source": "adapter"}
+    assert calls["reference_text"] == reference
+    assert calls["fixture"] == fixture
+    assert calls["profiles"] == ["fast"]
+    assert calls["similarity_warn_below"] == 0.9
+    assert calls["transcribe_audio"] is cli.dictation_transcribe
+    assert calls["monotonic"] is cli.time.monotonic
+    assert calls["resource_snapshot"] is cli.ai_resource_snapshot
+    assert calls["resource_profile"] is cli.ai_resource_profile
+
+
 def test_token_accounting_count_subprocess_binds_command_env_timeout_and_clock() -> None:
     profile = {
         "profile": "gemma4.spark",

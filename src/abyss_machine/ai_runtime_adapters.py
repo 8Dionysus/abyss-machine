@@ -40,6 +40,7 @@ TokenResolverPort = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 TokenCountSubprocessPort = Callable[..., Mapping[str, Any]]
 LLMRuntimeStatusPort = Callable[[Mapping[str, Any], Mapping[str, Any] | None], Mapping[str, Any]]
 LLMProfileStatusPort = Callable[[str, str, Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]]
+SttTranscribePort = Callable[[str, str], Mapping[str, Any]]
 
 
 OPENVINO_RUNTIME_QUERY_SCRIPT = r'''
@@ -1633,6 +1634,57 @@ def llm_workhorse_controller_run(
             "command": argv,
         }
     return result
+
+
+def stt_eval_run(
+    *,
+    reference_text: str,
+    fixture: Mapping[str, Any],
+    profiles: Iterable[str],
+    similarity_warn_below: float,
+    transcribe_audio: SttTranscribePort,
+    monotonic: MonotonicPort,
+    resource_snapshot: ResourceSnapshotPort,
+    resource_profile: ResourceProfilePort,
+) -> dict[str, Any]:
+    fixture_doc = dict(fixture)
+    if not fixture_doc.get("ok"):
+        return ai_runtime_contracts.stt_eval_result(
+            reference_text=reference_text,
+            fixture=fixture_doc,
+            profiles=[],
+        )
+
+    fixture_path = str(fixture_doc.get("path") or "")
+    profile_results: list[dict[str, Any]] = []
+    for profile in [str(item) for item in profiles]:
+        resources_before = dict(resource_snapshot())
+        started = float(monotonic())
+        transcript = dict(transcribe_audio(fixture_path, profile))
+        elapsed = round(float(monotonic()) - started, 3)
+        resources_after = dict(resource_snapshot())
+        profile_results.append(
+            ai_runtime_contracts.stt_eval_profile_result(
+                profile=profile,
+                reference_text=reference_text,
+                transcript=transcript,
+                elapsed_sec=elapsed,
+                similarity_warn_below=similarity_warn_below,
+                resource_profile=dict(
+                    resource_profile(
+                        resources_before,
+                        resources_after,
+                        "client_wall_and_system_context",
+                        "dictation client call around warm server; server CPU/RAM is not directly attributed",
+                    )
+                ),
+            )
+        )
+    return ai_runtime_contracts.stt_eval_result(
+        reference_text=reference_text,
+        fixture=fixture_doc,
+        profiles=profile_results,
+    )
 
 
 def token_accounting_library_paths(

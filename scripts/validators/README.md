@@ -184,12 +184,12 @@ tokenizer subprocess command/env/timeout/timing execution, LLM registry/latest/
 validate store/readmodel routing, token-accounting contract/profiles/latest/
 count readmodel and store routing, and resident LLM controller command/timeout/
 subprocess execution plus workhorse LLM controller command/timeout/subprocess
-execution live in
+execution plus STT eval dictation-client transport timing/resource envelopes live in
 `abyss_machine.ai_runtime_adapters` through fakeable ports. `.aoa`
 generated-summary reads, latest-input collection, TTS profile/config policy
-orchestration, STT fixture/dictation transport, resident LLM parser/result
-rendering, workhorse result rendering, token-accounting live text/env binding,
-broader resource sampling, and command rendering remain at the CLI edge.
+orchestration, STT fixture generation, resident LLM parser/result rendering,
+workhorse result rendering, token-accounting live text/env binding, broader
+resource sampling, and command rendering remain at the CLI edge.
 Devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and latest/history write
 routing live in `abyss_machine.ai_runtime_adapters` through fakeable ports.
