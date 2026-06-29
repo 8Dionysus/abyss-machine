@@ -50,6 +50,12 @@
   mode status, battery fallback, thermal-policy snapshot, and CPU thermal-map
   selection now pass through fakeable ports. CLI remains the concrete
   live-reader/dispatch/rendering edge.
+- Extracted AI capabilities input collection into
+  `abyss_machine.ai_runtime_adapters`; devices/models/dictation/TTS eval and
+  success/LLM registry callback routing, resident latest path binding,
+  resident latest JSON reads, and capabilities latest writes now pass through
+  fakeable ports. CLI remains the concrete live-reader/dispatch/rendering
+  edge.
 - Extracted AI env/resource binding into
   `abyss_machine.ai_runtime_adapters`; subprocess env construction, resource
   snapshot envelope assembly, and resource-profile document forwarding now pass

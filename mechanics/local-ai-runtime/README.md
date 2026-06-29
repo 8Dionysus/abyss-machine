@@ -61,8 +61,9 @@ gating, and workload taxonomy/stats/refresh/status write routing, LLM
 registry/latest/validate store/readmodel routing, plus token-accounting
 contract/profiles/latest/count store/readmodel routing and `.aoa`
 generated-summary session-registry/manifest/index reads plus latest/history
-write routing plus policy-gate callback/clock/class-level binding through
-fakeable ports.
+write routing, capabilities input collection through fakeable devices/models/
+dictation/TTS/LLM registry/resident-latest ports, plus policy-gate
+callback/clock/class-level binding through fakeable ports.
 `abyss_machine.ai_tts_adapters` owns the first TTS execution seam: Unix-socket
 client transport, server status/stop request exchange, warm server
 socket/request loop, Qwen3 OpenVINO import/load/generate/write lifecycle,
@@ -71,8 +72,9 @@ BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Core devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and store routing also live in
 `ai_runtime_adapters`. Remaining AI runtime adapters should focus on live
-readmodel/write orchestration that proves reusable; concrete live readers and
-env source selection stay at the CLI edge unless a reusable center appears.
+readmodel/write orchestration that proves reusable; concrete live reader
+implementations and env source selection stay at the CLI edge unless a reusable
+center appears.
 Keep model weights, benchmark outputs, and generated runtime state outside Git;
 only plans, contracts, and bounded summaries belong in the public seed.
 
@@ -175,6 +177,12 @@ only plans, contracts, and bounded summaries belong in the public seed.
   status/latest collection, mode status, battery fallback, thermal-policy
   snapshot, and CPU thermal-map selection through fakeable ports. CLI still
   owns concrete live reader implementations, command dispatch, and rendering.
+- Extracted AI capabilities input collection into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns devices/models/
+  dictation/TTS eval and success/LLM registry callback routing, resident latest
+  path binding, resident latest JSON reads, and capabilities latest writes
+  through fakeable ports. CLI still owns concrete live reader implementations,
+  command dispatch, and rendering.
 - Extracted AI env/resource binding into
   `abyss_machine.ai_runtime_adapters`; the adapter owns subprocess env
   construction through fakeable environment/root ports, resource snapshot

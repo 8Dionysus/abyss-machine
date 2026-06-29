@@ -858,6 +858,70 @@ def capabilities_readmodel(
     return data
 
 
+def capabilities_readmodel_from_live_inputs(
+    *,
+    schema_prefix: str,
+    version: str,
+    now_iso: TimestampPort,
+    devices_status: Callable[..., Mapping[str, Any]],
+    models_inventory: Callable[..., Mapping[str, Any]],
+    dictation_status: NoArgMappingPort,
+    tts_profiles: Callable[..., Mapping[str, Any]],
+    tts_latest_eval: NoArgMappingPort,
+    tts_latest_success: NoArgMappingPort,
+    llm_registry: Callable[..., Mapping[str, Any]],
+    refs: NoArgMappingPort,
+    resident_status_path: Path,
+    resident_monitor_path: Path,
+    resident_digest_path: Path,
+    resident_micro_path: Path,
+    resident_jobs_path: Path,
+    resident_jobs_validate_path: Path,
+    resident_job_names: list[str],
+    read_json: JsonReadPort,
+    write_latest: bool,
+    latest_path: Path,
+    write_json: JsonWritePort,
+) -> dict[str, Any]:
+    resident_refs = {
+        "status_latest": resident_status_path,
+        "monitor_latest": resident_monitor_path,
+        "digest_latest": resident_digest_path,
+        "micro_latest": resident_micro_path,
+        "jobs_latest": resident_jobs_path,
+        "jobs_validate_latest": resident_jobs_validate_path,
+    }
+    resident_latest = resident_latest_readmodels(
+        status_path=resident_status_path,
+        digest_path=resident_digest_path,
+        micro_path=resident_micro_path,
+        jobs_path=resident_jobs_path,
+        read_json=read_json,
+    )
+    return capabilities_readmodel(
+        schema_prefix=schema_prefix,
+        version=version,
+        now_iso=now_iso,
+        devices=devices_status(write_latest=True),
+        models=models_inventory(write_latest=True),
+        dictation=dictation_status(),
+        tts_profiles=tts_profiles(write_latest=True),
+        latest_tts_eval=tts_latest_eval(),
+        latest_tts_success=tts_latest_success(),
+        llm_registry=llm_registry(write_latest=True),
+        llm_resident_status=resident_latest["status"],
+        llm_resident_digest=resident_latest["digest"],
+        llm_resident_micro=resident_latest["micro"],
+        llm_resident_jobs=resident_latest["jobs"],
+        refs=refs(),
+        resident_refs=resident_refs,
+        resident_job_names=resident_job_names,
+        write_latest=write_latest,
+        latest_path=latest_path,
+        write_json=write_json,
+    )
+
+
 def policy_readmodel(
     *,
     schema_prefix: str,

@@ -1704,6 +1704,42 @@ def test_cli_ai_policy_delegates_live_input_collection_to_runtime_adapter(monkey
     assert calls["write_json"] is cli.safe_atomic_write_json
 
 
+def test_cli_ai_capabilities_delegates_live_input_collection_to_runtime_adapter(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    calls: dict[str, Any] = {}
+
+    def fake_capabilities_from_live_inputs(**kwargs: Any) -> dict[str, Any]:
+        calls.update(kwargs)
+        return {"schema": "fixture_capabilities", "ok": True}
+
+    monkeypatch.setattr(cli.ai_runtime_adapters, "capabilities_readmodel_from_live_inputs", fake_capabilities_from_live_inputs)
+
+    assert cli.ai_capabilities(write_latest=False) == {"schema": "fixture_capabilities", "ok": True}
+    assert calls["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert calls["version"] == cli.VERSION
+    assert calls["now_iso"] is cli.now_iso
+    assert calls["devices_status"] is cli.ai_devices_status
+    assert calls["models_inventory"] is cli.ai_models_inventory
+    assert calls["dictation_status"] is cli.dictation_status
+    assert calls["tts_profiles"] is cli.ai_tts_profiles
+    assert calls["tts_latest_eval"] is cli.ai_tts_latest_eval
+    assert calls["tts_latest_success"] is cli.ai_tts_latest_success_eval
+    assert calls["llm_registry"] is cli.ai_llm_registry
+    assert calls["refs"] is cli.ai_runtime_path_refs
+    assert calls["resident_status_path"] == cli.AI_LLM_RESIDENT_ROOT / "status" / "latest.json"
+    assert calls["resident_monitor_path"] == cli.AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json"
+    assert calls["resident_digest_path"] == cli.AI_LLM_RESIDENT_ROOT / "digests" / "latest.json"
+    assert calls["resident_micro_path"] == cli.AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json"
+    assert calls["resident_jobs_path"] == cli.AI_LLM_RESIDENT_ROOT / "jobs" / "latest.json"
+    assert calls["resident_jobs_validate_path"] == cli.AI_LLM_RESIDENT_ROOT / "jobs" / "validate" / "latest.json"
+    assert calls["resident_job_names"] is cli.AI_LLM_RESIDENT_JOB_NAMES
+    assert calls["read_json"] is cli.load_json_document
+    assert calls["write_latest"] is False
+    assert calls["latest_path"] == cli.AI_CAPABILITIES_LATEST_PATH
+    assert calls["write_json"] is cli.safe_atomic_write_json
+
+
 def test_policy_gate_binding_uses_fake_policy_clock_and_class_levels() -> None:
     calls: list[dict[str, Any]] = []
 
@@ -1763,6 +1799,83 @@ def test_resident_latest_readmodels_use_fake_reader(tmp_path: Path) -> None:
         "micro": {"ok": True, "summary": {"ticks": 1}},
         "jobs": {"ok": True, "summary": {"jobs": 2}},
     }
+
+
+def test_capabilities_readmodel_from_live_inputs_uses_fake_ports(tmp_path: Path) -> None:
+    writes: list[tuple[Path, str, int]] = []
+    write_latest_calls: list[tuple[str, bool]] = []
+    resident_paths = {
+        "status": tmp_path / "status.json",
+        "monitor": tmp_path / "monitor.json",
+        "digest": tmp_path / "digest.json",
+        "micro": tmp_path / "micro.json",
+        "jobs": tmp_path / "jobs.json",
+        "jobs_validate": tmp_path / "jobs-validate.json",
+    }
+    resident_payloads = {
+        resident_paths["status"]: {"ok": True, "status": "running"},
+        resident_paths["digest"]: {"ok": True, "generated_at": "digest-at", "status": "ok", "digest": {"items": [1]}},
+        resident_paths["micro"]: {"ok": True, "generated_at": "micro-at", "summary": {"jobs": 1}},
+        resident_paths["jobs"]: {"ok": True, "generated_at": "jobs-at", "summary": {"jobs": 2}},
+    }
+
+    def write_json(path: Path, data: dict[str, Any], mode_bits: int) -> None:
+        writes.append((path, data["schema"], mode_bits))
+
+    def latest_port(name: str, payload: dict[str, Any]):
+        def _port(**kwargs: Any) -> dict[str, Any]:
+            write_latest_calls.append((name, kwargs["write_latest"]))
+            return payload
+
+        return _port
+
+    result = ai_runtime_adapters.capabilities_readmodel_from_live_inputs(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        devices_status=latest_port("devices", {"ready": {"openvino": True, "npu": True}}),
+        models_inventory=latest_port(
+            "models",
+            {
+                "entries": [
+                    {"category": "openvino_ir", "name": "Qwen3-Embedding", "path": "/models/embedding"},
+                    {"category": "openvino_ir", "name": "Qwen3-4B", "path": "/models/qwen3-4b"},
+                    {"category": "openvino_ir", "name": "Qwen3-TTS", "path": "/models/tts/qwen3"},
+                ]
+            },
+        ),
+        dictation_status=lambda: {"server_socket_exists": True, "profiles": {"auto": {"model_dir_exists": True}}},
+        tts_profiles=latest_port("tts_profiles", {"profiles": {"quality": {"status": "executable"}}}),
+        tts_latest_eval=lambda: {"ok": False},
+        tts_latest_success=lambda: {"ok": True, "profile": "quality"},
+        llm_registry=latest_port("llm_registry", {"summary": {"ready_profiles": 1}, "profiles": {"gemma4.spark": {"status": "ready"}}}),
+        refs=lambda: {"AI_LLM_REGISTRY_LATEST_PATH": "/var/lib/abyss-machine/ai/llm/registry/latest.json"},
+        resident_status_path=resident_paths["status"],
+        resident_monitor_path=resident_paths["monitor"],
+        resident_digest_path=resident_paths["digest"],
+        resident_micro_path=resident_paths["micro"],
+        resident_jobs_path=resident_paths["jobs"],
+        resident_jobs_validate_path=resident_paths["jobs_validate"],
+        resident_job_names=["micro", "digest"],
+        read_json=lambda path: (resident_payloads.get(path, {}), None),
+        write_latest=True,
+        latest_path=tmp_path / "capabilities.json",
+        write_json=write_json,
+    )
+
+    assert result["schema"] == "abyss_machine_ai_capabilities_v1"
+    assert result["generated_at"] == STAMP
+    assert result["capabilities"]["llm_text"]["status"] == "resident-running"
+    assert result["capabilities"]["llm_text"]["resident_candidate"]["digest"]["items"] == 1
+    assert result["capabilities"]["llm_text"]["resident_candidate"]["jobs"]["job_names"] == ["micro", "digest"]
+    assert result["capabilities"]["llm_text"]["resident_candidate"]["status_latest"] == str(resident_paths["status"])
+    assert write_latest_calls == [
+        ("devices", True),
+        ("models", True),
+        ("tts_profiles", True),
+        ("llm_registry", True),
+    ]
+    assert writes == [(tmp_path / "capabilities.json", "abyss_machine_ai_capabilities_v1", 0o664)]
 
 
 def test_token_accounting_aoa_summary_adapter_reads_generated_summaries_without_raw_transcripts(tmp_path: Path) -> None:
