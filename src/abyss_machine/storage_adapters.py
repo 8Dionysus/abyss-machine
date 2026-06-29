@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import time
 from typing import Any, Callable, Mapping, Sequence
@@ -13,6 +17,10 @@ from . import storage_contracts
 ProcessSnapshotPort = Callable[[int, float], Mapping[str, Any]]
 FdTargetsPort = Callable[[int, int], tuple[Sequence[str], bool]]
 CommandRunnerPort = Callable[[Sequence[str], float], Mapping[str, Any]]
+CommandExistsPort = Callable[[str], bool]
+DiskUsagePort = Callable[[Path], Any]
+PathChildrenPort = Callable[[Path], Sequence[Path]]
+SizeBytesPort = Callable[[Path, float], int | None]
 EuidPort = Callable[[], int]
 ClockPort = Callable[[], float]
 HookRunnerPort = Callable[[Path, str, Mapping[str, str], float], Mapping[str, Any]]
@@ -23,6 +31,218 @@ def current_euid() -> int:
     if callable(geteuid):
         return int(geteuid())
     return 0
+
+
+def tool_available(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def run_tool_process(command: Sequence[str], timeout: float) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(
+            list(command),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "returncode": 124, "stdout": "", "stderr": "timeout"}
+    except OSError as exc:
+        return {"ok": False, "returncode": 127, "stdout": "", "stderr": str(exc)}
+
+
+def directory_size(path: Path) -> int:
+    total = 0
+    try:
+        for current, _, filenames in os.walk(path):
+            for filename in filenames:
+                try:
+                    total += (Path(current) / filename).stat().st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def measure_path_size_bytes(
+    path: Path,
+    timeout: float = 20.0,
+    *,
+    command_exists: CommandExistsPort = tool_available,
+    command_runner: CommandRunnerPort = run_tool_process,
+) -> int | None:
+    if not path.exists():
+        return None
+    if command_exists("du"):
+        out = dict(command_runner(["du", "-sbx", str(path)], timeout))
+        if out.get("ok"):
+            first_line = str(out.get("stdout") or "").splitlines()
+            first = first_line[0].split() if first_line else []
+            if first:
+                try:
+                    return int(first[0])
+                except ValueError:
+                    pass
+    try:
+        return path.stat().st_size if path.is_file() else directory_size(path)
+    except OSError:
+        return None
+
+
+def path_mtime_iso(path: Path) -> str | None:
+    try:
+        return dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+    except OSError:
+        return None
+
+
+def path_atime_iso(path: Path) -> str | None:
+    try:
+        return dt.datetime.fromtimestamp(path.stat().st_atime, dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+    except OSError:
+        return None
+
+
+def path_age_days(path: Path, *, clock: ClockPort = time.time) -> float | None:
+    try:
+        age = clock() - path.stat().st_mtime
+    except OSError:
+        return None
+    return round(age / 86400.0, 2)
+
+
+def existing_ancestor(path: Path) -> Path:
+    cursor = path
+    while not cursor.exists() and cursor != cursor.parent:
+        cursor = cursor.parent
+    return cursor if cursor.exists() else Path("/")
+
+
+def disk_usage_summary(path: Path, *, disk_usage: DiskUsagePort = shutil.disk_usage) -> dict[str, Any]:
+    anchor = existing_ancestor(path)
+    try:
+        usage = disk_usage(anchor)
+    except OSError as exc:
+        return {"path": str(path), "anchor": str(anchor), "ok": False, "error": str(exc)}
+    try:
+        total = int(usage.total)
+        used = int(usage.used)
+        free = int(usage.free)
+    except AttributeError:
+        total = int(usage[0])
+        used = int(usage[1])
+        free = int(usage[2])
+    percent = round((used / total) * 100.0, 2) if total else None
+    return {
+        "path": str(path),
+        "anchor": str(anchor),
+        "ok": True,
+        "total_bytes": total,
+        "used_bytes": used,
+        "free_bytes": free,
+        "used_percent": percent,
+    }
+
+
+def path_storage_status(
+    path: Path,
+    expected_target: Path | None = None,
+    *,
+    include_size: bool = True,
+    directory_size_fn: Callable[[Path], int] = directory_size,
+) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "is_symlink": path.is_symlink(),
+    }
+    if expected_target is not None:
+        item["expected_target"] = str(expected_target)
+        item["target_exists"] = expected_target.exists()
+    try:
+        if path.exists() or path.is_symlink():
+            item["resolved"] = str(path.resolve())
+    except OSError as exc:
+        item["resolve_error"] = str(exc)
+    if include_size and path.exists():
+        if path.is_dir():
+            item["size_bytes"] = directory_size_fn(path)
+        else:
+            try:
+                item["size_bytes"] = path.stat().st_size
+            except OSError:
+                item["size_bytes"] = None
+    return item
+
+
+def inventory_item_status(
+    spec: Mapping[str, Any],
+    *,
+    measure: bool = True,
+    size_bytes: SizeBytesPort = measure_path_size_bytes,
+    clock: ClockPort = time.time,
+) -> dict[str, Any]:
+    path = Path(str(spec["path"]))
+    item = dict(spec)
+    exists = path.exists()
+    item["exists"] = exists
+    item["is_symlink"] = path.is_symlink()
+    item["mtime"] = path_mtime_iso(path) if exists else None
+    item["age_days"] = path_age_days(path, clock=clock) if exists else None
+    if exists:
+        try:
+            item["resolved"] = str(path.resolve())
+        except OSError:
+            item["resolved"] = None
+    item["measured"] = bool(measure and exists)
+    item["size_bytes"] = size_bytes(path, 20.0) if item["measured"] else None
+    return item
+
+
+def list_path_children(path: Path) -> Sequence[Path]:
+    return sorted(path.iterdir(), key=lambda item: item.name.lower())
+
+
+def home_review_inventory_specs(
+    *,
+    home: Path,
+    existing_paths: Sequence[str],
+    children: PathChildrenPort = list_path_children,
+) -> list[dict[str, Any]]:
+    existing = {str(path) for path in existing_paths}
+    try:
+        candidates = list(children(home))
+    except OSError:
+        return []
+    specs: list[dict[str, Any]] = []
+    for child in candidates:
+        if str(child) in existing:
+            continue
+        clean_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", child.name).strip("-").lower()
+        if not clean_name:
+            clean_name = hashlib.sha256(child.name.encode("utf-8")).hexdigest()[:12]
+        specs.append({
+            "id": "home_review_" + clean_name,
+            "path": str(child),
+            "category": "operator_review",
+            "disposition": "manual_review",
+            "reclaimability": "unknown",
+            "confidence": "low",
+            "reason": "Home top-level item included only for full review; no automatic cleanup.",
+            "safe_automatic_cleanup": False,
+            "measure_light": False,
+            "tags": ["root", "home-review"],
+        })
+    return specs
 
 
 def hook_directory_status(path: Path) -> dict[str, Any]:

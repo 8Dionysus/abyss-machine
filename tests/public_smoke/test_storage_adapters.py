@@ -88,6 +88,107 @@ def test_storage_process_path_usage_uses_fake_snapshot_and_fd_ports() -> None:
     assert by_path["/srv/abyss-machine/tmp"]["active_processes"][0]["cmdline"] == "worker"
 
 
+def test_storage_measure_path_size_bytes_prefers_fake_du_runner(tmp_path: Path) -> None:
+    target = tmp_path / "cache"
+    target.mkdir()
+    (target / "file.bin").write_bytes(b"abc")
+    calls: list[tuple[list[str], float]] = []
+
+    def runner(command: list[str], timeout: float) -> dict[str, Any]:
+        calls.append((command, timeout))
+        return {"ok": True, "stdout": "42\t" + str(target) + "\n"}
+
+    size = storage_adapters.measure_path_size_bytes(
+        target,
+        timeout=3.0,
+        command_exists=lambda name: name == "du",
+        command_runner=runner,
+    )
+
+    assert size == 42
+    assert calls == [(["du", "-sbx", str(target)], 3.0)]
+
+
+def test_storage_measure_path_size_bytes_falls_back_to_directory_walk(tmp_path: Path) -> None:
+    target = tmp_path / "cache"
+    target.mkdir()
+    (target / "a.bin").write_bytes(b"abc")
+    nested = target / "nested"
+    nested.mkdir()
+    (nested / "b.bin").write_bytes(b"de")
+
+    size = storage_adapters.measure_path_size_bytes(
+        target,
+        command_exists=lambda name: False,
+        command_runner=lambda command, timeout: {"ok": False, "unexpected": [list(command), timeout]},
+    )
+
+    assert size == 5
+
+
+def test_storage_disk_usage_summary_uses_existing_ancestor_and_fake_usage(tmp_path: Path) -> None:
+    missing = tmp_path / "missing" / "leaf"
+    anchors: list[Path] = []
+
+    def fake_usage(path: Path) -> tuple[int, int, int]:
+        anchors.append(path)
+        return (1000, 250, 750)
+
+    summary = storage_adapters.disk_usage_summary(missing, disk_usage=fake_usage)
+
+    assert anchors == [tmp_path]
+    assert summary == {
+        "path": str(missing),
+        "anchor": str(tmp_path),
+        "ok": True,
+        "total_bytes": 1000,
+        "used_bytes": 250,
+        "free_bytes": 750,
+        "used_percent": 25.0,
+    }
+
+
+def test_storage_inventory_item_status_uses_fake_size_and_clock(tmp_path: Path) -> None:
+    target = tmp_path / "cache"
+    target.mkdir()
+    mtime = 2_000_000.0 - (3 * 86400.0)
+    os.utime(target, (mtime, mtime))
+
+    item = storage_adapters.inventory_item_status(
+        {"id": "cache", "path": str(target), "category": "rebuildable_cache"},
+        measure=True,
+        size_bytes=lambda path, timeout: 123,
+        clock=lambda: 2_000_000.0,
+    )
+
+    assert item["exists"] is True
+    assert item["measured"] is True
+    assert item["size_bytes"] == 123
+    assert item["age_days"] == 3.0
+    assert item["resolved"] == str(target)
+
+
+def test_storage_home_review_inventory_specs_skip_existing_and_make_safe_ids(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    src = home / "src"
+    src.mkdir()
+    my_stuff = home / "My Stuff"
+    emoji = home / "🔥"
+    specs = storage_adapters.home_review_inventory_specs(
+        home=home,
+        existing_paths=[str(src)],
+        children=lambda path: [src, my_stuff, emoji],
+    )
+
+    by_path = {item["path"]: item for item in specs}
+    assert str(src) not in by_path
+    assert by_path[str(my_stuff)]["id"] == "home_review_my-stuff"
+    assert by_path[str(emoji)]["id"].startswith("home_review_")
+    assert by_path[str(emoji)]["category"] == "operator_review"
+    assert all(item["safe_automatic_cleanup"] is False for item in specs)
+
+
 def test_storage_execute_cleanup_action_uses_fake_command_runner_and_euid() -> None:
     calls: list[tuple[list[str], float]] = []
 

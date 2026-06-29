@@ -78,6 +78,14 @@ validation unless the operator explicitly requests hook execution; report only a
 compact summary and never copy hook payloads or local generated evidence into
 the repository.
 
+For storage inventory measurement adapter changes, public CI should rely on
+fake-port tests for `du`/fallback size measurement, disk usage, path status, and
+home-review scanning plus live-safe compact `storage inventory --json` or
+`storage status --json` summaries. Prefer light inventory for closeout; use
+`storage inventory --full --json` only when the operator explicitly wants a
+broader home-review scan, and never copy generated inventory payloads into the
+repository.
+
 Use a longer timeout for full doctor/machine-report refresh closeout:
 
 ```bash

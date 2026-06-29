@@ -196,9 +196,10 @@ inventory drift, pressure classes/recommendations, cleanup action contracts,
 protected-root decisions, write-preflight decisions, dry-run apply shape, and
 paths read models live in `abyss_machine.storage_contracts`; cleanup-plan
 active-process guard path matching, `/proc` fd target inspection, allowlisted
-cleanup apply execution, and storage hook directory scan/execution live in
-`abyss_machine.storage_adapters` through fakeable process snapshot/fd,
-command-runner, euid, clock, hook-runner, and environment ports.
+cleanup apply execution, storage hook directory scan/execution, and storage
+inventory path/disk measurement live in `abyss_machine.storage_adapters` through
+fakeable process snapshot/fd, command-runner, euid, clock, hook-runner,
+environment, disk-usage, size-measurement, and path-scan ports.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`.
@@ -453,11 +454,12 @@ the CLI edge. Storage policy/env read models, hook stage/status contracts,
 inventory drift, pressure classification/recommendation rules, cleanup action
 contracts, protected-root decisions, write-preflight decision logic, dry-run
 apply shape, paths read models, cleanup-plan process guards, allowlisted cleanup
-apply execution, and storage hook directory scan/execution are
-module/adapter-owned while policy file reads, configured hook directory/env
-binding, inventory/disk scans, process snapshot binding, monitor/status
-orchestration, apply preflight orchestration, latest/history writes, and command
-rendering remain at the CLI edge. Changes ledger
+apply execution, storage hook directory scan/execution, and storage inventory
+path/disk measurement are module/adapter-owned while policy file reads,
+configured hook directory/env binding, inventory spec selection, podman/memory
+input binding, process snapshot binding, monitor/status orchestration, pressure
+and apply preflight orchestration, latest/history writes, and command rendering
+remain at the CLI edge. Changes ledger
 paths/index/status/latest read models,
 id and decision-review contracts, record/event/result shapes, surface
 classification, and preflight decision envelopes are module-owned while
