@@ -40,8 +40,8 @@ Use these mechanic owners for the next extraction slices:
   prove the host layer is healthy without publishing private state.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
-  probes now live in `process_adapters`; continue AT-SPI desktop hard-timeout
-  capture, thermal probes, and broader container orchestration only as bounded
-  public-safe adapter slices.
+  probes plus AT-SPI desktop hard-timeout capture now live in
+  `process_adapters`; continue thermal probes and broader container
+  orchestration only as bounded public-safe adapter slices.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.

@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
+import sys
+import threading
 import time
 from typing import Any, Callable, Sequence
 
@@ -17,6 +20,7 @@ SleepPort = Callable[[float], None]
 MonotonicPort = Callable[[], float]
 CommandExistsPort = Callable[[str], bool]
 CommandRunnerPort = Callable[..., dict[str, Any]]
+JsonLoaderPort = Callable[[Path], tuple[Any, str | None]]
 
 CONTAINER_LABEL_ALLOWLIST = {
     "PODMAN_SYSTEMD_UNIT",
@@ -960,6 +964,330 @@ def process_gnome_shell_extensions_state(
         "vitals_enabled": "Vitals@CoreCoding.com" in values.get("enabled-extensions", []),
         "note": "GSettings enabled extensions show operator preference state; this does not prove live extension CPU attribution.",
     })
+    return data
+
+
+def process_atspi_panel_telemetry_churn(
+    seconds: float,
+    *,
+    pyatspi_module: Any | None = None,
+    timer_factory: Callable[[float, Callable[[], Any]], Any] = threading.Timer,
+    signal_module: Any = signal,
+    monotonic: MonotonicPort = time.monotonic,
+) -> dict[str, Any]:
+    sample_seconds = max(1.0, min(float(seconds), 5.0))
+    hard_timeout_seconds = sample_seconds + 1.0
+    data: dict[str, Any] = {
+        "ok": False,
+        "seconds": sample_seconds,
+        "hard_timeout_seconds": hard_timeout_seconds,
+        "source": "AT-SPI read-only event sample",
+        "read_only": True,
+        "mutates_desktop_state": False,
+    }
+    if pyatspi_module is None:
+        try:
+            import pyatspi as loaded_pyatspi  # type: ignore
+        except Exception as exc:
+            data["error"] = f"pyatspi_unavailable: {exc}"
+            return data
+        pyatspi_module = loaded_pyatspi
+
+    started = monotonic()
+    counts: collections.Counter[str] = collections.Counter()
+    top_labels: collections.Counter[str] = collections.Counter()
+    samples: list[dict[str, Any]] = []
+    metric_re = re.compile(
+        r"^(?:"
+        r"[0-9]+(?:\.[0-9]+)?\s*(?:%|\u00b0C|GHz|MHz|Hz|KB/s|MB/s|GB/s|B/s|GB|MB|KiB|MiB|GiB|B)"
+        r"|[0-9]+"
+        r")$"
+    )
+
+    def safe_event_text(value: Any, limit: int = 160) -> str:
+        try:
+            text = "" if value is None else str(value)
+        except Exception:
+            return "<unreadable>"
+        text = " ".join(text.split())
+        if len(text) > limit:
+            return text[: limit - 3] + "..."
+        return text
+
+    def on_event(event: Any) -> None:
+        try:
+            source = event.source
+            app = source.getApplication()
+            app_name = safe_event_text(app.name)
+            role = safe_event_text(source.getRoleName())
+            name = safe_event_text(source.name)
+        except Exception:
+            return
+        event_type = safe_event_text(getattr(event, "type", "unknown"), 120)
+        counts[event_type] += 1
+        if app_name == "gnome-shell" and role == "label":
+            counts["gnome_shell_label_accessible_name"] += 1
+            if metric_re.match(name):
+                counts["gnome_shell_metric_label_accessible_name"] += 1
+                top_labels[name] += 1
+        if len(samples) < 30 and app_name == "gnome-shell" and role == "label":
+            samples.append({
+                "t": round(monotonic() - started, 3),
+                "type": event_type,
+                "name": name,
+            })
+
+    timed_out = False
+    previous_alarm_handler: Any = None
+    alarm_installed = False
+
+    def on_alarm(signum: int, frame: Any) -> None:
+        raise TimeoutError("atspi_panel_telemetry_timeout")
+
+    try:
+        pyatspi_module.Registry.registerEventListener(on_event, "object:property-change:accessible-name")
+        timer = timer_factory(sample_seconds, pyatspi_module.Registry.stop)
+        timer.daemon = True
+        timer.start()
+        try:
+            try:
+                previous_alarm_handler = signal_module.getsignal(signal_module.SIGALRM)
+                signal_module.signal(signal_module.SIGALRM, on_alarm)
+                signal_module.setitimer(signal_module.ITIMER_REAL, hard_timeout_seconds)
+                alarm_installed = True
+            except (AttributeError, ValueError):
+                alarm_installed = False
+            try:
+                pyatspi_module.Registry.start()
+            except TimeoutError:
+                timed_out = True
+                try:
+                    pyatspi_module.Registry.stop()
+                except Exception:
+                    pass
+        finally:
+            timer.cancel()
+            if alarm_installed:
+                try:
+                    signal_module.setitimer(signal_module.ITIMER_REAL, 0.0)
+                    signal_module.signal(signal_module.SIGALRM, previous_alarm_handler)
+                except Exception:
+                    pass
+    except Exception as exc:
+        data["error"] = f"atspi_sample_failed: {exc}"
+        return data
+
+    elapsed = max(0.001, monotonic() - started)
+    label_count = int(counts.get("gnome_shell_label_accessible_name", 0))
+    metric_count = int(counts.get("gnome_shell_metric_label_accessible_name", 0))
+    data.update({
+        "ok": not timed_out,
+        "timed_out": timed_out,
+        "elapsed_sec": round(elapsed, 3),
+        "event_counts": dict(counts.most_common()),
+        "gnome_shell_label_rate_hz": round(float(label_count) / elapsed, 3),
+        "gnome_shell_metric_label_rate_hz": round(float(metric_count) / elapsed, 3),
+        "top_metric_labels": [{"label": label, "count": count} for label, count in top_labels.most_common(20)],
+        "samples": samples,
+    })
+    if timed_out:
+        data["error"] = "atspi_panel_telemetry_timeout"
+    return data
+
+
+def process_atspi_window_snapshot(
+    *,
+    pyatspi_module: Any | None = None,
+    signal_module: Any = signal,
+) -> dict[str, Any]:
+    hard_timeout_seconds = 3.0
+    data: dict[str, Any] = {
+        "ok": False,
+        "source": "AT-SPI read-only application/window tree snapshot",
+        "read_only": True,
+        "mutates_desktop_state": False,
+        "hard_timeout_seconds": hard_timeout_seconds,
+        "timed_out": False,
+        "windows": [],
+        "applications": [],
+    }
+    if pyatspi_module is None:
+        try:
+            import pyatspi as loaded_pyatspi  # type: ignore
+        except Exception as exc:
+            data["error"] = f"pyatspi_unavailable: {exc}"
+            return data
+        pyatspi_module = loaded_pyatspi
+
+    def safe_name(obj: Any) -> str:
+        try:
+            return desktop_compact_text(obj.name)
+        except Exception:
+            return "<unreadable>"
+
+    def safe_role(obj: Any) -> str:
+        try:
+            return desktop_compact_text(obj.getRoleName())
+        except Exception:
+            return "<unreadable>"
+
+    window_roles = {"frame", "window", "dialog", "alert", "terminal", "document frame"}
+    windows: list[dict[str, Any]] = []
+    applications: list[dict[str, Any]] = []
+    previous_alarm_handler: Any = None
+    alarm_installed = False
+
+    def on_alarm(signum: int, frame: Any) -> None:
+        raise TimeoutError("atspi_window_snapshot_timeout")
+
+    try:
+        try:
+            previous_alarm_handler = signal_module.getsignal(signal_module.SIGALRM)
+            signal_module.signal(signal_module.SIGALRM, on_alarm)
+            signal_module.setitimer(signal_module.ITIMER_REAL, hard_timeout_seconds)
+            alarm_installed = True
+        except (AttributeError, ValueError):
+            alarm_installed = False
+        desktop = pyatspi_module.Registry.getDesktop(0)
+        apps = list(desktop)
+        for app_index, app in enumerate(apps[:80]):
+            app_name = safe_name(app)
+            app_role = safe_role(app)
+            try:
+                children = list(app)
+            except Exception:
+                children = []
+            applications.append({
+                "index": app_index,
+                "name": app_name,
+                "role": app_role,
+                "child_count": len(children),
+            })
+            if app_role in {"application", "frame", "window", "dialog"}:
+                windows.append({
+                    "app": app_name,
+                    "role": app_role,
+                    "name": app_name,
+                    "app_index": app_index,
+                })
+            for child_index, child in enumerate(children[:120]):
+                role = safe_role(child)
+                if role in window_roles:
+                    windows.append({
+                        "app": app_name,
+                        "role": role,
+                        "name": safe_name(child),
+                        "app_index": app_index,
+                        "child_index": child_index,
+                    })
+    except TimeoutError:
+        data["timed_out"] = True
+        data["error"] = "atspi_window_snapshot_timeout"
+    except Exception as exc:
+        data["error"] = f"desktop_children_unreadable: {exc}"
+    finally:
+        if alarm_installed:
+            try:
+                signal_module.setitimer(signal_module.ITIMER_REAL, 0.0)
+                signal_module.signal(signal_module.SIGALRM, previous_alarm_handler)
+            except Exception:
+                pass
+
+    counts_by_app = collections.Counter(str(item.get("app") or "unknown") for item in windows)
+    counts_by_role = collections.Counter(str(item.get("role") or "unknown") for item in windows)
+    data.update({
+        "ok": not bool(data.get("timed_out")) and not bool(data.get("error")),
+        "application_count": len(applications),
+        "count": len(windows),
+        "windows": windows[:120],
+        "applications": applications[:80],
+        "counts_by_app": dict(counts_by_app.most_common()),
+        "counts_by_role": dict(counts_by_role.most_common()),
+        "non_claim": "AT-SPI exposes accessible application/window objects; presence is context, not proof that an app caused GNOME Shell WindowsChanged churn.",
+    })
+    return data
+
+
+def process_atspi_window_snapshot_probe_code(path: str = "/usr/local/libexec/abyss-machine") -> str:
+    return f"""
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+
+path = {json.dumps(str(path))}
+payload = None
+try:
+    parent = os.path.dirname(path)
+    if parent and parent not in sys.path:
+        sys.path.insert(0, parent)
+    loader = importlib.machinery.SourceFileLoader("abyss_machine_atspi_probe", path)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    payload = mod.process_atspi_window_snapshot()
+except BaseException as exc:
+    payload = {{
+        "ok": False,
+        "source": "AT-SPI read-only application/window tree snapshot",
+        "read_only": True,
+        "mutates_desktop_state": False,
+        "error": f"atspi_window_snapshot_probe_failed: {{type(exc).__name__}}: {{exc}}",
+        "exception_type": type(exc).__name__,
+        "windows": [],
+        "applications": [],
+        "count": 0,
+        "application_count": 0,
+    }}
+
+print(json.dumps(payload, ensure_ascii=False))
+"""
+
+
+def process_atspi_window_snapshot_bounded(
+    *,
+    timeout_sec: float = 1.5,
+    command_runner_json: CommandRunnerPort,
+    latest_loader: JsonLoaderPort,
+    latest_path: Path,
+    python_executable: str = sys.executable,
+    probe_path: str = "/usr/local/libexec/abyss-machine",
+) -> dict[str, Any]:
+    timeout_sec = max(0.8, min(float(timeout_sec), 8.0))
+    code = process_atspi_window_snapshot_probe_code(probe_path)
+    command = [python_executable, "-c", code]
+    fresh = command_runner_json(command, timeout=timeout_sec)
+    if fresh.get("ok"):
+        fresh["_bounded_source"] = "fresh_subprocess"
+        fresh["_bounded_timeout_sec"] = timeout_sec
+        return fresh
+
+    latest, latest_error = latest_loader(latest_path)
+    latest_atspi = latest.get("atspi_windows") if isinstance(latest, dict) and isinstance(latest.get("atspi_windows"), dict) else {}
+    data = dict(latest_atspi) if latest_atspi else {
+        "ok": False,
+        "source": "AT-SPI read-only application/window tree snapshot",
+        "windows": [],
+        "applications": [],
+        "count": 0,
+        "application_count": 0,
+    }
+    data["degraded"] = True
+    data["fresh_timeout"] = fresh.get("returncode") == 124
+    data["fresh_error"] = fresh.get("error")
+    data["fresh_returncode"] = fresh.get("returncode")
+    data["fresh_command"] = fresh.get("command") or command
+    data["fallback"] = {
+        "source": "latest_desktop_compositor",
+        "path": str(latest_path),
+        "load_error": latest_error,
+        "generated_at": latest.get("generated_at") if isinstance(latest, dict) else None,
+        "ok": latest_atspi.get("ok") if latest_atspi else None,
+        "count": latest_atspi.get("count") if latest_atspi else None,
+    }
+    data["_bounded_source"] = "latest_fallback_after_subprocess_failure"
+    data["_bounded_timeout_sec"] = timeout_sec
     return data
 
 
