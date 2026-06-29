@@ -50,6 +50,173 @@ def test_podman_snapshot_reads_container_through_fake_runner() -> None:
     assert "SECRET" not in json.dumps(snapshot)
 
 
+def test_memory_status_parsers_use_fake_roots_and_runners(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    (proc_root / "vmstat").write_text("pswpin 2\npgmajfault 7\nignored 99\n", encoding="utf-8")
+    pressure = tmp_path / "memory.pressure"
+    pressure.write_text("some avg10=0.50 avg60=0.25 total=100\nfull avg10=0.00 total=0\n", encoding="utf-8")
+
+    cgroup_root = tmp_path / "cgroup"
+    user_scope = cgroup_root / "user.slice" / "user-1000.slice"
+    user_scope.mkdir(parents=True)
+    (cgroup_root / "memory.current").write_text("1048576\n", encoding="utf-8")
+    (cgroup_root / "memory.max").write_text("max\n", encoding="utf-8")
+    (user_scope / "memory.current").write_text("2097152\n", encoding="utf-8")
+    (user_scope / "memory.events").write_text("oom 1\n", encoding="utf-8")
+
+    zswap_root = tmp_path / "zswap"
+    zswap_root.mkdir()
+    (zswap_root / "enabled").write_text("Y\n", encoding="utf-8")
+
+    def runner(command: list[str], timeout: float) -> dict[str, Any]:
+        if command[0] == "swapon":
+            return {"ok": True, "stdout": "NAME TYPE SIZE USED PRIO\n/dev/zram0 partition 4096 1024 100\n", "stderr": ""}
+        if command[0] == "zramctl":
+            return {
+                "ok": True,
+                "stdout": "NAME ALGORITHM DISKSIZE DATA COMPR TOTAL STREAMS\n/dev/zram0 zstd 4096 2048 1024 1536 4\n",
+                "stderr": "",
+            }
+        if command[0] == "sysctl":
+            return {"ok": True, "stdout": "vm.swappiness = 60\nvm.overcommit_memory = 0\n", "stderr": ""}
+        raise AssertionError(command)
+
+    assert memory_adapters.parse_pressure_file(pressure)["some"]["avg10"] == 0.5
+    assert memory_adapters.vmstat_snapshot(proc_root=proc_root) == {"pswpin": 2, "pgmajfault": 7}
+    assert memory_adapters.swap_status(runner=runner)["summary"]["used_percent"] == 25.0
+    assert memory_adapters.zram_status(runner=runner)["summary"]["logical_to_memory_ratio"] == 1.333
+    assert memory_adapters.sysctl_snapshot(runner=runner)["values"]["vm.swappiness"] == "60"
+    assert memory_adapters.zswap_status(module_root=zswap_root)["enabled"] is True
+    assert memory_adapters.cgroup_status(cgroup_root=cgroup_root, uid=1000)["user"]["memory_events"]["oom"] == 1
+
+
+def test_process_snapshot_uses_fake_proc_cgroup_and_podman_ports(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    cgroup_root = tmp_path / "cgroup"
+    cgroup = cgroup_root / "user.slice" / "model.service"
+    for pid in ("10", "11"):
+        (proc_root / pid).mkdir(parents=True)
+    cgroup.mkdir(parents=True)
+    (proc_root / "10" / "smaps_rollup").write_text("Rss: 4096 kB\nPss: 2048 kB\nSwap: 1024 kB\n", encoding="utf-8")
+    (proc_root / "11" / "smaps_rollup").write_text("Rss: 2048 kB\nPss: 1024 kB\nSwap: 0 kB\n", encoding="utf-8")
+    (cgroup / "memory.current").write_text("4194304\n", encoding="utf-8")
+    (cgroup / "memory.swap.current").write_text("1048576\n", encoding="utf-8")
+
+    def process_info(pid: int) -> dict[str, Any] | None:
+        return {
+            "pid": pid,
+            "name": f"model-{pid}",
+            "vmrss_kib": 4096 if pid == 10 else 2048,
+            "oom_score": 100 if pid == 10 else 50,
+            "cgroup": "0::/user.slice/model.service",
+            "workload_hint": "ai_runtime",
+            "capability_role": "persistent_model",
+            "cmdline": "model --serve",
+        }
+
+    body = memory_adapters.process_snapshot(
+        top=5,
+        proc_root=proc_root,
+        cgroup_root=cgroup_root,
+        process_info=process_info,
+        podman_index_port=lambda: {
+            "containers": 1,
+            "error": None,
+            "by_pid": {10: {"id": "abcdef123456", "name": "model-api", "compose_service": "model"}},
+        },
+        protected_roles={"persistent_model", "persistent_ai_service", "operator_dictation"},
+    )
+
+    assert body["capture"]["smaps_rollup_read"] == 2
+    assert body["summary"]["processes"] == 2
+    assert body["summary"]["top_cgroup_memory_total_kib"] == 4096
+    top_cgroup = body["top"]["cgroup_memory"][0]
+    assert top_cgroup["protected"] is True
+    assert top_cgroup["podman"]["name"] == "model-api"
+    assert body["top"]["pss"][0]["pss_kib"] == 2048
+
+
+def test_residency_service_status_uses_fake_systemd_cgroup_and_rollup_ports(tmp_path: Path) -> None:
+    cgroup_root = tmp_path / "cgroup"
+    service_cgroup = cgroup_root / "user.slice" / "tts.service"
+    service_cgroup.mkdir(parents=True)
+    (service_cgroup / "memory.current").write_text(str(512 * 1024 * 1024), encoding="utf-8")
+    (service_cgroup / "memory.swap.current").write_text(str(640 * 1024 * 1024), encoding="utf-8")
+    (service_cgroup / "memory.low").write_text(str(768 * 1024 * 1024), encoding="utf-8")
+    (service_cgroup / "memory.high").write_text(str(4096 * 1024 * 1024), encoding="utf-8")
+    (service_cgroup / "memory.max").write_text("max\n", encoding="utf-8")
+    (service_cgroup / "memory.swap.max").write_text("max\n", encoding="utf-8")
+    (service_cgroup / "memory.events").write_text("oom 0\n", encoding="utf-8")
+    (service_cgroup / "memory.stat").write_text("anon 1024\npgfault 3\nnoise 99\n", encoding="utf-8")
+    (service_cgroup / "cgroup.procs").write_text("22\n", encoding="utf-8")
+
+    def systemd_props(unit: str, properties: list[str], user: bool, timeout: float) -> dict[str, Any]:
+        assert unit == "tts.service"
+        assert user is True
+        assert "MemorySwapMax" in properties
+        return {
+            "ok": True,
+            "properties": {
+                "ActiveState": "active",
+                "SubState": "running",
+                "MainPID": "22",
+                "ControlGroup": "/user.slice/tts.service",
+                "Slice": "abyss-machine-hot.slice",
+                "MemoryCurrent": str(512 * 1024 * 1024),
+                "MemoryPeak": str(768 * 1024 * 1024),
+                "MemorySwapCurrent": str(640 * 1024 * 1024),
+                "MemoryMin": "0",
+                "MemoryLow": str(768 * 1024 * 1024),
+                "MemoryHigh": str(4096 * 1024 * 1024),
+                "MemoryMax": "max",
+                "MemorySwapMax": "max",
+                "CPUWeight": "100",
+                "IOWeight": "100",
+            },
+        }
+
+    policy = {
+        "thresholds": {"hot_interactive_swap_warn_mib": 256, "swap_to_pss_ratio_warn": 4.0},
+        "classes": {
+            "hot_interactive": {
+                "target_slice": "abyss-machine-hot.slice",
+                "runtime_pilot": {"memory_low_mib": 768, "memory_high_mib": 4096},
+            }
+        },
+    }
+
+    status = memory_adapters.residency_service_status(
+        {"unit": "tts.service", "scope": "user", "class": "hot_interactive", "protected": True},
+        policy,
+        systemd_unit_properties=systemd_props,
+        process_info=lambda pid: {
+            "name": "tts",
+            "workload_hint": "ai_runtime",
+            "capability_role": "persistent_ai_service",
+            "vmrss_kib": 512 * 1024,
+            "cmdline": "tts --serve",
+        },
+        process_rollup_port=lambda pid: {
+            "available": True,
+            "rss_kib": 512 * 1024,
+            "pss_kib": 128 * 1024,
+            "swap_kib": 640 * 1024,
+            "swap_pss_kib": 640 * 1024,
+        },
+        cgroup_file_snapshot_port=lambda control_group: memory_adapters.cgroup_file_snapshot(
+            control_group,
+            cgroup_root=cgroup_root,
+        ),
+    )
+
+    issue_codes = [issue["code"] for issue in status["issues"]]
+    assert status["target"]["runtime_pilot_active"] is True
+    assert status["derived"]["cgroup_swap_to_sampled_pss_ratio"] == 5.0
+    assert "high_cgroup_swap" in issue_codes
+    assert "cold_resident_pages" in issue_codes
+
+
 def test_target_snapshot_uses_fake_proc_systemd_and_podman_ports(tmp_path: Path) -> None:
     proc_root = tmp_path / "proc"
     (proc_root / "123").mkdir(parents=True)
