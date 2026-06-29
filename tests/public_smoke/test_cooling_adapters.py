@@ -321,3 +321,207 @@ def test_sample_series_and_summary_use_fake_clock_and_sleep() -> None:
     assert summary["samples"] == 2
     assert summary["classes"] == ["hot", "warm"]
     assert summary["temperature_c_max"]["delta"] == 6.0
+
+
+def test_apply_cooling_profile_uses_fake_action_ports() -> None:
+    calls: list[tuple[str, Any]] = []
+    status = {
+        "fan": {"fan_mode": 1, "fan_mode_path": "/fake/fan_mode"},
+        "power": {"platform_profile": {"current": "balanced", "path": "/fake/platform_profile"}},
+        "temperature": {"summary": {"temperature_c_max": 72.0}},
+    }
+
+    data = cooling_adapters.apply_cooling_profile(
+        "performance",
+        schema_prefix="abyss_machine",
+        version="test",
+        updated_by="test",
+        now_iso=lambda: "2026-06-29T12:00:00Z",
+        status_port=lambda: status,
+        profile_targets_port=lambda profile, status_before: (
+            "performance",
+            {"platform_profile": "performance", "fan_mode": 4},
+            None,
+        ),
+        rapl_smoothing_apply_port=lambda updated_by: {"ok": True, "action": "skipped"},
+        temperature_summary_port=lambda: {"temperature_c_max": 74.0},
+        fan_status_port=lambda: {"fan_mode": 1},
+        platform_profile_port=lambda: {"current": "balanced"},
+        paths_port=lambda: {"latest": "/fake/latest.json"},
+        set_platform_profile_port=lambda target, current: calls.append(("platform", target))
+        or {"action": "set_platform_profile", "ok": False, "target": target, "error": "root permission required"},
+        set_fan_mode_port=lambda target, current: calls.append(("fan", target))
+        or {"action": "set_fan_mode", "ok": True, "target": target, "changed": True},
+    )
+
+    assert data["schema"] == "abyss_machine_cooling_apply_v1"
+    assert data["ok"] is False
+    assert data["permission_required"] is True
+    assert data["pkexec_hint"] == [
+        "pkexec",
+        "/usr/local/bin/abyss-machine",
+        "cooling",
+        "apply",
+        "--profile",
+        "performance",
+        "--json",
+    ]
+    assert [action["action"] for action in data["actions"]] == ["set_platform_profile", "set_fan_mode"]
+    assert calls == [("platform", "performance"), ("fan", 4)]
+
+
+def test_tfn1_write_document_uses_fake_write_and_kernel_ports() -> None:
+    writes: list[tuple[Path, str]] = []
+    sleeps: list[float] = []
+    candidate = {"path": "/fake/tfn1", "max_state": 100, "type": "TFN1"}
+
+    data = cooling_adapters.tfn1_write_document(
+        50,
+        1.5,
+        schema_prefix="abyss_machine",
+        version="test",
+        updated_by="test",
+        now_iso=lambda: "2026-06-29T12:00:00Z",
+        since_stamp=lambda: "2026-06-29 12:00:00",
+        status_port=lambda: {"temperature": {"summary": {"temperature_c_max": 70.0}}},
+        tfn1_candidate_port=lambda: candidate,
+        temperature_summary_port=lambda: {"temperature_c_max": 68.0},
+        fan_status_port=lambda: {"fan_mode": 4},
+        platform_profile_port=lambda: {"current": "performance"},
+        paths_port=lambda: {"actions": {"today": "/fake/actions.jsonl"}},
+        write_permission=lambda path: False,
+        write_text=lambda path, value: writes.append((path, value))
+        or {"ok": True, "path": str(path), "value": value.strip(), "changed": True},
+        kernel_errors_port=lambda since, limit=50: {"ok": True, "since": since, "matches": [], "journal_error": ""},
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    assert data["ok"] is True
+    assert data["requested_level"] == 50
+    assert data["actions"][0]["action"] == "write_tfn1_cur_state"
+    assert data["actions"][1]["ok"] is True
+    assert writes == [(Path("/fake/tfn1/cur_state"), "50\n")]
+    assert sleeps == [1.5]
+
+
+def test_fan_validate_document_refuses_lower_level_while_hot() -> None:
+    writes: list[tuple[Path, str]] = []
+
+    data = cooling_adapters.fan_validate_document(
+        [50],
+        8.0,
+        2.0,
+        False,
+        schema_prefix="abyss_machine",
+        version="test",
+        updated_by="test",
+        now_iso=lambda: "2026-06-29T12:00:00Z",
+        since_stamp=lambda: "2026-06-29 12:00:00",
+        status_port=lambda: {
+            "temperature": {"class": "hot", "summary": {"temperature_c_max": 108.0}},
+            "fan": {"fan_mode": 4},
+        },
+        tfn1_candidate_port=lambda: {"path": "/fake/tfn1", "max_state": 100, "type": "TFN1"},
+        temperature_summary_port=lambda: {"temperature_c_max": 108.0},
+        temperature_sample_port=lambda: {"summary": {"temperature_c_max": 108.0}},
+        sample_series_port=lambda seconds, interval: [],
+        fan_status_port=lambda: {"fan_mode": 4},
+        platform_profile_port=lambda: {"current": "performance"},
+        paths_port=lambda: {"fan_validate": {"latest": "/fake/latest.json"}},
+        write_text=lambda path, value: writes.append((path, value)) or {"ok": True},
+    )
+
+    assert data["ok"] is False
+    assert data["permission_required"] is False
+    assert data["actions"][0]["refused"] == [50]
+    assert writes == []
+
+
+def test_fan_validate_document_runs_fake_series() -> None:
+    writes: list[tuple[Path, str]] = []
+
+    data = cooling_adapters.fan_validate_document(
+        [50],
+        1.0,
+        0.5,
+        True,
+        schema_prefix="abyss_machine",
+        version="test",
+        updated_by="test",
+        now_iso=lambda: "2026-06-29T12:00:00Z",
+        since_stamp=lambda: "2026-06-29 12:00:00",
+        status_port=lambda: {
+            "temperature": {"class": "warm", "summary": {"temperature_c_max": 90.0}},
+            "fan": {"fan_mode": 4},
+        },
+        tfn1_candidate_port=lambda: {"path": "/fake/tfn1", "max_state": 100, "type": "TFN1"},
+        temperature_summary_port=lambda: {"temperature_c_max": 87.0},
+        temperature_sample_port=lambda: {"summary": {"temperature_c_max": 90.0}},
+        sample_series_port=lambda seconds, interval: [{"summary": {"temperature_c_max": 87.0}}],
+        fan_status_port=lambda: {"fan_mode": 4},
+        platform_profile_port=lambda: {"current": "performance"},
+        paths_port=lambda: {"fan_validate": {"latest": "/fake/latest.json"}},
+        write_permission=lambda path: False,
+        write_text=lambda path, value: writes.append((path, value))
+        or {"ok": True, "path": str(path), "value": value.strip(), "changed": True},
+        kernel_errors_port=lambda since: {"ok": True, "since": since, "matches": [], "journal_error": ""},
+    )
+
+    action = data["actions"][0]
+    assert data["ok"] is True
+    assert action["action"] == "validate_tfn1_level"
+    assert action["verdict"] == "write_path_ok_possible_cooling_effect"
+    assert action["series"]["temperature_c_max"]["delta"] == -3.0
+    assert writes == [(Path("/fake/tfn1/cur_state"), "50\n")]
+
+
+def test_fan_series_document_uses_fake_validate_port_and_cooldown() -> None:
+    sleeps: list[float] = []
+    calls: list[str] = []
+
+    def validate(levels: list[int], *, seconds: float, interval: float, allow_lower: bool, updated_by: str) -> dict[str, Any]:
+        calls.append(updated_by)
+        return {
+            "ok": True,
+            "permission_required": False,
+            "generated_at": "2026-06-29T12:00:00Z",
+            "status_before": {"temperature": {"temperature_c_max": 90.0}},
+            "status_after": {"temperature": {"temperature_c_max": 87.0}},
+            "actions": [
+                {
+                    "action": "validate_tfn1_level",
+                    "ok": True,
+                    "kernel": {"ok": True},
+                    "series": {"temperature_c_max": {"delta": -3.0, "first": 90.0, "last": 87.0, "max": 90.0}},
+                    "verdict": "write_path_ok_possible_cooling_effect",
+                }
+            ],
+        }
+
+    data = cooling_adapters.fan_series_document(
+        50,
+        2,
+        1.0,
+        0.5,
+        3.0,
+        "hot state",
+        True,
+        schema_prefix="abyss_machine",
+        version="test",
+        updated_by="test",
+        now_iso=lambda: "2026-06-29T12:00:00Z",
+        status_port=lambda: {"temperature": {"summary": {"temperature_c_max": 90.0}}},
+        fan_validate_port=validate,
+        temperature_summary_port=lambda: {"temperature_c_max": 87.0},
+        fan_status_port=lambda: {"fan_mode": 4},
+        platform_profile_port=lambda: {"current": "performance"},
+        paths_port=lambda: {"fan_series": {"latest": "/fake/latest.json"}},
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    assert data["ok"] is True
+    assert data["state_label"] == "hot_state"
+    assert data["summary"]["write_ok_count"] == 2
+    assert data["decision"]["automation_candidate"] is True
+    assert calls == ["test:fan-series:hot_state:1", "test:fan-series:hot_state:2"]
+    assert sleeps == [3.0]
