@@ -719,6 +719,46 @@ def test_llm_resident_controller_runner_reports_json_no_output_error() -> None:
     }
 
 
+def test_llm_controller_result_projection_parses_json_and_bounds_invalid_output() -> None:
+    parsed = ai_runtime_adapters.llm_controller_result_projection(
+        {
+            "returncode": 0,
+            "command": ["/tool", "status"],
+            "stdout": 'controller warmup\n{"ok": true, "status": "ready"}\n',
+            "stderr": "",
+        },
+        json_output=True,
+        empty_error="controller produced no output",
+        invalid_json_error="controller produced invalid JSON",
+    )
+    invalid = ai_runtime_adapters.llm_controller_result_projection(
+        {
+            "returncode": 2,
+            "command": ["/tool", "status"],
+            "stdout": "not-json-" * 200,
+            "stderr": "stderr-" * 200,
+        },
+        json_output=True,
+        empty_error="controller produced no output",
+        invalid_json_error="controller produced invalid JSON",
+    )
+    text = ai_runtime_adapters.llm_controller_result_projection(
+        {"returncode": 1, "stdout": "", "stderr": "plain failure"},
+        json_output=False,
+        empty_error="controller produced no output",
+        invalid_json_error="controller produced invalid JSON",
+    )
+
+    assert parsed == {"format": "json", "data": {"ok": True, "status": "ready"}, "returncode": 0}
+    assert invalid["format"] == "json"
+    assert invalid["returncode"] == 2
+    assert invalid["data"]["error"] == "controller produced invalid JSON"
+    assert invalid["data"]["command"] == ["/tool", "status"]
+    assert len(invalid["data"]["stdout_tail"]) == 1000
+    assert len(invalid["data"]["stderr_tail"]) == 1000
+    assert text == {"format": "text", "text": "plain failure", "returncode": 1}
+
+
 def test_cli_llm_resident_command_delegates_to_runner(monkeypatch, capsys) -> None:
     from abyss_machine import cli
 
@@ -726,7 +766,7 @@ def test_cli_llm_resident_command_delegates_to_runner(monkeypatch, capsys) -> No
 
     def fake_controller_run(**kwargs: Any) -> dict[str, Any]:
         calls.update(kwargs)
-        return {"returncode": 0, "stdout": '{"ok": true, "source": "adapter"}\n', "stderr": ""}
+        return {"returncode": 0, "stdout": 'controller warmup\n{"ok": true, "source": "adapter"}\n', "stderr": ""}
 
     monkeypatch.setattr(cli.ai_runtime_adapters, "llm_resident_controller_run", fake_controller_run)
 
@@ -734,7 +774,7 @@ def test_cli_llm_resident_command_delegates_to_runner(monkeypatch, capsys) -> No
     captured = capsys.readouterr()
 
     assert rc == 0
-    assert captured.out == '{"ok": true, "source": "adapter"}\n'
+    assert json.loads(captured.out) == {"ok": True, "source": "adapter"}
     assert calls["controller"] == cli.AI_LLM_RESIDENT_CONTROLLER
     assert calls["command"] == "jobs"
     assert calls["jobs_action"] == "run"
@@ -821,7 +861,7 @@ def test_cli_llm_workhorse_command_delegates_to_runner(monkeypatch, capsys) -> N
 
     def fake_controller_run(**kwargs: Any) -> dict[str, Any]:
         calls.update(kwargs)
-        return {"returncode": 0, "stdout": '{"ok": true, "source": "workhorse"}\n', "stderr": ""}
+        return {"returncode": 0, "stdout": 'controller warmup\n{"ok": true, "source": "workhorse"}\n', "stderr": ""}
 
     monkeypatch.setattr(cli.ai_runtime_adapters, "llm_workhorse_controller_run", fake_controller_run)
 
@@ -829,7 +869,7 @@ def test_cli_llm_workhorse_command_delegates_to_runner(monkeypatch, capsys) -> N
     captured = capsys.readouterr()
 
     assert rc == 0
-    assert captured.out == '{"ok": true, "source": "workhorse"}\n'
+    assert json.loads(captured.out) == {"ok": True, "source": "workhorse"}
     assert calls["controller"] == cli.AI_LLM_WORKHORSE_CONTROLLER
     assert calls["command"] == "review"
     assert calls["limit"] == 24

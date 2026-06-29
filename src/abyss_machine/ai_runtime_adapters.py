@@ -1831,6 +1831,50 @@ def llm_workhorse_controller_run(
     return result
 
 
+def llm_controller_result_projection(
+    run_result: Mapping[str, Any],
+    *,
+    json_output: bool,
+    empty_error: str,
+    invalid_json_error: str,
+) -> dict[str, Any]:
+    stdout = str(run_result.get("stdout") or "")
+    stderr = str(run_result.get("stderr") or "")
+    raw_command = run_result.get("command") or []
+    command = list(raw_command) if isinstance(raw_command, (list, tuple)) else [str(raw_command)]
+    returncode = int(run_result.get("returncode") or 0)
+    if not json_output:
+        return {
+            "format": "text",
+            "text": stdout.strip() or stderr or "",
+            "returncode": returncode,
+        }
+
+    if stdout.strip():
+        data = ai_runtime_contracts.parse_json_stdout(stdout)
+        if data is not None:
+            return {"format": "json", "data": data, "returncode": returncode}
+        return {
+            "format": "json",
+            "returncode": returncode,
+            "data": {
+                "ok": False,
+                "error": invalid_json_error,
+                "command": command,
+                "returncode": returncode,
+                "stdout_tail": ai_runtime_contracts.text_tail(stdout, 1000),
+                "stderr_tail": ai_runtime_contracts.text_tail(stderr, 1000),
+            },
+        }
+
+    json_error = run_result.get("json_error")
+    if isinstance(json_error, Mapping):
+        data = dict(json_error)
+    else:
+        data = {"ok": False, "error": stderr or empty_error, "command": command}
+    return {"format": "json", "data": data, "returncode": returncode}
+
+
 def stt_fixture_wav_duration(path: Path) -> float | None:
     try:
         with wave.open(str(path), "rb") as wav:

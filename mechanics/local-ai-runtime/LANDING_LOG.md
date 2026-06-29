@@ -34,6 +34,11 @@
   construction, timeout routing, subprocess invocation, stdout/stderr/
   returncode mapping, and no-output JSON error envelopes now pass through a
   fakeable command port. CLI remains the argparse binding and rendering edge.
+- Extracted resident/workhorse LLM controller result projection into
+  `abyss_machine.ai_runtime_adapters`; JSON stdout parsing, bounded invalid-
+  JSON error documents, no-output fallback, and text-mode stdout/stderr
+  selection now pass through public-safe result envelopes. CLI remains the
+  print/argparse/dispatch edge.
 - Extracted STT eval dictation transport into
   `abyss_machine.ai_runtime_adapters`; per-profile dictation-client calls,
   monotonic timing, before/after resource snapshots, and client-side

@@ -45,9 +45,10 @@ runtime/package/NPU driver probes, model inventory walks, `llama.cpp`
 runtime/profile file probes, tokenizer/library discovery, OpenVINO python
 package versions, kernel-module snapshots, and OpenVINO smoke/embedding/text
 child-process execution plus token-accounting tokenizer subprocess
-command/env/timeout/timing execution and resident LLM controller
-command/timeout/subprocess execution and workhorse LLM controller
-command/timeout/subprocess execution, benchmark/eval suite orchestration,
+command/env/timeout/timing execution, resident LLM controller
+command/timeout/subprocess execution plus JSON/result projection, and workhorse
+LLM controller command/timeout/subprocess execution plus JSON/result
+projection, benchmark/eval suite orchestration,
 STT eval dictation-client transport timing/resource envelopes, whole-command
 resource before/after sampling, STT synthetic fixture directory/path setup,
 `espeak-ng`/`ffmpeg` execution, raw WAV cleanup, WAV metadata reads,
@@ -66,9 +67,8 @@ BabelVox/Qwen3 OpenVINO synth child-process invocation plus output WAV summary
 and synth runtime resource-report assembly. Core devices/models/capabilities/
 policy/runtime/status/report readmodel assembly and store routing also live in
 `ai_runtime_adapters`. Remaining AI runtime adapters should focus on policy-gate
-binding, live input/env binding, broader resource-sampling evidence, and any
-still-proven resident parser/readmodel orchestration. Keep model weights,
-benchmark outputs, and
+binding, live input/env binding, and broader resource-sampling evidence. Keep
+model weights, benchmark outputs, and
 generated runtime state outside Git; only plans, contracts, and bounded
 summaries belong in the public seed.
 
@@ -155,6 +155,11 @@ summaries belong in the public seed.
   invocation, stdout/stderr/returncode mapping, and no-output JSON error
   envelopes through a fakeable command port. CLI still owns argparse binding,
   user-visible result rendering, and command dispatch.
+- Extracted resident/workhorse LLM controller result projection into
+  `abyss_machine.ai_runtime_adapters`; the adapter owns JSON stdout parsing,
+  bounded invalid-JSON error documents, no-output fallback, and text-mode
+  stdout/stderr selection for controller results. CLI still owns printing,
+  argparse binding, and command dispatch.
 - Extracted STT eval dictation transport and resource sampling into
   `abyss_machine.ai_runtime_adapters`; the adapter owns per-profile
   dictation-client calls, monotonic timing, before/after resource snapshots,
