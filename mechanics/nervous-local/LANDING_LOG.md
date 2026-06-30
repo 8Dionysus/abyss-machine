@@ -63,6 +63,15 @@
   loading, Firefox accessibility-tree app/document traversal, document
   attribute reads, visible text extraction, sensitive-field detection, document
   priority, capture result assembly, and latest write routing through fakeable
-  ports. CLI still owns concrete path/time/user binding, source-policy/privacy
-  orchestration, BiDi/WebSocket and browser-history capture execution, and
-  rendering.
+  ports. At that landing, CLI still owned concrete path/time/user binding,
+  source-policy/privacy orchestration, BiDi/WebSocket and browser-history
+  capture execution, and rendering.
+- Browser-content BiDi/WebSocket capture runtime seam:
+  `abyss_machine.nervous_browser_content_adapters` owns WebSocket URL parsing,
+  handshake, frame encode/decode, JSON send/receive, close/ping handling, BiDi
+  session creation/end, context tree flattening/filtering, capture-script
+  evaluation, remote-value decode, public-safe error URL projection, capture
+  result assembly, and latest routing through fakeable socket, BiDi call, store,
+  summary, and latest-writer ports. CLI still owns concrete path/time/user
+  binding, source-policy/privacy orchestration, browser-history capture
+  execution, capture orchestration, and rendering.

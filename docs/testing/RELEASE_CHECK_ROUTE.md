@@ -202,6 +202,19 @@ routing. Live-host closeout may use compact source-side
 not report raw browser text, URLs, generated browser-content JSONL, latest
 payloads, window titles, or private capture roots.
 
+For nervous browser-content BiDi/WebSocket capture runtime adapter changes,
+public CI should rely on fake sockets, fake WebSocket connect ports, fake BiDi
+call ports, fake store callbacks, fake summary callbacks, and fake latest
+writers for URL parsing, frame JSON encoding/decoding, receive routing,
+remote-value decode, context filtering, capture result assembly, redacted error
+URL projection, and latest routing. Live-host closeout may use compact
+`abyss-machine nervous capture-status --json`,
+`abyss-machine nervous source-status browser_active_tab --json`, and a bounded
+local BiDi port availability check. Do not force browser launch, do not force
+BiDi capture when the port is closed, and never report raw browser text, URLs,
+generated browser-content JSONL, latest payloads, window titles, or private
+capture roots.
+
 For nervous retention filesystem/apply adapter changes, public CI should rely on
 fake-root/fake-writer tests for route-root scanning, symlink-tail blockers,
 protected/latest candidate refusal, dry-run-first confirmed unlink, mutation

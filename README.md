@@ -70,8 +70,10 @@ dedupe, web-context classification, source state merge, effective source maps,
 catalog, lookup, and source-set contracts; browser-content daily path projection,
 recent duplicate scanning, JSONL append routing, latest write routing, ingest
 document assembly, record-from-page callback binding, Firefox AT-SPI runtime
-environment summary, accessibility-tree traversal/text extraction, and
-AT-SPI capture result assembly live in
+environment summary, accessibility-tree traversal/text extraction, AT-SPI
+capture result assembly, WebSocket frame/connection handling, BiDi
+session/context/script-evaluation routing, remote-value decode, and BiDi
+capture result/latest assembly live in
 `abyss_machine.nervous_browser_content_adapters`; typing saved-text/browser intake policy,
 saved-text scan policy status, saved-text recent-record validation,
 recent record policy/causal shape status,
@@ -564,7 +566,7 @@ source/install/runtime parity summary now reports installed drift without
 dumping live host payloads. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, memory orchestration write-routing/broader container
-orchestration seams, browser-content BiDi/history capture runtime adapters, rerank live search/latest adapters,
+orchestration seams, browser-history capture runtime adapters, rerank live search/latest adapters,
 recall live search adapter/write adapters, AI runtime live execution adapters,
 TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness live probe/readmodel orchestration, process thermal
