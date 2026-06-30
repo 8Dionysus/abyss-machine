@@ -330,10 +330,41 @@ def test_artifact_scenario_matrix_covers_required_os_trust_loop() -> None:
     assert matrix["summary"]["owner_or_manual_evidence_required"] == 2
     assert matrix["summary"]["owner_or_manual_evidence_open"] == 2
     assert matrix["summary"]["durable_evidence_checked"] == 0
+    assert matrix["summary"]["source_freshness_checked"] == 0
+    assert matrix["summary"]["source_freshness_open"] == 0
 
 
-def test_artifact_scenario_matrix_reports_durable_owner_evidence(tmp_path: Path) -> None:
+def test_artifact_scenario_matrix_reports_durable_owner_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     registry = tmp_path / "registry"
+    workspace = tmp_path / "workspace"
+    consumer_contract = {
+        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class aoa_evals_generated_report_index_bundle --consumer-intent agent --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    manifest_dir = workspace / "aoa-evals" / "mechanics" / "release-support" / "parts" / "artifact-bundles" / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "report_index.bundle.json").write_text(
+        json.dumps(
+            {
+                "schema": "abyss_machine_artifact_bundle_manifest_v1",
+                "id": "aoa-evals-report-index",
+                "artifact_class": "aoa_evals_generated_report_index_bundle",
+                "owner_repo": "aoa-evals",
+                "policy_ref": artifact_bundles.POLICY_REF,
+                "mode": "os_abyss_local",
+                "public_safe": True,
+                "consumer_contract": consumer_contract,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
     _write_verified_registry_record(
         registry,
         evidence_refs=["owner-evidence:aoa-evals-report-index"],
@@ -341,6 +372,7 @@ def test_artifact_scenario_matrix_reports_durable_owner_evidence(tmp_path: Path)
         source_repo="aoa-evals",
         source_ref="mechanics/release-support/parts/artifact-bundles/manifests/report_index.bundle.json",
         producer="aoa-evals generated report-index builder",
+        consumer_contract=consumer_contract,
     )
 
     matrix = artifact_bundles.artifact_scenario_matrix(
@@ -355,9 +387,33 @@ def test_artifact_scenario_matrix_reports_durable_owner_evidence(tmp_path: Path)
     assert row["durable_evidence"]["status"] == "durable_gate_allow"
     assert row["durable_evidence"]["trust_gate_verdict"] == "allow"
     assert row["durable_evidence"]["latest_source_repo"] == "aoa-evals"
+    assert row["source_freshness"]["freshness"] == "fresh"
+    assert row["source_freshness_open"] is False
     assert matrix["summary"]["owner_or_manual_evidence_required"] == 1
     assert matrix["summary"]["owner_or_manual_evidence_open"] == 0
     assert matrix["summary"]["durable_evidence_checked"] == 1
+    assert matrix["summary"]["source_freshness_checked"] == 1
+    assert matrix["summary"]["source_freshness_open"] == 0
+
+
+def test_artifact_scenario_matrix_keeps_stale_source_open(tmp_path: Path) -> None:
+    _bundle, registry = _public_source_seed_registry(tmp_path)
+    _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
+
+    matrix = artifact_bundles.artifact_scenario_matrix(
+        scenario_id="public_source_seed",
+        registry_dir=registry,
+    )
+    row = matrix["rows"][0]
+
+    assert row["durable_evidence"]["status"] == "durable_gate_allow"
+    assert row["source_freshness"]["freshness"] == "stale"
+    assert row["source_freshness"]["reasons"] == ["abi_subject_digest_stale"]
+    assert row["source_freshness_open"] is True
+    assert row["owner_or_manual_evidence_open"] is True
+    assert "stale against current source contracts" in row["claim_limit"]
+    assert matrix["summary"]["source_freshness_checked"] == 1
+    assert matrix["summary"]["source_freshness_open"] == 1
 
 
 def test_artifacts_validate_document_contract_is_module_owned(tmp_path: Path) -> None:
@@ -2568,6 +2624,7 @@ def _write_verified_registry_record(
     producer: str = "aoa-sdk:release-audit-publish-helper@commit:current",
     trust_root_mode: str = "host_managed",
     trust_root_evidence: dict[str, Any] | None = None,
+    consumer_contract: dict[str, Any] | None = None,
 ) -> None:
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
@@ -2601,6 +2658,15 @@ def _write_verified_registry_record(
         "policy_ref": artifact_bundles.POLICY_REF,
         "abi_ref": artifact_bundles.ABI_REF,
     }
+    if consumer_contract is not None:
+        record["consumer_contract"] = consumer_contract
+        subject_store_required = consumer_contract.get("subject_store_required") is True
+        record["artifact_subject_store"] = {
+            "required": subject_store_required,
+            "ok": True,
+            "aggregate_digest": subject_digest,
+            "path_basis": "synthetic_test_evidence",
+        }
     if abi_subject_digest is not None:
         record["abi_subject_digest"] = abi_subject_digest
     records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
