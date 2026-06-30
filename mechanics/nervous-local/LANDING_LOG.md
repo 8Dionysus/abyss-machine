@@ -38,3 +38,9 @@
   latest/history routing, and eval validate latest routing through fakeable
   ports. CLI still owns privacy refusal binding, concrete paths, eval
   dependency command orchestration, and rendering.
+- Screenshot live capture seam: `abyss_machine.nervous_screenshot_adapters`
+  owns GNOME extension status probes, allowlisted DBus screenshot execution,
+  X11 active/game-risk window probes, game-safe capture command execution, and
+  public-safe screenshot fact assembly through fakeable ports. CLI still owns
+  source-policy/env/path binding, process callbacks, fact routing, and
+  rendering.

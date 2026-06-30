@@ -133,7 +133,10 @@ guards, dry-run/confirmed unlink execution, mutation receipts, and
 plan/apply/validate latest write routing live in
 `abyss_machine.nervous_retention_adapters`.
 Nervous screenshot recurring-extension query policy and capture backend plan
-contracts live in `abyss_machine.nervous_screenshot`.
+contracts live in `abyss_machine.nervous_screenshot`; GNOME extension status
+probes, allowlisted DBus screenshot execution, X11 active/game-risk window
+probes, capture command execution, and public-safe screenshot fact assembly live
+in `abyss_machine.nervous_screenshot_adapters`.
 Nervous rerank profile/defaults, source-prior scoring, machine-query caps,
 merge policy, hybrid result scoring, neural text shaping, neural config
 normalization, guarded neural-score blending, and eval document envelopes live in
@@ -398,8 +401,9 @@ execution, mutation receipts, and latest/history/validate write routing are
 adapter-owned while privacy/path binding and rendering remain at the CLI edge.
 Nervous screenshot recurring
 extension-query policy and backend capture plan are module-owned while GNOME
-extension status probes, process/X11 risk probes, file writes, capture
-execution, artifact hashing, and fact writes remain at the CLI edge. Nervous
+extension status probes, process/X11 risk probes, capture execution, artifact
+source callbacks, and fact assembly are adapter-owned; CLI binds source policy,
+environment flags, paths, process callbacks, and rendering. Nervous
 rerank profile/source-prior rules, machine-query caps, merge policy, hybrid
 scoring, neural config/text shaping, guarded neural-score blending, and eval
 document envelopes are
@@ -552,7 +556,7 @@ source/install/runtime parity summary now reports installed drift without
 dumping live host payloads. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, memory orchestration write-routing/broader container
-orchestration seams, screenshot live probe/capture adapters, rerank live search/latest adapters,
+orchestration seams, browser-content/clipboard nervous live adapters, rerank live search/latest adapters,
 recall live search adapter/write adapters, AI runtime live execution adapters,
 TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness live probe/readmodel orchestration, process thermal

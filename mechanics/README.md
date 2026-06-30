@@ -30,7 +30,7 @@ Use these mechanic owners for the next extraction slices:
   adapters.
 - `nervous-local`: nervous source capture, privacy state, local JSONL readers,
   derived event/episode JSONL/latest write adapters, synthesis/eval local
-  read/write adapter, lexical SQLite/FTS lifecycle, semantic sidecar lifecycle/execution,
+  read/write adapter, screenshot live capture adapter, lexical SQLite/FTS lifecycle, semantic sidecar lifecycle/execution,
   rerank execution, retention contracts plus filesystem/apply adapter, and
   derived memory evidence.
 - `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource
