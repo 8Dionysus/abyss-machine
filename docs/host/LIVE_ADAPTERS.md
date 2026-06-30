@@ -364,6 +364,8 @@ SQLite/FTS lifecycle adapter boundary:
   local JSONL line-count history through fakeable reader/count ports;
 - index status read-model input collection through fakeable latest, counts,
   freshness, and user service/timer status ports;
+- index validation read-model fact collection through fakeable storage route,
+  symlink-tail, counts, freshness, scan, and event/episode line-count ports;
 - vacuum execution (`PRAGMA optimize` and `VACUUM`) through fakeable
   connection/count ports.
 
@@ -372,7 +374,7 @@ selection, redacted projection, SQLite/FTS schema/search/store contracts,
 status/freshness documents, validation envelopes, and vacuum result envelopes.
 The CLI still owns privacy/source/config/path binding, derived event/episode
 refresh orchestration, redactor callback binding, concrete status port wiring,
-validation fact collection, and command rendering.
+concrete validation port wiring, and command rendering.
 
 ## Extracted Nervous Derived Events/Episodes File Seam
 

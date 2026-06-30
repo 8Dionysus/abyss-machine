@@ -201,6 +201,112 @@ def test_index_adapter_status_collects_latest_counts_freshness_and_timer_ports(t
     ]
 
 
+def test_index_adapter_validation_collects_storage_scan_and_record_ports(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    db_path = storage_root / "nervous" / "indexes" / "sqlite" / "nervous.db"
+    config_path = tmp_path / "nervous-index.json"
+    event_path = tmp_path / "events.jsonl"
+    episode_path = tmp_path / "episodes.jsonl"
+    storage_root.mkdir()
+    db_path.parent.mkdir(parents=True)
+    db_path.write_text("", encoding="utf-8")
+    config_path.write_text("{}", encoding="utf-8")
+    config = {"enabled": True, "backend": "sqlite_fts5", "db_path": str(db_path)}
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {"browser_active_tab": {"enabled": True, "allowed": True}},
+    }
+    counts_doc = {
+        "documents": 3,
+        "chunks": 4,
+        "fts_chunks": 4,
+        "meta": {"schema": "abyss_machine_nervous_search_index_v1"},
+    }
+    freshness = {"stale": False, "lag_sec": 0}
+    scan = {
+        "indexed_source_ids": ["abyss_machine_facts", "browser_active_tab", "nervous_events", "nervous_episodes"],
+        "documents_by_schema": {
+            "abyss_machine_nervous_event_v1": 1,
+            "abyss_machine_nervous_episode_v1": 1,
+        },
+        "smoke_results": 1,
+    }
+    line_counts = {event_path: 1, episode_path: 2}
+    calls: list[tuple[str, Any]] = []
+
+    def counts_reader() -> dict[str, Any]:
+        calls.append(("counts", None))
+        return counts_doc
+
+    def freshness_reader(*, meta: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        calls.append(("freshness", {"meta": meta, "config": config}))
+        return freshness
+
+    def scan_reader(path: Path, smoke_match_query: str) -> dict[str, Any]:
+        calls.append(("scan", {"path": path, "query": smoke_match_query}))
+        return scan
+
+    def line_counter(path: Path) -> int | None:
+        calls.append(("line", path))
+        return line_counts[path]
+
+    def symlink_tail_probe(path: Path, *, stop_at: Path) -> bool:
+        calls.append(("symlink_tail", {"path": path, "stop_at": stop_at}))
+        return False
+
+    result = nervous_index_adapters.validation_document_from_ports(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T13:20:00+00:00",
+        db_path=db_path,
+        storage_root=storage_root,
+        config=config,
+        config_path=config_path,
+        sources=sources,
+        fts_ok=True,
+        fts_error=None,
+        event_files=[event_path],
+        episode_files=[episode_path],
+        counts_reader=counts_reader,
+        freshness_reader=freshness_reader,
+        scan_reader=scan_reader,
+        line_counter=line_counter,
+        symlink_tail_probe=symlink_tail_probe,
+    )
+
+    assert result == nervous_index.validation_document(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T13:20:00+00:00",
+        db_path=db_path,
+        config=config,
+        config_path=config_path,
+        config_exists=True,
+        fts_ok=True,
+        fts_error=None,
+        storage_routed=True,
+        storage_root=storage_root,
+        symlink_tail=False,
+        db_exists=True,
+        counts=counts_doc,
+        freshness=freshness,
+        allowed_source_ids=nervous_index.allowed_source_ids(sources),
+        scan=scan,
+        scan_error=None,
+        private_source_ids=nervous_index.deferred_source_ids(sources),
+        event_records=1,
+        episode_records=2,
+    )
+    assert calls == [
+        ("symlink_tail", {"path": db_path, "stop_at": storage_root}),
+        ("counts", None),
+        ("freshness", {"meta": counts_doc["meta"], "config": config}),
+        ("scan", {"path": db_path, "query": '"nervous" OR "storage" OR "thermal" OR "episode"'}),
+        ("line", event_path),
+        ("line", episode_path),
+    ]
+
+
 def test_index_adapter_vacuum_executes_sqlite_commands_under_lock(tmp_path: Path) -> None:
     db_path = tmp_path / "nervous.db"
     root = tmp_path / "index-root"
@@ -398,3 +504,70 @@ def test_cli_nervous_index_status_binds_adapter_ports(monkeypatch, tmp_path: Pat
     assert captured["counts_reader"] is forbidden_counts_reader
     assert captured["freshness_reader"] is forbidden_freshness_reader
     assert captured["unit_status_reader"] is forbidden_unit_reader
+
+
+def test_cli_nervous_index_validate_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+    storage_root = tmp_path / "storage"
+    db_path = storage_root / "nervous.db"
+    config_path = tmp_path / "nervous-index.json"
+    event_path = tmp_path / "events.jsonl"
+    episode_path = tmp_path / "episodes.jsonl"
+    config = {"enabled": True, "db_path": str(db_path)}
+    sources = {"safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}}}
+
+    def fake_validate(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    def forbidden_counts_reader() -> dict[str, Any]:
+        raise AssertionError("CLI must pass counts reader to adapter, not call it directly")
+
+    def forbidden_freshness_reader(**kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("CLI must pass freshness reader to adapter, not call it directly")
+
+    def forbidden_scan_reader(path: Path, smoke_match_query: str) -> dict[str, Any]:
+        raise AssertionError(f"CLI must pass scan reader to adapter, not call it directly: {path}")
+
+    def forbidden_line_counter(path: Path) -> int | None:
+        raise AssertionError(f"CLI must pass line counter to adapter, not call it directly: {path}")
+
+    def forbidden_symlink_tail_probe(path: Path, *, stop_at: Path) -> bool:
+        raise AssertionError(f"CLI must pass symlink-tail probe to adapter, not call it directly: {path}")
+
+    monkeypatch.setattr(cli, "ABYSS_MACHINE_STORAGE_ROOT", storage_root)
+    monkeypatch.setattr(cli, "NERVOUS_INDEX_CONFIG_PATH", config_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
+    monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
+    monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: sources)
+    monkeypatch.setattr(cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
+    monkeypatch.setattr(cli, "nervous_event_jsonl_files", lambda: [event_path])
+    monkeypatch.setattr(cli, "nervous_episode_jsonl_files", lambda: [episode_path])
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:20:00+00:00")
+    monkeypatch.setattr(cli, "nervous_index_db_counts", forbidden_counts_reader)
+    monkeypatch.setattr(cli, "nervous_index_freshness", forbidden_freshness_reader)
+    monkeypatch.setattr(cli, "build_nervous_index_scan", forbidden_scan_reader)
+    monkeypatch.setattr(cli, "count_file_lines", forbidden_line_counter)
+    monkeypatch.setattr(cli, "nervous_path_has_symlink_tail", forbidden_symlink_tail_probe)
+    monkeypatch.setattr(cli.nervous_index_adapters, "validation_document_from_ports", fake_validate)
+
+    result = cli.nervous_index_validate(write_latest=False)
+
+    assert result == {"ok": True, "from_adapter": True}
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["generated_at"] == "2026-06-25T13:20:00+00:00"
+    assert captured["db_path"] == db_path
+    assert captured["storage_root"] == storage_root
+    assert captured["config"] == config
+    assert captured["config_path"] == config_path
+    assert captured["sources"] == sources
+    assert captured["fts_ok"] is True
+    assert captured["fts_error"] is None
+    assert captured["event_files"] == [event_path]
+    assert captured["episode_files"] == [episode_path]
+    assert captured["counts_reader"] is forbidden_counts_reader
+    assert captured["freshness_reader"] is forbidden_freshness_reader
+    assert captured["scan_reader"] is forbidden_scan_reader
+    assert captured["line_counter"] is forbidden_line_counter
+    assert captured["symlink_tail_probe"] is forbidden_symlink_tail_probe

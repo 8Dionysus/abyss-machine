@@ -61,8 +61,9 @@ orchestration, capture selection, and rendering.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 schema file writes, file locks/active-lock probes, latest writes, generated DB
 file mode/group normalization, freshness latest/history count collection, index
-status latest/counts/freshness/service/timer fact collection, and vacuum
-execution through fakeable ports.
+status latest/counts/freshness/service/timer fact collection, index validation
+storage-route/symlink/counts/freshness/scan/event-episode fact collection, and
+vacuum execution through fakeable ports.
 `abyss_machine.nervous_events_adapters` now owns derived event/episode local
 file routing: facts/events/episodes JSONL root reads, daily path selection,
 derived-record replacement writes that preserve non-owned records, latest read
