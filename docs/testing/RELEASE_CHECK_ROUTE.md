@@ -181,6 +181,16 @@ and `abyss-machine nervous capture-status --json` summaries only. Do not run
 ad hoc clipboard reads as validation, and never report raw clipboard text,
 binary payloads, MIME-sensitive content, or generated private source payloads.
 
+For nervous browser-content store adapter changes, public CI should rely on
+fake-port and temporary-root tests for local-day JSONL path projection,
+record-from-page callback binding, duplicate suppression, append/latest write
+routing, and write-error projection. Live-host closeout may use compact
+`abyss-machine nervous capture-status --json` and `abyss-machine nervous
+source-status browser_active_tab --json` summaries only. Do not force AT-SPI,
+BiDi, browser history, or active-tab capture as validation unless that runtime
+adapter is the touched surface, and never copy browser text, URLs, generated
+browser-content JSONL, latest payloads, or private capture roots into the repo.
+
 For nervous retention filesystem/apply adapter changes, public CI should rely on
 fake-root/fake-writer tests for route-root scanning, symlink-tail blockers,
 protected/latest candidate refusal, dry-run-first confirmed unlink, mutation

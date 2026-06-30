@@ -67,7 +67,10 @@ high-entropy redaction contracts live in `abyss_machine.nervous_redaction`;
 typing/nervous source metadata plus redacted text and URL payload contracts live
 in `abyss_machine.nervous_sources`, along with browser-content record, quality,
 dedupe, web-context classification, source state merge, effective source maps,
-catalog, lookup, and source-set contracts; typing saved-text/browser intake policy,
+catalog, lookup, and source-set contracts; browser-content daily path projection,
+recent duplicate scanning, JSONL append routing, latest write routing, ingest
+document assembly, and record-from-page callback binding live in
+`abyss_machine.nervous_browser_content_adapters`; typing saved-text/browser intake policy,
 saved-text scan policy status, saved-text recent-record validation,
 recent record policy/causal shape status,
 causal project binding/resolution, causal interaction identity/context-anchor and URL/AI recipient helpers,
@@ -559,7 +562,7 @@ source/install/runtime parity summary now reports installed drift without
 dumping live host payloads. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, memory orchestration write-routing/broader container
-orchestration seams, browser-content nervous live adapters, rerank live search/latest adapters,
+orchestration seams, browser-content capture runtime adapters, rerank live search/latest adapters,
 recall live search adapter/write adapters, AI runtime live execution adapters,
 TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness live probe/readmodel orchestration, process thermal

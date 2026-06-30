@@ -50,3 +50,10 @@
   projection, and public-safe clipboard fact assembly through fakeable ports.
   CLI still owns concrete env binding, source-policy/redaction callbacks, fact
   routing, and rendering.
+- Browser-content local store seam:
+  `abyss_machine.nervous_browser_content_adapters` owns daily JSONL path
+  projection, record-from-page callback binding, bounded recent duplicate
+  scanning, JSONL append routing, latest write routing, write-error projection,
+  and ingest document assembly through fakeable ports. CLI still owns concrete
+  path/time/user binding, AT-SPI/BiDi capture runtime callbacks,
+  source-policy/privacy orchestration, and rendering.
