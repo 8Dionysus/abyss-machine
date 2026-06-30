@@ -109,6 +109,20 @@ def test_index_adapter_path_has_symlink_tail_allows_plain_route(tmp_path: Path) 
     assert nervous_index_adapters.path_has_symlink_tail(db_path, stop_at=storage_root) is False
 
 
+def test_index_adapter_db_counts_uses_count_port(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    calls: list[Path] = []
+
+    def fake_count(path: Path) -> dict[str, Any]:
+        calls.append(path)
+        return {"db_path": str(path), "documents": 3, "chunks": 5}
+
+    result = nervous_index_adapters.db_counts(db_path, count=fake_count)
+
+    assert result == {"db_path": str(db_path), "documents": 3, "chunks": 5}
+    assert calls == [db_path]
+
+
 def test_index_adapter_write_latest_marks_write_failures(tmp_path: Path) -> None:
     latest_path = tmp_path / "not-a-dir" / "latest.json"
     latest_path.parent.write_text("blocks directory creation", encoding="utf-8")
@@ -813,6 +827,10 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
         captured["symlink_tail"] = {"path": path, "stop_at": stop_at}
         return True
 
+    def fake_db_counts(path: Path) -> dict[str, Any]:
+        captured["db_counts"] = path
+        return {"documents": 7}
+
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SCHEMA_PATH", schema_path)
@@ -824,6 +842,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(cli.nervous_index_adapters, "write_latest", fake_write_latest)
     monkeypatch.setattr(cli.nervous_index_adapters, "sqlite_fts5_ok", fake_fts5_ok)
     monkeypatch.setattr(cli.nervous_index_adapters, "path_has_symlink_tail", fake_path_has_symlink_tail)
+    monkeypatch.setattr(cli.nervous_index_adapters, "db_counts", fake_db_counts)
 
     assert cli.nervous_index_connect(create=True) is fake_conn
     cli.nervous_index_initialize(fake_conn)
@@ -833,6 +852,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     assert cli.nervous_index_write_latest({"ok": True}) == {"ok": True, "from_adapter": True}
     assert cli.nervous_sqlite_fts5_ok() == (True, None)
     assert cli.nervous_path_has_symlink_tail(db_path, stop_at=root) is True
+    assert cli.nervous_index_db_counts() == {"documents": 7}
 
     assert captured["connect"] == {"path": db_path, "create": True}
     assert captured["initialize_conn"] is fake_conn
@@ -844,6 +864,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     assert captured["write_latest"]["path"] == latest_path
     assert captured["fts5_ok"] is True
     assert captured["symlink_tail"] == {"path": db_path, "stop_at": root}
+    assert captured["db_counts"] == db_path
 
 
 def test_cli_nervous_index_freshness_binds_adapter_paths_and_ports(monkeypatch, tmp_path: Path) -> None:

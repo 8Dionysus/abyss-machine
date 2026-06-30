@@ -31,6 +31,10 @@
   filesystem probing through a fakeable path probe. CLI keeps the compatibility
   wrapper, validation port binding, policy gates, latest writes, and rendering,
   while the concrete symlink traversal no longer lives in command code.
+- Lexical index DB-count read seam:
+  `abyss_machine.nervous_index_adapters` owns source-index DB count reads
+  through a fakeable count port. CLI keeps the compatibility wrapper, call-site
+  binding, policy gates, latest writes, and rendering.
 - Lexical index build source-input seam:
   `abyss_machine.nervous_index_adapters` owns index build source-root to
   build-document assembly: source-file discovery, JSONL source-record loading,

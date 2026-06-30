@@ -135,6 +135,10 @@ def path_has_symlink_tail(path: Path, *, stop_at: Path | None = None) -> bool:
     return any(item.exists() and item.is_symlink() for item in checked)
 
 
+def db_counts(db_path: Path, count: CountDb = nervous_index.counts) -> dict[str, Any]:
+    return count(db_path)
+
+
 @contextmanager
 def index_lock(root: Path) -> Any:
     root.mkdir(parents=True, exist_ok=True)
