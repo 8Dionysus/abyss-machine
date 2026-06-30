@@ -157,6 +157,32 @@ class DoctorDictationProbePort:
     path_exists: Callable[[Path], bool]
 
 
+@dataclass(frozen=True)
+class DoctorAiProbePaths:
+    root: Path
+    agent_entrypoint: Path
+    index: Path
+    config: Path
+    tts_profiles_latest: Path
+    report_latest: Path
+    workload_latest: Path
+    workload_stats_latest: Path
+
+
+@dataclass(frozen=True)
+class DoctorAiProbePort:
+    path_exists: Callable[[Path], bool]
+    ai_status: Callable[[], dict[str, Any]]
+    ai_capabilities: Callable[[], dict[str, Any]]
+    ai_tts_profiles: Callable[[], dict[str, Any]]
+    ai_policy: Callable[[], dict[str, Any]]
+    ai_storage_status: Callable[[], dict[str, Any]]
+    ai_runtime_snapshot: Callable[[], dict[str, Any]]
+    load_report_latest: Callable[[Path, str], dict[str, Any]]
+    ai_workload_status: Callable[[], dict[str, Any]]
+    systemd_unit: Callable[[str], dict[str, Any]]
+
+
 REQUIRED_DOCTOR_BRIDGE_COMMANDS: tuple[str, ...] = (
     "doctor_json",
     "doctor_paths_json",
@@ -173,7 +199,7 @@ def _add_check(
     level: str,
     key: str,
     message: str,
-    details: dict[str, Any] | None = None,
+    details: Any | None = None,
 ) -> None:
     item: dict[str, Any] = {"level": level, "key": key, "message": message}
     if details is not None:
@@ -192,6 +218,13 @@ def _nested_get(data: dict[str, Any], path: list[str]) -> Any:
             return None
         current = current.get(key)
     return current
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def collect_doctor_core_checks(
@@ -617,6 +650,220 @@ def collect_doctor_dictation_checks(
         if input_remapper_preset_exists
         else "input-remapper Copilot+/ preset missing",
         str(paths.input_remapper_preset),
+    )
+
+    return checks
+
+
+def collect_doctor_ai_checks(
+    *,
+    ai_facts: dict[str, Any],
+    paths: DoctorAiProbePaths,
+    workload_timer_name: str,
+    schema_prefix: str,
+    port: DoctorAiProbePort,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    _add_check(
+        checks,
+        "ok" if ai_facts.get("dev_dri_present") else "warn",
+        "gpu_dri",
+        "/dev/dri present" if ai_facts.get("dev_dri_present") else "/dev/dri missing",
+        ai_facts.get("dev_dri_nodes"),
+    )
+    _add_check(
+        checks,
+        "ok" if ai_facts.get("dev_accel_present") else "warn",
+        "npu_accel",
+        "/dev/accel present" if ai_facts.get("dev_accel_present") else "/dev/accel missing",
+        ai_facts.get("dev_accel_nodes"),
+    )
+    _add_check(
+        checks,
+        "ok" if ai_facts.get("openvino_venv_exists") else "warn",
+        "openvino_venv",
+        "OpenVINO host venv present" if ai_facts.get("openvino_venv_exists") else "OpenVINO host venv missing",
+        ai_facts.get("openvino_venv"),
+    )
+
+    ai_host = port.ai_status()
+    ai_topology_ok = (
+        port.path_exists(paths.root)
+        and port.path_exists(paths.agent_entrypoint)
+        and port.path_exists(paths.index)
+        and port.path_exists(paths.config)
+    )
+    _add_check(
+        checks,
+        "ok" if ai_topology_ok else "warn",
+        "ai_host_topology",
+        "AI host topology present" if ai_topology_ok else "AI host topology incomplete",
+        {
+            "root": str(paths.root),
+            "root_exists": port.path_exists(paths.root),
+            "agent_entrypoint_exists": port.path_exists(paths.agent_entrypoint),
+            "index_exists": port.path_exists(paths.index),
+            "config_exists": port.path_exists(paths.config),
+        },
+    )
+
+    devices = ai_host.get("devices") if isinstance(ai_host.get("devices"), dict) else {}
+    ai_ready = devices.get("ready") if isinstance(devices.get("ready"), dict) else {}
+    ai_available_devices = devices.get("available_devices") if isinstance(devices.get("available_devices"), list) else []
+    _add_check(
+        checks,
+        "ok" if ai_ready.get("openvino") and ai_ready.get("gpu") else "warn",
+        "ai_openvino_devices",
+        f"OpenVINO devices available: {', '.join(str(item) for item in ai_available_devices)}"
+        if ai_available_devices
+        else "OpenVINO devices unavailable",
+        ai_ready,
+    )
+    _add_check(
+        checks,
+        "ok" if ai_ready.get("npu") else "warn",
+        "ai_npu_runtime",
+        "OpenVINO NPU runtime ready" if ai_ready.get("npu") else "OpenVINO NPU runtime not ready",
+        ai_ready,
+    )
+
+    models = ai_host.get("models") if isinstance(ai_host.get("models"), dict) else {}
+    model_summary = models.get("summary") if isinstance(models.get("summary"), dict) else {}
+    model_entries = _safe_int(model_summary.get("entries"))
+    _add_check(
+        checks,
+        "ok" if model_entries > 0 else "warn",
+        "ai_model_inventory",
+        f"AI model inventory entries: {model_summary.get('entries')}"
+        if model_entries > 0
+        else "AI model inventory is empty",
+        model_summary,
+    )
+
+    latest_benchmark = ai_host.get("benchmark") if isinstance(ai_host.get("benchmark"), dict) else {}
+    _add_check(
+        checks,
+        "ok" if latest_benchmark.get("latest_ok") else "warn",
+        "ai_benchmark_latest",
+        f"AI quick benchmark latest: {latest_benchmark.get('latest_generated_at')}"
+        if latest_benchmark.get("latest_ok")
+        else "AI quick benchmark latest missing or failed",
+        latest_benchmark,
+    )
+    latest_eval = ai_host.get("eval") if isinstance(ai_host.get("eval"), dict) else {}
+    _add_check(
+        checks,
+        "ok" if latest_eval.get("latest_ok") else "warn",
+        "ai_eval_latest",
+        f"AI real eval latest: {latest_eval.get('latest_generated_at')}"
+        if latest_eval.get("latest_ok")
+        else "AI real eval latest missing or failed",
+        latest_eval,
+    )
+
+    capabilities = port.ai_capabilities()
+    capability_rows = capabilities.get("capabilities") if isinstance(capabilities.get("capabilities"), dict) else {}
+    cap_statuses = {
+        key: value.get("status")
+        for key, value in capability_rows.items()
+        if isinstance(value, dict)
+    }
+    _add_check(
+        checks,
+        "ok" if capabilities.get("ok") else "warn",
+        "ai_capabilities",
+        "AI capability registry ready" if capabilities.get("ok") else "AI capability registry degraded",
+        cap_statuses,
+    )
+
+    tts_profiles = port.ai_tts_profiles()
+    tts_summary = tts_profiles.get("summary") if isinstance(tts_profiles.get("summary"), dict) else {}
+    tts_profile_count = _safe_int(tts_summary.get("profiles"))
+    _add_check(
+        checks,
+        "ok" if tts_profile_count > 0 else "warn",
+        "ai_tts_bridge",
+        f"TTS profiles available: {tts_summary.get('profiles')} executable={tts_summary.get('executable')}"
+        if tts_profile_count > 0
+        else "TTS profiles missing",
+        {
+            "latest": str(paths.tts_profiles_latest),
+            "summary": tts_summary,
+        },
+    )
+
+    policy = port.ai_policy()
+    _add_check(
+        checks,
+        "ok" if policy.get("ok") else "warn",
+        "ai_policy",
+        f"AI policy {policy.get('class')} heavy={policy.get('can_run_heavy')} routed={policy.get('can_run_routed_heavy')}",
+        {"class": policy.get("class"), "heavy_policy": policy.get("heavy_policy"), "reasons": policy.get("reasons")},
+    )
+
+    storage_status_data = port.ai_storage_status()
+    storage_summary = storage_status_data.get("summary") if isinstance(storage_status_data.get("summary"), dict) else {}
+    stack_cache_dirs = _safe_int(storage_summary.get("stack_local_openvino_cache_dirs"))
+    _add_check(
+        checks,
+        "ok" if stack_cache_dirs == 0 else "warn",
+        "ai_storage_hygiene",
+        "no stack-local OpenVINO model_cache dirs"
+        if stack_cache_dirs == 0
+        else f"{stack_cache_dirs} stack-local OpenVINO model_cache dirs present",
+        storage_summary,
+    )
+
+    runtime_snapshot = port.ai_runtime_snapshot()
+    current_runtime = runtime_snapshot.get("current") if isinstance(runtime_snapshot.get("current"), dict) else {}
+    _add_check(
+        checks,
+        "ok" if runtime_snapshot.get("ok") else "warn",
+        "ai_runtime_snapshot",
+        "AI runtime lifecycle snapshot ready" if runtime_snapshot.get("ok") else "AI runtime lifecycle snapshot failed",
+        {
+            "openvino_version": current_runtime.get("openvino_version"),
+            "devices": current_runtime.get("available_devices"),
+            "drift": runtime_snapshot.get("drift_from_previous_latest"),
+        },
+    )
+
+    report_latest = port.load_report_latest(paths.report_latest, f"{schema_prefix}_ai_report_latest_read_v1")
+    _add_check(
+        checks,
+        "ok" if report_latest.get("ok") else "warn",
+        "ai_report_latest",
+        f"AI report latest: {report_latest.get('generated_at')}"
+        if report_latest.get("ok")
+        else "AI report latest missing or failed",
+        {"path": str(paths.report_latest), "error": report_latest.get("error")},
+    )
+
+    workload_status = port.ai_workload_status()
+    workload_summary = workload_status.get("summary") if isinstance(workload_status.get("summary"), dict) else {}
+    workload_records = _safe_int(workload_summary.get("records"))
+    _add_check(
+        checks,
+        "ok" if workload_records > 0 else "warn",
+        "ai_workload_stats",
+        f"AI workload stats records: {workload_summary.get('records')}"
+        if workload_records > 0
+        else "AI workload stats have no measured records yet",
+        {
+            "latest": str(paths.workload_latest),
+            "stats_latest": str(paths.workload_stats_latest),
+            "summary": workload_summary,
+            "routing": workload_status.get("routing"),
+        },
+    )
+    workload_timer = port.systemd_unit(workload_timer_name)
+    _add_check(
+        checks,
+        "ok" if workload_timer.get("is_active") and workload_timer.get("is_enabled") else "warn",
+        "ai_workload_refresh_timer",
+        f"{workload_timer_name} {workload_timer.get('active')}/{workload_timer.get('enabled')}",
+        workload_timer,
     )
 
     return checks

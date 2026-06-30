@@ -42,7 +42,10 @@ Use `docs/validation/VALIDATOR_TOPOLOGY.md` and public smoke checks.
 Diagnostic adapters should separate probe execution from diagnosis shape:
 systemd, filesystem, process, and validator probes gather current host facts;
 contract modules decide bounded status and repair hints. A diagnostic warning is
-evidence for routing, not authority to mutate the host.
+evidence for routing, not authority to mutate the host. AI/runtime diagnostic
+checks are routed through fakeable probe ports in `doctor_adapters`; the local
+AI mechanic remains owner of runtime discovery, model policy, benchmarks,
+storage hygiene, and workload refresh behavior.
 
 ### Next route
 

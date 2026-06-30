@@ -900,10 +900,10 @@ status-probe seam:
 - command availability checks for `podman`, `rsync`, and `curl`.
 
 The CLI binds the concrete platform, filesystem, command-map, topology validate,
-and stack-bridge validate ports. Power/cooling, storage/process, and
-snapshot/observability/dictation status checks are split below; nervous, docs,
-AI runtime execution, memory, mode, and timer probes remain deeper live adapter
-debt.
+and stack-bridge validate ports. Power/cooling, storage/process,
+snapshot/observability/dictation, and AI/runtime status checks are split below;
+nervous, docs, memory, mode, and general timer probes remain deeper live
+adapter debt.
 
 ## Extracted Doctor Power/Cooling Status Probe Seam
 
@@ -966,6 +966,24 @@ The CLI binds the current `status()` read-model, concrete service lookups, and
 operator-local preset path. The adapter does not record audio, inspect WAVs,
 contact the dictation server, write transcript journals, insert text, mutate
 hotkeys, or repair services.
+
+## Extracted Doctor AI/Runtime Status Probe Seam
+
+`abyss_machine.doctor_adapters` owns the `abyss-machine doctor` AI/runtime
+status-probe seam:
+
+- GPU/NPU device fact projection from compact host facts;
+- AI host topology checks for root, agent card, index, and policy config paths;
+- AI status read-model projection for OpenVINO devices, NPU readiness, model
+  inventory, benchmark latest, and eval latest;
+- capability registry, TTS profile, policy, storage hygiene, runtime snapshot,
+  report-latest, workload stats, and workload-refresh timer checks through
+  fakeable ports.
+
+The CLI binds concrete AI functions, latest reads, path checks, and systemd
+lookup. The adapter does not load models, run benchmarks, refresh workloads on
+its own, download artifacts, mutate runtimes, or authorize repair; those remain
+in the local-AI/runtime owner surfaces.
 
 ## Extracted Doctor Report IO Seam
 
