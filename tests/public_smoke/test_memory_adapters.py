@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 from pathlib import Path
 import sys
@@ -554,6 +555,170 @@ def test_target_snapshot_uses_fake_proc_systemd_and_podman_ports(tmp_path: Path)
     assert snapshot["pids"]["alive"] == [123]
     assert snapshot["pids"]["sampled_processes"][0]["rss_mib"] == 2.0
     assert snapshot["systemd"]["memory_current"] == {"raw": "1048576", "mib": 1.0}
+
+
+def test_orchestrate_action_candidates_rank_and_protect_model_routes() -> None:
+    candidates = memory_adapters.orchestrate_action_candidates(
+        [
+            {
+                "cgroup": "/machine.slice/libpod-abc.scope",
+                "names": ["rerank-api"],
+                "memory_current_kib": 2 * 1024 * 1024,
+                "swap_current_kib": 128 * 1024,
+                "workload_hint": "normal",
+                "capability_role": "none",
+            },
+            {
+                "cgroup": "/user.slice/tts.service",
+                "unit": "tts.service",
+                "memory_current_mib": 768.0,
+                "swap_current_mib": 1024.0,
+                "capability_role": "persistent_ai_service",
+            },
+            {
+                "cgroup": "/user.slice/small.service",
+                "unit": "small.service",
+                "memory_current_mib": 128.0,
+                "swap_current_mib": 128.0,
+            },
+        ],
+        [
+            {
+                "cgroup": "/machine.slice/libpod-abc.scope",
+                "names": ["rerank-api"],
+                "swap_current_mib": 4096.0,
+            }
+        ],
+        protected_roles={"persistent_model", "persistent_ai_service", "operator_dictation"},
+        limit=12,
+    )
+
+    assert [item["id"] for item in candidates] == ["candidate_libpod_abc_scope", "candidate_tts_service"]
+    rerank = candidates[0]
+    assert rerank["kind"] == "managed_model_dehydrate_rehydrate_candidate"
+    assert rerank["priority_score"] == 3072.0
+    assert rerank["target"]["protected"] is True
+    assert rerank["target"]["capability_role"] == "persistent_model"
+    assert rerank["target"]["route"] == "route_new_work_around_protected_capability"
+    tts = candidates[1]
+    assert tts["kind"] == "protected_capability_residency_candidate"
+    assert tts["possible_effect"]["cold_start_or_latency_risk"] is True
+
+
+def test_confirmation_contract_and_preflight_use_stable_target_identity() -> None:
+    now = dt.datetime(2026, 6, 29, 12, 0, 0, tzinfo=dt.timezone.utc)
+    candidate = {
+        "id": "candidate_model",
+        "kind": "managed_model_dehydrate_rehydrate_candidate",
+        "target": {
+            "label": "model",
+            "cgroup": "/machine.slice/libpod-abcdef.scope",
+            "container_name": "model-api",
+            "capability_role": "persistent_model",
+            "workload_hint": "ai_runtime",
+            "protected": True,
+        },
+    }
+    snapshot = {
+        "pids": {"alive_count": 1},
+        "cgroup": {"exists": True},
+        "podman": {"container": {"id": "abcdef123456", "name": "model-api", "running": True}},
+    }
+    idle_gate = {"registered": True, "idle": True, "status": "idle", "signals": {"llama_http": {"health": {"ok": True}}}}
+    health = {"status": "available", "command": "abyss-machine memory hotpath-probe --include-llm --json"}
+    executor = {"enabled": True, "kind": "podman_container_rehydrate", "command_template": ["podman", "restart", "model-api"]}
+
+    contract = memory_adapters.confirmation_contract(
+        candidate,
+        snapshot,
+        idle_gate,
+        health,
+        executor,
+        "operator",
+        "idle recycle for memory headroom",
+        300,
+        now=lambda: now,
+    )
+    confirmation_status = {
+        "available": True,
+        "ready": True,
+        "expired": False,
+        "candidate_match": True,
+        "operator": "operator",
+        "target_snapshot_digest": contract["current_target_snapshot_digest"],
+        "effective_confirmation": False,
+        "grant_valid_for_confirm": False,
+    }
+
+    checks = memory_adapters.executor_preflight_checks(
+        {"summary": {"psi_some_avg10": 0.0, "psi_full_avg10": 0.0}},
+        candidate,
+        snapshot,
+        idle_gate,
+        health,
+        confirmation_status,
+        executor,
+        {"available": True},
+    )
+    summary = memory_adapters.guard_summary(checks)
+
+    assert contract["operator"]["confirmed_at"] == "2026-06-29T12:00:00+00:00"
+    assert contract["expires_at"] == "2026-06-29T12:05:00+00:00"
+    assert contract["current_target_snapshot_digest"] == memory_adapters.target_identity_digest(candidate, snapshot)
+    assert summary["confirm_blockers"] == ["live_executor_stage_disabled"]
+    assert memory_adapters.apply_steps(candidate, health, idle_gate, executor)[4]["future_executor"] == executor
+
+
+def test_live_authorization_allows_only_narrow_managed_model_executor() -> None:
+    candidate = {
+        "id": "candidate_model",
+        "kind": "managed_model_dehydrate_rehydrate_candidate",
+        "target": {
+            "label": "model-api",
+            "cgroup": "/machine.slice/libpod-abcdef.scope",
+            "container_name": "model-api",
+            "capability_role": "persistent_model",
+            "workload_hint": "ai_runtime",
+        },
+    }
+    snapshot = {"podman": {"container": {"running": True, "pid": 555}}}
+    idle_gate = {"registered": True, "idle": True, "status": "idle"}
+    health = {"status": "available"}
+    executor = {"kind": "podman_container_rehydrate", "command_template": ["podman", "restart", "model-api"]}
+    preflight = {"preflight_ready_except_live_stage": True, "blocked_only_by_live_stage_disabled": True}
+
+    checks = memory_adapters.live_authorization_checks(
+        candidate,
+        snapshot,
+        idle_gate,
+        health,
+        executor,
+        preflight,
+        confirm=True,
+        execute_live=True,
+        acknowledge_live_restart=True,
+        operator="operator",
+        reason="idle recycle for memory headroom",
+    )
+    blocked = [item["id"] for item in checks if item["status"].startswith("block")]
+
+    assert blocked == []
+    assert memory_adapters.live_authorization_checks(
+        {
+            **candidate,
+            "target": {**candidate["target"], "label": "tts service", "capability_role": "persistent_ai_service"},
+        },
+        snapshot,
+        idle_gate,
+        health,
+        executor,
+        preflight,
+        confirm=True,
+        execute_live=True,
+        acknowledge_live_restart=True,
+        operator="operator",
+        reason="idle recycle for memory headroom",
+    )[6]["status"] == "block_live"
 
 
 def test_cgroup_cpu_sample_reads_fake_cpu_stat(tmp_path: Path) -> None:

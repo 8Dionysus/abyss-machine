@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import collections
+import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -37,6 +39,8 @@ OutputExistsPort = Callable[[str], bool]
 TtsSynthPort = Callable[..., dict[str, Any]]
 DictationTranscribePort = Callable[[str, str], dict[str, Any]]
 LoadJsonDocumentPort = Callable[[Path], tuple[Any, Any]]
+ParseTimePort = Callable[[Any], dt.datetime | None]
+DateTimePort = Callable[[], dt.datetime]
 
 
 def tool_available(name: str) -> bool:
@@ -95,6 +99,21 @@ def nested_get(data: Any, path: Sequence[str]) -> Any:
             return None
         current = current.get(key)
     return current
+
+
+def _stable_hash_json(payload: Any, length: int = 24) -> str:
+    try:
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        raw = str(payload)
+    return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[: max(8, min(int(length), 64))]
+
+
+def _kib_to_mib(value: Any) -> float | None:
+    parsed = _safe_int(value, -1)
+    if parsed < 0:
+        return None
+    return round(parsed / 1024.0, 1)
 
 
 def hotpath_residency_brief(data: dict[str, Any]) -> dict[str, Any]:
@@ -1472,6 +1491,1041 @@ def residency_service_status(
         },
         "issues": issues,
     }
+
+
+def orchestrate_cgroup_entry(
+    item: dict[str, Any],
+    *,
+    protected_roles: set[str] | frozenset[str],
+) -> dict[str, Any]:
+    cgroup = str(item.get("cgroup") or "")
+    unit = item.get("unit") or cgroup_unit_hint(cgroup)
+    names = item.get("names") if isinstance(item.get("names"), list) else []
+    label = str(unit or (names[0] if names else "") or (cgroup.rsplit("/", 1)[-1] if cgroup else "unknown"))
+    role = str(item.get("capability_role") or "none")
+    workload = str(item.get("workload_hint") or "normal")
+    protected = bool(item.get("protected")) or role in protected_roles or workload == "game"
+    podman = item.get("podman") if isinstance(item.get("podman"), dict) else {}
+    container_name = item.get("container_name") or podman.get("name")
+    compose_service = item.get("compose_service") or podman.get("compose_service")
+    return {
+        "label": label,
+        "cgroup": cgroup,
+        "unit": unit,
+        "container_name": container_name,
+        "compose_service": compose_service,
+        "podman_id": podman.get("id"),
+        "pids": item.get("pids"),
+        "names": names,
+        "workload_hint": workload,
+        "capability_role": role,
+        "protected": protected,
+        "route": item.get("route") or ("route_new_work_around_protected_capability" if protected else "operator_review_candidate"),
+        "memory_current_mib": item.get("memory_current_mib", _kib_to_mib(item.get("memory_current_kib"))),
+        "swap_current_mib": item.get("swap_current_mib", _kib_to_mib(item.get("swap_current_kib"))),
+        "process_pss_rollup_mib": item.get("process_pss_rollup_mib"),
+        "process_swap_rollup_mib": item.get("process_swap_rollup_mib"),
+    }
+
+
+def is_rerank_api_target(target: dict[str, Any]) -> bool:
+    if not isinstance(target, dict):
+        return False
+    names = " ".join(str(name or "") for name in target.get("names", []) if isinstance(target.get("names"), list))
+    haystack = " ".join(
+        str(value or "")
+        for value in (
+            target.get("label"),
+            target.get("unit"),
+            target.get("container_name"),
+            target.get("compose_service"),
+            target.get("cgroup"),
+            names,
+        )
+    ).lower()
+    return "rerank-api" in haystack
+
+
+def is_ovms_target(target: dict[str, Any]) -> bool:
+    if not isinstance(target, dict):
+        return False
+    names = " ".join(str(name or "") for name in target.get("names", []) if isinstance(target.get("names"), list))
+    haystack = " ".join(
+        str(value or "")
+        for value in (
+            target.get("label"),
+            target.get("unit"),
+            target.get("container_name"),
+            target.get("compose_service"),
+            target.get("cgroup"),
+            names,
+        )
+    ).lower()
+    return (
+        "ovms" in haystack
+        or "openvino/model_server" in haystack
+        or "openvino_model_server" in haystack
+        or "openvino-model-server" in haystack
+    )
+
+
+def orchestrate_action_candidates(
+    cgroup_memory_top: list[dict[str, Any]],
+    cgroup_swap_top: list[dict[str, Any]],
+    *,
+    protected_roles: set[str] | frozenset[str],
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for source, items in (("memory", cgroup_memory_top), ("swap", cgroup_swap_top)):
+        for raw in items:
+            if not isinstance(raw, dict):
+                continue
+            entry = orchestrate_cgroup_entry(raw, protected_roles=protected_roles)
+            key = str(entry.get("cgroup") or entry.get("label") or "")
+            if not key:
+                continue
+            current = merged.setdefault(key, entry)
+            current.setdefault("sources", [])
+            current["sources"].append(source)
+            for field in ("memory_current_mib", "swap_current_mib", "process_pss_rollup_mib", "process_swap_rollup_mib"):
+                value = _safe_float(entry.get(field), None)
+                if value is not None and value > float(current.get(field) or 0.0):
+                    current[field] = round(value, 1)
+            current["protected"] = bool(current.get("protected")) or bool(entry.get("protected"))
+            if entry.get("capability_role") != "none":
+                current["capability_role"] = entry.get("capability_role")
+            if entry.get("workload_hint") != "normal":
+                current["workload_hint"] = entry.get("workload_hint")
+
+    candidates: list[dict[str, Any]] = []
+    for entry in merged.values():
+        mem_mib = _safe_float(entry.get("memory_current_mib"), 0.0) or 0.0
+        swap_mib = _safe_float(entry.get("swap_current_mib"), 0.0) or 0.0
+        role = str(entry.get("capability_role") or "none")
+        workload = str(entry.get("workload_hint") or "normal")
+        protected = bool(entry.get("protected"))
+        if mem_mib < 256 and swap_mib < 512:
+            continue
+        if is_rerank_api_target(entry):
+            entry["capability_role"] = "persistent_model"
+            entry["workload_hint"] = "ai_runtime"
+            entry["protected"] = True
+            entry["route"] = "route_new_work_around_protected_capability"
+            role = "persistent_model"
+            workload = "ai_runtime"
+            protected = True
+            kind = "managed_model_dehydrate_rehydrate_candidate"
+            reason = "rerank-api OpenVINO model runtime has material RAM and can use its registered idle unload/recycle route"
+        elif role in {"persistent_ai_service", "operator_dictation"}:
+            kind = "protected_capability_residency_candidate"
+            reason = "operator-facing warm capability is material in RAM/zram and needs idle-aware handling"
+        elif role == "persistent_model" or (workload == "ai_runtime" and mem_mib >= 1024):
+            kind = "managed_model_dehydrate_rehydrate_candidate"
+            reason = "persistent model runtime has material RAM and/or zram footprint"
+        elif workload in {"development", "browser", "game_platform"}:
+            kind = "operator_session_app_review"
+            reason = "interactive session workload has material footprint; only operator can decide tradeoff"
+        elif protected:
+            kind = "protected_workload_review"
+            reason = "protected workload must be routed around, not mutated automatically"
+        else:
+            kind = "observe_or_gate_new_work"
+            reason = "workload is material but not enough evidence for a safe mutation route"
+        priority_score = max(mem_mib, swap_mib * 0.75)
+        candidates.append(
+            {
+                "id": "candidate_" + re.sub(r"[^a-z0-9]+", "_", str(entry.get("label") or "unknown").lower()).strip("_")[:80],
+                "kind": kind,
+                "status": "plan_only_requires_operator_confirmation",
+                "priority_score": round(priority_score, 1),
+                "reason": reason,
+                "target": entry,
+                "possible_effect": {
+                    "ram_reduction_requires_process_restart": mem_mib >= 512,
+                    "zram_reduction_requires_restart_or_page_reclaim": swap_mib >= 512,
+                    "cold_start_or_latency_risk": protected or workload == "ai_runtime",
+                },
+                "guards": [
+                    "must_be_idle_or_explicit_timeout",
+                    "one_heavy_service_at_a_time",
+                    "capture_before_after_memory_orchestrate_plan",
+                    "verify_health_and_latency_after_rehydrate",
+                ],
+                "apply_from_this_command": False,
+            }
+        )
+    candidates.sort(key=lambda item: float(item.get("priority_score") or 0.0), reverse=True)
+    return candidates[: max(3, min(int(limit), 40))]
+
+
+def orchestrate_find_candidate(plan: dict[str, Any], candidate_id: str) -> dict[str, Any] | None:
+    wanted = str(candidate_id or "").strip()
+    if not wanted:
+        return None
+    for item in plan.get("candidates", []) if isinstance(plan.get("candidates"), list) else []:
+        if isinstance(item, dict) and str(item.get("id") or "") == wanted:
+            return item
+    return None
+
+
+def confirmation_artifact_status(
+    candidate_id: str,
+    *,
+    confirm_latest_path: Path,
+    load_json_document: LoadJsonDocumentPort,
+    parse_time: ParseTimePort,
+    now: DateTimePort,
+) -> dict[str, Any]:
+    data, error = load_json_document(confirm_latest_path)
+    if not isinstance(data, dict):
+        return {
+            "available": False,
+            "status": "missing",
+            "reason": error or "latest confirmation artifact missing",
+            "path": str(confirm_latest_path),
+        }
+    requested = data.get("requested", {}) if isinstance(data.get("requested"), dict) else {}
+    contract = data.get("confirmation_contract", {}) if isinstance(data.get("confirmation_contract"), dict) else {}
+    subject = contract.get("subject", {}) if isinstance(contract.get("subject"), dict) else {}
+    artifact_candidate = str(requested.get("candidate_id") or subject.get("candidate_id") or "")
+    expires_at = parse_time(contract.get("expires_at"))
+    expired = bool(expires_at and expires_at < now())
+    candidate_match = artifact_candidate == str(candidate_id or "")
+    checks = data.get("checks", []) if isinstance(data.get("checks"), list) else []
+    blockers = [
+        item.get("id")
+        for item in checks
+        if isinstance(item, dict) and str(item.get("status") or "").startswith("block")
+    ]
+    ready = bool(data.get("ok")) and str(data.get("status") or "") == "contract_ready" and candidate_match and not expired and not blockers
+    return {
+        "available": True,
+        "ready": ready,
+        "status": data.get("status"),
+        "decision": data.get("decision"),
+        "path": str(confirm_latest_path),
+        "generated_at": data.get("generated_at"),
+        "expires_at": contract.get("expires_at"),
+        "expired": expired,
+        "candidate_match": candidate_match,
+        "candidate_id": artifact_candidate,
+        "operator": nested_get(contract, ["operator", "name"]),
+        "reason": contract.get("reason"),
+        "blockers": blockers,
+        "target_snapshot_digest": contract.get("current_target_snapshot_digest"),
+        "effective_confirmation": bool(nested_get(data, ["policy", "effective_confirmation"])),
+        "grant_valid_for_confirm": bool(nested_get(data, ["policy", "grant_valid_for_confirm"])),
+    }
+
+
+def confirmation_checks(
+    candidate: dict[str, Any],
+    idle_gate: dict[str, Any],
+    health: dict[str, Any],
+    operator: str,
+    reason: str,
+    acknowledge_protected: bool,
+) -> list[dict[str, Any]]:
+    target = candidate.get("target", {}) if isinstance(candidate.get("target"), dict) else {}
+    protected = bool(target.get("protected"))
+    operator_clean = str(operator or "").strip()
+    reason_clean = str(reason or "").strip()
+    health_status = str(health.get("status") or "missing")
+    return [
+        {
+            "id": "candidate_known",
+            "status": "pass",
+            "required": True,
+            "reason": "Candidate was selected from a fresh memory orchestrate plan.",
+            "evidence": {"candidate_id": candidate.get("id")},
+        },
+        {
+            "id": "protected_candidate_identified",
+            "status": "pass" if protected else "warn",
+            "required": False,
+            "reason": "Confirmation contract is mainly needed for protected capabilities.",
+            "evidence": {"protected": protected, "capability_role": target.get("capability_role")},
+        },
+        {
+            "id": "operator_identity_declared",
+            "status": "pass" if operator_clean else "block_confirm",
+            "required": True,
+            "reason": "The contract must state who is requesting the protected lifecycle operation.",
+            "evidence": {"operator": operator_clean or None},
+        },
+        {
+            "id": "reason_declared",
+            "status": "pass" if len(reason_clean) >= 8 else "block_confirm",
+            "required": True,
+            "reason": "The contract must state why dehydration/rehydration is being considered.",
+            "evidence": {"reason_chars": len(reason_clean)},
+        },
+        {
+            "id": "protected_acknowledgement",
+            "status": "pass" if (acknowledge_protected or not protected) else "block_confirm",
+            "required": protected,
+            "reason": "Protected candidates require an explicit acknowledgement that the route may cause cold-start or latency risk.",
+            "evidence": {"acknowledge_protected": bool(acknowledge_protected), "protected": protected},
+        },
+        {
+            "id": "idle_gate_passed",
+            "status": "pass" if bool(idle_gate.get("registered")) and bool(idle_gate.get("idle")) else "block_confirm",
+            "required": True,
+            "reason": idle_gate.get("reason") or "Target-specific idle gate must pass before protected lifecycle work.",
+            "evidence": {
+                "registered": bool(idle_gate.get("registered")),
+                "idle": bool(idle_gate.get("idle")),
+                "status": idle_gate.get("status"),
+                "confidence": idle_gate.get("confidence"),
+            },
+        },
+        {
+            "id": "health_probe_route_registered",
+            "status": "pass" if health_status == "available" else ("warn" if health_status == "partial" else "block_confirm"),
+            "required": True,
+            "reason": health.get("reason"),
+            "evidence": {"status": health_status, "command": health.get("command")},
+        },
+        {
+            "id": "before_after_probe_contract_declared",
+            "status": "pass",
+            "required": True,
+            "reason": "Confirmed lifecycle work must be bracketed by pre/post health and memory evidence.",
+            "evidence": {
+                "before": ["memory orchestrate plan", "memory orchestrate idle", "health route"],
+                "after": ["health route", "memory orchestrate plan"],
+            },
+        },
+        {
+            "id": "rollback_rehydrate_contract_declared",
+            "status": "pass",
+            "required": True,
+            "reason": "The future route is rehydrate-and-prove-health, not disable-and-forget.",
+            "evidence": {"required": ["executor return code", "target alive", "health probe", "memory plan compare"]},
+        },
+        {
+            "id": "no_mutation_from_confirmation_contract",
+            "status": "pass",
+            "required": True,
+            "reason": "This confirmation contract is dry-run evidence only and cannot mutate live services.",
+            "evidence": {"effective_confirmation": False, "grant_valid_for_confirm": False},
+        },
+    ]
+
+
+def target_identity_payload(candidate: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    target = candidate.get("target", {}) if isinstance(candidate.get("target"), dict) else {}
+    return {
+        "candidate_id": candidate.get("id"),
+        "kind": candidate.get("kind"),
+        "target": {
+            "label": target.get("label"),
+            "cgroup": target.get("cgroup"),
+            "unit": target.get("unit"),
+            "container_name": target.get("container_name"),
+            "compose_service": target.get("compose_service"),
+            "capability_role": target.get("capability_role"),
+            "workload_hint": target.get("workload_hint"),
+        },
+        "podman": {
+            "id": nested_get(snapshot, ["podman", "container", "id"]),
+            "name": nested_get(snapshot, ["podman", "container", "name"]),
+        },
+        "systemd": {
+            "unit": nested_get(snapshot, ["systemd", "unit"]),
+            "scope": nested_get(snapshot, ["systemd", "scope"]),
+            "control_group": nested_get(snapshot, ["systemd", "control_group"]),
+        },
+    }
+
+
+def target_identity_digest(candidate: dict[str, Any], snapshot: dict[str, Any]) -> str:
+    return _stable_hash_json(target_identity_payload(candidate, snapshot))
+
+
+def confirmation_contract(
+    candidate: dict[str, Any],
+    snapshot: dict[str, Any],
+    idle_gate: dict[str, Any],
+    health: dict[str, Any],
+    future_executor: dict[str, Any],
+    operator: str,
+    reason: str,
+    window_sec: int,
+    *,
+    now: DateTimePort,
+) -> dict[str, Any]:
+    current = now()
+    window_sec = max(60, min(int(window_sec or 300), 3600))
+    target = candidate.get("target", {}) if isinstance(candidate.get("target"), dict) else {}
+    return {
+        "subject": {
+            "candidate_id": candidate.get("id"),
+            "kind": candidate.get("kind"),
+            "target_label": target.get("label"),
+            "target_cgroup": target.get("cgroup"),
+            "unit": target.get("unit"),
+            "protected": bool(target.get("protected")),
+            "capability_role": target.get("capability_role"),
+            "workload_hint": target.get("workload_hint"),
+        },
+        "operator": {
+            "name": str(operator or "").strip() or None,
+            "source": "cli_flag",
+            "confirmed_at": current.isoformat(timespec="seconds"),
+        },
+        "reason": str(reason or "").strip() or None,
+        "expires_at": (current + dt.timedelta(seconds=window_sec)).isoformat(timespec="seconds"),
+        "window_sec": window_sec,
+        "required_before": [
+            {
+                "id": "fresh_memory_orchestrate_plan",
+                "command": "abyss-machine memory orchestrate plan --json",
+                "evidence": "same candidate id remains present and target is still alive",
+            },
+            {
+                "id": "idle_gate",
+                "command": "abyss-machine memory orchestrate idle --candidate ID --json",
+                "evidence": {
+                    "status": idle_gate.get("status"),
+                    "idle": bool(idle_gate.get("idle")),
+                    "confidence": idle_gate.get("confidence"),
+                },
+            },
+            {
+                "id": "pre_health_probe",
+                "command": health.get("command"),
+                "evidence": health.get("kind"),
+            },
+        ],
+        "future_executor": future_executor,
+        "required_after": [
+            {
+                "id": "post_health_probe",
+                "command": health.get("command"),
+                "evidence": "same route succeeds after rehydrate",
+            },
+            {
+                "id": "post_memory_plan_compare",
+                "command": "abyss-machine memory orchestrate plan --json",
+                "evidence": "RAM/zram/cgroup deltas captured after rehydrate",
+            },
+            {
+                "id": "target_alive_after_rehydrate",
+                "evidence": "cgroup/systemd/podman target exists and health route is available",
+            },
+        ],
+        "rollback_or_rehydrate_proof": {
+            "required": True,
+            "proof_items": [
+                "executor return code",
+                "target alive",
+                "health probe success",
+                "memory plan after-state",
+                "no new PSI stall",
+            ],
+        },
+        "current_target_snapshot_digest": target_identity_digest(candidate, snapshot),
+        "current_target_snapshot_digest_basis": "stable target label/cgroup/unit plus podman container identity; excludes dynamic memory counters and PID list",
+        "invariants": [
+            "do not stop or restart protected capability without explicit operator route",
+            "do not disable, demote, throttle, re-affinitize, cap, swapoff, drop caches, tune sysctl, or reconfigure zram",
+            "one heavy model/service lifecycle operation at a time",
+            "confirmed apply must re-check idle and health immediately before mutation",
+        ],
+    }
+
+
+def health_route(candidate: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    target = candidate.get("target", {}) if isinstance(candidate.get("target"), dict) else {}
+    unit = str(target.get("unit") or "")
+    role = str(target.get("capability_role") or "")
+    kind = str(candidate.get("kind") or "")
+    names = " ".join(str(name or "") for name in target.get("names", []) if isinstance(target.get("names"), list))
+    haystack = f"{unit} {role} {kind} {names}".lower()
+    if is_rerank_api_target(target):
+        endpoint = podman_http_endpoint(snapshot)
+        command = None
+        if endpoint.get("available"):
+            command = f"curl -fsS {str(endpoint.get('base_url')).rstrip('/')}/health"
+        return {
+            "status": "available" if endpoint.get("available") else "missing",
+            "kind": "rerank_api_probe",
+            "command": command,
+            "reason": "rerank-api health exposes loaded state and active request count for before/after recycle proof.",
+        }
+    if is_ovms_target(target):
+        endpoint = podman_http_endpoint(snapshot)
+        command = None
+        if endpoint.get("available"):
+            command = f"curl -fsS {str(endpoint.get('base_url')).rstrip('/')}/v2/health/ready"
+        return {
+            "status": "available" if endpoint.get("available") else "missing",
+            "kind": "ovms_probe",
+            "command": command,
+            "reason": "OVMS live/ready health plus /v1/config model status expose enough before/after proof when combined with cgroup CPU idle gating.",
+        }
+    if "dictation" in haystack or "tts" in haystack:
+        return {
+            "status": "available",
+            "kind": "protected_hotpath",
+            "command": "abyss-machine memory hotpath-probe --json",
+            "reason": "TTS/dictation health must be bracketed by the synthetic hot-path probe.",
+        }
+    if "gemma" in haystack or "llama" in haystack or role == "persistent_model":
+        return {
+            "status": "available",
+            "kind": "resident_llm_probe",
+            "command": "abyss-machine memory hotpath-probe --include-llm --llm-limit 4 --json",
+            "reason": "Resident LLM model changes need before/after model micro evidence plus protected hot-path evidence.",
+        }
+    if nested_get(snapshot, ["podman", "container"]):
+        return {
+            "status": "partial",
+            "kind": "container_state_probe",
+            "command": "podman inspect CONTAINER_ID",
+            "reason": "Container state is observable, but no workload-specific idle and latency probe is registered yet.",
+        }
+    return {
+        "status": "missing",
+        "kind": "unknown_target_probe",
+        "command": None,
+        "reason": "No target-specific health route is known for confirmed apply.",
+    }
+
+
+def future_executor(candidate: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    target = candidate.get("target", {}) if isinstance(candidate.get("target"), dict) else {}
+    kind = str(candidate.get("kind") or "")
+    unit = str(target.get("unit") or "")
+    podman_id = podman_id_from_target(target)
+    if kind == "managed_model_dehydrate_rehydrate_candidate" and is_rerank_api_target(target):
+        endpoint = podman_http_endpoint(snapshot)
+        base_url = str(endpoint.get("base_url") or "").rstrip("/")
+        if endpoint.get("available") and base_url:
+            return {
+                "enabled": True,
+                "kind": "rerank_api_idle_unload",
+                "container": nested_get(snapshot, ["podman", "container", "name"]) or target.get("container_name") or (podman_id[:12] if podman_id else None),
+                "command_template": ["http_post_json", f"{base_url}/admin/unload?exit_process=true"],
+                "reason": "Confirmed live apply may ask rerank-api to unload and recycle its process; container restart policy returns the lightweight API.",
+            }
+        return {
+            "enabled": False,
+            "kind": "rerank_api_idle_unload",
+            "container": target.get("container_name") or (podman_id[:12] if podman_id else None),
+            "command_template": None,
+            "reason": "rerank-api target detected, but no localhost HTTP endpoint is available from podman inspect.",
+        }
+    if kind == "protected_capability_residency_candidate":
+        return {
+            "enabled": False,
+            "kind": "protected_capability_manual_route",
+            "reason": "Protected TTS/dictation-style capabilities need an explicit operator opt-in, idle gate, and before/after hot-path proof.",
+            "command_template": None,
+        }
+    if kind == "managed_model_dehydrate_rehydrate_candidate" and unit.endswith(".service"):
+        return {
+            "enabled": False,
+            "kind": "systemd_user_service_rehydrate",
+            "unit": unit,
+            "command_template": ["systemctl", "--user", "restart", unit],
+            "reason": "Future confirmed apply may restart a managed model service only after idle and health guards pass.",
+        }
+    if kind == "managed_model_dehydrate_rehydrate_candidate" and podman_id:
+        name = nested_get(snapshot, ["podman", "container", "name"])
+        container_ref = str(name or podman_id[:12]).lstrip("/")
+        return {
+            "enabled": True,
+            "kind": "podman_container_rehydrate",
+            "container": container_ref,
+            "command_template": ["podman", "restart", container_ref],
+            "reason": "Confirmed live apply may restart this managed model container only after all idle, health, confirmation, and live acknowledgement guards pass.",
+        }
+    return {
+        "enabled": False,
+        "kind": "operator_review_only",
+        "reason": "This target is not a managed-model executor candidate.",
+        "command_template": None,
+    }
+
+
+def idle_gate_current_health(idle_gate: dict[str, Any]) -> dict[str, Any]:
+    signals = idle_gate.get("signals") if isinstance(idle_gate.get("signals"), dict) else {}
+    for key in ("rerank_http", "ovms_http", "llama_http"):
+        health = nested_get(signals, [key, "health"])
+        if isinstance(health, dict) and health:
+            return health
+    return {}
+
+
+def guard_summary(guards: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for guard in guards:
+        status = str(guard.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return {
+        "counts": dict(sorted(counts.items())),
+        "confirm_blockers": [guard.get("id") for guard in guards if str(guard.get("status") or "").startswith("block")],
+        "warnings": [guard.get("id") for guard in guards if guard.get("status") == "warn"],
+    }
+
+
+def executor_preflight_checks(
+    plan: dict[str, Any],
+    candidate: dict[str, Any],
+    snapshot: dict[str, Any],
+    idle_gate: dict[str, Any],
+    health: dict[str, Any],
+    confirmation_status: dict[str, Any],
+    future_executor_doc: dict[str, Any],
+    lock_status: dict[str, Any],
+) -> list[dict[str, Any]]:
+    summary = plan.get("summary", {}) if isinstance(plan.get("summary"), dict) else {}
+    psi_some = _safe_float(summary.get("psi_some_avg10"), 0.0) or 0.0
+    psi_full = _safe_float(summary.get("psi_full_avg10"), 0.0) or 0.0
+    alive_count = int(nested_get(snapshot, ["pids", "alive_count"]) or 0)
+    cgroup_exists = bool(nested_get(snapshot, ["cgroup", "exists"]))
+    health_status = str(health.get("status") or "missing")
+    current_digest = target_identity_digest(candidate, snapshot)
+    contract_digest = str(confirmation_status.get("target_snapshot_digest") or "")
+    current_health = idle_gate_current_health(idle_gate)
+    current_health_ok = bool(current_health.get("ok")) if isinstance(current_health, dict) else health_status == "available"
+    command_template = future_executor_doc.get("command_template") if isinstance(future_executor_doc.get("command_template"), list) else None
+    return [
+        {
+            "id": "confirmation_contract_current",
+            "status": "pass" if bool(confirmation_status.get("ready")) else "block_live_stage",
+            "required": True,
+            "reason": "A current, matching, non-expired confirmation contract must exist before executor preflight can proceed.",
+            "evidence": {
+                "available": confirmation_status.get("available"),
+                "ready": confirmation_status.get("ready"),
+                "expired": confirmation_status.get("expired"),
+                "candidate_match": confirmation_status.get("candidate_match"),
+                "expires_at": confirmation_status.get("expires_at"),
+                "operator": confirmation_status.get("operator"),
+            },
+        },
+        {
+            "id": "confirmation_contract_non_grant",
+            "status": "pass" if not confirmation_status.get("effective_confirmation") and not confirmation_status.get("grant_valid_for_confirm") else "block_live_stage",
+            "required": True,
+            "reason": "The current layer records confirmation evidence but still must not treat it as live mutation authority.",
+            "evidence": {
+                "effective_confirmation": confirmation_status.get("effective_confirmation"),
+                "grant_valid_for_confirm": confirmation_status.get("grant_valid_for_confirm"),
+            },
+        },
+        {
+            "id": "target_identity_rechecked",
+            "status": "pass" if contract_digest and contract_digest == current_digest else "block_live_stage",
+            "required": True,
+            "reason": "The target identity must match the confirmation contract immediately before any lifecycle executor.",
+            "evidence": {
+                "contract_digest": contract_digest or None,
+                "current_digest": current_digest,
+            },
+        },
+        {
+            "id": "target_still_alive",
+            "status": "pass" if alive_count > 0 or cgroup_exists else "block_live_stage",
+            "required": True,
+            "reason": "The target must still exist immediately before any lifecycle executor.",
+            "evidence": {"alive_pids": alive_count, "cgroup_exists": cgroup_exists},
+        },
+        {
+            "id": "idle_rechecked_immediately_before",
+            "status": "pass" if bool(idle_gate.get("registered")) and bool(idle_gate.get("idle")) else "block_live_stage",
+            "required": True,
+            "reason": idle_gate.get("reason") or "Idle gate must pass immediately before any lifecycle executor.",
+            "evidence": {
+                "registered": idle_gate.get("registered"),
+                "idle": idle_gate.get("idle"),
+                "status": idle_gate.get("status"),
+                "confidence": idle_gate.get("confidence"),
+            },
+        },
+        {
+            "id": "current_health_signal_rechecked",
+            "status": "pass" if current_health_ok and health_status == "available" else "block_live_stage",
+            "required": True,
+            "reason": "The health route or embedded model health signal must be available immediately before mutation.",
+            "evidence": {
+                "health_route_status": health_status,
+                "health_route_command": health.get("command"),
+                "embedded_current_health": current_health if isinstance(current_health, dict) else None,
+            },
+        },
+        {
+            "id": "no_active_memory_stalls",
+            "status": "pass" if psi_some <= 2.0 and psi_full <= 0.5 else "block_live_stage",
+            "required": True,
+            "reason": "Executor preflight must not proceed while PSI indicates active memory stalls.",
+            "evidence": {"psi_some_avg10": psi_some, "psi_full_avg10": psi_full},
+        },
+        {
+            "id": "one_heavy_service_lock_available",
+            "status": "pass" if bool(lock_status.get("available")) else "block_live_stage",
+            "required": True,
+            "reason": "Future live executor must serialize heavy model/service lifecycle work.",
+            "evidence": lock_status,
+        },
+        {
+            "id": "executor_command_declared",
+            "status": "pass" if command_template else "block_live_stage",
+            "required": True,
+            "reason": "The future executor command must be explicit and target-specific.",
+            "evidence": {
+                "kind": future_executor_doc.get("kind"),
+                "command_template": command_template,
+                "enabled": future_executor_doc.get("enabled"),
+            },
+        },
+        {
+            "id": "before_after_probe_contract_present",
+            "status": "pass" if health.get("command") else "block_live_stage",
+            "required": True,
+            "reason": "Executor preflight requires before/after health and memory evidence routes.",
+            "evidence": {
+                "before": ["memory orchestrate plan", "memory orchestrate idle", health.get("command")],
+                "after": [health.get("command"), "memory orchestrate plan"],
+            },
+        },
+        {
+            "id": "live_executor_stage_disabled",
+            "status": "block_live_stage",
+            "required": True,
+            "reason": "This invocation stops at confirmed executor preflight unless the separate live executor interlock is explicitly requested.",
+            "evidence": {
+                "live_executor_supported": True,
+                "requires_execute_live": True,
+                "requires_acknowledge_live_restart": True,
+                "existing_process_mutation": False,
+                "live_command": "abyss-machine memory orchestrate apply --candidate ID --confirm --execute-live --acknowledge-live-restart --operator NAME --reason TEXT --json",
+            },
+        },
+    ]
+
+
+def apply_guard_rows(
+    plan: dict[str, Any],
+    candidate: dict[str, Any],
+    snapshot: dict[str, Any],
+    idle_gate: dict[str, Any],
+    health: dict[str, Any],
+    confirmation_status: dict[str, Any],
+    dry_run: bool,
+    confirm: bool,
+) -> list[dict[str, Any]]:
+    target = candidate.get("target", {}) if isinstance(candidate.get("target"), dict) else {}
+    summary = plan.get("summary", {}) if isinstance(plan.get("summary"), dict) else {}
+    protected = bool(target.get("protected"))
+    psi_some = _safe_float(summary.get("psi_some_avg10"), 0.0) or 0.0
+    psi_full = _safe_float(summary.get("psi_full_avg10"), 0.0) or 0.0
+    alive_count = int(nested_get(snapshot, ["pids", "alive_count"]) or 0)
+    cgroup_exists = bool(nested_get(snapshot, ["cgroup", "exists"]))
+    health_status = str(health.get("status") or "missing")
+    idle_registered = bool(idle_gate.get("registered"))
+    idle_status = str(idle_gate.get("status") or "not_registered")
+    idle_now = bool(idle_gate.get("idle"))
+    confirmation_ready = bool(confirmation_status.get("ready"))
+    return [
+        {
+            "id": "dry_run_mode",
+            "status": "pass" if (dry_run or confirm) else "block",
+            "required": True,
+            "reason": "Apply is dry-run by default; confirmed apply is still non-mutating unless the separate live executor interlock is requested.",
+            "evidence": {"dry_run": dry_run, "confirm": confirm},
+        },
+        {
+            "id": "candidate_known",
+            "status": "pass",
+            "required": True,
+            "reason": "Candidate was selected from a fresh memory orchestrate plan.",
+            "evidence": {"candidate_id": candidate.get("id")},
+        },
+        {
+            "id": "target_still_alive",
+            "status": "pass" if alive_count > 0 or cgroup_exists else "warn",
+            "required": False,
+            "reason": "The target should still exist before any confirmed lifecycle operation.",
+            "evidence": {"alive_pids": alive_count, "cgroup_exists": cgroup_exists},
+        },
+        {
+            "id": "no_active_memory_stalls",
+            "status": "pass" if psi_some <= 2.0 and psi_full <= 0.5 else "block_confirm",
+            "required": True,
+            "reason": "Confirmed lifecycle changes should not start while PSI indicates active memory stalls.",
+            "evidence": {"psi_some_avg10": psi_some, "psi_full_avg10": psi_full},
+        },
+        {
+            "id": "idle_detection_registered",
+            "status": "pass" if idle_registered else "block_confirm",
+            "required": True,
+            "reason": idle_gate.get("reason") or "Confirmed apply needs target-specific idle/in-flight detection.",
+            "evidence": {
+                "implemented": idle_registered,
+                "status": idle_status,
+                "confidence": idle_gate.get("confidence"),
+            },
+        },
+        {
+            "id": "target_idle_now",
+            "status": "pass" if idle_registered and idle_now else "block_confirm",
+            "required": True,
+            "reason": "Confirmed apply may only proceed when the target-specific idle gate says the model is idle now.",
+            "evidence": {
+                "idle": idle_now,
+                "status": idle_status,
+                "confidence": idle_gate.get("confidence"),
+            },
+        },
+        {
+            "id": "health_probe_route_registered",
+            "status": "pass" if health_status == "available" else ("warn" if health_status == "partial" else "block_confirm"),
+            "required": True,
+            "reason": health.get("reason"),
+            "evidence": {"status": health_status, "command": health.get("command")},
+        },
+        {
+            "id": "protected_capability_confirmation",
+            "status": "pass" if (not protected or confirmation_ready) else "block_confirm",
+            "required": protected,
+            "reason": "Protected capabilities require an explicit, current confirmation contract before any future mutation.",
+            "evidence": {
+                "protected": protected,
+                "capability_role": target.get("capability_role"),
+                "confirmation_ready": confirmation_ready,
+                "confirmation_status": confirmation_status.get("status"),
+                "confirmation_operator": confirmation_status.get("operator"),
+                "confirmation_expires_at": confirmation_status.get("expires_at"),
+                "effective_confirmation": confirmation_status.get("effective_confirmation"),
+                "grant_valid_for_confirm": confirmation_status.get("grant_valid_for_confirm"),
+            },
+        },
+        {
+            "id": "one_heavy_service_at_a_time",
+            "status": "pass",
+            "required": True,
+            "reason": "A confirmed executor must serialize model/service lifecycle operations.",
+            "evidence": {"planned": True},
+        },
+        {
+            "id": "rollback_route_declared",
+            "status": "pass",
+            "required": True,
+            "reason": "The future route is rehydrate-and-verify, not disable-and-forget.",
+            "evidence": {"rollback_kind": "restart_or_rehydrate_then_hotpath_probe"},
+        },
+    ]
+
+
+def apply_steps(
+    candidate: dict[str, Any],
+    health: dict[str, Any],
+    idle_gate: dict[str, Any],
+    future_executor_doc: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "order": 1,
+            "id": "capture_fresh_plan",
+            "status": "completed",
+            "command": "abyss-machine memory orchestrate plan --json",
+            "mutates_existing_processes": False,
+        },
+        {
+            "order": 2,
+            "id": "select_candidate",
+            "status": "completed",
+            "candidate_id": candidate.get("id"),
+            "mutates_existing_processes": False,
+        },
+        {
+            "order": 3,
+            "id": "pre_hotpath_probe",
+            "status": "available" if health.get("command") else "missing_for_confirm",
+            "command": health.get("command"),
+            "mutates_existing_processes": False,
+        },
+        {
+            "order": 4,
+            "id": "idle_gate",
+            "status": idle_gate.get("status") or "not_registered",
+            "idle": bool(idle_gate.get("idle")),
+            "confidence": idle_gate.get("confidence"),
+            "mutates_existing_processes": False,
+        },
+        {
+            "order": 5,
+            "id": "dehydrate_rehydrate",
+            "status": "not_executed_dry_run",
+            "future_executor": future_executor_doc,
+            "mutates_existing_processes": False,
+        },
+        {
+            "order": 6,
+            "id": "post_hotpath_probe",
+            "status": "available" if health.get("command") else "missing_for_confirm",
+            "command": health.get("command"),
+            "mutates_existing_processes": False,
+        },
+        {
+            "order": 7,
+            "id": "post_memory_plan_compare",
+            "status": "planned_for_confirmed_apply",
+            "command": "abyss-machine memory orchestrate plan --json",
+            "mutates_existing_processes": False,
+        },
+    ]
+
+
+def live_authorization_checks(
+    candidate: dict[str, Any],
+    snapshot: dict[str, Any],
+    idle_gate: dict[str, Any],
+    health: dict[str, Any],
+    future_executor_doc: dict[str, Any],
+    executor_preflight: dict[str, Any] | None,
+    confirm: bool,
+    execute_live: bool,
+    acknowledge_live_restart: bool,
+    operator: str,
+    reason: str,
+) -> list[dict[str, Any]]:
+    target = candidate.get("target", {}) if isinstance(candidate.get("target"), dict) else {}
+    kind = str(candidate.get("kind") or "")
+    role = str(target.get("capability_role") or "")
+    operator_clean = str(operator or "").strip()
+    reason_clean = str(reason or "").strip()
+    executor_kind = str(future_executor_doc.get("kind") or "")
+    command_template = future_executor_doc.get("command_template") if isinstance(future_executor_doc.get("command_template"), list) else None
+    names = " ".join(str(name or "") for name in target.get("names", []) if isinstance(target.get("names"), list))
+    haystack = f"{target.get('label') or ''} {target.get('unit') or ''} {target.get('cgroup') or ''} {role} {kind} {names}".lower()
+    rerank_api = is_rerank_api_target(target)
+    protected_hotpath = "tts" in haystack or "dictation" in haystack
+    preflight_ready = bool((executor_preflight or {}).get("preflight_ready_except_live_stage"))
+    preflight_live_only = bool((executor_preflight or {}).get("blocked_only_by_live_stage_disabled"))
+    podman_running = bool(nested_get(snapshot, ["podman", "container", "running"]))
+    idle_ok = bool(idle_gate.get("registered")) and bool(idle_gate.get("idle"))
+    health_status = str(health.get("status") or "missing")
+    return [
+        {
+            "id": "execute_live_flag_present",
+            "status": "pass" if execute_live else "block_live",
+            "required": True,
+            "reason": "Live restart is a separate explicit interlock, not implied by confirmation preflight.",
+            "evidence": {"execute_live": bool(execute_live)},
+        },
+        {
+            "id": "confirm_mode_required",
+            "status": "pass" if confirm else "block_live",
+            "required": True,
+            "reason": "Live executor can only run after the confirmed executor preflight route.",
+            "evidence": {"confirm": bool(confirm)},
+        },
+        {
+            "id": "live_restart_acknowledged",
+            "status": "pass" if acknowledge_live_restart else "block_live",
+            "required": True,
+            "reason": "The operator must explicitly acknowledge that this can restart the selected resident model.",
+            "evidence": {"acknowledge_live_restart": bool(acknowledge_live_restart)},
+        },
+        {
+            "id": "operator_identity_declared",
+            "status": "pass" if operator_clean else "block_live",
+            "required": True,
+            "reason": "The live executor audit trail must state who requested the mutation.",
+            "evidence": {"operator": operator_clean or None},
+        },
+        {
+            "id": "reason_declared",
+            "status": "pass" if len(reason_clean) >= 8 else "block_live",
+            "required": True,
+            "reason": "The live executor audit trail must state why the restart/rehydrate is being run.",
+            "evidence": {"reason_chars": len(reason_clean)},
+        },
+        {
+            "id": "managed_model_candidate_only",
+            "status": "pass" if kind == "managed_model_dehydrate_rehydrate_candidate" else "block_live",
+            "required": True,
+            "reason": "The current live executor is intentionally limited to managed model candidates.",
+            "evidence": {"candidate_kind": kind},
+        },
+        {
+            "id": "protected_hotpath_excluded",
+            "status": "pass" if not protected_hotpath else "block_live",
+            "required": True,
+            "reason": "TTS and dictation are protected operator-facing capabilities and are not live-executor targets here.",
+            "evidence": {"haystack_contains_tts_or_dictation": protected_hotpath},
+        },
+        {
+            "id": "persistent_model_target",
+            "status": "pass" if role == "persistent_model" else "block_live",
+            "required": True,
+            "reason": "Live executor support is scoped to resident persistent model runtimes.",
+            "evidence": {"capability_role": role},
+        },
+        {
+            "id": "confirmed_executor_preflight_ready",
+            "status": "pass" if preflight_ready and preflight_live_only else "block_live",
+            "required": True,
+            "reason": "All immediate preflight checks must pass, with only the invocation-level live-stage blocker remaining.",
+            "evidence": {
+                "preflight_ready_except_live_stage": preflight_ready,
+                "blocked_only_by_live_stage_disabled": preflight_live_only,
+            },
+        },
+        {
+            "id": "executor_supported",
+            "status": "pass" if executor_kind in {"podman_container_rehydrate", "rerank_api_idle_unload"} else "block_live",
+            "required": True,
+            "reason": "Live implementation supports podman managed-model restarts and rerank-api idle unload/recycle.",
+            "evidence": {"executor_kind": executor_kind, "command_template": command_template},
+        },
+        {
+            "id": "target_running_now",
+            "status": "pass" if podman_running else "block_live",
+            "required": True,
+            "reason": "The target container must be running before a restart/rehydrate operation.",
+            "evidence": {"podman_running": podman_running, "pid": nested_get(snapshot, ["podman", "container", "pid"])},
+        },
+        {
+            "id": "idle_and_health_current",
+            "status": "pass" if idle_ok and health_status == "available" else "block_live",
+            "required": True,
+            "reason": "Idle and health must be rechecked immediately before the live restart.",
+            "evidence": {
+                "idle_registered": bool(idle_gate.get("registered")),
+                "idle": bool(idle_gate.get("idle")),
+                "idle_status": idle_gate.get("status"),
+                "health_route_status": health_status,
+            },
+        },
+        {
+            "id": "command_template_sane",
+            "status": "pass" if (
+                (
+                    command_template
+                    and len(command_template) == 3
+                    and command_template[:2] == ["podman", "restart"]
+                    and bool(command_template[2])
+                )
+                or (
+                    rerank_api
+                    and command_template
+                    and len(command_template) == 2
+                    and command_template[0] == "http_post_json"
+                    and str(command_template[1]).endswith("/admin/unload?exit_process=true")
+                )
+            ) else "block_live",
+            "required": True,
+            "reason": "The executor command must be a narrow podman restart or the registered rerank-api unload endpoint.",
+            "evidence": {"command_template": command_template},
+        },
+    ]
 
 
 def podman_id_from_target(target: dict[str, Any]) -> str | None:
