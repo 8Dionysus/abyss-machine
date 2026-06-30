@@ -136,9 +136,10 @@ confirmed unlink execution, protected/latest candidate refusal, mutation
 receipts, latest/history writes, and validate latest writes live in
 `abyss_machine.nervous_retention_adapters`. Nervous screenshot
 recurring-extension query policy and capture backend plan contracts live in
-`abyss_machine.nervous_screenshot`; GNOME extension status probes, process/X11
-risk probes, file writes, capture execution, artifact hashing, and fact writes
-remain at the CLI edge. Nervous rerank profile/defaults, source-prior scoring,
+`abyss_machine.nervous_screenshot`; GNOME extension status probes, allowlisted
+DBus screenshot execution, X11 active/game-risk window probes, capture command
+execution, artifact-source callbacks, and public-safe screenshot fact assembly
+live in `abyss_machine.nervous_screenshot_adapters`. Nervous rerank profile/defaults, source-prior scoring,
 machine-query caps, merge policy, hybrid result scoring, neural text shaping,
 neural config normalization, guarded neural-score blending, and eval document
 envelopes live in

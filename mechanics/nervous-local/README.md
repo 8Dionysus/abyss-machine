@@ -58,6 +58,12 @@ synthesis latest/period JSONL/markdown writes, synthesis validate latest
 routing, eval latest/history routing, and eval validate latest routing through
 fakeable ports. CLI still owns privacy refusal, concrete path binding, and
 eval dependency command orchestration.
+`abyss_machine.nervous_screenshot_adapters` now owns screenshot live probe and
+capture execution routing: GNOME extension status probes, allowlisted DBus
+screenshot execution, X11 active/game-risk window probes, game-safe capture
+command execution, and public-safe fact assembly through fakeable ports. CLI
+still owns source-policy/env/path binding, process callbacks, fact routing, and
+rendering.
 `abyss_machine.nervous_semantic_adapters` now owns the semantic sidecar
 lifecycle/source-loading/write seam plus embedding execution: semantic DB
 connection/init/counts, file locks, source-chunk loading from the lexical
