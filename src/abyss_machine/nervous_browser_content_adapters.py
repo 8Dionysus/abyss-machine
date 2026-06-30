@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 import os
 import re
+import socket
+import struct
 import warnings
 from pathlib import Path
 from typing import Any, Callable
@@ -21,6 +24,74 @@ EnvIntPort = Callable[[str, int, int, int], int]
 AtspiLoaderPort = Callable[[], Any]
 StorePagePort = Callable[..., dict[str, Any]]
 WebContextSummaryPort = Callable[[list[dict[str, Any]]], dict[str, Any]]
+WebSocketConnectPort = Callable[..., Any]
+BidiCallPort = Callable[[Any, int, str, dict[str, Any]], dict[str, Any]]
+
+
+BROWSER_CONTENT_CAPTURE_SCRIPT = r"""
+(() => {
+  const maxChars = 120000;
+  const reasons = [];
+  const sensitiveSelectors = [
+    'input[type="password"]',
+    'input[autocomplete*="password" i]',
+    'input[name*="password" i]',
+    'input[id*="password" i]',
+    'input[name*="passwd" i]',
+    'input[name*="token" i]',
+    'input[name*="secret" i]',
+    'input[name*="otp" i]',
+    'input[name*="2fa" i]',
+    'input[name*="mfa" i]',
+    'textarea[name*="secret" i]',
+    'textarea[name*="token" i]'
+  ];
+  const hasSensitiveFields = !!document.querySelector(sensitiveSelectors.join(','));
+  if (hasSensitiveFields) {
+    reasons.push('sensitive_form_field');
+  }
+  const url = String(location.href || '');
+  const title = String(document.title || '');
+  const sensitiveLocation = /\b(login|sign[\s_-]?in|auth|oauth|password|passwd|2fa|mfa|otp|checkout|billing|bank|token)\b/i.test(`${url} ${title}`);
+  if (sensitiveLocation) {
+    reasons.push('url_or_title_sensitive');
+  }
+  function normalizeText(value) {
+    return String(value || '')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t\f\v]+/g, ' ')
+      .replace(/ *\n */g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+  let text = '';
+  if (!hasSensitiveFields && !sensitiveLocation) {
+    const source = document.body || document.documentElement;
+    if (source) {
+      const root = source.cloneNode(true);
+      root.querySelectorAll('script,style,noscript,svg,canvas,template,input,textarea,select,button,[contenteditable="true"],[role="textbox"],[aria-multiline="true"]').forEach((node) => node.remove());
+      text = normalizeText(root.innerText || root.textContent || '');
+    }
+  }
+  return {
+    schema: 'abyss_browser_page_capture_v1',
+    captured_at: new Date().toISOString(),
+    url,
+    title,
+    lang: document.documentElement ? String(document.documentElement.lang || '') : '',
+    content_type: String(document.contentType || ''),
+    visibility_state: String(document.visibilityState || ''),
+    has_sensitive_fields: hasSensitiveFields,
+    sensitive_reason: reasons,
+    text: text.slice(0, maxChars),
+    text_length: text.length,
+    text_truncated: text.length > maxChars,
+    form_values_captured: false,
+    cookies_captured: false,
+    local_storage_captured: false
+  };
+})()
+"""
 
 
 def browser_content_jsonl_path(
@@ -617,6 +688,296 @@ def browser_accessibility_capture(
             data.setdefault("write_errors", []).append(error)
             data["ok"] = False
     return data
+
+
+def websocket_url_parts(url: str) -> tuple[str, int, str]:
+    match = re.fullmatch(r"ws://([^/:]+)(?::(\d+))?(/.*)?", str(url or ""))
+    if not match:
+        raise ValueError("only ws://host[:port]/path Firefox BiDi URLs are supported")
+    host = match.group(1)
+    port = int(match.group(2) or 80)
+    path = match.group(3) or "/session"
+    return host, port, path
+
+
+def websocket_read_exact(sock: Any, size: int) -> bytes:
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(size - len(data))
+        if not chunk:
+            raise OSError("websocket closed")
+        data += chunk
+    return data
+
+
+def websocket_send_frame(
+    sock: Any,
+    opcode: int,
+    payload: bytes,
+    *,
+    mask_bytes: bytes | None = None,
+) -> None:
+    header = bytearray([0x80 | (opcode & 0x0F)])
+    length = len(payload)
+    if length < 126:
+        header.append(0x80 | length)
+    elif length < 65536:
+        header.extend([0x80 | 126])
+        header.extend(struct.pack("!H", length))
+    else:
+        header.extend([0x80 | 127])
+        header.extend(struct.pack("!Q", length))
+    mask = mask_bytes if mask_bytes is not None else os.urandom(4)
+    if len(mask) != 4:
+        raise ValueError("websocket mask must be exactly 4 bytes")
+    header.extend(mask)
+    sock.sendall(bytes(header) + bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload)))
+
+
+def websocket_send_json(sock: Any, payload: dict[str, Any], *, mask_bytes: bytes | None = None) -> None:
+    websocket_send_frame(
+        sock,
+        0x1,
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        mask_bytes=mask_bytes,
+    )
+
+
+def websocket_recv_json(sock: Any) -> dict[str, Any]:
+    parts: list[bytes] = []
+    while True:
+        first, second = websocket_read_exact(sock, 2)
+        fin = bool(first & 0x80)
+        opcode = first & 0x0F
+        masked = bool(second & 0x80)
+        length = second & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", websocket_read_exact(sock, 2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", websocket_read_exact(sock, 8))[0]
+        mask = websocket_read_exact(sock, 4) if masked else b""
+        payload = websocket_read_exact(sock, length) if length else b""
+        if masked:
+            payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+        if opcode == 0x8:
+            raise OSError("websocket close frame received")
+        if opcode == 0x9:
+            websocket_send_frame(sock, 0xA, payload)
+            continue
+        if opcode in {0x1, 0x0}:
+            parts.append(payload)
+        if fin:
+            return json.loads(b"".join(parts).decode("utf-8", errors="replace"))
+
+
+def websocket_connect(url: str, timeout: float = 1.5) -> socket.socket:
+    host, port, path = websocket_url_parts(url)
+    sock = socket.create_connection((host, port), timeout=timeout)
+    sock.settimeout(timeout)
+    key = base64.b64encode(os.urandom(16)).decode("ascii")
+    request = (
+        f"GET {path} HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {key}\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n"
+    )
+    sock.sendall(request.encode("ascii"))
+    response = b""
+    while b"\r\n\r\n" not in response:
+        response += sock.recv(4096)
+        if len(response) > 16384:
+            raise OSError("oversized websocket handshake")
+    status_line = response.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
+    if " 101 " not in status_line:
+        body = response.split(b"\r\n\r\n", 1)[-1].decode("utf-8", errors="replace")
+        raise OSError(f"websocket handshake failed: {status_line} {body[:200]}")
+    return sock
+
+
+def bidi_call(sock: Any, request_id: int, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    websocket_send_json(sock, {"id": request_id, "method": method, "params": params})
+    while True:
+        message = websocket_recv_json(sock)
+        if message.get("id") == request_id:
+            if message.get("type") == "error":
+                raise OSError(f"{method} failed: {message.get('error')} {message.get('message')}")
+            return message
+
+
+def bidi_decode_value(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    value_type = value.get("type")
+    if value_type in {"string", "number", "boolean", "bigint"}:
+        return value.get("value")
+    if value_type in {"null", "undefined"}:
+        return None
+    if value_type == "array":
+        return [bidi_decode_value(item) for item in value.get("value") or []]
+    if value_type == "object":
+        decoded: dict[str, Any] = {}
+        for pair in value.get("value") or []:
+            if not isinstance(pair, list) or len(pair) != 2:
+                continue
+            key = pair[0]
+            if isinstance(key, dict):
+                key = bidi_decode_value(key)
+            decoded[str(key)] = bidi_decode_value(pair[1])
+        return decoded
+    return value.get("value")
+
+
+def bidi_contexts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        contexts.append(item)
+        children = item.get("children")
+        if isinstance(children, list):
+            contexts.extend(bidi_contexts([child for child in children if isinstance(child, dict)]))
+    return contexts
+
+
+def browser_bidi_capture(
+    *,
+    bidi_url: str,
+    storage_root: Path,
+    latest_path: Path,
+    schema_prefix: str,
+    version: str,
+    now_iso: NowIsoPort,
+    store_page: StorePagePort,
+    write_latest: bool = True,
+    write_json: WriteJsonPort = default_write_json,
+    connect_websocket: WebSocketConnectPort = websocket_connect,
+    call_bidi: BidiCallPort = bidi_call,
+    web_context_summary: WebContextSummaryPort = nervous_sources.browser_capture_web_context_summary,
+    capture_script: str = BROWSER_CONTENT_CAPTURE_SCRIPT,
+    max_contexts: int = 24,
+    timeout: float = 1.5,
+) -> dict[str, Any]:
+    generated_at = now_iso()
+    data: dict[str, Any] = {
+        "schema": f"{schema_prefix}_nervous_browser_content_capture_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "bidi_url": bidi_url,
+        "source_id": "browser_active_tab",
+        "capture_source": "firefox_webdriver_bidi",
+        "storage_root": str(storage_root),
+        "captures": [],
+        "errors": [],
+    }
+    sock: Any | None = None
+    try:
+        sock = connect_websocket(bidi_url, timeout=timeout)
+        request_id = 1
+        session = call_bidi(sock, request_id, "session.new", {"capabilities": {}})
+        request_id += 1
+        data["session"] = {
+            "browserName": _nested_get(session, ["result", "capabilities", "browserName"]),
+            "browserVersion": _nested_get(session, ["result", "capabilities", "browserVersion"]),
+            "platformName": _nested_get(session, ["result", "capabilities", "platformName"]),
+        }
+        tree = call_bidi(sock, request_id, "browsingContext.getTree", {})
+        request_id += 1
+        contexts = bidi_contexts(_nested_get(tree, ["result", "contexts"]) or [])
+        top_contexts = [item for item in contexts if not item.get("parent")]
+        data["contexts_seen"] = len(top_contexts)
+        for context in top_contexts[:max_contexts]:
+            context_id = str(context.get("context") or "")
+            context_url = str(context.get("url") or "")
+            if not context_id or context_url.startswith(("about:", "chrome:", "moz-extension:", "resource:")):
+                continue
+            try:
+                result = call_bidi(sock, request_id, "script.evaluate", {
+                    "expression": capture_script,
+                    "target": {"context": context_id},
+                    "awaitPromise": True,
+                    "resultOwnership": "none",
+                    "serializationOptions": {"maxObjectDepth": 4, "maxDomDepth": 0, "includeShadowTree": "none"},
+                })
+                request_id += 1
+                script_result = result.get("result") if isinstance(result.get("result"), dict) else {}
+                if script_result.get("type") != "success":
+                    data["errors"].append({
+                        "context": context_id,
+                        "url": _url_payload(context_url, schema_prefix=schema_prefix, version=version, generated_at=generated_at),
+                        "error": "script evaluation did not return success",
+                    })
+                    continue
+                page = bidi_decode_value(script_result.get("result"))
+                if not isinstance(page, dict):
+                    data["errors"].append({
+                        "context": context_id,
+                        "url": _url_payload(context_url, schema_prefix=schema_prefix, version=version, generated_at=generated_at),
+                        "error": "script result was not an object",
+                    })
+                    continue
+                stored = store_page(page, "firefox_webdriver_bidi", context_id=context_id, write_latest=False)
+                data["captures"].append({
+                    "context": context_id,
+                    "ok": stored.get("ok"),
+                    "path": stored.get("path"),
+                    "dedupe": stored.get("dedupe"),
+                    "record": stored.get("record"),
+                    "write_errors": stored.get("write_errors"),
+                })
+            except Exception as exc:
+                request_id += 1
+                data["errors"].append({
+                    "context": context_id,
+                    "url": _url_payload(context_url, schema_prefix=schema_prefix, version=version, generated_at=generated_at),
+                    "error": str(exc)[:400],
+                })
+        try:
+            call_bidi(sock, request_id, "session.end", {})
+        except Exception:
+            pass
+        data["ok"] = bool(data["captures"]) and not any(not item.get("ok") for item in data["captures"])
+        data["summary"] = {
+            "contexts_seen": data.get("contexts_seen", 0),
+            "captures": len(data["captures"]),
+            "errors": len(data["errors"]),
+            "skipped_text": sum(1 for item in data["captures"] if _nested_get(item, ["record", "skipped_text"])),
+            "text_records": sum(1 for item in data["captures"] if not _nested_get(item, ["record", "skipped_text"])),
+            "web_context_quality": web_context_summary(data["captures"]),
+        }
+    except Exception as exc:
+        data["error"] = str(exc)[:500]
+        data["summary"] = {
+            "contexts_seen": 0,
+            "captures": 0,
+            "errors": 1,
+            "skipped_text": 0,
+            "text_records": 0,
+        }
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+    if write_latest:
+        error = write_json(latest_path, data, 0o664)
+        if error:
+            data.setdefault("write_errors", []).append(error)
+            data["ok"] = False
+    return data
+
+
+def _url_payload(url: str, *, schema_prefix: str, version: str, generated_at: str) -> dict[str, Any]:
+    return nervous_sources.url_payload(
+        url,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+    )
 
 
 def _nested_get(data: Any, keys: list[str]) -> Any:

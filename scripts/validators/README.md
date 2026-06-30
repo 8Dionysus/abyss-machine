@@ -111,7 +111,9 @@ Browser-content daily path projection, bounded recent duplicate scanning, JSONL
 append routing, latest write routing, write-error projection, and ingest document
 assembly plus bounded AT-SPI settings, Firefox runtime env summary,
 accessibility-tree traversal/text extraction, sensitive-field detection, capture
-result assembly, and AT-SPI latest write routing live in
+result assembly, AT-SPI latest write routing, WebSocket frame/connection
+handling, BiDi session/context/script-evaluation routing, remote-value decode,
+public-safe BiDi error projection, and BiDi latest routing live in
 `abyss_machine.nervous_browser_content_adapters`.
 Nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`.

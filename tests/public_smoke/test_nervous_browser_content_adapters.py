@@ -489,3 +489,229 @@ def test_cli_browser_accessibility_capture_binds_adapter_ports(monkeypatch) -> N
     assert captured["write_json"] is cli.safe_atomic_write_json
     assert captured["runtime_status"] is cli.nervous_firefox_runtime_env_status
     assert captured["web_context_summary"] is cli.nervous_browser_capture_web_context_summary
+
+
+class FakeSocket:
+    def __init__(self, recv_payload: bytes = b"") -> None:
+        self.recv_payload = bytearray(recv_payload)
+        self.sent = bytearray()
+        self.closed = False
+
+    def recv(self, size: int) -> bytes:
+        if not self.recv_payload:
+            return b""
+        chunk = self.recv_payload[:size]
+        del self.recv_payload[:size]
+        return bytes(chunk)
+
+    def sendall(self, data: bytes) -> None:
+        self.sent.extend(data)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_websocket_helpers_frame_json_with_deterministic_mask() -> None:
+    sock = FakeSocket()
+
+    adapters.websocket_send_json(sock, {"id": 1, "method": "ping"}, mask_bytes=b"\x01\x02\x03\x04")
+
+    raw = bytes(sock.sent)
+    assert raw[:2] == b"\x81\x98"
+    assert raw[2:6] == b"\x01\x02\x03\x04"
+    unmasked = bytes(byte ^ raw[2 + index % 4] for index, byte in enumerate(raw[6:]))
+    assert json.loads(unmasked.decode("utf-8")) == {"id": 1, "method": "ping"}
+
+
+def test_websocket_recv_json_decodes_unmasked_server_frame() -> None:
+    payload = json.dumps({"id": 2, "result": {"ok": True}}, separators=(",", ":")).encode("utf-8")
+    sock = FakeSocket(b"\x81" + bytes([len(payload)]) + payload)
+
+    assert adapters.websocket_recv_json(sock) == {"id": 2, "result": {"ok": True}}
+
+
+def test_bidi_decode_value_handles_nested_remote_values() -> None:
+    value = {
+        "type": "object",
+        "value": [
+            ["title", {"type": "string", "value": "Docs"}],
+            ["count", {"type": "number", "value": 3}],
+            ["items", {"type": "array", "value": [{"type": "string", "value": "a"}]}],
+            [{"type": "string", "value": "dynamic"}, {"type": "boolean", "value": True}],
+        ],
+    }
+
+    assert adapters.bidi_decode_value(value) == {
+        "title": "Docs",
+        "count": 3,
+        "items": ["a"],
+        "dynamic": True,
+    }
+
+
+def test_browser_bidi_capture_uses_fake_bidi_and_store(tmp_path: Path) -> None:
+    sock = FakeSocket()
+    calls: list[tuple[int, str, dict[str, Any]]] = []
+    stored_pages: list[tuple[dict[str, Any], str, str | None, bool]] = []
+
+    def call_bidi(_sock: FakeSocket, request_id: int, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append((request_id, method, params))
+        if method == "session.new":
+            return {
+                "result": {
+                    "capabilities": {
+                        "browserName": "firefox",
+                        "browserVersion": "130",
+                        "platformName": "linux",
+                    }
+                }
+            }
+        if method == "browsingContext.getTree":
+            return {
+                "result": {
+                    "contexts": [
+                        {"context": "skip", "url": "about:blank"},
+                        {"context": "ctx-1", "url": "https://example.test/docs"},
+                        {"context": "child", "parent": "ctx-1", "url": "https://example.test/frame"},
+                    ]
+                }
+            }
+        if method == "script.evaluate":
+            assert params["target"] == {"context": "ctx-1"}
+            assert params["expression"] == "return-page"
+            return {
+                "result": {
+                    "type": "success",
+                    "result": {
+                        "type": "object",
+                        "value": [
+                            ["url", {"type": "string", "value": "https://example.test/docs"}],
+                            ["title", {"type": "string", "value": "Docs"}],
+                            ["text", {"type": "string", "value": "Useful page text"}],
+                            ["captured_at", {"type": "string", "value": "2026-06-30T14:00:00+00:00"}],
+                            ["has_sensitive_fields", {"type": "boolean", "value": False}],
+                        ],
+                    },
+                }
+            }
+        if method == "session.end":
+            return {"result": {}}
+        raise AssertionError(method)
+
+    def store_page(page: dict[str, Any], capture_source: str, *, context_id: str | None, write_latest: bool) -> dict[str, Any]:
+        stored_pages.append((page, capture_source, context_id, write_latest))
+        return {
+            "ok": True,
+            "path": str(tmp_path / "browser-content.jsonl"),
+            "dedupe": {"duplicate": False},
+            "record": {
+                "title": page.get("title"),
+                "url": {"url": page.get("url"), "raw_omitted": True},
+                "skipped_text": False,
+                "web_context_quality": {"class": "docs"},
+            },
+        }
+
+    data = adapters.browser_bidi_capture(
+        bidi_url="ws://127.0.0.1:9222/session",
+        storage_root=tmp_path / "browser-content",
+        latest_path=tmp_path / "latest.json",
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: "2026-06-30T14:00:00+00:00",
+        store_page=store_page,
+        write_latest=False,
+        connect_websocket=lambda url, timeout: sock,
+        call_bidi=call_bidi,
+        web_context_summary=lambda captures: {"captures": len(captures), "class": "docs"},
+        capture_script="return-page",
+    )
+
+    assert data["ok"] is True
+    assert data["session"] == {"browserName": "firefox", "browserVersion": "130", "platformName": "linux"}
+    assert data["contexts_seen"] == 2
+    assert data["summary"]["captures"] == 1
+    assert data["summary"]["errors"] == 0
+    assert data["summary"]["web_context_quality"] == {"captures": 1, "class": "docs"}
+    assert stored_pages == [(
+        {
+            "url": "https://example.test/docs",
+            "title": "Docs",
+            "text": "Useful page text",
+            "captured_at": "2026-06-30T14:00:00+00:00",
+            "has_sensitive_fields": False,
+        },
+        "firefox_webdriver_bidi",
+        "ctx-1",
+        False,
+    )]
+    assert calls[-1][1] == "session.end"
+    assert sock.closed is True
+
+
+def test_browser_bidi_capture_redacts_script_errors_and_writes_latest(tmp_path: Path) -> None:
+    writes: list[tuple[Path, dict[str, Any], int]] = []
+
+    def call_bidi(_sock: FakeSocket, _request_id: int, method: str, _params: dict[str, Any]) -> dict[str, Any]:
+        if method == "session.new":
+            return {"result": {"capabilities": {}}}
+        if method == "browsingContext.getTree":
+            return {"result": {"contexts": [{"context": "ctx", "url": "https://example.test/login?token=secret#frag"}]}}
+        if method == "script.evaluate":
+            return {"result": {"type": "exception"}}
+        if method == "session.end":
+            return {"result": {}}
+        raise AssertionError(method)
+
+    def write_json(path: Path, data: dict[str, Any], mode: int):
+        writes.append((path, data, mode))
+        return None
+
+    data = adapters.browser_bidi_capture(
+        bidi_url="ws://127.0.0.1:9222/session",
+        storage_root=tmp_path / "browser-content",
+        latest_path=tmp_path / "latest.json",
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: "2026-06-30T14:01:00+00:00",
+        store_page=lambda *_args, **_kwargs: {"ok": True},
+        write_latest=True,
+        write_json=write_json,
+        connect_websocket=lambda _url, timeout: FakeSocket(),
+        call_bidi=call_bidi,
+    )
+
+    assert data["ok"] is False
+    assert data["summary"]["contexts_seen"] == 1
+    assert data["summary"]["errors"] == 1
+    assert data["errors"][0]["url"]["url"] == "https://example.test/login"
+    assert data["errors"][0]["url"]["query_present"] is True
+    assert data["errors"][0]["url"]["fragment_present"] is True
+    assert writes == [(tmp_path / "latest.json", data, 0o664)]
+
+
+def test_cli_browser_bidi_capture_binds_adapter_ports(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_capture(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "capture_source": "firefox_webdriver_bidi"}
+
+    monkeypatch.setattr(cli.nervous_browser_content_adapters, "browser_bidi_capture", fake_capture)
+
+    data = cli.nervous_browser_content_capture(bidi_url="ws://example.test:9222/session", write_latest=False)
+
+    assert data == {"ok": True, "capture_source": "firefox_webdriver_bidi"}
+    assert captured["bidi_url"] == "ws://example.test:9222/session"
+    assert captured["storage_root"] == cli.NERVOUS_BROWSER_CONTENT_ROOT
+    assert captured["latest_path"] == cli.NERVOUS_BROWSER_CONTENT_LATEST_PATH
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["now_iso"] is cli.now_iso
+    assert captured["store_page"] is cli.nervous_browser_content_store
+    assert captured["write_latest"] is False
+    assert captured["write_json"] is cli.safe_atomic_write_json
+    assert captured["connect_websocket"] is cli.nervous_ws_connect
+    assert captured["call_bidi"] is cli.nervous_bidi_call
+    assert captured["web_context_summary"] is cli.nervous_browser_capture_web_context_summary
+    assert captured["capture_script"] == cli.NERVOUS_BROWSER_CAPTURE_SCRIPT
