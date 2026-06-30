@@ -172,6 +172,15 @@ Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.
 
+For nervous clipboard adapter changes, public CI should rely on fake-port tests
+for source-policy refusal, Wayland socket readiness, `wl-paste` MIME/text command
+results, redacted payload projection, and Wayland backend failure-to-skip
+mapping. Live-host closeout may use compact `abyss-machine nervous
+source-status clipboard --json`, `abyss-machine nervous sources-list --json`,
+and `abyss-machine nervous capture-status --json` summaries only. Do not run
+ad hoc clipboard reads as validation, and never report raw clipboard text,
+binary payloads, MIME-sensitive content, or generated private source payloads.
+
 For nervous retention filesystem/apply adapter changes, public CI should rely on
 fake-root/fake-writer tests for route-root scanning, symlink-tail blockers,
 protected/latest candidate refusal, dry-run-first confirmed unlink, mutation

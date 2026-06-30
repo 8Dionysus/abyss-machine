@@ -139,7 +139,10 @@ recurring-extension query policy and capture backend plan contracts live in
 `abyss_machine.nervous_screenshot`; GNOME extension status probes, allowlisted
 DBus screenshot execution, X11 active/game-risk window probes, capture command
 execution, artifact-source callbacks, and public-safe screenshot fact assembly
-live in `abyss_machine.nervous_screenshot_adapters`. Nervous rerank profile/defaults, source-prior scoring,
+live in `abyss_machine.nervous_screenshot_adapters`. Nervous clipboard
+Wayland readiness, `wl-paste` MIME/text command execution, backend failure
+mapping, redacted payload projection, and public-safe fact assembly live in
+`abyss_machine.nervous_clipboard_adapters`. Nervous rerank profile/defaults, source-prior scoring,
 machine-query caps, merge policy, hybrid result scoring, neural text shaping,
 neural config normalization, guarded neural-score blending, and eval document
 envelopes live in

@@ -64,6 +64,12 @@ screenshot execution, X11 active/game-risk window probes, game-safe capture
 command execution, and public-safe fact assembly through fakeable ports. CLI
 still owns source-policy/env/path binding, process callbacks, fact routing, and
 rendering.
+`abyss_machine.nervous_clipboard_adapters` now owns clipboard live read and
+fact assembly routing: Wayland socket readiness, `wl-paste` MIME/text command
+execution, Wayland backend failure-to-skip mapping, redacted payload projection,
+and virtual-source assembly through fakeable ports. CLI still owns concrete
+environment binding, source-policy/redaction callbacks, fact routing, and
+rendering.
 `abyss_machine.nervous_semantic_adapters` now owns the semantic sidecar
 lifecycle/source-loading/write seam plus embedding execution: semantic DB
 connection/init/counts, file locks, source-chunk loading from the lexical
