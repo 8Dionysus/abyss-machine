@@ -4,9 +4,16 @@
 - Lexical index lifecycle seam: `abyss_machine.nervous_index_adapters` owns
   source-index DB connection binding, schema file writes, file locks,
   active-lock probes, latest writes, generated DB file mode/group normalization,
-  and vacuum execution. CLI still owns config/privacy/source binding, redactor
-  callback binding, derived refresh orchestration, timer probes, validation
-  fact collection, and command rendering.
+  and vacuum execution. At that landing, CLI still owned config/privacy/source
+  binding, redactor callback binding, derived refresh orchestration, timer
+  probes, validation fact collection, and command rendering.
+- Lexical index status/freshness input seam:
+  `abyss_machine.nervous_index_adapters` owns latest fact/event/episode freshness
+  reads, local JSONL history line counts, and index status latest/counts/
+  freshness/service/timer fact collection through fakeable ports. CLI still owns
+  config/privacy/source/path binding, redactor callback binding, derived refresh
+  orchestration, validation fact collection, concrete port wiring, and command
+  rendering.
 - Semantic embedding execution seam: `abyss_machine.nervous_semantic_adapters`
   owns embedding subprocess temp-file staging, runner invocation, output
   readback, cleanup, and resource-profile callback routing. CLI still owns

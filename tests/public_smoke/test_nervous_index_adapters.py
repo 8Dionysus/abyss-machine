@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import datetime as dt
 import sqlite3
 import sys
 from pathlib import Path
@@ -48,6 +49,156 @@ def test_index_adapter_write_latest_marks_write_failures(tmp_path: Path) -> None
 
     assert result["ok"] is False
     assert result["write_errors"][0]["path"] == str(latest_path)
+
+
+def test_index_adapter_freshness_reads_latest_and_counts_history_layers(tmp_path: Path) -> None:
+    facts_latest_path = tmp_path / "facts-latest.json"
+    events_latest_path = tmp_path / "events-latest.json"
+    episodes_latest_path = tmp_path / "episodes-latest.json"
+    fact_path = tmp_path / "facts.jsonl"
+    event_path = tmp_path / "events.jsonl"
+    episode_path = tmp_path / "episodes.jsonl"
+    now = dt.datetime(2026, 6, 25, 13, 0, tzinfo=dt.timezone.utc)
+    meta = {"built_at": "2026-06-25T12:00:00+00:00", "records_seen": "2"}
+    config = {"automation": {"interval": "45m"}}
+    latest_docs = {
+        facts_latest_path: {"schema": "fact", "generated_at": "2026-06-25T12:10:00+00:00"},
+        events_latest_path: {"schema": "event", "observed_at": "2026-06-25T12:20:00+00:00"},
+        episodes_latest_path: {"schema": "episode", "start_at": "2026-06-25T12:30:00+00:00"},
+    }
+    line_counts = {fact_path: 2, event_path: None, episode_path: 1}
+    latest_calls: list[Path] = []
+    line_calls: list[Path] = []
+
+    def latest_reader(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+        latest_calls.append(path)
+        return latest_docs[path], None
+
+    def line_counter(path: Path) -> int | None:
+        line_calls.append(path)
+        return line_counts[path]
+
+    result = nervous_index_adapters.freshness_document_from_paths(
+        meta=meta,
+        config=config,
+        facts_latest_path=facts_latest_path,
+        events_latest_path=events_latest_path,
+        episodes_latest_path=episodes_latest_path,
+        fact_files=[fact_path],
+        event_files=[event_path],
+        episode_files=[episode_path],
+        now=now,
+        latest_reader=latest_reader,
+        line_counter=line_counter,
+    )
+
+    assert result == nervous_index.freshness_document(
+        meta=meta,
+        config=config,
+        latest_fact=latest_docs[facts_latest_path],
+        latest_event=latest_docs[events_latest_path],
+        latest_episode=latest_docs[episodes_latest_path],
+        history_records=3,
+        history_records_by_layer={"facts": 2, "events": 0, "episodes": 1},
+        history_parse_errors=1,
+        now=now,
+    )
+    assert latest_calls == [facts_latest_path, events_latest_path, episodes_latest_path]
+    assert line_calls == [fact_path, event_path, episode_path]
+
+
+def test_index_adapter_status_collects_latest_counts_freshness_and_timer_ports(tmp_path: Path) -> None:
+    config_path = tmp_path / "nervous-index.json"
+    db_path = tmp_path / "index" / "nervous.db"
+    root_path = tmp_path / "index"
+    schema_path = tmp_path / "index" / "schema.sql"
+    latest_path = tmp_path / "index" / "latest.json"
+    config_path.write_text("{}", encoding="utf-8")
+    db_path.parent.mkdir(parents=True)
+    db_path.write_text("", encoding="utf-8")
+    config = {"enabled": True, "backend": "sqlite_fts5", "db_path": str(db_path)}
+    privacy = {"global_pause": False, "private_mode": False}
+    sources = {"safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}}}
+    latest = {"schema": "abyss_machine_nervous_index_build_v1", "ok": True}
+    counts_doc = {"meta": {"built_at": "2026-06-25T12:00:00+00:00"}, "documents": 2}
+    freshness = {"stale": False, "lag_sec": 0}
+    service_status = {"name": "nervous-index.service", "is_active": False}
+    timer_status = {"name": "nervous-index.timer", "is_active": True}
+    calls: list[tuple[str, Any]] = []
+
+    def latest_reader(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+        calls.append(("latest", path))
+        return latest, None
+
+    def counts_reader() -> dict[str, Any]:
+        calls.append(("counts", None))
+        return counts_doc
+
+    def freshness_reader(*, meta: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        calls.append(("freshness", {"meta": meta, "config": config}))
+        return freshness
+
+    def unit_status_reader(name: str) -> dict[str, Any]:
+        calls.append(("unit", name))
+        return {
+            "nervous-index.service": service_status,
+            "nervous-index.timer": timer_status,
+        }[name]
+
+    result = nervous_index_adapters.status_document_from_ports(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T13:00:00+00:00",
+        config=config,
+        config_path=config_path,
+        privacy=privacy,
+        sources=sources,
+        sqlite_version="3.test",
+        fts_ok=True,
+        fts_error=None,
+        db_path=db_path,
+        root_path=root_path,
+        schema_path=schema_path,
+        latest_path=latest_path,
+        service_name="nervous-index.service",
+        timer_name="nervous-index.timer",
+        latest_reader=latest_reader,
+        counts_reader=counts_reader,
+        freshness_reader=freshness_reader,
+        unit_status_reader=unit_status_reader,
+    )
+
+    assert result == nervous_index.status_document(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T13:00:00+00:00",
+        config=config,
+        config_path=config_path,
+        config_exists=True,
+        privacy=privacy,
+        sources=sources,
+        sqlite_version="3.test",
+        fts_ok=True,
+        fts_error=None,
+        latest=latest,
+        latest_error=None,
+        counts=counts_doc,
+        freshness=freshness,
+        db_path=db_path,
+        db_exists=True,
+        root_path=root_path,
+        schema_path=schema_path,
+        latest_path=latest_path,
+        service_status=service_status,
+        timer_status=timer_status,
+    )
+    assert calls == [
+        ("latest", latest_path),
+        ("counts", None),
+        ("freshness", {"meta": counts_doc["meta"], "config": config}),
+        ("unit", "nervous-index.service"),
+        ("unit", "nervous-index.timer"),
+    ]
 
 
 def test_index_adapter_vacuum_executes_sqlite_commands_under_lock(tmp_path: Path) -> None:
@@ -133,3 +284,117 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     assert captured["lock_root"] == root
     assert captured["active_root"] == root
     assert captured["write_latest"]["path"] == latest_path
+
+
+def test_cli_nervous_index_freshness_binds_adapter_paths_and_ports(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+    facts_latest = tmp_path / "facts-latest.json"
+    events_latest = tmp_path / "events-latest.json"
+    episodes_latest = tmp_path / "episodes-latest.json"
+    fact_path = tmp_path / "facts.jsonl"
+    event_path = tmp_path / "events.jsonl"
+    episode_path = tmp_path / "episodes.jsonl"
+    config = {"automation": {"interval": "45m"}}
+    meta = {"built_at": "2026-06-25T12:00:00+00:00"}
+
+    def fake_freshness(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    def forbidden_latest_reader(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+        raise AssertionError(f"CLI must pass latest reader to adapter, not call it directly: {path}")
+
+    def forbidden_line_counter(path: Path) -> int | None:
+        raise AssertionError(f"CLI must pass line counter to adapter, not call it directly: {path}")
+
+    monkeypatch.setattr(cli, "NERVOUS_FACTS_LATEST_PATH", facts_latest)
+    monkeypatch.setattr(cli, "NERVOUS_EVENTS_LATEST_PATH", events_latest)
+    monkeypatch.setattr(cli, "NERVOUS_EPISODES_LATEST_PATH", episodes_latest)
+    monkeypatch.setattr(cli, "nervous_fact_jsonl_files", lambda: [fact_path])
+    monkeypatch.setattr(cli, "nervous_event_jsonl_files", lambda: [event_path])
+    monkeypatch.setattr(cli, "nervous_episode_jsonl_files", lambda: [episode_path])
+    monkeypatch.setattr(cli, "load_json_document", forbidden_latest_reader)
+    monkeypatch.setattr(cli, "count_file_lines", forbidden_line_counter)
+    monkeypatch.setattr(cli.nervous_index_adapters, "freshness_document_from_paths", fake_freshness)
+
+    result = cli.nervous_index_freshness(meta=meta, config=config)
+
+    assert result == {"ok": True, "from_adapter": True}
+    assert captured["meta"] == meta
+    assert captured["config"] == config
+    assert captured["facts_latest_path"] == facts_latest
+    assert captured["events_latest_path"] == events_latest
+    assert captured["episodes_latest_path"] == episodes_latest
+    assert captured["fact_files"] == [fact_path]
+    assert captured["event_files"] == [event_path]
+    assert captured["episode_files"] == [episode_path]
+    assert captured["latest_reader"] is forbidden_latest_reader
+    assert captured["line_counter"] is forbidden_line_counter
+
+
+def test_cli_nervous_index_status_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+    config_path = tmp_path / "nervous-index.json"
+    db_path = tmp_path / "nervous.db"
+    root_path = tmp_path / "index-root"
+    schema_path = tmp_path / "schema.sql"
+    latest_path = tmp_path / "latest.json"
+    config = {"enabled": True, "db_path": str(db_path)}
+    privacy = {"global_pause": False, "private_mode": False}
+    sources = {"safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}}}
+
+    def fake_status(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    def forbidden_latest_reader(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+        raise AssertionError(f"CLI must pass latest reader to adapter, not call it directly: {path}")
+
+    def forbidden_counts_reader() -> dict[str, Any]:
+        raise AssertionError("CLI must pass counts reader to adapter, not call it directly")
+
+    def forbidden_freshness_reader(**kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("CLI must pass freshness reader to adapter, not call it directly")
+
+    def forbidden_unit_reader(name: str) -> dict[str, Any]:
+        raise AssertionError(f"CLI must pass unit reader to adapter, not call it directly: {name}")
+
+    monkeypatch.setattr(cli, "NERVOUS_INDEX_CONFIG_PATH", config_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SCHEMA_PATH", schema_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_LATEST_PATH", latest_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SERVICE", "nervous-index.service")
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_TIMER", "nervous-index.timer")
+    monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy)
+    monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: sources)
+    monkeypatch.setattr(cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:00:00+00:00")
+    monkeypatch.setattr(cli, "load_json_document", forbidden_latest_reader)
+    monkeypatch.setattr(cli, "nervous_index_db_counts", forbidden_counts_reader)
+    monkeypatch.setattr(cli, "nervous_index_freshness", forbidden_freshness_reader)
+    monkeypatch.setattr(cli, "user_systemd_unit", forbidden_unit_reader)
+    monkeypatch.setattr(cli.nervous_index_adapters, "status_document_from_ports", fake_status)
+
+    result = cli.nervous_index_status(write_latest=False)
+
+    assert result == {"ok": True, "from_adapter": True}
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["generated_at"] == "2026-06-25T13:00:00+00:00"
+    assert captured["config"] == config
+    assert captured["config_path"] == config_path
+    assert captured["privacy"] == privacy
+    assert captured["sources"] == sources
+    assert captured["fts_ok"] is True
+    assert captured["db_path"] == db_path
+    assert captured["root_path"] == root_path
+    assert captured["schema_path"] == schema_path
+    assert captured["latest_path"] == latest_path
+    assert captured["service_name"] == "nervous-index.service"
+    assert captured["timer_name"] == "nervous-index.timer"
+    assert captured["latest_reader"] is forbidden_latest_reader
+    assert captured["counts_reader"] is forbidden_counts_reader
+    assert captured["freshness_reader"] is forbidden_freshness_reader
+    assert captured["unit_status_reader"] is forbidden_unit_reader
