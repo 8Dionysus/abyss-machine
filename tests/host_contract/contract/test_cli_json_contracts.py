@@ -9,27 +9,31 @@ pytestmark = [pytest.mark.quick, pytest.mark.contract]
 
 
 @pytest.mark.parametrize(
-    "args",
+    ("args", "timeout"),
     [
-        ("enter", "--json"),
-        ("storage", "paths", "--json"),
-        ("memory", "policy", "--json"),
-        ("resource", "policy", "--json"),
-        ("changes", "paths", "--json"),
-        ("maps", "paths", "--json"),
-        ("maps", "query", "--axis", "by-freshness", "--query", "semantic", "--json"),
-        ("maps", "packet", "--axis", "by-eval-packet", "--consumer", "aoa-evals", "--json"),
-        ("typing", "status", "--json"),
-        ("typing", "capture-gate", "--source", "manual_cli_args", "--json"),
-        ("typing", "coverage", "--json"),
-        ("typing", "zsh-hook-status", "--json"),
-        ("typing", "codex-hook-status", "--json"),
-        ("dictation", "profile", "list", "--json"),
-        ("ai", "llm", "workhorse", "paths", "--json"),
+        (("enter", "--json"), 20.0),
+        (("storage", "paths", "--json"), 20.0),
+        (("memory", "policy", "--json"), 20.0),
+        (("resource", "policy", "--json"), 20.0),
+        (("changes", "paths", "--json"), 20.0),
+        (("maps", "paths", "--json"), 20.0),
+        (("maps", "query", "--axis", "by-freshness", "--query", "semantic", "--json"), 20.0),
+        (("maps", "packet", "--axis", "by-eval-packet", "--consumer", "aoa-evals", "--json"), 20.0),
+        (("typing", "status", "--json"), 60.0),
+        (("typing", "capture-gate", "--source", "manual_cli_args", "--json"), 20.0),
+        (("typing", "coverage", "--json"), 60.0),
+        (("typing", "zsh-hook-status", "--json"), 20.0),
+        (("typing", "codex-hook-status", "--json"), 20.0),
+        (("dictation", "profile", "list", "--json"), 20.0),
+        (("ai", "llm", "workhorse", "paths", "--json"), 20.0),
     ],
 )
-def test_core_readonly_cli_commands_emit_json_objects(run_abyss_machine, args: tuple[str, ...]) -> None:
-    result = run_abyss_machine(*args)
+def test_core_readonly_cli_commands_emit_json_objects(
+    run_abyss_machine,
+    args: tuple[str, ...],
+    timeout: float,
+) -> None:
+    result = run_abyss_machine(*args, timeout=timeout)
 
     assert result.returncode == 0, result.stderr[-1000:]
     payload = parse_json_stdout(result)

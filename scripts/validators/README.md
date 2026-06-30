@@ -356,10 +356,11 @@ stack-handoff service mapping plus working-stack role/status/link identity and
 activation-gap handoff route contracts live in
 `abyss_machine.self_awareness_contracts`; latest surface specs, fakeable latest
 load dispatch, validation latest-spec selection, and bounded status latest
-summary projection live in `abyss_machine.self_awareness_adapters`. Live
-stack/runtime probes, concrete latest file reads, refresh orchestration,
-investigate/replay/probe/cycle execution, validation writes, and command
-rendering remain at the CLI edge.
+summary projection, resource preflight guard decisions, and bounded HTTP status
+probe ports live in `abyss_machine.self_awareness_adapters`. Probe/cycle
+orchestration, broader stack/runtime refreshes, concrete latest file reads,
+investigate/replay execution, validation writes, and command rendering remain
+at the CLI edge.
 Dictation config/profile/runtime env contracts, replacement rules, transcript
 postprocessing, command-intent detection, busy/max-duration results,
 audio-doctor summary/recommended-runtime decisions, recording command/state
