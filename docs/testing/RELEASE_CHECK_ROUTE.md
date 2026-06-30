@@ -158,6 +158,16 @@ abyss-machine nervous status --json
 abyss-machine nervous quality-audit --json
 ```
 
+For nervous event/episode file/write adapter changes, public CI should rely on
+fake-root tests for JSONL root reads, derived-record replacement writes, latest
+read envelopes, and build/validate latest write routing. Live-host closeout may
+use compact `abyss-machine nervous events-build --json`,
+`abyss-machine nervous events-validate --json`,
+`abyss-machine nervous episodes-build --json`, and
+`abyss-machine nervous episodes-validate --json` summaries; report only
+ok/schema/count/error summaries and never copy generated event/episode JSONL
+records or raw source payloads into the repository.
+
 Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.

@@ -370,6 +370,27 @@ The CLI still owns privacy/source/config binding, derived event/episode refresh
 orchestration, redactor callback binding, systemd timer probes, validation fact
 collection, and command rendering.
 
+## Extracted Nervous Derived Events/Episodes File Seam
+
+`abyss_machine.nervous_events_adapters` owns the local file/read/write adapter
+boundary for derived nervous events and episodes:
+
+- facts/events/episodes JSONL root reads through the shared typing/nervous
+  local-history reader;
+- daily JSONL path selection from observed/start/generated timestamps;
+- derived event/episode replacement writes that preserve records with other
+  `derived_by` values and report bounded parse/write errors;
+- latest build/read envelopes for events and episodes;
+- build/validate latest write routing through fakeable writer ports.
+
+`abyss_machine.nervous_events` still owns the stable record shapes,
+classification/grouping logic, build documents, and validation documents. The
+CLI still owns privacy/global-pause refusal, source-policy/config/path binding,
+episode refresh orchestration, and command rendering. The adapter keeps the
+public repo at the method/contract layer: it can be tested with fake roots, but
+generated `/var/lib/abyss-machine` event/episode evidence stays private host
+state.
+
 ## Extracted Nervous Semantic Sidecar Seam
 
 `abyss_machine.nervous_semantic_adapters` owns the nervous-local semantic

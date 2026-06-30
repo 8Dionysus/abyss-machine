@@ -109,6 +109,9 @@ effective source maps, catalog, lookup, and source-set contracts live in
 `abyss_machine.nervous_sources`.
 Nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`.
+Derived event/episode JSONL root reads, replacement writes, latest read
+envelopes, and build/validate latest write routing live in
+`abyss_machine.nervous_events_adapters`.
 Nervous synthesis period selection, candidate build orchestration,
 path/write-result envelopes, markdown projection, validation, and deterministic
 eval run execution-plan/run/validate envelopes live in
