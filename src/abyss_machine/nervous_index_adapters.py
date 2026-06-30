@@ -114,6 +114,27 @@ def sqlite_fts5_ok(
             conn.close()
 
 
+def path_has_symlink_tail(path: Path, *, stop_at: Path | None = None) -> bool:
+    try:
+        resolved_stop = stop_at.resolve() if stop_at else None
+    except OSError:
+        resolved_stop = None
+    current = path
+    checked: list[Path] = []
+    while True:
+        checked.append(current)
+        if current.parent == current:
+            break
+        if resolved_stop is not None:
+            try:
+                if current.resolve() == resolved_stop:
+                    break
+            except OSError:
+                pass
+        current = current.parent
+    return any(item.exists() and item.is_symlink() for item in checked)
+
+
 @contextmanager
 def index_lock(root: Path) -> Any:
     root.mkdir(parents=True, exist_ok=True)

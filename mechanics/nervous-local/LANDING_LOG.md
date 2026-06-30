@@ -26,6 +26,11 @@
   probing through a fakeable in-memory connection port. CLI keeps the command
   preflight/policy binding and rendering paths, while the concrete SQLite probe
   no longer lives in command code.
+- Lexical index symlink-tail probe seam:
+  `abyss_machine.nervous_index_adapters` owns index-route symlink-tail
+  filesystem probing through a fakeable path probe. CLI keeps the compatibility
+  wrapper, validation port binding, policy gates, latest writes, and rendering,
+  while the concrete symlink traversal no longer lives in command code.
 - Lexical index build source-input seam:
   `abyss_machine.nervous_index_adapters` owns index build source-root to
   build-document assembly: source-file discovery, JSONL source-record loading,

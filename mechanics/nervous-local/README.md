@@ -60,14 +60,14 @@ CLI still owns concrete path/time/user binding, source-policy/privacy
 orchestration, capture selection, and rendering.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 SQLite FTS5 capability probing, schema file writes, file locks/active-lock
-probes, latest writes, generated DB file mode/group normalization, freshness
-latest/history count collection, index status latest/counts/freshness/service/
-timer fact collection, index validation storage-route/symlink/counts/freshness/
-scan/event-episode fact collection, index build derived-refresh orchestration
-through fakeable event/episode build ports, index build source-file discovery/
-source-record loading/projection/build-document assembly, and index build
-write-stage lock/connect/init/replace/mode/count/error handling plus vacuum
-execution through fakeable ports.
+probes, index-route symlink-tail filesystem probing, latest writes, generated DB
+file mode/group normalization, freshness latest/history count collection, index
+status latest/counts/freshness/service/timer fact collection, index validation
+storage-route/symlink/counts/freshness/scan/event-episode fact collection,
+index build derived-refresh orchestration through fakeable event/episode build
+ports, index build source-file discovery/source-record loading/projection/
+build-document assembly, and index build write-stage lock/connect/init/replace/
+mode/count/error handling plus vacuum execution through fakeable ports.
 `abyss_machine.nervous_events_adapters` now owns derived event/episode local
 file routing: facts/events/episodes JSONL root reads, daily path selection,
 derived-record replacement writes that preserve non-owned records, latest read
