@@ -691,23 +691,19 @@ def test_nervous_index_status_cli_delegates_stable_shape_to_module_contract(monk
     assert result == expected
 
 
-def test_nervous_index_search_cli_delegates_request_shape_to_module_contract(monkeypatch, tmp_path: Path) -> None:
+def test_nervous_index_search_cli_delegates_request_shape_to_index_adapter(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "nervous.db"
-    db_path.write_text("", encoding="utf-8")
     config = {"search": {"max_limit": 20, "default_limit": 7, "snippet_tokens": 9}}
-    freshness = {"stale": False, "lag_sec": 0}
     captured: dict[str, object] = {}
 
-    def fake_search(**kwargs):
+    def fake_search_from_ports(**kwargs):
         captured.update(kwargs)
         return {"ok": True, "captured": kwargs}
 
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "build_nervous_index_read_meta", lambda path: {"built_at": "2026-06-25T13:00:00+00:00"})
-    monkeypatch.setattr(cli, "nervous_index_freshness", lambda meta=None, config=None: freshness)
-    monkeypatch.setattr(cli, "build_nervous_index_search", fake_search)
+    monkeypatch.setattr(cli.nervous_index_adapters, "search_from_ports", fake_search_from_ports)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:25:00+00:00")
 
     result = cli.nervous_index_search(
@@ -720,29 +716,26 @@ def test_nervous_index_search_cli_delegates_request_shape_to_module_contract(mon
     )
 
     assert result["ok"] is True
-    assert captured["db_path"] == db_path
-    assert captured["query"] == "thermal"
-    assert captured["final_limit"] == 20
-    assert captured["order"] == "ranked"
-    assert captured["dedupe"] is False
-    assert captured["snippet_tokens"] == 9
-    assert captured["scan_limit"] == 320
-    assert captured["freshness"] == freshness
     assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
     assert captured["version"] == cli.VERSION
     assert captured["generated_at"] == "2026-06-25T13:25:00+00:00"
+    assert captured["db_path"] == db_path
+    assert captured["query"] == "thermal"
+    assert captured["config"] == config
+    assert captured["privacy"] == {"global_pause": False}
+    assert captured["requested_limit"] == 50
+    assert captured["requested_order"] == "ranked"
+    assert captured["dedupe"] is False
+    assert captured["source"] == "nervous_events"
+    assert captured["severity"] == "warn"
+    assert captured["freshness_reader"] is cli.nervous_index_freshness
 
 
-def test_nervous_index_search_cli_uses_module_refusal_when_global_pause(monkeypatch, tmp_path: Path) -> None:
+def test_nervous_index_search_cli_uses_adapter_refusal_when_global_pause(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", tmp_path / "missing.db")
     monkeypatch.setattr(cli, "nervous_index_config", lambda: {"search": {"default_limit": 7}})
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": True})
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:25:00+00:00")
-    monkeypatch.setattr(
-        cli,
-        "build_nervous_index_search",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("global_pause must refuse before search")),
-    )
 
     assert cli.nervous_index_search("thermal") == search_refused_result(
         schema_prefix=cli.SCHEMA_PREFIX,
