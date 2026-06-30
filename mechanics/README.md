@@ -12,6 +12,7 @@ This atlas routes durable host-machine moves.
 | `nervous-local` | How does local nervous intake become privacy-gated memory evidence? | `tools/nervous/`, nervous profile units |
 | `local-ai-runtime` | How are host-managed local AI helpers kept outside stack ownership? | `tools/ai/`, ai-local profile units |
 | `diagnostic-spine` | How do doctor probes and validators expose repairable host posture? | `docs/validation/`, bootstrap doctor |
+| `self-awareness` | How do host readmodels become bounded awareness/status evidence without mutating the stack? | `docs/host/LIVE_ADAPTERS.md`, `docs/host/SUBSYSTEM_COMMANDS.md` |
 
 The atlas does not create new host authority. It makes existing movements
 visible and gives future implementation a place to land.
@@ -44,6 +45,11 @@ Use these mechanic owners for the next extraction slices:
   evidence.
 - `diagnostic-spine`: doctor, validation, repair, and freshness probes that
   prove the host layer is healthy without publishing private state.
+- `self-awareness`: latest surface specs, fakeable latest load dispatch,
+  validation latest-spec selection, and bounded status latest summaries live in
+  `self_awareness_adapters`; live stack/runtime probes, concrete latest file
+  reads, refresh orchestration, and investigate/replay/probe/cycle execution
+  remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

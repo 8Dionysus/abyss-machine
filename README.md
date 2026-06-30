@@ -271,9 +271,12 @@ Self-awareness paths, bridge command contracts, validate document, read-only eve
 contracts, redaction/bounded-shape helpers, query matching, time buckets,
 stack-handoff service mapping, working-stack role/status/link identity, and
 activation-gap handoff route contracts live in
-`abyss_machine.self_awareness_contracts`; live stack/runtime probes, latest JSON
-reads, refresh orchestration, investigate/replay/probe/cycle execution,
-validation reads/writes, and command rendering remain at the CLI edge.
+`abyss_machine.self_awareness_contracts`; latest surface specs, fakeable latest
+load dispatch, validation latest-spec selection, and bounded status latest
+summary projection live in `abyss_machine.self_awareness_adapters`. Live
+stack/runtime probes, concrete latest file reads, refresh orchestration,
+investigate/replay/probe/cycle execution, validation writes, and command
+rendering remain at the CLI edge.
 Dictation config/profile/runtime env, replacements, postprocess, intent,
 busy/max-duration, audio-doctor summary/recommended-runtime decisions,
 mic-calibration command/result contracts, recording command/state, stop/toggle
@@ -559,9 +562,11 @@ edge. Self-awareness paths, bridge command contracts, validate document, read-on
 contracts, redaction/bounded-shape helpers, query matching, time buckets, and
 stack-handoff service mapping plus working-stack role/status/link identity and
 activation-gap handoff route contracts are module-owned while live
-stack/runtime probes, latest JSON reads, refresh orchestration,
-investigate/replay/probe/cycle execution, validation reads/writes, and command
-rendering remain at the CLI edge. The public
+stack/runtime probes, concrete latest file reads, refresh orchestration,
+investigate/replay/probe/cycle execution, validation writes, and command
+rendering remain at the CLI edge; latest surface specs/load dispatch and
+bounded status summaries are adapter-owned through
+`abyss_machine.self_awareness_adapters`. The public
 cold-start route now checks for private operator path and current-checkout
 leakage across source and temporary installed projections. The compact
 source/install/runtime parity summary now reports installed drift without
@@ -572,7 +577,8 @@ provenance adapters, memory orchestration write-routing/broader container
 orchestration seams, rerank live search/latest adapters,
 recall live search adapter/write adapters, AI runtime live execution adapters,
 TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
-remaining self-awareness live probe/readmodel orchestration, process thermal
+remaining self-awareness live probe/cycle/replay/investigate orchestration and
+deeper readmodel refresh, process thermal
 probes, broader container orchestration, and remaining cooling host-control orchestration
 adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.
