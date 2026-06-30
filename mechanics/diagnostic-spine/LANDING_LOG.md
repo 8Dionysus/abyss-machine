@@ -30,3 +30,8 @@
   through fakeable status-readmodel, service-state, and path-exists ports; CLI
   still binds concrete host status/service readers and owns broader live status
   probes.
+- Extracted doctor AI/runtime status probe collection into `doctor_adapters`
+  through fakeable AI facts, status, capability, TTS profile, policy, storage,
+  runtime snapshot, report-latest, workload, and systemd-unit ports. CLI still
+  binds concrete host functions and owns command rendering; local-AI modules
+  remain the owner of runtime behavior.

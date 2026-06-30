@@ -148,6 +148,14 @@ state and therefore require `--allow-runtime-refresh`. If `abyss-machine doctor
 only the compact repair summary and performed action names; do not copy
 generated latest files or raw repair payloads into the repository.
 
+For doctor AI/runtime status-probe changes, public CI should rely on fake-port
+tests for AI facts, status, capability, TTS profile, policy, storage hygiene,
+runtime snapshot, report-latest, workload stats, and timer projection. Live
+closeout may use compact `abyss-machine doctor --json --no-thermal-sample` or
+the diagnostic parity profiles, but should report only check counts/status and
+never raw model inventory, benchmark payloads, local runtime paths beyond route
+paths, generated AI latest JSON, or workload records.
+
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash

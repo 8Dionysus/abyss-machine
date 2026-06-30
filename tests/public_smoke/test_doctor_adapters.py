@@ -56,6 +56,20 @@ def _dictation_paths() -> doctor_adapters.DoctorDictationProbePaths:
     )
 
 
+def _ai_paths() -> doctor_adapters.DoctorAiProbePaths:
+    root = Path("/var/lib/abyss-machine/ai")
+    return doctor_adapters.DoctorAiProbePaths(
+        root=root,
+        agent_entrypoint=root / "AGENTS.md",
+        index=root / "index.json",
+        config=Path("/etc/abyss-machine/ai-policy.json"),
+        tts_profiles_latest=root / "tts/profiles/latest.json",
+        report_latest=root / "reports/latest.json",
+        workload_latest=root / "workloads/latest.json",
+        workload_stats_latest=root / "workloads/stats/latest.json",
+    )
+
+
 def _fake_port(
     *,
     exists: set[Path],
@@ -443,6 +457,146 @@ def test_doctor_dictation_probe_adapter_preserves_degraded_status_shape() -> Non
     assert by_key["dictation_server"]["data"]["socket_exists"] is False
     assert by_key["dictation_input_remapper"]["message"] == "input-remapper.service inactive/disabled"
     assert by_key["dictation_input_remapper_preset"]["level"] == "warn"
+
+
+def test_doctor_ai_probe_adapter_collects_clean_checks_without_live_host() -> None:
+    paths = _ai_paths()
+    calls: list[str] = []
+    ai_facts = {
+        "dev_dri_present": True,
+        "dev_dri_nodes": ["/dev/dri/renderD128"],
+        "dev_accel_present": True,
+        "dev_accel_nodes": ["/dev/accel/accel0"],
+        "openvino_venv_exists": True,
+        "openvino_venv": "/srv/abyss-machine/runtimes/ai/openvino",
+    }
+    exists = {paths.root, paths.agent_entrypoint, paths.index, paths.config}
+    timer = {"active": "active", "enabled": "enabled", "is_active": True, "is_enabled": True}
+    port = doctor_adapters.DoctorAiProbePort(
+        path_exists=lambda path: path in exists,
+        ai_status=lambda: calls.append("status") or {
+            "devices": {
+                "ready": {"openvino": True, "gpu": True, "npu": True},
+                "available_devices": ["CPU", "GPU", "NPU"],
+            },
+            "models": {"summary": {"entries": 3}},
+            "benchmark": {"latest_ok": True, "latest_generated_at": "2026-06-30T10:00:00Z"},
+            "eval": {"latest_ok": True, "latest_generated_at": "2026-06-30T11:00:00Z"},
+        },
+        ai_capabilities=lambda: calls.append("capabilities") or {
+            "ok": True,
+            "capabilities": {"embeddings": {"status": "ready"}},
+        },
+        ai_tts_profiles=lambda: calls.append("tts") or {"summary": {"profiles": 2, "executable": True}},
+        ai_policy=lambda: calls.append("policy") or {
+            "ok": True,
+            "class": "balanced",
+            "can_run_heavy": True,
+            "can_run_routed_heavy": True,
+            "heavy_policy": "routed",
+        },
+        ai_storage_status=lambda: calls.append("storage") or {"summary": {"stack_local_openvino_cache_dirs": 0}},
+        ai_runtime_snapshot=lambda: calls.append("runtime") or {
+            "ok": True,
+            "current": {"openvino_version": "2026.1", "available_devices": ["CPU", "GPU"]},
+            "drift_from_previous_latest": False,
+        },
+        load_report_latest=lambda path, schema: calls.append(f"latest:{path.name}:{schema}") or {
+            "ok": True,
+            "generated_at": "2026-06-30T11:30:00Z",
+        },
+        ai_workload_status=lambda: calls.append("workload") or {
+            "summary": {"records": 4},
+            "routing": {"source": "latest"},
+        },
+        systemd_unit=lambda name: dict(timer, name=name),
+    )
+
+    checks = doctor_adapters.collect_doctor_ai_checks(
+        ai_facts=ai_facts,
+        paths=paths,
+        workload_timer_name="abyss-ai-workload-refresh.timer",
+        schema_prefix="abyss_machine",
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert len(checks) == 17
+    assert {check["level"] for check in checks} == {"ok"}
+    assert by_key["gpu_dri"]["data"] == ["/dev/dri/renderD128"]
+    assert by_key["ai_host_topology"]["data"]["config_exists"] is True
+    assert by_key["ai_openvino_devices"]["message"] == "OpenVINO devices available: CPU, GPU, NPU"
+    assert by_key["ai_tts_bridge"]["data"]["latest"] == str(paths.tts_profiles_latest)
+    assert by_key["ai_report_latest"]["data"]["path"] == str(paths.report_latest)
+    assert by_key["ai_workload_stats"]["data"]["stats_latest"] == str(paths.workload_stats_latest)
+    assert by_key["ai_workload_refresh_timer"]["message"] == "abyss-ai-workload-refresh.timer active/enabled"
+    assert calls == [
+        "status",
+        "capabilities",
+        "tts",
+        "policy",
+        "storage",
+        "runtime",
+        f"latest:{paths.report_latest.name}:abyss_machine_ai_report_latest_read_v1",
+        "workload",
+    ]
+
+
+def test_doctor_ai_probe_adapter_preserves_degraded_status_shape() -> None:
+    paths = _ai_paths()
+    timer = {"active": "inactive", "enabled": "disabled", "is_active": False, "is_enabled": False}
+    port = doctor_adapters.DoctorAiProbePort(
+        path_exists=lambda path: path == paths.root,
+        ai_status=lambda: {
+            "devices": {"ready": {"openvino": False, "gpu": False, "npu": False}, "available_devices": []},
+            "models": {"summary": {"entries": 0}},
+            "benchmark": {"latest_ok": False},
+            "eval": {"latest_ok": False},
+        },
+        ai_capabilities=lambda: {"ok": False, "capabilities": {"embeddings": {"status": "blocked"}}},
+        ai_tts_profiles=lambda: {"summary": {"profiles": 0, "executable": False}},
+        ai_policy=lambda: {
+            "ok": False,
+            "class": "blocked",
+            "can_run_heavy": False,
+            "can_run_routed_heavy": False,
+            "heavy_policy": "deny",
+            "reasons": ["thermal_guard"],
+        },
+        ai_storage_status=lambda: {"summary": {"stack_local_openvino_cache_dirs": 2}},
+        ai_runtime_snapshot=lambda: {"ok": False, "current": {}, "drift_from_previous_latest": True},
+        load_report_latest=lambda path, schema: {"ok": False, "error": "missing"},
+        ai_workload_status=lambda: {"summary": {"records": 0}, "routing": {"source": "empty"}},
+        systemd_unit=lambda name: dict(timer, name=name),
+    )
+
+    checks = doctor_adapters.collect_doctor_ai_checks(
+        ai_facts={
+            "dev_dri_present": False,
+            "dev_accel_present": False,
+            "openvino_venv_exists": False,
+            "openvino_venv": "/missing/openvino",
+        },
+        paths=paths,
+        workload_timer_name="abyss-ai-workload-refresh.timer",
+        schema_prefix="abyss_machine",
+        port=port,
+    )
+
+    by_key = _by_key(checks)
+    assert {check["level"] for check in checks} == {"warn"}
+    assert by_key["gpu_dri"]["message"] == "/dev/dri missing"
+    assert by_key["ai_host_topology"]["data"] == {
+        "root": str(paths.root),
+        "root_exists": True,
+        "agent_entrypoint_exists": False,
+        "index_exists": False,
+        "config_exists": False,
+    }
+    assert by_key["ai_openvino_devices"]["message"] == "OpenVINO devices unavailable"
+    assert by_key["ai_storage_hygiene"]["message"] == "2 stack-local OpenVINO model_cache dirs present"
+    assert by_key["ai_report_latest"]["data"] == {"path": str(paths.report_latest), "error": "missing"}
+    assert by_key["ai_workload_refresh_timer"]["data"]["enabled"] == "disabled"
 
 
 def test_doctor_core_probe_adapter_preserves_degraded_status_shape() -> None:
