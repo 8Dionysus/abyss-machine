@@ -176,8 +176,11 @@ and residency service snapshots live in `abyss_machine.memory_adapters`
 through fakeable ports; memory hotpath probe document assembly and orchestration
 plus concrete hotpath TTS/STT/LLM probe execution wrappers live there through
 fakeable synth/transcribe/LLM-runner, residency, AI-policy, path-existence, and
-monotonic ports. CLI owns concrete live runtime binding, candidate ranking,
-authorization checks, latest/history/index writes, and rendering. Mode policy/path/state, definitions,
+monotonic ports. Memory-orchestrate candidate ranking, target identity,
+confirmation-contract, health-route, future-executor, preflight/apply guard, and
+live-authorization safety policy also live there through public-safe fakeable
+documents. CLI owns concrete live runtime/path binding, latest/history/index
+writes, and rendering. Mode policy/path/state, definitions,
 target-profile, thermal launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts live in
 `abyss_machine.mode_contracts`. Mode runtime state load/save,
@@ -451,9 +454,10 @@ validation checks and validate latest/history write routing.
 `dictation_replacements_adapters` owns replacements load/save/list/test and
 add/remove mutation flow. Postprocess glue, notification flow, and rendering remain at the CLI edge. Memory policy/path,
 pressure-classification, zram-relief, headroom attribution, launch-gate, and
-plan document contracts are module-owned while `/proc`, `/sys`, cgroup/systemd
-reads, process sampling, orchestration/apply routes, and latest/history writes
-remain at the CLI edge. Mode policy/path/state, definitions, target-profile,
+plan document contracts are module-owned. Memory live adapters own read/process
+collection, orchestration target snapshots, hotpath execution wrappers, and
+orchestration safety policy; concrete live binding, latest/history writes, and
+rendering remain at the CLI edge. Mode policy/path/state, definitions, target-profile,
 thermal classification/launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts are
 module-owned; mode state load/save, `powerprofilesctl` get/set, GameMode
@@ -536,7 +540,8 @@ leakage across source and temporary installed projections. The compact
 source/install/runtime parity summary now reports installed drift without
 dumping live host payloads. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
-provenance adapters, nervous retention filesystem/unlink/latest adapters,
+provenance adapters, memory orchestration write-routing/broader container
+orchestration seams, nervous retention filesystem/unlink/latest adapters,
 nervous event/episode live latest/write adapters, screenshot live probe/capture
 adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
 execution adapters, TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
