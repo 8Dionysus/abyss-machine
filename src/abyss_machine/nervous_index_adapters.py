@@ -143,6 +143,15 @@ def db_counts(db_path: Path, count: CountDb = nervous_index.counts) -> dict[str,
     return count(db_path)
 
 
+def scan_index(
+    db_path: Path,
+    *,
+    smoke_match_query: str,
+    scan: ScanReader = nervous_index.scan_index,
+) -> dict[str, Any]:
+    return scan(db_path, smoke_match_query=smoke_match_query)
+
+
 def search_from_ports(
     *,
     schema_prefix: str,

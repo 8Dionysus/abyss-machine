@@ -123,6 +123,24 @@ def test_index_adapter_db_counts_uses_count_port(tmp_path: Path) -> None:
     assert calls == [db_path]
 
 
+def test_index_adapter_scan_index_uses_scan_port(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    calls: list[dict[str, Any]] = []
+
+    def fake_scan(path: Path, *, smoke_match_query: str) -> dict[str, Any]:
+        calls.append({"path": path, "query": smoke_match_query})
+        return {"indexed_source_ids": ["abyss_machine_facts"], "smoke_results": 4}
+
+    result = nervous_index_adapters.scan_index(
+        db_path,
+        smoke_match_query='"thermal" OR "zram"',
+        scan=fake_scan,
+    )
+
+    assert result == {"indexed_source_ids": ["abyss_machine_facts"], "smoke_results": 4}
+    assert calls == [{"path": db_path, "query": '"thermal" OR "zram"'}]
+
+
 def test_index_adapter_search_reads_meta_freshness_and_dispatches_search_runner(tmp_path: Path) -> None:
     db_path = tmp_path / "nervous.db"
     db_path.write_text("", encoding="utf-8")
@@ -925,6 +943,10 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
         captured["db_counts"] = path
         return {"documents": 7}
 
+    def fake_scan(path: Path, *, smoke_match_query: str) -> dict[str, Any]:
+        captured["scan"] = {"path": path, "query": smoke_match_query}
+        return {"smoke_results": 3}
+
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SCHEMA_PATH", schema_path)
@@ -937,6 +959,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(cli.nervous_index_adapters, "sqlite_fts5_ok", fake_fts5_ok)
     monkeypatch.setattr(cli.nervous_index_adapters, "path_has_symlink_tail", fake_path_has_symlink_tail)
     monkeypatch.setattr(cli.nervous_index_adapters, "db_counts", fake_db_counts)
+    monkeypatch.setattr(cli.nervous_index_adapters, "scan_index", fake_scan)
 
     assert cli.nervous_index_connect(create=True) is fake_conn
     cli.nervous_index_initialize(fake_conn)
@@ -947,6 +970,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     assert cli.nervous_sqlite_fts5_ok() == (True, None)
     assert cli.nervous_path_has_symlink_tail(db_path, stop_at=root) is True
     assert cli.nervous_index_db_counts() == {"documents": 7}
+    assert cli.nervous_index_scan(db_path, smoke_match_query='"thermal"') == {"smoke_results": 3}
 
     assert captured["connect"] == {"path": db_path, "create": True}
     assert captured["initialize_conn"] is fake_conn
@@ -959,6 +983,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     assert captured["fts5_ok"] is True
     assert captured["symlink_tail"] == {"path": db_path, "stop_at": root}
     assert captured["db_counts"] == db_path
+    assert captured["scan"] == {"path": db_path, "query": '"thermal"'}
 
 
 def test_cli_nervous_index_freshness_binds_adapter_paths_and_ports(monkeypatch, tmp_path: Path) -> None:
@@ -1156,7 +1181,7 @@ def test_cli_nervous_index_validate_binds_adapter_ports(monkeypatch, tmp_path: P
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:20:00+00:00")
     monkeypatch.setattr(cli, "nervous_index_db_counts", forbidden_counts_reader)
     monkeypatch.setattr(cli, "nervous_index_freshness", forbidden_freshness_reader)
-    monkeypatch.setattr(cli, "build_nervous_index_scan", forbidden_scan_reader)
+    monkeypatch.setattr(cli, "nervous_index_scan", forbidden_scan_reader)
     monkeypatch.setattr(cli, "count_file_lines", forbidden_line_counter)
     monkeypatch.setattr(cli, "nervous_path_has_symlink_tail", forbidden_symlink_tail_probe)
     monkeypatch.setattr(cli.nervous_index_adapters, "validation_document_from_ports", fake_validate)
