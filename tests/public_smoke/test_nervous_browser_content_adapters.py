@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
+import sqlite3
 import sys
 from typing import Any
 
@@ -169,6 +170,132 @@ def test_cli_browser_content_store_binds_adapter_ports(monkeypatch) -> None:
     assert captured["now_iso"] is cli.now_iso
     assert captured["append_jsonl"] is cli.safe_append_jsonl
     assert captured["write_json"] is cli.safe_atomic_write_json
+
+
+def test_firefox_history_db_paths_finds_profile_places(tmp_path: Path) -> None:
+    first = tmp_path / ".mozilla" / "firefox" / "one.default" / "places.sqlite"
+    second = tmp_path / ".mozilla" / "firefox" / "two.default" / "places.sqlite"
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_bytes(b"sqlite")
+    second.write_bytes(b"sqlite")
+
+    assert adapters.firefox_history_db_paths(tmp_path) == [first, second]
+
+
+def test_read_browser_history_rows_uses_temp_copy_recent_cutoff_and_cleanup(tmp_path: Path) -> None:
+    db_path = tmp_path / "profile" / "places.sqlite"
+    tmp_root = tmp_path / "tmp"
+    db_path.parent.mkdir()
+    now = dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.timezone.utc)
+    recent = dt.datetime(2026, 6, 30, 11, 30, tzinfo=dt.timezone.utc)
+    old = dt.datetime(2026, 6, 30, 1, 30, tzinfo=dt.timezone.utc)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT, title TEXT)")
+        conn.execute("CREATE TABLE moz_historyvisits (place_id INTEGER, visit_date INTEGER)")
+        conn.execute("INSERT INTO moz_places (id, url, title) VALUES (1, 'https://example.test/docs?token=secret#frag', 'Docs')")
+        conn.execute("INSERT INTO moz_places (id, url, title) VALUES (2, 'https://example.test/old', 'Old')")
+        conn.execute("INSERT INTO moz_historyvisits (place_id, visit_date) VALUES (1, ?)", (int(recent.timestamp() * 1_000_000),))
+        conn.execute("INSERT INTO moz_historyvisits (place_id, visit_date) VALUES (2, ?)", (int(old.timestamp() * 1_000_000),))
+
+    rows, error = adapters.read_browser_history_rows(
+        db_path,
+        "firefox",
+        tmp_root=tmp_root,
+        now_epoch=now.timestamp,
+    )
+
+    assert error is None
+    assert len(rows) == 1
+    assert rows[0]["url"] == "https://example.test/docs?token=secret#frag"
+    assert rows[0]["title"] == "Docs"
+    assert int(dt.datetime.fromisoformat(rows[0]["visited_at"]).timestamp()) == int(recent.timestamp())
+    assert not list(tmp_root.glob("*.sqlite"))
+
+
+def test_browser_recent_history_fact_assembles_redacted_entries_and_content_callback(tmp_path: Path) -> None:
+    first = tmp_path / ".mozilla" / "firefox" / "one.default" / "places.sqlite"
+    second = tmp_path / ".mozilla" / "firefox" / "two.default" / "places.sqlite"
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_bytes(b"")
+    second.write_bytes(b"")
+    calls: list[tuple[Path, str]] = []
+
+    def read_rows(path: Path, browser: str) -> tuple[list[dict[str, Any]], str | None]:
+        calls.append((path, browser))
+        if path == first:
+            return [
+                {
+                    "url": "https://example.test/docs?token=secret#frag",
+                    "title": "Docs",
+                    "visited_at": "2026-06-30T11:30:00+00:00",
+                },
+                {
+                    "url": "https://example.test/docs?token=secret#frag",
+                    "title": "Duplicate",
+                    "visited_at": "2026-06-30T11:31:00+00:00",
+                },
+            ], None
+        return [], "locked"
+
+    data, skip = adapters.browser_recent_history_fact(
+        home=tmp_path,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: "2026-06-30T12:00:00+00:00",
+        uid=1000,
+        gid=1000,
+        live_capture={"ok": True, "skipped": False},
+        coverage="recent_history_plus_fixture_capture",
+        content_recent_records=lambda hours, limit: ([{"captured_at": "2026-06-30T11:59:00+00:00"}], []),
+        read_history_rows=read_rows,
+    )
+
+    assert skip is None
+    assert data["ok"] is True
+    assert data["summary"]["entries"] == 1
+    assert data["summary"]["content_entries"] == 1
+    assert data["summary"]["profiles_seen"] == 2
+    assert data["summary"]["errors"] == 1
+    assert data["entries"][0]["profile"] == "one.default"
+    assert data["entries"][0]["title"] == "Docs"
+    assert data["entries"][0]["url"]["url"] == "https://example.test/docs"
+    assert data["entries"][0]["url"]["query_present"] is True
+    assert data["entries"][0]["url"]["fragment_present"] is True
+    assert data["errors"][0]["profile"].endswith("two.default")
+    assert data["source"]["virtual"] is True
+    assert calls == [(first, "firefox"), (second, "firefox")]
+
+
+def test_cli_browser_recent_history_fact_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_fact(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "name": "browser_recent_history"}, None
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(cli, "nervous_browser_live_content_capture", lambda write_latest: {"ok": True, "write_latest": write_latest})
+    monkeypatch.setattr(cli.nervous_browser_content_adapters, "browser_recent_history_fact", fake_fact)
+
+    data, skip = cli.nervous_browser_recent_history_fact(
+        {"safe_now": {"browser_active_tab": {"enabled": True, "allowed": True}}},
+        trigger="manual",
+    )
+
+    assert skip is None
+    assert data == {"ok": True, "name": "browser_recent_history"}
+    assert captured["home"] == tmp_path
+    assert captured["tmp_root"] == cli.NERVOUS_BROWSER_TMP_ROOT
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["now_iso"] is cli.now_iso
+    assert captured["live_capture"] == {"ok": True, "write_latest": True}
+    assert captured["coverage"] == "recent_history_plus_live_browser_content_capture"
+    assert captured["read_history_rows"] is cli.nervous_read_browser_history_rows
+    assert callable(captured["content_recent_records"])
 
 
 class FakeStateSet:
