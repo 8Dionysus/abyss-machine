@@ -24,7 +24,9 @@ effect labels live there too. The script owns only host path binding and
 subprocess invocation. It reports digest drift, package/public-seed mismatch
 counts, and runtime status/check counts without copying raw runtime JSON or
 private host payloads into reports. Default/read profiles are read-only;
-`*-refresh` profiles require `--allow-runtime-refresh`.
+`*-refresh` profiles require `--allow-runtime-refresh`. Use `--summary --json`
+for public-safe closeout; reserve the full `--json` document for debugging the
+parity route itself.
 
 `validation_contracts.py` owns the shared validation summary, document envelope,
 and generic subsystem validate/all envelope contracts used by CLI validators;

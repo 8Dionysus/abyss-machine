@@ -70,6 +70,11 @@ def build_report(args: argparse.Namespace, selected_runtime_checks: list[str]) -
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Emit a compact source/install/runtime parity summary.")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="when used with --json, emit the public-safe closeout summary projection instead of the full parity document",
+    )
     parser.add_argument("--host-cli", default="/usr/local/bin/abyss-machine")
     parser.add_argument("--host-libexec-dir", default="/usr/local/libexec")
     parser.add_argument("--host-share-root", default="/usr/local/share/abyss-machine")
@@ -110,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(
                     {
                         "schema": host_lifecycle_parity.SCHEMA,
+                        "projection": "summary" if args.summary else "full",
                         "ok": False,
                         "status": "blocked",
                         "error": message,
@@ -123,8 +129,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         parser.error(message)
     report = build_report(args, selected_runtime_checks)
+    output = host_lifecycle_parity.parity_summary_document(report) if args.summary else report
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        print(json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True))
     if report.get("ok") is True or args.advisory:
         if not args.json:
             return ok("source/install/runtime parity summary completed")

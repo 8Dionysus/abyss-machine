@@ -106,6 +106,9 @@ latest/readmodel-refresh effect labels are module-owned in
 concrete subprocess execution. Default and read profiles are read-only.
 `*-refresh` profiles require `--allow-runtime-refresh`. Use `--advisory` before
 an install is applied; require a green summary after an installed-host closeout.
+Closeout reports should use `--summary --json`, which omits path details,
+digest values, raw runtime stderr/stdout, and raw runtime JSON. The full
+`--json` document is for parity-route debugging.
 
 The typing/nervous policy validator keeps the first subsystem split honest:
 private nervous captures, search and semantic indexes, browser/tool adapters,

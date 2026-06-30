@@ -46,7 +46,9 @@ catalogs, profiles, and read-only vs latest/readmodel-refresh effect labels
 live in `abyss_machine.host_lifecycle_parity`; validator scripts bind those
 profiles to concrete installed paths and subprocess execution. Default/read
 profiles stay read-only; explicit `*-refresh` profiles may update live
-latest/readmodel state.
+latest/readmodel state. Public closeout should use the module-owned
+`--summary --json` projection so drift counts and runtime status are reportable
+without path details, digest values, raw stderr/stdout, or raw runtime JSON.
 
 ### Next route
 

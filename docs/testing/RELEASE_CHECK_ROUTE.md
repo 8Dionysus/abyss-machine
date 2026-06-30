@@ -48,7 +48,7 @@ When a change touches installed CLI behavior, typing/nervous, host contracts,
 or live adapters, add the relevant host-side checks:
 
 ```bash
-PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --summary --json
 PYTHONPATH=src python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"
 PYTHONDONTWRITEBYTECODE=1 tools/abyss-machine-test quick --json
 abyss-machine enter --json
@@ -61,10 +61,15 @@ For a richer installed-host closeout, use module-owned runtime profiles instead
 of hand-maintaining command lists in the validator script:
 
 ```bash
-PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile diagnostic-read --json
-PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile ai-llm-refresh --allow-runtime-refresh --json
-PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile storage-refresh --allow-runtime-refresh --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile diagnostic-read --summary --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile ai-llm-refresh --allow-runtime-refresh --summary --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile storage-refresh --allow-runtime-refresh --summary --json
 ```
+
+Use the full `--json` document only when investigating the parity route itself.
+Closeout reports should use `--summary --json`, which keeps drift counts,
+bounded samples, runtime check status, and warning/failure counts while omitting
+path details, digest values, raw runtime stderr/stdout, and raw runtime JSON.
 
 For storage apply adapter changes, public CI should rely on fake-port tests and
 live-safe `storage cleanup-plan` / `storage apply --dry-run` summaries. Do not

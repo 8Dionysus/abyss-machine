@@ -565,7 +565,8 @@ rendering remain at the CLI edge. The public
 cold-start route now checks for private operator path and current-checkout
 leakage across source and temporary installed projections. The compact
 source/install/runtime parity summary now reports installed drift without
-dumping live host payloads. Remaining hardening
+dumping live host payloads, and closeout can use `--summary --json` to avoid
+path details, digest values, raw stderr/stdout, and raw runtime JSON. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, memory orchestration write-routing/broader container
 orchestration seams, rerank live search/latest adapters,
