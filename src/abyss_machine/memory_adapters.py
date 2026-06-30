@@ -34,6 +34,9 @@ TtsProbePort = Callable[[str, int], dict[str, Any]]
 SttProbePort = Callable[[str, str], dict[str, Any]]
 LlmProbePort = Callable[[bool, int], dict[str, Any]]
 OutputExistsPort = Callable[[str], bool]
+TtsSynthPort = Callable[..., dict[str, Any]]
+DictationTranscribePort = Callable[[str, str], dict[str, Any]]
+LoadJsonDocumentPort = Callable[[Path], tuple[Any, Any]]
 
 
 def tool_available(name: str) -> bool:
@@ -131,6 +134,142 @@ def hotpath_residency_brief(data: dict[str, Any]) -> dict[str, Any]:
         "psi_full_avg10": summary.get("psi_full_avg10"),
         "protected_high_swap_units": summary.get("protected_high_swap_units"),
         "services": services,
+    }
+
+
+def hotpath_tts_probe(
+    text: str,
+    index: int,
+    *,
+    synth_port: TtsSynthPort,
+    monotonic: MonotonicPort = time.monotonic,
+) -> dict[str, Any]:
+    started = monotonic()
+    result = synth_port(
+        "quality-compact",
+        text,
+        output=None,
+        force=False,
+        allow_download=False,
+        use_server=True,
+        write_latest=True,
+    )
+    wall = round(monotonic() - started, 3)
+    audio = result.get("audio", {}) if isinstance(result.get("audio"), dict) else {}
+    server = result.get("server", {}) if isinstance(result.get("server"), dict) else {}
+    gate = result.get("policy_gate", {}) if isinstance(result.get("policy_gate"), dict) else {}
+    return {
+        "index": index,
+        "ok": bool(result.get("ok")),
+        "profile": result.get("profile"),
+        "engine": result.get("engine"),
+        "device": result.get("device"),
+        "client_wall_sec": wall,
+        "reported_wall_sec": result.get("wall_sec"),
+        "server_synth_sec": server.get("synth_sec"),
+        "audio_sec": audio.get("duration_sec"),
+        "rtf": result.get("rtf"),
+        "output": result.get("output"),
+        "server_used": bool(result.get("server")),
+        "server_warm": server.get("warm") if server else nested_get(result, ["server_attempt", "warm"]),
+        "policy_class": gate.get("policy_class"),
+        "policy_allowed": gate.get("allowed"),
+        "policy_reasons": gate.get("reasons") if isinstance(gate.get("reasons"), list) else [],
+        "error": result.get("error"),
+    }
+
+
+def hotpath_stt_probe(
+    audio: str,
+    profile: str,
+    *,
+    transcribe_port: DictationTranscribePort,
+    monotonic: MonotonicPort = time.monotonic,
+) -> dict[str, Any]:
+    started = monotonic()
+    result = transcribe_port(audio, profile)
+    wall = round(monotonic() - started, 3)
+    timings = result.get("timings", {}) if isinstance(result.get("timings"), dict) else {}
+    return {
+        "profile": profile,
+        "ok": bool(result.get("ok")),
+        "via": result.get("via"),
+        "client_wall_sec": wall,
+        "client_elapsed_sec": result.get("client_elapsed_sec"),
+        "elapsed_sec": result.get("elapsed_sec"),
+        "generate_sec": timings.get("generate_sec"),
+        "cache_hit": timings.get("cache_hit"),
+        "audio_sec": result.get("processed_audio_duration_sec") or result.get("raw_audio_duration_sec"),
+        "segments": [
+            {
+                "duration_sec": item.get("duration_sec"),
+                "elapsed_sec": item.get("elapsed_sec"),
+                "num_beams": item.get("num_beams"),
+            }
+            for item in result.get("segments", [])
+            if isinstance(item, dict)
+        ],
+        "recognized_text": result.get("raw_text") or result.get("text"),
+        "error": result.get("error"),
+    }
+
+
+def hotpath_llm_probe(
+    include_llm: bool,
+    limit: int,
+    *,
+    latest_path: Path,
+    controller_path: Path,
+    load_json_document: LoadJsonDocumentPort,
+    runner: CommandRunnerPort = run_tool_process,
+    monotonic: MonotonicPort = time.monotonic,
+) -> dict[str, Any]:
+    if not include_llm:
+        latest, error = load_json_document(latest_path)
+        summary = latest.get("summary") if isinstance(latest, dict) and isinstance(latest.get("summary"), dict) else {}
+        return {
+            "mode": "latest_only",
+            "executed": False,
+            "latest": str(latest_path),
+            "latest_ok": bool(latest.get("ok")) if isinstance(latest, dict) else False,
+            "latest_error": error,
+            "selected_job": summary.get("selected_job"),
+            "status": summary.get("status"),
+            "elapsed_ms": summary.get("elapsed_ms"),
+            "policy_decision": summary.get("policy_decision"),
+            "fallback_used": summary.get("fallback_used"),
+            "model_used": summary.get("model_used"),
+        }
+    cmd = [str(controller_path), "micro", "--limit", str(max(1, min(int(limit), 16))), "--json"]
+    started = monotonic()
+    out = runner(cmd, 360.0)
+    wall = round(monotonic() - started, 3)
+    raw = str(out.get("stdout") or "").strip()
+    parsed: dict[str, Any] | None = None
+    if raw:
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, dict):
+                parsed = loaded
+        except json.JSONDecodeError:
+            parsed = None
+    summary = parsed.get("summary") if isinstance(parsed, dict) and isinstance(parsed.get("summary"), dict) else {}
+    return {
+        "mode": "executed",
+        "executed": True,
+        "ok": bool(parsed.get("ok")) if isinstance(parsed, dict) else False,
+        "returncode": out.get("returncode"),
+        "client_wall_sec": wall,
+        "selected_job": summary.get("selected_job"),
+        "next_job": summary.get("next_job"),
+        "status": summary.get("status"),
+        "elapsed_ms": summary.get("elapsed_ms"),
+        "policy_decision": summary.get("policy_decision"),
+        "fallback_used": summary.get("fallback_used"),
+        "model_used": summary.get("model_used"),
+        "latest": str(latest_path),
+        "stderr_tail": str(out.get("stderr") or "")[-1000:] or None,
+        "stdout_parse_error": None if parsed is not None else (raw[-1000:] if raw else "empty stdout"),
     }
 
 

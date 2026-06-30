@@ -91,6 +91,184 @@ def test_memory_status_parsers_use_fake_roots_and_runners(tmp_path: Path) -> Non
     assert memory_adapters.cgroup_status(cgroup_root=cgroup_root, uid=1000)["user"]["memory_events"]["oom"] == 1
 
 
+def test_hotpath_tts_probe_uses_fake_synth_port() -> None:
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    monotonic_values = iter([1.0, 2.25])
+
+    def synth_port(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append((args, kwargs))
+        return {
+            "ok": True,
+            "profile": "quality-compact",
+            "engine": "piper",
+            "device": "cpu",
+            "wall_sec": 0.75,
+            "audio": {"duration_sec": 3.5},
+            "rtf": 0.21,
+            "output": "/fake/audio.wav",
+            "server": {"warm": True, "synth_sec": 0.42},
+            "policy_gate": {
+                "policy_class": "green",
+                "allowed": True,
+                "reasons": ["synthetic"],
+            },
+        }
+
+    result = memory_adapters.hotpath_tts_probe(
+        "synthetic hot path",
+        2,
+        synth_port=synth_port,
+        monotonic=lambda: next(monotonic_values),
+    )
+
+    assert calls == [
+        (
+            ("quality-compact", "synthetic hot path"),
+            {
+                "output": None,
+                "force": False,
+                "allow_download": False,
+                "use_server": True,
+                "write_latest": True,
+            },
+        )
+    ]
+    assert result["index"] == 2
+    assert result["ok"] is True
+    assert result["profile"] == "quality-compact"
+    assert result["client_wall_sec"] == 1.25
+    assert result["server_synth_sec"] == 0.42
+    assert result["audio_sec"] == 3.5
+    assert result["server_used"] is True
+    assert result["server_warm"] is True
+    assert result["policy_allowed"] is True
+    assert result["policy_reasons"] == ["synthetic"]
+
+
+def test_hotpath_stt_probe_uses_fake_transcribe_port() -> None:
+    calls: list[tuple[str, str]] = []
+    monotonic_values = iter([10.0, 12.5])
+
+    def transcribe_port(audio: str, profile: str) -> dict[str, Any]:
+        calls.append((audio, profile))
+        return {
+            "ok": True,
+            "via": "local",
+            "client_elapsed_sec": 2.4,
+            "elapsed_sec": 2.3,
+            "timings": {"generate_sec": 1.7, "cache_hit": False},
+            "processed_audio_duration_sec": 4.0,
+            "segments": [
+                {
+                    "duration_sec": 4.0,
+                    "elapsed_sec": 2.3,
+                    "num_beams": 1,
+                    "ignored": "not part of the adapter contract",
+                }
+            ],
+            "raw_text": "recognized text",
+        }
+
+    result = memory_adapters.hotpath_stt_probe(
+        "/fake/audio.wav",
+        "command",
+        transcribe_port=transcribe_port,
+        monotonic=lambda: next(monotonic_values),
+    )
+
+    assert calls == [("/fake/audio.wav", "command")]
+    assert result["profile"] == "command"
+    assert result["ok"] is True
+    assert result["via"] == "local"
+    assert result["client_wall_sec"] == 2.5
+    assert result["generate_sec"] == 1.7
+    assert result["cache_hit"] is False
+    assert result["audio_sec"] == 4.0
+    assert result["segments"] == [{"duration_sec": 4.0, "elapsed_sec": 2.3, "num_beams": 1}]
+    assert result["recognized_text"] == "recognized text"
+
+
+def test_hotpath_llm_probe_latest_and_executed_use_fake_ports(tmp_path: Path) -> None:
+    latest_path = tmp_path / "latest.json"
+    controller_path = tmp_path / "resident-controller"
+    load_calls: list[Path] = []
+    runner_calls: list[tuple[list[str], float]] = []
+
+    def load_json(path: Path) -> tuple[dict[str, Any], None]:
+        load_calls.append(path)
+        return (
+            {
+                "ok": True,
+                "summary": {
+                    "selected_job": "previous",
+                    "status": "ok",
+                    "elapsed_ms": 123,
+                    "policy_decision": "allow",
+                    "fallback_used": False,
+                    "model_used": "gemma",
+                },
+            },
+            None,
+        )
+
+    latest_result = memory_adapters.hotpath_llm_probe(
+        False,
+        4,
+        latest_path=latest_path,
+        controller_path=controller_path,
+        load_json_document=load_json,
+    )
+
+    assert load_calls == [latest_path]
+    assert runner_calls == []
+    assert latest_result["mode"] == "latest_only"
+    assert latest_result["executed"] is False
+    assert latest_result["latest_ok"] is True
+    assert latest_result["selected_job"] == "previous"
+
+    monotonic_values = iter([20.0, 23.0])
+
+    def runner(command: list[str], timeout: float) -> dict[str, Any]:
+        runner_calls.append((command, timeout))
+        return {
+            "returncode": 0,
+            "stdout": json.dumps(
+                {
+                    "ok": True,
+                    "summary": {
+                        "selected_job": "a",
+                        "next_job": "b",
+                        "status": "ok",
+                        "elapsed_ms": 456,
+                        "policy_decision": "allow",
+                        "fallback_used": False,
+                        "model_used": "gemma",
+                    },
+                }
+            ),
+            "stderr": "",
+        }
+
+    executed_result = memory_adapters.hotpath_llm_probe(
+        True,
+        99,
+        latest_path=latest_path,
+        controller_path=controller_path,
+        load_json_document=load_json,
+        runner=runner,
+        monotonic=lambda: next(monotonic_values),
+    )
+
+    assert runner_calls == [([str(controller_path), "micro", "--limit", "16", "--json"], 360.0)]
+    assert executed_result["mode"] == "executed"
+    assert executed_result["executed"] is True
+    assert executed_result["ok"] is True
+    assert executed_result["client_wall_sec"] == 3.0
+    assert executed_result["selected_job"] == "a"
+    assert executed_result["next_job"] == "b"
+    assert executed_result["stdout_parse_error"] is None
+
+
 def test_hotpath_probe_document_uses_fake_probe_ports() -> None:
     residency_calls: list[int] = []
     tts_calls: list[tuple[str, int]] = []

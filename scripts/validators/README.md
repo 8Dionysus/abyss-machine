@@ -235,10 +235,11 @@ locks, and rehydrate polling live in `abyss_machine.memory_adapters` through
 fakeable ports. Read-only PSI/vmstat/sysctl/swap/zram/zswap/meminfo/cgroup,
 process `smaps_rollup`, cgroup memory/swap attribution, Podman joins, and
 residency service snapshots also live in `memory_adapters`. Hotpath probe
-document assembly/orchestration now lives in `memory_adapters` through fakeable
-residency, TTS/STT/LLM, AI-policy, path-existence, and monotonic ports.
-Concrete hotpath TTS/STT/LLM probe execution, candidate ranking, authorization
-checks, concrete port binding, and latest/history writes remain at the CLI edge.
+document assembly/orchestration plus hotpath TTS/STT/LLM execution wrappers now
+live in `memory_adapters` through fakeable synth/transcribe/LLM-runner,
+residency, AI-policy, path-existence, and monotonic ports. Candidate ranking,
+authorization checks, concrete live port binding, and latest/history writes
+remain at the CLI edge.
 Mode policy/path/state, definitions, target-profile, thermal classification/
 launch caps, external power-profile guard decisions, plan/status document
 shape, validate document, and lightweight reconcile status contracts live in
