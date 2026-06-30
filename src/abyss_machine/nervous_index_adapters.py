@@ -26,12 +26,16 @@ InitializeDb = Callable[..., str | None]
 LatestReader = Callable[[Path], tuple[dict[str, Any] | None, str | None]]
 LineCounter = Callable[[Path], int | None]
 LockFactory = Callable[[Path], Any]
+MetaReader = Callable[[Path], dict[str, Any]]
 ModeApplier = Callable[..., None]
 NowReader = Callable[[], str]
 ProjectionBuilder = Callable[..., dict[str, Any]]
 RedactText = Callable[[str], tuple[str, int]]
 ReplaceContents = Callable[..., None]
 ScanReader = Callable[..., dict[str, Any]]
+SearchOptionsBuilder = Callable[..., dict[str, Any]]
+SearchRefusalBuilder = Callable[..., dict[str, Any]]
+SearchRunner = Callable[..., dict[str, Any]]
 SemanticLockActive = Callable[[], bool]
 SqliteMemoryConnect = Callable[[], Any]
 SourceFilesReader = Callable[[tuple[Path, ...]], list[Path]]
@@ -137,6 +141,65 @@ def path_has_symlink_tail(path: Path, *, stop_at: Path | None = None) -> bool:
 
 def db_counts(db_path: Path, count: CountDb = nervous_index.counts) -> dict[str, Any]:
     return count(db_path)
+
+
+def search_from_ports(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    db_path: Path,
+    query: str,
+    config: dict[str, Any],
+    privacy: dict[str, Any],
+    requested_limit: int | None,
+    requested_order: str,
+    dedupe: bool,
+    source: str | None = None,
+    schema: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    severity: str | None = None,
+    sensitivity: str | None = None,
+    freshness_reader: FreshnessReader,
+    meta_reader: MetaReader = nervous_index.read_meta,
+    options_builder: SearchOptionsBuilder = nervous_index.search_options,
+    refusal_builder: SearchRefusalBuilder = nervous_index.search_refused_result,
+    search_runner: SearchRunner = nervous_index.search_index,
+) -> dict[str, Any]:
+    options = options_builder(
+        config,
+        requested_limit=requested_limit,
+        requested_order=requested_order,
+    )
+    if bool(privacy.get("global_pause")):
+        return refusal_builder(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+        )
+    freshness = None
+    if db_path.exists():
+        freshness = freshness_reader(meta=meta_reader(db_path), config=config)
+    return search_runner(
+        db_path=db_path,
+        query=query,
+        final_limit=options["final_limit"],
+        dedupe=dedupe,
+        order=options["order"],
+        source=source,
+        schema=schema,
+        since=since,
+        until=until,
+        severity=severity,
+        sensitivity=sensitivity,
+        snippet_tokens=options["snippet_tokens"],
+        scan_limit=options["scan_limit"],
+        freshness=freshness,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+    )
 
 
 @contextmanager

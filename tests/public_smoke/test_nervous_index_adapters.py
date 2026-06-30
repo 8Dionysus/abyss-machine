@@ -123,6 +123,100 @@ def test_index_adapter_db_counts_uses_count_port(tmp_path: Path) -> None:
     assert calls == [db_path]
 
 
+def test_index_adapter_search_reads_meta_freshness_and_dispatches_search_runner(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    db_path.write_text("", encoding="utf-8")
+    config = {"search": {"max_limit": 20, "default_limit": 7, "snippet_tokens": 9}}
+    privacy = {"global_pause": False}
+    meta = {"built_at": "2026-06-25T13:00:00+00:00"}
+    freshness = {"stale": False, "lag_sec": 0}
+    calls: list[tuple[str, Any]] = []
+
+    def meta_reader(path: Path) -> dict[str, Any]:
+        calls.append(("meta", path))
+        return meta
+
+    def freshness_reader(**kwargs: Any) -> dict[str, Any]:
+        calls.append(("freshness", kwargs))
+        return freshness
+
+    def search_runner(**kwargs: Any) -> dict[str, Any]:
+        calls.append(("search", kwargs))
+        return {"ok": True, "captured": kwargs}
+
+    result = nervous_index_adapters.search_from_ports(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T13:25:00+00:00",
+        db_path=db_path,
+        query="thermal",
+        config=config,
+        privacy=privacy,
+        requested_limit=50,
+        requested_order="ranked",
+        dedupe=False,
+        source="nervous_events",
+        severity="warn",
+        freshness_reader=freshness_reader,
+        meta_reader=meta_reader,
+        search_runner=search_runner,
+    )
+
+    assert result["ok"] is True
+    assert calls[0] == ("meta", db_path)
+    assert calls[1] == ("freshness", {"meta": meta, "config": config})
+    search_call = calls[2][1]
+    assert search_call["db_path"] == db_path
+    assert search_call["query"] == "thermal"
+    assert search_call["final_limit"] == 20
+    assert search_call["order"] == "ranked"
+    assert search_call["dedupe"] is False
+    assert search_call["source"] == "nervous_events"
+    assert search_call["severity"] == "warn"
+    assert search_call["snippet_tokens"] == 9
+    assert search_call["scan_limit"] == 320
+    assert search_call["freshness"] == freshness
+    assert search_call["schema_prefix"] == "abyss_machine"
+    assert search_call["version"] == "test-version"
+    assert search_call["generated_at"] == "2026-06-25T13:25:00+00:00"
+
+
+def test_index_adapter_search_refuses_before_live_reads_when_paused(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    db_path.write_text("", encoding="utf-8")
+
+    def forbidden_meta_reader(path: Path) -> dict[str, Any]:
+        raise AssertionError(f"paused search must not read index metadata: {path}")
+
+    def forbidden_freshness_reader(**kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("paused search must not read freshness")
+
+    def forbidden_search_runner(**kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("paused search must not run SQLite search")
+
+    result = nervous_index_adapters.search_from_ports(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T13:25:00+00:00",
+        db_path=db_path,
+        query="thermal",
+        config={"search": {"default_limit": 7}},
+        privacy={"global_pause": True},
+        requested_limit=None,
+        requested_order="latest",
+        dedupe=True,
+        freshness_reader=forbidden_freshness_reader,
+        meta_reader=forbidden_meta_reader,
+        search_runner=forbidden_search_runner,
+    )
+
+    assert result == nervous_index.search_refused_result(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T13:25:00+00:00",
+    )
+
+
 def test_index_adapter_write_latest_marks_write_failures(tmp_path: Path) -> None:
     latest_path = tmp_path / "not-a-dir" / "latest.json"
     latest_path.parent.write_text("blocks directory creation", encoding="utf-8")
@@ -979,6 +1073,47 @@ def test_cli_nervous_index_status_binds_adapter_ports(monkeypatch, tmp_path: Pat
     assert captured["counts_reader"] is forbidden_counts_reader
     assert captured["freshness_reader"] is forbidden_freshness_reader
     assert captured["unit_status_reader"] is forbidden_unit_reader
+
+
+def test_cli_nervous_index_search_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+    db_path = tmp_path / "nervous.db"
+    config = {"search": {"max_limit": 20, "default_limit": 7}}
+    privacy = {"global_pause": False}
+
+    def fake_search_from_ports(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
+    monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy)
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T13:25:00+00:00")
+    monkeypatch.setattr(cli.nervous_index_adapters, "search_from_ports", fake_search_from_ports)
+
+    result = cli.nervous_index_search(
+        "thermal",
+        limit=50,
+        dedupe=False,
+        order="ranked",
+        source="nervous_events",
+        severity="warn",
+    )
+
+    assert result == {"ok": True, "from_adapter": True}
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["generated_at"] == "2026-06-25T13:25:00+00:00"
+    assert captured["db_path"] == db_path
+    assert captured["query"] == "thermal"
+    assert captured["config"] == config
+    assert captured["privacy"] == privacy
+    assert captured["requested_limit"] == 50
+    assert captured["requested_order"] == "ranked"
+    assert captured["dedupe"] is False
+    assert captured["source"] == "nervous_events"
+    assert captured["severity"] == "warn"
+    assert captured["freshness_reader"] is cli.nervous_index_freshness
 
 
 def test_cli_nervous_index_validate_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:
