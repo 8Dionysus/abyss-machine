@@ -21,6 +21,11 @@
   config/privacy/source/path binding, redactor callback binding, derived refresh
   orchestration, concrete validation port wiring, latest writes, and command
   rendering.
+- Lexical index SQLite FTS probe seam:
+  `abyss_machine.nervous_index_adapters` owns SQLite FTS5 runtime capability
+  probing through a fakeable in-memory connection port. CLI keeps the command
+  preflight/policy binding and rendering paths, while the concrete SQLite probe
+  no longer lives in command code.
 - Lexical index build source-input seam:
   `abyss_machine.nervous_index_adapters` owns index build source-root to
   build-document assembly: source-file discovery, JSONL source-record loading,

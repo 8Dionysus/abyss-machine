@@ -33,6 +33,7 @@ RedactText = Callable[[str], tuple[str, int]]
 ReplaceContents = Callable[..., None]
 ScanReader = Callable[..., dict[str, Any]]
 SemanticLockActive = Callable[[], bool]
+SqliteMemoryConnect = Callable[[], Any]
 SourceFilesReader = Callable[[tuple[Path, ...]], list[Path]]
 SourceRecordsLoader = Callable[[list[Path]], tuple[list[dict[str, Any]], list[dict[str, Any]]]]
 SymlinkTailProbe = Callable[..., bool]
@@ -94,6 +95,23 @@ def initialize_db(
 ) -> str | None:
     nervous_index.initialize_db(conn, schema_prefix=schema_prefix, version=version)
     return write_schema_sql(schema_path, schema_sql, group=group)
+
+
+def sqlite_fts5_ok(
+    connect: SqliteMemoryConnect = lambda: sqlite3.connect(":memory:"),
+) -> tuple[bool, str | None]:
+    conn = None
+    try:
+        conn = connect()
+        conn.execute("CREATE VIRTUAL TABLE fts_probe USING fts5(body)")
+        conn.execute("INSERT INTO fts_probe(body) VALUES (?)", ("thermal battery storage",))
+        row = conn.execute("SELECT count(*) FROM fts_probe WHERE fts_probe MATCH ?", ("thermal",)).fetchone()
+        return bool(row and row[0] == 1), None
+    except sqlite3.Error as exc:
+        return False, str(exc)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 @contextmanager

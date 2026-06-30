@@ -353,6 +353,7 @@ containers or the registered rerank-api unload route.
 `abyss_machine.nervous_index_adapters` owns the first nervous-local lexical
 SQLite/FTS lifecycle adapter boundary:
 
+- SQLite FTS5 capability probing through a fakeable memory-connection port;
 - source index SQLite connection creation through the public `nervous_index`
   store contract;
 - schema SQL file writes beside the host-owned index database;
