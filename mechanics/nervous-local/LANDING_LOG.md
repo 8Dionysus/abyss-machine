@@ -35,6 +35,11 @@
   `abyss_machine.nervous_index_adapters` owns source-index DB count reads
   through a fakeable count port. CLI keeps the compatibility wrapper, call-site
   binding, policy gates, latest writes, and rendering.
+- Lexical index search-dispatch seam:
+  `abyss_machine.nervous_index_adapters` owns index-search read-meta,
+  freshness, refusal, option, and search-runner dispatch through fakeable ports.
+  `abyss_machine.nervous_index` keeps search option/refusal/result contracts,
+  while CLI keeps config/privacy/path binding, command dispatch, and rendering.
 - Lexical index build source-input seam:
   `abyss_machine.nervous_index_adapters` owns index build source-root to
   build-document assembly: source-file discovery, JSONL source-record loading,
