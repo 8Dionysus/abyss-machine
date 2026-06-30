@@ -41,6 +41,52 @@ def test_index_adapter_initializes_db_and_writes_schema_file(tmp_path: Path) -> 
     assert "CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5" in schema_path.read_text(encoding="utf-8")
 
 
+def test_index_adapter_sqlite_fts5_probe_uses_memory_connection_port() -> None:
+    calls: list[tuple[str, Any]] = []
+
+    class FakeCursor:
+        def fetchone(self) -> tuple[int]:
+            calls.append(("fetchone", None))
+            return (1,)
+
+    class FakeConnection:
+        def execute(self, sql: str, params: tuple[Any, ...] = ()) -> FakeCursor:
+            calls.append(("execute", {"sql": sql, "params": params}))
+            return FakeCursor()
+
+        def close(self) -> None:
+            calls.append(("close", None))
+
+    result = nervous_index_adapters.sqlite_fts5_ok(connect=lambda: FakeConnection())
+
+    assert result == (True, None)
+    assert calls == [
+        ("execute", {"sql": "CREATE VIRTUAL TABLE fts_probe USING fts5(body)", "params": ()}),
+        ("execute", {"sql": "INSERT INTO fts_probe(body) VALUES (?)", "params": ("thermal battery storage",)}),
+        ("execute", {"sql": "SELECT count(*) FROM fts_probe WHERE fts_probe MATCH ?", "params": ("thermal",)}),
+        ("fetchone", None),
+        ("close", None),
+    ]
+
+
+def test_index_adapter_sqlite_fts5_probe_reports_sqlite_error_and_closes() -> None:
+    calls: list[str] = []
+
+    class FakeConnection:
+        def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
+            calls.append(sql)
+            raise sqlite3.OperationalError("no such module: fts5")
+
+        def close(self) -> None:
+            calls.append("close")
+
+    ok, error = nervous_index_adapters.sqlite_fts5_ok(connect=lambda: FakeConnection())
+
+    assert ok is False
+    assert error == "no such module: fts5"
+    assert calls == ["CREATE VIRTUAL TABLE fts_probe USING fts5(body)", "close"]
+
+
 def test_index_adapter_write_latest_marks_write_failures(tmp_path: Path) -> None:
     latest_path = tmp_path / "not-a-dir" / "latest.json"
     latest_path.parent.write_text("blocks directory creation", encoding="utf-8")
@@ -737,6 +783,10 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
         captured["active_root"] = path
         return True
 
+    def fake_fts5_ok() -> tuple[bool, str | None]:
+        captured["fts5_ok"] = True
+        return True, None
+
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SCHEMA_PATH", schema_path)
@@ -746,6 +796,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(cli.nervous_index_adapters, "index_lock", fake_lock)
     monkeypatch.setattr(cli.nervous_index_adapters, "index_lock_active", fake_lock_active)
     monkeypatch.setattr(cli.nervous_index_adapters, "write_latest", fake_write_latest)
+    monkeypatch.setattr(cli.nervous_index_adapters, "sqlite_fts5_ok", fake_fts5_ok)
 
     assert cli.nervous_index_connect(create=True) is fake_conn
     cli.nervous_index_initialize(fake_conn)
@@ -753,6 +804,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
         pass
     assert cli.nervous_index_lock_active() is True
     assert cli.nervous_index_write_latest({"ok": True}) == {"ok": True, "from_adapter": True}
+    assert cli.nervous_sqlite_fts5_ok() == (True, None)
 
     assert captured["connect"] == {"path": db_path, "create": True}
     assert captured["initialize_conn"] is fake_conn
@@ -762,6 +814,7 @@ def test_cli_nervous_index_lifecycle_binds_adapter(monkeypatch, tmp_path: Path) 
     assert captured["lock_root"] == root
     assert captured["active_root"] == root
     assert captured["write_latest"]["path"] == latest_path
+    assert captured["fts5_ok"] is True
 
 
 def test_cli_nervous_index_freshness_binds_adapter_paths_and_ports(monkeypatch, tmp_path: Path) -> None:
