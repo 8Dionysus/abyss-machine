@@ -180,7 +180,7 @@ def apply_document(
     generated_at: str,
 ) -> dict[str, Any]:
     candidates = [item for item in plan.get("candidates", []) if isinstance(item, dict) and item.get("candidate")]
-    should_apply = bool(confirm) and not dry_run
+    should_apply = bool(plan.get("ok")) and bool(confirm) and not dry_run
     return {
         "schema": f"{schema_prefix}_nervous_retention_apply_v1",
         "version": version,

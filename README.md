@@ -122,7 +122,10 @@ cleanup, and resource-profile callback routing live in
 Nervous retention route specs, root/file candidate classification, retention
 policy, plan/apply/validate result envelopes, and privacy-review route
 contracts live in
-`abyss_machine.nervous_retention`.
+`abyss_machine.nervous_retention`. Retention filesystem scan, symlink-tail
+guards, dry-run/confirmed unlink execution, mutation receipts, and
+plan/apply/validate latest write routing live in
+`abyss_machine.nervous_retention_adapters`.
 Nervous screenshot recurring-extension query policy and capture backend plan
 contracts live in `abyss_machine.nervous_screenshot`.
 Nervous rerank profile/defaults, source-prior scoring, machine-query caps,
@@ -384,8 +387,10 @@ source collection, semantic maintenance assessment, latest/history writes, and
 command rendering remain at the CLI edge. Nervous
 retention route specs, file-candidate classification, policy,
 plan/apply/validate envelopes, and privacy-review route contracts are
-module-owned while root scanning, symlink-tail checks, unlink execution, and
-latest/history writes remain at the CLI edge. Nervous screenshot recurring
+module-owned; route scanning, symlink-tail checks, dry-run/confirmed unlink
+execution, mutation receipts, and latest/history/validate write routing are
+adapter-owned while privacy/path binding and rendering remain at the CLI edge.
+Nervous screenshot recurring
 extension-query policy and backend capture plan are module-owned while GNOME
 extension status probes, process/X11 risk probes, file writes, capture
 execution, artifact hashing, and fact writes remain at the CLI edge. Nervous
@@ -541,10 +546,10 @@ source/install/runtime parity summary now reports installed drift without
 dumping live host payloads. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, memory orchestration write-routing/broader container
-orchestration seams, nervous retention filesystem/unlink/latest adapters,
-nervous event/episode live latest/write adapters, screenshot live probe/capture
-adapters, rerank live search/latest adapters, recall live search adapter/write adapters, AI runtime live
-execution adapters, TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
+orchestration seams, nervous event/episode live latest/write adapters,
+screenshot live probe/capture adapters, rerank live search/latest adapters,
+recall live search adapter/write adapters, AI runtime live execution adapters,
+TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness live probe/readmodel orchestration, process thermal
 probes, broader container orchestration, and remaining cooling host-control orchestration
 adapters behind smaller modules before claiming full

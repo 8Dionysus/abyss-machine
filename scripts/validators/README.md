@@ -125,8 +125,10 @@ resource-profile callback routing live in
 `abyss_machine.nervous_semantic_adapters`. Nervous
 retention route specs, root/file candidate classification, retention policy,
 plan/apply/validate result envelopes, and privacy-review route contracts live in
-`abyss_machine.nervous_retention`; root scans, symlink-tail checks, unlink
-execution, and latest/history writes remain at the CLI edge. Nervous screenshot
+`abyss_machine.nervous_retention`; root scans, symlink-tail checks, dry-run/
+confirmed unlink execution, protected/latest candidate refusal, mutation
+receipts, latest/history writes, and validate latest writes live in
+`abyss_machine.nervous_retention_adapters`. Nervous screenshot
 recurring-extension query policy and capture backend plan contracts live in
 `abyss_machine.nervous_screenshot`; GNOME extension status probes, process/X11
 risk probes, file writes, capture execution, artifact hashing, and fact writes

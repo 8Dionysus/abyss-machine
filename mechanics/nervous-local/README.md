@@ -44,7 +44,7 @@ nervous organs start in
 `abyss_machine.typing_nervous_adapters`. Keep future nervous adapters bounded by
 source or execution class: browser capture, local JSONL readers, lexical
 SQLite/FTS lifecycle, semantic embedding subprocesses, rerank subprocesses,
-retention apply/unlink, and privacy audit writes.
+and privacy audit writes.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 schema file writes, file locks/active-lock probes, latest writes, generated DB
 file mode/group normalization, and vacuum execution through fakeable ports.
@@ -64,6 +64,12 @@ search seam: lexical and semantic search-port collection, semantic maintenance
 assessment routing, hybrid rerank result document assembly, recall search-plan
 dispatch, retrieval-pack assembly through the recall contracts, and latest/
 history write routing for rerank search, rerank eval, and retrieval packs.
+`abyss_machine.nervous_retention_adapters` now owns the retention filesystem
+and dry-run/apply seam: route-root scanning, root-missing projection,
+symlink-tail route errors, candidate stat/mtime/size collection,
+dry-run-first confirmed unlink execution, protected/latest candidate refusal,
+mutation receipts with restore hints, retention latest/history writes, and
+validate latest writes through fakeable ports.
 The public repo owns adapter mechanics and contract shape; local memory
 evidence stays under the host runtime roots.
 
