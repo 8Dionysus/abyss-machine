@@ -852,7 +852,7 @@ def test_nervous_index_validate_cli_delegates_stable_shape_to_module_contract(mo
     monkeypatch.setattr(cli, "nervous_path_has_symlink_tail", lambda path, stop_at=None: False)
     monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: counts_doc)
     monkeypatch.setattr(cli, "nervous_index_freshness", lambda meta=None, config=None: freshness)
-    monkeypatch.setattr(cli, "build_nervous_index_scan", lambda path, smoke_match_query: scan)
+    monkeypatch.setattr(cli, "nervous_index_scan", lambda path, smoke_match_query: scan)
     monkeypatch.setattr(cli, "nervous_event_jsonl_files", lambda: [event_path])
     monkeypatch.setattr(cli, "nervous_episode_jsonl_files", lambda: [episode_path])
     monkeypatch.setattr(cli, "count_file_lines", lambda path: line_counts[path])
