@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import datetime as dt
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -307,6 +308,217 @@ def test_index_adapter_validation_collects_storage_scan_and_record_ports(tmp_pat
     ]
 
 
+def test_index_adapter_write_build_projection_executes_db_write_stage_through_ports(tmp_path: Path) -> None:
+    db_path = tmp_path / "index" / "nervous.db"
+    root = tmp_path / "index"
+    schema_path = tmp_path / "index" / "schema.sql"
+    source_path = tmp_path / "facts.jsonl"
+    projection = {
+        "documents": [{"doc_id": "doc-1"}],
+        "chunks": [{"chunk_id": "chunk-1"}],
+        "skipped_records": [{"path": str(source_path), "line": 2, "reason": "filtered"}],
+        "summary": {
+            "records_seen": 2,
+            "records_indexed": 1,
+            "documents_indexed": 1,
+            "chunks_indexed": 1,
+            "skipped_records": 1,
+            "disabled_chunks": 0,
+            "redactions": 0,
+            "records_seen_by_schema": {"fact": 2},
+            "records_indexed_by_schema": {"fact": 1},
+        },
+    }
+    data = {"schema": "abyss_machine_nervous_index_build_v1", "ok": False, "sources": {}}
+    counts_doc = {"documents": 1, "chunks": 1}
+    calls: list[tuple[str, Any]] = []
+    times = iter(["2026-06-25T12:01:00+00:00", "2026-06-25T12:02:00+00:00"])
+
+    class FakeConnection:
+        def commit(self) -> None:
+            calls.append(("commit", None))
+
+        def close(self) -> None:
+            calls.append(("close", None))
+
+    @contextmanager
+    def fake_lock(path: Path):
+        calls.append(("lock", path))
+        yield
+
+    def fake_connect(path: Path, create: bool = False) -> FakeConnection:
+        calls.append(("connect", {"path": path, "create": create}))
+        return FakeConnection()
+
+    def fake_initialize(conn: object, **kwargs: Any) -> None:
+        calls.append(("initialize", kwargs))
+
+    def fake_replace(conn: object, **kwargs: Any) -> None:
+        calls.append(("replace", kwargs))
+
+    def fake_apply(path: Path, **kwargs: Any) -> None:
+        calls.append(("apply_mode", {"path": path, "kwargs": kwargs}))
+
+    result = nervous_index_adapters.write_build_projection(
+        data,
+        db_path=db_path,
+        root=root,
+        schema_path=schema_path,
+        schema_sql="CREATE TABLE meta(key TEXT, value TEXT);",
+        schema_prefix="abyss_machine",
+        version="test-version",
+        group="missing-test-group",
+        run_id="index-run-1",
+        started_at="2026-06-25T12:00:00+00:00",
+        source_files=[source_path],
+        projection=projection,
+        parse_errors=[],
+        facts_root=tmp_path / "facts",
+        events_root=tmp_path / "events",
+        episodes_root=tmp_path / "episodes",
+        source_state_change_id="source-change-1",
+        privacy_state_change_id="privacy-change-1",
+        semantic_lock_active=lambda: False,
+        now=lambda: next(times),
+        counts_reader=lambda: counts_doc,
+        lock=fake_lock,
+        connect=fake_connect,
+        initialize=fake_initialize,
+        replace_contents=fake_replace,
+        apply_mode=fake_apply,
+    )
+
+    assert result == nervous_index.with_index_write_success(
+        data,
+        finished_at="2026-06-25T12:02:00+00:00",
+        counts=counts_doc,
+        parse_errors=[],
+    )
+    replace_call = [item for item in calls if item[0] == "replace"][0][1]
+    assert replace_call["documents"] == [{"doc_id": "doc-1"}]
+    assert replace_call["chunks"] == [{"chunk_id": "chunk-1"}]
+    assert replace_call["meta_values"]["built_at"] == "2026-06-25T12:01:00+00:00"
+    assert replace_call["meta_values"]["source_state_change_id"] == "source-change-1"
+    assert replace_call["meta_values"]["privacy_state_change_id"] == "privacy-change-1"
+    assert replace_call["errors"]["skipped_records"] == projection["skipped_records"]
+    assert calls[:4] == [
+        ("lock", root),
+        ("connect", {"path": db_path, "create": True}),
+        (
+            "initialize",
+            {
+                "schema_path": schema_path,
+                "schema_sql": "CREATE TABLE meta(key TEXT, value TEXT);",
+                "schema_prefix": "abyss_machine",
+                "version": "test-version",
+                "group": "missing-test-group",
+            },
+        ),
+        ("commit", None),
+    ]
+    assert calls[-2:] == [
+        ("apply_mode", {"path": db_path, "kwargs": {"group": "missing-test-group"}}),
+        ("close", None),
+    ]
+
+
+def test_index_adapter_write_build_projection_persists_synthetic_sqlite_index(tmp_path: Path) -> None:
+    db_path = tmp_path / "index" / "nervous.db"
+    schema_path = tmp_path / "index" / "schema.sql"
+    source_path = tmp_path / "events.jsonl"
+    indexed_at = "2026-06-25T11:10:00+00:00"
+    projection = {
+        "documents": [
+            {
+                "doc_id": "doc-hot",
+                "source_path": str(source_path),
+                "source_line": 1,
+                "source_sha256": "source-hot",
+                "record_sha256": "record-hot",
+                "schema": "abyss_machine_nervous_event_v1",
+                "generated_at": "2026-06-25T11:00:00+00:00",
+                "capture_trigger": "derived_event",
+                "global_pause": 0,
+                "private_mode": 0,
+                "heartbeat": 0,
+                "source_ids_json": json.dumps(["nervous_events"]),
+                "title": "nervous event thermal 2026-06-25T11:00:00+00:00",
+                "body": "thermal pressure and zram route",
+                "indexed_at": indexed_at,
+            }
+        ],
+        "chunks": [
+            {
+                "chunk_id": "chunk-hot",
+                "doc_id": "doc-hot",
+                "chunk_index": 0,
+                "source_id": "nervous_events",
+                "title": "Thermal route",
+                "body": "thermal pressure zram route",
+                "generated_at": "2026-06-25T11:00:00+00:00",
+                "privacy_mode": "normal",
+                "provenance_json": json.dumps(
+                    {
+                        "event_id": "event-hot",
+                        "event_type": "thermal",
+                        "severity": "warn",
+                        "sensitivity": "machine",
+                        "source_ids": ["nervous_events"],
+                    },
+                    sort_keys=True,
+                ),
+            }
+        ],
+        "skipped_records": [],
+        "summary": {
+            "records_seen": 1,
+            "records_indexed": 1,
+            "documents_indexed": 1,
+            "chunks_indexed": 1,
+            "skipped_records": 0,
+            "disabled_chunks": 0,
+            "redactions": 0,
+            "records_seen_by_schema": {"abyss_machine_nervous_event_v1": 1},
+            "records_indexed_by_schema": {"abyss_machine_nervous_event_v1": 1},
+        },
+    }
+    times = iter(["2026-06-25T11:10:00+00:00", "2026-06-25T11:10:01+00:00"])
+
+    result = nervous_index_adapters.write_build_projection(
+        {"schema": "abyss_machine_nervous_index_build_v1", "ok": False},
+        db_path=db_path,
+        root=tmp_path / "index",
+        schema_path=schema_path,
+        schema_sql=nervous_index.nervous_index_schema_sql(),
+        schema_prefix="abyss_machine",
+        version="test-version",
+        group="missing-test-group",
+        run_id="index-run-1",
+        started_at="2026-06-25T11:09:00+00:00",
+        source_files=[source_path],
+        projection=projection,
+        parse_errors=[],
+        facts_root=tmp_path / "facts",
+        events_root=tmp_path / "events",
+        episodes_root=tmp_path / "episodes",
+        source_state_change_id="source-change-1",
+        privacy_state_change_id="privacy-change-1",
+        semantic_lock_active=lambda: False,
+        now=lambda: next(times),
+        counts_reader=lambda: nervous_index.counts(db_path),
+    )
+
+    db_counts = nervous_index.counts(db_path)
+    scan = nervous_index.scan_index(db_path, smoke_match_query='"thermal" OR "zram"')
+    assert result["ok"] is True
+    assert result["counts"]["documents"] == 1
+    assert db_counts["documents"] == 1
+    assert db_counts["chunks"] == 1
+    assert db_counts["fts_chunks"] == 1
+    assert scan["smoke_results"] == 1
+    assert schema_path.read_text(encoding="utf-8").startswith("PRAGMA foreign_keys=ON;")
+
+
 def test_index_adapter_vacuum_executes_sqlite_commands_under_lock(tmp_path: Path) -> None:
     db_path = tmp_path / "nervous.db"
     root = tmp_path / "index-root"
@@ -571,3 +783,88 @@ def test_cli_nervous_index_validate_binds_adapter_ports(monkeypatch, tmp_path: P
     assert captured["scan_reader"] is forbidden_scan_reader
     assert captured["line_counter"] is forbidden_line_counter
     assert captured["symlink_tail_probe"] is forbidden_symlink_tail_probe
+
+
+def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+    db_path = tmp_path / "nervous.db"
+    root = tmp_path / "index-root"
+    schema_path = tmp_path / "schema.sql"
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = tmp_path / "facts.jsonl"
+    config = {"enabled": True, "privacy": {"enforce_global_pause": True}}
+    privacy = {"global_pause": False, "private_mode": False, "state": {"last_change_id": "privacy-change-1"}}
+    sources = {"safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}}, "state": {"last_change_id": "source-change-1"}}
+    source_records = [{"path": str(source_path), "line": 1, "record": {"schema": "fact"}}]
+    projection = {
+        "documents": [{"doc_id": "doc-1"}],
+        "chunks": [{"chunk_id": "chunk-1"}],
+        "skipped_records": [],
+        "summary": {
+            "records_seen": 1,
+            "records_indexed": 1,
+            "documents_indexed": 1,
+            "chunks_indexed": 1,
+            "skipped_records": 0,
+            "disabled_chunks": 0,
+            "redactions": 0,
+            "records_seen_by_schema": {"fact": 1},
+            "records_indexed_by_schema": {"fact": 1},
+        },
+    }
+
+    def fake_write_stage(data: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        captured["data"] = data
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    def forbidden_write_stage(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("CLI must delegate index build write stage to adapter")
+
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root)
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SCHEMA_PATH", schema_path)
+    monkeypatch.setattr(cli, "NERVOUS_FACTS_ROOT", facts_root)
+    monkeypatch.setattr(cli, "NERVOUS_EVENTS_ROOT", events_root)
+    monkeypatch.setattr(cli, "NERVOUS_EPISODES_ROOT", episodes_root)
+    monkeypatch.setattr(cli, "nervous_change_id", lambda prefix: f"{prefix}-run-1")
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
+    monkeypatch.setattr(cli, "nervous_index_config", lambda: config)
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy)
+    monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: sources)
+    monkeypatch.setattr(cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
+    monkeypatch.setattr(cli, "nervous_semantic_lock_active", lambda: False)
+    monkeypatch.setattr(cli, "nervous_index_source_files", lambda: [source_path])
+    monkeypatch.setattr(cli, "build_nervous_index_load_source_records", lambda files: (source_records, []))
+    monkeypatch.setattr(cli, "build_nervous_index_projection", lambda *args, **kwargs: projection)
+    monkeypatch.setattr(cli, "nervous_index_lock", forbidden_write_stage)
+    monkeypatch.setattr(cli, "nervous_index_connect", forbidden_write_stage)
+    monkeypatch.setattr(cli, "nervous_index_initialize", forbidden_write_stage)
+    monkeypatch.setattr(cli.nervous_index_adapters, "write_build_projection", fake_write_stage)
+
+    result = cli.nervous_index_build(write_latest=False, refresh_derived=False)
+
+    assert result == {"ok": True, "from_adapter": True}
+    assert captured["data"]["schema"] == "abyss_machine_nervous_index_build_v1"
+    assert captured["db_path"] == db_path
+    assert captured["root"] == root
+    assert captured["schema_path"] == schema_path
+    assert captured["schema_sql"] == cli.nervous_index_schema_sql()
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["group"] == cli.MODE_STATE_GROUP
+    assert captured["run_id"] == "index-run-1"
+    assert captured["started_at"] == "2026-06-25T12:00:00+00:00"
+    assert captured["source_files"] == [source_path]
+    assert captured["projection"] == projection
+    assert captured["parse_errors"] == []
+    assert captured["facts_root"] == facts_root
+    assert captured["events_root"] == events_root
+    assert captured["episodes_root"] == episodes_root
+    assert captured["source_state_change_id"] == "source-change-1"
+    assert captured["privacy_state_change_id"] == "privacy-change-1"
+    assert captured["semantic_lock_active"] is cli.nervous_semantic_lock_active
+    assert captured["now"] is cli.now_iso
+    assert captured["counts_reader"] is cli.nervous_index_db_counts

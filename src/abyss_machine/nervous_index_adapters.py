@@ -19,9 +19,15 @@ ConnectDb = Callable[[Path, bool], sqlite3.Connection]
 CountDb = Callable[[Path], dict[str, Any]]
 CountsReader = Callable[[], dict[str, Any]]
 FreshnessReader = Callable[..., dict[str, Any]]
+InitializeDb = Callable[..., str | None]
 LatestReader = Callable[[Path], tuple[dict[str, Any] | None, str | None]]
 LineCounter = Callable[[Path], int | None]
+LockFactory = Callable[[Path], Any]
+ModeApplier = Callable[..., None]
+NowReader = Callable[[], str]
+ReplaceContents = Callable[..., None]
 ScanReader = Callable[..., dict[str, Any]]
+SemanticLockActive = Callable[[], bool]
 SymlinkTailProbe = Callable[..., bool]
 UnitStatusReader = Callable[[str], dict[str, Any]]
 
@@ -323,6 +329,99 @@ def validation_document_from_ports(
         event_records=event_records,
         episode_records=episode_records,
     )
+
+
+def write_build_projection(
+    data: dict[str, Any],
+    *,
+    db_path: Path,
+    root: Path,
+    schema_path: Path,
+    schema_sql: str,
+    schema_prefix: str,
+    version: str,
+    group: str,
+    run_id: str,
+    started_at: str,
+    source_files: list[Path],
+    projection: dict[str, Any],
+    parse_errors: list[dict[str, Any]],
+    facts_root: Path,
+    events_root: Path,
+    episodes_root: Path,
+    source_state_change_id: Any,
+    privacy_state_change_id: Any,
+    semantic_lock_active: SemanticLockActive,
+    now: NowReader,
+    counts_reader: CountsReader,
+    lock: LockFactory = index_lock,
+    connect: ConnectDb = connect_db,
+    initialize: InitializeDb = initialize_db,
+    replace_contents: ReplaceContents = nervous_index.replace_index_contents,
+    apply_mode: ModeApplier = apply_state_file_mode,
+) -> dict[str, Any]:
+    documents = projection["documents"]
+    all_chunks = projection["chunks"]
+    skipped_records = projection["skipped_records"]
+    projection_summary = projection["summary"]
+    try:
+        with lock(root):
+            if semantic_lock_active():
+                return nervous_index.with_index_semantic_lock_deferred(data, checked_at="pre_write")
+            conn = connect(db_path, True)
+            try:
+                initialize(
+                    conn,
+                    schema_path=schema_path,
+                    schema_sql=schema_sql,
+                    schema_prefix=schema_prefix,
+                    version=version,
+                    group=group,
+                )
+                conn.commit()
+                meta_values = nervous_index.build_index_meta_values(
+                    schema_prefix=schema_prefix,
+                    version=version,
+                    run_id=run_id,
+                    built_at=now(),
+                    source_files=source_files,
+                    projection=projection,
+                    facts_root=facts_root,
+                    events_root=events_root,
+                    episodes_root=episodes_root,
+                    source_state_change_id=source_state_change_id,
+                    privacy_state_change_id=privacy_state_change_id,
+                )
+                finished_at = now()
+                replace_contents(
+                    conn,
+                    documents=documents,
+                    chunks=all_chunks,
+                    meta_values=meta_values,
+                    run_id=run_id,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    ok=not parse_errors,
+                    source_files=len(source_files),
+                    records_seen=int(projection_summary["records_seen"]),
+                    records_indexed=len(documents),
+                    documents_indexed=len(documents),
+                    chunks_indexed=len(all_chunks),
+                    errors={"parse_errors": parse_errors[:20], "skipped_records": skipped_records[:20]},
+                )
+                apply_mode(db_path, group=group)
+            finally:
+                conn.close()
+        return nervous_index.with_index_write_success(
+            data,
+            finished_at=finished_at,
+            counts=counts_reader(),
+            parse_errors=parse_errors,
+        )
+    except BlockingIOError:
+        return nervous_index.with_index_error(data, "another index build is already running")
+    except (OSError, sqlite3.Error) as exc:
+        return nervous_index.with_index_error(data, exc)
 
 
 def vacuum_index(

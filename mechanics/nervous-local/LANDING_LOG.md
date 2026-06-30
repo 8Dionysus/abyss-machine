@@ -21,6 +21,14 @@
   config/privacy/source/path binding, redactor callback binding, derived refresh
   orchestration, concrete validation port wiring, latest writes, and command
   rendering.
+- Lexical index build write-stage seam:
+  `abyss_machine.nervous_index_adapters` owns the SQLite write stage under the
+  index lock: semantic pre-write deferral, DB connect/init/schema write, meta
+  construction, content replacement, generated DB file-mode normalization,
+  counts, and success/error wrapping through fakeable ports. CLI still owns
+  config/privacy/source/path binding, derived refresh orchestration, redactor
+  callback binding, source projection, concrete build port wiring, latest writes,
+  and command rendering.
 - Semantic embedding execution seam: `abyss_machine.nervous_semantic_adapters`
   owns embedding subprocess temp-file staging, runner invocation, output
   readback, cleanup, and resource-profile callback routing. CLI still owns
