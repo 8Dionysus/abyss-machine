@@ -114,7 +114,10 @@ envelopes, and build/validate latest write routing for events/episodes live in
 `abyss_machine.nervous_events_adapters`;
 nervous synthesis selection, candidate build orchestration, path/write-result
 envelopes, markdown, validation, eval run execution-plan, and deterministic eval run/validate envelopes live in
-`abyss_machine.nervous_synthesis`. Nervous semantic sidecar schema,
+`abyss_machine.nervous_synthesis`; local episode/event/candidate JSONL reads,
+synthesis latest/period JSONL/markdown writes, synthesis validate latest
+routing, and eval latest/history/validate routing live in
+`abyss_machine.nervous_synthesis_adapters`. Nervous semantic sidecar schema,
 freshness/status contract assembly, maintenance assessments, batch policy,
 build-command shaping, source chunk projection, sidecar store/count/reuse
 contracts, embedding subprocess payload/script/result contracts, and
@@ -353,7 +356,7 @@ the final refresh document shape, nervous index source discovery,
 source loading/hash, source-record parsing/metadata, source-policy, build
 projection, build result/meta envelopes, status/freshness envelopes,
 store/search/vacuum/bounded/full validation document envelopes, shared typing/nervous redaction, nervous
-event/episode contracts, nervous synthesis build/validation/eval execution-plan/envelopes,
+event/episode contracts, nervous synthesis build/validation/eval execution-plan/envelopes and local read/write adapter,
 nervous brief readiness contracts, nervous quality audit/derived-refresh
 contracts, typing/nervous
 source metadata, redacted payload, browser-content record/quality/dedupe/web-context,

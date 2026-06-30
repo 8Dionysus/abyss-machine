@@ -362,9 +362,15 @@ def test_cli_synthesis_build_uses_fixture_records_without_host_state(monkeypatch
         "title": "PSI",
     }
 
+    def fake_records_from_root(root):
+        if root == cli.NERVOUS_EPISODES_ROOT:
+            return [{"record": episode}], []
+        if root == cli.NERVOUS_EVENTS_ROOT:
+            return [{"record": event}], []
+        raise AssertionError(f"unexpected root {root}")
+
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_episode_records", lambda: ([{"record": episode}], []))
-    monkeypatch.setattr(cli, "nervous_event_records", lambda: ([{"record": event}], []))
+    monkeypatch.setattr(cli, "nervous_records_from_jsonl_root", fake_records_from_root)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
 
     data = cli.nervous_synthesis_build(scope="daily", date_value="2026-06-25", write_latest=False)
