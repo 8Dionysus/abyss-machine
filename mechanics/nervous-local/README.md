@@ -48,9 +48,13 @@ and privacy audit writes.
 `abyss_machine.nervous_browser_content_adapters` now owns browser-content local
 store routing: daily JSONL path projection, record-from-page callback binding,
 bounded recent duplicate scanning, JSONL append routing, latest write routing,
-write-error projection, and ingest document assembly through fakeable ports.
+write-error projection, ingest document assembly, bounded AT-SPI settings,
+Firefox runtime environment summary, accessibility-tree traversal/text
+extraction, sensitive-field detection, capture result assembly, and AT-SPI
+latest write routing through fakeable ports.
 CLI still owns concrete path/time/user binding, source-policy/privacy
-orchestration, AT-SPI/BiDi capture runtime callbacks, and rendering.
+orchestration, BiDi/WebSocket and browser-history capture execution, and
+rendering.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 schema file writes, file locks/active-lock probes, latest writes, generated DB
 file mode/group normalization, and vacuum execution through fakeable ports.

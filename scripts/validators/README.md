@@ -109,7 +109,10 @@ effective source maps, catalog, lookup, and source-set contracts live in
 `abyss_machine.nervous_sources`.
 Browser-content daily path projection, bounded recent duplicate scanning, JSONL
 append routing, latest write routing, write-error projection, and ingest document
-assembly live in `abyss_machine.nervous_browser_content_adapters`.
+assembly plus bounded AT-SPI settings, Firefox runtime env summary,
+accessibility-tree traversal/text extraction, sensitive-field detection, capture
+result assembly, and AT-SPI latest write routing live in
+`abyss_machine.nervous_browser_content_adapters`.
 Nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`.
 Derived event/episode JSONL root reads, replacement writes, latest read

@@ -29,7 +29,8 @@ Use these mechanic owners for the next extraction slices:
   mechanics, native-host stdio binding, and remaining `pyatspi` runtime
   adapters.
 - `nervous-local`: nervous source capture, privacy state, local JSONL readers,
-  browser-content store/dedupe/latest write adapter, derived event/episode JSONL/latest write adapters, synthesis/eval local
+  browser-content store/dedupe/latest write adapter, AT-SPI browser-content
+  capture runtime adapter, derived event/episode JSONL/latest write adapters, synthesis/eval local
   read/write adapter, screenshot live capture adapter, clipboard live read
   adapter, lexical SQLite/FTS lifecycle, semantic sidecar lifecycle/execution,
   rerank execution, retention contracts plus filesystem/apply adapter, and

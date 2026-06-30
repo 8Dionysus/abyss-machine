@@ -54,6 +54,15 @@
   `abyss_machine.nervous_browser_content_adapters` owns daily JSONL path
   projection, record-from-page callback binding, bounded recent duplicate
   scanning, JSONL append routing, latest write routing, write-error projection,
-  and ingest document assembly through fakeable ports. CLI still owns concrete
-  path/time/user binding, AT-SPI/BiDi capture runtime callbacks,
-  source-policy/privacy orchestration, and rendering.
+  and ingest document assembly through fakeable ports. At that landing, CLI
+  still owned concrete path/time/user binding, AT-SPI/BiDi capture runtime
+  callbacks, source-policy/privacy orchestration, and rendering.
+- Browser-content AT-SPI capture runtime seam:
+  `abyss_machine.nervous_browser_content_adapters` owns bounded AT-SPI capture
+  settings, fakeable Firefox runtime environment summary, `gi.repository.Atspi`
+  loading, Firefox accessibility-tree app/document traversal, document
+  attribute reads, visible text extraction, sensitive-field detection, document
+  priority, capture result assembly, and latest write routing through fakeable
+  ports. CLI still owns concrete path/time/user binding, source-policy/privacy
+  orchestration, BiDi/WebSocket and browser-history capture execution, and
+  rendering.

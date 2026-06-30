@@ -191,6 +191,17 @@ BiDi, browser history, or active-tab capture as validation unless that runtime
 adapter is the touched surface, and never copy browser text, URLs, generated
 browser-content JSONL, latest payloads, or private capture roots into the repo.
 
+For nervous browser-content AT-SPI capture runtime adapter changes, public CI
+should rely on fake `Atspi` trees, fake `/proc` roots, fake store callbacks, and
+fake latest writers for settings, Firefox env readiness, accessibility-tree
+document discovery, text extraction, sensitive-field skips, no-Firefox skip
+behavior, import failure behavior, capture result assembly, and latest write
+routing. Live-host closeout may use compact source-side
+`abyss-machine nervous capture-status --json` and
+`abyss-machine nervous source-status browser_active_tab --json` summaries. Do
+not report raw browser text, URLs, generated browser-content JSONL, latest
+payloads, window titles, or private capture roots.
+
 For nervous retention filesystem/apply adapter changes, public CI should rely on
 fake-root/fake-writer tests for route-root scanning, symlink-tail blockers,
 protected/latest candidate refusal, dry-run-first confirmed unlink, mutation
