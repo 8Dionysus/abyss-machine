@@ -75,3 +75,12 @@
   summary, and latest-writer ports. CLI still owns concrete path/time/user
   binding, source-policy/privacy orchestration, browser-history capture
   execution, capture orchestration, and rendering.
+- Browser-content browser-history capture runtime seam:
+  `abyss_machine.nervous_browser_content_adapters` owns Firefox profile
+  `places.sqlite` discovery, temporary copied SQLite reads, recent history
+  query/cutoff/limit handling, visit-time normalization, temp cleanup, duplicate
+  URL suppression, redacted title/URL payload assembly, content-record callback
+  binding, browser-history fact summary assembly, and virtual-source routing
+  through fakeable ports. CLI still owns concrete path/time/user binding,
+  source-policy/privacy orchestration, latest/live-capture selection, and
+  rendering.

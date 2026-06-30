@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import hashlib
 import json
 import os
 import re
+import shutil
 import socket
+import sqlite3
 import struct
+import time
 import warnings
 from pathlib import Path
 from typing import Any, Callable
@@ -26,6 +30,8 @@ StorePagePort = Callable[..., dict[str, Any]]
 WebContextSummaryPort = Callable[[list[dict[str, Any]]], dict[str, Any]]
 WebSocketConnectPort = Callable[..., Any]
 BidiCallPort = Callable[[Any, int, str, dict[str, Any]], dict[str, Any]]
+BrowserHistoryRowsPort = Callable[[Path, str], tuple[list[dict[str, Any]], str | None]]
+BrowserContentRecentRecordsPort = Callable[[float, int], tuple[list[dict[str, Any]], list[dict[str, Any]]]]
 
 
 BROWSER_CONTENT_CAPTURE_SCRIPT = r"""
@@ -251,6 +257,166 @@ def browser_content_store(
             data.setdefault("write_errors", []).append(latest_error)
             data["ok"] = False
     return data
+
+
+def firefox_history_db_paths(home: Path, *, max_profiles: int = 12) -> list[Path]:
+    return sorted((home / ".mozilla" / "firefox").glob("*/places.sqlite"))[:max_profiles]
+
+
+def read_browser_history_rows(
+    db_path: Path,
+    browser: str,
+    *,
+    tmp_root: Path,
+    now_epoch: Callable[[], float] = time.time,
+    copy_file: Callable[[Path, Path], Any] = shutil.copy2,
+    connect_sqlite: Callable[[str], Any] = sqlite3.connect,
+    lookback_hours: float = 6.0,
+    limit: int = 40,
+) -> tuple[list[dict[str, Any]], str | None]:
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    tmp_path = tmp_root / f"{hashlib.sha256(str(db_path).encode()).hexdigest()[:16]}.sqlite"
+    conn: Any | None = None
+    try:
+        copy_file(db_path, tmp_path)
+        conn = connect_sqlite(str(tmp_path))
+        conn.row_factory = sqlite3.Row
+        rows: list[dict[str, Any]] = []
+        if browser == "firefox":
+            since_us = int((now_epoch() - lookback_hours * 3600) * 1_000_000)
+            query = """
+                SELECT p.url AS url, p.title AS title, max(v.visit_date) AS visit_date
+                FROM moz_places p JOIN moz_historyvisits v ON v.place_id = p.id
+                WHERE v.visit_date >= ?
+                GROUP BY p.id
+                ORDER BY visit_date DESC
+                LIMIT ?
+            """
+            for row in conn.execute(query, (since_us, limit)):
+                visit_time = dt.datetime.fromtimestamp(int(row["visit_date"]) / 1_000_000, dt.timezone.utc).astimezone()
+                rows.append({
+                    "url": row["url"],
+                    "title": row["title"],
+                    "visited_at": visit_time.isoformat(timespec="seconds"),
+                })
+        return rows, None
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        return [], str(exc)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+
+
+def browser_recent_history_fact(
+    *,
+    home: Path,
+    tmp_root: Path,
+    schema_prefix: str,
+    version: str,
+    now_iso: NowIsoPort,
+    uid: int,
+    gid: int,
+    live_capture: dict[str, Any],
+    coverage: str,
+    content_recent_records: BrowserContentRecentRecordsPort,
+    read_history_rows: BrowserHistoryRowsPort | None = None,
+    max_profiles: int = 12,
+    max_entries: int = 50,
+    history_lookback_hours: float = 6.0,
+    content_hours: float = 6.0,
+    content_limit: int = 20,
+) -> tuple[dict[str, Any], None]:
+    source_id = "browser_active_tab"
+    generated_at = now_iso()
+    profiles = firefox_history_db_paths(home, max_profiles=max_profiles)
+    history_reader = read_history_rows or (
+        lambda db_path, browser: read_browser_history_rows(
+            db_path,
+            browser,
+            tmp_root=tmp_root,
+            lookback_hours=history_lookback_hours,
+        )
+    )
+    entries: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for db_path in profiles:
+        rows, error = history_reader(db_path, "firefox")
+        if error:
+            errors.append({"profile": str(db_path.parent), "error": error})
+            continue
+        for row in rows:
+            key = str(row.get("url") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            title_payload = nervous_sources.text_payload(
+                str(row.get("title") or ""),
+                max_chars=600,
+                schema_prefix=schema_prefix,
+                version=version,
+                generated_at=generated_at,
+            )
+            entries.append({
+                "browser": "firefox",
+                "profile": db_path.parent.name,
+                "visited_at": row.get("visited_at"),
+                "title": title_payload["text"],
+                "title_sha256": title_payload["text_sha256"],
+                "url": _url_payload(
+                    str(row.get("url") or ""),
+                    schema_prefix=schema_prefix,
+                    version=version,
+                    generated_at=generated_at,
+                ),
+            })
+            if len(entries) >= max_entries:
+                break
+        if len(entries) >= max_entries:
+            break
+    content_entries, content_errors = content_recent_records(content_hours, content_limit)
+    payload = {
+        "entries": entries,
+        "content_entries": content_entries,
+        "errors": errors,
+        "content_errors": content_errors,
+        "coverage": coverage,
+        "live_capture": live_capture,
+    }
+    return {
+        "name": "browser_recent_history",
+        "source_id": source_id,
+        "ok": True,
+        "observed_at": generated_at,
+        "sensitivity": "local_private_redacted",
+        "coverage": coverage,
+        "summary": {
+            "entries": len(entries),
+            "content_entries": len(content_entries),
+            "live_capture_ok": bool(live_capture.get("ok")),
+            "live_capture_skipped": bool(live_capture.get("skipped")),
+            "live_capture_skip_reason": live_capture.get("skip_reason"),
+            "live_capture_error": live_capture.get("error"),
+            "profiles_seen": len(profiles),
+            "errors": len(errors) + len(content_errors),
+            "query_fragment_stripped": True,
+            "form_values_captured": False,
+            "cookies_captured": False,
+            "local_storage_captured": False,
+        },
+        "entries": entries,
+        "content_entries": content_entries,
+        "errors": errors[:12],
+        "content_errors": content_errors[:12],
+        "source": nervous_sources.virtual_source(source_id, payload, read_at=generated_at, uid=uid, gid=gid),
+    }, None
 
 
 def browser_accessibility_capture_settings(

@@ -53,9 +53,11 @@ Firefox runtime environment summary, accessibility-tree traversal/text
 extraction, sensitive-field detection, capture result assembly, and AT-SPI
 latest write routing plus WebSocket frame/connection handling, BiDi
 session/context/script-evaluation routing, remote-value decode, public-safe BiDi
-error projection, and BiDi latest routing through fakeable ports.
+error projection, BiDi latest routing, Firefox history profile discovery,
+temporary copied `places.sqlite` recency queries, redacted history-entry
+assembly, and browser-history fact summary routing through fakeable ports.
 CLI still owns concrete path/time/user binding, source-policy/privacy
-orchestration, browser-history capture execution, and rendering.
+orchestration, capture selection, and rendering.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 schema file writes, file locks/active-lock probes, latest writes, generated DB
 file mode/group normalization, and vacuum execution through fakeable ports.

@@ -215,6 +215,17 @@ BiDi capture when the port is closed, and never report raw browser text, URLs,
 generated browser-content JSONL, latest payloads, window titles, or private
 capture roots.
 
+For nervous browser-content browser-history adapter changes, public CI should
+rely on synthetic Firefox `places.sqlite` fixtures, fake home/profile roots,
+fake temp roots, fake history-row ports, fake content-record callbacks, and
+redacted URL/title assertions for profile discovery, copied SQLite recency
+queries, cutoff/limit behavior, duplicate URL suppression, temp cleanup,
+history fact assembly, and virtual-source summary routing. Live-host closeout
+may use compact `abyss-machine nervous source-status browser_active_tab --json`
+and `abyss-machine nervous capture-status --json` summaries only. Do not report
+raw browser history URLs, query strings, fragments, titles, generated
+browser-content JSONL, latest payloads, window titles, or private profile paths.
+
 For nervous retention filesystem/apply adapter changes, public CI should rely on
 fake-root/fake-writer tests for route-root scanning, symlink-tail blockers,
 protected/latest candidate refusal, dry-run-first confirmed unlink, mutation
