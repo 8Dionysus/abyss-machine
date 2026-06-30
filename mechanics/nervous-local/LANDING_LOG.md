@@ -10,9 +10,16 @@
 - Lexical index status/freshness input seam:
   `abyss_machine.nervous_index_adapters` owns latest fact/event/episode freshness
   reads, local JSONL history line counts, and index status latest/counts/
-  freshness/service/timer fact collection through fakeable ports. CLI still owns
+  freshness/service/timer fact collection through fakeable ports. At that
+  landing, CLI still owned config/privacy/source/path binding, redactor callback
+  binding, derived refresh orchestration, validation fact collection, concrete
+  port wiring, and command rendering.
+- Lexical index validation input seam:
+  `abyss_machine.nervous_index_adapters` owns validation storage-route checks,
+  symlink-tail probe invocation, DB counts/freshness reads, bounded index scan,
+  and event/episode JSONL line-count facts through fakeable ports. CLI still owns
   config/privacy/source/path binding, redactor callback binding, derived refresh
-  orchestration, validation fact collection, concrete port wiring, and command
+  orchestration, concrete validation port wiring, latest writes, and command
   rendering.
 - Semantic embedding execution seam: `abyss_machine.nervous_semantic_adapters`
   owns embedding subprocess temp-file staging, runner invocation, output

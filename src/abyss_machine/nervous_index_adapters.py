@@ -21,6 +21,8 @@ CountsReader = Callable[[], dict[str, Any]]
 FreshnessReader = Callable[..., dict[str, Any]]
 LatestReader = Callable[[Path], tuple[dict[str, Any] | None, str | None]]
 LineCounter = Callable[[Path], int | None]
+ScanReader = Callable[..., dict[str, Any]]
+SymlinkTailProbe = Callable[..., bool]
 UnitStatusReader = Callable[[str], dict[str, Any]]
 
 
@@ -249,6 +251,77 @@ def status_document_from_ports(
         latest_path=latest_path,
         service_status=unit_status_reader(service_name),
         timer_status=unit_status_reader(timer_name),
+    )
+
+
+def path_is_routed_under(db_path: Path, storage_root: Path) -> bool:
+    try:
+        resolved_storage_root = storage_root.resolve()
+        db_resolved = db_path.resolve() if db_path.exists() else db_path.parent.resolve() / db_path.name
+        return str(db_resolved) == str(resolved_storage_root) or str(db_resolved).startswith(str(resolved_storage_root) + os.sep)
+    except OSError:
+        return False
+
+
+def validation_document_from_ports(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    db_path: Path,
+    storage_root: Path,
+    config: dict[str, Any],
+    config_path: Path,
+    sources: dict[str, Any],
+    fts_ok: bool,
+    fts_error: Any,
+    event_files: list[Path],
+    episode_files: list[Path],
+    counts_reader: CountsReader,
+    freshness_reader: FreshnessReader,
+    scan_reader: ScanReader,
+    line_counter: LineCounter,
+    symlink_tail_probe: SymlinkTailProbe,
+    smoke_match_query: str = '"nervous" OR "storage" OR "thermal" OR "episode"',
+) -> dict[str, Any]:
+    db_exists = db_path.exists()
+    storage_routed = path_is_routed_under(db_path, storage_root)
+    symlink_tail = symlink_tail_probe(db_path, stop_at=storage_root)
+    counts = counts_reader()
+    meta = counts.get("meta") if isinstance(counts.get("meta"), dict) else {}
+    freshness = freshness_reader(meta=meta, config=config)
+
+    scan: dict[str, Any] | None = None
+    scan_error: str | None = None
+    try:
+        if db_exists:
+            scan = scan_reader(db_path, smoke_match_query=smoke_match_query)
+    except sqlite3.Error as exc:
+        scan_error = str(exc)
+    event_records = sum(line_counter(path) or 0 for path in event_files)
+    episode_records = sum(line_counter(path) or 0 for path in episode_files)
+    return nervous_index.validation_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        db_path=db_path,
+        config=config,
+        config_path=config_path,
+        config_exists=config_path.exists(),
+        fts_ok=fts_ok,
+        fts_error=fts_error,
+        storage_routed=storage_routed,
+        storage_root=storage_root,
+        symlink_tail=symlink_tail,
+        db_exists=db_exists,
+        counts=counts,
+        freshness=freshness,
+        allowed_source_ids=nervous_index.allowed_source_ids(sources),
+        scan=scan,
+        scan_error=scan_error,
+        private_source_ids=nervous_index.deferred_source_ids(sources),
+        event_records=event_records,
+        episode_records=episode_records,
     )
 
 
