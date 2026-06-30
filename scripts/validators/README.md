@@ -107,6 +107,9 @@ Typing/nervous source metadata envelopes, redacted text/URL payload contracts,
 browser-content record/quality/dedupe/web-context contracts, source state merge,
 effective source maps, catalog, lookup, and source-set contracts live in
 `abyss_machine.nervous_sources`.
+Browser-content daily path projection, bounded recent duplicate scanning, JSONL
+append routing, latest write routing, write-error projection, and ingest document
+assembly live in `abyss_machine.nervous_browser_content_adapters`.
 Nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`.
 Derived event/episode JSONL root reads, replacement writes, latest read
