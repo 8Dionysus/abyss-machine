@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable
 
 
 SCHEMA = "abyss_machine_source_install_runtime_parity_v1"
@@ -396,6 +397,115 @@ def build_parity_document(
         "privacy": {
             "compact_summary_only": True,
             "raw_runtime_stdout_included": False,
+            "raw_runtime_json_included": False,
+        },
+    }
+
+
+def _digest_row_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "status": row.get("status"),
+        "source_file_count": row.get("source_file_count"),
+        "installed_file_count": row.get("installed_file_count"),
+        "missing_count": row.get("missing_count"),
+        "extra_count": row.get("extra_count"),
+        "digest_mismatch_count": row.get("digest_mismatch_count"),
+        "missing_sample": list(row.get("missing_sample") or []),
+        "extra_sample": list(row.get("extra_sample") or []),
+        "digest_mismatch_sample": list(row.get("digest_mismatch_sample") or []),
+        "failures": _public_failure_list(row.get("failures") or []),
+    }
+
+
+def _public_failure(message: Any) -> str:
+    text = str(message)
+    for prefix in ("source CLI missing", "installed CLI missing"):
+        if text.startswith(f"{prefix}:"):
+            return prefix
+    return text
+
+
+def _public_failure_list(items: Sequence[Any]) -> list[str]:
+    return [_public_failure(item) for item in items]
+
+
+def _cli_parity_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    source = row.get("source") if isinstance(row.get("source"), Mapping) else {}
+    installed = row.get("installed") if isinstance(row.get("installed"), Mapping) else {}
+    return {
+        "status": row.get("status"),
+        "source_exists": source.get("exists"),
+        "installed_exists": installed.get("exists"),
+        "digest_match": row.get("status") == "ok" and bool(row.get("source_sha256")) and bool(row.get("installed_sha256")),
+        "failures": _public_failure_list(row.get("failures") or []),
+    }
+
+
+def _runtime_check_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    projection = row.get("projection") if isinstance(row.get("projection"), Mapping) else {}
+    summary: dict[str, Any] = {
+        "name": row.get("name"),
+        "status": row.get("status"),
+        "returncode": row.get("returncode"),
+        "timed_out": row.get("timed_out"),
+        "json_ok": row.get("json_ok"),
+        "stdout_bytes": row.get("stdout_bytes"),
+        "stderr_bytes": row.get("stderr_bytes"),
+    }
+    if projection:
+        summary["projection"] = {
+            "ok": projection.get("ok"),
+            "schema": projection.get("schema"),
+            "version": projection.get("version"),
+            "status": projection.get("status"),
+            "summary_status": projection.get("summary_status"),
+            "check_count": projection.get("check_count"),
+            "check_counts": dict(projection.get("check_counts") or {}),
+            "failure_count": projection.get("failure_count"),
+            "warning_count": projection.get("warning_count"),
+        }
+    return summary
+
+
+def parity_summary_document(report: Mapping[str, Any]) -> dict[str, Any]:
+    content = report.get("content_parity") if isinstance(report.get("content_parity"), Mapping) else {}
+    runtime = report.get("runtime") if isinstance(report.get("runtime"), Mapping) else {}
+    public_seed = content.get("public_seed") if isinstance(content.get("public_seed"), Mapping) else {}
+    runtime_checks = runtime.get("checks") if isinstance(runtime.get("checks"), Sequence) else []
+    return {
+        "schema": report.get("schema", SCHEMA),
+        "projection": "summary",
+        "generated_at": report.get("generated_at"),
+        "ok": report.get("ok"),
+        "status": report.get("status"),
+        "failures": _public_failure_list(report.get("failures") or []),
+        "content_parity": {
+            "status": content.get("status"),
+            "failure_count": len(content.get("failures") or []),
+            "failures": _public_failure_list(content.get("failures") or []),
+            "cli": _cli_parity_summary(content.get("cli") if isinstance(content.get("cli"), Mapping) else {}),
+            "package": _digest_row_summary(content.get("package") if isinstance(content.get("package"), Mapping) else {}),
+            "public_seed": {
+                str(root_id): _digest_row_summary(row if isinstance(row, Mapping) else {})
+                for root_id, row in public_seed.items()
+            },
+        },
+        "runtime": {
+            "status": runtime.get("status"),
+            "check_count": runtime.get("check_count"),
+            "failure_count": runtime.get("failure_count"),
+            "warning_count": runtime.get("warning_count"),
+            "failure_checks": list(runtime.get("failure_checks") or []),
+            "warning_checks": list(runtime.get("warning_checks") or []),
+            "checks": [_runtime_check_summary(row) for row in runtime_checks if isinstance(row, Mapping)],
+        },
+        "privacy": {
+            "summary_projection_only": True,
+            "full_document_included": False,
+            "path_details_included": False,
+            "digest_values_included": False,
+            "raw_runtime_stdout_included": False,
+            "raw_runtime_stderr_included": False,
             "raw_runtime_json_included": False,
         },
     }

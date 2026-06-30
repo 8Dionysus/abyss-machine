@@ -216,6 +216,55 @@ def test_build_parity_document_combines_content_and_runtime(tmp_path: Path) -> N
     assert report["privacy"]["raw_runtime_json_included"] is False
 
 
+def test_parity_summary_document_omits_paths_digests_and_raw_runtime_details(tmp_path: Path) -> None:
+    repo = _seed_source_tree(tmp_path)
+    installed_libexec = tmp_path / "installed" / "libexec"
+    installed_share = tmp_path / "installed" / "share" / "abyss-machine"
+    installed_package = installed_libexec / "abyss_machine"
+    installed_package.mkdir(parents=True)
+    installed_share.mkdir(parents=True)
+    installed_cli = installed_libexec / "abyss-machine"
+    installed_cli.write_text("print('old cli')\n", encoding="utf-8")
+    (installed_package / "__init__.py").write_text("__version__ = 'test'\n", encoding="utf-8")
+
+    runtime = [
+        {
+            "name": "enter",
+            "command": ["abyss-machine", "enter", "--json"],
+            "status": "failed",
+            "returncode": 1,
+            "timed_out": False,
+            "json_ok": False,
+            "stdout_bytes": 0,
+            "stderr_bytes": 39,
+            "stderr_tail": "/var/lib/abyss-machine/private/latest.json",
+        }
+    ]
+    report = host_lifecycle_parity.build_parity_document(
+        generated_at="2026-06-28T00:00:00+00:00",
+        repo_root=repo,
+        installed_cli=installed_cli,
+        installed_libexec_dir=installed_libexec,
+        installed_share_root=installed_share,
+        runtime_checks=runtime,
+        sample_limit=2,
+    )
+
+    summary = host_lifecycle_parity.parity_summary_document(report)
+    rendered = json.dumps(summary, sort_keys=True)
+
+    assert summary["projection"] == "summary"
+    assert summary["ok"] is False
+    assert summary["content_parity"]["package"]["missing_count"] == 2
+    assert summary["runtime"]["failure_checks"] == ["enter"]
+    assert "source_sha256" not in rendered
+    assert "installed_sha256" not in rendered
+    assert str(tmp_path) not in rendered
+    assert "command" not in summary["runtime"]["checks"][0]
+    assert "stderr_tail" not in rendered
+    assert "/var/lib/abyss-machine/private" not in rendered
+
+
 def test_source_install_runtime_parity_script_supports_advisory_mode(tmp_path: Path) -> None:
     result = subprocess.run(
         [
@@ -246,6 +295,46 @@ def test_source_install_runtime_parity_script_supports_advisory_mode(tmp_path: P
     assert payload["schema"] == host_lifecycle_parity.SCHEMA
     assert payload["ok"] is False
     assert payload["content_parity"]["cli"]["status"] == "failed"
+
+
+def test_source_install_runtime_parity_script_emits_summary_projection(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "validators" / "source_install_runtime_parity.py"),
+            "--host-cli",
+            str(tmp_path / "missing-cli"),
+            "--host-libexec-dir",
+            str(tmp_path / "missing-libexec"),
+            "--host-share-root",
+            str(tmp_path / "missing-share"),
+            "--runtime-check",
+            "enter",
+            "--runtime-timeout",
+            "0.01",
+            "--advisory",
+            "--summary",
+            "--json",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    rendered = json.dumps(payload, sort_keys=True)
+    assert payload["schema"] == host_lifecycle_parity.SCHEMA
+    assert payload["projection"] == "summary"
+    assert payload["ok"] is False
+    assert payload["content_parity"]["cli"]["installed_exists"] is False
+    assert "repo_root" not in payload
+    assert "installed" not in payload
+    assert "source_sha256" not in rendered
+    assert "installed_sha256" not in rendered
+    assert str(tmp_path) not in rendered
 
 
 def test_source_install_runtime_parity_requires_explicit_refresh_allowance(tmp_path: Path) -> None:

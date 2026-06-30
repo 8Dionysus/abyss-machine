@@ -861,6 +861,10 @@ parity summary used during release and installed-host closeout:
   typing/nervous, storage, diagnostic, AI, and AI LLM closeout profiles;
 - runtime command effect labels that separate read-only checks from commands
   that refresh latest/readmodel state;
+- public-safe closeout summary projection for `--summary --json`, preserving
+  drift counts, bounded samples, runtime check status, and warning/failure
+  counts while omitting path details, digest values, raw stderr/stdout, and raw
+  runtime JSON;
 - privacy flags proving raw runtime stdout and raw runtime JSON are omitted.
 
 `scripts/validators/source_install_runtime_parity.py` binds the contract to
