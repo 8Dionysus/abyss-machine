@@ -247,6 +247,30 @@ def source_set_blocked_result(
     }
 
 
+def source_set_write_failed_result(
+    source_id: str,
+    *,
+    before: bool,
+    after: bool,
+    state: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+) -> dict[str, Any]:
+    return {
+        "schema": f"{schema_prefix}_nervous_source_set_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "source": source_id,
+        "changed": False,
+        "attempted_change": before != after,
+        "error": "state write failed",
+        "state": dict(state),
+        "write_errors": list(state.get("write_errors", [])) if isinstance(state.get("write_errors"), list) else [],
+    }
+
+
 def source_set_transition(
     *,
     source_id: str,

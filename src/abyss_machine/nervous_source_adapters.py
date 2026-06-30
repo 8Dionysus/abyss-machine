@@ -153,6 +153,16 @@ def source_set_from_ports(
         reason=reason,
     )
     saved = state_writer(transition["state"], f"source-{'enable' if enabled else 'disable'}:{source_id}")
+    if saved.get("ok") is False:
+        return nervous_sources.source_set_write_failed_result(
+            source_id,
+            before=bool(transition["before"]),
+            after=enabled,
+            state=saved,
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=now_iso(),
+        )
     audit = audit_writer(
         nervous_sources.source_set_audit_event(
             change_id=saved.get("last_change_id"),
