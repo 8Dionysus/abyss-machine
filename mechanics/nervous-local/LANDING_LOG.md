@@ -144,3 +144,10 @@
   through fakeable ports. CLI still owns concrete path/time/user binding,
   source-policy/privacy orchestration, latest/live-capture selection, and
   rendering.
+- Source-policy local IO seam: `abyss_machine.nervous_source_adapters` owns
+  source config/default-merge reads, latest writes, source-state reads/writes,
+  and source-enable/source-disable orchestration through fakeable lookup, state,
+  write, audit, and clock ports. `abyss_machine.nervous_sources` keeps the
+  source metadata, effective-state/catalog, payload, and source-set contracts;
+  CLI still owns concrete path/clock binding, privacy-audit writer binding,
+  capture selection, and rendering.

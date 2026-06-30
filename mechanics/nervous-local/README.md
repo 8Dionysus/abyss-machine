@@ -45,6 +45,11 @@ nervous organs start in
 source or execution class: browser capture, local JSONL readers, lexical
 SQLite/FTS lifecycle, semantic embedding subprocesses, rerank subprocesses,
 and privacy audit writes.
+`abyss_machine.nervous_source_adapters` now owns source-policy local IO:
+source config/default merge reads, latest writes, source-state reads/writes, and
+source-enable/source-disable orchestration through fakeable lookup, state,
+write, audit, and clock ports. CLI still owns concrete path/clock binding,
+privacy-audit writer binding, capture selection, and rendering.
 `abyss_machine.nervous_browser_content_adapters` now owns browser-content local
 store routing: daily JSONL path projection, record-from-page callback binding,
 bounded recent duplicate scanning, JSONL append routing, latest write routing,
@@ -56,8 +61,8 @@ session/context/script-evaluation routing, remote-value decode, public-safe BiDi
 error projection, BiDi latest routing, Firefox history profile discovery,
 temporary copied `places.sqlite` recency queries, redacted history-entry
 assembly, and browser-history fact summary routing through fakeable ports.
-CLI still owns concrete path/time/user binding, source-policy/privacy
-orchestration, capture selection, and rendering.
+CLI still owns concrete path/time/user binding, source-policy/privacy binding,
+capture selection, and rendering.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 SQLite FTS5 capability probing, schema file writes, file locks/active-lock
 probes, DB count read binding, index-route symlink-tail filesystem probing,

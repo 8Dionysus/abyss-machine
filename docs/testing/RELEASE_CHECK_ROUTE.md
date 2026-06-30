@@ -158,6 +158,17 @@ abyss-machine nervous status --json
 abyss-machine nervous quality-audit --json
 ```
 
+For nervous source-policy adapter changes, public CI should rely on fake-port
+tests for config/default merge reads, latest writes, source-state reads/writes,
+and source-enable/source-disable orchestration through lookup/state/write/audit/
+clock ports. Live-host closeout should use compact `abyss-machine nervous
+sources-list --json`, `abyss-machine nervous source-status SOURCE --json`, and
+`abyss-machine nervous capture-status --json` summaries only. Do not run
+`source-enable` or `source-disable` as validation unless the operator explicitly
+requests that live source-state mutation, and never report raw browser content,
+typed text, clipboard material, source-state payloads, or generated private
+evidence.
+
 For nervous event/episode file/write adapter changes, public CI should rely on
 fake-root tests for JSONL root reads, derived-record replacement writes, latest
 read envelopes, and build/validate latest write routing. Live-host closeout may
