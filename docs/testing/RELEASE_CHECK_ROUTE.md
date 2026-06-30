@@ -161,6 +161,17 @@ the diagnostic parity profiles, but should report only check counts/status and
 never raw model inventory, benchmark payloads, local runtime paths beyond route
 paths, generated AI latest JSON, or workload records.
 
+For self-awareness resource-preflight or HTTP-status probe adapter changes,
+public CI should rely on fake-port tests for env/meminfo/loadavg/cpu threshold
+decisions, fail-closed resource-denial behavior, bounded HTTP GET request
+binding, truncation, redaction, and error/status projection. Live-host closeout
+may use compact `abyss-machine self-awareness status --json` summaries; run
+`self-awareness probe` or `self-awareness cycle` only when the slice
+intentionally changes orchestration or the operator explicitly accepts live
+latest/readmodel refresh. Report status/counts/reasons only, never raw stack
+responses, local latest payloads, generated event/fabric stores, browser
+captures, or private host evidence.
+
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash

@@ -46,9 +46,10 @@ Use these mechanic owners for the next extraction slices:
 - `diagnostic-spine`: doctor, validation, repair, and freshness probes that
   prove the host layer is healthy without publishing private state.
 - `self-awareness`: latest surface specs, fakeable latest load dispatch,
-  validation latest-spec selection, and bounded status latest summaries live in
-  `self_awareness_adapters`; live stack/runtime probes, concrete latest file
-  reads, refresh orchestration, and investigate/replay/probe/cycle execution
+  validation latest-spec selection, bounded status latest summaries, resource
+  preflight guard decisions, and bounded HTTP status probe ports live in
+  `self_awareness_adapters`; probe/cycle orchestration, broader stack/runtime
+  refreshes, concrete latest file reads, and investigate/replay execution
   remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
