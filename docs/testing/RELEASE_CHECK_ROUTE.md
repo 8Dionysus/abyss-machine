@@ -168,6 +168,17 @@ use compact `abyss-machine nervous events-build --json`,
 ok/schema/count/error summaries and never copy generated event/episode JSONL
 records or raw source payloads into the repository.
 
+For nervous lexical index lifecycle adapter changes, public CI should rely on
+fake-port tests for source discovery/loading, derived-refresh orchestration,
+SQLite write stages, status/freshness, validation fact collection, and vacuum
+routing. Live-host closeout should prefer compact
+`abyss-machine nervous index-status --json` and
+`abyss-machine nervous index-validate --json` summaries. Run a full
+`abyss-machine nervous index-build --json` only when the slice intentionally
+changes live rebuild behavior or the operator explicitly accepts the host cost;
+never copy raw local index rows, source records, browser content, or generated
+JSONL payloads into the repository.
+
 Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.

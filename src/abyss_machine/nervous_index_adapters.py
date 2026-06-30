@@ -18,6 +18,9 @@ DEFAULT_STATE_GROUP = "wheel"
 ConnectDb = Callable[[Path, bool], sqlite3.Connection]
 CountDb = Callable[[Path], dict[str, Any]]
 CountsReader = Callable[[], dict[str, Any]]
+DerivedRefreshSummaryBuilder = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+EpisodesRefreshBuilder = Callable[..., dict[str, Any]]
+EventsRefreshBuilder = Callable[..., dict[str, Any]]
 FreshnessReader = Callable[..., dict[str, Any]]
 InitializeDb = Callable[..., str | None]
 LatestReader = Callable[[Path], tuple[dict[str, Any] | None, str | None]]
@@ -333,6 +336,20 @@ def validation_document_from_ports(
         event_records=event_records,
         episode_records=episode_records,
     )
+
+
+def derived_refresh_from_ports(
+    *,
+    refresh_enabled: bool,
+    events_builder: EventsRefreshBuilder,
+    episodes_builder: EpisodesRefreshBuilder,
+    summary_builder: DerivedRefreshSummaryBuilder = nervous_index.build_index_derived_refresh_summary,
+) -> dict[str, Any]:
+    if not refresh_enabled:
+        return {}
+    events_refresh = events_builder(write_latest=True)
+    episodes_refresh = episodes_builder(write_latest=True, refresh_events=False)
+    return summary_builder(events_refresh, episodes_refresh)
 
 
 def build_document_from_source_roots(
