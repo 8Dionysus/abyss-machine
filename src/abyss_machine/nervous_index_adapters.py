@@ -17,6 +17,11 @@ DEFAULT_STATE_GROUP = "wheel"
 
 ConnectDb = Callable[[Path, bool], sqlite3.Connection]
 CountDb = Callable[[Path], dict[str, Any]]
+CountsReader = Callable[[], dict[str, Any]]
+FreshnessReader = Callable[..., dict[str, Any]]
+LatestReader = Callable[[Path], tuple[dict[str, Any] | None, str | None]]
+LineCounter = Callable[[Path], int | None]
+UnitStatusReader = Callable[[str], dict[str, Any]]
 
 
 def _chown_group(path: Path, group: str) -> None:
@@ -147,6 +152,104 @@ def safe_atomic_write_json(
         return None
     except OSError as exc:
         return {"path": str(path), "error": str(exc)}
+
+
+def freshness_document_from_paths(
+    *,
+    meta: dict[str, Any] | None,
+    config: dict[str, Any] | None,
+    facts_latest_path: Path,
+    events_latest_path: Path,
+    episodes_latest_path: Path,
+    fact_files: list[Path],
+    event_files: list[Path],
+    episode_files: list[Path],
+    now: Any,
+    latest_reader: LatestReader,
+    line_counter: LineCounter,
+) -> dict[str, Any]:
+    latest_fact, _latest_fact_error = latest_reader(facts_latest_path)
+    latest_event, _latest_event_error = latest_reader(events_latest_path)
+    latest_episode, _latest_episode_error = latest_reader(episodes_latest_path)
+    history_records = 0
+    history_parse_errors = 0
+    history_records_by_layer = {"facts": 0, "events": 0, "episodes": 0}
+    for layer, files in (
+        ("facts", fact_files),
+        ("events", event_files),
+        ("episodes", episode_files),
+    ):
+        for path in files:
+            lines = line_counter(path)
+            if lines is None:
+                history_parse_errors += 1
+                continue
+            history_records += int(lines)
+            history_records_by_layer[layer] += int(lines)
+    return nervous_index.freshness_document(
+        meta=meta,
+        config=config,
+        latest_fact=latest_fact,
+        latest_event=latest_event,
+        latest_episode=latest_episode,
+        history_records=history_records,
+        history_records_by_layer=history_records_by_layer,
+        history_parse_errors=history_parse_errors,
+        now=now,
+    )
+
+
+def status_document_from_ports(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    config: dict[str, Any],
+    config_path: Path,
+    privacy: dict[str, Any],
+    sources: dict[str, Any],
+    sqlite_version: str,
+    fts_ok: bool,
+    fts_error: Any,
+    db_path: Path,
+    root_path: Path,
+    schema_path: Path,
+    latest_path: Path,
+    service_name: str,
+    timer_name: str,
+    latest_reader: LatestReader,
+    counts_reader: CountsReader,
+    freshness_reader: FreshnessReader,
+    unit_status_reader: UnitStatusReader,
+) -> dict[str, Any]:
+    latest, latest_error = latest_reader(latest_path)
+    counts = counts_reader()
+    meta_for_freshness = counts.get("meta") if isinstance(counts.get("meta"), dict) else {}
+    freshness = freshness_reader(meta=meta_for_freshness, config=config)
+    return nervous_index.status_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        config=config,
+        config_path=config_path,
+        config_exists=config_path.exists(),
+        privacy=privacy,
+        sources=sources,
+        sqlite_version=sqlite_version,
+        fts_ok=fts_ok,
+        fts_error=fts_error,
+        latest=latest,
+        latest_error=latest_error,
+        counts=counts,
+        freshness=freshness,
+        db_path=db_path,
+        db_exists=db_path.exists(),
+        root_path=root_path,
+        schema_path=schema_path,
+        latest_path=latest_path,
+        service_status=unit_status_reader(service_name),
+        timer_status=unit_status_reader(timer_name),
+    )
 
 
 def vacuum_index(
