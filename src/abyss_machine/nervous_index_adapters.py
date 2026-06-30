@@ -25,9 +25,13 @@ LineCounter = Callable[[Path], int | None]
 LockFactory = Callable[[Path], Any]
 ModeApplier = Callable[..., None]
 NowReader = Callable[[], str]
+ProjectionBuilder = Callable[..., dict[str, Any]]
+RedactText = Callable[[str], tuple[str, int]]
 ReplaceContents = Callable[..., None]
 ScanReader = Callable[..., dict[str, Any]]
 SemanticLockActive = Callable[[], bool]
+SourceFilesReader = Callable[[tuple[Path, ...]], list[Path]]
+SourceRecordsLoader = Callable[[list[Path]], tuple[list[dict[str, Any]], list[dict[str, Any]]]]
 SymlinkTailProbe = Callable[..., bool]
 UnitStatusReader = Callable[[str], dict[str, Any]]
 
@@ -329,6 +333,60 @@ def validation_document_from_ports(
         event_records=event_records,
         episode_records=episode_records,
     )
+
+
+def build_document_from_source_roots(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    run_id: str,
+    started_at: str,
+    db_path: Path,
+    config_path: Path,
+    privacy: dict[str, Any],
+    sources: dict[str, Any],
+    source_roots: tuple[Path, ...],
+    derived_refresh: dict[str, Any],
+    redact_text: RedactText,
+    source_files_reader: SourceFilesReader = nervous_index.index_source_files,
+    source_records_loader: SourceRecordsLoader = nervous_index.load_source_records,
+    projection_builder: ProjectionBuilder = nervous_index.build_index_projection,
+) -> dict[str, Any]:
+    enabled_sources = nervous_index.enabled_index_source_ids(sources)
+    source_files = source_files_reader(source_roots)
+    source_records, parse_errors = source_records_loader(source_files)
+    projection = projection_builder(
+        source_records,
+        sources,
+        enabled_sources,
+        started_at=started_at,
+        schema_prefix=schema_prefix,
+        redact_text=redact_text,
+    )
+    data = nervous_index.build_index_build_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        run_id=run_id,
+        started_at=started_at,
+        db_path=db_path,
+        config_path=config_path,
+        privacy=privacy,
+        sources=sources,
+        enabled_sources=enabled_sources,
+        source_files=source_files,
+        projection=projection,
+        parse_errors=parse_errors,
+        derived_refresh=derived_refresh,
+    )
+    return {
+        "data": data,
+        "source_files": source_files,
+        "projection": projection,
+        "parse_errors": parse_errors,
+        "enabled_sources": sorted(enabled_sources),
+    }
 
 
 def write_build_projection(

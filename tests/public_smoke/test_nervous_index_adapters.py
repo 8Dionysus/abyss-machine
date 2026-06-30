@@ -308,6 +308,126 @@ def test_index_adapter_validation_collects_storage_scan_and_record_ports(tmp_pat
     ]
 
 
+def test_index_adapter_build_document_collects_source_inputs_through_ports(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = facts_root / "2026" / "06" / "facts.jsonl"
+    source_files = [source_path]
+    source_records = [{"path": str(source_path), "line": 1, "record": {"schema": "fact"}}]
+    parse_errors = [{"path": str(source_path), "line": 2, "error": "bad json"}]
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {"browser_active_tab": {"enabled": True, "allowed": True}},
+        "state": {"last_change_id": "source-change-1"},
+    }
+    projection = {
+        "documents": [{"doc_id": "doc-1"}],
+        "chunks": [{"chunk_id": "chunk-1"}],
+        "skipped_records": [],
+        "summary": {
+            "records_seen": 1,
+            "records_indexed": 1,
+            "documents_indexed": 1,
+            "chunks_indexed": 1,
+            "skipped_records": 0,
+            "disabled_chunks": 0,
+            "redactions": 0,
+            "records_seen_by_schema": {"fact": 1},
+            "records_indexed_by_schema": {"fact": 1},
+        },
+    }
+    derived_refresh = {"events": {"ok": True}, "episodes": {"ok": True}}
+    calls: list[tuple[str, Any]] = []
+
+    def source_files_reader(roots: tuple[Path, ...]) -> list[Path]:
+        calls.append(("source_files", roots))
+        return source_files
+
+    def source_records_loader(paths: list[Path]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        calls.append(("source_records", paths))
+        return source_records, parse_errors
+
+    def projection_builder(
+        records: list[dict[str, Any]],
+        source_doc: dict[str, Any],
+        enabled_sources: set[str],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        calls.append((
+            "projection",
+            {
+                "records": records,
+                "sources": source_doc,
+                "enabled_sources": sorted(enabled_sources),
+                "kwargs": kwargs,
+            },
+        ))
+        return projection
+
+    def redact_text(text: str) -> tuple[str, int]:
+        return text, 0
+
+    result = nervous_index_adapters.build_document_from_source_roots(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-06-25T12:00:00+00:00",
+        run_id="index-run-1",
+        started_at="2026-06-25T11:59:00+00:00",
+        db_path=tmp_path / "index" / "nervous.db",
+        config_path=tmp_path / "nervous-index.json",
+        privacy={"global_pause": False, "private_mode": True},
+        sources=sources,
+        source_roots=(facts_root, events_root, episodes_root),
+        derived_refresh=derived_refresh,
+        redact_text=redact_text,
+        source_files_reader=source_files_reader,
+        source_records_loader=source_records_loader,
+        projection_builder=projection_builder,
+    )
+    enabled_sources = nervous_index.enabled_index_source_ids(sources)
+
+    assert result == {
+        "data": nervous_index.build_index_build_document(
+            schema_prefix="abyss_machine",
+            version="test-version",
+            generated_at="2026-06-25T12:00:00+00:00",
+            run_id="index-run-1",
+            started_at="2026-06-25T11:59:00+00:00",
+            db_path=tmp_path / "index" / "nervous.db",
+            config_path=tmp_path / "nervous-index.json",
+            privacy={"global_pause": False, "private_mode": True},
+            sources=sources,
+            enabled_sources=enabled_sources,
+            source_files=source_files,
+            projection=projection,
+            parse_errors=parse_errors,
+            derived_refresh=derived_refresh,
+        ),
+        "source_files": source_files,
+        "projection": projection,
+        "parse_errors": parse_errors,
+        "enabled_sources": sorted(enabled_sources),
+    }
+    assert calls == [
+        ("source_files", (facts_root, events_root, episodes_root)),
+        ("source_records", source_files),
+        (
+            "projection",
+            {
+                "records": source_records,
+                "sources": sources,
+                "enabled_sources": sorted(enabled_sources),
+                "kwargs": {
+                    "started_at": "2026-06-25T11:59:00+00:00",
+                    "schema_prefix": "abyss_machine",
+                    "redact_text": redact_text,
+                },
+            },
+        ),
+    ]
+
+
 def test_index_adapter_write_build_projection_executes_db_write_stage_through_ports(tmp_path: Path) -> None:
     db_path = tmp_path / "index" / "nervous.db"
     root = tmp_path / "index"
@@ -797,7 +917,7 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     config = {"enabled": True, "privacy": {"enforce_global_pause": True}}
     privacy = {"global_pause": False, "private_mode": False, "state": {"last_change_id": "privacy-change-1"}}
     sources = {"safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}}, "state": {"last_change_id": "source-change-1"}}
-    source_records = [{"path": str(source_path), "line": 1, "record": {"schema": "fact"}}]
+    parse_errors: list[dict[str, Any]] = []
     projection = {
         "documents": [{"doc_id": "doc-1"}],
         "chunks": [{"chunk_id": "chunk-1"}],
@@ -814,6 +934,17 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
             "records_indexed_by_schema": {"fact": 1},
         },
     }
+    build_data = {"schema": "abyss_machine_nervous_index_build_v1", "ok": False, "sources": {"state_change_id": "source-change-1"}}
+
+    def fake_source_input_stage(**kwargs: Any) -> dict[str, Any]:
+        captured["source_input"] = kwargs
+        return {
+            "data": build_data,
+            "source_files": [source_path],
+            "projection": projection,
+            "parse_errors": parse_errors,
+            "enabled_sources": ["abyss_machine_facts", "nervous_events", "nervous_episodes"],
+        }
 
     def fake_write_stage(data: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         captured["data"] = data
@@ -822,6 +953,9 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
 
     def forbidden_write_stage(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("CLI must delegate index build write stage to adapter")
+
+    def forbidden_source_input(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("CLI must delegate index build source input assembly to adapter")
 
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root)
@@ -836,18 +970,32 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     monkeypatch.setattr(cli, "nervous_effective_sources", lambda write_latest=False: sources)
     monkeypatch.setattr(cli, "nervous_sqlite_fts5_ok", lambda: (True, None))
     monkeypatch.setattr(cli, "nervous_semantic_lock_active", lambda: False)
-    monkeypatch.setattr(cli, "nervous_index_source_files", lambda: [source_path])
-    monkeypatch.setattr(cli, "build_nervous_index_load_source_records", lambda files: (source_records, []))
-    monkeypatch.setattr(cli, "build_nervous_index_projection", lambda *args, **kwargs: projection)
+    monkeypatch.setattr(cli, "nervous_index_source_files", forbidden_source_input)
+    monkeypatch.setattr(cli, "build_nervous_index_load_source_records", forbidden_source_input)
+    monkeypatch.setattr(cli, "build_nervous_index_projection", forbidden_source_input)
+    monkeypatch.setattr(cli, "nervous_enabled_index_source_ids", forbidden_source_input)
     monkeypatch.setattr(cli, "nervous_index_lock", forbidden_write_stage)
     monkeypatch.setattr(cli, "nervous_index_connect", forbidden_write_stage)
     monkeypatch.setattr(cli, "nervous_index_initialize", forbidden_write_stage)
+    monkeypatch.setattr(cli.nervous_index_adapters, "build_document_from_source_roots", fake_source_input_stage)
     monkeypatch.setattr(cli.nervous_index_adapters, "write_build_projection", fake_write_stage)
 
     result = cli.nervous_index_build(write_latest=False, refresh_derived=False)
 
     assert result == {"ok": True, "from_adapter": True}
-    assert captured["data"]["schema"] == "abyss_machine_nervous_index_build_v1"
+    assert captured["source_input"]["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["source_input"]["version"] == cli.VERSION
+    assert captured["source_input"]["generated_at"] == "2026-06-25T12:00:00+00:00"
+    assert captured["source_input"]["run_id"] == "index-run-1"
+    assert captured["source_input"]["started_at"] == "2026-06-25T12:00:00+00:00"
+    assert captured["source_input"]["db_path"] == db_path
+    assert captured["source_input"]["config_path"] == cli.NERVOUS_INDEX_CONFIG_PATH
+    assert captured["source_input"]["privacy"] == privacy
+    assert captured["source_input"]["sources"] == sources
+    assert captured["source_input"]["source_roots"] == (facts_root, events_root, episodes_root)
+    assert captured["source_input"]["derived_refresh"] == {}
+    assert captured["source_input"]["redact_text"] is cli.nervous_redact_index_text
+    assert captured["data"] is build_data
     assert captured["db_path"] == db_path
     assert captured["root"] == root
     assert captured["schema_path"] == schema_path
@@ -859,7 +1007,7 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     assert captured["started_at"] == "2026-06-25T12:00:00+00:00"
     assert captured["source_files"] == [source_path]
     assert captured["projection"] == projection
-    assert captured["parse_errors"] == []
+    assert captured["parse_errors"] == parse_errors
     assert captured["facts_root"] == facts_root
     assert captured["events_root"] == events_root
     assert captured["episodes_root"] == episodes_root

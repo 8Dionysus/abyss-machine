@@ -366,6 +366,8 @@ SQLite/FTS lifecycle adapter boundary:
   freshness, and user service/timer status ports;
 - index validation read-model fact collection through fakeable storage route,
   symlink-tail, counts, freshness, scan, and event/episode line-count ports;
+- index build source-input collection through fakeable source-file discovery,
+  JSONL source-record loading, redacted projection, and build-document ports;
 - index build write-stage execution under the index lock, including semantic
   pre-write deferral, DB connect/init/schema write, meta construction, content
   replacement, generated DB file-mode normalization, counts, and build
@@ -374,11 +376,13 @@ SQLite/FTS lifecycle adapter boundary:
   connection/count ports.
 
 `abyss_machine.nervous_index` still owns JSONL discovery/parsing, source-policy
-selection, redacted projection, SQLite/FTS schema/search/store contracts,
-status/freshness documents, validation envelopes, and vacuum result envelopes.
+selection, redacted projection, build document contracts, SQLite/FTS
+schema/search/store contracts, status/freshness documents, validation
+envelopes, and vacuum result envelopes.
 The CLI still owns privacy/source/config/path binding, derived event/episode
 refresh orchestration, redactor callback binding, concrete status port wiring,
-concrete validation/build port wiring, latest writes, and command rendering.
+concrete validation/build source/build write port wiring, latest writes, and
+command rendering.
 
 ## Extracted Nervous Derived Events/Episodes File Seam
 
