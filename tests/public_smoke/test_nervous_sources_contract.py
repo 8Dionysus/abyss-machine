@@ -31,6 +31,7 @@ from abyss_machine.nervous_sources import (
     source_set_result,
     source_set_transition,
     source_set_unknown_result,
+    source_set_write_failed_result,
     state_document,
     text_payload,
     url_payload,
@@ -414,6 +415,19 @@ def test_nervous_source_set_contracts_cover_transitions_errors_and_cli_delegatio
         version="test",
         generated_at=READ_AT,
     )
+    write_failed = source_set_write_failed_result(
+        "typing_saved_text",
+        before=transition["before"],
+        after=transition["after"],
+        state={
+            **saved,
+            "ok": False,
+            "write_errors": [{"path": "/var/lib/abyss-machine/nervous/sources/state.json", "error": "permission denied"}],
+        },
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at=READ_AT,
+    )
 
     assert transition["before"] is True
     assert transition["after"] is False
@@ -427,6 +441,11 @@ def test_nervous_source_set_contracts_cover_transitions_errors_and_cli_delegatio
     assert blocked["ok"] is False
     assert blocked["error"] == "source is not allowed by policy"
     assert unknown["error"] == "unknown source"
+    assert write_failed["ok"] is False
+    assert write_failed["changed"] is False
+    assert write_failed["attempted_change"] is True
+    assert write_failed["error"] == "state write failed"
+    assert write_failed["write_errors"][0]["error"] == "permission denied"
 
     from abyss_machine import cli
 

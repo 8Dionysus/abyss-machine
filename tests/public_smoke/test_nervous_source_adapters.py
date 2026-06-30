@@ -171,6 +171,51 @@ def test_source_adapter_source_set_orchestrates_state_and_audit_ports() -> None:
     ]
 
 
+def test_source_adapter_source_set_state_write_failure_skips_audit_and_effective_lookup() -> None:
+    def source_lookup(source_id: str) -> dict[str, Any] | None:
+        return {
+            "id": source_id,
+            "enabled": True,
+            "can_enable_now": True,
+        }
+
+    def state_writer(next_state: dict[str, Any], updated_by: str) -> dict[str, Any]:
+        return {
+            "schema": "abyss_machine_nervous_sources_state_v1",
+            "version": "test",
+            "overrides": next_state["overrides"],
+            "last_change_id": None,
+            "ok": False,
+            "write_errors": [{"path": "/state/nervous/sources.json", "error": "permission denied"}],
+        }
+
+    result = nervous_source_adapters.source_set_from_ports(
+        "typing_saved_text",
+        False,
+        reason="operator disable",
+        source_lookup=source_lookup,
+        state_reader=lambda: {
+            "schema": "abyss_machine_nervous_sources_state_v1",
+            "version": "test",
+            "overrides": {},
+        },
+        state_writer=state_writer,
+        audit_writer=lambda event: (_ for _ in ()).throw(AssertionError("audit must not be written after state write failure")),
+        effective_lookup=lambda source_id: (_ for _ in ()).throw(AssertionError("effective state must not be refreshed after state write failure")),
+        now_iso=lambda: READ_AT,
+        schema_prefix="abyss_machine",
+        version="test",
+    )
+
+    assert result["schema"] == "abyss_machine_nervous_source_set_v1"
+    assert result["ok"] is False
+    assert result["changed"] is False
+    assert result["attempted_change"] is True
+    assert result["error"] == "state write failed"
+    assert result["state"]["ok"] is False
+    assert result["write_errors"][0]["error"] == "permission denied"
+
+
 def test_source_adapter_source_set_unknown_and_blocked_do_not_touch_state() -> None:
     blocked = nervous_source_adapters.source_set_from_ports(
         "browser_active_tab",
