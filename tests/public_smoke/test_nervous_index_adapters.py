@@ -308,6 +308,46 @@ def test_index_adapter_validation_collects_storage_scan_and_record_ports(tmp_pat
     ]
 
 
+def test_index_adapter_derived_refresh_orchestrates_event_episode_ports() -> None:
+    calls: list[tuple[str, Any]] = []
+    events_result = {"ok": True, "summary": {"events": 2}}
+    episodes_result = {"ok": True, "summary": {"episodes": 1}}
+    summary_result = {"events": {"ok": True, "events": 2}, "episodes": {"ok": True, "episodes": 1}}
+
+    def events_builder(**kwargs: Any) -> dict[str, Any]:
+        calls.append(("events", kwargs))
+        return events_result
+
+    def episodes_builder(**kwargs: Any) -> dict[str, Any]:
+        calls.append(("episodes", kwargs))
+        return episodes_result
+
+    def summary_builder(events_refresh: dict[str, Any], episodes_refresh: dict[str, Any]) -> dict[str, Any]:
+        calls.append(("summary", {"events": events_refresh, "episodes": episodes_refresh}))
+        return summary_result
+
+    enabled = nervous_index_adapters.derived_refresh_from_ports(
+        refresh_enabled=True,
+        events_builder=events_builder,
+        episodes_builder=episodes_builder,
+        summary_builder=summary_builder,
+    )
+    disabled = nervous_index_adapters.derived_refresh_from_ports(
+        refresh_enabled=False,
+        events_builder=lambda **kwargs: (_ for _ in ()).throw(AssertionError("events port should not be called")),
+        episodes_builder=lambda **kwargs: (_ for _ in ()).throw(AssertionError("episodes port should not be called")),
+        summary_builder=summary_builder,
+    )
+
+    assert enabled == summary_result
+    assert disabled == {}
+    assert calls == [
+        ("events", {"write_latest": True}),
+        ("episodes", {"write_latest": True, "refresh_events": False}),
+        ("summary", {"events": events_result, "episodes": episodes_result}),
+    ]
+
+
 def test_index_adapter_build_document_collects_source_inputs_through_ports(tmp_path: Path) -> None:
     facts_root = tmp_path / "facts"
     events_root = tmp_path / "events"
@@ -918,6 +958,7 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     privacy = {"global_pause": False, "private_mode": False, "state": {"last_change_id": "privacy-change-1"}}
     sources = {"safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}}, "state": {"last_change_id": "source-change-1"}}
     parse_errors: list[dict[str, Any]] = []
+    derived_refresh = {"events": {"ok": True, "events": 2}, "episodes": {"ok": True, "episodes": 1}}
     projection = {
         "documents": [{"doc_id": "doc-1"}],
         "chunks": [{"chunk_id": "chunk-1"}],
@@ -935,6 +976,10 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
         },
     }
     build_data = {"schema": "abyss_machine_nervous_index_build_v1", "ok": False, "sources": {"state_change_id": "source-change-1"}}
+
+    def fake_derived_refresh(**kwargs: Any) -> dict[str, Any]:
+        captured["derived_refresh"] = kwargs
+        return derived_refresh
 
     def fake_source_input_stage(**kwargs: Any) -> dict[str, Any]:
         captured["source_input"] = kwargs
@@ -957,6 +1002,9 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     def forbidden_source_input(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("CLI must delegate index build source input assembly to adapter")
 
+    def forbidden_derived_refresh(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("CLI must delegate index build derived refresh orchestration to adapter")
+
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", db_path)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_ROOT", root)
     monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_SCHEMA_PATH", schema_path)
@@ -974,15 +1022,22 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     monkeypatch.setattr(cli, "build_nervous_index_load_source_records", forbidden_source_input)
     monkeypatch.setattr(cli, "build_nervous_index_projection", forbidden_source_input)
     monkeypatch.setattr(cli, "nervous_enabled_index_source_ids", forbidden_source_input)
+    monkeypatch.setattr(cli, "nervous_events_build", forbidden_derived_refresh)
+    monkeypatch.setattr(cli, "nervous_episodes_build", forbidden_derived_refresh)
+    monkeypatch.setattr(cli, "build_nervous_index_derived_refresh_summary", forbidden_derived_refresh)
     monkeypatch.setattr(cli, "nervous_index_lock", forbidden_write_stage)
     monkeypatch.setattr(cli, "nervous_index_connect", forbidden_write_stage)
     monkeypatch.setattr(cli, "nervous_index_initialize", forbidden_write_stage)
+    monkeypatch.setattr(cli.nervous_index_adapters, "derived_refresh_from_ports", fake_derived_refresh)
     monkeypatch.setattr(cli.nervous_index_adapters, "build_document_from_source_roots", fake_source_input_stage)
     monkeypatch.setattr(cli.nervous_index_adapters, "write_build_projection", fake_write_stage)
 
-    result = cli.nervous_index_build(write_latest=False, refresh_derived=False)
+    result = cli.nervous_index_build(write_latest=False, refresh_derived=True)
 
     assert result == {"ok": True, "from_adapter": True}
+    assert captured["derived_refresh"]["refresh_enabled"] is True
+    assert captured["derived_refresh"]["events_builder"] is forbidden_derived_refresh
+    assert captured["derived_refresh"]["episodes_builder"] is forbidden_derived_refresh
     assert captured["source_input"]["schema_prefix"] == cli.SCHEMA_PREFIX
     assert captured["source_input"]["version"] == cli.VERSION
     assert captured["source_input"]["generated_at"] == "2026-06-25T12:00:00+00:00"
@@ -993,7 +1048,7 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     assert captured["source_input"]["privacy"] == privacy
     assert captured["source_input"]["sources"] == sources
     assert captured["source_input"]["source_roots"] == (facts_root, events_root, episodes_root)
-    assert captured["source_input"]["derived_refresh"] == {}
+    assert captured["source_input"]["derived_refresh"] == derived_refresh
     assert captured["source_input"]["redact_text"] is cli.nervous_redact_index_text
     assert captured["data"] is build_data
     assert captured["db_path"] == db_path

@@ -366,6 +366,8 @@ SQLite/FTS lifecycle adapter boundary:
   freshness, and user service/timer status ports;
 - index validation read-model fact collection through fakeable storage route,
   symlink-tail, counts, freshness, scan, and event/episode line-count ports;
+- index build derived-refresh orchestration through fakeable event and episode
+  build ports;
 - index build source-input collection through fakeable source-file discovery,
   JSONL source-record loading, redacted projection, and build-document ports;
 - index build write-stage execution under the index lock, including semantic
@@ -379,10 +381,10 @@ SQLite/FTS lifecycle adapter boundary:
 selection, redacted projection, build document contracts, SQLite/FTS
 schema/search/store contracts, status/freshness documents, validation
 envelopes, and vacuum result envelopes.
-The CLI still owns privacy/source/config/path binding, derived event/episode
-refresh orchestration, redactor callback binding, concrete status port wiring,
-concrete validation/build source/build write port wiring, latest writes, and
-command rendering.
+The CLI still owns privacy/source/config/path binding, redactor callback
+binding, concrete status/validation port wiring, concrete build port wiring for
+derived refresh, source input, and write stage, latest writes, and command
+rendering.
 
 ## Extracted Nervous Derived Events/Episodes File Seam
 

@@ -27,16 +27,23 @@
   enabled-source calculation, redacted projection, and build document creation
   through fakeable ports. `abyss_machine.nervous_index` still owns the
   JSONL/projection/document contracts, while CLI owns config/privacy/path
-  binding, derived refresh orchestration, redactor callback binding, concrete
-  build port wiring, latest writes, and command rendering.
+  binding, derived refresh orchestration at that landing, redactor callback
+  binding, concrete build port wiring, latest writes, and command rendering.
+- Lexical index build derived-refresh seam:
+  `abyss_machine.nervous_index_adapters` owns the optional event/episode refresh
+  orchestration that precedes an index build through fakeable event-build,
+  episode-build, and summary ports. CLI still owns config/privacy/path binding,
+  redactor callback binding, concrete build port wiring, latest writes, and
+  command rendering; event/episode record contracts remain in their own
+  nervous-local modules.
 - Lexical index build write-stage seam:
   `abyss_machine.nervous_index_adapters` owns the SQLite write stage under the
   index lock: semantic pre-write deferral, DB connect/init/schema write, meta
   construction, content replacement, generated DB file-mode normalization,
   counts, and success/error wrapping through fakeable ports. CLI still owns
-  config/privacy/source/path binding, derived refresh orchestration, redactor
-  callback binding, concrete build port wiring, latest writes, and command
-  rendering.
+  config/privacy/source/path binding, derived refresh orchestration at that
+  landing, redactor callback binding, concrete build port wiring, latest writes,
+  and command rendering.
 - Semantic embedding execution seam: `abyss_machine.nervous_semantic_adapters`
   owns embedding subprocess temp-file staging, runner invocation, output
   readback, cleanup, and resource-profile callback routing. CLI still owns

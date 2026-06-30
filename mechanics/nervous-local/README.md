@@ -63,6 +63,8 @@ schema file writes, file locks/active-lock probes, latest writes, generated DB
 file mode/group normalization, freshness latest/history count collection, index
 status latest/counts/freshness/service/timer fact collection, index validation
 storage-route/symlink/counts/freshness/scan/event-episode fact collection,
+index build derived-refresh orchestration through fakeable event/episode build
+ports,
 index build source-file discovery/source-record loading/projection/build-document
 assembly, and index build write-stage lock/connect/init/replace/mode/count/error
 handling plus vacuum execution through fakeable ports.
