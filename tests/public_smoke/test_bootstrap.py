@@ -17,6 +17,17 @@ if str(SRC_ROOT) not in sys.path:
 from abyss_machine import artifact_bundles
 
 
+def _current_bootstrap_install_abi_subject_digest() -> str:
+    requirements = artifact_bundles.artifact_requirements("bootstrap_install_bundle")
+    row = requirements["rows"][0]
+    surfaces = row["source_route"]["generated_contract_surfaces"]
+    for surface in surfaces:
+        digest = str(surface.get("source_tree_hash") or "")
+        if digest:
+            return digest
+    raise AssertionError("bootstrap_install_bundle ABI subject digest is unavailable")
+
+
 def run_bootstrap_process(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(BOOTSTRAP), *args, "--json"],
@@ -42,6 +53,7 @@ def _bootstrap_install_registry_record(
     *,
     lifecycle_state: str = "release-ready",
     subject_digest: str = "sha256:" + ("1" * 64),
+    abi_subject_digest: str | None = None,
     trust_root_mode: str = "github_oidc",
     privacy_boundary: str = "public-safe bootstrap install material",
 ) -> tuple[Path, str, str]:
@@ -70,7 +82,7 @@ def _bootstrap_install_registry_record(
         "bundle_manifest_ref": source_ref,
         "subject_digest": subject_digest,
         "artifact_subjects_digest": subject_digest,
-        "abi_subject_digest": "sha256:" + ("2" * 64),
+        "abi_subject_digest": abi_subject_digest or _current_bootstrap_install_abi_subject_digest(),
         "lifecycle_state": lifecycle_state,
         "latest_eligible": lifecycle_state == "release-ready",
         "terminal_state": lifecycle_state in artifact_bundles.BUNDLE_TERMINAL_STATES,
@@ -228,11 +240,44 @@ def test_bootstrap_install_can_require_artifact_trust_gate(tmp_path: Path) -> No
     assert admission["ok"] is True
     assert admission["verdict"] == "allow"
     assert admission["trust_gate"]["decision"]["model"] == "fail_closed_consumer_admission"
+    assert admission["freshness_gate"]["verdict"] == "allow"
     assert admission["trust_gate"]["inspected_claims"]["source"]["source_repo_matched"] is True
     assert admission["trust_gate"]["inspected_claims"]["trust_root"]["trust_root_mode_matched"] is True
     assert payload["actions"][0]["action"] == "artifact_trust_gate"
     assert payload["actions"][0]["verdict"] == "allow"
+    assert payload["actions"][0]["freshness_verdict"] == "allow"
     assert any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_fails_closed_on_stale_abi_subject(tmp_path: Path) -> None:
+    registry, subject_digest, record_id = _bootstrap_install_registry_record(
+        tmp_path,
+        abi_subject_digest="sha256:" + ("0" * 64),
+    )
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(registry),
+        "--artifact-subject-digest",
+        subject_digest,
+        "--artifact-record-id",
+        record_id,
+        "--artifact-trust-root-mode",
+        "github_oidc",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    admission = payload["artifact_admission"]
+    assert admission["ok"] is False
+    assert admission["verdict"] == "deny"
+    assert admission["trust_gate"]["verdict"] == "allow"
+    assert admission["freshness_gate"]["verdict"] == "deny"
+    assert admission["freshness_gate"]["blocking_rows"][0]["reasons"] == ["abi_subject_digest_stale"]
+    assert admission["errors"] == ["artifact_source_freshness_blocking:bootstrap_install_bundle:abi_subject_digest_stale"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
 
 
 def test_bootstrap_install_fails_closed_when_required_registry_is_missing(tmp_path: Path) -> None:

@@ -1605,6 +1605,12 @@ def _source_ref_looks_path_like(value: str) -> bool:
     )
 
 
+def _source_ref_exact_match_proves_current(value: str) -> bool:
+    if value.startswith("source-refresh:"):
+        return True
+    return not _source_ref_looks_path_like(value)
+
+
 def _source_ref_components(value: str) -> list[str]:
     return [item for item in re.split(r"[^A-Za-z0-9._-]+", value) if item]
 
@@ -1615,7 +1621,7 @@ def _source_ref_match(
 ) -> tuple[bool, str | None, str | None, bool]:
     for ref in known_refs:
         if ref == expected:
-            return True, ref, "exact", not _source_ref_looks_path_like(expected)
+            return True, ref, "exact", _source_ref_exact_match_proves_current(expected)
 
     if not _is_git_hash_like(expected):
         return False, None, None, False
@@ -3752,14 +3758,23 @@ def artifact_affected(
         owner_repo_changed = bool(effective_source_repo and owner_repo and effective_source_repo == owner_repo)
         profile_owner_changed = bool(effective_source_repo and effective_source_repo in profile_owner_repos)
         explicit_source_ref_check = bool(changed_source_ref and not normalized_paths and not effective_source_repo)
+        central_policy_source_ref_check = bool(
+            changed_source_ref
+            and effective_source_repo == "abyss-machine"
+            and any(reason in reasons for reason in ("policy_manifest_changed", "abi_signature_readmodel_changed"))
+        )
         source_ref_applies = (
             bool(changed_source_ref)
-            and _artifact_source_ref_scope_applies(requirement, effective_source_repo)
+            and (
+                _artifact_source_ref_scope_applies(requirement, effective_source_repo)
+                or central_policy_source_ref_check
+            )
             and (
                 bool(reasons)
                 or owner_repo_changed
                 or profile_owner_changed
                 or explicit_source_ref_check
+                or central_policy_source_ref_check
             )
         )
         scoped_source_ref = changed_source_ref if source_ref_applies else ""
