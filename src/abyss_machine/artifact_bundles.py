@@ -695,6 +695,270 @@ def _scenario_durable_evidence_status(
     }
 
 
+def artifact_trust_source_repo_aliases(source_repo: str) -> list[str]:
+    repo = str(source_repo or "").strip()
+    if not repo:
+        return []
+    aliases = [repo]
+    if repo == "aoa-session-memory":
+        aliases.extend([".aoa", "bundles/aoa-session-memory"])
+    return list(dict.fromkeys(aliases))
+
+
+def artifact_trust_source_workspace_roots() -> list[Path]:
+    roots: list[Path] = []
+    env_roots = os.environ.get("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", "")
+    for raw in env_roots.split(os.pathsep):
+        if raw.strip():
+            roots.append(Path(raw).expanduser())
+    roots.extend([
+        Path.cwd(),
+        Path.cwd().parent,
+        REPO_ROOT,
+        REPO_ROOT.parent,
+        Path("/srv/AbyssOS"),
+        Path.home() / "src",
+    ])
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        try:
+            key = str(root.resolve(strict=False))
+        except OSError:
+            key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(root)
+    return unique
+
+
+def artifact_trust_source_repo_roots(source_repo: str) -> list[Path]:
+    repo = str(source_repo or "").strip()
+    roots: list[Path] = []
+    if not repo or repo == "abyss-machine":
+        roots.append(REPO_ROOT)
+    aliases = artifact_trust_source_repo_aliases(repo)
+    for workspace_root in artifact_trust_source_workspace_roots():
+        roots.append(workspace_root)
+        for alias in aliases:
+            roots.append(workspace_root / alias)
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        try:
+            key = str(root.resolve(strict=False))
+        except OSError:
+            key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(root)
+    return unique
+
+
+def artifact_trust_split_manifest_ref(manifest_ref: str, fallback_source_repo: str) -> tuple[str, str]:
+    ref = str(manifest_ref or "").strip()
+    source_repo = str(fallback_source_repo or "").strip()
+    if not ref.startswith("repo:"):
+        return source_repo, ref
+    repo_ref = ref.removeprefix("repo:")
+    for alias in artifact_trust_source_repo_aliases(source_repo) + ["abyss-machine"]:
+        prefix = f"{alias}/"
+        if repo_ref.startswith(prefix):
+            return alias if alias != "abyss-machine" else "abyss-machine", repo_ref[len(prefix):]
+    if "/" in repo_ref:
+        owner, path = repo_ref.split("/", 1)
+        return owner, path
+    return source_repo, ref
+
+
+def artifact_trust_is_bundle_manifest_ref(manifest_ref: str, *, source_repo: str) -> bool:
+    _repo, normalized_ref = artifact_trust_split_manifest_ref(manifest_ref, source_repo)
+    return str(normalized_ref or "").endswith(".bundle.json")
+
+
+def artifact_trust_load_source_manifest(
+    manifest_ref: str,
+    *,
+    source_repo: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    resolved_source_repo, normalized_ref = artifact_trust_split_manifest_ref(manifest_ref, source_repo)
+    if not normalized_ref:
+        return None, {
+            "source_repo": resolved_source_repo or None,
+            "manifest_ref": None,
+            "resolved": False,
+            "error": "source_manifest_ref_missing",
+            "search_roots": [],
+        }
+    path = Path(normalized_ref)
+    search_roots = artifact_trust_source_repo_roots(resolved_source_repo)
+    candidates: list[tuple[Path, Path | None]] = []
+    if path.is_absolute():
+        candidates.append((path, None))
+    else:
+        candidates.extend((root / path, root) for root in search_roots)
+    unique_candidates: list[tuple[Path, Path | None]] = []
+    seen: set[str] = set()
+    for candidate, root in candidates:
+        try:
+            key = str(candidate.resolve(strict=False))
+        except OSError:
+            key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append((candidate, root))
+    for candidate, root in unique_candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            manifest = load_bundle_manifest(candidate)
+        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError) as exc:
+            return None, {
+                "source_repo": resolved_source_repo or None,
+                "manifest_ref": normalized_ref,
+                "resolved": False,
+                "path": str(candidate),
+                "error": str(exc),
+                "search_roots": [str(root) for root in search_roots[:12]],
+            }
+        return manifest, {
+            "source_repo": resolved_source_repo or None,
+            "manifest_ref": normalized_ref,
+            "resolved": True,
+            "path": str(candidate),
+            "source_root": str(root) if root is not None else None,
+            "search_roots": [str(root) for root in search_roots[:12]],
+        }
+    return None, {
+        "source_repo": resolved_source_repo or None,
+        "manifest_ref": normalized_ref,
+        "resolved": False,
+        "error": f"source_manifest_unresolved:{normalized_ref}",
+        "search_roots": [str(root) for root in search_roots[:12]],
+    }
+
+
+def artifact_source_freshness(
+    class_id: str,
+    *,
+    latest: dict[str, Any] | None,
+    requirement: dict[str, Any],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    current_abi_digests: list[str] = []
+    manifest_ref = ""
+    manifest_error = ""
+    manifest_resolution: dict[str, Any] = {}
+    current_consumer_contract: dict[str, Any] | None = None
+    latest_consumer_contract: dict[str, Any] | None = None
+
+    if not isinstance(latest, dict):
+        return {
+            "checked": False,
+            "freshness": "unknown",
+            "reasons": [],
+            "claim_limit": "Source freshness is checked only after a latest durable registry record exists.",
+        }
+
+    source_repo = str(latest.get("source_repo") or requirement.get("owner_repo") or "")
+    controls = requirement.get("controls") if isinstance(requirement.get("controls"), dict) else {}
+    required_controls = [str(item) for item in controls.get("required", []) if str(item)]
+    abi_required = "abi_signature" in required_controls
+    source_route = requirement.get("source_route") if isinstance(requirement.get("source_route"), dict) else {}
+    generated_surfaces = source_route.get("generated_contract_surfaces")
+    if isinstance(generated_surfaces, list):
+        for surface in generated_surfaces:
+            if not isinstance(surface, dict):
+                continue
+            digest = str(surface.get("source_tree_hash") or "")
+            if digest:
+                current_abi_digests.append(digest)
+
+    latest_abi_digest = str(latest.get("abi_subject_digest") or "")
+    if current_abi_digests:
+        if not latest_abi_digest:
+            reasons.append("abi_subject_digest_missing")
+        elif latest_abi_digest not in current_abi_digests:
+            reasons.append("abi_subject_digest_stale")
+
+    manifest_refs = [
+        str(item or "")
+        for item in (latest.get("bundle_manifest_ref"), latest.get("source_ref"))
+        if str(item or "")
+    ]
+    manifest_refs = list(dict.fromkeys(manifest_refs))
+    for candidate_ref in manifest_refs:
+        manifest_ref = candidate_ref
+        if not artifact_trust_is_bundle_manifest_ref(candidate_ref, source_repo=source_repo):
+            manifest_resolution = {
+                "source_repo": source_repo or None,
+                "manifest_ref": candidate_ref,
+                "resolved": False,
+                "skipped": True,
+                "reason": "source_ref_is_not_bundle_manifest",
+            }
+            continue
+        manifest, manifest_resolution = artifact_trust_load_source_manifest(
+            candidate_ref,
+            source_repo=source_repo,
+        )
+        if manifest is None:
+            manifest_error = str(manifest_resolution.get("error") or "source_manifest_unresolved")
+            continue
+        manifest_error = ""
+        manifest_contract = manifest.get("consumer_contract")
+        if isinstance(manifest_contract, dict) and manifest_contract:
+            current_consumer_contract = manifest_contract
+            record_contract = latest.get("consumer_contract")
+            latest_consumer_contract = record_contract if isinstance(record_contract, dict) else None
+            if latest_consumer_contract != current_consumer_contract:
+                reasons.append("consumer_contract_stale")
+        elif abi_required and not current_abi_digests:
+            reasons.append("source_contract_uncheckable")
+        break
+    if manifest_refs and not isinstance(current_consumer_contract, dict) and manifest_error:
+        reasons.append("source_manifest_unresolved")
+
+    checked = bool(current_abi_digests or current_consumer_contract is not None or reasons)
+    return {
+        "checked": checked,
+        "freshness": "stale" if reasons else "fresh" if checked else "unknown",
+        "reasons": reasons,
+        "source_repo": source_repo or None,
+        "current_abi_subject_digests": current_abi_digests,
+        "latest_abi_subject_digest": latest_abi_digest or None,
+        "bundle_manifest_ref": manifest_ref or None,
+        "manifest_resolution": manifest_resolution or None,
+        "manifest_error": manifest_error or None,
+        "current_consumer_contract": current_consumer_contract,
+        "latest_consumer_contract": latest_consumer_contract,
+        "claim_limit": "Source freshness compares current local ABI/manifest contracts with the latest durable registry record; it does not rebuild or promote evidence.",
+    }
+
+
+def _scenario_source_freshness_status(
+    registry_dir: str | Path | None,
+    *,
+    artifact_class: str,
+    repo_root: Path,
+) -> dict[str, Any]:
+    if registry_dir is None:
+        return {
+            "checked": False,
+            "freshness": "unknown",
+            "reasons": [],
+            "claim_limit": "Scenario source freshness is only checked when a registry_dir is supplied.",
+        }
+    registry = read_bundle_registry(registry_dir, artifact_class=artifact_class)
+    latest_by_class = registry.get("latest_by_artifact_class") if isinstance(registry.get("latest_by_artifact_class"), dict) else {}
+    latest = latest_by_class.get(artifact_class) if isinstance(latest_by_class.get(artifact_class), dict) else None
+    requirement = artifact_requirement_row(artifact_class, registry_dir=registry_dir, repo_root=repo_root)
+    return artifact_source_freshness(artifact_class, latest=latest, requirement=requirement)
+
+
 def _producer_profile_rows(
     policy: dict[str, Any],
     *,
@@ -897,10 +1161,16 @@ def artifact_scenario_matrix(
             artifact_class=class_id,
             consumer_intent=consumer_intent,
         )
-        owner_evidence_open = (not executable) and durable_evidence.get("status") not in {
+        source_freshness = _scenario_source_freshness_status(
+            registry_dir,
+            artifact_class=class_id,
+            repo_root=repo_root,
+        )
+        source_freshness_open = source_freshness.get("freshness") == "stale"
+        owner_evidence_open = source_freshness_open or ((not executable) and durable_evidence.get("status") not in {
             "durable_gate_allow",
             "durable_gate_warn",
-        }
+        })
         row = {
             "schema": "abyss_machine_artifact_scenario_matrix_row_v1",
             "scenario_id": str(spec.get("scenario_id") or ""),
@@ -923,6 +1193,8 @@ def artifact_scenario_matrix(
             "manual_or_owner_evidence_required": not executable,
             "owner_or_manual_evidence_open": owner_evidence_open,
             "durable_evidence": durable_evidence,
+            "source_freshness": source_freshness,
+            "source_freshness_open": source_freshness_open,
             "agent_loop": {
                 "detect_artifact_class": f"abyss-machine artifacts classify --artifact-class {class_id} --json",
                 "inspect_requirements": f"abyss-machine artifacts requirements --artifact-class {class_id} --json",
@@ -956,12 +1228,21 @@ def artifact_scenario_matrix(
                 else None,
             },
             "claim_limit": (
-                "Synthetic executable coverage proves the OS Abyss bundle/gate route shape, not a published production artifact."
+                (
+                    "Synthetic executable coverage exists, but latest durable evidence is stale against current source contracts; "
+                    "refresh or supersede the registry record before consumer use."
+                )
+                if executable and source_freshness_open
+                else "Synthetic executable coverage proves the OS Abyss bundle/gate route shape, not a published production artifact."
                 if executable
                 else (
-                    "Owner/manual evidence must still land in a durable registry before consumers treat this scenario as covered."
-                    if owner_evidence_open
-                    else "Durable registry admission is present; the scenario remains policy_or_owner_declared because the source owner still owns proof meaning."
+                    "Latest durable evidence is stale against current source contracts; refresh or supersede the registry record before consumer use."
+                    if source_freshness_open
+                    else (
+                        "Owner/manual evidence must still land in a durable registry before consumers treat this scenario as covered."
+                        if owner_evidence_open
+                        else "Durable registry admission is present; the scenario remains policy_or_owner_declared because the source owner still owns proof meaning."
+                    )
                 )
             ),
         }
@@ -976,13 +1257,23 @@ def artifact_scenario_matrix(
     owner_required_rows = [row for row in rows if row.get("manual_or_owner_evidence_required") is True]
     owner_open_rows = [row for row in rows if row.get("owner_or_manual_evidence_open") is True]
     durable_status_counts: dict[str, int] = {}
+    freshness_status_counts: dict[str, int] = {}
     durable_checked = 0
+    freshness_checked = 0
+    freshness_open = 0
     for row in rows:
         durable = row.get("durable_evidence") if isinstance(row.get("durable_evidence"), dict) else {}
         status = str(durable.get("status") or "not_checked")
         durable_status_counts[status] = durable_status_counts.get(status, 0) + 1
         if durable.get("checked") is True:
             durable_checked += 1
+        freshness = row.get("source_freshness") if isinstance(row.get("source_freshness"), dict) else {}
+        freshness_status = str(freshness.get("freshness") or "unknown")
+        freshness_status_counts[freshness_status] = freshness_status_counts.get(freshness_status, 0) + 1
+        if freshness.get("checked") is True:
+            freshness_checked += 1
+        if row.get("source_freshness_open") is True:
+            freshness_open += 1
     return {
         "ok": not errors and not missing_artifact_classes,
         "schema": "abyss_machine_artifact_scenario_matrix_v1",
@@ -1001,6 +1292,9 @@ def artifact_scenario_matrix(
             "missing_artifact_classes": missing_artifact_classes,
             "durable_evidence_checked": durable_checked,
             "durable_evidence_status_counts": durable_status_counts,
+            "source_freshness_checked": freshness_checked,
+            "source_freshness_open": freshness_open,
+            "source_freshness_status_counts": freshness_status_counts,
         },
         "agent_loop": [
             "detect artifact class",
