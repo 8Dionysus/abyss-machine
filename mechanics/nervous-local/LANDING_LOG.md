@@ -44,3 +44,9 @@
   public-safe screenshot fact assembly through fakeable ports. CLI still owns
   source-policy/env/path binding, process callbacks, fact routing, and
   rendering.
+- Clipboard live read seam: `abyss_machine.nervous_clipboard_adapters` owns
+  Wayland clipboard readiness projection, `wl-paste` MIME/text command
+  execution, Wayland backend failure-to-skip mapping, redacted payload
+  projection, and public-safe clipboard fact assembly through fakeable ports.
+  CLI still owns concrete env binding, source-policy/redaction callbacks, fact
+  routing, and rendering.

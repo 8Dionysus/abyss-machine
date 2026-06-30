@@ -137,6 +137,9 @@ contracts live in `abyss_machine.nervous_screenshot`; GNOME extension status
 probes, allowlisted DBus screenshot execution, X11 active/game-risk window
 probes, capture command execution, and public-safe screenshot fact assembly live
 in `abyss_machine.nervous_screenshot_adapters`.
+Nervous clipboard Wayland readiness, `wl-paste` MIME probing, text read
+execution, backend failure mapping, redacted payload projection, and public-safe
+clipboard fact assembly live in `abyss_machine.nervous_clipboard_adapters`.
 Nervous rerank profile/defaults, source-prior scoring, machine-query caps,
 merge policy, hybrid result scoring, neural text shaping, neural config
 normalization, guarded neural-score blending, and eval document envelopes live in
@@ -556,7 +559,7 @@ source/install/runtime parity summary now reports installed drift without
 dumping live host payloads. Remaining hardening
 should keep moving lexical index live write/latest adapters, semantic embedding
 provenance adapters, memory orchestration write-routing/broader container
-orchestration seams, browser-content/clipboard nervous live adapters, rerank live search/latest adapters,
+orchestration seams, browser-content nervous live adapters, rerank live search/latest adapters,
 recall live search adapter/write adapters, AI runtime live execution adapters,
 TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness live probe/readmodel orchestration, process thermal
