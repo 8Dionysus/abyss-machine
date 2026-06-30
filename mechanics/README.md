@@ -29,7 +29,7 @@ Use these mechanic owners for the next extraction slices:
   mechanics, native-host stdio binding, and remaining `pyatspi` runtime
   adapters.
 - `nervous-local`: nervous source capture, privacy state, local JSONL readers,
-  lexical SQLite/FTS lifecycle, semantic sidecar lifecycle/execution,
+  derived event/episode JSONL/latest write adapters, lexical SQLite/FTS lifecycle, semantic sidecar lifecycle/execution,
   rerank execution, retention contracts plus filesystem/apply adapter, and
   derived memory evidence.
 - `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource

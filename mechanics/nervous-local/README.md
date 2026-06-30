@@ -48,6 +48,10 @@ and privacy audit writes.
 `abyss_machine.nervous_index_adapters` now owns source-index connection binding,
 schema file writes, file locks/active-lock probes, latest writes, generated DB
 file mode/group normalization, and vacuum execution through fakeable ports.
+`abyss_machine.nervous_events_adapters` now owns derived event/episode local
+file routing: facts/events/episodes JSONL root reads, daily path selection,
+derived-record replacement writes that preserve non-owned records, latest read
+envelopes, and build/validate latest write routing through fakeable ports.
 `abyss_machine.nervous_semantic_adapters` now owns the semantic sidecar
 lifecycle/source-loading/write seam plus embedding execution: semantic DB
 connection/init/counts, file locks, source-chunk loading from the lexical
