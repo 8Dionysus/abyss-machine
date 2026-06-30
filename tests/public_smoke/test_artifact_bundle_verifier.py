@@ -2327,6 +2327,25 @@ def test_artifact_producer_profiles_filter_by_artifact_class() -> None:
     assert all(row["host_verifier_commands"] for row in profiles["rows"])
 
 
+def test_public_media_export_sibling_profiles_declare_trigger_only_deferrals() -> None:
+    profiles = artifact_bundles.artifact_producer_profiles(artifact_class="public_media_export")
+    rows = {row["owner_repo"]: row for row in profiles["rows"]}
+
+    for owner in {"Tree-of-Sophia", "Dionysus", "aoa-evals"}:
+        records = [
+            record
+            for record in rows[owner]["deferred_records"]
+            if record.get("artifact_class") == "public_media_export"
+        ]
+
+        assert records
+        assert records[0]["status"] == "deferred_until_owner_public_media_export_selected"
+        assert "must not be claimed as production C2PA" in records[0]["reason"]
+        assert rows[owner]["automation_readiness"]["explicit_deferred_records"] is True
+
+    assert rows["abyss-machine"]["deferred_records"] == []
+
+
 def test_artifact_affected_marks_contract_source_as_stale(tmp_path: Path) -> None:
     bundle = tmp_path / "public-source-seed"
     registry = tmp_path / "registry"
@@ -2385,6 +2404,36 @@ def test_artifact_affected_policy_change_requires_all_classes_to_reverify() -> N
     assert affected["summary"]["status_counts"] == {"needs_reverify": 21}
     assert all(row["freshness"] == "stale" for row in affected["rows"])
     assert all(row["reasons"] == ["policy_manifest_changed"] for row in affected["rows"])
+
+
+def test_artifact_affected_policy_change_source_ref_closes_reverified_sibling_row(
+    tmp_path: Path,
+) -> None:
+    registry = tmp_path / "registry"
+    source_ref = "source-refresh:abyss-machine-policy-dirty-current"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=[source_ref],
+        artifact_class="aoa_sdk_python_distribution",
+        source_repo="aoa-sdk",
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        ["manifests/artifact_signature_policy.manifest.json"],
+        artifact_class="aoa_sdk_python_distribution",
+        changed_source_repo="abyss-machine",
+        changed_source_ref=source_ref,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["source_ref_status"]["matched"] is True
+    assert row["source_ref_status"]["proves_current_ref"] is True
+    assert row["drift"]["source_ref_state"] == "proved_current"
 
 
 def test_artifact_affected_source_repo_only_explains_owner_rebuild(tmp_path: Path) -> None:
@@ -3215,6 +3264,45 @@ def test_artifact_affected_current_local_commit_proof_closes_changed_path_drift(
     assert row["source_ref_status"]["matched_ref"] == f"abyss-machine-public-source-seed@{commit}"
     assert row["source_ref_status"]["proves_current_ref"] is True
     assert row["drift"]["source_ref_state"] == "proved_current"
+
+
+def test_artifact_affected_source_refresh_token_with_branch_slash_proves_current(
+    tmp_path: Path,
+) -> None:
+    registry = tmp_path / "registry"
+    token = (
+        "source-refresh:codex/cooling-adapters-"
+        "1234567890abcdef1234567890abcdef12345678"
+        "+dirty-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+    )
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=[token],
+        artifact_class="public_source_seed",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        source_refs=["src/abyss_machine"],
+        producer="abyss-machine-public-source-seed@" + token.removeprefix("source-refresh:"),
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        ["src/abyss_machine/typing_atspi_adapters.py"],
+        artifact_class="public_source_seed",
+        changed_source_ref=token,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["source_ref_status"]["matched"] is True
+    assert row["source_ref_status"]["matched_ref"] == token
+    assert row["source_ref_status"]["match_type"] == "exact"
+    assert row["source_ref_status"]["proves_current_ref"] is True
+    assert row["drift"]["source_ref_state"] == "proved_current"
+    assert row["drift"]["operationally_blocking"] is False
 
 
 def test_artifact_affected_source_ref_does_not_reverify_unmatched_changed_paths(tmp_path: Path) -> None:

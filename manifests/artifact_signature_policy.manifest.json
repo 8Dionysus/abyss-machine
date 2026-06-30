@@ -238,6 +238,14 @@
       ],
       "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
       "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.verify.json", "artifact.c2pa"],
+      "deferred_records": [
+        {
+          "artifact_class": "public_media_export",
+          "status": "deferred_until_owner_public_media_export_selected",
+          "reason": "Tree-of-Sophia generated readmodels do not produce C2PA sidecars; public_media_export applies only after an owner-selected public PDF, visualization, image, or media export exists and must not be claimed as production C2PA before that route is real.",
+          "owner_route_ref": "AGENTS.md; ToS/AGENTS.md; ToS/derived-exports"
+        }
+      ],
       "consumer_expectations": ["orientation consumers verify generated readmodel digests and source-first boundary; media consumers verify C2PA before public use"],
       "owner_boundaries": ["Tree-of-Sophia authored meaning remains stronger than generated readmodels; abyss-machine gates artifacts but does not become ToS doctrine"],
       "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
@@ -256,6 +264,14 @@
       ],
       "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
       "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.verify.json", "artifact.c2pa"],
+      "deferred_records": [
+        {
+          "artifact_class": "public_media_export",
+          "status": "deferred_until_owner_public_media_export_selected",
+          "reason": "Dionysus generated seed route readmodels do not produce C2PA sidecars; public_media_export applies only after an owner-selected public seed pack, PDF, media, or doc export exists and must not be claimed as production C2PA before that route is real.",
+          "owner_route_ref": "AGENTS.md; docs/codex/planting-protocol.md; docs/SEED_SURFACE_MAP.md"
+        }
+      ],
       "consumer_expectations": ["seed consumers verify generated route-map digest and owner boundary; public media/seed packs require content credentials when published"],
       "owner_boundaries": ["Dionysus owns seed meaning and planting route; generated maps are navigation, not canonical seed authority"],
       "trust_root_modes": ["local_dev", "github_oidc", "public_release"]
@@ -274,6 +290,14 @@
       ],
       "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
       "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json", "artifact.c2pa"],
+      "deferred_records": [
+        {
+          "artifact_class": "public_media_export",
+          "status": "deferred_until_owner_public_media_export_selected",
+          "reason": "aoa-evals generated report indexes do not produce C2PA sidecars; public_media_export applies only after an owner-selected public PDF/media report exists and must not be claimed as production C2PA before that route is real.",
+          "owner_route_ref": "AGENTS.md; reports; docs/architecture/PROOF_TOPOLOGY.md"
+        }
+      ],
       "consumer_expectations": ["proof consumers verify report-index digest, SBOM-lite inventory, generation provenance, and trust-gate verdict; PDF/media reports add C2PA"],
       "owner_boundaries": ["aoa-evals owns proof scenarios and regression claims; abyss-machine gates artifact consumption but does not fabricate proof verdicts"],
       "trust_root_modes": ["local_dev", "github_oidc", "public_release"]

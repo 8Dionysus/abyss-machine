@@ -289,15 +289,67 @@ def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePat
         expected_trust_root_mode=str(args.artifact_trust_root_mode or ""),
         require_latest=not bool(args.allow_non_latest_artifact),
     )
-    ok = bool(gate.get("ok"))
+    gate_ok = bool(gate.get("ok"))
+    freshness_gate = None
+    freshness_errors: list[str] = []
+    if gate_ok:
+        affected = artifact_bundles.artifact_affected(
+            artifact_class=artifact_class,
+            registry_dir=registry_dir,
+        )
+        affected_rows = [
+            row
+            for row in affected.get("rows", [])
+            if isinstance(row, dict)
+        ]
+        blocking_rows = [
+            row
+            for row in affected_rows
+            if isinstance(row.get("drift"), dict)
+            and row["drift"].get("operationally_blocking") is True
+        ]
+        for row in blocking_rows:
+            reasons = [str(item) for item in row.get("reasons", []) if str(item)]
+            reason_text = ",".join(reasons) if reasons else str(row.get("verdict") or "source_freshness_blocking")
+            freshness_errors.append(f"artifact_source_freshness_blocking:{row.get('artifact_class')}:{reason_text}")
+        freshness_gate = {
+            "schema": "abyss_machine_bootstrap_artifact_freshness_gate_v1",
+            "ok": bool(affected.get("ok")) and not freshness_errors,
+            "verdict": "allow" if bool(affected.get("ok")) and not freshness_errors else "deny",
+            "artifact_class": artifact_class,
+            "registry_dir": str(registry_dir),
+            "summary": affected.get("summary"),
+            "blocking_rows": [
+                {
+                    "artifact_class": row.get("artifact_class"),
+                    "verdict": row.get("verdict"),
+                    "freshness": row.get("freshness"),
+                    "reasons": row.get("reasons", []),
+                    "drift": row.get("drift"),
+                    "registry": row.get("registry"),
+                    "abi_subject_status": row.get("abi_subject_status"),
+                }
+                for row in blocking_rows
+            ],
+            "errors": freshness_errors,
+            "claim_limit": (
+                "Bootstrap install treats current source freshness as part of consumer admission; "
+                "a stale ABI or blocking drift cannot be consumed through an otherwise valid registry trust-gate record."
+            ),
+        }
+    ok = gate_ok and (not isinstance(freshness_gate, dict) or freshness_gate.get("ok") is True)
+    verdict = str(gate.get("verdict") or "unknown")
+    if gate_ok and isinstance(freshness_gate, dict) and freshness_gate.get("ok") is not True:
+        verdict = "deny"
     return {
         **base,
         "ok": ok,
-        "verdict": str(gate.get("verdict") or "unknown"),
+        "verdict": verdict,
         "record_id": gate.get("record_id") or base["record_id"],
         "latest_record_id": gate.get("latest_record_id"),
         "trust_gate": gate,
-        "errors": [] if ok else [str(item) for item in gate.get("reasons", [])],
+        "freshness_gate": freshness_gate,
+        "errors": [] if ok else [*([str(item) for item in gate.get("reasons", [])] if not gate_ok else []), *freshness_errors],
         "claim_limit": "Bootstrap install consumption is fail-closed when artifact trust-gate admission is required.",
     }
 
@@ -349,6 +401,8 @@ def cmd_install(args: argparse.Namespace) -> int:
         "record_id": artifact_admission.get("record_id"),
         "latest_record_id": artifact_admission.get("latest_record_id"),
     })
+    if isinstance(artifact_admission.get("freshness_gate"), dict):
+        actions[0]["freshness_verdict"] = artifact_admission["freshness_gate"].get("verdict")
     if not artifact_admission["ok"]:
         payload = command_payload(
             "install",
