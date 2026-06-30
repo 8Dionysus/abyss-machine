@@ -115,7 +115,10 @@ envelopes, and build/validate latest write routing live in
 Nervous synthesis period selection, candidate build orchestration,
 path/write-result envelopes, markdown projection, validation, and deterministic
 eval run execution-plan/run/validate envelopes live in
-`abyss_machine.nervous_synthesis`. Nervous semantic schema,
+`abyss_machine.nervous_synthesis`; local episode/event/candidate JSONL reads,
+synthesis latest/period JSONL/markdown writes, synthesis validate latest
+routing, and eval latest/history/validate routing live in
+`abyss_machine.nervous_synthesis_adapters`. Nervous semantic schema,
 status/freshness contract assembly, maintenance assessment, batch policy, build
 command shaping, source chunk projection, semantic sidecar store/reuse/count
 contracts, embedding subprocess payload/script/result contracts, and

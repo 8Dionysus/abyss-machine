@@ -32,3 +32,9 @@
   routing for rerank search, rerank eval, and retrieval packs. CLI still owns
   privacy refusal binding, concrete config/path/callback binding, and command
   rendering.
+- Synthesis/eval local file seam: `abyss_machine.nervous_synthesis_adapters`
+  owns episode/event/candidate JSONL root reads, latest reads, synthesis
+  latest/period JSONL/markdown writes, synthesis validate latest routing, eval
+  latest/history routing, and eval validate latest routing through fakeable
+  ports. CLI still owns privacy refusal binding, concrete paths, eval
+  dependency command orchestration, and rendering.

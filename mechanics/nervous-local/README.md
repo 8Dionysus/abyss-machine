@@ -52,6 +52,12 @@ file mode/group normalization, and vacuum execution through fakeable ports.
 file routing: facts/events/episodes JSONL root reads, daily path selection,
 derived-record replacement writes that preserve non-owned records, latest read
 envelopes, and build/validate latest write routing through fakeable ports.
+`abyss_machine.nervous_synthesis_adapters` now owns synthesis/eval local
+file routing: episode/event/candidate JSONL root reads, latest reads,
+synthesis latest/period JSONL/markdown writes, synthesis validate latest
+routing, eval latest/history routing, and eval validate latest routing through
+fakeable ports. CLI still owns privacy refusal, concrete path binding, and
+eval dependency command orchestration.
 `abyss_machine.nervous_semantic_adapters` now owns the semantic sidecar
 lifecycle/source-loading/write seam plus embedding execution: semantic DB
 connection/init/counts, file locks, source-chunk loading from the lexical
