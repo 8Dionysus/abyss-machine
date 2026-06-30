@@ -45,6 +45,31 @@ def test_path_policy_renders_install_contract_roots() -> None:
     }
 
 
+def test_path_policy_preserves_explicit_env_systemd_user_dir_with_home_override() -> None:
+    policy = AbyssMachinePathPolicy.from_values(
+        home="/tmp/new-home",
+        environ={
+            "USER": "agent",
+            "HOME": "/home/agent",
+            "ABYSS_SYSTEMD_USER_DIR": "/tmp/env-systemd-user",
+        },
+    )
+
+    assert policy.cli_defaults()["systemd_user_dir"] == "/tmp/env-systemd-user"
+
+
+def test_path_policy_rebases_default_systemd_user_dir_with_home_override() -> None:
+    policy = AbyssMachinePathPolicy.from_values(
+        home="/tmp/new-home",
+        environ={
+            "USER": "agent",
+            "HOME": "/home/agent",
+        },
+    )
+
+    assert policy.cli_defaults()["systemd_user_dir"] == "/tmp/new-home/.config/systemd/user"
+
+
 def test_bootstrap_uses_path_policy_overrides() -> None:
     result = subprocess.run(
         [

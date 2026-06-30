@@ -429,3 +429,56 @@ def test_cli_nervous_semantic_embed_texts_binds_live_adapter(monkeypatch, tmp_pa
     assert captured["env"] == {"ENV": "1"}
     assert captured["resource_snapshot"] is cli.ai_resource_snapshot
     assert captured["resource_profile"] is cli.ai_resource_profile
+
+
+def test_cli_nervous_semantic_status_does_not_create_default_cache_dir(monkeypatch, tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    cache_root = tmp_path / "cache"
+
+    def forbidden_cache_dir(_label: str = "general") -> Path:
+        raise AssertionError("semantic status must not create the OpenVINO cache directory")
+
+    monkeypatch.setattr(cli, "AI_OPENVINO_CACHE_ROOT", cache_root)
+    monkeypatch.setattr(cli, "ai_openvino_cache_dir", forbidden_cache_dir)
+    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": True, "embedding": {"model_dir": str(model_dir)}})
+    monkeypatch.setattr(cli, "nervous_semantic_counts", lambda: {"db_exists": False, "vectors": 0, "meta": {}})
+    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"chunks": 0, "meta": {}})
+    monkeypatch.setattr(cli, "NERVOUS_SEARCH_INDEX_DB_PATH", tmp_path / "source.db")
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_DB_PATH", tmp_path / "semantic.db")
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_ROOT", tmp_path / "semantic")
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_LATEST_PATH", tmp_path / "semantic" / "latest.json")
+
+    data = cli.nervous_semantic_status(write_latest=False)
+
+    assert data["embedding"]["cache_dir"].startswith(str(cache_root))
+    assert data["embedding"]["cache_exists"] is False
+    assert not cache_root.exists()
+
+
+def test_cli_nervous_semantic_build_global_pause_does_not_resolve_cache(monkeypatch) -> None:
+    def forbidden_model_paths(_embedding: dict[str, object]):
+        raise AssertionError("global_pause refusal must not resolve model/cache paths")
+
+    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": True, "embedding": {"model_dir": "/missing/model"}})
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": True})
+    monkeypatch.setattr(cli, "nervous_semantic_model_paths", forbidden_model_paths)
+
+    data = cli.nervous_semantic_build(write_latest=False)
+
+    assert data["ok"] is False
+    assert data["refused"] is True
+    assert "global_pause" in data["error"]
+
+
+def test_cli_nervous_semantic_build_disabled_does_not_resolve_cache(monkeypatch) -> None:
+    def forbidden_model_paths(_embedding: dict[str, object]):
+        raise AssertionError("disabled semantic build must not resolve model/cache paths")
+
+    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": False, "embedding": {"model_dir": "/missing/model"}})
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
+    monkeypatch.setattr(cli, "nervous_semantic_model_paths", forbidden_model_paths)
+
+    data = cli.nervous_semantic_build(write_latest=False)
+
+    assert data["ok"] is False
+    assert data["error"] == "semantic index disabled by config"

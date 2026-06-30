@@ -104,12 +104,13 @@ class AbyssMachinePathPolicy:
         tmp_root: str | Path | None = None,
         environ: Mapping[str, str] | None = None,
         ) -> "AbyssMachinePathPolicy":
+        source = os.environ if environ is None else environ
         base = cls.from_environment(environ=environ)
         resolved_user = user or base.user
         resolved_home = _value(home, base.home)
         preserve_derived_srv_roots = srv_root is None
         systemd_user_default = base.systemd_user_dir or (resolved_home / ".config/systemd/user")
-        if home is not None and systemd_user_dir is None:
+        if home is not None and systemd_user_dir is None and not source.get("ABYSS_SYSTEMD_USER_DIR"):
             systemd_user_default = resolved_home / ".config/systemd/user"
         return cls(
             user=resolved_user,
