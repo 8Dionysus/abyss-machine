@@ -162,6 +162,18 @@ Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.
 
+For nervous retention filesystem/apply adapter changes, public CI should rely on
+fake-root/fake-writer tests for route-root scanning, symlink-tail blockers,
+protected/latest candidate refusal, dry-run-first confirmed unlink, mutation
+receipts, and latest/validate write routing. Live-host closeout may use compact
+`abyss-machine nervous retention-plan --json`,
+`abyss-machine nervous retention-apply --dry-run --json`, and
+`abyss-machine nervous retention-validate --json` summaries only. Do not run
+`abyss-machine nervous retention-apply --confirm` as validation unless the operator explicitly
+requests that deletion; report only counts/status/errors and never copy private
+candidate paths, captures, browser content, or generated retention payloads into
+the repository.
+
 ## Completion Rule
 
 A release or portability claim is only true when:
