@@ -57,8 +57,9 @@ targeted AT-SPI callback routing, focused-browser selftest temporary-profile/
 runtime orchestration, focused-window/path/URL/no-op AT-SPI callback routing,
 browser-privacy selftest temporary-profile/runtime orchestration, privacy
 metadata/absence callback routing, and public-safe browser-context/browser
-AT-SPI/focused-browser/browser-privacy result assembly plus Firefox
-`profiles.ini` parsing and release-profile selection live in
+AT-SPI/focused-browser/browser-privacy result assembly, selftest latest/history/
+index route selection through supplied ports, plus Firefox `profiles.ini`
+parsing and release-profile selection live in
 `abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
 sample/metadata/debounce, text-event listener runtime, generic GUI selftest
 semantic plans, and supplied accessibility-object state/text/path/document/

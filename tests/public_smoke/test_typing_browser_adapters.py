@@ -296,6 +296,56 @@ def test_browser_selftest_documents_and_native_host_response_envelopes() -> None
     assert error["policy"]["automatic_action"] is False
 
 
+def test_browser_selftest_store_outputs_routes_primary_secondary_and_index(tmp_path) -> None:
+    data = {"schema": "abyss_machine_typing_browser_atspi_selftest_v1", "ok": True}
+    calls = []
+
+    def write_latest_history(document, latest_path, history_root, mode):
+        calls.append(("history", latest_path.name, history_root.name, mode, document is data))
+        if latest_path.name == "release-latest.json":
+            return [{"path": str(latest_path), "error": "boom"}]
+        return []
+
+    def write_json(path, document, mode):
+        calls.append(("index", path.name, document.get("schema"), mode))
+        return None
+
+    result = typing_browser_adapters.browser_selftest_store_outputs(
+        data,
+        write_latest=True,
+        primary_latest_path=tmp_path / "primary-latest.json",
+        primary_history_root=tmp_path / "primary",
+        secondary_latest_path=tmp_path / "release-latest.json",
+        secondary_history_root=tmp_path / "release",
+        secondary_enabled=True,
+        index_path=tmp_path / "index.json",
+        write_latest_history=write_latest_history,
+        write_json=write_json,
+        index_document=lambda: {"schema": "abyss_machine_typing_index_v1"},
+    )
+
+    assert result is data
+    assert calls == [
+        ("history", "primary-latest.json", "primary", 0o664, True),
+        ("history", "release-latest.json", "release", 0o664, True),
+        ("index", "index.json", "abyss_machine_typing_index_v1", 0o664),
+    ]
+    assert result["ok"] is False
+    assert result["write_errors"] == [{"path": str(tmp_path / "release-latest.json"), "error": "boom"}]
+
+    no_write = {"ok": True}
+    assert typing_browser_adapters.browser_selftest_store_outputs(
+        no_write,
+        write_latest=False,
+        primary_latest_path=tmp_path / "unused.json",
+        primary_history_root=tmp_path / "unused",
+        index_path=tmp_path / "unused-index.json",
+        write_latest_history=lambda *_args: (_ for _ in ()).throw(AssertionError("write should not run")),
+        write_json=lambda *_args: (_ for _ in ()).throw(AssertionError("index should not run")),
+        index_document=lambda: (_ for _ in ()).throw(AssertionError("index document should not run")),
+    ) is no_write
+
+
 def test_native_host_transport_reads_and_writes_length_prefixed_json() -> None:
     message = {
         "schema": "abyss_machine_browser_extension_message_v1",

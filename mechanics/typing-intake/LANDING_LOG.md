@@ -71,3 +71,8 @@
   absence-proof callback routing, redacted process tails, cleanup, and
   public-safe result document assembly while CLI owns policy reads, latest/index
   writes, callback binding, and command rendering.
+- Browser selftest store seam: `typing_browser_adapters` owns browser selftest
+  primary latest/history output, optional release-profile secondary output,
+  typing-index refresh, and write-error projection through supplied write/index
+  ports while CLI owns concrete paths, port binding, callbacks, policy reads,
+  and command rendering.
