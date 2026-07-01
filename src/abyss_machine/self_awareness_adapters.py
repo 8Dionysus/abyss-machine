@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import collections
 import datetime as dt
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from . import self_awareness_contracts
 
@@ -18,8 +20,13 @@ ClockPort = Callable[[], float]
 HttpRequestFactoryPort = Callable[[str, Mapping[str, str], str], Any]
 HttpOpenPort = Callable[[Any, float], Any]
 PathExistsPort = Callable[[Path], bool]
+PathIsDirPort = Callable[[Path], bool]
+PathGlobPort = Callable[[Path, str], Iterable[Path]]
+PathIterdirPort = Callable[[Path], Iterable[Path]]
+PathReadTextPort = Callable[[Path], str]
 PathStatPort = Callable[[Path], Any]
 PathSha256Port = Callable[[Path], str]
+JsonDocumentLoaderPort = Callable[[Path], tuple[Any, str | None]]
 
 
 @dataclass(frozen=True)
@@ -262,6 +269,351 @@ def proc_meminfo_bytes(*, read_text: MeminfoTextReaderPort) -> dict[str, int]:
             except ValueError:
                 continue
     return values
+
+
+def stack_owned_source_ref(path: Path, kind: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "path": str(path),
+        "kind": kind,
+        "owner_surface": "abyss-stack",
+        "read_only": True,
+        "host_layer_mutates_stack": False,
+        **extra,
+    }
+
+
+def normalize_stack_service_name(value: Any) -> str:
+    name = str(value or "").strip().lstrip("/")
+    if not name:
+        return ""
+    if name.startswith("abyss_") and name.endswith("_1"):
+        name = name[len("abyss_"):-2]
+    name = name.replace("_", "-")
+    aliases = {
+        "qwen-tts-api": "qwen-tts",
+        "tts-router": "tts-router",
+        "tts-router-api": "tts-router",
+        "babelvox-tts-api": "babelvox-tts",
+        "langchain-api-llamacpp": "langchain-api-llamacpp",
+    }
+    return aliases.get(name, name)
+
+
+def working_stack_service_selection_policy(
+    *,
+    schema_prefix: str,
+    stack_paths: Mapping[str, Any],
+    path_exists: PathExistsPort,
+    load_json_document: JsonDocumentLoaderPort,
+) -> dict[str, Any]:
+    candidates: list[tuple[str, Path]] = []
+    srv_root = stack_paths.get("srv_abyss_stack")
+    source_root = stack_paths.get("source_abyss_stack")
+    if srv_root:
+        candidates.append((
+            "runtime_configs",
+            Path(str(srv_root)) / "Configs" / "docs" / "runtime" / "service-selection-policy.v1.json",
+        ))
+    if source_root:
+        candidates.append((
+            "source_checkout",
+            Path(str(source_root)) / "docs" / "runtime" / "service-selection-policy.v1.json",
+        ))
+
+    services: dict[str, dict[str, Any]] = {}
+    documents: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for origin, path in candidates:
+        if not path_exists(path):
+            continue
+        loaded, error = load_json_document(path)
+        if error or not isinstance(loaded, dict):
+            errors.append({"path": str(path), "origin": origin, "error": error or "not_json_object"})
+            continue
+        raw_services = loaded.get("services") if isinstance(loaded.get("services"), list) else []
+        documents.append({
+            "path": str(path),
+            "origin": origin,
+            "schema": loaded.get("schema"),
+            "updated_at": loaded.get("updated_at"),
+            "service_count": len(raw_services),
+            "source_ref": stack_owned_source_ref(path, "service_selection_policy", origin=origin),
+        })
+        for row in raw_services:
+            if not isinstance(row, dict):
+                continue
+            service = normalize_stack_service_name(row.get("name") or row.get("service"))
+            if not service or service in services:
+                continue
+            services[service] = {
+                "schema": f"{schema_prefix}_self_awareness_working_stack_service_selection_entry_v1",
+                "service": service,
+                "posture": row.get("posture"),
+                "tier": row.get("tier"),
+                "owner_profile": row.get("owner_profile"),
+                "module": row.get("module"),
+                "resource_guard": row.get("resource_guard"),
+                "decision": row.get("decision"),
+                "policy_origin": origin,
+                "source_ref": stack_owned_source_ref(path, "service_selection_policy", origin=origin, service=service),
+            }
+
+    return {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_service_selection_policy_v1",
+        "ok": bool(services),
+        "documents": documents,
+        "services": services,
+        "summary": {
+            "documents": len(documents),
+            "services": len(services),
+            "errors": len(errors),
+            "policy_deferred_postures": self_awareness_contracts.working_stack_policy_deferred_postures(),
+        },
+        "errors": errors,
+        "policy": {
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "policy_interprets_declared_runtime_expectation": True,
+        },
+    }
+
+
+def stack_compose_module_roots(
+    stack_paths: Mapping[str, Any],
+    *,
+    path_exists: PathExistsPort,
+    path_is_dir: PathIsDirPort,
+) -> list[Path]:
+    roots: list[Path] = []
+    for key, suffix in [
+        ("source_abyss_stack", ("compose", "modules")),
+        ("srv_abyss_stack", ("Configs", "compose", "modules")),
+    ]:
+        root_text = stack_paths.get(key)
+        if not root_text:
+            continue
+        root = Path(str(root_text))
+        for part in suffix:
+            root = root / part
+        if path_exists(root) and path_is_dir(root):
+            roots.append(root)
+    return roots
+
+
+def parse_compose_services(path: Path, *, read_text: PathReadTextPort) -> list[str]:
+    try:
+        lines = read_text(path).splitlines()
+    except OSError:
+        return []
+    in_services = False
+    services_indent = 0
+    child_indent: int | None = None
+    services: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if not in_services:
+            if re.match(r"^services\s*:\s*(?:#.*)?$", stripped):
+                in_services = True
+                services_indent = indent
+                child_indent = None
+            continue
+        if indent <= services_indent:
+            in_services = False
+            child_indent = None
+            if re.match(r"^services\s*:\s*(?:#.*)?$", stripped):
+                in_services = True
+                services_indent = indent
+            continue
+        match = re.match(r"^([A-Za-z0-9_.-]+)\s*:\s*(?:#.*)?$", stripped)
+        if not match:
+            continue
+        if child_indent is None:
+            child_indent = indent
+        if indent != child_indent:
+            continue
+        service = normalize_stack_service_name(match.group(1))
+        if service and not service.startswith("x-") and service not in services:
+            services.append(service)
+    return services
+
+
+def stack_compose_service_inventory(
+    *,
+    schema_prefix: str,
+    stack_paths: Mapping[str, Any],
+    path_exists: PathExistsPort,
+    path_is_dir: PathIsDirPort,
+    path_glob: PathGlobPort,
+    read_text: PathReadTextPort,
+) -> dict[str, Any]:
+    rows_by_service: dict[str, dict[str, Any]] = {}
+    module_refs: list[dict[str, Any]] = []
+    roots = stack_compose_module_roots(
+        stack_paths,
+        path_exists=path_exists,
+        path_is_dir=path_is_dir,
+    )
+    for root in roots:
+        for path in sorted(path_glob(root, "*.yml")):
+            services = parse_compose_services(path, read_text=read_text)
+            ref = stack_owned_source_ref(
+                path,
+                "compose_module",
+                module=path.name,
+                services=services,
+            )
+            module_refs.append(ref)
+            for service in services:
+                row = rows_by_service.setdefault(service, {
+                    "service": service,
+                    "declared": True,
+                    "modules": [],
+                    "stack_source_refs": [],
+                })
+                row["modules"].append(path.name)
+                row["stack_source_refs"].append(ref)
+    rows = sorted(rows_by_service.values(), key=lambda item: str(item.get("service") or ""))
+    return {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_compose_inventory_v1",
+        "ok": bool(rows),
+        "services": rows,
+        "module_refs": module_refs,
+        "summary": {
+            "module_roots": len(roots),
+            "modules": len(module_refs),
+            "declared_services": len(rows),
+        },
+    }
+
+
+def stack_service_root_inventory(
+    *,
+    schema_prefix: str,
+    stack_paths: Mapping[str, Any],
+    path_exists: PathExistsPort,
+    path_is_dir: PathIsDirPort,
+    path_iterdir: PathIterdirPort,
+) -> dict[str, Any]:
+    candidate_roots = [
+        Path(str(stack_paths.get("srv_abyss_stack") or "")) / "Services",
+        Path(str(stack_paths.get("source_abyss_stack") or "")) / "Services",
+    ]
+    rows: list[dict[str, Any]] = []
+    for root in candidate_roots:
+        if not path_exists(root) or not path_is_dir(root):
+            continue
+        try:
+            children = sorted(item for item in path_iterdir(root) if path_is_dir(item))
+        except OSError:
+            children = []
+        for path in children:
+            service = normalize_stack_service_name(path.name)
+            rows.append({
+                "service": service,
+                "name": path.name,
+                "present": True,
+                "stack_source_refs": [stack_owned_source_ref(path, "service_root", service=service)],
+            })
+    rows = sorted(
+        rows,
+        key=lambda item: (
+            str(item.get("service") or ""),
+            str(((item.get("stack_source_refs") or [{}])[0] or {}).get("path") or ""),
+        ),
+    )
+    return {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_service_root_inventory_v1",
+        "ok": bool(rows),
+        "services": rows,
+        "summary": {"service_roots": len(rows)},
+    }
+
+
+def stack_model_tags(path: Path) -> list[str]:
+    text = str(path).lower()
+    tags: list[str] = []
+    for tag, pattern in [
+        ("embeddings", r"embed|embedding"),
+        ("stt", r"whisper|/stt/"),
+        ("tts", r"tts|voice|speech_tokenizer"),
+        ("llm", r"llama|qwen3-[0-9].*b|phi-3\.5|gguf"),
+        ("openvino", r"openvino|int4|int8|ovms"),
+        ("npu", r"npu"),
+    ]:
+        if re.search(pattern, text):
+            tags.append(tag)
+    return tags
+
+
+def stack_model_service_candidates(tags: list[str]) -> list[str]:
+    services: list[str] = []
+    if "embeddings" in tags or "openvino" in tags:
+        services.extend(["ovms", "embeddings"])
+    if "stt" in tags:
+        services.append("stt")
+    if "tts" in tags:
+        services.extend(["tts", "qwen-tts", "tts-router", "babelvox-tts"])
+    if "llm" in tags:
+        services.extend(["llama-cpp", "llm-registry"])
+    if "npu" in tags:
+        services.append("npu")
+    return sorted(dict.fromkeys(services))
+
+
+def stack_model_root_inventory(
+    *,
+    schema_prefix: str,
+    stack_paths: Mapping[str, Any],
+    path_exists: PathExistsPort,
+    path_is_dir: PathIsDirPort,
+    path_iterdir: PathIterdirPort,
+    max_entries: int = 160,
+    max_depth: int = 4,
+) -> dict[str, Any]:
+    roots = [
+        Path(str(stack_paths.get("srv_abyss_stack") or "")) / "Models",
+        Path(str(stack_paths.get("source_abyss_stack") or "")) / "Models",
+    ]
+    rows: list[dict[str, Any]] = []
+    for root in roots:
+        if not path_exists(root) or not path_is_dir(root) or len(rows) >= max_entries:
+            continue
+        queue: list[tuple[Path, int]] = [(root, 0)]
+        while queue and len(rows) < max_entries:
+            path, depth = queue.pop(0)
+            if depth > 0:
+                tags = stack_model_tags(path)
+                rows.append({
+                    "relative_path": str(path.relative_to(root)),
+                    "depth": depth,
+                    "tags": tags,
+                    "service_candidates": stack_model_service_candidates(tags),
+                    "stack_source_refs": [stack_owned_source_ref(path, "model_root", tags=tags)],
+                })
+            if depth >= max_depth:
+                continue
+            try:
+                children = sorted(child for child in path_iterdir(path) if path_is_dir(child))
+            except OSError:
+                children = []
+            queue.extend((child, depth + 1) for child in children[:64])
+    return {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_model_root_inventory_v1",
+        "ok": bool(rows),
+        "models": rows,
+        "summary": {
+            "model_roots": len(rows),
+            "tag_counts": dict(collections.Counter(tag for row in rows for tag in row.get("tags", []))),
+            "service_candidates": sorted({service for row in rows for service in row.get("service_candidates", [])}),
+            "bounded": True,
+            "max_entries": max_entries,
+            "max_depth": max_depth,
+        },
+    }
 
 
 def resource_preflight(

@@ -274,10 +274,12 @@ activation-gap handoff route contracts live in
 `abyss_machine.self_awareness_contracts`; latest surface specs, fakeable latest
 load dispatch, validation latest-spec selection, and bounded status latest
 summary projection, resource preflight guard decisions, and bounded HTTP status
-probe ports plus cycle artifact evidence step snapshots live in
+probe ports, working-stack source inventory projections, and cycle artifact
+evidence step snapshots live in
 `abyss_machine.self_awareness_adapters`. Probe/cycle orchestration, broader
-stack/runtime refreshes, concrete latest file reads, investigate/replay
-execution, validation writes, and command rendering remain at the CLI edge.
+runtime refreshes, concrete stack path binding/latest file reads,
+investigate/replay execution, validation writes, and command rendering remain at
+the CLI edge.
 Dictation config/profile/runtime env, replacements, postprocess, intent,
 busy/max-duration, audio-doctor summary/recommended-runtime decisions,
 mic-calibration command/result contracts, recording command/state, stop/toggle
@@ -567,7 +569,8 @@ stack/runtime probes, concrete latest file reads, refresh orchestration,
 probe/cycle orchestration, investigate/replay execution, validation writes, and
 command rendering remain at the CLI edge; latest surface specs/load dispatch and
 bounded status summaries, resource preflight, HTTP status probe ports, and
-cycle artifact evidence snapshots are adapter-owned through
+working-stack source inventory projections plus cycle artifact evidence
+snapshots are adapter-owned through
 `abyss_machine.self_awareness_adapters`. The public
 cold-start route now checks for private operator path and current-checkout
 leakage across source and temporary installed projections. The compact
@@ -580,7 +583,8 @@ orchestration seams, rerank live search/latest adapters,
 recall live search adapter/write adapters, AI runtime live execution adapters,
 TTS live server/audio execution adapters, dictation postprocess/notification adapters, plus
 remaining self-awareness probe/cycle/replay/investigate orchestration beyond the
-adapter-owned resource/HTTP probe and cycle artifact-evidence seams plus deeper readmodel refresh, process thermal
+adapter-owned resource/HTTP probe, working-stack source inventory, and cycle
+artifact-evidence seams plus deeper readmodel refresh, process thermal
 probes, broader container orchestration, and remaining cooling host-control orchestration
 adapters behind smaller modules before claiming full
 host-agnostic behavior for every subcommand.

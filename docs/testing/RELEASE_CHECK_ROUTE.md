@@ -180,6 +180,15 @@ and extra evidence merging. Live-host closeout may use compact
 unless orchestration itself changed or the operator accepts live latest/readmodel
 refresh.
 
+For self-awareness working-stack source-inventory adapter changes, public CI
+should rely on fake-root/fake-port tests for stack service-name normalization,
+service-selection policy JSON projection, compose service discovery, stack
+service-root inventories, bounded model-root tags, and read-error behavior.
+Live-host closeout may use compact `self-awareness status --json` or
+`self-awareness working-stack --json` summaries only when needed; report counts,
+status, and owner-boundary facts, not raw stack paths, model inventories,
+generated readmodels, stack response bodies, or private host evidence.
+
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash

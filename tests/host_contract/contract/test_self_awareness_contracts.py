@@ -3926,6 +3926,74 @@ def test_self_awareness_requirement_probes_must_cover_current_requirements(abyss
     assert abyss_machine_module.self_awareness_requirement_probes_cover_requirements(requirements_doc, matching_probes_doc) is True
 
 
+def test_self_awareness_spatial_graph_refines_model_root_service_owner(monkeypatch, abyss_machine_module) -> None:
+    working_stack = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "ok": True,
+        "status": "mapped_with_usage_gaps",
+        "summary": {"organs": 1, "usage_gaps": 1, "time_space_context_links": 1},
+        "model_roots": {
+            "models": [
+                {
+                    "relative_path": "Models/stt/whisper-fixture",
+                    "tags": ["stt"],
+                    "service_candidates": ["stt"],
+                }
+            ],
+        },
+        "organs": [
+            {
+                "schema": "abyss_machine_self_awareness_working_stack_organ_v1",
+                "service": "stt",
+                "machine_usage_status": "model_root_visible",
+                "deep_usage_proven": False,
+                "roles": ["speech-to-text"],
+                "runtime": {"present": False, "running": False},
+                "declared": {"present": False},
+                "service_roots": 0,
+                "model_roots": 1,
+                "endpoint_probes": [],
+                "usage_gap": "stack model root is visible, but no direct runtime/service linkage is proven yet",
+                "time_space_context_link": {
+                    "link_id": "saworklink-stt-fixture",
+                    "time": {"bucket": "2026-07-01T00:00:00Z"},
+                    "context": {"working_stack_link_id": "saworklink-stt-fixture"},
+                },
+                "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/working-stack/latest.json", "service": "stt"}],
+                "policy": {"host_layer_mutates_stack": False},
+            }
+        ],
+    }
+    timeline = {
+        "schema": "abyss_machine_self_awareness_timeline_v1",
+        "events": [],
+        "stack_handoff_time_space_overlay": {"summary": {}, "spatial_nodes": [], "spatial_edges": []},
+    }
+
+    def fake_load_latest_json(path, schema, *args, **kwargs):
+        if str(path) == str(abyss_machine_module.SELF_AWARENESS_TIMELINE_LATEST_PATH):
+            return timeline
+        if str(path) == str(abyss_machine_module.SELF_AWARENESS_WORKING_STACK_LATEST_PATH):
+            return working_stack
+        return {"schema": schema, "ok": True}
+
+    monkeypatch.setattr(abyss_machine_module, "load_latest_json", fake_load_latest_json)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "self_awareness_memory_space_overlay",
+        lambda events: {"summary": {}, "policy": {}, "freshness_gates": [], "spatial_overlays": [], "stack_semantic_backends": []},
+    )
+
+    graph = abyss_machine_module.self_awareness_spatial_graph(write_latest=False)
+    service_node = next(node for node in graph["nodes"] if node["id"] == "service:stt")
+
+    assert graph["schema"] == "abyss_machine_self_awareness_spatial_graph_v1"
+    assert service_node["owner_surface"] == "abyss-stack"
+    assert service_node["machine_usage_status"] == "model_root_visible"
+    assert service_node["model_roots"] == 1
+    assert any(edge["from"] == "service:stt" and edge["kind"] == "has_unexhausted_potential" for edge in graph["edges"])
+
+
 def test_self_awareness_stack_handoff_episodes_route_to_alert_candidates(monkeypatch, abyss_machine_module) -> None:
     requirement = abyss_machine_module.self_awareness_requirement_item(
         "stack.trace-backend",
@@ -7335,6 +7403,288 @@ def test_self_awareness_autolink_allows_closed_stack_requirement_without_open_ep
     }
 
     assert abyss_machine_module.self_awareness_autolink_complete(doc) is True
+
+
+def test_self_awareness_episodes_must_cover_current_open_stack_requirements(abyss_machine_module) -> None:
+    dossier = {
+        "schema": "abyss_machine_self_awareness_stack_closure_dossier_v1",
+        "entries": [
+            {"requirement_id": "stack.database-graph.read-route", "status": "open"},
+            {"requirement_id": "stack.trace-backend", "status": "closed"},
+        ],
+    }
+    stale_episodes = {
+        "schema": "abyss_machine_self_awareness_episodes_v1",
+        "episodes": [
+            {
+                "episode_id": "saepisode-trace",
+                "affected_spatial_nodes": ["stack_requirement:stack.trace-backend"],
+            }
+        ],
+    }
+    fresh_episodes = {
+        "schema": "abyss_machine_self_awareness_episodes_v1",
+        "episodes": [
+            {
+                "episode_id": "saepisode-db",
+                "affected_spatial_nodes": ["stack_requirement:stack.database-graph.read-route"],
+            }
+        ],
+    }
+
+    assert abyss_machine_module.self_awareness_episodes_cover_stack_requirements(stale_episodes, dossier) is False
+    assert abyss_machine_module.self_awareness_episodes_cover_stack_requirements(fresh_episodes, dossier) is True
+    assert abyss_machine_module.self_awareness_episodes_cover_stack_requirements(stale_episodes, {"entries": [dossier["entries"][1]]}) is True
+
+
+def test_self_awareness_autolink_refreshes_stale_stack_requirement_episodes(monkeypatch, abyss_machine_module) -> None:
+    working_stack = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "summary": {"usage_gaps": 0},
+    }
+    coverage_audit = {
+        "schema": "abyss_machine_self_awareness_objective_coverage_audit_v1",
+        "working_stack_link_integrity": {
+            "summary": {"rows": 1, "complete_rows": 1, "missing_rows": []},
+            "rows": [
+                {
+                    "service": "route-api",
+                    "complete": True,
+                    "working_stack_link_id": "saworklink-route-api",
+                    "machine_usage_status": "runtime_running",
+                    "event_id": "saevt-route-api",
+                    "movement_packet_id": "samove-route-api",
+                    "current_state_digest": "state-route-api",
+                    "timeline_bucket": "2026-07-01T00:00:00Z",
+                    "spatial_nodes": ["service:route-api"],
+                    "context_key": "saworklink-route-api",
+                    "episode_required": False,
+                    "policy": {"host_layer_mutates_stack": False},
+                }
+            ],
+        },
+    }
+    stack_closure_dossier = {
+        "schema": "abyss_machine_self_awareness_stack_closure_dossier_v1",
+        "summary": {"open_stack_requirements": 1},
+        "entries": [
+            {
+                "requirement_id": "stack.database-graph.read-route",
+                "owner": "abyss-stack",
+                "status": "open",
+                "complete": True,
+                "blocking_check_keys": ["database_graph_inventory_route_present"],
+                "current_state_digest": "state-db-route",
+                "closure_acceptance": {"acceptance_id": "saclose-db"},
+                "coverage_impact": {
+                    "coverage_planes": ["spatial_graph"],
+                    "affected_stack_surfaces": ["Neo4j", "rag-api"],
+                    "affected_machine_surfaces": ["spatial-graph"],
+                },
+                "policy": {"host_layer_mutates_stack": False},
+            }
+        ],
+    }
+    stale_episodes = {"schema": "abyss_machine_self_awareness_episodes_v1", "episodes": []}
+    fresh_episodes = {
+        "schema": "abyss_machine_self_awareness_episodes_v1",
+        "episodes": [
+            {
+                "episode_id": "saepisode-db-route",
+                "affected_spatial_nodes": ["stack_requirement:stack.database-graph.read-route"],
+            }
+        ],
+    }
+    refresh_calls: list[str] = []
+
+    def fake_load_latest_json(path, schema, *args, **kwargs):
+        if str(path) == str(abyss_machine_module.SELF_AWARENESS_EPISODES_LATEST_PATH):
+            return stale_episodes
+        if str(path) == str(abyss_machine_module.SELF_AWARENESS_AUTOLINK_LATEST_PATH):
+            return {"schema": schema}
+        return {"schema": schema}
+
+    def fake_episodes(write_latest=True, *, working_stack_doc=None):
+        refresh_calls.append("episodes")
+        return fresh_episodes
+
+    monkeypatch.setattr(abyss_machine_module, "load_latest_json", fake_load_latest_json)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_episodes", fake_episodes)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_working_stack_links_match_stable_identity", lambda _doc: True)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_working_stack_link_integrity_matrix_complete", lambda _doc: True)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_link_integrity_matches_working_stack", lambda _working, _links: True)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_activation_smoke_needs_refresh", lambda _doc, _entries: False)
+
+    doc = abyss_machine_module.self_awareness_autolink(
+        write_latest=False,
+        working_stack_doc=working_stack,
+        coverage_audit_doc=coverage_audit,
+        stack_closure_dossier_doc=stack_closure_dossier,
+        activation_smoke_doc={"schema": "abyss_machine_self_awareness_working_stack_activation_smoke_v1", "by_service": {}},
+    )
+
+    assert refresh_calls
+    assert set(refresh_calls) == {"episodes"}
+    assert doc["stack_requirement_links_by_requirement"]["stack.database-graph.read-route"]["episode_ids"] == ["saepisode-db-route"]
+
+
+def test_self_awareness_export_overlay_completes_only_current_export_step(abyss_machine_module) -> None:
+    required_steps = [
+        "inventory",
+        "space",
+        "causal_episode",
+        "reaction_response_contract",
+        "investigation_replay_contract",
+        "coverage_row",
+        "export",
+        "cycle",
+        "boundary_policy",
+    ]
+    proof = {
+        "schema": "abyss_machine_self_awareness_working_stack_activation_synthetic_proof_v1",
+        "proof_id": "saproof-working-stack-activation-fixture",
+        "service": "tts",
+        "owner": "abyss-stack",
+        "machine_usage_status": "model_root_visible",
+        "usage_gap": "fixture gap",
+        "working_stack_link_id": "saworklink-tts",
+        "proof_status": "proof_incomplete",
+        "proof_steps": [
+            {
+                "step": step,
+                "ok": step != "export",
+                "evidence_refs": [{"path": f"/tmp/{step}.json"}],
+                "details": {},
+            }
+            for step in required_steps
+        ],
+        "summary": {"steps": len(required_steps), "ok_steps": len(required_steps) - 1, "failed_steps": ["export"]},
+        "evidence_refs": [{"path": "/tmp/proof.json"}],
+        "policy": {
+            "readmodel_smoke": True,
+            "synthetic_scenario_contract": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "automatic_remediation": False,
+            "raw_secrets_included": False,
+            "raw_private_content_included": False,
+        },
+    }
+    export_entry = {
+        "schema": "abyss_machine_self_awareness_working_stack_activation_entry_v1",
+        "service": "tts",
+        "complete": True,
+        "working_stack_link_id": "saworklink-tts",
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+    }
+
+    adjusted = abyss_machine_module.self_awareness_export_overlay_working_stack_activation_proof(
+        proof,
+        {"tts": export_entry},
+        generated_at="2026-07-01T00:00:00Z",
+    )
+
+    assert adjusted["complete"] is True
+    assert adjusted["proof_status"] == "proved_open_activation_gap"
+    assert adjusted["summary"]["failed_steps"] == []
+    export_step = next(step for step in adjusted["proof_steps"] if step["step"] == "export")
+    assert export_step["ok"] is True
+    assert export_step["details"]["export_handoff_overlay_applied"] is True
+
+
+def test_self_awareness_working_stack_dependent_link_readmodels_fresh_ignores_gap_coverage(abyss_machine_module) -> None:
+    fresh = {
+        "schema": "abyss_machine_self_awareness_working_stack_link_integrity_matrix_v1",
+        "summary": {
+            "rows": 33,
+            "timeline_linked": 33,
+            "spatial_linked": 33,
+            "context_indexed": 33,
+            "episode_required_rows": 9,
+            "episode_linked": 9,
+            "usage_gap_rows_with_coverage": 0,
+        },
+    }
+    stale = {
+        "schema": "abyss_machine_self_awareness_working_stack_link_integrity_matrix_v1",
+        "summary": {
+            "rows": 33,
+            "timeline_linked": 0,
+            "spatial_linked": 0,
+            "context_indexed": 33,
+            "episode_required_rows": 9,
+            "episode_linked": 9,
+        },
+    }
+
+    assert abyss_machine_module.self_awareness_working_stack_dependent_link_readmodels_fresh(fresh) is True
+    assert abyss_machine_module.self_awareness_working_stack_dependent_link_readmodels_fresh(stale) is False
+
+
+def test_self_awareness_dependency_refresh_preserves_supplied_working_stack_snapshot(monkeypatch, abyss_machine_module) -> None:
+    working_stack = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "generated_at": "2026-07-01T00:00:00+00:00",
+        "summary": {"organs": 1, "usage_gaps": 0},
+        "organs": [
+            {
+                "service": "alertmanager",
+                "machine_usage_status": "active_machine_signal",
+                "time_space_context_link": {"link_id": "saworklink-current"},
+            }
+        ],
+    }
+    calls: list[tuple[str, bool]] = []
+    writes: list[dict] = []
+
+    def fake_write_latest_and_history(data, path, root):
+        writes.append({"data": data, "path": path, "root": root})
+        return []
+
+    def fake_collect(write_latest=True, synthetic_events=None, *, working_stack_doc=None):
+        calls.append(("collect", working_stack_doc is working_stack))
+        return {"schema": "abyss_machine_self_awareness_collect_v1", "ok": True, "summary": {"events": 1}}
+
+    def fake_timeline(write_latest=True):
+        calls.append(("timeline", True))
+        return {"schema": "abyss_machine_self_awareness_timeline_v1", "ok": True, "summary": {"events": 1}, "events": []}
+
+    def fake_spatial_graph(write_latest=True, *, working_stack_doc=None, timeline_doc=None):
+        calls.append(("spatial_graph", working_stack_doc is working_stack and timeline_doc is not None))
+        return {"schema": "abyss_machine_self_awareness_spatial_graph_v1", "ok": True, "summary": {"nodes": 1}}
+
+    def fake_context(write_latest=True):
+        calls.append(("context", True))
+        return {"schema": "abyss_machine_self_awareness_context_v1", "ok": True, "summary": {"contexts": 1}}
+
+    def fake_episodes(write_latest=True, *, working_stack_doc=None):
+        calls.append(("episodes", working_stack_doc is working_stack))
+        return {"schema": "abyss_machine_self_awareness_episodes_v1", "ok": True, "summary": {"episodes": 1}}
+
+    def fail_inventory(*args, **kwargs):
+        raise AssertionError("dependency refresh must not resample working-stack after a snapshot is supplied")
+
+    monkeypatch.setattr(abyss_machine_module, "write_latest_and_history", fake_write_latest_and_history)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_collect", fake_collect)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_timeline", fake_timeline)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_spatial_graph", fake_spatial_graph)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_context", fake_context)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_episodes", fake_episodes)
+    monkeypatch.setattr(abyss_machine_module, "self_awareness_working_stack_inventory", fail_inventory)
+
+    refresh = abyss_machine_module.self_awareness_refresh_working_stack_dependent_readmodels(working_stack_doc=working_stack)
+
+    assert refresh["schema"] == "abyss_machine_self_awareness_working_stack_dependency_refresh_v1"
+    assert refresh["write_errors"] == []
+    assert writes and writes[0]["data"] is working_stack
+    assert calls == [
+        ("collect", True),
+        ("timeline", True),
+        ("spatial_graph", True),
+        ("context", True),
+        ("episodes", True),
+    ]
 
 
 def test_self_awareness_objective_coverage_audit_maps_stack_usage_surfaces(monkeypatch, abyss_machine_module) -> None:
