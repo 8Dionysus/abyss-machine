@@ -283,6 +283,21 @@ def test_saved_text_state_document_and_write_outputs_use_fakeable_ports(tmp_path
     assert result["write_errors"] == [{"path": str(tmp_path / "latest.json"), "error": "boom"}]
 
 
+def test_saved_text_state_document_filters_malformed_stale_file_entries() -> None:
+    state = typing_saved_text_adapters.saved_text_state_document(
+        {"files": {"old.md": {"sha256": "old"}, "broken.md": None, "string.md": "bad"}},
+        schema_prefix="abyss_machine",
+        version="fixture",
+        generated_at="2026-06-27T00:00:00+00:00",
+        file_updates={"new.md": {"sha256": "new", "last_seen_at": "2026-06-27T00:00:00+00:00"}},
+    )
+
+    assert state["files"] == {
+        "old.md": {"sha256": "old"},
+        "new.md": {"sha256": "new", "last_seen_at": "2026-06-27T00:00:00+00:00"},
+    }
+
+
 def test_saved_text_scan_latest_status_document_uses_supplied_live_facts(tmp_path) -> None:
     latest = {
         "ok": True,
