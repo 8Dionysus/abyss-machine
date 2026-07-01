@@ -194,3 +194,150 @@ def test_saved_text_disabled_document_preserves_non_capture_policy() -> None:
         "password_fields_captured": False,
         "automatic_action": False,
     }
+
+
+def test_saved_text_process_scan_candidates_routes_ingest_and_state_updates(tmp_path) -> None:
+    item = {
+        "path": str(tmp_path / "note.md"),
+        "root": str(tmp_path),
+        "name": "note.md",
+        "suffix": ".md",
+        "size_bytes": 24,
+        "mtime": "2026-06-27T00:00:00+00:00",
+        "mtime_ns": 1,
+        "sha256": "hash",
+        "text": "private fixture text",
+    }
+    seen = []
+
+    def ingest(candidate):
+        seen.append(dict(candidate))
+        return {
+            "event_id": "evt",
+            "status": "captured",
+            "text": {"text_length": 20, "text_chars_stored": 20, "redaction": {"matches": 0}},
+            "capture_gate": {"decision": "allow_text"},
+            "causal_context": {"recipient": {"kind": "file"}},
+        }
+
+    events, updates = typing_saved_text_adapters.saved_text_process_scan_candidates(
+        [item],
+        generated_at="2026-06-27T00:00:00+00:00",
+        prime_state=False,
+        ingest_item=ingest,
+    )
+
+    assert seen == [item]
+    assert events[0]["event_id"] == "evt"
+    assert events[0]["path"] == item["path"]
+    assert "text" not in events[0]
+    assert updates[item["path"]]["sha256"] == "hash"
+    assert updates[item["path"]]["last_seen_at"] == "2026-06-27T00:00:00+00:00"
+
+    def fail_ingest(candidate):  # pragma: no cover - assertion path
+        raise AssertionError(f"prime-state should not ingest {candidate}")
+
+    primed_events, primed_updates = typing_saved_text_adapters.saved_text_process_scan_candidates(
+        [item],
+        generated_at="2026-06-27T00:01:00+00:00",
+        prime_state=True,
+        ingest_item=fail_ingest,
+    )
+
+    assert primed_events == []
+    assert primed_updates[item["path"]]["primed"] is True
+
+
+def test_saved_text_state_document_and_write_outputs_use_fakeable_ports(tmp_path) -> None:
+    state = typing_saved_text_adapters.saved_text_state_document(
+        {"files": {"old.md": {"sha256": "old"}}},
+        schema_prefix="abyss_machine",
+        version="fixture",
+        generated_at="2026-06-27T00:00:00+00:00",
+        file_updates={"new.md": {"sha256": "new", "last_seen_at": "2026-06-27T00:00:00+00:00"}},
+    )
+    writes = []
+
+    def write_json(path, data, mode):
+        writes.append((path.name, dict(data), mode))
+        if path.name == "latest.json":
+            return {"path": str(path), "error": "boom"}
+        return None
+
+    result = typing_saved_text_adapters.saved_text_write_scan_outputs(
+        state=state,
+        data={"schema": "abyss_machine_typing_saved_text_scan_v1", "ok": True},
+        state_path=tmp_path / "state.json",
+        latest_path=tmp_path / "latest.json",
+        index_path=tmp_path / "index.json",
+        write_json=write_json,
+        index_document=lambda: {"schema": "abyss_machine_typing_index_v1"},
+    )
+
+    assert state["files"]["old.md"]["sha256"] == "old"
+    assert state["files"]["new.md"]["sha256"] == "new"
+    assert [item[0] for item in writes] == ["state.json", "latest.json", "index.json"]
+    assert all(item[2] == 0o664 for item in writes)
+    assert writes[2][1]["schema"] == "abyss_machine_typing_index_v1"
+    assert result["ok"] is False
+    assert result["write_errors"] == [{"path": str(tmp_path / "latest.json"), "error": "boom"}]
+
+
+def test_saved_text_scan_latest_status_document_uses_supplied_live_facts(tmp_path) -> None:
+    latest = {
+        "ok": True,
+        "status": "ok",
+        "generated_at": "2026-06-27T00:00:00+00:00",
+        "summary": {"candidates": 1, "events": 1, "primed": 0, "skips": 0, "state_error": None},
+        "events": [{"event_id": "evt"}],
+        "roots": [str(tmp_path)],
+        "limits": {"max_files_per_scan": 10},
+        "policy": {
+            "raw_keylogging": False,
+            "committed_text_only": True,
+            "password_fields_captured": False,
+            "global_keyboard_hook": False,
+            "automatic_action": False,
+            "deny_sensitive_paths": True,
+            "redaction": "typing_ingest",
+        },
+    }
+    active_timer = {"is_active": True, "is_enabled": True}
+    service = {"is_active": False}
+
+    status = typing_saved_text_adapters.saved_text_scan_latest_status_document(
+        latest=latest,
+        latest_error=None,
+        timer=active_timer,
+        service=service,
+        generated_at="2026-06-27T00:00:05+00:00",
+        max_age_sec=600,
+        latest_path=tmp_path / "latest.json",
+        schema_prefix="abyss_machine",
+        version="fixture",
+        age_seconds_from_iso=lambda _value: 5,
+    )
+
+    assert status["ok"] is True
+    assert status["status"] == "ok"
+    assert status["summary"]["timer_active"] is True
+    assert status["latest"]["events"] == [{"event_id": "evt"}]
+    assert status["policy"]["automatic_action"] is False
+
+    bad_policy = dict(latest)
+    bad_policy["policy"] = dict(latest["policy"], automatic_action=True)
+    policy_status = typing_saved_text_adapters.saved_text_scan_latest_status_document(
+        latest=bad_policy,
+        latest_error=None,
+        timer=active_timer,
+        service=service,
+        generated_at="2026-06-27T00:00:05+00:00",
+        max_age_sec=600,
+        latest_path=tmp_path / "latest.json",
+        schema_prefix="abyss_machine",
+        version="fixture",
+        age_seconds_from_iso=lambda _value: 5,
+    )
+
+    assert policy_status["ok"] is False
+    assert policy_status["status"] == "policy_violation"

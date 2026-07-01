@@ -69,11 +69,12 @@ GI/Atspi Firefox frame focus runtime live in
 `abyss_machine.typing_atspi_adapters`, including browser/privacy selftest
 recent-record readers. Saved-text scan filesystem limits, path
 walking, state continuity, decode rejection, candidate/skip accounting, ingest
-kwargs, state entries, and public-safe scan documents live in
+kwargs, state entries, state/latest/index write routing through supplied ports,
+latest-status assembly, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep remaining typing work bounded
-by source type and do not move policy reads or latest writes until their owner
-route is clear. The mechanic owns the route and tests; generated typed evidence
-remains local host state.
+by source type and do not move policy reads or unrelated latest writes until
+their owner route is clear. The mechanic owns the route and tests; generated
+typed evidence remains local host state.
 
 ### Next route
 
