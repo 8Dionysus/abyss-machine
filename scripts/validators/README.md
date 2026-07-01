@@ -357,9 +357,10 @@ activation-gap handoff route contracts live in
 `abyss_machine.self_awareness_contracts`; latest surface specs, fakeable latest
 load dispatch, validation latest-spec selection, and bounded status latest
 summary projection, resource preflight guard decisions, and bounded HTTP status
-probe ports plus cycle artifact evidence step snapshots live in
+probe ports, working-stack source inventory projections, and cycle artifact
+evidence step snapshots live in
 `abyss_machine.self_awareness_adapters`. Probe/cycle orchestration, broader
-stack/runtime refreshes, concrete latest file reads, investigate/replay
+runtime refreshes, concrete stack path/latest file reads, investigate/replay
 execution, validation writes, and command rendering remain at the CLI edge.
 Dictation config/profile/runtime env contracts, replacement rules, transcript
 postprocessing, command-intent detection, busy/max-duration results,

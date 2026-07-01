@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -259,6 +260,190 @@ def test_resource_preflight_guard_disable_keeps_reasons_but_allows_operation() -
     assert payload["status"] == "ok"
     assert payload["denial_reasons"] == ["mem_available_below_floor"]
     assert payload["policy"]["guard_enabled"] is False
+
+
+def test_stack_source_ref_and_service_normalization_are_public_safe(tmp_path: Path) -> None:
+    ref = self_awareness_adapters.stack_owned_source_ref(
+        tmp_path / "abyss-stack" / "Services" / "qwen-tts-api",
+        "service_root",
+        service="qwen-tts",
+    )
+
+    assert ref == {
+        "path": str(tmp_path / "abyss-stack" / "Services" / "qwen-tts-api"),
+        "kind": "service_root",
+        "owner_surface": "abyss-stack",
+        "read_only": True,
+        "host_layer_mutates_stack": False,
+        "service": "qwen-tts",
+    }
+    assert self_awareness_adapters.normalize_stack_service_name("/abyss_qwen_tts_api_1") == "qwen-tts"
+    assert self_awareness_adapters.normalize_stack_service_name("langchain_api_llamacpp") == "langchain-api-llamacpp"
+
+
+def test_working_stack_service_selection_policy_uses_fake_json_ports(tmp_path: Path) -> None:
+    policy_path = tmp_path / "srv" / "Configs" / "docs" / "runtime" / "service-selection-policy.v1.json"
+    policy_path.parent.mkdir(parents=True)
+    policy_path.write_text(
+        json.dumps(
+            {
+                "schema": "abyss_stack_service_selection_policy_v1",
+                "updated_at": "2026-07-01T00:00:00Z",
+                "services": [
+                    {
+                        "name": "qwen-tts-api",
+                        "posture": "explicit_opt_in",
+                        "tier": "tool",
+                        "owner_profile": "stack",
+                        "module": "tts",
+                        "resource_guard": "heavy",
+                        "decision": "defer",
+                    },
+                    {
+                        "service": "llm_registry",
+                        "posture": "always_on",
+                        "tier": "control",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[Path] = []
+
+    def fake_loader(path: Path) -> tuple[Any, str | None]:
+        calls.append(path)
+        return json.loads(path.read_text(encoding="utf-8")), None
+
+    payload = self_awareness_adapters.working_stack_service_selection_policy(
+        schema_prefix="abyss_machine",
+        stack_paths={"srv_abyss_stack": tmp_path / "srv", "source_abyss_stack": tmp_path / "source"},
+        path_exists=lambda path: path.exists(),
+        load_json_document=fake_loader,
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_working_stack_service_selection_policy_v1"
+    assert payload["ok"] is True
+    assert list(payload["services"]) == ["qwen-tts", "llm-registry"]
+    assert payload["services"]["qwen-tts"]["policy_origin"] == "runtime_configs"
+    assert payload["services"]["qwen-tts"]["source_ref"]["owner_surface"] == "abyss-stack"
+    assert payload["summary"]["services"] == 2
+    assert payload["summary"]["errors"] == 0
+    assert calls == [policy_path]
+
+
+def test_working_stack_service_selection_policy_reports_bad_json_without_live_io(tmp_path: Path) -> None:
+    policy_path = tmp_path / "source" / "docs" / "runtime" / "service-selection-policy.v1.json"
+
+    def fake_exists(path: Path) -> bool:
+        return path == policy_path
+
+    payload = self_awareness_adapters.working_stack_service_selection_policy(
+        schema_prefix="abyss_machine",
+        stack_paths={"source_abyss_stack": tmp_path / "source"},
+        path_exists=fake_exists,
+        load_json_document=lambda path: (None, "fixture_error") if path == policy_path else ({}, None),
+    )
+
+    assert payload["ok"] is False
+    assert payload["summary"]["errors"] == 1
+    assert payload["errors"] == [{"path": str(policy_path), "origin": "source_checkout", "error": "fixture_error"}]
+
+
+def test_stack_compose_inventory_parses_declared_services_from_fake_roots(tmp_path: Path) -> None:
+    source_modules = tmp_path / "source" / "compose" / "modules"
+    runtime_modules = tmp_path / "srv" / "Configs" / "compose" / "modules"
+    source_modules.mkdir(parents=True)
+    runtime_modules.mkdir(parents=True)
+    (source_modules / "10-core.yml").write_text(
+        """
+services:
+  route_api:
+    image: example
+  x-template:
+    image: ignored
+  nested:
+    environment:
+      CHILD: value
+""",
+        encoding="utf-8",
+    )
+    (runtime_modules / "20-tools.yml").write_text(
+        """
+services:
+  qwen_tts_api:
+    image: example
+  docs-api:
+    image: example
+""",
+        encoding="utf-8",
+    )
+
+    payload = self_awareness_adapters.stack_compose_service_inventory(
+        schema_prefix="abyss_machine",
+        stack_paths={"source_abyss_stack": tmp_path / "source", "srv_abyss_stack": tmp_path / "srv"},
+        path_exists=lambda path: path.exists(),
+        path_is_dir=lambda path: path.is_dir(),
+        path_glob=lambda root, pattern: root.glob(pattern),
+        read_text=lambda path: path.read_text(encoding="utf-8"),
+    )
+
+    assert payload["ok"] is True
+    assert payload["summary"] == {"module_roots": 2, "modules": 2, "declared_services": 4}
+    assert [row["service"] for row in payload["services"]] == ["docs-api", "nested", "qwen-tts", "route-api"]
+    route_row = next(row for row in payload["services"] if row["service"] == "route-api")
+    assert route_row["modules"] == ["10-core.yml"]
+    assert route_row["stack_source_refs"][0]["kind"] == "compose_module"
+
+
+def test_stack_service_and_model_root_inventory_are_bounded_and_fakeable(tmp_path: Path) -> None:
+    (tmp_path / "srv" / "Services" / "qwen-tts-api").mkdir(parents=True)
+    (tmp_path / "source" / "Services" / "route_api").mkdir(parents=True)
+    (tmp_path / "srv" / "Models" / "openvino" / "embeddings-int8").mkdir(parents=True)
+    (tmp_path / "source" / "Models" / "voices" / "qwen-tts-voice").mkdir(parents=True)
+    (tmp_path / "source" / "Models" / "llama" / "qwen3-8b-gguf").mkdir(parents=True)
+
+    stack_paths = {"source_abyss_stack": tmp_path / "source", "srv_abyss_stack": tmp_path / "srv"}
+    service_roots = self_awareness_adapters.stack_service_root_inventory(
+        schema_prefix="abyss_machine",
+        stack_paths=stack_paths,
+        path_exists=lambda path: path.exists(),
+        path_is_dir=lambda path: path.is_dir(),
+        path_iterdir=lambda path: path.iterdir(),
+    )
+    models = self_awareness_adapters.stack_model_root_inventory(
+        schema_prefix="abyss_machine",
+        stack_paths=stack_paths,
+        path_exists=lambda path: path.exists(),
+        path_is_dir=lambda path: path.is_dir(),
+        path_iterdir=lambda path: path.iterdir(),
+        max_entries=4,
+        max_depth=3,
+    )
+
+    assert [row["service"] for row in service_roots["services"]] == ["qwen-tts", "route-api"]
+    assert service_roots["services"][0]["stack_source_refs"][0]["host_layer_mutates_stack"] is False
+    assert models["summary"]["bounded"] is True
+    assert models["summary"]["model_roots"] == 4
+    assert models["summary"]["service_candidates"] == [
+        "babelvox-tts",
+        "embeddings",
+        "llama-cpp",
+        "llm-registry",
+        "ovms",
+        "qwen-tts",
+        "tts",
+        "tts-router",
+    ]
+    assert models["summary"]["tag_counts"]["openvino"] == 2
+    assert models["summary"]["tag_counts"]["tts"] == 1
+
+
+def test_parse_compose_services_returns_empty_on_read_error(tmp_path: Path) -> None:
+    assert self_awareness_adapters.parse_compose_services(
+        tmp_path / "missing.yml",
+        read_text=lambda _path: (_ for _ in ()).throw(OSError("fixture")),
+    ) == []
 
 
 class _FakeStat:
