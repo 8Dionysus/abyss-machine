@@ -10,6 +10,11 @@
   accounting, ingest kwargs, state entries, and public-safe scan documents
   while `typing_ingest`, state/latest writes, timer/service status, and command
   rendering stay at the CLI edge.
+- Saved-text state/write/status seam: `typing_saved_text_adapters` owns
+  candidate processing, state document updates, state/latest/index write
+  routing through supplied ports, and latest-status documents assembled from
+  supplied latest/timer/service/age facts while CLI supplies concrete paths,
+  live systemd reads, `typing_ingest`, and command rendering.
 - WebExtension selftest runtime seam: `typing_browser_adapters` owns temporary
   Firefox profile prefs, `web-ext` command selection, loopback HTTP probe
   serving, temp profile/artifact/cache roots, subprocess lifecycle/cleanup,

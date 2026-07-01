@@ -5,12 +5,16 @@ import hashlib
 import os
 import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from . import typing_capture_contracts
 
 
 SAVED_TEXT_SOURCE = "saved_text_snapshot"
+WriteJson = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
+IndexDocument = Callable[[], dict[str, Any]]
+IngestItem = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+AgeSeconds = Callable[[Any], float | None]
 
 
 def nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -243,6 +247,52 @@ def saved_text_state_entry(
     return entry
 
 
+def saved_text_state_document(
+    state: Mapping[str, Any] | None,
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    file_updates: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    data = dict(state) if isinstance(state, Mapping) else {}
+    files = data.get("files") if isinstance(data.get("files"), Mapping) else {}
+    data["schema"] = f"{schema_prefix}_typing_saved_text_state_v1"
+    data["version"] = version
+    data["updated_at"] = generated_at
+    data["files"] = {str(path): dict(entry) for path, entry in files.items()}
+    for path, entry in (file_updates or {}).items():
+        data["files"][str(path)] = dict(entry)
+    return data
+
+
+def saved_text_process_scan_candidates(
+    candidates: list[Mapping[str, Any]],
+    *,
+    generated_at: str,
+    prime_state: bool,
+    ingest_item: IngestItem,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    events: list[dict[str, Any]] = []
+    file_updates: dict[str, dict[str, Any]] = {}
+    for item in candidates:
+        path = str(item.get("path"))
+        if prime_state:
+            file_updates[path] = saved_text_state_entry(
+                item,
+                generated_at=generated_at,
+                primed=True,
+            )
+            continue
+        event = ingest_item(item)
+        events.append(saved_text_event_summary(item, event))
+        file_updates[path] = saved_text_state_entry(
+            item,
+            generated_at=generated_at,
+        )
+    return events, file_updates
+
+
 def saved_text_scan_document(
     *,
     schema_prefix: str,
@@ -288,4 +338,123 @@ def saved_text_scan_document(
             "Saved-text scan reads recently saved text files only; it does not observe keystrokes.",
             "Sensitive path filters prevent known secret-path reads but are not a complete DLP proof.",
         ],
+    }
+
+
+def saved_text_write_scan_outputs(
+    *,
+    state: dict[str, Any],
+    data: dict[str, Any],
+    state_path: Path,
+    latest_path: Path,
+    index_path: Path,
+    write_json: WriteJson,
+    index_document: IndexDocument,
+    mode: int = 0o664,
+) -> dict[str, Any]:
+    errors = [
+        error for error in (
+            write_json(state_path, state, mode),
+            write_json(latest_path, data, mode),
+            write_json(index_path, index_document(), mode),
+        )
+        if error
+    ]
+    if errors:
+        data = dict(data)
+        data["ok"] = False
+        data["write_errors"] = errors
+    return data
+
+
+def saved_text_scan_latest_status_document(
+    *,
+    latest: Mapping[str, Any] | None,
+    latest_error: str | None,
+    timer: Mapping[str, Any],
+    service: Mapping[str, Any],
+    generated_at: str,
+    max_age_sec: float,
+    latest_path: Path,
+    schema_prefix: str,
+    version: str,
+    age_seconds_from_iso: AgeSeconds,
+) -> dict[str, Any]:
+    latest_data = latest if isinstance(latest, Mapping) else {}
+    latest_summary = latest_data.get("summary") if isinstance(latest_data.get("summary"), Mapping) else {}
+    latest_policy = latest_data.get("policy") if isinstance(latest_data.get("policy"), Mapping) else {}
+    latest_age_sec = age_seconds_from_iso(latest_data.get("generated_at"))
+    latest_status = str(latest_data.get("status") or "missing")
+    healthy_statuses = {"ok", "disabled"}
+    timer_ok = bool(timer.get("is_active") and timer.get("is_enabled"))
+    policy_ok = bool(
+        latest_policy.get("raw_keylogging") is False
+        and latest_policy.get("password_fields_captured") is False
+        and latest_policy.get("global_keyboard_hook") is False
+        and latest_policy.get("automatic_action") is False
+        and latest_policy.get("deny_sensitive_paths") is True
+    )
+    latest_ok = bool(isinstance(latest, Mapping) and latest_data.get("ok") is True and latest_status in healthy_statuses)
+    latest_fresh = bool(latest_age_sec is not None and latest_age_sec <= float(max_age_sec))
+    state_error = latest_summary.get("state_error")
+    if not isinstance(latest, Mapping):
+        status = "missing"
+    elif latest_error:
+        status = "unreadable"
+    elif not timer_ok:
+        status = "timer_inactive"
+    elif not policy_ok:
+        status = "policy_violation"
+    elif not latest_ok:
+        status = latest_status if latest_status != "missing" else "degraded"
+    elif state_error:
+        status = "state_error"
+    elif not latest_fresh:
+        status = "stale"
+    else:
+        status = latest_status
+    return {
+        "schema": f"{schema_prefix}_typing_saved_text_scan_status_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": bool(status in healthy_statuses),
+        "status": status,
+        "summary": {
+            "latest_exists": isinstance(latest, Mapping),
+            "latest_error": latest_error,
+            "latest_ok": latest_data.get("ok") if isinstance(latest, Mapping) else None,
+            "latest_status": latest_data.get("status") if isinstance(latest, Mapping) else None,
+            "latest_generated_at": latest_data.get("generated_at") if isinstance(latest, Mapping) else None,
+            "latest_age_sec": latest_age_sec,
+            "max_age_sec": float(max_age_sec),
+            "timer_active": timer.get("is_active"),
+            "timer_enabled": timer.get("is_enabled"),
+            "service_active": service.get("is_active"),
+            "candidates": latest_summary.get("candidates"),
+            "events": latest_summary.get("events"),
+            "primed": latest_summary.get("primed"),
+            "skips": latest_summary.get("skips"),
+            "state_error": state_error,
+        },
+        "latest": {
+            "path": str(latest_path),
+            "generated_at": latest_data.get("generated_at") if isinstance(latest, Mapping) else None,
+            "status": latest_data.get("status") if isinstance(latest, Mapping) else None,
+            "ok": latest_data.get("ok") if isinstance(latest, Mapping) else None,
+            "summary": latest_summary,
+            "events": latest_data.get("events") if isinstance(latest_data.get("events"), list) else [],
+            "roots": latest_data.get("roots") if isinstance(latest_data.get("roots"), list) else [],
+            "limits": latest_data.get("limits") if isinstance(latest_data.get("limits"), Mapping) else {},
+        },
+        "timer": dict(timer),
+        "service": dict(service),
+        "policy": {
+            "raw_keylogging": latest_policy.get("raw_keylogging"),
+            "committed_text_only": latest_policy.get("committed_text_only"),
+            "password_fields_captured": latest_policy.get("password_fields_captured"),
+            "global_keyboard_hook": latest_policy.get("global_keyboard_hook"),
+            "automatic_action": latest_policy.get("automatic_action"),
+            "deny_sensitive_paths": latest_policy.get("deny_sensitive_paths"),
+            "redaction": latest_policy.get("redaction"),
+        },
     }
