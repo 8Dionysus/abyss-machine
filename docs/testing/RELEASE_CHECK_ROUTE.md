@@ -172,6 +172,14 @@ latest/readmodel refresh. Report status/counts/reasons only, never raw stack
 responses, local latest payloads, generated event/fabric stores, browser
 captures, or private host evidence.
 
+For self-awareness cycle artifact-evidence adapter changes, public CI should
+rely on fake-port tests for latest-artifact existence/stat/hash/mtime
+projection, missing artifact behavior, bridge steps with `requires_ok=false`,
+and extra evidence merging. Live-host closeout may use compact
+`self-awareness status --json` summaries; avoid running `self-awareness cycle`
+unless orchestration itself changed or the operator accepts live latest/readmodel
+refresh.
+
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash

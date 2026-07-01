@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -16,6 +17,9 @@ LoadAverageReaderPort = Callable[[], tuple[float, float, float]]
 ClockPort = Callable[[], float]
 HttpRequestFactoryPort = Callable[[str, Mapping[str, str], str], Any]
 HttpOpenPort = Callable[[Any, float], Any]
+PathExistsPort = Callable[[Path], bool]
+PathStatPort = Callable[[Path], Any]
+PathSha256Port = Callable[[Path], str]
 
 
 @dataclass(frozen=True)
@@ -315,4 +319,43 @@ def resource_preflight(
             "host_layer_mutates_stack": False,
             "heavy_operation_must_fail_closed_under_pressure": True,
         },
+    }
+
+
+def cycle_artifact_step(
+    step_id: str,
+    command: str,
+    artifact_path: Path,
+    document: dict[str, Any],
+    *,
+    path_exists: PathExistsPort,
+    path_stat: PathStatPort,
+    path_sha256: PathSha256Port,
+    requires_ok: bool = True,
+    evidence_extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    path = Path(artifact_path)
+    exists = path_exists(path)
+    stat_result = path_stat(path) if exists else None
+    mtime = getattr(stat_result, "st_mtime", None) if stat_result is not None else None
+    evidence: dict[str, Any] = {
+        "path": str(path),
+        "schema": document.get("schema"),
+        "generated_at": document.get("generated_at"),
+        "status": document.get("status"),
+        "ok": document.get("ok"),
+        "summary": document.get("summary"),
+        "exists": exists,
+        "size_bytes": getattr(stat_result, "st_size", None) if stat_result is not None else None,
+        "sha256": path_sha256(path) if exists else None,
+        "mtime_ns": getattr(stat_result, "st_mtime_ns", None) if stat_result is not None else None,
+        "mtime_iso": dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat() if mtime is not None else None,
+    }
+    if evidence_extra:
+        evidence.update(dict(evidence_extra))
+    return {
+        "id": step_id,
+        "command": command,
+        "ok": bool(document.get("ok", True)) if requires_ok else True,
+        "artifact": evidence,
     }

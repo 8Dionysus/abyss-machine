@@ -259,3 +259,101 @@ def test_resource_preflight_guard_disable_keeps_reasons_but_allows_operation() -
     assert payload["status"] == "ok"
     assert payload["denial_reasons"] == ["mem_available_below_floor"]
     assert payload["policy"]["guard_enabled"] is False
+
+
+class _FakeStat:
+    st_size = 1234
+    st_mtime_ns = 1_700_000_000_000_000_000
+    st_mtime = 1_700_000_000.0
+
+
+def test_cycle_artifact_step_uses_fake_file_ports_and_extra_evidence(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "probe" / "latest.json"
+    calls: list[tuple[str, Path]] = []
+
+    def fake_exists(path: Path) -> bool:
+        calls.append(("exists", path))
+        return True
+
+    def fake_stat(path: Path) -> _FakeStat:
+        calls.append(("stat", path))
+        return _FakeStat()
+
+    def fake_sha256(path: Path) -> str:
+        calls.append(("sha256", path))
+        return "sha256:fixture"
+
+    step = self_awareness_adapters.cycle_artifact_step(
+        "probe",
+        "abyss-machine self-awareness probe --json",
+        artifact_path,
+        {
+            "schema": "abyss_machine_self_awareness_probe_v1",
+            "generated_at": "2026-06-30T00:00:00+00:00",
+            "ok": True,
+            "status": "covered",
+            "summary": {"chain_passed": 3},
+        },
+        path_exists=fake_exists,
+        path_stat=fake_stat,
+        path_sha256=fake_sha256,
+        evidence_extra={"run_id": "saprobe-fixture"},
+    )
+
+    assert step["id"] == "probe"
+    assert step["ok"] is True
+    assert step["artifact"] == {
+        "path": str(artifact_path),
+        "schema": "abyss_machine_self_awareness_probe_v1",
+        "generated_at": "2026-06-30T00:00:00+00:00",
+        "status": "covered",
+        "ok": True,
+        "summary": {"chain_passed": 3},
+        "exists": True,
+        "size_bytes": 1234,
+        "sha256": "sha256:fixture",
+        "mtime_ns": 1_700_000_000_000_000_000,
+        "mtime_iso": "2023-11-14T22:13:20+00:00",
+        "run_id": "saprobe-fixture",
+    }
+    assert calls == [("exists", artifact_path), ("stat", artifact_path), ("sha256", artifact_path)]
+
+
+def test_cycle_artifact_step_missing_file_skips_stat_and_hash(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "missing" / "latest.json"
+    calls: list[str] = []
+
+    step = self_awareness_adapters.cycle_artifact_step(
+        "missing",
+        "abyss-machine missing --json",
+        artifact_path,
+        {"schema": "abyss_machine_missing_v1", "ok": False, "error": "not found"},
+        path_exists=lambda _path: False,
+        path_stat=lambda _path: calls.append("stat"),
+        path_sha256=lambda _path: calls.append("sha256") or "sha256:should-not-happen",
+    )
+
+    assert step["ok"] is False
+    assert step["artifact"]["exists"] is False
+    assert step["artifact"]["size_bytes"] is None
+    assert step["artifact"]["sha256"] is None
+    assert step["artifact"]["mtime_ns"] is None
+    assert step["artifact"]["mtime_iso"] is None
+    assert calls == []
+
+
+def test_cycle_artifact_step_requires_ok_false_keeps_bridge_step_non_blocking(tmp_path: Path) -> None:
+    step = self_awareness_adapters.cycle_artifact_step(
+        "memory",
+        "abyss-machine memory status --json",
+        tmp_path / "memory" / "latest.json",
+        {"schema": "abyss_machine_memory_status_v1", "ok": False, "summary": {"status": "degraded"}},
+        path_exists=lambda _path: False,
+        path_stat=lambda _path: _FakeStat(),
+        path_sha256=lambda _path: "sha256:unused",
+        requires_ok=False,
+    )
+
+    assert step["ok"] is True
+    assert step["artifact"]["ok"] is False
+    assert step["artifact"]["summary"] == {"status": "degraded"}

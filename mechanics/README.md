@@ -47,10 +47,10 @@ Use these mechanic owners for the next extraction slices:
   prove the host layer is healthy without publishing private state.
 - `self-awareness`: latest surface specs, fakeable latest load dispatch,
   validation latest-spec selection, bounded status latest summaries, resource
-  preflight guard decisions, and bounded HTTP status probe ports live in
-  `self_awareness_adapters`; probe/cycle orchestration, broader stack/runtime
-  refreshes, concrete latest file reads, and investigate/replay execution
-  remain bounded CLI debt.
+  preflight guard decisions, bounded HTTP status probe ports, and cycle
+  artifact evidence snapshots live in `self_awareness_adapters`; probe/cycle
+  orchestration, broader stack/runtime refreshes, concrete latest file reads,
+  and investigate/replay execution remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
