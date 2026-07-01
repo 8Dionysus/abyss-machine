@@ -36,8 +36,12 @@ def run_abyss_machine() -> Any:
     def _run(*args: str, timeout: float = 20.0) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
+        command = [str(ABYSS_MACHINE_BIN)]
+        if ABYSS_MACHINE_BIN == SOURCE_CLI:
+            env["PYTHONPATH"] = str(SRC_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+            command = [sys.executable, str(SOURCE_CLI)]
         return subprocess.run(
-            ["abyss-machine", *args],
+            [*command, *args],
             text=True,
             capture_output=True,
             timeout=timeout,

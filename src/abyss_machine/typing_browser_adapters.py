@@ -47,6 +47,9 @@ CaptureGatePolicy = Callable[[Mapping[str, Any] | None], Mapping[str, Any]]
 CaptureGateTokenMatches = Callable[[str, str, list[Any]], list[dict[str, Any]]]
 BrowserExtensionPolicy = Callable[[Mapping[str, Any] | None], Mapping[str, Any]]
 BrowserUrlSchemeAllowed = Callable[[str, Mapping[str, Any]], bool]
+WriteLatestHistory = Callable[[dict[str, Any], Path, Path, int], list[dict[str, Any]]]
+WriteJson = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
+IndexDocument = Callable[[], dict[str, Any]]
 
 
 def _nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -67,6 +70,35 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 def browser_selftest_run_id(seed: str) -> str:
     return hashlib.sha256(str(seed or "").encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
+def browser_selftest_store_outputs(
+    data: dict[str, Any],
+    *,
+    write_latest: bool,
+    primary_latest_path: Path,
+    primary_history_root: Path,
+    index_path: Path,
+    write_latest_history: WriteLatestHistory,
+    write_json: WriteJson,
+    index_document: IndexDocument,
+    secondary_latest_path: Path | None = None,
+    secondary_history_root: Path | None = None,
+    secondary_enabled: bool = False,
+    mode: int = 0o664,
+) -> dict[str, Any]:
+    if not write_latest:
+        return data
+    errors = write_latest_history(data, primary_latest_path, primary_history_root, mode)
+    if secondary_enabled and secondary_latest_path is not None and secondary_history_root is not None:
+        errors.extend(write_latest_history(data, secondary_latest_path, secondary_history_root, mode))
+    index_error = write_json(index_path, index_document(), mode)
+    if index_error:
+        errors.append(index_error)
+    if errors:
+        data["ok"] = False
+        data["write_errors"] = errors
+    return data
 
 
 def browser_webextension_run_id(generated_at: str, pid: int) -> str:
