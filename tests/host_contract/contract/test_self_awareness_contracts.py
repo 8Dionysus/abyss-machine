@@ -9046,6 +9046,58 @@ def test_self_awareness_completion_audit_rejects_green_validator_with_open_stack
     assert audit["policy"]["host_layer_mutates_stack"] is False
 
 
+def test_self_awareness_refresh_exported_artifacts_reloads_latest_refs(tmp_path: Path, abyss_machine_module) -> None:
+    schema = "abyss_machine_self_awareness_objective_coverage_audit_v1"
+    artifact_path = tmp_path / "coverage-audit" / "latest.json"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_text(
+        json.dumps({"schema": schema, "generated_at": "2026-01-01T00:00:00+00:00", "summary": {"version": 1}}),
+        encoding="utf-8",
+    )
+    exported = {
+        "coverage_audit": abyss_machine_module.self_awareness_export_artifact_entry(
+            "coverage_audit",
+            artifact_path,
+            schema,
+        )
+    }
+    old_sha = exported["coverage_audit"]["sha256"]
+
+    artifact_path.write_text(
+        json.dumps({"schema": schema, "generated_at": "2026-01-01T00:01:00+00:00", "summary": {"version": 2}}),
+        encoding="utf-8",
+    )
+    artifact_list, missing, malformed = abyss_machine_module.self_awareness_refresh_exported_artifacts(
+        exported,
+        {"coverage_audit": (artifact_path, schema)},
+        ["coverage_audit"],
+    )
+
+    refreshed = exported["coverage_audit"]
+    refs = abyss_machine_module.self_awareness_export_artifact_refs(exported, ["coverage_audit"])
+    assert missing == []
+    assert malformed == []
+    assert refreshed["sha256"] != old_sha
+    assert refreshed["summary"] == {"version": 2}
+    assert artifact_list == [refreshed]
+    assert refs["coverage_audit"]["sha256"] == refreshed["sha256"]
+
+
+def test_self_awareness_include_coverage_audit_artifact_adds_late_spec(tmp_path: Path, monkeypatch, abyss_machine_module) -> None:
+    latest = tmp_path / "coverage" / "latest.json"
+    artifacts: dict[str, tuple[Path, str]] = {}
+    monkeypatch.setattr(abyss_machine_module, "SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH", latest)
+
+    abyss_machine_module.self_awareness_include_coverage_audit_artifact(artifacts)
+    abyss_machine_module.self_awareness_include_coverage_audit_artifact(artifacts)
+
+    assert sorted(artifacts) == ["coverage_audit"]
+    assert artifacts["coverage_audit"] == (
+        latest,
+        "abyss_machine_self_awareness_objective_coverage_audit_v1",
+    )
+
+
 def test_self_awareness_export_manifest_indexes_artifacts(abyss_machine_module) -> None:
     payload = abyss_machine_module.self_awareness_export(write_latest=False)
 
