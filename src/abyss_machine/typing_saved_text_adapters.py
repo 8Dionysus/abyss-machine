@@ -260,10 +260,18 @@ def saved_text_state_document(
     data["schema"] = f"{schema_prefix}_typing_saved_text_state_v1"
     data["version"] = version
     data["updated_at"] = generated_at
-    data["files"] = {str(path): dict(entry) for path, entry in files.items()}
+    data["files"] = saved_text_state_files(files)
     for path, entry in (file_updates or {}).items():
         data["files"][str(path)] = dict(entry)
     return data
+
+
+def saved_text_state_files(files: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(path): dict(entry)
+        for path, entry in files.items()
+        if isinstance(entry, Mapping)
+    }
 
 
 def saved_text_process_scan_candidates(
