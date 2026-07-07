@@ -57698,30 +57698,21 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
         artifact_step("reactions", "abyss-machine reactions --json", REACTIONS_LATEST_PATH, reactions),
         artifact_step("responses", "abyss-machine responses --json", RESPONSES_LATEST_PATH, responses),
     ]
-    partial_data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_cycle_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": False,
-        "status": "building",
-        "cycle_id": cycle_id,
-        "probe_run_id": probe_run_id,
-        "summary": {"status": "building", "steps": len(steps)},
-        "steps": steps,
-        "resource_preflight": resource_preflight,
-        "cycle_chain": cycle_chain,
-        "bridge_proof": bridge_proof,
-        "stack_handoff_summary": stack_handoff_summary,
-        "stack_handoff_closure_readiness": stack_handoff_closure_readiness,
-        "evidence_refs": [{"path": str(step["artifact"]["path"]), "step": step["id"]} for step in steps],
-        "policy": {
-            "host_layer_mutates_stack": False,
-            "automatic_remediation": False,
-            "automatic_responses": automatic_response_count,
-            "routes_with_mutating_command_if_run": mutating_response_routes,
-            "open_stack_requirements_are_blockers_not_host_failures": True,
-        },
-    }
+    partial_data = self_awareness_adapters.cycle_partial_document(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=generated_at,
+        cycle_id=cycle_id,
+        probe_run_id=probe_run_id,
+        steps=steps,
+        resource_preflight=resource_preflight,
+        cycle_chain=cycle_chain,
+        bridge_proof=bridge_proof,
+        stack_handoff_summary=stack_handoff_summary,
+        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
+        automatic_response_count=automatic_response_count,
+        mutating_response_routes=mutating_response_routes,
+    )
     if write_latest:
         errors = write_latest_and_history(partial_data, SELF_AWARENESS_CYCLE_LATEST_PATH, SELF_AWARENESS_CYCLE_ROOT)
         if errors:

@@ -180,6 +180,12 @@ and extra evidence merging. Live-host closeout may use compact
 unless orchestration itself changed or the operator accepts live latest/readmodel
 refresh.
 
+For self-awareness probe/cycle document-builder adapter changes, public CI
+should rely on synthetic shape tests for resource-denied documents, probe result
+documents, movement-smoke summaries, and cycle partial/building snapshots. Keep
+latest/history writes, concrete stack paths, and probe/cycle orchestration in
+separate live-host checks unless the slice intentionally moves those ports.
+
 For self-awareness working-stack source-inventory adapter changes, public CI
 should rely on fake-root/fake-port tests for stack service-name normalization,
 service-selection policy JSON projection, compose service discovery, stack

@@ -51,8 +51,10 @@ Use these mechanic owners for the next extraction slices:
   validation latest-spec selection, bounded status latest summaries, resource
   preflight guard decisions, bounded HTTP status probe ports, working-stack
   endpoint/TCP/container runtime probes, TTS smoke artifact evidence/probe
-  projection, working-stack source inventory projections, and cycle artifact
-  evidence snapshots live in
+  projection, working-stack source inventory projections, working-stack
+  model/tool bridge policy, probe/cycle resource-denial documents, probe
+  result/movement-smoke document assembly, cycle artifact evidence snapshots,
+  and cycle partial/building document assembly live in
   `self_awareness_adapters`; probe/cycle orchestration, broader runtime
   refreshes, concrete stack path/latest file reads, and investigate/replay
   execution remain bounded CLI debt.

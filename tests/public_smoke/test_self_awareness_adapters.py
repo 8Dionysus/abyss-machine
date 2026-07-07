@@ -603,6 +603,74 @@ def test_cycle_resource_denied_document_is_public_safe_and_fail_closed() -> None
     assert payload["policy"]["heavy_operation_must_fail_closed_under_pressure"] is True
 
 
+def test_cycle_partial_document_builds_public_safe_building_snapshot(tmp_path: Path) -> None:
+    steps = [
+        {
+            "id": "probe",
+            "ok": True,
+            "artifact": {
+                "path": str(tmp_path / "probe" / "latest.json"),
+                "schema": "abyss_machine_self_awareness_probe_v1",
+                "ok": True,
+            },
+        },
+        {
+            "id": "memory",
+            "ok": True,
+            "artifact": {
+                "path": str(tmp_path / "memory" / "latest.json"),
+                "schema": "abyss_machine_memory_status_v1",
+                "ok": False,
+            },
+        },
+    ]
+    resource_preflight = {"ok": True, "status": "ok", "denial_reasons": []}
+    cycle_chain = {"probe": True, "replay": True}
+    bridge_proof = {"ok": True, "summary": {"bridges": 2}}
+    stack_handoff_summary = {"summary": {"open_requirements": 1}}
+    stack_handoff_closure_readiness = {"summary": {"packets": 3}}
+
+    payload = self_awareness_adapters.cycle_partial_document(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-07T00:00:00+00:00",
+        cycle_id="sacycle-fixture",
+        probe_run_id="saprobe-fixture",
+        steps=steps,
+        resource_preflight=resource_preflight,
+        cycle_chain=cycle_chain,
+        bridge_proof=bridge_proof,
+        stack_handoff_summary=stack_handoff_summary,
+        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
+        automatic_response_count=0,
+        mutating_response_routes=0,
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_cycle_v1"
+    assert payload["ok"] is False
+    assert payload["status"] == "building"
+    assert payload["cycle_id"] == "sacycle-fixture"
+    assert payload["probe_run_id"] == "saprobe-fixture"
+    assert payload["summary"] == {"status": "building", "steps": 2}
+    assert payload["steps"] == steps
+    assert payload["resource_preflight"] == resource_preflight
+    assert payload["cycle_chain"] == cycle_chain
+    assert payload["bridge_proof"] == bridge_proof
+    assert payload["stack_handoff_summary"] == stack_handoff_summary
+    assert payload["stack_handoff_closure_readiness"] == stack_handoff_closure_readiness
+    assert payload["evidence_refs"] == [
+        {"path": str(tmp_path / "probe" / "latest.json"), "step": "probe"},
+        {"path": str(tmp_path / "memory" / "latest.json"), "step": "memory"},
+    ]
+    assert payload["policy"] == {
+        "host_layer_mutates_stack": False,
+        "automatic_remediation": False,
+        "automatic_responses": 0,
+        "routes_with_mutating_command_if_run": 0,
+        "open_stack_requirements_are_blockers_not_host_failures": True,
+    }
+
+
 def test_probe_result_document_builds_complete_public_safe_shape(tmp_path: Path) -> None:
     chain = {
         "request": True,
