@@ -21559,126 +21559,78 @@ def nervous_semantic_build(
     run_id = nervous_change_id("semantic")
     semantic = nervous_semantic_config()
     embedding = semantic.get("embedding") if isinstance(semantic.get("embedding"), dict) else {}
-    if (batch_size is not None and batch_size > 0) or device:
-        embedding = dict(embedding)
-    if batch_size is not None and batch_size > 0:
-        embedding["batch_size"] = int(batch_size)
-    if device:
-        embedding["device"] = str(device)
-    build_command = ["abyss-machine", "nervous", "semantic-build", "--json"]
-    if max_chunks is not None and max_chunks > 0:
-        build_command.extend(["--max-chunks", str(int(max_chunks))])
-    if batch_size is not None and batch_size > 0:
-        build_command.extend(["--batch-size", str(int(batch_size))])
-    if device:
-        build_command.extend(["--device", str(device)])
-    if rebuild:
-        build_command.append("--rebuild")
+    embedding = nervous_semantic_adapters.semantic_build_embedding_config(
+        embedding,
+        batch_size=batch_size,
+        device=device,
+    )
+    build_command = nervous_semantic_adapters.semantic_build_command(
+        max_chunks=max_chunks,
+        batch_size=batch_size,
+        device=device,
+        rebuild=rebuild,
+    )
     privacy = nervous_effective_privacy(write_latest=False)
     if bool(privacy.get("global_pause")):
-        data = {
-            "schema": f"{SCHEMA_PREFIX}_nervous_semantic_build_v1",
-            "version": VERSION,
-            "generated_at": now_iso(),
-            "ok": False,
-            "run_id": run_id,
-            "refused": True,
-            "error": "global_pause is active; semantic index build did not touch the database",
-        }
+        data = nervous_semantic_adapters.semantic_build_refusal_document(
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+            generated_at=now_iso(),
+            run_id=run_id,
+            refused=True,
+            error="global_pause is active; semantic index build did not touch the database",
+        )
         return nervous_semantic_write_latest(data) if write_latest else data
     if not bool(semantic.get("enabled", True)):
-        data = {
-            "schema": f"{SCHEMA_PREFIX}_nervous_semantic_build_v1",
-            "version": VERSION,
-            "generated_at": now_iso(),
-            "ok": False,
-            "run_id": run_id,
-            "error": "semantic index disabled by config",
-        }
+        data = nervous_semantic_adapters.semantic_build_refusal_document(
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+            generated_at=now_iso(),
+            run_id=run_id,
+            error="semantic index disabled by config",
+        )
         return nervous_semantic_write_latest(data) if write_latest else data
     model_dir_for_provenance, device_for_provenance, cache_dir_for_provenance, _ = nervous_semantic_model_paths(embedding)
     cache_before = artifact_path_stats(cache_dir_for_provenance, artifact_backup_state(cache_dir_for_provenance))
     chunks, source_error = nervous_semantic_source_chunks(max_chunks=max_chunks)
     source_counts = nervous_index_db_counts()
-    source_meta = source_counts.get("meta") if isinstance(source_counts.get("meta"), dict) else {}
     partial = max_chunks is not None and max_chunks > 0
-    data: dict[str, Any] = {
-        "schema": f"{SCHEMA_PREFIX}_nervous_semantic_build_v1",
-        "version": VERSION,
-        "generated_at": now_iso(),
-        "ok": False,
-        "run_id": run_id,
-        "started_at": started_at,
-        "paths": {
-            "db": str(NERVOUS_SEMANTIC_INDEX_DB_PATH),
-            "source_index_db": str(NERVOUS_SEARCH_INDEX_DB_PATH),
-            "latest": str(NERVOUS_SEMANTIC_INDEX_LATEST_PATH),
-        },
-        "source_index": {
-            "run_id": source_meta.get("run_id"),
-            "built_at": source_meta.get("built_at"),
-            "chunks": source_counts.get("chunks"),
-        },
-        "partial": partial,
-        "max_chunks": max_chunks,
-        "rebuild": bool(rebuild),
-        "build_command": build_command,
-        "embedding": {
-            "model_dir": embedding.get("model_dir"),
-            "device": embedding.get("device"),
-            "cache_dir": str(cache_dir_for_provenance),
-            "batch_size": embedding.get("batch_size"),
-            "max_tokens": embedding.get("max_tokens"),
-            "max_input_chars": embedding.get("max_input_chars"),
-            "pooling": embedding.get("pooling"),
-            "padding_side": embedding.get("padding_side"),
-        },
-        "provenance": {
-            "backend": semantic.get("backend"),
-            "model_dir": str(model_dir_for_provenance),
-            "cache_dir": str(cache_dir_for_provenance),
-            "device": device_for_provenance,
-            "build_command": build_command,
-            "probe": {
-                "type": "bounded_rebuild" if partial and rebuild else "semantic_build",
-                "max_chunks": max_chunks,
-                "batch_size": embedding.get("batch_size"),
-                "rebuild": bool(rebuild),
-            },
-            "compile_cache": {
-                "before": cache_before,
-                "after": None,
-                "mtime_changed": None,
-                "used_or_regenerated": None,
-            },
-        },
-    }
+    data = nervous_semantic_adapters.semantic_build_initial_document(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+        run_id=run_id,
+        started_at=started_at,
+        db_path=NERVOUS_SEMANTIC_INDEX_DB_PATH,
+        source_index_db_path=NERVOUS_SEARCH_INDEX_DB_PATH,
+        latest_path=NERVOUS_SEMANTIC_INDEX_LATEST_PATH,
+        source_counts=source_counts,
+        partial=partial,
+        max_chunks=max_chunks,
+        rebuild=rebuild,
+        build_command=build_command,
+        semantic_config=semantic,
+        embedding=embedding,
+        model_dir=model_dir_for_provenance,
+        device=device_for_provenance,
+        cache_dir=cache_dir_for_provenance,
+        cache_before=cache_before,
+    )
     if source_error:
-        data["error"] = source_error.get("error")
+        nervous_semantic_adapters.semantic_build_apply_source_error(data, source_error)
         return nervous_semantic_write_latest(data) if write_latest else data
     try:
         with nervous_semantic_lock():
             if nervous_index_lock_active():
-                data["deferred"] = True
-                data["error"] = "source lexical index operation is active; semantic build deferred to avoid source_run drift"
+                nervous_semantic_adapters.semantic_build_defer_source_index_active(data)
                 return nervous_semantic_write_latest(data) if write_latest else data
             locked_source_counts = nervous_index_db_counts()
-            locked_source_meta = locked_source_counts.get("meta") if isinstance(locked_source_counts.get("meta"), dict) else {}
-            if (
-                locked_source_meta.get("run_id") != source_meta.get("run_id")
-                or int(locked_source_counts.get("chunks") or 0) != int(source_counts.get("chunks") or 0)
-            ):
+            if nervous_semantic_adapters.semantic_build_source_index_changed(source_counts, locked_source_counts):
                 chunks, source_error = nervous_semantic_source_chunks(max_chunks=max_chunks)
                 source_counts = nervous_index_db_counts()
-                source_meta = source_counts.get("meta") if isinstance(source_counts.get("meta"), dict) else {}
-                data["source_index_reloaded_under_lock"] = True
-                data["source_index"] = {
-                    "run_id": source_meta.get("run_id"),
-                    "built_at": source_meta.get("built_at"),
-                    "chunks": source_counts.get("chunks"),
-                }
+                nervous_semantic_adapters.semantic_build_mark_source_index_reloaded(data, source_counts)
                 if source_error:
-                    data["error"] = source_error.get("error")
+                    nervous_semantic_adapters.semantic_build_apply_source_error(data, source_error)
                     return nervous_semantic_write_latest(data) if write_latest else data
             conn = nervous_semantic_connect(create=True)
             nervous_semantic_initialize(conn)
@@ -21703,13 +21655,11 @@ def nervous_semantic_build(
                 started_at=started_at,
             )
             data["summary"]["vectors_indexed"] = indexed
-            stale_deleted = 0
             if pending:
                 gate = ai_policy_gate_for_class("medium", "nervous semantic-build", force=force_policy)
                 data["policy_gate"] = gate
                 if not gate.get("ok"):
-                    data["policy_denied"] = True
-                    data["error"] = "host AI policy denied semantic embedding build"
+                    nervous_semantic_adapters.semantic_build_apply_policy_denial(data, gate)
                     conn.close()
                     return nervous_semantic_write_latest(data) if write_latest else data
             embedding_windows = nervous_semantic_adapters.semantic_build_embedding_windows(
@@ -21734,59 +21684,30 @@ def nervous_semantic_build(
             if not embedding_windows.get("ok"):
                 conn.close()
                 return nervous_semantic_write_latest(data) if write_latest else data
-            current_ids = {str(item.get("chunk_id")) for item in chunks}
-            meta_values = {
-                "schema": f"{SCHEMA_PREFIX}_nervous_semantic_index_v1",
-                "backend": "sqlite_float32_sidecar",
-                "tool_version": VERSION,
-                "run_id": run_id,
-                "built_at": now_iso(),
-                "source_index_run_id": str(source_meta.get("run_id") or ""),
-                "source_index_built_at": str(source_meta.get("built_at") or ""),
-                "source_chunks": str(source_counts.get("chunks") or 0),
-                "selected_chunks": str(len(chunks)),
-                "partial": "true" if partial else "false",
-                "model_dir": str(embedding.get("model_dir") or ""),
-                "device": str(embedding.get("device") or ""),
-                "cache_dir": str(cache_dir_for_provenance),
-                "dimension": str(embedding.get("dimension") or ""),
-                "max_tokens": str(embedding.get("max_tokens") or ""),
-                "max_input_chars": str(embedding.get("max_input_chars") or ""),
-                "pooling": str(embedding.get("pooling") or ""),
-                "padding_side": str(embedding.get("padding_side") or ""),
-            }
-            finished_at = now_iso()
-            cache_after = artifact_path_stats(cache_dir_for_provenance, artifact_backup_state(cache_dir_for_provenance))
-            compile_cache = data.get("provenance", {}).get("compile_cache") if isinstance(data.get("provenance"), dict) else {}
-            if isinstance(compile_cache, dict):
-                compile_cache["after"] = cache_after
-                compile_cache["mtime_changed"] = cache_before.get("mtime") != cache_after.get("mtime")
-                compile_cache["used_or_regenerated"] = bool(embed_pending and cache_after.get("exists"))
-            if isinstance(data.get("provenance"), dict):
-                data["provenance"]["vector_count"] = indexed
-                data["provenance"]["source_chunks"] = len(chunks)
-                data["provenance"]["pending_chunks"] = len(pending)
-                data["provenance"]["vectors_reused_by_body_hash"] = len(reuse_vectors)
-            stale_deleted += nervous_semantic_adapters.finish_successful_build_run(
+            data = nervous_semantic_adapters.semantic_build_finalize_success(
                 conn,
-                current_chunk_ids=current_ids,
-                partial=partial,
-                meta_values=meta_values,
+                data,
+                schema_prefix=SCHEMA_PREFIX,
+                version=VERSION,
+                source_counts=source_counts,
+                chunks=chunks,
+                embedding=embedding,
                 run_id=run_id,
                 started_at=started_at,
-                finished_at=finished_at,
-                source_chunks=len(chunks),
-                pending_chunks=len(pending),
-                vectors_indexed=indexed,
-                errors={"provenance": data.get("provenance")},
+                partial=partial,
+                cache_before=cache_before,
+                cache_dir=cache_dir_for_provenance,
+                cache_stats=lambda path: artifact_path_stats(path, artifact_backup_state(path)),
+                now=now_iso,
+                indexed=indexed,
+                pending=pending,
+                reuse_vectors=reuse_vectors,
+                db_path=NERVOUS_SEMANTIC_INDEX_DB_PATH,
+                embed_pending=embed_pending,
+                state_group=MODE_STATE_GROUP,
+                counts_port=nervous_semantic_counts,
             )
             conn.close()
-            nervous_semantic_adapters.apply_state_file_mode(NERVOUS_SEMANTIC_INDEX_DB_PATH, group=MODE_STATE_GROUP)
-            data["ok"] = True
-            data["finished_at"] = now_iso()
-            data["summary"]["vectors_indexed"] = indexed
-            data["summary"]["stale_vectors_deleted"] = stale_deleted
-            data["counts"] = nervous_semantic_counts()
     except BlockingIOError:
         data["error"] = "another semantic index operation is already running"
     except (OSError, sqlite3.Error) as exc:

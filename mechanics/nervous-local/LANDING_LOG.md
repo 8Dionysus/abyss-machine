@@ -78,22 +78,26 @@
   latest/history writes, build-run metadata/provenance transactions, generated
   DB mode/group normalization, and embedding execution. CLI still owns semantic
   config/model/python binding, privacy/policy gates for direct builds,
-  final build metadata writes, and command rendering.
+  direct build orchestration, and command rendering.
 - Semantic-maintain orchestration seam:
   `abyss_machine.nervous_semantic_adapters` owns source-index pre-refresh
   assessment, dry-run/launch decisions, lock refusal, resource-gate outcome
   mapping, batch-policy memory-plan fan-in, deferred-build stdout parsing, and
   semantic-maintain latest/history routing through fakeable ports. CLI still
   owns concrete config/path/status/resource/memory/json binding, direct-build
-  policy gates, final build metadata writes, and command rendering.
+  policy gate invocation, semantic build lock/DB sequencing, and command
+  rendering.
 - Semantic-build window execution seam:
   `abyss_machine.nervous_semantic_adapters` owns pending/reuse classification,
   reused-vector insertion, embedding-window fallback attempts, progressive
   vector insertion, failed-build receipt recording, and compile-cache
-  provenance summary projection through fakeable ports. CLI still owns
-  concrete config/path/model/runtime binding, privacy/AI policy gates, semantic
-  DB/source-index lock sequencing, final build metadata writes, and command
-  rendering.
+  provenance summary projection through fakeable ports. It also owns
+  semantic-build command/embedding override shaping, refusal documents,
+  source-index summary/reload/defer documents, policy-denial projection, and
+  successful-build finalization of compile-cache summaries, provenance counters,
+  meta values, DB mode, and counts. CLI still owns concrete config/path/model/
+  runtime binding, privacy/AI policy gate invocation, semantic DB/source-index
+  lock sequencing, concrete DB connection lifetime, and command rendering.
 - Neural rerank execution seam: `abyss_machine.nervous_rerank_adapters` owns
   OpenVINO scorer temp-payload staging, runner invocation, stdout/output JSON
   parsing, policy-gate callback routing, debug path reporting, and

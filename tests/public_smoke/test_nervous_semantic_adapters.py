@@ -452,6 +452,160 @@ def test_semantic_build_pending_plan_classifies_reuse_and_embedding() -> None:
     assert rebuild_plan["reuse_vectors"] == {}
 
 
+def test_semantic_build_document_preflight_shapes_public_safe_receipts(tmp_path: Path) -> None:
+    embedding = nervous_semantic_adapters.semantic_build_embedding_config(
+        {"model_dir": "/models/embed", "batch_size": 16, "max_tokens": 256, "pooling": "last_token"},
+        batch_size=4,
+        device="CPU",
+    )
+    command = nervous_semantic_adapters.semantic_build_command(
+        max_chunks=8,
+        batch_size=4,
+        device="CPU",
+        rebuild=True,
+    )
+    refusal = nervous_semantic_adapters.semantic_build_refusal_document(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T01:00:00+00:00",
+        run_id="semantic-run",
+        refused=True,
+        error="global_pause is active",
+    )
+    document = nervous_semantic_adapters.semantic_build_initial_document(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T01:00:00+00:00",
+        run_id="semantic-run",
+        started_at="2026-07-07T00:59:00+00:00",
+        db_path=tmp_path / "semantic.db",
+        source_index_db_path=tmp_path / "source.db",
+        latest_path=tmp_path / "latest.json",
+        source_counts={"chunks": 12, "meta": {"run_id": "idx-run", "built_at": "2026-07-07T00:50:00+00:00"}},
+        partial=True,
+        max_chunks=8,
+        rebuild=True,
+        build_command=command,
+        semantic_config={"backend": "sqlite_float32_sidecar"},
+        embedding=embedding,
+        model_dir=Path("/models/embed"),
+        device="CPU",
+        cache_dir=tmp_path / "cache",
+        cache_before={"exists": False, "mtime": None},
+    )
+
+    assert embedding["batch_size"] == 4
+    assert embedding["device"] == "CPU"
+    assert command == [
+        "abyss-machine",
+        "nervous",
+        "semantic-build",
+        "--json",
+        "--max-chunks",
+        "8",
+        "--batch-size",
+        "4",
+        "--device",
+        "CPU",
+        "--rebuild",
+    ]
+    assert refusal["refused"] is True
+    assert refusal["error"] == "global_pause is active"
+    assert document["source_index"]["run_id"] == "idx-run"
+    assert document["provenance"]["probe"]["type"] == "bounded_rebuild"
+    assert document["provenance"]["compile_cache"]["before"] == {"exists": False, "mtime": None}
+    assert "chunks" not in document
+
+
+def test_semantic_build_source_reload_and_policy_outcomes() -> None:
+    data: dict[str, object] = {}
+
+    assert nervous_semantic_adapters.semantic_build_source_index_changed(
+        {"chunks": 10, "meta": {"run_id": "idx-a"}},
+        {"chunks": 10, "meta": {"run_id": "idx-a"}},
+    ) is False
+    assert nervous_semantic_adapters.semantic_build_source_index_changed(
+        {"chunks": 10, "meta": {"run_id": "idx-a"}},
+        {"chunks": 11, "meta": {"run_id": "idx-b"}},
+    ) is True
+
+    nervous_semantic_adapters.semantic_build_mark_source_index_reloaded(
+        data,
+        {"chunks": 11, "meta": {"run_id": "idx-b", "built_at": "2026-07-07T01:02:00+00:00"}},
+    )
+    nervous_semantic_adapters.semantic_build_apply_source_error(data, {"error": "source unavailable", "db": "/private/source.db"})
+    nervous_semantic_adapters.semantic_build_defer_source_index_active(data)
+    nervous_semantic_adapters.semantic_build_apply_policy_denial(data, {"ok": False, "denied_reasons": ["thermal_hot"]})
+
+    assert data["source_index_reloaded_under_lock"] is True
+    assert data["source_index"]["run_id"] == "idx-b"
+    assert data["deferred"] is True
+    assert data["policy_denied"] is True
+    assert data["error"] == "host AI policy denied semantic embedding build"
+
+
+def test_semantic_build_finalize_success_updates_meta_provenance_and_counts(tmp_path: Path) -> None:
+    conn = sqlite3.connect(":memory:")
+    data = {
+        "summary": {"vectors_indexed": 1, "stale_vectors_deleted": 0},
+        "provenance": {"compile_cache": {"before": {"exists": True, "mtime": 1}}},
+    }
+    chunks = [{"chunk_id": "a"}, {"chunk_id": "b"}]
+    pending = [{"chunk_id": "a"}]
+    finish_calls: list[dict[str, object]] = []
+    state_calls: list[dict[str, object]] = []
+    times = iter(["2026-07-07T01:03:00+00:00", "2026-07-07T01:04:00+00:00"])
+
+    def fake_finish(_conn: sqlite3.Connection, **kwargs: object) -> int:
+        finish_calls.append(kwargs)
+        return 2
+
+    def fake_state_mode(path: Path, **kwargs: object) -> None:
+        state_calls.append({"path": path, "kwargs": kwargs})
+
+    result = nervous_semantic_adapters.semantic_build_finalize_success(
+        conn,
+        data,
+        schema_prefix="abyss_machine",
+        version="test-version",
+        source_counts={"chunks": 7, "meta": {"run_id": "idx-run", "built_at": "2026-07-07T00:50:00+00:00"}},
+        chunks=chunks,
+        embedding={"model_dir": "/models/embed", "device": "CPU", "dimension": 384, "max_tokens": 256},
+        run_id="semantic-run",
+        started_at="2026-07-07T01:00:00+00:00",
+        partial=False,
+        cache_before={"exists": True, "mtime": 1},
+        cache_dir=tmp_path / "cache",
+        cache_stats=lambda _path: {"exists": True, "mtime": 2},
+        now=lambda: next(times),
+        indexed=3,
+        pending=pending,
+        reuse_vectors={"b": {"dim": 384}},
+        db_path=tmp_path / "semantic.db",
+        embed_pending=pending,
+        state_group="test-group",
+        counts_port=lambda: {"vectors": 3, "build_runs": 1},
+        finish_successful_build_run_port=fake_finish,
+        state_mode_port=fake_state_mode,
+    )
+    conn.close()
+
+    assert result["ok"] is True
+    assert result["finished_at"] == "2026-07-07T01:04:00+00:00"
+    assert result["counts"] == {"vectors": 3, "build_runs": 1}
+    assert result["summary"]["vectors_indexed"] == 3
+    assert result["summary"]["stale_vectors_deleted"] == 2
+    assert result["provenance"]["compile_cache"]["after"] == {"exists": True, "mtime": 2}
+    assert result["provenance"]["compile_cache"]["mtime_changed"] is True
+    assert result["provenance"]["compile_cache"]["used_or_regenerated"] is True
+    assert result["provenance"]["vectors_reused_by_body_hash"] == 1
+    assert finish_calls[0]["meta_values"]["source_index_run_id"] == "idx-run"
+    assert finish_calls[0]["meta_values"]["selected_chunks"] == "2"
+    assert finish_calls[0]["finished_at"] == "2026-07-07T01:04:00+00:00"
+    assert finish_calls[0]["current_chunk_ids"] == {"a", "b"}
+    assert state_calls == [{"path": tmp_path / "semantic.db", "kwargs": {"group": "test-group"}}]
+
+
 def test_semantic_build_embedding_windows_fallbacks_and_progressively_inserts(tmp_path: Path) -> None:
     conn = sqlite3.connect(":memory:")
     data = {
@@ -793,3 +947,95 @@ def test_cli_nervous_semantic_build_disabled_does_not_resolve_cache(monkeypatch)
 
     assert data["ok"] is False
     assert data["error"] == "semantic index disabled by config"
+
+
+def test_cli_nervous_semantic_build_binds_document_finalize_adapter(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+    fake_conn = sqlite3.connect(":memory:")
+    model_dir = tmp_path / "model"
+    cache_dir = tmp_path / "cache"
+    chunks = [{"chunk_id": "chunk-a", "body_sha256": "hash-a"}]
+
+    @contextmanager
+    def fake_lock():
+        yield
+
+    def fake_finalize(conn: sqlite3.Connection, data: dict[str, object], **kwargs: object) -> dict[str, object]:
+        captured["conn"] = conn
+        captured["data"] = dict(data)
+        captured.update(kwargs)
+        return {**data, "ok": True, "from_finalize": True}
+
+    monkeypatch.setattr(cli, "nervous_change_id", lambda _kind: "semantic-run")
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-07-07T01:00:00+00:00")
+    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"enabled": True, "backend": "sqlite_float32_sidecar", "embedding": {"model_dir": str(model_dir), "batch_size": 16}})
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
+    monkeypatch.setattr(cli, "nervous_semantic_model_paths", lambda embedding: (model_dir, str(embedding.get("device") or "CPU"), cache_dir, None))
+    monkeypatch.setattr(cli, "artifact_backup_state", lambda _path: {"state": "before"})
+    monkeypatch.setattr(cli, "artifact_path_stats", lambda _path, _state: {"exists": True, "mtime": 1})
+    monkeypatch.setattr(cli, "nervous_semantic_source_chunks", lambda max_chunks=None: (chunks, None))
+    monkeypatch.setattr(cli, "nervous_index_db_counts", lambda: {"chunks": 1, "meta": {"run_id": "idx-run", "built_at": "2026-07-07T00:59:00+00:00"}})
+    monkeypatch.setattr(cli, "nervous_semantic_lock", fake_lock)
+    monkeypatch.setattr(cli, "nervous_index_lock_active", lambda: False)
+    monkeypatch.setattr(cli, "nervous_semantic_connect", lambda create=False: fake_conn)
+    monkeypatch.setattr(cli, "nervous_semantic_initialize", lambda _conn: None)
+    monkeypatch.setattr(cli, "nervous_semantic_existing_hashes", lambda _conn: {})
+    monkeypatch.setattr(cli, "nervous_semantic_existing_vectors_by_hash", lambda _conn: {})
+    monkeypatch.setattr(
+        nervous_semantic_adapters,
+        "semantic_build_pending_plan",
+        lambda _chunks, **_kwargs: {
+            "pending": [],
+            "pending_by_id": {},
+            "reuse_vectors": {},
+            "embed_pending": [],
+            "summary": {
+                "source_chunks_selected": 1,
+                "existing_vectors": 0,
+                "pending_chunks": 0,
+                "embedding_pending_chunks": 0,
+                "vectors_reused_by_body_hash": 0,
+                "unchanged_chunks": 1,
+                "vectors_indexed": 0,
+                "stale_vectors_deleted": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(nervous_semantic_adapters, "semantic_build_insert_reused_vectors", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(nervous_semantic_adapters, "semantic_build_embedding_windows", lambda *_args, **_kwargs: {"ok": True, "indexed": 0})
+    monkeypatch.setattr(nervous_semantic_adapters, "semantic_build_finalize_success", fake_finalize)
+
+    data = cli.nervous_semantic_build(max_chunks=1, batch_size=2, device="CPU", rebuild=True, write_latest=False)
+    fake_conn.close()
+
+    assert data["ok"] is True
+    assert data["from_finalize"] is True
+    assert captured["conn"] is fake_conn
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["chunks"] == chunks
+    assert captured["embedding"]["batch_size"] == 2
+    assert captured["embedding"]["device"] == "CPU"
+    assert captured["run_id"] == "semantic-run"
+    assert captured["partial"] is True
+    assert captured["cache_dir"] == cache_dir
+    assert captured["indexed"] == 0
+    assert captured["pending"] == []
+    assert captured["embed_pending"] == []
+    assert captured["reuse_vectors"] == {}
+    assert captured["db_path"] == cli.NERVOUS_SEMANTIC_INDEX_DB_PATH
+    assert captured["state_group"] == cli.MODE_STATE_GROUP
+    assert captured["counts_port"] is cli.nervous_semantic_counts
+    assert captured["data"]["build_command"] == [
+        "abyss-machine",
+        "nervous",
+        "semantic-build",
+        "--json",
+        "--max-chunks",
+        "1",
+        "--batch-size",
+        "2",
+        "--device",
+        "CPU",
+        "--rebuild",
+    ]
