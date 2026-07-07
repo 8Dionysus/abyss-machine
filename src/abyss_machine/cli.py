@@ -55520,86 +55520,39 @@ def self_awareness_probe(write_latest: bool = True) -> dict[str, Any]:
         export=export,
         synthetic_events=synthetic_event_refs,
     )
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_probe_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": all(chain.values()) and e2e_lineage_proof.get("ok") is True and lineage.get("complete") is True,
-        "run_id": run_id,
-        "traceparent": traceparent,
-        "target": {"url": target_url, "safe": True, "method": "GET", "mutates_stack": False},
-        "response": response,
-        "resource_preflight": resource_preflight,
-        "chain": chain,
-        "e2e_lineage_proof": e2e_lineage_proof,
-        "lineage": lineage,
-        "synthetic_events": synthetic_event_refs,
-        "movement_smoke": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_probe_movement_smoke_v1",
-            "complete": bool(
-                probe_movement_event.get("event_id")
-                and probe_movement_episode.get("episode_id")
-                and chain.get("movement_reaction_candidate")
-                and chain.get("movement_response")
-                and replay.get("ok") is True
-                and nested_get(replay, ["resident_cognitive_replay", "complete"]) is True
-            ),
-            "service": target_service,
-            "movement_packet_id": movement_packet_id,
-            "event_id": probe_movement_event.get("event_id"),
-            "episode_id": probe_movement_episode.get("episode_id"),
-            "investigation_thread_id": investigation.get("thread_id"),
-            "replay_thread_id": replay.get("thread_id"),
-            "selected_reason": movement_selection["selected_reason"],
-            "policy": {
-                "read_only": True,
-                "host_layer_mutates_stack": False,
-                "executes_commands": False,
-                "automatic_remediation": False,
-                "runtime_incident_claim": False,
-            },
-            "evidence_refs": [
-                {"path": str(SELF_AWARENESS_EVENTS_LATEST_PATH), "event_id": probe_movement_event.get("event_id")},
-                {"path": str(SELF_AWARENESS_EPISODES_LATEST_PATH), "episode_id": probe_movement_episode.get("episode_id")},
-                {"path": str(SELF_AWARENESS_INVESTIGATE_LATEST_PATH), "thread_id": investigation.get("thread_id")},
-                {"path": str(SELF_AWARENESS_REPLAY_LATEST_PATH), "thread_id": replay.get("thread_id")},
-                {"path": str(REACTIONS_LATEST_PATH), "episode_id": probe_movement_episode.get("episode_id")},
-                {"path": str(RESPONSES_LATEST_PATH), "episode_id": probe_movement_episode.get("episode_id")},
-                {"path": str(SELF_AWARENESS_EXPORT_LATEST_PATH), "run_id": run_id},
-            ],
+    data = self_awareness_adapters.probe_result_document(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=generated_at,
+        run_id=run_id,
+        traceparent=traceparent,
+        target_url=target_url,
+        response=response,
+        resource_preflight=resource_preflight,
+        chain=chain,
+        e2e_lineage_proof=e2e_lineage_proof,
+        lineage=lineage,
+        synthetic_event_refs=synthetic_event_refs,
+        artifacts=artifacts,
+        target_service=target_service,
+        movement_packet_id=movement_packet_id,
+        movement_selection=movement_selection,
+        probe_movement_event=probe_movement_event,
+        probe_movement_episode=probe_movement_episode,
+        investigation=investigation,
+        replay=replay,
+        alerts=alerts,
+        autolink=autolink,
+        paths={
+            "events": SELF_AWARENESS_EVENTS_LATEST_PATH,
+            "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
+            "investigate": SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+            "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
+            "reactions": REACTIONS_LATEST_PATH,
+            "responses": RESPONSES_LATEST_PATH,
+            "export": SELF_AWARENESS_EXPORT_LATEST_PATH,
         },
-        "artifacts": artifacts,
-        "summary": {
-            "status": "ok" if all(chain.values()) and e2e_lineage_proof.get("ok") is True and lineage.get("complete") is True else "degraded",
-            "chain_passed": sum(1 for value in chain.values() if value),
-            "chain_total": len(chain),
-            "reaction_candidates": nested_get(alerts, ["summary", "reaction_candidates"]),
-            "movement_smoke_complete": bool(probe_movement_episode.get("episode_id") and chain.get("movement_reaction_candidate") and chain.get("movement_response")),
-            "movement_smoke_service": target_service,
-            "movement_smoke_episode_id": probe_movement_episode.get("episode_id"),
-            "e2e_lineage_ok": e2e_lineage_proof.get("ok"),
-            "e2e_lineage_rows": nested_get(e2e_lineage_proof, ["summary", "rows"]),
-            "e2e_lineage_missing_rows": nested_get(e2e_lineage_proof, ["summary", "missing_rows"]),
-            "lineage_complete": lineage.get("complete"),
-            "lineage_artifacts": nested_get(lineage, ["summary", "artifacts"]),
-            "lineage_synthetic_event_ids": nested_get(lineage, ["summary", "synthetic_event_ids"]),
-            "autolink_organ_links": nested_get(autolink, ["summary", "organ_links"]),
-            "autolink_organ_links_complete": nested_get(autolink, ["summary", "organ_links_complete"]),
-            "autolink_stack_requirement_links": nested_get(autolink, ["summary", "stack_requirement_links"]),
-            "autolink_synthetic_scenarios_complete": nested_get(autolink, ["summary", "synthetic_scenarios_complete"]),
-            "resource_guard_ok": resource_preflight.get("ok"),
-            "resource_guard_reasons": resource_preflight.get("denial_reasons"),
-        },
-        "policy": {
-            "writes_project_roots": False,
-            "restarts_stack_services": False,
-            "synthetic_alert_mutates_stack_rules": False,
-        },
-        "tests": {
-            "e2e_chain": "request -> metric/log/trace/log context -> event -> timeline -> graph -> episode -> alert -> warm-E2B/RAG/nervous context -> investigation -> reaction/response -> brief -> export",
-            "searchable_run_id": run_id,
-        },
-    }
+    )
     if write_latest:
         errors = write_latest_and_history(data, SELF_AWARENESS_PROBE_LATEST_PATH, SELF_AWARENESS_PROBE_ROOT)
         if errors:

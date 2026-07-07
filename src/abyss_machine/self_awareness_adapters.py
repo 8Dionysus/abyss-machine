@@ -1485,6 +1485,147 @@ def cycle_resource_denied_document(
     }
 
 
+def probe_movement_smoke_document(
+    *,
+    schema_prefix: str,
+    paths: Mapping[str, Path | str],
+    run_id: str,
+    target_service: str,
+    movement_packet_id: str,
+    movement_selection: Mapping[str, Any],
+    probe_movement_event: Mapping[str, Any],
+    probe_movement_episode: Mapping[str, Any],
+    investigation: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    chain: Mapping[str, Any],
+) -> dict[str, Any]:
+    episode_id = probe_movement_episode.get("episode_id")
+    return {
+        "schema": f"{schema_prefix}_self_awareness_probe_movement_smoke_v1",
+        "complete": bool(
+            probe_movement_event.get("event_id")
+            and episode_id
+            and chain.get("movement_reaction_candidate")
+            and chain.get("movement_response")
+            and replay.get("ok") is True
+            and _nested_get(replay, ["resident_cognitive_replay", "complete"]) is True
+        ),
+        "service": target_service,
+        "movement_packet_id": movement_packet_id,
+        "event_id": probe_movement_event.get("event_id"),
+        "episode_id": episode_id,
+        "investigation_thread_id": investigation.get("thread_id"),
+        "replay_thread_id": replay.get("thread_id"),
+        "selected_reason": movement_selection.get("selected_reason"),
+        "policy": {
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "automatic_remediation": False,
+            "runtime_incident_claim": False,
+        },
+        "evidence_refs": [
+            {"path": str(paths.get("events") or ""), "event_id": probe_movement_event.get("event_id")},
+            {"path": str(paths.get("episodes") or ""), "episode_id": episode_id},
+            {"path": str(paths.get("investigate") or ""), "thread_id": investigation.get("thread_id")},
+            {"path": str(paths.get("replay") or ""), "thread_id": replay.get("thread_id")},
+            {"path": str(paths.get("reactions") or ""), "episode_id": episode_id},
+            {"path": str(paths.get("responses") or ""), "episode_id": episode_id},
+            {"path": str(paths.get("export") or ""), "run_id": run_id},
+        ],
+    }
+
+
+def probe_result_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    run_id: str,
+    traceparent: str,
+    target_url: str,
+    response: Mapping[str, Any],
+    resource_preflight: Mapping[str, Any],
+    chain: Mapping[str, Any],
+    e2e_lineage_proof: Mapping[str, Any],
+    lineage: Mapping[str, Any],
+    synthetic_event_refs: list[dict[str, Any]],
+    artifacts: Mapping[str, str],
+    target_service: str,
+    movement_packet_id: str,
+    movement_selection: Mapping[str, Any],
+    probe_movement_event: Mapping[str, Any],
+    probe_movement_episode: Mapping[str, Any],
+    investigation: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    alerts: Mapping[str, Any],
+    autolink: Mapping[str, Any],
+    paths: Mapping[str, Path | str],
+) -> dict[str, Any]:
+    chain_values = list(chain.values())
+    complete = all(chain_values) and e2e_lineage_proof.get("ok") is True and lineage.get("complete") is True
+    movement_episode_id = probe_movement_episode.get("episode_id")
+    return {
+        "schema": f"{schema_prefix}_self_awareness_probe_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": complete,
+        "run_id": run_id,
+        "traceparent": traceparent,
+        "target": {"url": target_url, "safe": True, "method": "GET", "mutates_stack": False},
+        "response": dict(response),
+        "resource_preflight": dict(resource_preflight),
+        "chain": dict(chain),
+        "e2e_lineage_proof": dict(e2e_lineage_proof),
+        "lineage": dict(lineage),
+        "synthetic_events": synthetic_event_refs,
+        "movement_smoke": probe_movement_smoke_document(
+            schema_prefix=schema_prefix,
+            paths=paths,
+            run_id=run_id,
+            target_service=target_service,
+            movement_packet_id=movement_packet_id,
+            movement_selection=movement_selection,
+            probe_movement_event=probe_movement_event,
+            probe_movement_episode=probe_movement_episode,
+            investigation=investigation,
+            replay=replay,
+            chain=chain,
+        ),
+        "artifacts": dict(artifacts),
+        "summary": {
+            "status": "ok" if complete else "degraded",
+            "chain_passed": sum(1 for value in chain_values if value),
+            "chain_total": len(chain_values),
+            "reaction_candidates": _nested_get(alerts, ["summary", "reaction_candidates"]),
+            "movement_smoke_complete": bool(movement_episode_id and chain.get("movement_reaction_candidate") and chain.get("movement_response")),
+            "movement_smoke_service": target_service,
+            "movement_smoke_episode_id": movement_episode_id,
+            "e2e_lineage_ok": e2e_lineage_proof.get("ok"),
+            "e2e_lineage_rows": _nested_get(e2e_lineage_proof, ["summary", "rows"]),
+            "e2e_lineage_missing_rows": _nested_get(e2e_lineage_proof, ["summary", "missing_rows"]),
+            "lineage_complete": lineage.get("complete"),
+            "lineage_artifacts": _nested_get(lineage, ["summary", "artifacts"]),
+            "lineage_synthetic_event_ids": _nested_get(lineage, ["summary", "synthetic_event_ids"]),
+            "autolink_organ_links": _nested_get(autolink, ["summary", "organ_links"]),
+            "autolink_organ_links_complete": _nested_get(autolink, ["summary", "organ_links_complete"]),
+            "autolink_stack_requirement_links": _nested_get(autolink, ["summary", "stack_requirement_links"]),
+            "autolink_synthetic_scenarios_complete": _nested_get(autolink, ["summary", "synthetic_scenarios_complete"]),
+            "resource_guard_ok": resource_preflight.get("ok"),
+            "resource_guard_reasons": resource_preflight.get("denial_reasons"),
+        },
+        "policy": {
+            "writes_project_roots": False,
+            "restarts_stack_services": False,
+            "synthetic_alert_mutates_stack_rules": False,
+        },
+        "tests": {
+            "e2e_chain": "request -> metric/log/trace/log context -> event -> timeline -> graph -> episode -> alert -> warm-E2B/RAG/nervous context -> investigation -> reaction/response -> brief -> export",
+            "searchable_run_id": run_id,
+        },
+    }
+
+
 def cycle_artifact_step(
     step_id: str,
     command: str,

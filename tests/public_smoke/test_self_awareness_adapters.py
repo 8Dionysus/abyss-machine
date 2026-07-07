@@ -603,6 +603,85 @@ def test_cycle_resource_denied_document_is_public_safe_and_fail_closed() -> None
     assert payload["policy"]["heavy_operation_must_fail_closed_under_pressure"] is True
 
 
+def test_probe_result_document_builds_complete_public_safe_shape(tmp_path: Path) -> None:
+    chain = {
+        "request": True,
+        "movement_reaction_candidate": True,
+        "movement_response": True,
+        "export": True,
+    }
+    e2e_lineage_proof = {"ok": True, "summary": {"rows": 4, "missing_rows": []}}
+    lineage = {"complete": True, "summary": {"artifacts": 3, "synthetic_event_ids": ["event-fixture"]}}
+    paths = {
+        "events": tmp_path / "events" / "latest.json",
+        "episodes": tmp_path / "episodes" / "latest.json",
+        "investigate": tmp_path / "investigate" / "latest.json",
+        "replay": tmp_path / "replay" / "latest.json",
+        "reactions": tmp_path / "reactions" / "latest.json",
+        "responses": tmp_path / "responses" / "latest.json",
+        "export": tmp_path / "export" / "latest.json",
+    }
+
+    payload = self_awareness_adapters.probe_result_document(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-07T00:00:00+00:00",
+        run_id="saprobe-fixture",
+        traceparent="00-" + "a" * 32 + "-" + "b" * 16 + "-01",
+        target_url="http://127.0.0.1:3000/api/health",
+        response={"ok": True, "status_code": 200},
+        resource_preflight={"ok": True, "denial_reasons": []},
+        chain=chain,
+        e2e_lineage_proof=e2e_lineage_proof,
+        lineage=lineage,
+        synthetic_event_refs=[{"event_id": "event-fixture", "signal": "metric"}],
+        artifacts={"events": str(paths["events"])},
+        target_service="grafana",
+        movement_packet_id="samove-fixture",
+        movement_selection={"selected_reason": "fixture movement"},
+        probe_movement_event={"event_id": "event-fixture"},
+        probe_movement_episode={"episode_id": "episode-fixture"},
+        investigation={"thread_id": "thread-investigate"},
+        replay={"ok": True, "thread_id": "thread-replay", "resident_cognitive_replay": {"complete": True}},
+        alerts={"summary": {"reaction_candidates": 1}},
+        autolink={
+            "summary": {
+                "organ_links": 2,
+                "organ_links_complete": 2,
+                "stack_requirement_links": 1,
+                "synthetic_scenarios_complete": 1,
+            }
+        },
+        paths=paths,
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_probe_v1"
+    assert payload["ok"] is True
+    assert payload["target"] == {"url": "http://127.0.0.1:3000/api/health", "safe": True, "method": "GET", "mutates_stack": False}
+    assert payload["movement_smoke"]["schema"] == "abyss_machine_self_awareness_probe_movement_smoke_v1"
+    assert payload["movement_smoke"]["complete"] is True
+    assert payload["movement_smoke"]["selected_reason"] == "fixture movement"
+    assert payload["movement_smoke"]["policy"]["host_layer_mutates_stack"] is False
+    assert payload["movement_smoke"]["evidence_refs"] == [
+        {"path": str(paths["events"]), "event_id": "event-fixture"},
+        {"path": str(paths["episodes"]), "episode_id": "episode-fixture"},
+        {"path": str(paths["investigate"]), "thread_id": "thread-investigate"},
+        {"path": str(paths["replay"]), "thread_id": "thread-replay"},
+        {"path": str(paths["reactions"]), "episode_id": "episode-fixture"},
+        {"path": str(paths["responses"]), "episode_id": "episode-fixture"},
+        {"path": str(paths["export"]), "run_id": "saprobe-fixture"},
+    ]
+    assert payload["summary"]["status"] == "ok"
+    assert payload["summary"]["chain_passed"] == 4
+    assert payload["summary"]["chain_total"] == 4
+    assert payload["summary"]["movement_smoke_complete"] is True
+    assert payload["summary"]["e2e_lineage_rows"] == 4
+    assert payload["summary"]["lineage_complete"] is True
+    assert payload["summary"]["autolink_organ_links_complete"] == 2
+    assert payload["summary"]["resource_guard_ok"] is True
+    assert payload["policy"]["writes_project_roots"] is False
+
+
 def test_stack_source_ref_and_service_normalization_are_public_safe(tmp_path: Path) -> None:
     ref = self_awareness_adapters.stack_owned_source_ref(
         tmp_path / "abyss-stack" / "Services" / "qwen-tts-api",
