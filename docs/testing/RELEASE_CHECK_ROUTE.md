@@ -193,6 +193,13 @@ cycle stack-handoff/final result snapshots. Keep latest/history writes,
 concrete stack paths, and probe/cycle orchestration in separate live-host checks
 unless the slice intentionally moves those ports.
 
+For self-awareness cycle readmodel guard changes, public CI should rely on
+synthetic tests for open requirement-row classification, issue/guard input
+projection, initial chain assembly through supplied completion predicates, and
+post-export chain updates. Do not run live `self-awareness cycle` merely to
+prove this adapter class; the adapter must be constrained by fake documents and
+existing completion predicates while CLI remains responsible for orchestration.
+
 For self-awareness working-stack source-inventory adapter changes, public CI
 should rely on fake-root/fake-port tests for stack service-name normalization,
 service-selection policy JSON projection, compose service discovery, stack
