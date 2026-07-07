@@ -22676,13 +22676,8 @@ def nervous_synthesis_markdown(candidate: dict[str, Any]) -> str:
 def nervous_synthesis_build(scope: str = "daily", date_value: str | None = None, hour: int | None = None, write_latest: bool = True) -> dict[str, Any]:
     scope = scope if scope in {"hourly", "daily"} else "daily"
     privacy = nervous_effective_privacy(write_latest=False)
-    if bool(privacy.get("global_pause")):
-        return nervous_synthesis_contracts.candidate_refused_result(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=now_iso(),
-        )
-    return nervous_synthesis_adapters.build_synthesis(
+    return nervous_synthesis_adapters.run_synthesis_build(
+        privacy=privacy,
         episodes_root=NERVOUS_EPISODES_ROOT,
         events_root=NERVOUS_EVENTS_ROOT,
         latest_path=NERVOUS_SYNTHESIS_LATEST_PATH,

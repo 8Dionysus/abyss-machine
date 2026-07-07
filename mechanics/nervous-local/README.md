@@ -97,9 +97,10 @@ port binding, and command rendering.
 file routing: episode/event/candidate JSONL root reads, latest reads,
 synthesis latest/period JSONL/markdown writes, synthesis validate latest
 routing, eval dependency orchestration through fakeable validation/recall/
-synthesis ports, global-pause eval refusal, eval latest/history routing, and
-eval validate latest routing through fakeable ports. CLI still owns concrete
-privacy-document reads, concrete path binding, and live dependency-port binding.
+synthesis ports, synthesis/eval global-pause refusals, eval latest/history
+routing, and eval validate latest routing through fakeable ports. CLI still
+owns concrete privacy-document reads, concrete path binding, and live
+dependency-port binding.
 `abyss_machine.nervous_screenshot_adapters` now owns screenshot live probe and
 capture execution routing: GNOME extension status probes, allowlisted DBus
 screenshot execution, X11 active/game-risk window probes, game-safe capture
