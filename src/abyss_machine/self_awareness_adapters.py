@@ -98,6 +98,22 @@ READMODEL_SCHEMA_SUFFIXES: tuple[tuple[str, str], ...] = (
     ("validate", "self_awareness_validate_v1"),
 )
 
+CYCLE_LATEST_READ_NAMES: tuple[str, ...] = (
+    "capabilities",
+    "requirements",
+    "trace_context",
+    "working_stack",
+    "collect",
+    "events",
+    "query",
+    "correlation",
+    "timeline",
+    "spatial_graph",
+    "context",
+    "episodes",
+    "alerts",
+)
+
 COMPLETION_AUDIT_SCHEMA_SUFFIX = "self_awareness_completion_audit_v1"
 
 
@@ -167,6 +183,41 @@ def load_latest_documents(
     load_latest_json: LatestJsonReaderPort,
 ) -> dict[str, dict[str, Any]]:
     return {spec.name: load_latest_json(spec.path, spec.schema) for spec in specs}
+
+
+def cycle_latest_specs(
+    *,
+    schema_prefix: str,
+    paths: Mapping[str, Path],
+) -> tuple[SelfAwarenessLatestSpec, ...]:
+    suffixes = dict(READMODEL_SCHEMA_SUFFIXES)
+    return tuple(
+        _spec(schema_prefix, paths, name, suffixes[name])
+        for name in CYCLE_LATEST_READ_NAMES
+    )
+
+
+def load_cycle_latest_documents(
+    *,
+    schema_prefix: str,
+    paths: Mapping[str, Path],
+    load_latest_json: LatestJsonReaderPort,
+) -> dict[str, dict[str, Any]]:
+    return load_latest_documents(
+        cycle_latest_specs(schema_prefix=schema_prefix, paths=paths),
+        load_latest_json=load_latest_json,
+    )
+
+
+def load_cycle_bridge_documents(
+    surfaces: Iterable[Mapping[str, Any]],
+    *,
+    load_latest_json: LatestJsonReaderPort,
+) -> dict[str, dict[str, Any]]:
+    documents: dict[str, dict[str, Any]] = {}
+    for surface in surfaces:
+        documents[str(surface["id"])] = load_latest_json(Path(surface["path"]), str(surface["schema"]))
+    return documents
 
 
 def _public_value(value: Any, *, depth: int = 0, max_depth: int = 5, max_items: int = 80) -> Any:

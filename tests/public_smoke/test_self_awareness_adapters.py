@@ -63,6 +63,56 @@ def test_load_latest_documents_uses_fake_read_port_without_live_io(tmp_path: Pat
     assert calls == [(spec.path, spec.schema) for spec in specs]
 
 
+def test_cycle_latest_specs_keep_cycle_read_order(tmp_path: Path) -> None:
+    specs = self_awareness_adapters.cycle_latest_specs(
+        schema_prefix="abyss_machine",
+        paths=_path_map(tmp_path),
+    )
+
+    assert [spec.name for spec in specs] == list(self_awareness_adapters.CYCLE_LATEST_READ_NAMES)
+    assert specs[0].schema == "abyss_machine_self_awareness_capabilities_v1"
+    assert specs[2].schema == "abyss_machine_self_awareness_trace_context_fallback_v1"
+    assert specs[-1].schema == "abyss_machine_self_awareness_alerts_v1"
+
+
+def test_cycle_latest_and_bridge_documents_use_fake_loaders(tmp_path: Path) -> None:
+    latest_calls: list[tuple[Path, str]] = []
+    bridge_calls: list[tuple[Path, str]] = []
+
+    def fake_latest_loader(path: Path, schema: str) -> dict[str, Any]:
+        latest_calls.append((path, schema))
+        return {"schema": schema, "ok": True, "path": str(path)}
+
+    def fake_bridge_loader(path: Path, schema: str) -> dict[str, Any]:
+        bridge_calls.append((path, schema))
+        return {"schema": schema, "ok": False, "path": str(path)}
+
+    latest = self_awareness_adapters.load_cycle_latest_documents(
+        schema_prefix="abyss_machine",
+        paths=_path_map(tmp_path),
+        load_latest_json=fake_latest_loader,
+    )
+    bridge = self_awareness_adapters.load_cycle_bridge_documents(
+        [
+            {"id": "memory", "path": tmp_path / "memory" / "latest.json", "schema": "abyss_machine_memory_status_v1"},
+            {"id": "mode", "path": tmp_path / "mode" / "latest.json", "schema": "abyss_machine_mode_status_v1"},
+        ],
+        load_latest_json=fake_bridge_loader,
+    )
+
+    assert list(latest) == list(self_awareness_adapters.CYCLE_LATEST_READ_NAMES)
+    assert latest["capabilities"]["schema"] == "abyss_machine_self_awareness_capabilities_v1"
+    assert latest_calls == [(spec.path, spec.schema) for spec in self_awareness_adapters.cycle_latest_specs(schema_prefix="abyss_machine", paths=_path_map(tmp_path))]
+    assert bridge == {
+        "memory": {"schema": "abyss_machine_memory_status_v1", "ok": False, "path": str(tmp_path / "memory" / "latest.json")},
+        "mode": {"schema": "abyss_machine_mode_status_v1", "ok": False, "path": str(tmp_path / "mode" / "latest.json")},
+    }
+    assert bridge_calls == [
+        (tmp_path / "memory" / "latest.json", "abyss_machine_memory_status_v1"),
+        (tmp_path / "mode" / "latest.json", "abyss_machine_mode_status_v1"),
+    ]
+
+
 def test_latest_summary_omits_raw_payload_and_redacts_summary(tmp_path: Path) -> None:
     spec = self_awareness_adapters.SelfAwarenessLatestSpec(
         name="events",
