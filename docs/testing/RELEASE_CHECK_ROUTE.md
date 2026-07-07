@@ -266,9 +266,10 @@ the repository.
 For nervous semantic-build window execution adapter changes, public CI should
 rely on fake-port tests for pending/reuse classification, reused-vector insert
 routing, embedding-window fallback batch attempts, progressive vector insert,
-failed-build receipt recording, and compile-cache summary projection. Live-host
-closeout should prefer `abyss-machine nervous semantic-status --json` plus a
-bounded source dry-run/refusal path when available; run
+failed-build receipt recording, command/refusal/source-reload document shaping,
+successful-build finalize routing, and compile-cache summary projection.
+Live-host closeout should prefer `abyss-machine nervous semantic-status --json`
+plus a bounded source dry-run/refusal path when available; run
 `abyss-machine nervous semantic-build --max-chunks N --batch-size 1 --device CPU
 --rebuild --json` only when the slice intentionally changes live rebuild
 behavior or the operator explicitly accepts the host cost. Never copy raw

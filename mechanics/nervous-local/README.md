@@ -119,9 +119,12 @@ build launch orchestration through fakeable status, lock, resource-launch,
 memory-plan, latest-writer, and JSON-parser ports. It also owns
 semantic-build pending/reuse classification, reused-vector insert routing,
 windowed embedding attempts, fallback batch sizing, progressive vector insert,
-and failed-build receipt/provenance summaries through fakeable ports. CLI still
-owns concrete config/path/model/runtime binding, direct-build policy gates,
-semantic DB/source-index lock sequencing, final metadata writes, and rendering.
+failed-build receipt/provenance summaries, command/receipt/refusal/source-reload
+documents, and successful-build finalization of compile-cache summaries,
+provenance counters, meta values, DB mode, and counts through fakeable ports.
+CLI still owns concrete config/path/model/runtime binding, direct-build policy
+gate invocation, semantic DB/source-index lock sequencing, concrete DB
+connection lifetime, and rendering.
 `abyss_machine.nervous_rerank_adapters` now owns the neural rerank scorer
 subprocess seam for temp-payload staging, command invocation, stdout/output JSON
 parsing, policy-gate callback routing, debug path reporting, and

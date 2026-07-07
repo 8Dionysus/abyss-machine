@@ -31,6 +31,8 @@ CacheStatsPort = Callable[[Path], dict[str, Any]]
 NowPort = Callable[[], str]
 InsertVectorsPort = Callable[[sqlite3.Connection, dict[str, dict[str, Any]], dict[str, dict[str, Any]], str], int]
 RecordFailedBuildRunPort = Callable[..., None]
+FinishSuccessfulBuildRunPort = Callable[..., int]
+StateModePort = Callable[..., None]
 
 DEFAULT_STATE_GROUP = "wheel"
 
@@ -251,6 +253,292 @@ def record_failed_build_run(
     except Exception:
         conn.rollback()
         raise
+
+
+def semantic_build_embedding_config(
+    embedding: Mapping[str, Any],
+    *,
+    batch_size: int | None = None,
+    device: str | None = None,
+) -> dict[str, Any]:
+    result = dict(embedding)
+    if batch_size is not None and batch_size > 0:
+        result["batch_size"] = int(batch_size)
+    if device:
+        result["device"] = str(device)
+    return result
+
+
+def semantic_build_command(
+    *,
+    max_chunks: int | None = None,
+    batch_size: int | None = None,
+    device: str | None = None,
+    rebuild: bool = False,
+) -> list[str]:
+    command = ["abyss-machine", "nervous", "semantic-build", "--json"]
+    if max_chunks is not None and max_chunks > 0:
+        command.extend(["--max-chunks", str(int(max_chunks))])
+    if batch_size is not None and batch_size > 0:
+        command.extend(["--batch-size", str(int(batch_size))])
+    if device:
+        command.extend(["--device", str(device)])
+    if rebuild:
+        command.append("--rebuild")
+    return command
+
+
+def semantic_build_refusal_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    run_id: str,
+    error: str,
+    refused: bool = False,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "schema": f"{schema_prefix}_nervous_semantic_build_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "run_id": run_id,
+        "error": error,
+    }
+    if refused:
+        data["refused"] = True
+    return data
+
+
+def semantic_build_source_index_summary(source_counts: Mapping[str, Any]) -> dict[str, Any]:
+    source_meta = source_counts.get("meta") if isinstance(source_counts.get("meta"), dict) else {}
+    return {
+        "run_id": source_meta.get("run_id"),
+        "built_at": source_meta.get("built_at"),
+        "chunks": source_counts.get("chunks"),
+    }
+
+
+def semantic_build_initial_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    run_id: str,
+    started_at: str,
+    db_path: Path,
+    source_index_db_path: Path,
+    latest_path: Path,
+    source_counts: Mapping[str, Any],
+    partial: bool,
+    max_chunks: int | None,
+    rebuild: bool,
+    build_command: list[str],
+    semantic_config: Mapping[str, Any],
+    embedding: Mapping[str, Any],
+    model_dir: Path,
+    device: str,
+    cache_dir: Path,
+    cache_before: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": f"{schema_prefix}_nervous_semantic_build_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "run_id": run_id,
+        "started_at": started_at,
+        "paths": {
+            "db": str(db_path),
+            "source_index_db": str(source_index_db_path),
+            "latest": str(latest_path),
+        },
+        "source_index": semantic_build_source_index_summary(source_counts),
+        "partial": bool(partial),
+        "max_chunks": max_chunks,
+        "rebuild": bool(rebuild),
+        "build_command": list(build_command),
+        "embedding": {
+            "model_dir": embedding.get("model_dir"),
+            "device": embedding.get("device"),
+            "cache_dir": str(cache_dir),
+            "batch_size": embedding.get("batch_size"),
+            "max_tokens": embedding.get("max_tokens"),
+            "max_input_chars": embedding.get("max_input_chars"),
+            "pooling": embedding.get("pooling"),
+            "padding_side": embedding.get("padding_side"),
+        },
+        "provenance": {
+            "backend": semantic_config.get("backend"),
+            "model_dir": str(model_dir),
+            "cache_dir": str(cache_dir),
+            "device": device,
+            "build_command": list(build_command),
+            "probe": {
+                "type": "bounded_rebuild" if partial and rebuild else "semantic_build",
+                "max_chunks": max_chunks,
+                "batch_size": embedding.get("batch_size"),
+                "rebuild": bool(rebuild),
+            },
+            "compile_cache": {
+                "before": dict(cache_before),
+                "after": None,
+                "mtime_changed": None,
+                "used_or_regenerated": None,
+            },
+        },
+    }
+
+
+def semantic_build_apply_source_error(data: dict[str, Any], source_error: Mapping[str, Any]) -> dict[str, Any]:
+    data["error"] = source_error.get("error")
+    return data
+
+
+def semantic_build_source_index_changed(
+    before_counts: Mapping[str, Any],
+    locked_counts: Mapping[str, Any],
+) -> bool:
+    before_meta = before_counts.get("meta") if isinstance(before_counts.get("meta"), dict) else {}
+    locked_meta = locked_counts.get("meta") if isinstance(locked_counts.get("meta"), dict) else {}
+    return (
+        locked_meta.get("run_id") != before_meta.get("run_id")
+        or int(locked_counts.get("chunks") or 0) != int(before_counts.get("chunks") or 0)
+    )
+
+
+def semantic_build_mark_source_index_reloaded(
+    data: dict[str, Any],
+    source_counts: Mapping[str, Any],
+) -> dict[str, Any]:
+    data["source_index_reloaded_under_lock"] = True
+    data["source_index"] = semantic_build_source_index_summary(source_counts)
+    return data
+
+
+def semantic_build_defer_source_index_active(data: dict[str, Any]) -> dict[str, Any]:
+    data["deferred"] = True
+    data["error"] = "source lexical index operation is active; semantic build deferred to avoid source_run drift"
+    return data
+
+
+def semantic_build_apply_policy_denial(data: dict[str, Any], gate: Mapping[str, Any]) -> dict[str, Any]:
+    data["policy_gate"] = dict(gate)
+    data["policy_denied"] = True
+    data["error"] = "host AI policy denied semantic embedding build"
+    return data
+
+
+def semantic_build_meta_values(
+    *,
+    schema_prefix: str,
+    version: str,
+    run_id: str,
+    built_at: str,
+    source_counts: Mapping[str, Any],
+    selected_chunks: int,
+    partial: bool,
+    embedding: Mapping[str, Any],
+    cache_dir: Path,
+) -> dict[str, Any]:
+    source_meta = source_counts.get("meta") if isinstance(source_counts.get("meta"), dict) else {}
+    return {
+        "schema": f"{schema_prefix}_nervous_semantic_index_v1",
+        "backend": "sqlite_float32_sidecar",
+        "tool_version": version,
+        "run_id": run_id,
+        "built_at": built_at,
+        "source_index_run_id": str(source_meta.get("run_id") or ""),
+        "source_index_built_at": str(source_meta.get("built_at") or ""),
+        "source_chunks": str(source_counts.get("chunks") or 0),
+        "selected_chunks": str(selected_chunks),
+        "partial": "true" if partial else "false",
+        "model_dir": str(embedding.get("model_dir") or ""),
+        "device": str(embedding.get("device") or ""),
+        "cache_dir": str(cache_dir),
+        "dimension": str(embedding.get("dimension") or ""),
+        "max_tokens": str(embedding.get("max_tokens") or ""),
+        "max_input_chars": str(embedding.get("max_input_chars") or ""),
+        "pooling": str(embedding.get("pooling") or ""),
+        "padding_side": str(embedding.get("padding_side") or ""),
+    }
+
+
+def semantic_build_finalize_success(
+    conn: sqlite3.Connection,
+    data: dict[str, Any],
+    *,
+    schema_prefix: str,
+    version: str,
+    source_counts: Mapping[str, Any],
+    chunks: list[dict[str, Any]],
+    embedding: Mapping[str, Any],
+    run_id: str,
+    started_at: str,
+    partial: bool,
+    cache_before: Mapping[str, Any],
+    cache_dir: Path,
+    cache_stats: CacheStatsPort,
+    now: NowPort,
+    indexed: int,
+    pending: list[dict[str, Any]],
+    reuse_vectors: Mapping[str, Any],
+    db_path: Path,
+    embed_pending: list[dict[str, Any]] | None = None,
+    state_group: str = DEFAULT_STATE_GROUP,
+    counts_port: Callable[[], dict[str, Any]] | None = None,
+    finish_successful_build_run_port: FinishSuccessfulBuildRunPort | None = None,
+    state_mode_port: StateModePort = apply_state_file_mode,
+) -> dict[str, Any]:
+    if finish_successful_build_run_port is None:
+        finish_successful_build_run_port = finish_successful_build_run
+    built_at = now()
+    finished_at = now()
+    cache_after = cache_stats(cache_dir)
+    compile_cache = data.get("provenance", {}).get("compile_cache") if isinstance(data.get("provenance"), dict) else {}
+    if isinstance(compile_cache, dict):
+        compile_cache["after"] = cache_after
+        compile_cache["mtime_changed"] = cache_before.get("mtime") != cache_after.get("mtime")
+        cache_touch_items = embed_pending if embed_pending is not None else pending
+        compile_cache["used_or_regenerated"] = bool(cache_touch_items and cache_after.get("exists"))
+    if isinstance(data.get("provenance"), dict):
+        data["provenance"]["vector_count"] = indexed
+        data["provenance"]["source_chunks"] = len(chunks)
+        data["provenance"]["pending_chunks"] = len(pending)
+        data["provenance"]["vectors_reused_by_body_hash"] = len(reuse_vectors)
+    stale_deleted = finish_successful_build_run_port(
+        conn,
+        current_chunk_ids={str(item.get("chunk_id")) for item in chunks},
+        partial=partial,
+        meta_values=semantic_build_meta_values(
+            schema_prefix=schema_prefix,
+            version=version,
+            run_id=run_id,
+            built_at=built_at,
+            source_counts=source_counts,
+            selected_chunks=len(chunks),
+            partial=partial,
+            embedding=embedding,
+            cache_dir=cache_dir,
+        ),
+        run_id=run_id,
+        started_at=started_at,
+        finished_at=finished_at,
+        source_chunks=len(chunks),
+        pending_chunks=len(pending),
+        vectors_indexed=indexed,
+        errors={"provenance": data.get("provenance")},
+    )
+    state_mode_port(db_path, group=state_group)
+    summary = data.setdefault("summary", {})
+    if isinstance(summary, dict):
+        summary["vectors_indexed"] = indexed
+        summary["stale_vectors_deleted"] = stale_deleted
+    data["ok"] = True
+    data["finished_at"] = finished_at
+    if counts_port is not None:
+        data["counts"] = counts_port()
+    return data
 
 
 def finish_successful_build_run(
