@@ -8,6 +8,12 @@ modules under the configured libexec root. Bootstrap also projects compact
 public seed read models under the adjacent share root so installed validators
 can run without importing a source checkout.
 
+The `bootstrap_install_bundle` archive must carry the bootstrap script, package
+modules, config and systemd templates, schemas, and the repo-local `manifests/`
+plus `generated/` read models. An extracted archive must be able to run
+`scripts/abyss-machine-bootstrap doctor --dry-run --json` before any live host
+mutation.
+
 Dry-runs are the default review surface.
 
 ## Fresh-Machine Projection
