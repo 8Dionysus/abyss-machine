@@ -230,6 +230,15 @@ bounded refresh/result counts. Do not publish generated quality latest/history
 documents, browser-content payloads, redaction sample input, source-state
 payloads, or local index contents.
 
+For nervous privacy adapter changes, public CI should rely on fake-port tests
+for privacy config/state reads, state write-error projection, audit JSONL append
+routing, latest writes, status input assembly, and privacy-set orchestration.
+Live-host closeout may use compact `abyss-machine nervous privacy-status --json`
+and `abyss-machine nervous quality-audit --json` summaries only: schema, return
+code, ok/status, pause/private-mode booleans, and fail/warning/check counts. Do
+not publish privacy state documents, audit records, generated latest payloads,
+source-state payloads, browser content, or local index contents.
+
 For nervous capture-status adapter changes, public CI should rely on fake-port
 tests for capture/browser latest reads, path-existence checks, private-root size
 summaries, screenshot PNG counts, browser-content JSONL counts, browser route

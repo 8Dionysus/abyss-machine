@@ -44,7 +44,12 @@ nervous organs start in
 `abyss_machine.typing_nervous_adapters`. Keep future nervous adapters bounded by
 source or execution class: browser capture, local JSONL readers, lexical
 SQLite/FTS lifecycle, semantic embedding subprocesses, rerank subprocesses,
-and privacy audit writes.
+and privacy-gated derived memory evidence.
+`abyss_machine.nervous_privacy_adapters` now owns privacy config/state read
+routing, privacy state writes with write-error projection, privacy audit JSONL
+append routing, privacy latest writes, status input assembly, and privacy-set
+orchestration through fakeable ports. CLI still owns concrete paths, concrete
+port binding, and rendering.
 `abyss_machine.nervous_source_adapters` now owns source-policy local IO:
 source config/default merge reads, latest writes, source-state reads/writes, and
 source-enable/source-disable orchestration through fakeable lookup, state,

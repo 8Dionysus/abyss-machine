@@ -255,6 +255,36 @@ def set_result(
     }
 
 
+def set_write_failed_result(
+    *,
+    target: str,
+    field: str,
+    before: bool,
+    after: bool,
+    state: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+) -> dict[str, Any]:
+    result = {
+        "schema": f"{schema_prefix}_nervous_privacy_set_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "error": "state write failed",
+        "target": target,
+        "field": field,
+        "changed": False,
+        "attempted_change": before != after,
+        "before": before,
+        "after": after,
+        "state": dict(state),
+    }
+    if state.get("write_errors"):
+        result["write_errors"] = state.get("write_errors")
+    return result
+
+
 def target_field(target: str) -> str | None:
     if target == "pause":
         return "global_pause"
