@@ -1485,6 +1485,49 @@ def cycle_resource_denied_document(
     }
 
 
+def cycle_partial_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    cycle_id: str,
+    probe_run_id: str,
+    steps: Iterable[Mapping[str, Any]],
+    resource_preflight: Mapping[str, Any],
+    cycle_chain: Mapping[str, Any],
+    bridge_proof: Mapping[str, Any],
+    stack_handoff_summary: Mapping[str, Any],
+    stack_handoff_closure_readiness: Mapping[str, Any],
+    automatic_response_count: int,
+    mutating_response_routes: int,
+) -> dict[str, Any]:
+    step_rows = list(steps)
+    return {
+        "schema": f"{schema_prefix}_self_awareness_cycle_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "status": "building",
+        "cycle_id": cycle_id,
+        "probe_run_id": probe_run_id,
+        "summary": {"status": "building", "steps": len(step_rows)},
+        "steps": step_rows,
+        "resource_preflight": dict(resource_preflight),
+        "cycle_chain": dict(cycle_chain),
+        "bridge_proof": dict(bridge_proof),
+        "stack_handoff_summary": dict(stack_handoff_summary),
+        "stack_handoff_closure_readiness": dict(stack_handoff_closure_readiness),
+        "evidence_refs": [{"path": str(step["artifact"]["path"]), "step": step["id"]} for step in step_rows],
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "automatic_remediation": False,
+            "automatic_responses": automatic_response_count,
+            "routes_with_mutating_command_if_run": mutating_response_routes,
+            "open_stack_requirements_are_blockers_not_host_failures": True,
+        },
+    }
+
+
 def probe_movement_smoke_document(
     *,
     schema_prefix: str,
