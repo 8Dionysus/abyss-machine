@@ -90,6 +90,7 @@ try:
     from . import nervous_events_adapters
     from . import nervous_index_adapters
     from . import nervous_privacy as nervous_privacy_contracts
+    from . import nervous_privacy_adapters
     from . import nervous_quality as nervous_quality_contracts
     from . import nervous_quality_adapters
     from . import nervous_redaction
@@ -253,6 +254,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import nervous_events_adapters
     from abyss_machine import nervous_index_adapters
     from abyss_machine import nervous_privacy as nervous_privacy_contracts
+    from abyss_machine import nervous_privacy_adapters
     from abyss_machine import nervous_quality as nervous_quality_contracts
     from abyss_machine import nervous_quality_adapters
     from abyss_machine import nervous_redaction
@@ -18753,13 +18755,18 @@ def nervous_sources(write_latest: bool = True) -> dict[str, Any]:
 
 
 def nervous_privacy(write_latest: bool = True) -> dict[str, Any]:
-    data = nervous_config_document(NERVOUS_PRIVACY_CONFIG_PATH, default_nervous_privacy())
-    data["generated_at"] = now_iso()
-    data["ok"] = data.get("_load_error") is None
+    data = nervous_privacy_adapters.config_document_from_path(
+        NERVOUS_PRIVACY_CONFIG_PATH,
+        default_nervous_privacy(),
+        generated_at=now_iso(),
+        load_json=load_json_document,
+    )
     if write_latest:
-        error = safe_atomic_write_json(NERVOUS_PRIVACY_LATEST_PATH, data, 0o664)
-        if error:
-            data["write_errors"] = [error]
+        data = nervous_privacy_adapters.write_latest(
+            data,
+            NERVOUS_PRIVACY_LATEST_PATH,
+            writer=safe_atomic_write_json,
+        )
     return data
 
 
@@ -18784,67 +18791,59 @@ def default_nervous_sources_state() -> dict[str, Any]:
 
 
 def nervous_privacy_audit(event: dict[str, Any], write: bool = True) -> dict[str, Any]:
-    record = nervous_privacy_contracts.audit_record(
+    return nervous_privacy_adapters.audit_record_from_event(
         event,
+        audit_root=NERVOUS_PRIVACY_AUDIT_ROOT,
+        write_enabled=write,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
+        jsonl_append=safe_append_jsonl,
+        today_path=nervous_today_path,
     )
-    if write:
-        error = safe_append_jsonl(nervous_today_path(NERVOUS_PRIVACY_AUDIT_ROOT), record, 0o664)
-        if error:
-            record["write_errors"] = [error]
-            record["ok"] = False
-        else:
-            record.setdefault("ok", True)
-    return record
 
 
 def nervous_privacy_state() -> dict[str, Any]:
-    defaults = default_nervous_privacy_state()
-    loaded, error = load_json_document(NERVOUS_PRIVACY_STATE_PATH)
-    return nervous_privacy_contracts.state_document(
-        defaults=defaults,
-        loaded=loaded,
-        load_error=error,
-        path=str(NERVOUS_PRIVACY_STATE_PATH),
-        exists=NERVOUS_PRIVACY_STATE_PATH.exists(),
+    return nervous_privacy_adapters.state_document_from_path(
+        NERVOUS_PRIVACY_STATE_PATH,
+        default_nervous_privacy_state(),
+        load_json=load_json_document,
     )
 
 
 def nervous_save_privacy_state(state: dict[str, Any], updated_by: str, reason: str | None = None) -> dict[str, Any]:
-    clean = nervous_privacy_contracts.saved_state_document(
+    return nervous_privacy_adapters.save_state_document(
         state,
+        NERVOUS_PRIVACY_STATE_PATH,
         updated_by=updated_by,
         reason=reason,
         change_id=nervous_change_id("privacy"),
         updated_at=now_iso(),
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
+        writer=safe_atomic_write_json,
     )
-    safe_atomic_write_json(NERVOUS_PRIVACY_STATE_PATH, clean, 0o664)
-    return clean
 
 
 def nervous_effective_privacy(write_latest: bool = True) -> dict[str, Any]:
     config = nervous_privacy(write_latest=write_latest)
     state = nervous_privacy_state()
-    return nervous_privacy_contracts.effective_privacy(
+    return nervous_privacy_adapters.effective_privacy_document(
         config,
         state,
-        state_path=str(NERVOUS_PRIVACY_STATE_PATH),
+        state_path=NERVOUS_PRIVACY_STATE_PATH,
     )
 
 
 def nervous_privacy_status(write_latest: bool = True) -> dict[str, Any]:
     effective = nervous_effective_privacy(write_latest=write_latest)
     config = nervous_privacy(write_latest=False)
-    return nervous_privacy_contracts.status_document(
+    return nervous_privacy_adapters.status_document_from_inputs(
         effective=effective,
         config=config,
-        config_path=str(NERVOUS_PRIVACY_CONFIG_PATH),
-        state_path=str(NERVOUS_PRIVACY_STATE_PATH),
-        audit_glob=str(NERVOUS_PRIVACY_AUDIT_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+        config_path=NERVOUS_PRIVACY_CONFIG_PATH,
+        state_path=NERVOUS_PRIVACY_STATE_PATH,
+        audit_root=NERVOUS_PRIVACY_AUDIT_ROOT,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
@@ -18852,42 +18851,16 @@ def nervous_privacy_status(write_latest: bool = True) -> dict[str, Any]:
 
 
 def nervous_privacy_set(target: str, enabled: bool, reason: str | None = None) -> dict[str, Any]:
-    if nervous_privacy_contracts.target_field(target) is None:
-        return nervous_privacy_contracts.set_error(SCHEMA_PREFIX, VERSION, now_iso())
-    before = nervous_privacy_state()
-    transition = nervous_privacy_contracts.set_transition(
+    return nervous_privacy_adapters.privacy_set_from_ports(
         target,
         enabled,
-        before,
-        active_since=now_iso(),
-    )
-    if not transition.get("ok"):
-        return nervous_privacy_contracts.set_error(SCHEMA_PREFIX, VERSION, now_iso())
-    saved = nervous_save_privacy_state(
-        transition["state"],
-        f"privacy-set:{target}",
-        reason or f"{target} {'on' if enabled else 'off'}",
-    )
-    audit = nervous_privacy_audit(
-        nervous_privacy_contracts.set_audit_event(
-            change_id=saved.get("last_change_id"),
-            target=target,
-            field=transition["field"],
-            before=bool(transition["before"]),
-            after=enabled,
-            reason=reason,
-        )
-    )
-    return nervous_privacy_contracts.set_result(
-        target=target,
-        field=transition["field"],
-        before=bool(transition["before"]),
-        after=enabled,
-        state=saved,
-        audit=audit,
+        reason=reason,
+        state_reader=nervous_privacy_state,
+        state_writer=lambda state, updated_by, save_reason: nervous_save_privacy_state(dict(state), updated_by, save_reason),
+        audit_writer=nervous_privacy_audit,
+        now_iso=now_iso,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
-        generated_at=now_iso(),
     )
 
 

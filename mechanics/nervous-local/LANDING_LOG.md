@@ -132,6 +132,11 @@
   browser/timer/redaction input collection, missing-index projection, and
   quality latest/history writes through fakeable ports. CLI still owns concrete
   path constants, live function binding, and rendering.
+- Privacy state/audit seam: `abyss_machine.nervous_privacy_adapters` owns
+  privacy config/state read routing, state writes with write-error projection,
+  audit JSONL append routing, privacy latest writes, status input assembly, and
+  privacy-set orchestration through fakeable ports. CLI still owns concrete
+  path constants, live port binding, and rendering.
 - Screenshot live capture seam: `abyss_machine.nervous_screenshot_adapters`
   owns GNOME extension status probes, allowlisted DBus screenshot execution,
   X11 active/game-risk window probes, game-safe capture command execution, and

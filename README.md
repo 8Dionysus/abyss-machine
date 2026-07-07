@@ -181,7 +181,9 @@ input collection, missing-index projection, and latest/history write routing
 live in `abyss_machine.nervous_quality_adapters`.
 Nervous privacy defaults, state merge/normalization, effective privacy,
 status, set-transition, audit-record, and set-result contracts live in
-`abyss_machine.nervous_privacy`.
+`abyss_machine.nervous_privacy`; privacy config/state reads, state writes,
+audit JSONL append routing, latest writes, status input assembly, and
+privacy-set orchestration live in `abyss_machine.nervous_privacy_adapters`.
 Resource policy normalization, gate decisions,
 systemd-run plan shapes, and launch argv contracts live in
 `abyss_machine.resource_planning`. AI CPU route selection, routed-heavy policy,
@@ -457,8 +459,10 @@ missing-index projection, and latest/history writes live in
 `nervous_quality_adapters`; command rendering and concrete port binding remain
 at the CLI edge. Nervous privacy defaults, state merge/normalization,
 effective privacy, status, set-transition, audit-record, and set-result
-contracts are module-owned while state file reads/writes, audit JSONL appends,
-and latest writes remain at the CLI edge. AI runtime env/cache/resource-profile, model inventory shaping, LLM paths/registry/validate/runtime/profile status,
+contracts are module-owned while privacy config/state reads, state writes,
+audit JSONL appends, latest writes, and privacy-set orchestration live in
+`nervous_privacy_adapters`; command rendering and concrete path/port binding
+remain at the CLI edge. AI runtime env/cache/resource-profile, model inventory shaping, LLM paths/registry/validate/runtime/profile status,
 OpenVINO benchmark-plan/probe/eval command/result contracts, AI eval suite-policy/execution-plan/STT scoring/result
 envelopes, token-accounting privacy/count/count-execution/profile/tokenizer-route/aoa-summary contracts,
 capabilities projection, AI policy decision/gate, workload taxonomy/measurement
