@@ -35,7 +35,8 @@ Use these mechanic owners for the next extraction slices:
   adapter, Firefox browser-history capture runtime adapter, derived
   event/episode JSONL/latest write adapters, synthesis/eval local read/write
   adapter, screenshot live capture adapter, clipboard live read adapter, lexical
-  SQLite/FTS lifecycle, semantic sidecar lifecycle/execution, rerank execution,
+  SQLite/FTS lifecycle, semantic sidecar lifecycle/execution and
+  semantic-maintain orchestration, rerank execution,
   retention contracts plus filesystem/apply adapter, top-level status readmodel
   assembly/write routing, capture-status readmodel filesystem/latest probes,
   and derived memory evidence.
