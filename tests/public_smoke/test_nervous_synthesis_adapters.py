@@ -225,10 +225,90 @@ def test_eval_run_and_validate_write_routes_are_fakeable(tmp_path: Path) -> None
     assert latest_writes == [validate_latest_path]
 
 
+def test_run_eval_orchestrates_dependency_ports_and_persistence(tmp_path: Path) -> None:
+    calls: list[tuple[object, ...]] = []
+    latest_history_writes: list[tuple[Path, Path, str]] = []
+    docs = {
+        "events": {"ok": True, "summary": {"events": 2}},
+        "episodes": {"ok": True, "summary": {"episodes": 1}},
+        "index": {"ok": True, "summary": {"chunks": 3}},
+        "recall": {"ok": True, "pack_id": "pack-adapter", "summary": {"evidence_items": 2}},
+        "synthesis": {"ok": True, "candidate_id": "syn-adapter", "scope": "daily", "summary": {"episodes": 1}},
+        "synthesis_validate": {"ok": True, "summary": {"checks": 4}},
+    }
+
+    def latest_history_writer(data: dict[str, Any], latest: Path, daily: Path) -> list[dict[str, Any]]:
+        latest_history_writes.append((latest, daily, data["schema"]))
+        return []
+
+    data = adapters.run_eval(
+        privacy={"global_pause": False},
+        latest_path=tmp_path / "evals" / "latest.json",
+        daily_root=tmp_path / "evals",
+        recall_latest_path=tmp_path / "retrieval" / "latest.json",
+        synthesis_latest_path=tmp_path / "synthesis" / "latest.json",
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-25T12:00:00+00:00",
+        events_validate=lambda write_latest=False: calls.append(("events", write_latest)) or docs["events"],
+        episodes_validate=lambda write_latest=False: calls.append(("episodes", write_latest)) or docs["episodes"],
+        index_validate=lambda write_latest=False: calls.append(("index", write_latest)) or docs["index"],
+        recall_pack=lambda query, limit, write_latest=True: calls.append(("recall", query, limit, write_latest)) or docs["recall"],
+        synthesis_build=lambda scope="daily", write_latest=True: calls.append(("synthesis", scope, write_latest)) or docs["synthesis"],
+        synthesis_validate=lambda write_latest=False: calls.append(("synthesis_validate", write_latest)) or docs["synthesis_validate"],
+        latest_history_writer=latest_history_writer,
+    )
+
+    assert data["schema"] == "abyss_machine_nervous_eval_v1"
+    assert data["ok"] is True
+    assert calls == [
+        ("events", False),
+        ("episodes", False),
+        ("index", False),
+        ("recall", "thermal storage power nervous", 16, True),
+        ("synthesis", "daily", True),
+        ("synthesis_validate", False),
+    ]
+    assert latest_history_writes == [(tmp_path / "evals" / "latest.json", tmp_path / "evals", "abyss_machine_nervous_eval_v1")]
+
+
+def test_run_eval_refuses_before_dependency_ports_when_paused(tmp_path: Path) -> None:
+    def fail_dependency(**_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("global pause should refuse before dependency ports")
+
+    data = adapters.run_eval(
+        privacy={"global_pause": True},
+        latest_path=tmp_path / "evals" / "latest.json",
+        daily_root=tmp_path / "evals",
+        recall_latest_path=tmp_path / "retrieval" / "latest.json",
+        synthesis_latest_path=tmp_path / "synthesis" / "latest.json",
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-25T12:00:00+00:00",
+        events_validate=fail_dependency,
+        episodes_validate=fail_dependency,
+        index_validate=fail_dependency,
+        recall_pack=fail_dependency,
+        synthesis_build=fail_dependency,
+        synthesis_validate=fail_dependency,
+    )
+
+    assert data == {
+        "schema": "abyss_machine_nervous_eval_v1",
+        "version": "test",
+        "generated_at": "2026-06-25T12:00:00+00:00",
+        "ok": False,
+        "refused": True,
+        "error": "global_pause is active; eval run did not touch recall, synthesis, or eval files",
+    }
+
+
 def test_cli_synthesis_and_eval_validate_bind_adapter_ports(monkeypatch) -> None:
     build_calls: list[dict[str, Any]] = []
     validate_calls: list[dict[str, Any]] = []
+    eval_run_calls: list[dict[str, Any]] = []
     eval_validate_calls: list[dict[str, Any]] = []
+    privacy_doc = {"global_pause": False}
 
     def fake_build_synthesis(**kwargs):
         build_calls.append(kwargs)
@@ -238,18 +318,24 @@ def test_cli_synthesis_and_eval_validate_bind_adapter_ports(monkeypatch) -> None
         validate_calls.append(kwargs)
         return {"ok": True, "schema": "fixture_synthesis_validate"}
 
+    def fake_run_eval(**kwargs):
+        eval_run_calls.append(kwargs)
+        return {"ok": True, "schema": "fixture_eval_run"}
+
     def fake_validate_eval(**kwargs):
         eval_validate_calls.append(kwargs)
         return {"ok": True, "schema": "fixture_eval_validate"}
 
-    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy_doc)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
     monkeypatch.setattr(cli.nervous_synthesis_adapters, "build_synthesis", fake_build_synthesis)
     monkeypatch.setattr(cli.nervous_synthesis_adapters, "validate_synthesis", fake_validate_synthesis)
+    monkeypatch.setattr(cli.nervous_synthesis_adapters, "run_eval", fake_run_eval)
     monkeypatch.setattr(cli.nervous_synthesis_adapters, "validate_eval", fake_validate_eval)
 
     assert cli.nervous_synthesis_build(scope="hourly", date_value="2026-06-25", hour=9, write_latest=False)["schema"] == "fixture_synthesis"
     assert cli.nervous_synthesis_validate(write_latest=False)["schema"] == "fixture_synthesis_validate"
+    assert cli.nervous_eval_run(write_latest=False)["schema"] == "fixture_eval_run"
     assert cli.nervous_eval_validate(write_latest=False)["schema"] == "fixture_eval_validate"
 
     assert build_calls[0]["episodes_root"] == cli.NERVOUS_EPISODES_ROOT
@@ -259,10 +345,18 @@ def test_cli_synthesis_and_eval_validate_bind_adapter_ports(monkeypatch) -> None
     assert build_calls[0]["latest_writer"] is cli.safe_atomic_write_json
     assert validate_calls[0]["latest_reader"] is cli.load_json_document
     assert validate_calls[0]["latest_writer"] is cli.safe_atomic_write_json
+    assert eval_run_calls[0]["privacy"] is privacy_doc
+    assert eval_run_calls[0]["events_validate"] is cli.nervous_events_validate
+    assert eval_run_calls[0]["episodes_validate"] is cli.nervous_episodes_validate
+    assert eval_run_calls[0]["index_validate"] is cli.nervous_index_validate
+    assert eval_run_calls[0]["recall_pack"] is cli.nervous_recall_pack
+    assert eval_run_calls[0]["synthesis_build"] is cli.nervous_synthesis_build
+    assert eval_run_calls[0]["synthesis_validate"] is cli.nervous_synthesis_validate
+    assert eval_run_calls[0]["write_latest_enabled"] is False
     assert eval_validate_calls[0]["latest_reader"] is cli.load_json_document
 
 
-def test_cli_eval_run_keeps_dependency_orchestration_and_routes_persistence_to_adapter(monkeypatch) -> None:
+def test_cli_eval_run_uses_adapter_orchestration_and_routes_persistence(monkeypatch) -> None:
     calls: list[tuple[object, ...]] = []
     adapter_calls: list[dict[str, Any]] = []
     docs = {

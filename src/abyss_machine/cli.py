@@ -22751,36 +22751,8 @@ def nervous_synthesis_validate(write_latest: bool = True) -> dict[str, Any]:
 
 def nervous_eval_run(write_latest: bool = True) -> dict[str, Any]:
     privacy = nervous_effective_privacy(write_latest=False)
-    if bool(privacy.get("global_pause")):
-        return nervous_synthesis_contracts.eval_refused_result(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=now_iso(),
-        )
-
-    plan = nervous_synthesis_contracts.eval_run_execution_plan(schema_prefix=SCHEMA_PREFIX)
-    events_validation = nervous_events_validate(write_latest=bool(plan["events_validation"]["write_latest"]))
-    episodes_validation = nervous_episodes_validate(write_latest=bool(plan["episodes_validation"]["write_latest"]))
-    index_validation = nervous_index_validate(write_latest=bool(plan["index_validation"]["write_latest"]))
-    recall_plan = plan["recall"]
-    recall = nervous_recall_pack(
-        str(recall_plan["query"]),
-        limit=int(recall_plan["limit"]),
-        write_latest=bool(recall_plan["write_latest"]),
-    )
-    synthesis_plan = plan["synthesis"]
-    synthesis = nervous_synthesis_build(
-        scope=str(synthesis_plan["scope"]),
-        write_latest=bool(synthesis_plan["write_latest"]),
-    )
-    synthesis_validation = nervous_synthesis_validate(write_latest=bool(plan["synthesis_validation"]["write_latest"]))
-    return nervous_synthesis_adapters.build_eval_run(
-        events_validation=events_validation,
-        episodes_validation=episodes_validation,
-        index_validation=index_validation,
-        recall=recall,
-        synthesis=synthesis,
-        synthesis_validation=synthesis_validation,
+    return nervous_synthesis_adapters.run_eval(
+        privacy=privacy,
         latest_path=NERVOUS_EVALS_LATEST_PATH,
         daily_root=NERVOUS_EVALS_ROOT,
         recall_latest_path=NERVOUS_RETRIEVAL_LATEST_PATH,
@@ -22789,6 +22761,12 @@ def nervous_eval_run(write_latest: bool = True) -> dict[str, Any]:
         version=VERSION,
         generated_at=now_iso(),
         write_latest_enabled=write_latest,
+        events_validate=nervous_events_validate,
+        episodes_validate=nervous_episodes_validate,
+        index_validate=nervous_index_validate,
+        recall_pack=nervous_recall_pack,
+        synthesis_build=nervous_synthesis_build,
+        synthesis_validate=nervous_synthesis_validate,
     )
 
 

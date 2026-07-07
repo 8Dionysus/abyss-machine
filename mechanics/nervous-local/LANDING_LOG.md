@@ -118,9 +118,10 @@
 - Synthesis/eval local file seam: `abyss_machine.nervous_synthesis_adapters`
   owns episode/event/candidate JSONL root reads, latest reads, synthesis
   latest/period JSONL/markdown writes, synthesis validate latest routing, eval
-  latest/history routing, and eval validate latest routing through fakeable
-  ports. CLI still owns privacy refusal binding, concrete paths, eval
-  dependency command orchestration, and rendering.
+  dependency orchestration through fakeable validation/recall/synthesis ports,
+  global-pause eval refusal, eval latest/history routing, and eval validate
+  latest routing through fakeable ports. CLI still owns concrete privacy reads,
+  concrete paths, live dependency-port binding, and rendering.
 - Screenshot live capture seam: `abyss_machine.nervous_screenshot_adapters`
   owns GNOME extension status probes, allowlisted DBus screenshot execution,
   X11 active/game-risk window probes, game-safe capture command execution, and
