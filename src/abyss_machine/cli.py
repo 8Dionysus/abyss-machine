@@ -102,6 +102,7 @@ try:
     from . import nervous_semantic_adapters
     from . import nervous_source_adapters
     from . import nervous_sources as nervous_source_contracts
+    from . import nervous_status_adapters
     from . import nervous_synthesis as nervous_synthesis_contracts
     from . import nervous_synthesis_adapters
     from . import process_contracts
@@ -262,6 +263,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import nervous_semantic_adapters
     from abyss_machine import nervous_source_adapters
     from abyss_machine import nervous_sources as nervous_source_contracts
+    from abyss_machine import nervous_status_adapters
     from abyss_machine import nervous_synthesis as nervous_synthesis_contracts
     from abyss_machine import nervous_synthesis_adapters
     from abyss_machine import process_adapters
@@ -31797,216 +31799,65 @@ def nervous_status(write_latest: bool = True) -> dict[str, Any]:
     policy = nervous_policy(write_latest=write_latest)
     sources = nervous_effective_sources(write_latest=write_latest)
     privacy = nervous_effective_privacy(write_latest=write_latest)
-    source_groups = sources.get("safe_now", {}) if isinstance(sources.get("safe_now"), dict) else {}
-    enabled_sources = [
-        name for name, item in source_groups.items()
-        if isinstance(item, dict) and bool(item.get("enabled")) and bool(item.get("allowed", True))
-    ]
-    private_groups = sources.get("deferred_until_privacy_controls", {}) if isinstance(sources.get("deferred_until_privacy_controls"), dict) else {}
-    enabled_private_sources = [
-        name for name, item in private_groups.items()
-        if isinstance(item, dict) and bool(item.get("enabled")) and bool(item.get("allowed", True))
-    ]
-    warnings: list[str] = []
-    if not NERVOUS_DESIGN_PATH.exists():
-        warnings.append("design artifact missing")
-    if not NERVOUS_AGENTS_PATH.exists():
-        warnings.append("agent entrypoint missing")
-    for path in (NERVOUS_POLICY_CONFIG_PATH, NERVOUS_SOURCES_CONFIG_PATH, NERVOUS_PRIVACY_CONFIG_PATH):
-        if not path.exists():
-            warnings.append(f"config missing: {path}")
-    if policy.get("active_daemon") or policy.get("activation", {}).get("watcher_enabled"):
-        warnings.append("policy claims active daemon; verify service before capture")
-    daemon = {
-        "service": user_systemd_unit("abyss-nervous.service"),
-        "timer": user_systemd_unit("abyss-nervous.timer"),
-        "scope": "user",
-    }
-    passive_chronicle = {
-        "service": user_systemd_unit(NERVOUS_PASSIVE_CHRONICLE_SERVICE),
-        "timer": user_systemd_unit(NERVOUS_PASSIVE_CHRONICLE_TIMER),
-        "scope": "user",
-        "latest_facts": str(NERVOUS_FACTS_LATEST_PATH),
-    }
-    index_counts = nervous_index_db_counts()
-    events_latest, events_latest_error = load_json_document(NERVOUS_EVENTS_LATEST_PATH)
-    episodes_latest, episodes_latest_error = load_json_document(NERVOUS_EPISODES_LATEST_PATH)
-    retrieval_latest, retrieval_latest_error = load_json_document(NERVOUS_RETRIEVAL_LATEST_PATH)
-    synthesis_latest, synthesis_latest_error = load_json_document(NERVOUS_SYNTHESIS_LATEST_PATH)
-    eval_latest, eval_latest_error = load_json_document(NERVOUS_EVALS_LATEST_PATH)
-    retention_latest, retention_latest_error = load_json_document(NERVOUS_RETENTION_LATEST_PATH)
-    capture_latest, capture_latest_error = load_json_document(NERVOUS_CAPTURE_LATEST_PATH)
-    browser_content_latest, browser_content_latest_error = load_json_document(NERVOUS_BROWSER_CONTENT_LATEST_PATH)
-    browser_content_capture = {
-        "service": user_systemd_unit(NERVOUS_BROWSER_CONTENT_CAPTURE_SERVICE),
-        "timer": user_systemd_unit(NERVOUS_BROWSER_CONTENT_CAPTURE_TIMER),
-        "scope": "user",
-        "latest": str(NERVOUS_BROWSER_CONTENT_LATEST_PATH),
-        "latest_exists": NERVOUS_BROWSER_CONTENT_LATEST_PATH.exists(),
-        "latest_error": browser_content_latest_error,
-        "ok": browser_content_latest.get("ok") if isinstance(browser_content_latest, dict) else None,
-        "summary": browser_content_latest.get("summary") if isinstance(browser_content_latest, dict) else None,
-        "error": browser_content_latest.get("error") if isinstance(browser_content_latest, dict) else None,
-        "raw_storage_root": str(NERVOUS_BROWSER_CONTENT_ROOT),
-        "idle_behavior": "timer tick exits cleanly without capture while Firefox is closed",
-    }
-    local_index = {
-        "service": user_systemd_unit(NERVOUS_SEARCH_INDEX_SERVICE),
-        "timer": user_systemd_unit(NERVOUS_SEARCH_INDEX_TIMER),
-        "scope": "user",
-        "db": str(NERVOUS_SEARCH_INDEX_DB_PATH),
-        "latest": str(NERVOUS_SEARCH_INDEX_LATEST_PATH),
-        "db_exists": NERVOUS_SEARCH_INDEX_DB_PATH.exists(),
-        "documents": index_counts.get("documents"),
-        "chunks": index_counts.get("chunks"),
-    }
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_nervous_status_v1",
-        "version": VERSION,
-        "generated_at": now_iso(),
-        "ok": not any(item.startswith("design artifact") or item.startswith("agent entrypoint") for item in warnings),
-        "status": "ready-for-local-chronicle",
-        "phase": "stage-9-passive-local-private-capture",
-        "warnings": warnings,
-        "paths": paths,
-        "policy": {
-            "path": str(NERVOUS_POLICY_CONFIG_PATH),
-            "exists": NERVOUS_POLICY_CONFIG_PATH.exists(),
-            "mode": policy.get("mode"),
-            "active_daemon": bool(policy.get("active_daemon")),
-            "activation": policy.get("activation", {}),
-            "load_error": policy.get("_load_error"),
+    data = nervous_status_adapters.status_document_from_ports(
+        paths=paths,
+        policy=policy,
+        sources=sources,
+        privacy=privacy,
+        status_paths={
+            "design": NERVOUS_DESIGN_PATH,
+            "agents": NERVOUS_AGENTS_PATH,
+            "policy_config": NERVOUS_POLICY_CONFIG_PATH,
+            "sources_config": NERVOUS_SOURCES_CONFIG_PATH,
+            "privacy_config": NERVOUS_PRIVACY_CONFIG_PATH,
+            "sources_state": NERVOUS_SOURCES_STATE_PATH,
+            "privacy_state": NERVOUS_PRIVACY_STATE_PATH,
+            "facts_latest": NERVOUS_FACTS_LATEST_PATH,
+            "events_latest": NERVOUS_EVENTS_LATEST_PATH,
+            "episodes_latest": NERVOUS_EPISODES_LATEST_PATH,
+            "retrieval_latest": NERVOUS_RETRIEVAL_LATEST_PATH,
+            "synthesis_latest": NERVOUS_SYNTHESIS_LATEST_PATH,
+            "evals_latest": NERVOUS_EVALS_LATEST_PATH,
+            "retention_latest": NERVOUS_RETENTION_LATEST_PATH,
+            "capture_latest": NERVOUS_CAPTURE_LATEST_PATH,
+            "private_capture_root": NERVOUS_PRIVATE_CAPTURE_ROOT,
+            "screenshot_root": NERVOUS_SCREENSHOT_ROOT,
+            "browser_content_latest": NERVOUS_BROWSER_CONTENT_LATEST_PATH,
+            "browser_content_root": NERVOUS_BROWSER_CONTENT_ROOT,
+            "search_index_db": NERVOUS_SEARCH_INDEX_DB_PATH,
+            "search_index_latest": NERVOUS_SEARCH_INDEX_LATEST_PATH,
+            "storage_latest": STORAGE_LATEST_PATH,
+            "observability_latest": OBSERVABILITY_ROOT / "thermal-battery" / "latest.json",
+            "ai_capabilities_latest": AI_CAPABILITIES_LATEST_PATH,
         },
-        "sources": {
-            "path": str(NERVOUS_SOURCES_CONFIG_PATH),
-            "exists": NERVOUS_SOURCES_CONFIG_PATH.exists(),
-            "mode": sources.get("mode"),
-            "enabled_safe_sources": enabled_sources,
-            "enabled_private_connector_sources": enabled_private_sources,
-            "state_path": str(NERVOUS_SOURCES_STATE_PATH),
-            "state": sources.get("state", {}),
-            "deferred": list((sources.get("deferred_until_privacy_controls") or {}).keys())
-            if isinstance(sources.get("deferred_until_privacy_controls"), dict)
-            else [],
-            "load_error": sources.get("_load_error"),
+        unit_names={
+            "daemon_service": "abyss-nervous.service",
+            "daemon_timer": "abyss-nervous.timer",
+            "passive_chronicle_service": NERVOUS_PASSIVE_CHRONICLE_SERVICE,
+            "passive_chronicle_timer": NERVOUS_PASSIVE_CHRONICLE_TIMER,
+            "browser_content_capture_service": NERVOUS_BROWSER_CONTENT_CAPTURE_SERVICE,
+            "browser_content_capture_timer": NERVOUS_BROWSER_CONTENT_CAPTURE_TIMER,
+            "search_index_service": NERVOUS_SEARCH_INDEX_SERVICE,
+            "search_index_timer": NERVOUS_SEARCH_INDEX_TIMER,
         },
-        "privacy": {
-            "path": str(NERVOUS_PRIVACY_CONFIG_PATH),
-            "exists": NERVOUS_PRIVACY_CONFIG_PATH.exists(),
-            "mode": privacy.get("mode"),
-            "global_pause": bool(privacy.get("global_pause")),
-            "private_mode": bool(privacy.get("private_mode")),
-            "state_path": str(NERVOUS_PRIVACY_STATE_PATH),
-            "state": privacy.get("state", {}),
-            "load_error": privacy.get("_load_error"),
-        },
-        "daemon": daemon,
-        "passive_chronicle": passive_chronicle,
-        "browser_content_capture": browser_content_capture,
-        "local_index": local_index,
-        "capture": {
-            "latest": str(NERVOUS_CAPTURE_LATEST_PATH),
-            "latest_exists": NERVOUS_CAPTURE_LATEST_PATH.exists(),
-            "latest_error": capture_latest_error,
-            "ok": capture_latest.get("ok") if isinstance(capture_latest, dict) else None,
-            "summary": capture_latest.get("summary") if isinstance(capture_latest, dict) else None,
-            "sources": capture_latest.get("sources") if isinstance(capture_latest, dict) else None,
-            "private_artifact_root": str(NERVOUS_PRIVATE_CAPTURE_ROOT),
-            "screenshots_root": str(NERVOUS_SCREENSHOT_ROOT),
-            "browser_content_root": str(NERVOUS_BROWSER_CONTENT_ROOT),
-            "browser_content_latest": str(NERVOUS_BROWSER_CONTENT_LATEST_PATH),
-        },
-        "derived_events": {
-            "latest": str(NERVOUS_EVENTS_LATEST_PATH),
-            "latest_exists": NERVOUS_EVENTS_LATEST_PATH.exists(),
-            "latest_error": events_latest_error,
-            "ok": events_latest.get("ok") if isinstance(events_latest, dict) else None,
-            "events": nested_get(events_latest, ["summary", "events"]) if isinstance(events_latest, dict) else None,
-            "by_category": nested_get(events_latest, ["summary", "by_category"]) if isinstance(events_latest, dict) else None,
-        },
-        "derived_episodes": {
-            "latest": str(NERVOUS_EPISODES_LATEST_PATH),
-            "latest_exists": NERVOUS_EPISODES_LATEST_PATH.exists(),
-            "latest_error": episodes_latest_error,
-            "ok": episodes_latest.get("ok") if isinstance(episodes_latest, dict) else None,
-            "episodes": nested_get(episodes_latest, ["summary", "episodes"]) if isinstance(episodes_latest, dict) else None,
-            "by_category": nested_get(episodes_latest, ["summary", "by_category"]) if isinstance(episodes_latest, dict) else None,
-        },
-        "retrieval": {
-            "latest": str(NERVOUS_RETRIEVAL_LATEST_PATH),
-            "latest_exists": NERVOUS_RETRIEVAL_LATEST_PATH.exists(),
-            "latest_error": retrieval_latest_error,
-            "ok": retrieval_latest.get("ok") if isinstance(retrieval_latest, dict) else None,
-            "pack_id": retrieval_latest.get("pack_id") if isinstance(retrieval_latest, dict) else None,
-            "evidence_items": nested_get(retrieval_latest, ["summary", "evidence_items"]) if isinstance(retrieval_latest, dict) else None,
-        },
-        "synthesis": {
-            "latest": str(NERVOUS_SYNTHESIS_LATEST_PATH),
-            "latest_exists": NERVOUS_SYNTHESIS_LATEST_PATH.exists(),
-            "latest_error": synthesis_latest_error,
-            "ok": synthesis_latest.get("ok") if isinstance(synthesis_latest, dict) else None,
-            "candidate_id": synthesis_latest.get("candidate_id") if isinstance(synthesis_latest, dict) else None,
-            "scope": synthesis_latest.get("scope") if isinstance(synthesis_latest, dict) else None,
-            "summary": synthesis_latest.get("summary") if isinstance(synthesis_latest, dict) else None,
-        },
-        "evals": {
-            "latest": str(NERVOUS_EVALS_LATEST_PATH),
-            "latest_exists": NERVOUS_EVALS_LATEST_PATH.exists(),
-            "latest_error": eval_latest_error,
-            "ok": eval_latest.get("ok") if isinstance(eval_latest, dict) else None,
-            "summary": eval_latest.get("summary") if isinstance(eval_latest, dict) else None,
-        },
-        "retention": {
-            "latest": str(NERVOUS_RETENTION_LATEST_PATH),
-            "latest_exists": NERVOUS_RETENTION_LATEST_PATH.exists(),
-            "latest_error": retention_latest_error,
-            "ok": retention_latest.get("ok") if isinstance(retention_latest, dict) else None,
-            "summary": retention_latest.get("summary") if isinstance(retention_latest, dict) else None,
-        },
-        "existing_bridges": {
-            "storage_latest": {
-                "path": str(STORAGE_LATEST_PATH),
-                "exists": STORAGE_LATEST_PATH.exists(),
-            },
-            "process_latest": process_latest_summary(),
-            "observability_latest": {
-                "path": str(OBSERVABILITY_ROOT / "thermal-battery" / "latest.json"),
-                "exists": (OBSERVABILITY_ROOT / "thermal-battery" / "latest.json").exists(),
-            },
-            "ai_capabilities_latest": {
-                "path": str(AI_CAPABILITIES_LATEST_PATH),
-                "exists": AI_CAPABILITIES_LATEST_PATH.exists(),
-            },
-        },
-        "today": {
-            "events_path": paths["events"]["today"],
-            "events": count_file_lines(Path(paths["events"]["today"])),
-            "facts_path": paths["facts"]["today"],
-            "facts": count_file_lines(Path(paths["facts"]["today"])),
-            "facts_latest": str(NERVOUS_FACTS_LATEST_PATH),
-            "episodes_path": paths["episodes"]["today"],
-            "episodes": count_file_lines(Path(paths["episodes"]["today"])),
-            "retrieval_path": paths["retrieval"]["today"],
-            "retrieval": count_file_lines(Path(paths["retrieval"]["today"])),
-            "evals_path": paths["evals"]["today"],
-            "evals": count_file_lines(Path(paths["evals"]["today"])),
-            "retention_path": paths["retention"]["today"],
-            "retention": count_file_lines(Path(paths["retention"]["today"])),
-        },
-        "non_claims": [
-            "No watcher or daemon is installed by this command.",
-            "Broad local capture is passive timer-based; no always-on watcher daemon is installed.",
-            "Terminal capture does not attach to existing stdout/stderr streams.",
-            "Browser capture uses recent local history metadata plus Firefox AT-SPI document text during normal browsing; RemoteAgent is diagnostic-only.",
-            "AoA repositories remain reference material under reformation.",
-        ],
-    }
+        index_counts=nervous_index_db_counts,
+        latest_reader=load_json_document,
+        path_exists=lambda path: path.exists(),
+        line_counter=count_file_lines,
+        systemd_unit=user_systemd_unit,
+        process_latest=process_latest_summary,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+    )
     if write_latest:
-        latest_error = safe_atomic_write_json(NERVOUS_LATEST_PATH, data, 0o664)
-        index_error = safe_atomic_write_json(NERVOUS_INDEX_PATH, nervous_index_document(data), 0o664)
-        errors = [error for error in (latest_error, index_error) if error]
-        if errors:
-            data["write_errors"] = errors
+        data = nervous_status_adapters.write_status_outputs(
+            data,
+            latest_path=NERVOUS_LATEST_PATH,
+            index_path=NERVOUS_INDEX_PATH,
+            index_document=nervous_index_document,
+            writer=safe_atomic_write_json,
+        )
     return data
 
 

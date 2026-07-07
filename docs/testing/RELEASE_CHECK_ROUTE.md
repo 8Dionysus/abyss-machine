@@ -210,6 +210,16 @@ requests that live source-state mutation, and never report raw browser content,
 typed text, clipboard material, source-state payloads, or generated private
 evidence.
 
+For nervous status readmodel adapter changes, public CI should rely on fake-port
+tests for policy/source/privacy projection, latest-document summaries, systemd
+unit projection, index-count binding, today counters, process-latest summaries,
+and status latest/index write routing. Live-host closeout may use compact
+summaries from `abyss-machine nervous status --json` and
+`abyss-machine nervous quality-audit --json`; report only
+ok/phase/warning/count summaries and never copy generated latest documents,
+source-state payloads, browser content, local index contents, or private host
+evidence into the repository.
+
 For nervous event/episode file/write adapter changes, public CI should rely on
 fake-root tests for JSONL root reads, derived-record replacement writes, latest
 read envelopes, and build/validate latest write routing. Live-host closeout may
