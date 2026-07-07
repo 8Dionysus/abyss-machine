@@ -33441,91 +33441,27 @@ def self_awareness_working_stack_tts_smoke_probes(enabled: bool = True) -> list[
 
 
 def self_awareness_working_stack_probe_ok(probes: list[dict[str, Any]], service: str, probe: str) -> bool:
-    return any(
-        isinstance(item, dict)
-        and item.get("service") == service
-        and item.get("probe") == probe
-        and item.get("ok") is True
-        for item in probes
-    )
+    return self_awareness_adapters.working_stack_probe_ok(probes, service, probe)
 
 
 def self_awareness_working_stack_tool_status(service: str, status: str, probes: list[dict[str, Any]]) -> str:
-    if service in {"qwen-tts", "tts-router"}:
-        if self_awareness_working_stack_probe_ok(probes, service, "tts-synthesis-artifact"):
-            return "recent_on_demand_tool_signal"
-    if service == "docs-api":
-        if self_awareness_working_stack_probe_ok(probes, service, "health") and self_awareness_working_stack_probe_ok(probes, service, "search:n8n-workflow"):
-            return "active_machine_tool_signal"
-    if service == "aoa-browser":
-        health_ok = self_awareness_working_stack_probe_ok(probes, service, "health")
-        guard_ok = self_awareness_working_stack_probe_ok(probes, service, "private-host-guard")
-        launch_probe_present = any(isinstance(item, dict) and item.get("service") == service and item.get("probe") == "playwright-chromium-launch" for item in probes)
-        launch_ok = self_awareness_working_stack_probe_ok(probes, service, "playwright-chromium-launch")
-        if health_ok and guard_ok and launch_ok:
-            return "active_machine_tool_signal"
-        if health_ok and guard_ok and launch_probe_present:
-            return "tool_runtime_degraded"
-        if health_ok and guard_ok:
-            return "tool_guard_visible_unproven_deep_use"
-    return status
+    return self_awareness_adapters.working_stack_tool_status(service, status, probes)
 
 
 def self_awareness_collect_stack_model_path_refs(value: Any, *, limit: int = 48) -> list[dict[str, Any]]:
-    roots = tuple(str(path) for path in AI_MODEL_ROOTS)
-    refs: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def visit(item: Any, depth: int = 0) -> None:
-        if len(refs) >= limit or depth > 8:
-            return
-        if isinstance(item, dict):
-            for key in ("path", "model_dir", "root", "local_path"):
-                value = item.get(key)
-                if isinstance(value, str):
-                    visit(value, depth + 1)
-            for value in item.values():
-                if isinstance(value, (dict, list)):
-                    visit(value, depth + 1)
-            return
-        if isinstance(item, list):
-            for value in item:
-                visit(value, depth + 1)
-            return
-        if not isinstance(item, str):
-            return
-        path = item.strip()
-        if not path.startswith(roots) or path in seen:
-            return
-        seen.add(path)
-        refs.append(self_awareness_stack_owned_source_ref(Path(path), "ai_capability_source_model"))
-
-    visit(value)
-    return refs
+    return self_awareness_adapters.collect_stack_model_path_refs(
+        value,
+        ai_model_roots=AI_MODEL_ROOTS,
+        limit=limit,
+    )
 
 
 def self_awareness_model_row_paths(model_rows: list[dict[str, Any]]) -> list[str]:
-    paths: list[str] = []
-    seen: set[str] = set()
-    for row in model_rows:
-        if not isinstance(row, dict):
-            continue
-        candidates: list[Any] = [row.get("path")]
-        candidates.extend(ref.get("path") for ref in row.get("stack_source_refs", []) if isinstance(ref, dict))
-        for value in candidates:
-            path = str(value or "").strip()
-            if path and path not in seen:
-                seen.add(path)
-                paths.append(path)
-    return paths
+    return self_awareness_adapters.model_row_paths(model_rows)
 
 
 def self_awareness_paths_overlap(left: str, right: str) -> bool:
-    left = left.rstrip("/")
-    right = right.rstrip("/")
-    if not left or not right:
-        return False
-    return left == right or left.startswith(right + "/") or right.startswith(left + "/")
+    return self_awareness_adapters.paths_overlap(left, right)
 
 
 def self_awareness_working_stack_model_bridge(
@@ -33533,58 +33469,19 @@ def self_awareness_working_stack_model_bridge(
     model_rows: list[dict[str, Any]],
     ai_caps: dict[str, Any],
 ) -> dict[str, Any]:
-    capability_key_by_service = {
-        "embeddings": "embeddings",
-        "stt": "stt",
-        "tts": "tts",
-        "llm-registry": "llm_text",
-    }
-    capability_key = capability_key_by_service.get(service)
-    if not capability_key:
-        return {}
-    capabilities = ai_caps.get("capabilities") if isinstance(ai_caps.get("capabilities"), dict) else {}
-    capability = capabilities.get(capability_key) if isinstance(capabilities.get(capability_key), dict) else {}
-    status = str(capability.get("status") or "")
-    ready_statuses = {"ready", "runtime-ready", "runtime-proven", "resident-running", "executable"}
-    source_refs = self_awareness_collect_stack_model_path_refs(capability)
-    source_paths = [str(ref.get("path")) for ref in source_refs if ref.get("path")]
-    model_paths = self_awareness_model_row_paths(model_rows)
-    linked_paths = [
-        source_path for source_path in source_paths
-        if any(self_awareness_paths_overlap(source_path, model_path) for model_path in model_paths)
-    ]
-    runtime_ready = status in ready_statuses or nested_get(capability, ["runtime", "ready"]) is True
-    active = bool(runtime_ready and linked_paths)
-    evidence_refs: list[dict[str, Any]] = [
-        {"path": str(AI_CAPABILITIES_LATEST_PATH), "schema": ai_caps.get("schema"), "capability": capability_key},
-    ]
-    if service == "llm-registry":
-        evidence_refs.append({"path": str(AI_LLM_REGISTRY_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_ai_llm_registry_v1"})
-    if service == "tts":
-        evidence_refs.extend([
-            {"path": str(AI_TTS_PROFILES_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_ai_tts_profiles_v1"},
-            {"path": str(AI_TTS_EVAL_LATEST_SUCCESS_PATH), "schema": f"{SCHEMA_PREFIX}_ai_tts_eval_v1"},
-        ])
-    return {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_working_stack_model_bridge_v1",
-        "service": service,
-        "capability": capability_key,
-        "status": status,
-        "active": active,
-        "runtime_ready": runtime_ready,
-        "primary_bridge": capability.get("primary_bridge") or capability.get("resident_bridge") or capability.get("eval_bridge"),
-        "host_recommended_backend": capability.get("host_recommended_backend"),
-        "model_root_count": len(model_rows),
-        "stack_source_model_refs": source_refs[:12],
-        "linked_stack_model_source_paths": linked_paths[:12],
-        "evidence_refs": evidence_refs,
-        "policy": {
-            "read_only_source": True,
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-            "model_promotion_decision": False,
+    return self_awareness_adapters.working_stack_model_bridge(
+        service,
+        model_rows,
+        ai_caps,
+        schema_prefix=SCHEMA_PREFIX,
+        ai_model_roots=AI_MODEL_ROOTS,
+        latest_paths={
+            "ai_capabilities": AI_CAPABILITIES_LATEST_PATH,
+            "ai_llm_registry": AI_LLM_REGISTRY_LATEST_PATH,
+            "ai_tts_profiles": AI_TTS_PROFILES_LATEST_PATH,
+            "ai_tts_eval_success": AI_TTS_EVAL_LATEST_SUCCESS_PATH,
         },
-    }
+    )
 
 
 def self_awareness_working_stack_roles(service: str) -> list[str]:

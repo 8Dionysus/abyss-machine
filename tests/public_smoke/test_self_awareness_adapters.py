@@ -717,6 +717,73 @@ def test_stack_service_and_model_root_inventory_are_bounded_and_fakeable(tmp_pat
     assert models["summary"]["tag_counts"]["tts"] == 1
 
 
+def test_working_stack_model_bridge_links_ai_capability_to_stack_model_root(tmp_path: Path) -> None:
+    model_root = tmp_path / "abyss-stack" / "Models"
+    embedding_path = model_root / "ovms" / "OpenVINO" / "Qwen3-Embedding"
+    source_ref = self_awareness_adapters.stack_owned_source_ref(
+        embedding_path,
+        "model_root",
+        tags=["embeddings", "openvino"],
+    )
+    ai_caps = {
+        "schema": "abyss_machine_ai_capabilities_v1",
+        "capabilities": {
+            "embeddings": {
+                "status": "ready",
+                "primary_bridge": "abyss-machine ai eval --suite embeddings --json",
+                "runtime": {"ready": False},
+                "source_models": [
+                    {
+                        "path": str(embedding_path / "model.xml"),
+                        "read_only_source": True,
+                    }
+                ],
+            }
+        },
+    }
+
+    bridge = self_awareness_adapters.working_stack_model_bridge(
+        "embeddings",
+        [{"stack_source_refs": [source_ref]}],
+        ai_caps,
+        schema_prefix="abyss_machine",
+        ai_model_roots=[model_root],
+        latest_paths={"ai_capabilities": tmp_path / "ai" / "capabilities" / "latest.json"},
+    )
+
+    assert bridge["schema"] == "abyss_machine_self_awareness_working_stack_model_bridge_v1"
+    assert bridge["active"] is True
+    assert bridge["runtime_ready"] is True
+    assert bridge["model_root_count"] == 1
+    assert bridge["stack_source_model_refs"][0]["kind"] == "ai_capability_source_model"
+    assert bridge["stack_source_model_refs"][0]["read_only"] is True
+    assert bridge["linked_stack_model_source_paths"] == [str(embedding_path / "model.xml")]
+    assert bridge["evidence_refs"] == [
+        {
+            "path": str(tmp_path / "ai" / "capabilities" / "latest.json"),
+            "schema": "abyss_machine_ai_capabilities_v1",
+            "capability": "embeddings",
+        }
+    ]
+    assert bridge["policy"]["host_layer_mutates_stack"] is False
+    assert bridge["policy"]["model_promotion_decision"] is False
+
+
+def test_working_stack_tool_status_classifies_deep_tool_probes_without_cli() -> None:
+    probes = [
+        {"service": "docs-api", "probe": "health", "ok": True},
+        {"service": "docs-api", "probe": "search:n8n-workflow", "ok": True},
+        {"service": "aoa-browser", "probe": "health", "ok": True},
+        {"service": "aoa-browser", "probe": "private-host-guard", "ok": True},
+        {"service": "aoa-browser", "probe": "playwright-chromium-launch", "ok": False},
+        {"service": "qwen-tts", "probe": "tts-synthesis-artifact", "ok": True},
+    ]
+
+    assert self_awareness_adapters.working_stack_tool_status("docs-api", "endpoint_visible_unproven_deep_use", iter(probes)) == "active_machine_tool_signal"
+    assert self_awareness_adapters.working_stack_tool_status("aoa-browser", "endpoint_visible_unproven_deep_use", probes) == "tool_runtime_degraded"
+    assert self_awareness_adapters.working_stack_tool_status("qwen-tts", "declared_not_running", probes) == "recent_on_demand_tool_signal"
+
+
 def test_parse_compose_services_returns_empty_on_read_error(tmp_path: Path) -> None:
     assert self_awareness_adapters.parse_compose_services(
         tmp_path / "missing.yml",
