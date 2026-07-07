@@ -8,6 +8,11 @@ ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "manifests" / "artifact_signature_policy.manifest.json"
 SCHEMA_INVENTORY = ROOT / "manifests" / "schema_inventory.manifest.json"
 PUBLIC_MEDIA_MANIFEST = ROOT / "manifests" / "artifact_bundles" / "public_media_export.bundle.json"
+C2PA_SPECIFICATION_REF = "https://spec.c2pa.org/specifications/specifications/2.4/specs/C2PA_Specification.html"
+SCITT_STANDARD_REFS = [
+    "https://datatracker.ietf.org/doc/draft-ietf-scitt-architecture/",
+    "https://datatracker.ietf.org/doc/draft-ietf-scitt-scrapi/",
+]
 
 REQUIRED_IDENTITY_FIELDS = {
     "artifact_class",
@@ -79,17 +84,19 @@ def test_artifact_trust_controls_keep_primary_standard_refs() -> None:
     assert any("cyclonedx.org" in item for item in refs["sbom"])
     assert any("slsa.dev/spec" in item for item in refs["slsa_in_toto"])
     assert any("sigstore.dev" in item for item in refs["sigstore_cosign"])
+    assert [item for item in refs["c2pa"] if "C2PA_Specification.html" in item] == [C2PA_SPECIFICATION_REF]
     assert any("C2PA-TRUST-LIST.pem" in item for item in refs["c2pa"])
     assert any("opencontainers/distribution-spec" in item for item in refs["oci_artifact"])
     assert any("theupdateframework.github.io/specification" in item for item in refs["tuf"])
-    assert any("datatracker.ietf.org/doc/rfc9699" in item for item in refs["scitt"])
+    assert refs["scitt"] == SCITT_STANDARD_REFS
+    assert not any("rfc9699" in item for item in refs["scitt"])
 
 
 def test_public_media_export_names_c2pa_primary_refs() -> None:
     manifest = load_json(PUBLIC_MEDIA_MANIFEST)
     refs = manifest["c2pa"]["standard_refs"]
 
-    assert refs["specification"] == "https://spec.c2pa.org/specifications/specifications/2.4/specs/C2PA_Specification.html"
+    assert refs["specification"] == C2PA_SPECIFICATION_REF
     assert refs["conformance_program"] == "https://c2pa.org/conformance/"
     assert refs["production_trust_list"].endswith("/trust-list/C2PA-TRUST-LIST.pem")
     assert "c2patool" in refs["c2patool_usage"]

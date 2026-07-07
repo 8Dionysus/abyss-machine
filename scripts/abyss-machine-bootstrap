@@ -93,6 +93,45 @@ def default_artifact_registry_dir(policy: AbyssMachinePathPolicy) -> Path:
     return policy.state_path("artifacts", "bundle-registry")
 
 
+def _path_is_inside(path: Path, root: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(root.resolve(strict=False))
+    except ValueError:
+        return False
+    return True
+
+
+def _path_is_strictly_inside(path: Path, root: Path) -> bool:
+    path_resolved = path.resolve(strict=False)
+    root_resolved = root.resolve(strict=False)
+    return path_resolved != root_resolved and _path_is_inside(path_resolved, root_resolved)
+
+
+def install_targets_are_isolated(policy: AbyssMachinePathPolicy) -> bool:
+    live_policy = DEFAULT_PATH_POLICY
+    live_roots = (
+        *live_policy.install_roots,
+        live_policy.local_bin_dir,
+        live_policy.local_libexec_dir,
+        live_policy.systemd_system_dir,
+        live_policy.systemd_user_dir or live_policy.home / ".config/systemd/user",
+    )
+    target_roots = (
+        *policy.install_roots,
+        policy.local_bin_dir,
+        policy.local_libexec_dir,
+        policy.systemd_system_dir,
+        policy.systemd_user_dir or policy.home / ".config/systemd/user",
+    )
+    rehearsal_roots = (live_policy.tmp_root,)
+    return not any(
+        _path_is_inside(target, live_root)
+        and not any(_path_is_strictly_inside(target, rehearsal_root) for rehearsal_root in rehearsal_roots)
+        for target in target_roots
+        for live_root in live_roots
+    )
+
+
 def path_policy_from_args(args: argparse.Namespace) -> AbyssMachinePathPolicy:
     return AbyssMachinePathPolicy.from_values(
         user=args.user,
@@ -270,6 +309,18 @@ def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePat
         "require_latest": not bool(args.allow_non_latest_artifact),
     }
     if not args.require_artifact_trust_gate:
+        if bool(args.apply) and not install_targets_are_isolated(policy):
+            return {
+                **base,
+                "ok": False,
+                "verdict": "skip_rejected",
+                "trust_gate": None,
+                "errors": ["artifact_trust_gate_skip_not_allowed_for_live_apply"],
+                "claim_limit": (
+                    "Bootstrap install --apply may skip artifact trust-gate only when all install "
+                    "targets are isolated from live default roots."
+                ),
+            }
         return {
             **base,
             "ok": True,
@@ -277,6 +328,20 @@ def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePat
             "trust_gate": None,
             "errors": [],
             "claim_limit": "Bootstrap install skips artifact trust-gate only through explicit local-development opt-out.",
+        }
+
+    if not str(args.artifact_subject_digest or "") and not str(args.artifact_record_id or ""):
+        return {
+            **base,
+            "ok": False,
+            "verdict": "deny",
+            "trust_gate": None,
+            "freshness_gate": None,
+            "errors": ["artifact_trust_gate_selector_required"],
+            "claim_limit": (
+                "Bootstrap install artifact trust-gate requires an explicit artifact subject digest "
+                "or record id so admission cannot silently fall back to the latest unrelated record."
+            ),
         }
 
     gate = artifact_bundles.trust_gate(
@@ -296,6 +361,9 @@ def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePat
         affected = artifact_bundles.artifact_affected(
             artifact_class=artifact_class,
             registry_dir=registry_dir,
+            record_id=str(gate.get("record_id") or args.artifact_record_id or ""),
+            subject_digest=str(args.artifact_subject_digest or ""),
+            require_latest=not bool(args.allow_non_latest_artifact),
         )
         affected_rows = [
             row

@@ -56,10 +56,11 @@ def _bootstrap_install_registry_record(
     abi_subject_digest: str | None = None,
     trust_root_mode: str = "github_oidc",
     privacy_boundary: str = "public-safe bootstrap install material",
+    created_at: str = "2026-06-25T00:00:00Z",
 ) -> tuple[Path, str, str]:
     registry = tmp_path / "bundle-registry"
     records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
-    records.mkdir(parents=True)
+    records.mkdir(parents=True, exist_ok=True)
     source_ref = "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json"
     record_id = "sha256:" + hashlib.sha256(f"bootstrap_install_bundle:{subject_digest}:{lifecycle_state}".encode()).hexdigest()
     trust_root_evidence = {
@@ -122,7 +123,7 @@ def _bootstrap_install_registry_record(
         "evidence_refs": ["pytest:bootstrap-install-admission"],
         "supersedes": [],
         "revocation_reason": "pytest revoked install material" if lifecycle_state == "revoked" else "",
-        "created_at": "2026-06-25T00:00:00Z",
+        "created_at": created_at,
         "policy_ref": artifact_bundles.POLICY_REF,
         "abi_ref": artifact_bundles.ABI_REF,
     }
@@ -185,8 +186,8 @@ def test_bootstrap_install_requires_artifact_trust_gate_by_default(tmp_path: Pat
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert payload["artifact_admission"]["required"] is True
-    assert payload["artifact_admission"]["verdict"] == "unknown"
-    assert payload["artifact_admission"]["errors"] == ["no_registry_record"]
+    assert payload["artifact_admission"]["verdict"] == "deny"
+    assert payload["artifact_admission"]["errors"] == ["artifact_trust_gate_selector_required"]
     assert payload["actions"] == [
         {
             "action": "artifact_trust_gate",
@@ -196,7 +197,7 @@ def test_bootstrap_install_requires_artifact_trust_gate_by_default(tmp_path: Pat
             "record_id": None,
             "registry_dir": str(tmp_path / "missing-registry"),
             "required": True,
-            "verdict": "unknown",
+            "verdict": "deny",
         }
     ]
 
@@ -217,6 +218,71 @@ def test_bootstrap_install_local_development_skip_is_explicit(tmp_path: Path) ->
     assert admission["trust_gate"] is None
     assert "explicit local-development opt-out" in admission["claim_limit"]
     assert payload["actions"][0]["required"] is False
+
+
+def test_bootstrap_install_rejects_trust_gate_skip_for_live_apply() -> None:
+    result = run_bootstrap_process(
+        "install",
+        "--apply",
+        "--skip-artifact-trust-gate",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["artifact_admission"]["verdict"] == "skip_rejected"
+    assert payload["artifact_admission"]["errors"] == ["artifact_trust_gate_skip_not_allowed_for_live_apply"]
+    assert "isolated from live default roots" in payload["artifact_admission"]["claim_limit"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_allows_trust_gate_skip_for_tmp_projection_apply(tmp_path: Path) -> None:
+    live_srv_root = tmp_path / "live" / "srv" / "abyss-machine"
+    live_tmp_root = live_srv_root / "tmp"
+    projection = live_tmp_root / "first-run-projection"
+    env = {
+        "ABYSS_MACHINE_ROOT": str(live_srv_root),
+        "ABYSS_MACHINE_TMP_ROOT": str(live_tmp_root),
+    }
+
+    result = run_bootstrap_process(
+        "install",
+        "--profile",
+        "linux-systemd-core",
+        "--apply",
+        "--skip-artifact-trust-gate",
+        "--user",
+        "agent",
+        "--home",
+        str(projection / "home" / "agent"),
+        "--etc-root",
+        str(projection / "etc" / "abyss-machine"),
+        "--state-root",
+        str(projection / "var" / "lib" / "abyss-machine"),
+        "--srv-root",
+        str(projection / "srv" / "abyss-machine"),
+        "--run-root",
+        str(projection / "run" / "abyss-machine"),
+        "--abyss-os-root",
+        str(projection / "srv" / "AbyssOS"),
+        "--vault-mount",
+        str(projection / "abyss"),
+        "--local-bin-dir",
+        str(projection / "usr" / "local" / "bin"),
+        "--local-libexec-dir",
+        str(projection / "usr" / "local" / "libexec"),
+        "--systemd-system-dir",
+        str(projection / "etc" / "systemd" / "system"),
+        "--systemd-user-dir",
+        str(projection / "home" / "agent" / ".config" / "systemd" / "user"),
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["artifact_admission"]["verdict"] == "not_required"
+    assert any(action["action"] == "ensure_root" for action in payload["actions"])
 
 
 def test_bootstrap_install_can_require_artifact_trust_gate(tmp_path: Path) -> None:
@@ -247,6 +313,25 @@ def test_bootstrap_install_can_require_artifact_trust_gate(tmp_path: Path) -> No
     assert payload["actions"][0]["verdict"] == "allow"
     assert payload["actions"][0]["freshness_verdict"] == "allow"
     assert any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_requires_artifact_selector_for_trust_gate(tmp_path: Path) -> None:
+    registry, _subject_digest, _record_id = _bootstrap_install_registry_record(tmp_path)
+
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(registry),
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["artifact_admission"]["verdict"] == "deny"
+    assert payload["artifact_admission"]["errors"] == ["artifact_trust_gate_selector_required"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
 
 
 def test_bootstrap_install_fails_closed_on_stale_abi_subject(tmp_path: Path) -> None:
@@ -280,6 +365,49 @@ def test_bootstrap_install_fails_closed_on_stale_abi_subject(tmp_path: Path) -> 
     assert not any(action["action"] == "ensure_root" for action in payload["actions"])
 
 
+def test_bootstrap_install_freshness_checks_selected_non_latest_record(tmp_path: Path) -> None:
+    registry, stale_subject_digest, stale_record_id = _bootstrap_install_registry_record(
+        tmp_path,
+        subject_digest="sha256:" + ("3" * 64),
+        abi_subject_digest="sha256:" + ("0" * 64),
+        created_at="2026-06-25T00:00:00Z",
+    )
+    _registry, _fresh_subject_digest, fresh_record_id = _bootstrap_install_registry_record(
+        tmp_path,
+        subject_digest="sha256:" + ("4" * 64),
+        abi_subject_digest=_current_bootstrap_install_abi_subject_digest(),
+        created_at="2026-06-26T00:00:00Z",
+    )
+
+    result = run_bootstrap_process(
+        "install",
+        "--dry-run",
+        "--require-artifact-trust-gate",
+        "--allow-non-latest-artifact",
+        "--artifact-registry-dir",
+        str(registry),
+        "--artifact-subject-digest",
+        stale_subject_digest,
+        "--artifact-record-id",
+        stale_record_id,
+        "--artifact-trust-root-mode",
+        "github_oidc",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    admission = payload["artifact_admission"]
+    blocking_registry = admission["freshness_gate"]["blocking_rows"][0]["registry"]
+    assert admission["trust_gate"]["verdict"] == "allow"
+    assert admission["trust_gate"]["latest_record_id"] == fresh_record_id
+    assert admission["freshness_gate"]["verdict"] == "deny"
+    assert blocking_registry["latest_record_id"] == fresh_record_id
+    assert blocking_registry["freshness_record_id"] == stale_record_id
+    assert blocking_registry["freshness_record_is_latest"] is False
+    assert admission["errors"] == ["artifact_source_freshness_blocking:bootstrap_install_bundle:abi_subject_digest_stale"]
+    assert not any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
 def test_bootstrap_install_fails_closed_when_required_registry_is_missing(tmp_path: Path) -> None:
     result = run_bootstrap_process(
         "install",
@@ -287,6 +415,8 @@ def test_bootstrap_install_fails_closed_when_required_registry_is_missing(tmp_pa
         "--require-artifact-trust-gate",
         "--artifact-registry-dir",
         str(tmp_path / "missing-registry"),
+        "--artifact-record-id",
+        "sha256:" + ("9" * 64),
     )
 
     assert result.returncode == 1
@@ -300,7 +430,7 @@ def test_bootstrap_install_fails_closed_when_required_registry_is_missing(tmp_pa
             "artifact_class": "bootstrap_install_bundle",
             "consumer_intent": "installer",
             "latest_record_id": None,
-            "record_id": None,
+            "record_id": "sha256:" + ("9" * 64),
             "registry_dir": str(tmp_path / "missing-registry"),
             "required": True,
             "verdict": "unknown",

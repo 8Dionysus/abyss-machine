@@ -12,11 +12,12 @@ license = "Apache-2.0"
 authors = [
   { name = "Dionysus" }
 ]
-dependencies = []
+dependencies = [
+  "cryptography>=42"
+]
 
 [project.optional-dependencies]
 dev = [
-  "cryptography>=42",
   "pytest>=8"
 ]
 yaml = [

@@ -11270,13 +11270,308 @@ def artifact_trust_coverage_consumer_intent(class_id: str) -> str:
     return "agent"
 
 
+def artifact_trust_source_repo_aliases(source_repo: str) -> list[str]:
+    repo = str(source_repo or "").strip()
+    if not repo:
+        return []
+    aliases = [repo]
+    if repo == "aoa-session-memory":
+        aliases.extend([".aoa", "bundles/aoa-session-memory"])
+    return list(dict.fromkeys(aliases))
+
+
+def artifact_trust_source_workspace_roots(source_root: Path | None = None) -> list[Path]:
+    roots: list[Path] = []
+    if source_root is not None:
+        roots.extend([source_root, source_root.parent])
+    env_roots = os.environ.get("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", "")
+    for raw in env_roots.split(os.pathsep):
+        if raw.strip():
+            roots.append(Path(raw).expanduser())
+    roots.extend([
+        Path.cwd(),
+        Path.cwd().parent,
+        artifact_bundles.REPO_ROOT,
+        artifact_bundles.REPO_ROOT.parent,
+        Path("/srv/AbyssOS"),
+        Path.home() / "src",
+    ])
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        try:
+            key = str(root.resolve(strict=False))
+        except OSError:
+            key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(root)
+    return unique
+
+
+def artifact_trust_source_repo_roots(source_repo: str, *, source_root: Path | None = None) -> list[Path]:
+    repo = str(source_repo or "").strip()
+    roots: list[Path] = []
+    if source_root is not None and (not repo or repo == "abyss-machine"):
+        roots.append(source_root)
+    if not repo or repo == "abyss-machine":
+        roots.append(artifact_bundles.REPO_ROOT)
+    aliases = artifact_trust_source_repo_aliases(repo)
+    for workspace_root in artifact_trust_source_workspace_roots(source_root):
+        roots.append(workspace_root)
+        for alias in aliases:
+            roots.append(workspace_root / alias)
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        try:
+            key = str(root.resolve(strict=False))
+        except OSError:
+            key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(root)
+    return unique
+
+
+def artifact_trust_split_manifest_ref(manifest_ref: str, fallback_source_repo: str) -> tuple[str, str]:
+    ref = str(manifest_ref or "").strip()
+    source_repo = str(fallback_source_repo or "").strip()
+    if not ref.startswith("repo:"):
+        return source_repo, ref
+    repo_ref = ref.removeprefix("repo:")
+    for alias in artifact_trust_source_repo_aliases(source_repo) + ["abyss-machine"]:
+        prefix = f"{alias}/"
+        if repo_ref.startswith(prefix):
+            return alias if alias != "abyss-machine" else "abyss-machine", repo_ref[len(prefix):]
+    if "/" in repo_ref:
+        owner, path = repo_ref.split("/", 1)
+        return owner, path
+    return source_repo, ref
+
+
+def artifact_trust_is_bundle_manifest_ref(manifest_ref: str, *, source_repo: str) -> bool:
+    _repo, normalized_ref = artifact_trust_split_manifest_ref(manifest_ref, source_repo)
+    return str(normalized_ref or "").endswith(".bundle.json")
+
+
+def artifact_trust_load_source_manifest(
+    manifest_ref: str,
+    *,
+    source_repo: str,
+    source_root: Path | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    resolved_source_repo, normalized_ref = artifact_trust_split_manifest_ref(manifest_ref, source_repo)
+    if not normalized_ref:
+        return None, {
+            "source_repo": resolved_source_repo or None,
+            "manifest_ref": None,
+            "resolved": False,
+            "error": "source_manifest_ref_missing",
+            "search_roots": [],
+        }
+    path = Path(normalized_ref)
+    search_roots = artifact_trust_source_repo_roots(resolved_source_repo, source_root=source_root)
+    candidates: list[tuple[Path, Path | None]] = []
+    if path.is_absolute():
+        candidates.append((path, None))
+    else:
+        candidates.extend((root / path, root) for root in search_roots)
+    unique_candidates: list[tuple[Path, Path | None]] = []
+    seen: set[str] = set()
+    for candidate, root in candidates:
+        try:
+            key = str(candidate.resolve(strict=False))
+        except OSError:
+            key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append((candidate, root))
+    for candidate, root in unique_candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            manifest = artifact_bundles.load_bundle_manifest(candidate)
+        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError) as exc:
+            return None, {
+                "source_repo": resolved_source_repo or None,
+                "manifest_ref": normalized_ref,
+                "resolved": False,
+                "path": str(candidate),
+                "error": str(exc),
+                "search_roots": [str(root) for root in search_roots[:12]],
+            }
+        return manifest, {
+            "source_repo": resolved_source_repo or None,
+            "manifest_ref": normalized_ref,
+            "resolved": True,
+            "path": str(candidate),
+            "source_root": str(root) if root is not None else None,
+            "search_roots": [str(root) for root in search_roots[:12]],
+        }
+    return None, {
+        "source_repo": resolved_source_repo or None,
+        "manifest_ref": normalized_ref,
+        "resolved": False,
+        "error": f"source_manifest_unresolved:{normalized_ref}",
+        "search_roots": [str(root) for root in search_roots[:12]],
+    }
+
+
 def artifact_trust_coverage_source_freshness(
     class_id: str,
     *,
     latest: dict[str, Any] | None,
     requirement: dict[str, Any],
+    source_root: Path | None = None,
 ) -> dict[str, Any]:
-    return artifact_bundles.artifact_source_freshness(class_id, latest=latest, requirement=requirement)
+    reasons: list[str] = []
+    current_abi_digests: list[str] = []
+    manifest_ref = ""
+    manifest_error = ""
+    manifest_resolution: dict[str, Any] = {}
+    current_consumer_contract: dict[str, Any] | None = None
+    latest_consumer_contract: dict[str, Any] | None = None
+    consumer_contract_matches_latest = False
+
+    if not isinstance(latest, dict):
+        return {
+            "checked": False,
+            "freshness": "unknown",
+            "reasons": [],
+            "claim_limit": "Source freshness is checked only after a latest durable registry record exists.",
+        }
+
+    source_repo = str(latest.get("source_repo") or requirement.get("owner_repo") or "")
+    controls = requirement.get("controls") if isinstance(requirement.get("controls"), dict) else {}
+    required_controls = [str(item) for item in controls.get("required", []) if str(item)]
+    abi_required = "abi_signature" in required_controls
+    source_route = requirement.get("source_route") if isinstance(requirement.get("source_route"), dict) else {}
+    generated_surfaces = source_route.get("generated_contract_surfaces")
+    if isinstance(generated_surfaces, list):
+        for surface in generated_surfaces:
+            if not isinstance(surface, dict):
+                continue
+            digest = str(surface.get("source_tree_hash") or "")
+            if digest:
+                current_abi_digests.append(digest)
+
+    latest_abi_digest = str(latest.get("abi_subject_digest") or "")
+    if current_abi_digests:
+        if not latest_abi_digest:
+            reasons.append("abi_subject_digest_missing")
+        elif latest_abi_digest not in current_abi_digests:
+            reasons.append("abi_subject_digest_stale")
+
+    requirement_owner_repo = str(requirement.get("owner_repo") or "")
+    candidate_rows: list[dict[str, str]] = []
+
+    def add_manifest_candidate(ref: Any, *, candidate_source_repo: str, basis: str) -> None:
+        ref_text = str(ref or "")
+        if not ref_text:
+            return
+        row = {
+            "ref": ref_text,
+            "source_repo": str(candidate_source_repo or ""),
+            "basis": basis,
+        }
+        if row not in candidate_rows:
+            candidate_rows.append(row)
+
+    add_manifest_candidate(latest.get("bundle_manifest_ref"), candidate_source_repo=source_repo, basis="latest.bundle_manifest_ref")
+    add_manifest_candidate(latest.get("source_ref"), candidate_source_repo=source_repo, basis="latest.source_ref")
+    for item in latest.get("source_refs", []) if isinstance(latest.get("source_refs"), list) else []:
+        add_manifest_candidate(item, candidate_source_repo=source_repo, basis="latest.source_refs")
+    for item in source_route.get("bundle_manifest_refs", []) if isinstance(source_route.get("bundle_manifest_refs"), list) else []:
+        add_manifest_candidate(
+            item,
+            candidate_source_repo=requirement_owner_repo or source_repo,
+            basis="requirement.source_route.bundle_manifest_refs",
+        )
+
+    candidate_reasons: list[str] = []
+    allowed_manifest_owners = {item for item in {source_repo, requirement_owner_repo} if item}
+    for candidate in candidate_rows:
+        candidate_ref = candidate["ref"]
+        candidate_source_repo = candidate["source_repo"]
+        manifest_ref = candidate_ref
+        if not artifact_trust_is_bundle_manifest_ref(candidate_ref, source_repo=candidate_source_repo):
+            manifest_resolution = {
+                "source_repo": candidate_source_repo or None,
+                "manifest_ref": candidate_ref,
+                "resolved": False,
+                "skipped": True,
+                "basis": candidate["basis"],
+                "reason": "source_ref_is_not_bundle_manifest",
+            }
+            continue
+        manifest, manifest_resolution = artifact_trust_load_source_manifest(
+            candidate_ref,
+            source_repo=candidate_source_repo,
+            source_root=source_root,
+        )
+        manifest_resolution["basis"] = candidate["basis"]
+        if manifest is None:
+            manifest_error = str(manifest_resolution.get("error") or "source_manifest_unresolved")
+            if "source_manifest_unresolved" not in candidate_reasons:
+                candidate_reasons.append("source_manifest_unresolved")
+            continue
+        manifest_class = str(manifest.get("artifact_class") or "")
+        manifest_owner = str(manifest.get("owner_repo") or "")
+        if manifest_class != class_id or (manifest_owner and allowed_manifest_owners and manifest_owner not in allowed_manifest_owners):
+            manifest_error = "source_manifest_mismatch"
+            manifest_resolution["resolved"] = False
+            manifest_resolution["error"] = manifest_error
+            manifest_resolution["manifest_artifact_class"] = manifest_class or None
+            manifest_resolution["manifest_owner_repo"] = manifest_owner or None
+            if "source_manifest_mismatch" not in candidate_reasons:
+                candidate_reasons.append("source_manifest_mismatch")
+            continue
+        manifest_error = ""
+        manifest_contract = manifest.get("consumer_contract")
+        if isinstance(manifest_contract, dict) and manifest_contract:
+            record_contract = latest.get("consumer_contract")
+            candidate_latest_contract = record_contract if isinstance(record_contract, dict) else None
+            if candidate_latest_contract != manifest_contract:
+                current_consumer_contract = manifest_contract
+                latest_consumer_contract = candidate_latest_contract
+                if "consumer_contract_stale" not in candidate_reasons:
+                    candidate_reasons.append("consumer_contract_stale")
+                continue
+            current_consumer_contract = manifest_contract
+            latest_consumer_contract = candidate_latest_contract
+            consumer_contract_matches_latest = True
+            candidate_reasons = []
+            break
+        if abi_required and not current_abi_digests:
+            if "source_contract_uncheckable" not in candidate_reasons:
+                candidate_reasons.append("source_contract_uncheckable")
+            continue
+        candidate_reasons = []
+        break
+    if not consumer_contract_matches_latest:
+        for reason in candidate_reasons:
+            if reason not in reasons:
+                reasons.append(reason)
+
+    checked = bool(current_abi_digests or current_consumer_contract is not None or reasons)
+    return {
+        "checked": checked,
+        "freshness": "stale" if reasons else "fresh" if checked else "unknown",
+        "reasons": reasons,
+        "source_repo": source_repo or None,
+        "current_abi_subject_digests": current_abi_digests,
+        "latest_abi_subject_digest": latest_abi_digest or None,
+        "bundle_manifest_ref": manifest_ref or None,
+        "manifest_resolution": manifest_resolution or None,
+        "manifest_error": manifest_error or None,
+        "current_consumer_contract": current_consumer_contract,
+        "latest_consumer_contract": latest_consumer_contract,
+        "claim_limit": "Source freshness compares current local ABI/manifest contracts with the latest durable registry record; it does not rebuild or promote evidence.",
+    }
 
 
 def artifact_trust_coverage_row_status(
@@ -11323,6 +11618,7 @@ def artifact_trust_coverage_row_status(
         reasons = [str(item) for item in source_freshness.get("reasons", []) if str(item)]
         reason_text = ", ".join(reasons[:3]) if reasons else "source_freshness_stale"
         return "DEFERRED_WITH_REAL_BLOCKER", f"Persistent registry latest is stale against current source contracts: {reason_text}."
+    public_media_c2pa_blocker = ""
     if class_id == "public_media_export" and isinstance(gate, dict):
         warnings = [str(item) for item in gate.get("warnings", []) if str(item)]
         inspected_claims = gate.get("inspected_claims") if isinstance(gate.get("inspected_claims"), dict) else {}
@@ -11342,18 +11638,77 @@ def artifact_trust_coverage_row_status(
                 if onboarding
                 else ""
             )
-            return (
-                "DEFERRED_WITH_REAL_BLOCKER",
+            public_media_c2pa_blocker = (
                 "Public media export has release evidence and valid C2PA asset binding, "
-                f"but the C2PA signing credential is not production trust-list trusted.{onboarding_text}",
+                f"but the C2PA signing credential is not production trust-list trusted.{onboarding_text}"
             )
     if durable_only:
+        if public_media_c2pa_blocker:
+            return "DEFERRED_WITH_REAL_BLOCKER", public_media_c2pa_blocker
         return "DURABLE_GATE_COVERED", ""
     if not manual_positive:
         return "DEFERRED_WITH_REAL_BLOCKER", "Manual positive installed evidence was not found for this artifact class."
     if not manual_negative:
         return "DEFERRED_WITH_REAL_BLOCKER", "Manual negative/adversarial installed evidence was not found for this artifact class."
+    if public_media_c2pa_blocker:
+        return "DEFERRED_WITH_REAL_BLOCKER", public_media_c2pa_blocker
     return "FULLY_COVERED", ""
+
+
+def artifact_trust_coverage_c2pa_onboarding(
+    c2pa_trust: dict[str, Any],
+    requirement: dict[str, Any],
+) -> dict[str, Any]:
+    latest_onboarding = (
+        c2pa_trust.get("credential_onboarding")
+        if isinstance(c2pa_trust.get("credential_onboarding"), dict)
+        else {}
+    )
+    requirement_onboarding = (
+        requirement.get("credential_onboarding")
+        if isinstance(requirement.get("credential_onboarding"), dict)
+        else {}
+    )
+    production_trusted = c2pa_trust.get("production_trust_list_trusted") is True
+    if latest_onboarding:
+        onboarding = dict(latest_onboarding)
+        if (
+            production_trusted
+            and onboarding.get("production_claim_allowed") is True
+            and not artifact_bundles._c2pa_onboarding_production_ready(onboarding)
+        ):
+            onboarding["production_claim_allowed"] = False
+            onboarding["readiness_source"] = "legacy_record_without_explicit_production_onboarding_marker"
+            onboarding["claim_limit"] = (
+                "Latest C2PA trust-list evidence predates the explicit production onboarding marker; "
+                "coverage reports the trust-list phase but does not allow production claims until a fresh verifier record carries the marker."
+            )
+        if not isinstance(onboarding.get("operating_window"), dict):
+            onboarding["operating_window"] = artifact_bundles.c2pa_operating_window(
+                onboarding,
+                production_ready=artifact_bundles._c2pa_onboarding_production_ready(onboarding),
+            )
+        return onboarding
+    if production_trusted:
+        onboarding = {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "production_trust_list_ready",
+            "legal_subject_state": "legacy_record_requires_explicit_onboarding_marker",
+            "interim_posture": "production_c2pa_trust_list",
+            "production_onboarding_declared": False,
+            "production_claim_allowed": False,
+            "readiness_source": "legacy_c2pa_trust_verdict_without_explicit_onboarding",
+            "claim_limit": (
+                "Latest record proves production C2PA Trust List validation, but it predates the explicit onboarding packet; "
+                "rerun verification with current manifest/policy before making a production public-media claim."
+            ),
+        }
+        onboarding["operating_window"] = artifact_bundles.c2pa_operating_window(
+            onboarding,
+            production_ready=False,
+        )
+        return onboarding
+    return dict(requirement_onboarding)
 
 
 def artifact_trust_coverage_operating_posture(
@@ -11388,6 +11743,14 @@ def artifact_trust_coverage_operating_posture(
                 "trust_gate_verdict": trust_verdict,
             })
 
+        c2pa_public_claim_only_blocker = bool(
+            is_pre_org_c2pa
+            and (
+                "C2PA signing credential is not production trust-list trusted" in blocker
+                or "C2PA credential onboarding" in blocker
+            )
+        )
+
         if is_pre_org_c2pa:
             public_claim_blockers.append({
                 "artifact_class": artifact_class,
@@ -11399,10 +11762,9 @@ def artifact_trust_coverage_operating_posture(
                 "operating_window": operating_window
                 or artifact_bundles.c2pa_operating_window(production_ready=False),
             })
-            continue
 
         covered_statuses = {"DURABLE_GATE_COVERED"} if durable_only else {"FULLY_COVERED"}
-        if status not in covered_statuses:
+        if status not in covered_statuses and not c2pa_public_claim_only_blocker:
             internal_blockers.append({
                 "artifact_class": artifact_class,
                 "status": status,
@@ -11570,10 +11932,15 @@ def artifacts_trust_coverage(
     registry_dir: Path | None = None,
     manual_evidence_roots: list[str] | None = None,
     durable_only: bool = False,
+    source_root: Path | None = None,
+    source_repo: str = "",
+    source_ref: str = "",
     write_latest: bool = True,
 ) -> dict[str, Any]:
     registry_root = registry_dir if registry_dir is not None else ARTIFACTS_BUNDLE_REGISTRY_ROOT
-    policy = artifact_bundles.load_policy()
+    source_root_path = Path(source_root).expanduser() if source_root is not None else artifact_bundles.REPO_ROOT
+    source_root_mode = "explicit" if source_root is not None else "resolved_default"
+    policy = artifact_bundles.load_policy(source_root_path)
     classes = policy.get("artifact_classes") if isinstance(policy.get("artifact_classes"), dict) else {}
     registry = artifact_bundles.read_bundle_registry(registry_root)
     trust_tools = artifacts_trust_tools(write_latest=False)
@@ -11585,12 +11952,47 @@ def artifacts_trust_coverage(
     latest_by_class = registry.get("latest_by_artifact_class") if isinstance(registry.get("latest_by_artifact_class"), dict) else {}
     records = registry.get("records") if isinstance(registry.get("records"), list) else []
     available_controls = set(trust_tools.get("summary", {}).get("available_controls", []))
+    requested_source_repo = str(source_repo or "").strip()
+    requested_source_ref = str(source_ref or "").strip()
+    affected_by_class: dict[str, dict[str, Any]] = {}
+    affected_context: dict[str, Any] = {"checked": False}
+    if requested_source_repo or requested_source_ref:
+        affected_context = artifact_bundles.artifact_affected(
+            [],
+            changed_source_repo=requested_source_repo,
+            changed_source_ref=requested_source_ref,
+            registry_dir=registry_root,
+            repo_root=source_root_path,
+        )
+        for affected_row in affected_context.get("rows", []):
+            if not isinstance(affected_row, dict):
+                continue
+            affected_class = str(affected_row.get("artifact_class") or "")
+            if affected_class:
+                affected_by_class[affected_class] = affected_row
+    source_context = {
+        "schema": f"{SCHEMA_PREFIX}_artifacts_trust_source_context_v1",
+        "public_seed_root": str(source_root_path),
+        "public_seed_root_mode": source_root_mode,
+        "requested_source_repo": requested_source_repo or None,
+        "requested_source_ref": requested_source_ref or None,
+        "affected_checked": bool(requested_source_repo or requested_source_ref),
+        "affected_summary": affected_context.get("summary") if isinstance(affected_context.get("summary"), dict) else None,
+        "claim_limit": (
+            "public_seed_root selects the local policy/ABI/manifest read-model for source freshness; "
+            "requested_source_repo/ref only checks whether durable evidence proves that source context."
+        ),
+    }
     rows: list[dict[str, Any]] = []
 
     for class_id, rule in classes.items():
         if not isinstance(rule, dict) or not isinstance(rule.get("identity"), dict):
             continue
-        requirement = artifact_bundles.artifact_requirement_row(str(class_id), registry_dir=registry_root)
+        requirement = artifact_bundles.artifact_requirement_row(
+            str(class_id),
+            registry_dir=registry_root,
+            repo_root=source_root_path,
+        )
         identity = rule["identity"]
         required_controls = artifact_bundles.required_controls_for_rule(rule)
         deferred_controls = artifact_bundles.deferred_controls_for_rule(rule)
@@ -11612,7 +12014,34 @@ def artifacts_trust_coverage(
             str(class_id),
             latest=latest,
             requirement=requirement,
+            source_root=source_root_path,
         )
+        affected_row = affected_by_class.get(str(class_id), {})
+        affected_drift = affected_row.get("drift") if isinstance(affected_row.get("drift"), dict) else {}
+        if affected_row:
+            source_freshness["affected_drift"] = {
+                "verdict": affected_row.get("verdict"),
+                "freshness": affected_row.get("freshness"),
+                "reasons": affected_row.get("reasons", []),
+                "source_ref_status": affected_row.get("source_ref_status"),
+                "abi_subject_status": affected_row.get("abi_subject_status"),
+                "drift": affected_drift,
+            }
+            if affected_drift.get("operationally_blocking") is True:
+                source_freshness["checked"] = True
+                source_freshness["freshness"] = "stale"
+                reasons = [str(item) for item in source_freshness.get("reasons", []) if str(item)]
+                affected_reasons = affected_row.get("reasons", []) if isinstance(affected_row.get("reasons"), list) else []
+                for reason in affected_reasons:
+                    reason_text = str(reason or "")
+                    if reason_text and reason_text not in reasons:
+                        reasons.append(reason_text)
+                drift_status = str(affected_drift.get("status") or "")
+                if drift_status:
+                    drift_reason = f"source_context_{drift_status}"
+                    if drift_reason not in reasons:
+                        reasons.append(drift_reason)
+                source_freshness["reasons"] = reasons
         evidence_bucket = manual_evidence.get(class_id, {"positive": [], "negative": []})
         manual_positive = evidence_bucket.get("positive", [])[:16]
         manual_negative = evidence_bucket.get("negative", [])[:16]
@@ -11643,26 +12072,13 @@ def artifacts_trust_coverage(
             if control in ARTIFACT_TRUST_CONTROL_TOOLS and control not in available_controls
         ]
         if unavailable_required_controls and status != "FULLY_COVERED":
+            status = "DEFERRED_WITH_REAL_BLOCKER"
             blocker = f"Required trust controls have no available local toolchain: {', '.join(unavailable_required_controls)}"
         credential_onboarding: dict[str, Any] = {}
         if str(class_id) == "public_media_export":
             inspected_claims = gate.get("inspected_claims") if isinstance(gate.get("inspected_claims"), dict) else {}
             c2pa_trust = inspected_claims.get("c2pa_trust") if isinstance(inspected_claims.get("c2pa_trust"), dict) else {}
-            latest_onboarding = c2pa_trust.get("credential_onboarding") if isinstance(c2pa_trust.get("credential_onboarding"), dict) else {}
-            requirement_onboarding = (
-                requirement.get("credential_onboarding")
-                if isinstance(requirement.get("credential_onboarding"), dict)
-                else {}
-            )
-            if latest_onboarding and not isinstance(latest_onboarding.get("operating_window"), dict):
-                latest_onboarding = {
-                    **latest_onboarding,
-                    "operating_window": artifact_bundles.c2pa_operating_window(
-                        latest_onboarding,
-                        production_ready=latest_onboarding.get("production_claim_allowed") is True,
-                    ),
-                }
-            credential_onboarding = latest_onboarding or requirement_onboarding
+            credential_onboarding = artifact_trust_coverage_c2pa_onboarding(c2pa_trust, requirement)
         row = {
             "schema": f"{SCHEMA_PREFIX}_artifacts_trust_coverage_row_v1",
             "artifact_class": class_id,
@@ -11681,6 +12097,14 @@ def artifacts_trust_coverage(
             "required_controls": required_controls,
             "deferred_controls": deferred_controls,
             "source_verification": source_verification,
+            "source_context": {
+                "public_seed_root": str(source_root_path),
+                "public_seed_root_mode": source_root_mode,
+                "requested_source_repo": requested_source_repo or None,
+                "requested_source_ref": requested_source_ref or None,
+                "affected_verdict": affected_row.get("verdict") if affected_row else None,
+                "affected_drift_status": affected_drift.get("status") if affected_drift else None,
+            },
             "installed_verification": {
                 "evidence_mode": "durable_registry_only" if durable_only else "manual_e2e_plus_durable_registry",
                 "latest_record_verification_ok": latest.get("verification_ok") if isinstance(latest, dict) else False,
@@ -11759,6 +12183,7 @@ def artifacts_trust_coverage(
             "warnings": registry.get("warnings", []),
         },
         "trust_tools": trust_tools.get("summary"),
+        "source_context": source_context,
         "evidence_mode": "durable_registry_only" if durable_only else "manual_e2e_plus_durable_registry",
         "manual_evidence_roots": [
             str(path)
@@ -11985,11 +12410,10 @@ def artifacts_scenarios(
     registry_dir: Path | None = None,
     write_latest: bool = True,
 ) -> dict[str, Any]:
-    registry_root = registry_dir if registry_dir is not None else ARTIFACTS_BUNDLE_REGISTRY_ROOT
     data = artifact_bundles.artifact_scenario_matrix(
         scenario_id=str(scenario_id or ""),
         artifact_class=str(artifact_class or ""),
-        registry_dir=registry_root,
+        registry_dir=registry_dir,
     )
     data["version"] = VERSION
     data["generated_at"] = now_iso()
@@ -12069,6 +12493,14 @@ def artifacts_affected(
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
+            gate = data.get("gate")
+            if isinstance(gate, dict):
+                updated_reasons = list(gate.get("reasons", []))
+                if "write_errors_present" not in updated_reasons:
+                    updated_reasons.append("write_errors_present")
+                gate["allowed"] = False
+                gate["reasons"] = updated_reasons
+                gate["exit_code"] = 1
     return data
 
 
@@ -12163,6 +12595,9 @@ def _current_external_tuf_evidence(
         return None
     if trusted_root.get("errors"):
         return None
+    expiration_freshness = _tuf_role_expiration_freshness(record)
+    if expiration_freshness.get("ok") is not True:
+        return None
     consumer = record.get("consumer_admission") if isinstance(record.get("consumer_admission"), dict) else {}
     if consumer.get("required") is not True:
         return None
@@ -12195,6 +12630,8 @@ def _current_external_tuf_evidence(
         "trusted_root_path": record.get("trusted_root_path"),
         "previous_trusted_path": record.get("previous_trusted_path"),
         "role_versions": record.get("role_versions"),
+        "role_expirations": record.get("role_expirations"),
+        "role_expiration_freshness": expiration_freshness,
         "timestamp_sha256": record.get("timestamp_sha256"),
         "verified_at": record.get("generated_at"),
         "trusted_root": {
@@ -12211,7 +12648,29 @@ def _current_external_tuf_evidence(
             "record_id": live_gate.get("record_id"),
             "latest_record_id": live_gate.get("latest_record_id"),
         },
-        "claim_limit": "External TUF evidence is current only when the stored repository verification is still admitted by the live durable artifact trust-gate.",
+        "claim_limit": "External TUF evidence is current only when role expirations remain valid and the stored repository verification is still admitted by the live durable artifact trust-gate.",
+    }
+
+
+def _tuf_role_expiration_freshness(record: dict[str, Any]) -> dict[str, Any]:
+    expirations = record.get("role_expirations") if isinstance(record.get("role_expirations"), dict) else {}
+    now_dt = dt.datetime.now(dt.UTC)
+    parsed_expirations: dict[str, str] = {}
+    errors: list[str] = []
+    for role in ("root", "targets", "snapshot", "timestamp"):
+        raw_expires = expirations.get(role)
+        expires = artifact_bundles._parse_time(raw_expires)
+        if expires is None:
+            errors.append(f"{role}_expires_missing_or_invalid")
+            continue
+        parsed_expirations[role] = expires.isoformat().replace("+00:00", "Z")
+        if expires <= now_dt:
+            errors.append(f"{role}_expired")
+    return {
+        "ok": not errors,
+        "checked_at": now_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "role_expirations": parsed_expirations,
+        "errors": errors,
     }
 
 
@@ -12456,7 +12915,7 @@ def artifacts_update_verify(
             "verdict": "deny",
             "metadata_ok": False,
             "consumer_admission": {
-                "required": bool(require_trust_gate or registry_dir is not None),
+                "required": bool(require_trust_gate),
                 "verdict": "deny",
                 "consumer_intent": "update_client",
                 "registry_dir": str(registry_dir) if registry_dir is not None else None,
@@ -12479,7 +12938,7 @@ def artifacts_update_verify(
             "verdict": "deny",
             "metadata_ok": False,
             "consumer_admission": {
-                "required": bool(require_trust_gate or registry_dir is not None),
+                "required": bool(require_trust_gate),
                 "verdict": "deny",
                 "consumer_intent": "update_client",
                 "registry_dir": str(registry_dir) if registry_dir is not None else None,
@@ -64172,11 +64631,10 @@ def docs_agents_mesh_config_cards(config: dict[str, Any] | None = None) -> list[
 
 
 def docs_agents_mesh_skip_root(path: Path) -> bool:
-    skip_roots = [
+    skip_roots = docs_agents_mesh_subject_store_roots() + [
         ABYSS_MACHINE_STORAGE_ROOT,
         ABYSS_MACHINE_TMP_ROOT,
         ABYSS_MACHINE_ROOT / "tmp",
-        ARTIFACTS_ROOT / "subjects",
     ]
     path_text = str(path)
     if any(path_text == str(root) or path_text.startswith(str(root) + os.sep) for root in skip_roots):
@@ -64189,6 +64647,36 @@ def docs_agents_mesh_skip_root(path: Path) -> bool:
     if len(rel.parts) >= 2 and (rel.parts[1] == "source" or rel.parts[1].startswith("build")):
         return True
     return False
+
+
+def docs_agents_mesh_subject_store_roots() -> list[Path]:
+    raw_roots: list[str] = []
+    for name in ("ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOTS", "ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT"):
+        raw = os.environ.get(name)
+        if not raw:
+            continue
+        if name.endswith("_ROOTS"):
+            raw_roots.extend(item for item in raw.split(os.pathsep) if item)
+        else:
+            raw_roots.append(raw)
+    raw_roots.extend(
+        [
+            str(ARTIFACTS_ROOT / "subjects"),
+            str(getattr(artifact_bundles, "DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT", "")),
+        ]
+    )
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for raw in raw_roots:
+        if not raw:
+            continue
+        root = Path(raw).expanduser()
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(root)
+    return roots
 
 
 def docs_agents_mesh_discovered_cards() -> list[str]:
@@ -74567,6 +75055,13 @@ def main(argv: list[str]) -> int:
     artifacts_trust_coverage_parser.add_argument("--registry-dir", default="", help="local artifact bundle registry root")
     artifacts_trust_coverage_parser.add_argument("--manual-evidence-root", action="append", default=[], help="extra manual evidence root")
     artifacts_trust_coverage_parser.add_argument(
+        "--source-root",
+        default="",
+        help="explicit public seed root for policy/ABI/manifest source freshness",
+    )
+    artifacts_trust_coverage_parser.add_argument("--source-repo", default="", help="source owner repo for explicit drift/freshness context")
+    artifacts_trust_coverage_parser.add_argument("--source-ref", default="", help="source ref that durable evidence must prove")
+    artifacts_trust_coverage_parser.add_argument(
         "--durable-only",
         action="store_true",
         help="ignore tmp/manual evidence and report persistent registry plus trust-gate coverage",
@@ -76284,7 +76779,7 @@ def main(argv: list[str]) -> int:
                         )
             return 0 if data.get("ok") else 1
         if args.artifacts_command == "scenarios":
-            registry_dir = Path(str(args.registry_dir)) if args.registry_dir else ARTIFACTS_BUNDLE_REGISTRY_ROOT
+            registry_dir = Path(str(args.registry_dir)) if args.registry_dir else None
             data = artifacts_scenarios(
                 scenario_id=str(args.scenario_id or ""),
                 artifact_class=str(args.artifact_class or ""),
@@ -76899,6 +77394,9 @@ def main(argv: list[str]) -> int:
                 registry_dir=registry_dir,
                 manual_evidence_roots=[str(item) for item in args.manual_evidence_root],
                 durable_only=bool(args.durable_only),
+                source_root=Path(str(args.source_root)) if args.source_root else None,
+                source_repo=str(args.source_repo or ""),
+                source_ref=str(args.source_ref or ""),
                 write_latest=True,
             )
             if args.json:

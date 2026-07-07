@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "artifact-production-evidence.yml"
+PYPROJECT = ROOT / "pyproject.toml"
 
 
 def test_artifact_production_evidence_workflow_is_public_safe() -> None:
@@ -21,7 +23,11 @@ def test_artifact_production_evidence_workflow_is_public_safe() -> None:
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in text
     assert "python scripts/ci_gate.py --mode release-artifact" in text
     assert "tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner" in text
+    assert "generated \\" in text
+    assert "manifests \\" in text
     assert "subject-path: dist/abyss-machine-bootstrap-${{ github.sha }}.tar.gz" in text
+    assert (ROOT / "generated" / "contract_abi_signatures.min.json").is_file()
+    assert (ROOT / "manifests" / "artifact_signature_policy.manifest.json").is_file()
 
     forbidden_host_roots = (
         "/etc/abyss-machine",
@@ -32,3 +38,11 @@ def test_artifact_production_evidence_workflow_is_public_safe() -> None:
     )
     for root in forbidden_host_roots:
         assert root not in text
+
+
+def test_cryptography_is_runtime_dependency_for_installed_artifact_tools() -> None:
+    pyproject = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+
+    dependencies = pyproject["project"]["dependencies"]
+
+    assert any(item.startswith("cryptography>=") for item in dependencies)
