@@ -50,6 +50,12 @@ source config/default merge reads, latest writes, source-state reads/writes, and
 source-enable/source-disable orchestration through fakeable lookup, state,
 write, audit, and clock ports. CLI still owns concrete path/clock binding,
 privacy-audit writer binding, capture selection, and rendering.
+`abyss_machine.nervous_status_adapters` now owns the top-level nervous status
+readmodel seam: source/privacy/policy projection, latest document summaries,
+systemd unit/status projections, index count summaries, bridge/today counters,
+and status latest/index write routing through fakeable ports. CLI still owns
+concrete path constants, source/privacy/policy readers, systemd/latest/count
+port binding, and rendering.
 `abyss_machine.nervous_browser_content_adapters` now owns browser-content local
 store routing: daily JSONL path projection, record-from-page callback binding,
 bounded recent duplicate scanning, JSONL append routing, latest write routing,

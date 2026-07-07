@@ -151,3 +151,10 @@
   source metadata, effective-state/catalog, payload, and source-set contracts;
   CLI still owns concrete path/clock binding, privacy-audit writer binding,
   capture selection, and rendering.
+- Status readmodel seam: `abyss_machine.nervous_status_adapters` owns the
+  top-level nervous status document assembly from supplied policy/source/privacy
+  data, latest-document readers, systemd unit readers, index-count readers,
+  path-existence probes, line counters, process-latest summaries, and status
+  latest/index write routing. CLI still owns concrete path constants, live
+  source/privacy/policy readers, concrete systemd/latest/count port binding,
+  and command rendering.
