@@ -120,6 +120,7 @@ try:
     from . import typing_editor_adapters
     from . import typing_nervous_adapters
     from . import typing_saved_text_adapters
+    from . import typing_shell_adapters
     from . import validation_contracts
     from .nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
@@ -280,6 +281,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import typing_editor_adapters
     from abyss_machine import typing_nervous_adapters
     from abyss_machine import typing_saved_text_adapters
+    from abyss_machine import typing_shell_adapters
     from abyss_machine import validation_contracts
     from abyss_machine.nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
@@ -24110,38 +24112,24 @@ def ensure_typing_docs() -> list[dict[str, Any]]:
 
 
 def typing_zsh_hook_expected_markers() -> list[str]:
-    return [
-        "Abyss typing committed shell-command adapter",
-        "_abyss_typing_preexec",
-        "--source zsh_preexec",
-        "shell_command cwd=",
-        "abyss-typing-zsh-v1",
-        "ABYSS_TYPING_HOOK_DISABLE_REGISTER",
-    ]
+    return typing_shell_adapters.zsh_hook_expected_markers()
 
 
 def typing_zshrc_sources_hook(text: str) -> bool:
-    lowered = str(text or "").lower()
-    return "source" in lowered and ".config/zsh/abyss-typing.zsh" in lowered
+    return typing_shell_adapters.zshrc_sources_hook(text)
 
 
 def typing_zsh_hook_function_probe() -> dict[str, Any]:
-    if not command_exists("zsh"):
-        return {"ok": False, "returncode": 127, "error": "zsh not found"}
-    if not TYPING_ZSH_HOOK_PATH.exists():
-        return {"ok": False, "returncode": 66, "error": "hook file missing"}
-    script = "\n".join(
-        [
-            f"source {shlex.quote(str(TYPING_ZSH_HOOK_PATH))}",
-            "typeset -f _abyss_typing_preexec >/dev/null",
-        ]
+    plan = typing_shell_adapters.zsh_hook_function_probe_plan(
+        hook_path=TYPING_ZSH_HOOK_PATH,
+        zsh_available=command_exists("zsh"),
+        hook_exists=TYPING_ZSH_HOOK_PATH.exists(),
     )
-    out = run(["env", "ABYSS_TYPING_HOOK_DISABLE_REGISTER=1", "zsh", "-fic", script], timeout=3.0)
-    return {
-        "ok": bool(out.get("ok")),
-        "returncode": out.get("returncode"),
-        "stderr": str(out.get("stderr") or "")[-500:],
-    }
+    if not plan.get("run"):
+        result = plan.get("result") if isinstance(plan.get("result"), dict) else {}
+        return dict(result)
+    raw = run(list(plan.get("command") or []), timeout=float(plan.get("timeout_sec") or 3.0))
+    return typing_shell_adapters.zsh_hook_function_probe_result(raw)
 
 
 def typing_zsh_hook_status(write_latest: bool = True) -> dict[str, Any]:
@@ -24150,6 +24138,8 @@ def typing_zsh_hook_status(write_latest: bool = True) -> dict[str, Any]:
     zshrc_text = ""
     hook_error = None
     zshrc_error = None
+    hook_exists = TYPING_ZSH_HOOK_PATH.exists()
+    zshrc_exists = TYPING_ZSHRC_PATH.exists()
     try:
         hook_text = TYPING_ZSH_HOOK_PATH.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
@@ -24158,70 +24148,27 @@ def typing_zsh_hook_status(write_latest: bool = True) -> dict[str, Any]:
         zshrc_text = TYPING_ZSHRC_PATH.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         zshrc_error = str(exc)
-    markers = typing_zsh_hook_expected_markers()
-    missing_markers = [marker for marker in markers if marker not in hook_text]
-    source_declared = typing_zshrc_sources_hook(zshrc_text)
     function_probe = typing_zsh_hook_function_probe()
     latest_selftest, latest_selftest_error = load_json_document(TYPING_ZSH_HOOK_SELFTEST_LATEST_PATH)
     latest_event = typing_latest()
-    ok = (
-        TYPING_ZSH_HOOK_PATH.exists()
-        and TYPING_ZSHRC_PATH.exists()
-        and source_declared
-        and not missing_markers
-        and bool(function_probe.get("ok"))
+    data = typing_shell_adapters.zsh_hook_status_document(
+        generated_at=generated_at,
+        hook_path=TYPING_ZSH_HOOK_PATH,
+        hook_exists=hook_exists,
+        hook_size_bytes=TYPING_ZSH_HOOK_PATH.stat().st_size if hook_exists else 0,
+        hook_text=hook_text,
+        hook_read_error=hook_error,
+        zshrc_path=TYPING_ZSHRC_PATH,
+        zshrc_exists=zshrc_exists,
+        zshrc_text=zshrc_text,
+        zshrc_read_error=zshrc_error,
+        function_probe=function_probe,
+        latest_selftest=latest_selftest if isinstance(latest_selftest, dict) else None,
+        latest_selftest_error=latest_selftest_error,
+        latest_event=latest_event if isinstance(latest_event, dict) else {},
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
     )
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_typing_zsh_hook_status_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": ok,
-        "status": "ready" if ok else "needs_attention",
-        "hook": {
-            "path": str(TYPING_ZSH_HOOK_PATH),
-            "exists": TYPING_ZSH_HOOK_PATH.exists(),
-            "size_bytes": TYPING_ZSH_HOOK_PATH.stat().st_size if TYPING_ZSH_HOOK_PATH.exists() else 0,
-            "read_error": hook_error,
-            "expected_markers": markers,
-            "missing_markers": missing_markers,
-            "function_probe": function_probe,
-        },
-        "zshrc": {
-            "path": str(TYPING_ZSHRC_PATH),
-            "exists": TYPING_ZSHRC_PATH.exists(),
-            "read_error": zshrc_error,
-            "sources_hook": source_declared,
-        },
-        "latest_selftest": {
-            "exists": isinstance(latest_selftest, dict),
-            "ok": latest_selftest.get("ok") if isinstance(latest_selftest, dict) else None,
-            "generated_at": latest_selftest.get("generated_at") if isinstance(latest_selftest, dict) else None,
-            "event_detected": nested_get(latest_selftest, ["summary", "event_detected"]) if isinstance(latest_selftest, dict) else None,
-            "error": latest_selftest_error,
-        },
-        "latest_typing_event": {
-            "ok": latest_event.get("ok"),
-            "generated_at": latest_event.get("generated_at"),
-            "source_adapter": latest_event.get("source_adapter"),
-            "status": latest_event.get("status"),
-        },
-        "policy": {
-            "adapter": "zsh_preexec",
-            "committed_shell_commands_only": True,
-            "raw_keylogging": False,
-            "terminal_output_captured": False,
-            "password_fields_captured": False,
-            "automatic_action": False,
-        },
-        "commands": {
-            "status": "abyss-machine typing zsh-hook-status --json",
-            "selftest": "abyss-machine typing zsh-hook-selftest --json",
-        },
-        "non_claims": [
-            "zsh hook status proves the hook file and shell function load; it does not prove every active terminal already re-sourced .zshrc.",
-            "The hook observes submitted shell commands only, not keystrokes or command output.",
-        ],
-    }
     if write_latest:
         errors = write_latest_and_history(data, TYPING_ZSH_HOOK_STATUS_LATEST_PATH, TYPING_ZSH_HOOK_STATUS_ROOT)
         index_error = safe_atomic_write_json(TYPING_INDEX_PATH, typing_index_document(), 0o664)
@@ -24234,87 +24181,31 @@ def typing_zsh_hook_status(write_latest: bool = True) -> dict[str, Any]:
 
 def typing_zsh_hook_find_probe_event(text_sha256: str, limit: int = 120) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     records, errors = typing_records(limit)
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        text_payload = record.get("text") if isinstance(record.get("text"), dict) else {}
-        if record.get("source_adapter") == "zsh_preexec" and text_payload.get("text_sha256") == text_sha256:
-            return {
-                "event_id": record.get("event_id"),
-                "generated_at": record.get("generated_at"),
-                "status": record.get("status"),
-                "source_adapter": record.get("source_adapter"),
-                "capture_gate_decision": nested_get(record, ["capture_gate", "decision"]),
-                "recipient": nested_get(record, ["causal_context", "recipient", "kind"]),
-                "project": nested_get(record, ["causal_context", "where", "project", "id"]),
-            }, errors
-    return None, errors
+    return typing_shell_adapters.zsh_hook_probe_event_from_records(records, errors, text_sha256)
 
 
 def typing_zsh_hook_selftest(write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
     status_before = typing_zsh_hook_status(write_latest=False)
-    probe_text = "print abyss-zsh-hook-selftest"
-    probe_hash = hashlib.sha256(probe_text.encode("utf-8", errors="replace")).hexdigest()
+    plan = typing_shell_adapters.zsh_hook_selftest_plan(hook_path=TYPING_ZSH_HOOK_PATH)
     run_result: dict[str, Any]
     if not status_before.get("ok"):
-        run_result = {"ok": False, "returncode": 66, "error": "zsh hook status is not ready"}
+        run_result = typing_shell_adapters.zsh_hook_selftest_not_ready_result()
     else:
-        script = "\n".join(
-            [
-                f"source {shlex.quote(str(TYPING_ZSH_HOOK_PATH))}",
-                "typeset -f _abyss_typing_preexec >/dev/null || exit 17",
-                f"_abyss_typing_preexec {shlex.quote(probe_text)}",
-                "sleep 1.0",
-            ]
-        )
-        raw_run = run(["env", "ABYSS_TYPING_HOOK_DISABLE_REGISTER=1", "zsh", "-fic", script], timeout=5.0)
-        run_result = {
-            "ok": bool(raw_run.get("ok")),
-            "returncode": raw_run.get("returncode"),
-            "stderr": str(raw_run.get("stderr") or "")[-500:],
-        }
-    event, parse_errors = typing_zsh_hook_find_probe_event(probe_hash)
-    event_detected = isinstance(event, dict)
-    ok = bool(status_before.get("ok")) and bool(run_result.get("ok")) and event_detected and not parse_errors
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_typing_zsh_hook_selftest_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": ok,
-        "status": "passed" if ok else "failed",
-        "summary": {
-            "hook_ready_before": bool(status_before.get("ok")),
-            "function_invoked": bool(run_result.get("ok")),
-            "event_detected": event_detected,
-            "parse_errors": len(parse_errors),
-        },
-        "probe": {
-            "source_adapter": "zsh_preexec",
-            "text_sha256": probe_hash,
-            "text_length": len(probe_text),
-            "text_omitted": True,
-        },
-        "hook_status": {
-            "status": status_before.get("status"),
-            "hook": status_before.get("hook"),
-            "zshrc": status_before.get("zshrc"),
-        },
-        "run": run_result,
-        "event": event,
-        "parse_errors": parse_errors[:20],
-        "policy": {
-            "committed_shell_commands_only": True,
-            "raw_keylogging": False,
-            "terminal_output_captured": False,
-            "password_fields_captured": False,
-            "automatic_action": False,
-        },
-        "non_claims": [
-            "This selftest submits a harmless synthetic shell command through the zsh_preexec adapter.",
-            "Passing selftest proves the adapter path can ingest now; old terminal sessions may still need a new shell or re-source .zshrc.",
-        ],
-    }
+        raw_run = run(list(plan.get("command") or []), timeout=float(plan.get("timeout_sec") or 5.0))
+        run_result = typing_shell_adapters.zsh_hook_selftest_run_result(raw_run)
+    probe = plan.get("probe") if isinstance(plan.get("probe"), dict) else {}
+    event, parse_errors = typing_zsh_hook_find_probe_event(str(probe.get("text_sha256") or ""))
+    data = typing_shell_adapters.zsh_hook_selftest_document(
+        generated_at=generated_at,
+        status_before=status_before,
+        plan=plan,
+        run_result=run_result,
+        event=event,
+        parse_errors=parse_errors,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
     if write_latest:
         errors = write_latest_and_history(data, TYPING_ZSH_HOOK_SELFTEST_LATEST_PATH, TYPING_ZSH_HOOK_SELFTEST_ROOT)
         status_after = typing_zsh_hook_status(write_latest=True)

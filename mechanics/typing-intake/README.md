@@ -45,6 +45,10 @@ session-tail filesystem reads for typing and nervous organs start in
 extraction, user-message route recognition, context-envelope normalization,
 duplicate semantics, metadata/context ingest plans, and public-safe event
 summaries live in `abyss_machine.typing_codex_semantics`.
+Zsh submitted-command hook marker/source detection, function-probe command and
+result projection, status document assembly, selftest probe/command/run-result/
+document assembly, and recent-record projection live in
+`abyss_machine.typing_shell_adapters`.
 VS Code editor-extension selftest run-id/probe/context/ingest plans,
 recent-record projection, selftest document assembly, latest-status readmodel
 assembly from supplied latest/selftest/callback documents and age/path facts,
@@ -81,9 +85,9 @@ walking, state continuity, decode rejection, candidate/skip accounting, ingest
 kwargs, state entries, state/latest/index write routing through supplied ports,
 latest-status assembly, and public-safe scan documents live in
 `abyss_machine.typing_saved_text_adapters`. Keep remaining typing work bounded
-by source type and do not move policy reads or unrelated latest writes until
-their owner route is clear. The mechanic owns the route and tests; generated
-typed evidence remains local host state.
+by source type and do not move concrete file reads, subprocess execution, policy
+reads, or unrelated latest writes until their owner route is clear. The mechanic
+owns the route and tests; generated typed evidence remains local host state.
 
 ### Next route
 

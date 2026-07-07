@@ -29,6 +29,13 @@
   AI-transcript ingest callbacks, including framed response writing and exit
   decision projection, while CLI supplies concrete stdio and `typing_ingest`
   callback wiring.
+- Zsh hook status/selftest seam: `typing_shell_adapters` owns submitted-command
+  hook marker/source detection, function-probe command planning and result
+  projection, status document assembly, selftest probe/hash/command planning,
+  run-result projection, recent-record event projection, and public-safe
+  selftest documents while CLI supplies concrete hook and `.zshrc` reads/stats,
+  command availability/execution, latest document reads, typing-record reads,
+  latest/index writes, and command rendering.
 - Editor extension selftest/status seam: `typing_editor_adapters` owns VS Code
   editor-extension selftest run-id/probe/context/ingest plans, recent-record
   projection, selftest document assembly, latest-status readmodel assembly, plus
