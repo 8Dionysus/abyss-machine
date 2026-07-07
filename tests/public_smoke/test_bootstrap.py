@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -528,6 +529,84 @@ def test_bootstrap_install_fails_closed_on_private_public_boundary(tmp_path: Pat
     assert payload["artifact_admission"]["verdict"] == "manual_review_required"
     assert "production_consumer_requires_public_privacy_boundary" in payload["artifact_admission"]["errors"]
     assert not any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_install_bundle_archive_is_self_contained(tmp_path: Path) -> None:
+    manifest_path = ROOT / "manifests" / "artifact_bundles" / "bootstrap_install_bundle.bundle.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    tar_command = next(
+        command
+        for command in manifest["consumer_command"]
+        if command.startswith("tar ") and "abyss-machine-bootstrap-VERSION.tar.gz" in command
+    )
+    parts = shlex.split(tar_command)
+    output_index = parts.index("-czf") + 1
+    archive_inputs = parts[output_index + 1 :]
+
+    required_inputs = {
+        "scripts/abyss-machine-bootstrap",
+        "src/abyss_machine",
+        "config-templates",
+        "systemd",
+        "schemas/bootstrap-report.schema.json",
+        "manifests",
+        "generated",
+    }
+    assert required_inputs.issubset(set(archive_inputs))
+
+    archive = tmp_path / "abyss-machine-bootstrap-test.tar.gz"
+    create_result = subprocess.run(
+        [
+            "tar",
+            "--sort=name",
+            "--mtime=@0",
+            "--owner=0",
+            "--group=0",
+            "--numeric-owner",
+            "-czf",
+            str(archive),
+            *archive_inputs,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert create_result.returncode == 0, create_result.stderr[-1000:]
+
+    extracted = tmp_path / "extracted"
+    extracted.mkdir()
+    extract_result = subprocess.run(
+        ["tar", "-xzf", str(archive), "-C", str(extracted)],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert extract_result.returncode == 0, extract_result.stderr[-1000:]
+    assert (extracted / "manifests" / "artifact_signature_policy.manifest.json").is_file()
+    assert (extracted / "generated" / "contract_abi_signatures.min.json").is_file()
+
+    doctor_result = subprocess.run(
+        [
+            sys.executable,
+            str(extracted / "scripts" / "abyss-machine-bootstrap"),
+            "doctor",
+            "--dry-run",
+            "--json",
+        ],
+        cwd=extracted,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert doctor_result.returncode == 0, doctor_result.stderr[-1000:]
+    payload = json.loads(doctor_result.stdout)
+    assert payload["ok"] is True
+    assert payload["checks"]["artifact_policy_exists"] is True
+    assert payload["checks"]["contract_abi_exists"] is True
 
 
 def test_typing_profile_is_opt_in() -> None:
