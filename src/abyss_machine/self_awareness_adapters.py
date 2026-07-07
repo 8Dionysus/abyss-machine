@@ -1410,6 +1410,81 @@ def resource_preflight(
     }
 
 
+def probe_resource_denied_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    run_id: str,
+    traceparent: str,
+    resource_preflight: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": f"{schema_prefix}_self_awareness_probe_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "status": "resource_denied",
+        "run_id": run_id,
+        "traceparent": traceparent,
+        "resource_preflight": dict(resource_preflight),
+        "chain": {},
+        "summary": {
+            "status": "resource_denied",
+            "chain_passed": 0,
+            "chain_total": 0,
+            "resource_guard_ok": False,
+            "resource_guard_reasons": resource_preflight.get("denial_reasons"),
+        },
+        "policy": {
+            "writes_project_roots": False,
+            "restarts_stack_services": False,
+            "synthetic_alert_mutates_stack_rules": False,
+            "heavy_operation_must_fail_closed_under_pressure": True,
+        },
+        "evidence_refs": [{"source": "/proc/meminfo"}, {"source": "os.getloadavg"}],
+    }
+
+
+def cycle_resource_denied_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    cycle_id: str,
+    resource_preflight: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": f"{schema_prefix}_self_awareness_cycle_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": False,
+        "status": "resource_denied",
+        "cycle_id": cycle_id,
+        "probe_run_id": None,
+        "resource_preflight": dict(resource_preflight),
+        "summary": {
+            "status": "resource_denied",
+            "steps": 0,
+            "chain_passed": 0,
+            "chain_total": 0,
+            "resource_guard_ok": False,
+            "resource_guard_reasons": resource_preflight.get("denial_reasons"),
+        },
+        "cycle_chain": {},
+        "steps": [],
+        "issues": {"resource_preflight": dict(resource_preflight)},
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "automatic_remediation": False,
+            "open_stack_requirements_are_blockers_not_host_failures": True,
+            "working_stack_activation_gaps_are_blockers_not_host_failures": True,
+            "heavy_operation_must_fail_closed_under_pressure": True,
+        },
+        "evidence_refs": [{"source": "/proc/meminfo"}, {"source": "os.getloadavg"}],
+    }
+
+
 def cycle_artifact_step(
     step_id: str,
     command: str,

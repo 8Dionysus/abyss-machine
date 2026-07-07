@@ -540,6 +540,69 @@ def test_resource_preflight_guard_disable_keeps_reasons_but_allows_operation() -
     assert payload["policy"]["guard_enabled"] is False
 
 
+def test_probe_resource_denied_document_is_public_safe_and_fail_closed() -> None:
+    resource_preflight = {
+        "schema": "abyss_machine_self_awareness_resource_preflight_v1",
+        "ok": False,
+        "status": "resource_denied",
+        "denial_reasons": ["mem_available_below_floor", "swap_free_below_floor"],
+    }
+
+    payload = self_awareness_adapters.probe_resource_denied_document(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-07T00:00:00+00:00",
+        run_id="saprobe-fixture",
+        traceparent="00-" + "a" * 32 + "-" + "b" * 16 + "-01",
+        resource_preflight=resource_preflight,
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_probe_v1"
+    assert payload["ok"] is False
+    assert payload["status"] == "resource_denied"
+    assert payload["chain"] == {}
+    assert payload["summary"] == {
+        "status": "resource_denied",
+        "chain_passed": 0,
+        "chain_total": 0,
+        "resource_guard_ok": False,
+        "resource_guard_reasons": ["mem_available_below_floor", "swap_free_below_floor"],
+    }
+    assert payload["policy"]["heavy_operation_must_fail_closed_under_pressure"] is True
+    assert payload["policy"]["writes_project_roots"] is False
+    assert payload["evidence_refs"] == [{"source": "/proc/meminfo"}, {"source": "os.getloadavg"}]
+
+
+def test_cycle_resource_denied_document_is_public_safe_and_fail_closed() -> None:
+    resource_preflight = {
+        "schema": "abyss_machine_self_awareness_resource_preflight_v1",
+        "ok": False,
+        "status": "resource_denied",
+        "denial_reasons": ["load_average_above_cpu_floor"],
+    }
+
+    payload = self_awareness_adapters.cycle_resource_denied_document(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-07T00:00:00+00:00",
+        cycle_id="sacycle-fixture",
+        resource_preflight=resource_preflight,
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_cycle_v1"
+    assert payload["ok"] is False
+    assert payload["status"] == "resource_denied"
+    assert payload["probe_run_id"] is None
+    assert payload["summary"]["steps"] == 0
+    assert payload["summary"]["chain_passed"] == 0
+    assert payload["cycle_chain"] == {}
+    assert payload["steps"] == []
+    assert payload["issues"] == {"resource_preflight": resource_preflight}
+    assert payload["policy"]["host_layer_mutates_stack"] is False
+    assert payload["policy"]["automatic_remediation"] is False
+    assert payload["policy"]["heavy_operation_must_fail_closed_under_pressure"] is True
+
+
 def test_stack_source_ref_and_service_normalization_are_public_safe(tmp_path: Path) -> None:
     ref = self_awareness_adapters.stack_owned_source_ref(
         tmp_path / "abyss-stack" / "Services" / "qwen-tts-api",

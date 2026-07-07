@@ -55172,31 +55172,14 @@ def self_awareness_probe(write_latest: bool = True) -> dict[str, Any]:
     traceparent = f"00-{trace_id}-{span_id}-01"
     resource_preflight = self_awareness_resource_preflight("self-awareness-probe")
     if not resource_preflight.get("ok"):
-        data = {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_probe_v1",
-            "version": VERSION,
-            "generated_at": generated_at,
-            "ok": False,
-            "status": "resource_denied",
-            "run_id": run_id,
-            "traceparent": traceparent,
-            "resource_preflight": resource_preflight,
-            "chain": {},
-            "summary": {
-                "status": "resource_denied",
-                "chain_passed": 0,
-                "chain_total": 0,
-                "resource_guard_ok": False,
-                "resource_guard_reasons": resource_preflight.get("denial_reasons"),
-            },
-            "policy": {
-                "writes_project_roots": False,
-                "restarts_stack_services": False,
-                "synthetic_alert_mutates_stack_rules": False,
-                "heavy_operation_must_fail_closed_under_pressure": True,
-            },
-            "evidence_refs": [{"source": "/proc/meminfo"}, {"source": "os.getloadavg"}],
-        }
+        data = self_awareness_adapters.probe_resource_denied_document(
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+            generated_at=generated_at,
+            run_id=run_id,
+            traceparent=traceparent,
+            resource_preflight=resource_preflight,
+        )
         if write_latest:
             errors = write_latest_and_history(data, SELF_AWARENESS_PROBE_LATEST_PATH, SELF_AWARENESS_PROBE_ROOT)
             if errors:
@@ -57597,35 +57580,13 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
     cycle_id = "sacycle-" + stable_hash_json(seed, length=16)
     resource_preflight = self_awareness_resource_preflight("self-awareness-cycle")
     if not resource_preflight.get("ok"):
-        data = {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_cycle_v1",
-            "version": VERSION,
-            "generated_at": generated_at,
-            "ok": False,
-            "status": "resource_denied",
-            "cycle_id": cycle_id,
-            "probe_run_id": None,
-            "resource_preflight": resource_preflight,
-            "summary": {
-                "status": "resource_denied",
-                "steps": 0,
-                "chain_passed": 0,
-                "chain_total": 0,
-                "resource_guard_ok": False,
-                "resource_guard_reasons": resource_preflight.get("denial_reasons"),
-            },
-            "cycle_chain": {},
-            "steps": [],
-            "issues": {"resource_preflight": resource_preflight},
-            "policy": {
-                "host_layer_mutates_stack": False,
-                "automatic_remediation": False,
-                "open_stack_requirements_are_blockers_not_host_failures": True,
-                "working_stack_activation_gaps_are_blockers_not_host_failures": True,
-                "heavy_operation_must_fail_closed_under_pressure": True,
-            },
-            "evidence_refs": [{"source": "/proc/meminfo"}, {"source": "os.getloadavg"}],
-        }
+        data = self_awareness_adapters.cycle_resource_denied_document(
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+            generated_at=generated_at,
+            cycle_id=cycle_id,
+            resource_preflight=resource_preflight,
+        )
         if write_latest:
             errors = write_latest_and_history(data, SELF_AWARENESS_CYCLE_LATEST_PATH, SELF_AWARENESS_CYCLE_ROOT)
             if errors:
