@@ -115,6 +115,11 @@
   write routing for rerank search, rerank eval, and retrieval packs. CLI still
   owns privacy refusal binding, concrete config/path/callback binding, and
   command rendering.
+- Events/episodes build seam: `abyss_machine.nervous_events_adapters` owns
+  derived event/episode local JSONL reads/replacement writes, latest read/write
+  routing, global-pause build refusals, and episode refresh orchestration
+  through fakeable ports. CLI still owns concrete privacy/source-policy/config/
+  path reads, live port binding, and rendering.
 - Synthesis/eval local file seam: `abyss_machine.nervous_synthesis_adapters`
   owns episode/event/candidate JSONL root reads, latest reads, synthesis
   latest/period JSONL/markdown writes, synthesis validate latest routing, eval
