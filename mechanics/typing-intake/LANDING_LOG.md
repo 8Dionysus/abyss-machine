@@ -29,6 +29,12 @@
   AI-transcript ingest callbacks, including framed response writing and exit
   decision projection, while CLI supplies concrete stdio and `typing_ingest`
   callback wiring.
+- Editor callback runtime seam: `typing_editor_adapters` owns VS Code callback
+  selftest probe/document assembly, disposable user-data and target-file
+  preparation, extension-host env projection, subprocess lifecycle cleanup,
+  callback polling through supplied recent-record ports, and public-safe
+  result documents while CLI supplies concrete paths, `code` lookup, write/
+  probe/cleanup ports, latest/index store binding, and command rendering.
 - Firefox release-profile seam: `typing_browser_adapters` owns `profiles.ini`
   parsing, relative/absolute profile path projection, extension sidecar path
   projection, and release-profile selection while CLI supplies the configured

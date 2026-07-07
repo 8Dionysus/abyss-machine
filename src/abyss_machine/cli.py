@@ -117,6 +117,7 @@ try:
     from . import typing_browser_adapters
     from . import typing_codex_semantics
     from . import typing_capture_contracts
+    from . import typing_editor_adapters
     from . import typing_nervous_adapters
     from . import typing_saved_text_adapters
     from . import validation_contracts
@@ -276,6 +277,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import typing_browser_adapters
     from abyss_machine import typing_codex_semantics
     from abyss_machine import typing_capture_contracts
+    from abyss_machine import typing_editor_adapters
     from abyss_machine import typing_nervous_adapters
     from abyss_machine import typing_saved_text_adapters
     from abyss_machine import validation_contracts
@@ -25496,142 +25498,20 @@ def typing_terminate_processes_with_arg_token(token: str) -> list[dict[str, Any]
 
 def typing_editor_callback_selftest(write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
-    run_id = re.sub(r"[^0-9]", "", generated_at)[:14] + str(os.getpid())[-5:]
-    probe_text = f"abyss vscode callback committed text {run_id}"
-    probe_hash = hashlib.sha256(probe_text.encode("utf-8", errors="replace")).hexdigest()
-    code_bin = shutil.which("code")
-    file_path = TYPING_EDITOR_EXTENSION_CALLBACK_SELFTEST_FILE
-    tmp_root = TYPING_EDITOR_EXTENSION_CALLBACK_SELFTEST_TMP_ROOT
-    user_data_dir = tmp_root / "user-data"
-    stdout_tail = ""
-    stderr_tail = ""
-    code_returncode: int | None = None
-    cleanup_actions: list[dict[str, Any]] = []
-    event: dict[str, Any] | None = None
-    parse_errors: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
-
-    if not code_bin:
-        data = {
-            "schema": f"{SCHEMA_PREFIX}_typing_editor_callback_selftest_v1",
-            "version": VERSION,
-            "generated_at": generated_at,
-            "ok": False,
-            "status": "code_missing",
-            "source_adapter": "editor_extension_explicit",
-            "error": "code executable not found",
-            "policy": {"raw_keylogging": False, "password_fields_captured": False, "automatic_action": False},
-        }
-        return typing_editor_callback_selftest_store(data, write_latest)
-
-    proc: subprocess.Popen[str] | None = None
-    try:
-        tmp_root.mkdir(parents=True, exist_ok=True)
-        user_data_dir.mkdir(parents=True, exist_ok=True)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        write_error = safe_atomic_write_text(file_path, "", 0o664)
-        if write_error:
-            errors.append(write_error)
-        env = os.environ.copy()
-        env["ABYSS_TYPING_EDITOR_CALLBACK_SELFTEST_PATH"] = str(file_path)
-        env["ABYSS_TYPING_EDITOR_CALLBACK_SELFTEST_TEXT"] = probe_text
-        proc = subprocess.Popen(
-            [
-                code_bin,
-                "--new-window",
-                "--user-data-dir",
-                str(user_data_dir),
-                "--extensionDevelopmentPath",
-                str(TYPING_VSCODE_EXTENSION_PATH),
-                "--wait",
-                str(file_path),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-	            preexec_fn=os.setsid,
-	        )
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline:
-            event, parse_errors = typing_editor_extension_find_probe_event(probe_hash, limit=520)
-            if isinstance(event, dict):
-                break
-            time.sleep(0.5)
-    except Exception as exc:
-        errors.append({"error": repr(exc)[:500]})
-    finally:
-        if proc is not None:
-            try:
-                if proc.poll() is None:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except Exception:
-                pass
-            try:
-                stdout, stderr = proc.communicate(timeout=5.0)
-            except Exception:
-                try:
-                    if proc.poll() is None:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except Exception:
-                    pass
-                try:
-                    stdout, stderr = proc.communicate(timeout=2.0)
-                except Exception:
-                    stdout, stderr = "", ""
-            stdout_tail = str(stdout or "")[-1000:]
-            stderr_tail = str(stderr or "")[-1000:]
-            code_returncode = proc.returncode
-        cleanup_actions = typing_terminate_processes_with_arg_token(str(user_data_dir))
-
-    event_ok = (
-        isinstance(event, dict)
-        and event.get("status") == "captured"
-        and event.get("source_adapter") == "editor_extension_explicit"
-        and event.get("capture_gate_decision") == "allow_text"
-        and event.get("capture_gate_confidence") == "editor_path_allowed"
-        and event.get("text_sha256") == probe_hash
-        and event.get("text_chars_stored") == len(probe_text)
-        and nested_get(event, ["recipient", "kind"]) == "editor_extension"
+    data = typing_editor_adapters.editor_callback_selftest_document(
+        generated_at=generated_at,
+        pid=os.getpid(),
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        code_bin=shutil.which("code"),
+        file_path=TYPING_EDITOR_EXTENSION_CALLBACK_SELFTEST_FILE,
+        tmp_root=TYPING_EDITOR_EXTENSION_CALLBACK_SELFTEST_TMP_ROOT,
+        vscode_extension_path=TYPING_VSCODE_EXTENSION_PATH,
+        base_env=os.environ,
+        write_text=safe_atomic_write_text,
+        find_event=typing_editor_extension_find_probe_event,
+        terminate_processes=typing_terminate_processes_with_arg_token,
     )
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_typing_editor_callback_selftest_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": bool(event_ok and not parse_errors and not errors),
-        "status": "passed" if bool(event_ok and not parse_errors and not errors) else "failed",
-        "source_adapter": "editor_extension_explicit",
-        "probe": {
-            "text_sha256": probe_hash,
-            "text_length": len(probe_text),
-            "text_omitted": True,
-        },
-        "event": event,
-        "code": {
-            "binary": code_bin,
-            "returncode": code_returncode,
-            "user_data_dir": str(user_data_dir),
-            "target_file": str(file_path),
-            "stdout_tail": stdout_tail,
-            "stderr_tail": stderr_tail,
-            "cleanup_actions": cleanup_actions[:40],
-        },
-        "parse_errors": parse_errors[:20],
-        "errors": errors[:20],
-        "policy": {
-            "raw_keylogging": False,
-            "password_fields_captured": False,
-            "automatic_action": False,
-            "internet_access": False,
-            "disposable_user_data_dir": True,
-            "live_vscode_extension_callback": True,
-            "extension_host_edit_selftest_only": True,
-        },
-        "non_claims": [
-            "This selftest opens a disposable VS Code window and applies a safe document edit through the extension host.",
-            "It proves the live onDidChangeTextDocument callback route into typed-input ingest; it does not capture raw keys or terminal output.",
-        ],
-    }
     return typing_editor_callback_selftest_store(data, write_latest)
 
 

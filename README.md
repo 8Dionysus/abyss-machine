@@ -96,7 +96,10 @@ and AI transcript cleanup/role contracts live in
 Codex prompt/session-tail text extraction, user-message route recognition,
 context-envelope normalization, near-line duplicate semantics, metadata/context
 ingest plans, and public-safe event summaries live in
-`abyss_machine.typing_codex_semantics`; browser/native-host ingest plans,
+`abyss_machine.typing_codex_semantics`; VS Code editor callback selftest
+probe/document assembly, disposable runtime prep, subprocess lifecycle cleanup,
+callback polling through supplied ports, and public-safe result documents live
+in `abyss_machine.typing_editor_adapters`; browser/native-host ingest plans,
 response envelopes, framed native-host byte transport, synthetic selftest
 documents, safe Firefox selftest profile prefs, temporary WebExtension selftest
 profile/tmp roots, `web-ext` execution, loopback HTTP probe serving, subprocess
@@ -113,9 +116,10 @@ semantic plans plus browser/privacy selftest recent-record readers live in
 filesystem scan limits, path walking, state continuity, file decode rejection,
 candidate/skip accounting, ingest kwargs, state entries, and public-safe scan
 documents live in `abyss_machine.typing_saved_text_adapters`; CLI still owns
-configured policy reads, native-host stdin/stdout binding, `typing_ingest`
-execution, state/latest writes, latest/history writes, browser selftest
-callback binding, and command rendering;
+configured policy reads, concrete native-host stdio binding, `typing_ingest`
+execution, editor callback path/env/write/probe/store binding, state/latest
+writes, latest/history writes, browser selftest callback binding, and command
+rendering;
 nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`;
 local JSONL reads, derived event/episode replacement writes, latest read
@@ -391,8 +395,8 @@ decisions, typing status, validate, and end-to-end proof document assembly, save
 shape status, causal project binding/resolution, causal interaction identity/context-anchor and URL/AI recipient helpers,
 typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, process readmodel assembly, and causal-awareness event/readmodel status, session-tail latest-status
 contracts, Codex prompt/session-tail semantic ingest planning, AT-SPI
-focused/text-event/generic GUI semantic plans, saved-text scan filesystem
-mechanics, and resource plan/launch
+focused/text-event/generic GUI semantic plans, editor callback selftest runtime,
+saved-text scan filesystem mechanics, and resource plan/launch
 contracts are now
 module-owned with public
 validators. AI CPU route policy is
