@@ -250,6 +250,19 @@ changes live rebuild behavior or the operator explicitly accepts the host cost;
 never copy raw local index rows, source records, browser content, or generated
 JSONL payloads into the repository.
 
+For nervous semantic-maintain orchestration adapter changes, public CI should
+rely on fake-port tests for source-index pre-refresh assessment, dry-run/launch
+resource-gate outcomes, semantic lock refusal, batch-policy memory-plan fan-in,
+deferred-build stdout parsing, and maintain latest/history routing. Live-host
+closeout should prefer compact `abyss-machine nervous semantic-maintain
+--dry-run --json` and `abyss-machine nervous semantic-status --json` summaries.
+Run `abyss-machine nervous semantic-maintain --json` or
+`abyss-machine nervous semantic-build --json` only when the slice intentionally
+changes live rebuild behavior or the operator explicitly accepts the host cost;
+never copy raw local vectors, source chunks, model paths beyond route summaries,
+embedding text, OpenVINO cache payloads, or generated semantic DB contents into
+the repository.
+
 Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.

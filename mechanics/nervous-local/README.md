@@ -114,7 +114,10 @@ connection/init/counts, file locks, source-chunk loading from the lexical
 index, latest and semantic-maintain latest/history writes, build-run
 metadata/provenance transactions, generated DB mode/group normalization,
 embedding subprocess temp-file staging, runner invocation, output readback,
-cleanup, and resource-profile callback routing.
+cleanup, resource-profile callback routing, and semantic-maintain pre-refresh/
+build launch orchestration through fakeable status, lock, resource-launch,
+memory-plan, latest-writer, and JSON-parser ports. CLI still owns concrete
+config/path/model/runtime binding, direct-build policy gates, and rendering.
 `abyss_machine.nervous_rerank_adapters` now owns the neural rerank scorer
 subprocess seam for temp-payload staging, command invocation, stdout/output JSON
 parsing, policy-gate callback routing, debug path reporting, and

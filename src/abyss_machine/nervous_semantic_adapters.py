@@ -20,6 +20,12 @@ ResourceSnapshot = Callable[[], Mapping[str, Any]]
 ResourceProfile = Callable[[Mapping[str, Any], Mapping[str, Any], str, str], Mapping[str, Any]]
 ConnectDb = Callable[[Path, bool], sqlite3.Connection]
 CountDb = Callable[[Path], dict[str, Any]]
+StatusPort = Callable[[], dict[str, Any]]
+LockActivePort = Callable[[], bool]
+ResourceLaunchPort = Callable[..., dict[str, Any]]
+MemoryPlanPort = Callable[[], dict[str, Any]]
+LatestWriterPort = Callable[[dict[str, Any]], dict[str, Any]]
+JsonParserPort = Callable[[str], dict[str, Any] | None]
 
 DEFAULT_STATE_GROUP = "wheel"
 
@@ -277,6 +283,266 @@ def finish_successful_build_run(
         conn.rollback()
         raise
     return stale_deleted
+
+
+def _nested_get(data: Any, path: list[str]) -> Any:
+    current = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _index_status_summary(index_status: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": index_status.get("ok"),
+        "ready": index_status.get("ready"),
+        "warnings": index_status.get("warnings", []),
+        "freshness": index_status.get("freshness"),
+        "counts": {
+            "chunks": _nested_get(index_status, ["counts", "chunks"]),
+            "documents": _nested_get(index_status, ["counts", "documents"]),
+            "run_id": _nested_get(index_status, ["counts", "meta", "run_id"]),
+            "built_at": _nested_get(index_status, ["counts", "meta", "built_at"]),
+        },
+    }
+
+
+def semantic_maintain_document(
+    *,
+    semantic_config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    maintain_latest_path: Path,
+    maintain_daily_root: Path,
+    semantic_latest_path: Path,
+    index_status: StatusPort,
+    semantic_status: StatusPort,
+    lock_active: LockActivePort,
+    resource_launch: ResourceLaunchPort,
+    memory_plan: MemoryPlanPort,
+    latest_writer: LatestWriterPort,
+    json_parser: JsonParserPort,
+    min_delta_chunks: int | None = None,
+    max_stale_minutes: float | None = None,
+    timeout_sec: float | None = None,
+    dry_run: bool = False,
+    force_refresh: bool = False,
+    max_chunks: int | None = None,
+    batch_size: int | None = None,
+    rebuild: bool = False,
+    no_thermal_sample: bool = False,
+    refresh_index_first: bool | None = None,
+    write_latest: bool = True,
+    index_build_command: list[str] | None = None,
+) -> dict[str, Any]:
+    maintain = semantic_config.get("maintain") if isinstance(semantic_config.get("maintain"), dict) else {}
+    min_delta = int(min_delta_chunks if min_delta_chunks is not None else maintain.get("min_delta_chunks") or 128)
+    max_stale = float(max_stale_minutes if max_stale_minutes is not None else maintain.get("max_stale_minutes") or 90)
+    timeout = float(timeout_sec if timeout_sec is not None and timeout_sec > 0 else maintain.get("timeout_sec") or 1800)
+    resource_class = str(maintain.get("resource_class") or "medium")
+    resource_kind = str(maintain.get("resource_kind") or "indexing")
+    unattended = bool(maintain.get("unattended", True))
+    success_on_block = bool(maintain.get("success_on_block", True))
+    index_refresh_enabled = bool(maintain.get("refresh_index_first", True) if refresh_index_first is None else refresh_index_first)
+    index_refresh_timeout = float(maintain.get("index_refresh_timeout_sec") or min(timeout, 300))
+    index_command = list(index_build_command or ["abyss-machine", "nervous", "index-build", "--json"])
+
+    initial_index = index_status()
+    index_refresh_assessment = nervous_semantic.maintain_index_refresh_assess(initial_index, index_refresh_enabled)
+    before = semantic_status()
+    pre_refresh_assessment = nervous_semantic.maintain_assess(
+        before,
+        min_delta,
+        max_stale,
+        force_refresh=force_refresh,
+    )
+    data: dict[str, Any] = {
+        "schema": f"{schema_prefix}_nervous_semantic_maintain_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": True,
+        "decision": "skip",
+        "dry_run": bool(dry_run),
+        "before": before,
+        "assessment": pre_refresh_assessment,
+        "pre_refresh_assessment": pre_refresh_assessment,
+        "thresholds": {
+            "min_delta_chunks": min_delta,
+            "max_stale_minutes": max_stale,
+        },
+        "index_refresh": {
+            "enabled": index_refresh_enabled,
+            "timeout_sec": index_refresh_timeout,
+            "before": _index_status_summary(initial_index),
+            "assessment": index_refresh_assessment,
+            "command": index_command,
+        },
+        "resource": {
+            "class": resource_class,
+            "kind": resource_kind,
+            "unattended": unattended,
+            "timeout_sec": timeout,
+            "success_on_block": success_on_block,
+            "no_thermal_sample": bool(no_thermal_sample),
+        },
+        "build_command": [],
+        "paths": {
+            "latest": str(maintain_latest_path),
+            "daily_glob": str(maintain_daily_root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "semantic_latest": str(semantic_latest_path),
+        },
+        "policy": {
+            "resource_gated": True,
+            "resident_service": False,
+            "repo_mutation": False,
+            "automatic_repo_write": False,
+        },
+    }
+
+    def finish(document: dict[str, Any]) -> dict[str, Any]:
+        return latest_writer(document) if write_latest else document
+
+    if index_refresh_assessment.get("needed"):
+        if dry_run:
+            index_launch = resource_launch(
+                index_command,
+                workload_class=resource_class,
+                kind=resource_kind,
+                unattended=unattended,
+                dry_run=True,
+                timeout_sec=index_refresh_timeout,
+                sample_thermal=False if no_thermal_sample else None,
+                write_latest=False,
+            )
+            data["index_refresh"]["launch"] = index_launch
+            data["decision"] = "dry_run_refresh_index"
+            if index_launch.get("blocked_reasons"):
+                data["decision"] = "dry_run_blocked_index_refresh"
+                data["reason"] = "source SQLite/FTS index pre-refresh would be blocked by resource gates"
+            elif index_launch.get("denied_reasons"):
+                data["decision"] = "dry_run_denied_index_refresh"
+                data["reason"] = "source SQLite/FTS index pre-refresh would be denied by resource gates"
+            else:
+                data["reason"] = "source SQLite/FTS index would refresh before semantic maintenance assessment"
+            return finish(data)
+        if lock_active():
+            data["decision"] = "skip_running"
+            data["reason"] = "another semantic index operation is already running"
+            return finish(data)
+        index_launch = resource_launch(
+            index_command,
+            workload_class=resource_class,
+            kind=resource_kind,
+            unattended=unattended,
+            dry_run=False,
+            timeout_sec=index_refresh_timeout,
+            sample_thermal=False if no_thermal_sample else None,
+            write_latest=True,
+        )
+        data["index_refresh"]["launch"] = index_launch
+        if index_launch.get("denied_reasons"):
+            data["ok"] = False
+            data["decision"] = "denied_index_refresh"
+            data["reason"] = "resource gate denied source index refresh before semantic maintenance"
+            return finish(data)
+        if index_launch.get("blocked_reasons"):
+            data["ok"] = success_on_block
+            data["decision"] = "blocked_index_refresh"
+            data["reason"] = "resource gate blocked source index refresh before semantic maintenance"
+            return finish(data)
+        if not index_launch.get("ok"):
+            data["ok"] = False
+            data["decision"] = "failed_index_refresh"
+            data["reason"] = "source index refresh failed before semantic maintenance"
+            return finish(data)
+        refreshed_index = index_status()
+        data["index_refresh"]["after"] = _index_status_summary(refreshed_index)
+        before = semantic_status()
+        data["before"] = before
+
+    assessment = nervous_semantic.maintain_assess(before, min_delta, max_stale, force_refresh=force_refresh)
+    effective_rebuild = bool(rebuild or assessment.get("embedding_config_stale"))
+    batch_policy = nervous_semantic.batch_policy(
+        before,
+        dict(maintain),
+        batch_size,
+        resource_class,
+        unattended,
+        memory_plan(),
+    )
+    batch_override = batch_policy.get("pass_batch_override")
+    build_command = nervous_semantic.build_command(
+        max_chunks=max_chunks,
+        explicit_batch_size=batch_size,
+        batch_override=batch_override,
+        rebuild=effective_rebuild,
+    )
+    data["assessment"] = assessment
+    data["batch_policy"] = batch_policy
+    data["resource"]["effective_rebuild"] = effective_rebuild
+    data["build_command"] = build_command
+    if not assessment.get("needed"):
+        data["reason"] = "semantic sidecar is fresh enough under maintenance thresholds"
+        return finish(data)
+    if lock_active():
+        data["decision"] = "skip_running"
+        data["reason"] = "another semantic index operation is already running"
+        return finish(data)
+
+    data["decision"] = "dry_run" if dry_run else "launch"
+    launch = resource_launch(
+        build_command,
+        workload_class=resource_class,
+        kind=resource_kind,
+        unattended=unattended,
+        dry_run=bool(dry_run),
+        timeout_sec=timeout,
+        sample_thermal=False if no_thermal_sample else None,
+        write_latest=not bool(dry_run),
+    )
+    data["launch"] = launch
+    if launch.get("denied_reasons"):
+        data["ok"] = False
+        data["decision"] = "denied"
+        data["reason"] = "resource gate denied semantic maintenance launch"
+        return finish(data)
+    if launch.get("blocked_reasons"):
+        data["ok"] = success_on_block
+        data["decision"] = "blocked"
+        data["reason"] = "resource gate blocked semantic maintenance launch"
+        return finish(data)
+    if dry_run:
+        data["reason"] = "semantic maintenance would launch"
+        return finish(data)
+
+    after = semantic_status()
+    data["after"] = after
+    after_assessment = nervous_semantic.maintain_assess(after, min_delta, max_stale, force_refresh=False)
+    data["after_assessment"] = after_assessment
+    launch_payload = json_parser(str(_nested_get(launch, ["execution", "stdout_tail"]) or launch.get("stdout_tail") or ""))
+    if not launch.get("ok") and isinstance(launch_payload, dict) and bool(launch_payload.get("deferred")):
+        data["ok"] = success_on_block
+        data["decision"] = "deferred_source_index_active"
+        data["reason"] = "semantic maintenance deferred because source lexical index operation is active"
+        data["deferred_build"] = {
+            "run_id": launch_payload.get("run_id"),
+            "error": launch_payload.get("error"),
+            "source_index": launch_payload.get("source_index"),
+        }
+    else:
+        data["ok"] = bool(launch.get("ok")) and not bool(after_assessment.get("needed"))
+    if data.get("decision") == "deferred_source_index_active":
+        pass
+    elif not launch.get("ok"):
+        data["reason"] = "semantic maintenance launch failed"
+    elif after_assessment.get("needed"):
+        data["reason"] = "semantic maintenance completed but sidecar still exceeds maintenance thresholds"
+    else:
+        data["reason"] = "semantic sidecar is within maintenance thresholds"
+    return finish(data)
 
 
 def embed_texts_with_subprocess(

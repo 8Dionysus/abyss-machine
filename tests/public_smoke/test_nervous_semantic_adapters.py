@@ -250,6 +250,170 @@ def test_cli_nervous_semantic_lifecycle_binds_live_adapter(monkeypatch, tmp_path
     assert captured["source_chunks"]["kwargs"]["max_input_chars"] == 512
 
 
+def test_semantic_maintain_adapter_dry_run_refreshes_index_through_resource_port(tmp_path: Path) -> None:
+    calls: list[tuple[str, object]] = []
+
+    def latest_writer(data: dict[str, object]) -> dict[str, object]:
+        calls.append(("latest", data["decision"]))
+        return {**data, "written": True}
+
+    def resource_launch(command: list[str], **kwargs: object) -> dict[str, object]:
+        calls.append(("launch", {"command": command, "kwargs": kwargs}))
+        return {"ok": True, "dry_run": kwargs.get("dry_run")}
+
+    data = nervous_semantic_adapters.semantic_maintain_document(
+        semantic_config={"maintain": {"index_refresh_timeout_sec": 42, "resource_class": "medium"}},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T00:00:00+00:00",
+        maintain_latest_path=tmp_path / "maintain" / "latest.json",
+        maintain_daily_root=tmp_path / "maintain",
+        semantic_latest_path=tmp_path / "semantic" / "latest.json",
+        index_status=lambda: {
+            "ok": True,
+            "ready": False,
+            "warnings": ["missing-source-index"],
+            "freshness": {"stale": True, "records_lag": 12},
+            "counts": {"chunks": 5, "documents": 3, "meta": {"run_id": "idx-old", "built_at": "2026-07-06T23:00:00+00:00"}},
+        },
+        semantic_status=lambda: {"ready": True, "freshness": {"source_chunks": 5, "vectors": 5}, "counts": {"vectors": 5, "meta": {}}},
+        lock_active=lambda: (_ for _ in ()).throw(AssertionError("dry-run index refresh must not inspect semantic lock")),
+        resource_launch=resource_launch,
+        memory_plan=lambda: (_ for _ in ()).throw(AssertionError("pre-refresh dry-run exits before batch policy")),
+        latest_writer=latest_writer,
+        json_parser=lambda _stdout: None,
+        dry_run=True,
+        write_latest=True,
+    )
+
+    assert data["written"] is True
+    assert data["decision"] == "dry_run_refresh_index"
+    assert data["index_refresh"]["before"]["counts"]["run_id"] == "idx-old"
+    assert data["index_refresh"]["launch"] == {"ok": True, "dry_run": True}
+    assert calls[0][0] == "launch"
+    assert calls[0][1]["command"] == ["abyss-machine", "nervous", "index-build", "--json"]
+    assert calls[0][1]["kwargs"]["timeout_sec"] == 42
+    assert calls[0][1]["kwargs"]["write_latest"] is False
+    assert calls[-1] == ("latest", "dry_run_refresh_index")
+
+
+def test_semantic_maintain_adapter_blocks_build_launch_through_resource_port(tmp_path: Path) -> None:
+    lock_calls: list[bool] = []
+    launches: list[dict[str, object]] = []
+
+    def resource_launch(command: list[str], **kwargs: object) -> dict[str, object]:
+        launches.append({"command": command, "kwargs": kwargs})
+        return {"ok": False, "blocked_reasons": ["memory_hot"]}
+
+    data = nervous_semantic_adapters.semantic_maintain_document(
+        semantic_config={"maintain": {"min_delta_chunks": 2, "max_stale_minutes": 10, "success_on_block": True}},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T00:00:00+00:00",
+        maintain_latest_path=tmp_path / "maintain" / "latest.json",
+        maintain_daily_root=tmp_path / "maintain",
+        semantic_latest_path=tmp_path / "semantic" / "latest.json",
+        index_status=lambda: {
+            "ok": True,
+            "ready": True,
+            "freshness": {"stale": False, "records_lag": 0},
+            "counts": {"chunks": 10, "documents": 4, "meta": {"run_id": "idx-new", "built_at": "2026-07-07T00:00:00+00:00"}},
+        },
+        semantic_status=lambda: {
+            "ready": True,
+            "freshness": {
+                "source_index_run_id": "idx-new",
+                "semantic_source_index_run_id": "idx-old",
+                "source_chunks": 10,
+                "vectors": 1,
+            },
+            "source_index": {"run_id": "idx-new", "built_at": "2026-07-07T00:00:00+00:00", "chunks": 10},
+            "counts": {"vectors": 1, "meta": {"source_index_run_id": "idx-old"}},
+            "embedding": {"batch_size": 16},
+        },
+        lock_active=lambda: lock_calls.append(True) or False,
+        resource_launch=resource_launch,
+        memory_plan=lambda: {"class": "normal", "pressure": {"summary": {}}, "recommended_new_work": {}},
+        latest_writer=lambda data: {**data, "written": True},
+        json_parser=lambda _stdout: None,
+        write_latest=True,
+    )
+
+    assert data["written"] is True
+    assert data["decision"] == "blocked"
+    assert data["ok"] is True
+    assert data["reason"] == "resource gate blocked semantic maintenance launch"
+    assert data["assessment"]["delta_chunks"] == 9
+    assert data["build_command"] == ["abyss-machine", "nervous", "semantic-build", "--json"]
+    assert lock_calls == [True]
+    assert launches == [
+        {
+            "command": ["abyss-machine", "nervous", "semantic-build", "--json"],
+            "kwargs": {
+                "workload_class": "medium",
+                "kind": "indexing",
+                "unattended": True,
+                "dry_run": False,
+                "timeout_sec": 1800.0,
+                "sample_thermal": None,
+                "write_latest": True,
+            },
+        }
+    ]
+
+
+def test_cli_nervous_semantic_maintain_binds_orchestration_adapter(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_MAINTAIN_LATEST_PATH", tmp_path / "maintain" / "latest.json")
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_MAINTAIN_ROOT", tmp_path / "maintain")
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_LATEST_PATH", tmp_path / "semantic" / "latest.json")
+    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"maintain": {"min_delta_chunks": 7}})
+
+    def fake_adapter(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    monkeypatch.setattr(nervous_semantic_adapters, "semantic_maintain_document", fake_adapter)
+
+    data = cli.nervous_semantic_maintain(
+        min_delta_chunks=3,
+        max_stale_minutes=4.5,
+        timeout_sec=9,
+        dry_run=True,
+        force_refresh=True,
+        max_chunks=11,
+        batch_size=2,
+        rebuild=True,
+        no_thermal_sample=True,
+        refresh_index_first=False,
+        write_latest=False,
+    )
+
+    assert data == {"ok": True, "from_adapter": True}
+    assert captured["semantic_config"] == {"maintain": {"min_delta_chunks": 7}}
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["maintain_latest_path"] == tmp_path / "maintain" / "latest.json"
+    assert captured["maintain_daily_root"] == tmp_path / "maintain"
+    assert captured["semantic_latest_path"] == tmp_path / "semantic" / "latest.json"
+    assert captured["lock_active"] is cli.nervous_semantic_lock_active
+    assert captured["resource_launch"] is cli.resource_launch
+    assert captured["latest_writer"] is cli.nervous_semantic_maintain_write_latest
+    assert captured["json_parser"] is cli.parse_json_stdout
+    assert captured["min_delta_chunks"] == 3
+    assert captured["max_stale_minutes"] == 4.5
+    assert captured["timeout_sec"] == 9
+    assert captured["dry_run"] is True
+    assert captured["force_refresh"] is True
+    assert captured["max_chunks"] == 11
+    assert captured["batch_size"] == 2
+    assert captured["rebuild"] is True
+    assert captured["no_thermal_sample"] is True
+    assert captured["refresh_index_first"] is False
+    assert captured["write_latest"] is False
+
+
 def test_embedding_adapter_returns_empty_without_runtime_calls(tmp_path: Path) -> None:
     called: list[str] = []
 
