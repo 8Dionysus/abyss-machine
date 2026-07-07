@@ -220,6 +220,16 @@ ok/phase/warning/count summaries and never copy generated latest documents,
 source-state payloads, browser content, local index contents, or private host
 evidence into the repository.
 
+For nervous quality-audit adapter changes, public CI should rely on fake-port
+tests for refresh orchestration, validation/status/capture/privacy/source/timer
+input collection, browser-latest read handling, redaction smoke projection,
+missing-index projection, and quality latest/history write routing. Live-host
+closeout may use compact `abyss-machine nervous quality-audit --json`
+summaries only: schema, return code, ok/status, fail/warning/check counts, and
+bounded refresh/result counts. Do not publish generated quality latest/history
+documents, browser-content payloads, redaction sample input, source-state
+payloads, or local index contents.
+
 For nervous capture-status adapter changes, public CI should rely on fake-port
 tests for capture/browser latest reads, path-existence checks, private-root size
 summaries, screenshot PNG counts, browser-content JSONL counts, browser route

@@ -101,6 +101,11 @@ synthesis ports, synthesis/eval global-pause refusals, eval latest/history
 routing, and eval validate latest routing through fakeable ports. CLI still
 owns concrete privacy-document reads, concrete path binding, and live
 dependency-port binding.
+`abyss_machine.nervous_quality_adapters` now owns quality-audit live input and
+persistence routing: refresh orchestration, validation/status/capture/privacy/
+source/browser/timer/redaction input collection, missing-index projection, and
+quality latest/history writes through fakeable ports. CLI still owns concrete
+path constants, live port binding, and rendering.
 `abyss_machine.nervous_screenshot_adapters` now owns screenshot live probe and
 capture execution routing: GNOME extension status probes, allowlisted DBus
 screenshot execution, X11 active/game-risk window probes, game-safe capture

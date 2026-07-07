@@ -175,7 +175,10 @@ Nervous brief scope/limit/cache keys, semantic-maintenance thresholds,
 recent-episode compact projection, readiness/gap/next-action decisions, and document envelope live in
 `abyss_machine.nervous_brief`.
 Nervous quality derived-refresh status, validation compaction, check matrix,
-and audit document envelope live in `abyss_machine.nervous_quality`.
+and audit document envelope live in `abyss_machine.nervous_quality`; quality
+audit refresh orchestration, live validation/status/timer/browser/redaction
+input collection, missing-index projection, and latest/history write routing
+live in `abyss_machine.nervous_quality_adapters`.
 Nervous privacy defaults, state merge/normalization, effective privacy,
 status, set-transition, audit-record, and set-result contracts live in
 `abyss_machine.nervous_privacy`.
@@ -450,7 +453,9 @@ index/semantic/synthesis/host read-model collection, episode JSONL reads, and la
 remain at the CLI edge. Nervous quality derived-refresh status, validation
 compaction, check matrix, and audit document envelope are module-owned while
 refresh execution, live validators/systemd/latest/redaction input collection,
-latest/history writes, and command rendering remain at the CLI edge. Nervous privacy defaults, state merge/normalization,
+missing-index projection, and latest/history writes live in
+`nervous_quality_adapters`; command rendering and concrete port binding remain
+at the CLI edge. Nervous privacy defaults, state merge/normalization,
 effective privacy, status, set-transition, audit-record, and set-result
 contracts are module-owned while state file reads/writes, audit JSONL appends,
 and latest writes remain at the CLI edge. AI runtime env/cache/resource-profile, model inventory shaping, LLM paths/registry/validate/runtime/profile status,

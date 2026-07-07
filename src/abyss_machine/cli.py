@@ -91,6 +91,7 @@ try:
     from . import nervous_index_adapters
     from . import nervous_privacy as nervous_privacy_contracts
     from . import nervous_quality as nervous_quality_contracts
+    from . import nervous_quality_adapters
     from . import nervous_redaction
     from . import nervous_recall as nervous_recall_contracts
     from . import nervous_retrieval_adapters
@@ -253,6 +254,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import nervous_index_adapters
     from abyss_machine import nervous_privacy as nervous_privacy_contracts
     from abyss_machine import nervous_quality as nervous_quality_contracts
+    from abyss_machine import nervous_quality_adapters
     from abyss_machine import nervous_redaction
     from abyss_machine import nervous_recall as nervous_recall_contracts
     from abyss_machine import nervous_retrieval_adapters
@@ -31542,91 +31544,22 @@ def nervous_quality_audit(
     write_latest: bool = True,
     deep_index_validate: bool = True,
 ) -> dict[str, Any]:
-    refresh_results: dict[str, Any] = {}
-    if refresh:
-        if refresh_index:
-            index_refresh = nervous_index_build(write_latest=True, refresh_derived=True)
-            refresh_results["index_build"] = {
-                "ok": index_refresh.get("ok"),
-                "summary": index_refresh.get("summary"),
-                "error": index_refresh.get("error"),
-                "derived_refresh": index_refresh.get("derived_refresh"),
-            }
-        else:
-            events_refresh = nervous_events_build(write_latest=True)
-            episodes_refresh = nervous_episodes_build(write_latest=True, refresh_events=False)
-            refresh_results["events_build"] = {"ok": events_refresh.get("ok"), "summary": events_refresh.get("summary"), "error": events_refresh.get("error")}
-            refresh_results["episodes_build"] = {"ok": episodes_refresh.get("ok"), "summary": episodes_refresh.get("summary"), "error": episodes_refresh.get("error")}
-        synthesis_refresh = nervous_synthesis_build(scope="daily", write_latest=True)
-        eval_refresh = nervous_eval_run(write_latest=True)
-        refresh_results["synthesis_build"] = {"ok": synthesis_refresh.get("ok"), "candidate_id": synthesis_refresh.get("candidate_id"), "summary": synthesis_refresh.get("summary"), "error": synthesis_refresh.get("error")}
-        refresh_results["eval_run"] = {"ok": eval_refresh.get("ok"), "summary": eval_refresh.get("summary"), "error": eval_refresh.get("error")}
-
-    status_data = nervous_status(write_latest=True)
-    capture_status = nervous_capture_status()
-    derived_refresh_status = nervous_derived_refresh_status()
-    privacy_status = nervous_privacy_status(write_latest=True)
-    sources = nervous_effective_sources(write_latest=True)
-    facts_validate = nervous_validate_snapshot()
-    events_validate = nervous_events_validate(write_latest=True)
-    episodes_validate = nervous_episodes_validate(write_latest=True)
-    synthesis_validate = nervous_synthesis_validate(write_latest=True)
-    eval_validate = nervous_eval_validate(write_latest=True)
-    retention_validate = nervous_retention_validate(write_latest=True)
-    index_status = nervous_index_status(write_latest=True)
-    if deep_index_validate and NERVOUS_SEARCH_INDEX_DB_PATH.exists():
-        index_validate = nervous_index_validate(write_latest=True)
-    elif NERVOUS_SEARCH_INDEX_DB_PATH.exists():
-        index_validate = nervous_index_bounded_validate_from_status(index_status)
-    else:
-        index_validate = {
-            "ok": False,
-            "summary": {"fails": 1, "warnings": 0, "checks": 0},
-            "checks": [{"level": "fail", "key": "index_db", "message": "nervous search index database missing", "details": {"path": str(NERVOUS_SEARCH_INDEX_DB_PATH)}}],
-        }
-    browser_latest, browser_error = load_json_document(NERVOUS_BROWSER_CONTENT_LATEST_PATH)
-    redaction = nervous_redact_text("password=CorrectHorseBatteryStaple token=" + "gh" + "p_123456789012345678901234")
-    redaction_summary = redaction.get("summary") if isinstance(redaction.get("summary"), dict) else {}
-    timers = {
-        "passive_chronicle": user_systemd_unit(NERVOUS_PASSIVE_CHRONICLE_TIMER),
-        "browser_content_capture": user_systemd_unit(NERVOUS_BROWSER_CONTENT_CAPTURE_TIMER),
-        "search_index": user_systemd_unit(NERVOUS_SEARCH_INDEX_TIMER),
-        "semantic_maintain": user_systemd_unit(NERVOUS_SEMANTIC_MAINTAIN_TIMER),
-    }
-    semantic_maintain = {
-        "service": user_systemd_unit(NERVOUS_SEMANTIC_MAINTAIN_SERVICE),
-        "timer": user_systemd_unit(NERVOUS_SEMANTIC_MAINTAIN_TIMER),
-        "latest": str(NERVOUS_SEMANTIC_MAINTAIN_LATEST_PATH),
-    }
-    data = nervous_quality_contracts.audit_document(
-        refresh_requested=refresh,
-        refresh_index_requested=refresh_index,
-        refresh_results=refresh_results,
-        validations={
-            "facts": facts_validate,
-            "events": events_validate,
-            "episodes": episodes_validate,
-            "synthesis": synthesis_validate,
-            "eval": eval_validate,
-            "retention": retention_validate,
-            "index": index_validate,
-        },
-        timers=timers,
-        status_data=status_data,
-        capture_status=capture_status,
-        derived_refresh_status=derived_refresh_status,
-        privacy_status=privacy_status,
-        sources=sources,
-        index_status=index_status,
-        semantic_maintain=semantic_maintain,
-        browser_latest=browser_latest if isinstance(browser_latest, dict) else None,
-        browser_error=browser_error,
-        browser_path=str(NERVOUS_BROWSER_CONTENT_LATEST_PATH),
-        redaction_summary=redaction_summary,
-        privacy_state_path=str(NERVOUS_PRIVACY_STATE_PATH),
-        index_db_path=str(NERVOUS_SEARCH_INDEX_DB_PATH),
-        latest_path=str(NERVOUS_QUALITY_LATEST_PATH),
-        daily_glob=str(NERVOUS_QUALITY_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+    return nervous_quality_adapters.run_quality_audit(
+        refresh=refresh,
+        refresh_index=refresh_index,
+        write_latest_enabled=write_latest,
+        deep_index_validate=deep_index_validate,
+        search_index_db_path=NERVOUS_SEARCH_INDEX_DB_PATH,
+        browser_content_latest_path=NERVOUS_BROWSER_CONTENT_LATEST_PATH,
+        privacy_state_path=NERVOUS_PRIVACY_STATE_PATH,
+        quality_latest_path=NERVOUS_QUALITY_LATEST_PATH,
+        quality_root=NERVOUS_QUALITY_ROOT,
+        semantic_maintain_latest_path=NERVOUS_SEMANTIC_MAINTAIN_LATEST_PATH,
+        passive_chronicle_timer=NERVOUS_PASSIVE_CHRONICLE_TIMER,
+        browser_content_capture_timer=NERVOUS_BROWSER_CONTENT_CAPTURE_TIMER,
+        search_index_timer=NERVOUS_SEARCH_INDEX_TIMER,
+        semantic_maintain_timer=NERVOUS_SEMANTIC_MAINTAIN_TIMER,
+        semantic_maintain_service=NERVOUS_SEMANTIC_MAINTAIN_SERVICE,
         commands={
             "audit": "abyss-machine nervous quality-audit --json",
             "refresh": "abyss-machine nervous quality-audit --refresh --json",
@@ -31636,15 +31569,32 @@ def nervous_quality_audit(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
+        index_build=nervous_index_build,
+        events_build=nervous_events_build,
+        episodes_build=nervous_episodes_build,
+        synthesis_build=nervous_synthesis_build,
+        eval_run=nervous_eval_run,
+        status=nervous_status,
+        capture_status=nervous_capture_status,
+        derived_refresh_status=nervous_derived_refresh_status,
+        privacy_status=nervous_privacy_status,
+        effective_sources=nervous_effective_sources,
+        facts_validate=nervous_validate_snapshot,
+        events_validate=nervous_events_validate,
+        episodes_validate=nervous_episodes_validate,
+        synthesis_validate=nervous_synthesis_validate,
+        eval_validate=nervous_eval_validate,
+        retention_validate=nervous_retention_validate,
+        index_status=nervous_index_status,
+        index_validate=nervous_index_validate,
+        bounded_index_validate_from_status=nervous_index_bounded_validate_from_status,
+        latest_reader=load_json_document,
+        redaction_smoke=nervous_redact_text,
+        systemd_unit=user_systemd_unit,
+        latest_writer=safe_atomic_write_json,
+        jsonl_append=safe_append_jsonl,
+        today_path=nervous_today_path,
     )
-    if write_latest:
-        latest_error = safe_atomic_write_json(NERVOUS_QUALITY_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(nervous_today_path(NERVOUS_QUALITY_ROOT), data, 0o664)
-        errors = [error for error in (latest_error, daily_error) if error]
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
 
 
 def nervous_status(write_latest: bool = True) -> dict[str, Any]:
