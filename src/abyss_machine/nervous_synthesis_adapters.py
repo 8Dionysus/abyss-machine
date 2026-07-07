@@ -17,6 +17,7 @@ LatestJsonWriterPort = Callable[[Path, dict[str, Any], int], dict[str, Any] | No
 LatestHistoryWriterPort = Callable[[dict[str, Any], Path, Path], list[dict[str, Any]]]
 PeriodRecordWriterPort = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
 TextWriterPort = Callable[[Path, str, int], dict[str, Any] | None]
+RefusedResultPort = Callable[..., dict[str, Any]]
 EvalDependencyPort = Callable[..., dict[str, Any]]
 EvalPlanBuilderPort = Callable[..., dict[str, Any]]
 
@@ -224,6 +225,53 @@ def build_synthesis(
                 errors.append(md_error)
         data = nervous_synthesis.with_write_results(data, write_paths=write_paths, write_errors=errors)
     return data
+
+
+def run_synthesis_build(
+    *,
+    privacy: dict[str, Any] | None,
+    episodes_root: Path,
+    events_root: Path,
+    latest_path: Path,
+    hourly_root: Path,
+    daily_root: Path,
+    scope: str,
+    date_value: str | None,
+    hour: int | None,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    write_latest_enabled: bool = True,
+    records_reader: RecordsReaderPort = read_records,
+    latest_writer: LatestJsonWriterPort = typing_nervous_adapters.safe_atomic_write_json,
+    period_writer: PeriodRecordWriterPort = replace_period_record,
+    text_writer: TextWriterPort = write_text_atomic,
+    refused_result_builder: RefusedResultPort = nervous_synthesis.candidate_refused_result,
+) -> dict[str, Any]:
+    if isinstance(privacy, dict) and bool(privacy.get("global_pause")):
+        return refused_result_builder(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+        )
+    return build_synthesis(
+        episodes_root=episodes_root,
+        events_root=events_root,
+        latest_path=latest_path,
+        hourly_root=hourly_root,
+        daily_root=daily_root,
+        scope=scope,
+        date_value=date_value,
+        hour=hour,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        write_latest_enabled=write_latest_enabled,
+        records_reader=records_reader,
+        latest_writer=latest_writer,
+        period_writer=period_writer,
+        text_writer=text_writer,
+    )
 
 
 def validate_synthesis(

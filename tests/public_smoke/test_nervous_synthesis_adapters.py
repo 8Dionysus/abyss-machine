@@ -107,6 +107,39 @@ def test_build_synthesis_reads_records_and_writes_latest_period_and_markdown(tmp
     assert "Abyss Nervous daily Synthesis 2026-06-25" in daily_markdown.read_text(encoding="utf-8")
 
 
+def test_run_synthesis_build_refuses_before_file_ports_when_paused(tmp_path: Path) -> None:
+    def fail_port(*_args, **_kwargs):
+        raise AssertionError("global pause should refuse before synthesis file ports")
+
+    data = adapters.run_synthesis_build(
+        privacy={"global_pause": True},
+        episodes_root=tmp_path / "episodes",
+        events_root=tmp_path / "events",
+        latest_path=tmp_path / "synthesis" / "latest.json",
+        hourly_root=tmp_path / "synthesis" / "hourly",
+        daily_root=tmp_path / "synthesis" / "daily",
+        scope="daily",
+        date_value="2026-06-25",
+        hour=None,
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-06-25T12:00:00+00:00",
+        records_reader=fail_port,
+        latest_writer=fail_port,
+        period_writer=fail_port,
+        text_writer=fail_port,
+    )
+
+    assert data == {
+        "schema": "abyss_machine_nervous_synthesis_candidate_v1",
+        "version": "test",
+        "generated_at": "2026-06-25T12:00:00+00:00",
+        "ok": False,
+        "refused": True,
+        "error": "global_pause is active; synthesis candidate was not built",
+    }
+
+
 def test_validate_synthesis_uses_fakeable_latest_and_record_ports(tmp_path: Path) -> None:
     latest_path = tmp_path / "synthesis" / "latest.json"
     episodes_latest_path = tmp_path / "episodes" / "latest.json"
@@ -310,7 +343,7 @@ def test_cli_synthesis_and_eval_validate_bind_adapter_ports(monkeypatch) -> None
     eval_validate_calls: list[dict[str, Any]] = []
     privacy_doc = {"global_pause": False}
 
-    def fake_build_synthesis(**kwargs):
+    def fake_run_synthesis_build(**kwargs):
         build_calls.append(kwargs)
         return {"ok": True, "schema": "fixture_synthesis"}
 
@@ -328,7 +361,7 @@ def test_cli_synthesis_and_eval_validate_bind_adapter_ports(monkeypatch) -> None
 
     monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy_doc)
     monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-25T12:00:00+00:00")
-    monkeypatch.setattr(cli.nervous_synthesis_adapters, "build_synthesis", fake_build_synthesis)
+    monkeypatch.setattr(cli.nervous_synthesis_adapters, "run_synthesis_build", fake_run_synthesis_build)
     monkeypatch.setattr(cli.nervous_synthesis_adapters, "validate_synthesis", fake_validate_synthesis)
     monkeypatch.setattr(cli.nervous_synthesis_adapters, "run_eval", fake_run_eval)
     monkeypatch.setattr(cli.nervous_synthesis_adapters, "validate_eval", fake_validate_eval)
@@ -338,6 +371,7 @@ def test_cli_synthesis_and_eval_validate_bind_adapter_ports(monkeypatch) -> None
     assert cli.nervous_eval_run(write_latest=False)["schema"] == "fixture_eval_run"
     assert cli.nervous_eval_validate(write_latest=False)["schema"] == "fixture_eval_validate"
 
+    assert build_calls[0]["privacy"] is privacy_doc
     assert build_calls[0]["episodes_root"] == cli.NERVOUS_EPISODES_ROOT
     assert build_calls[0]["events_root"] == cli.NERVOUS_EVENTS_ROOT
     assert build_calls[0]["write_latest_enabled"] is False
