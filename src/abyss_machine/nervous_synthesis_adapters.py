@@ -17,6 +17,8 @@ LatestJsonWriterPort = Callable[[Path, dict[str, Any], int], dict[str, Any] | No
 LatestHistoryWriterPort = Callable[[dict[str, Any], Path, Path], list[dict[str, Any]]]
 PeriodRecordWriterPort = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
 TextWriterPort = Callable[[Path, str, int], dict[str, Any] | None]
+EvalDependencyPort = Callable[..., dict[str, Any]]
+EvalPlanBuilderPort = Callable[..., dict[str, Any]]
 
 
 def read_records(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -301,6 +303,78 @@ def build_eval_run(
     if write_latest_enabled:
         data = write_latest_history(data, latest_path, daily_root, writer=latest_history_writer)
     return data
+
+
+def _plan_section(plan: dict[str, Any], key: str) -> dict[str, Any]:
+    value = plan.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def run_eval(
+    *,
+    privacy: dict[str, Any] | None,
+    latest_path: Path,
+    daily_root: Path,
+    recall_latest_path: Path,
+    synthesis_latest_path: Path,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    write_latest_enabled: bool = True,
+    events_validate: EvalDependencyPort,
+    episodes_validate: EvalDependencyPort,
+    index_validate: EvalDependencyPort,
+    recall_pack: EvalDependencyPort,
+    synthesis_build: EvalDependencyPort,
+    synthesis_validate: EvalDependencyPort,
+    plan_builder: EvalPlanBuilderPort = nervous_synthesis.eval_run_execution_plan,
+    latest_history_writer: LatestHistoryWriterPort = default_latest_history_writer,
+) -> dict[str, Any]:
+    if isinstance(privacy, dict) and bool(privacy.get("global_pause")):
+        return nervous_synthesis.eval_refused_result(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+        )
+
+    plan = plan_builder(schema_prefix=schema_prefix)
+    events_plan = _plan_section(plan, "events_validation")
+    episodes_plan = _plan_section(plan, "episodes_validation")
+    index_plan = _plan_section(plan, "index_validation")
+    recall_plan = _plan_section(plan, "recall")
+    synthesis_plan = _plan_section(plan, "synthesis")
+    synthesis_validation_plan = _plan_section(plan, "synthesis_validation")
+
+    events_validation = events_validate(write_latest=bool(events_plan.get("write_latest")))
+    episodes_validation = episodes_validate(write_latest=bool(episodes_plan.get("write_latest")))
+    index_validation = index_validate(write_latest=bool(index_plan.get("write_latest")))
+    recall = recall_pack(
+        str(recall_plan["query"]),
+        limit=int(recall_plan["limit"]),
+        write_latest=bool(recall_plan["write_latest"]),
+    )
+    synthesis = synthesis_build(
+        scope=str(synthesis_plan["scope"]),
+        write_latest=bool(synthesis_plan["write_latest"]),
+    )
+    synthesis_validation = synthesis_validate(write_latest=bool(synthesis_validation_plan.get("write_latest")))
+    return build_eval_run(
+        events_validation=events_validation,
+        episodes_validation=episodes_validation,
+        index_validation=index_validation,
+        recall=recall,
+        synthesis=synthesis,
+        synthesis_validation=synthesis_validation,
+        latest_path=latest_path,
+        daily_root=daily_root,
+        recall_latest_path=recall_latest_path,
+        synthesis_latest_path=synthesis_latest_path,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        write_latest_enabled=write_latest_enabled,
+        latest_history_writer=latest_history_writer,
+    )
 
 
 def validate_eval(

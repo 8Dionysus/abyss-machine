@@ -134,7 +134,9 @@ nervous synthesis selection, candidate build orchestration, path/write-result
 envelopes, markdown, validation, eval run execution-plan, and deterministic eval run/validate envelopes live in
 `abyss_machine.nervous_synthesis`; local episode/event/candidate JSONL reads,
 synthesis latest/period JSONL/markdown writes, synthesis validate latest
-routing, and eval latest/history/validate routing live in
+routing, eval dependency orchestration through fakeable validation/recall/
+synthesis ports, global-pause eval refusal, and eval latest/history/validate
+routing live in
 `abyss_machine.nervous_synthesis_adapters`. Nervous semantic sidecar schema,
 freshness/status contract assembly, maintenance assessments, batch policy,
 build-command shaping, source chunk projection, sidecar store/count/reuse
