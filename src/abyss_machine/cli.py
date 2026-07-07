@@ -21685,48 +21685,25 @@ def nervous_semantic_build(
             conn.commit()
             existing = nervous_semantic_existing_hashes(conn)
             existing_vectors_by_hash = {} if rebuild else nervous_semantic_existing_vectors_by_hash(conn)
-            pending = [
-                item for item in chunks
-                if rebuild or existing.get(str(item.get("chunk_id"))) != str(item.get("body_sha256"))
-            ]
-            pending_by_id = {str(item["chunk_id"]): item for item in pending}
-            reuse_vectors: dict[str, dict[str, Any]] = {}
-            embed_pending: list[dict[str, Any]] = []
-            if rebuild:
-                embed_pending = pending
-            else:
-                for item in pending:
-                    chunk_id = str(item.get("chunk_id"))
-                    reusable = existing_vectors_by_hash.get(str(item.get("body_sha256") or ""))
-                    if reusable:
-                        reuse_vectors[chunk_id] = reusable
-                    else:
-                        embed_pending.append(item)
-            data["summary"] = {
-                "source_chunks_selected": len(chunks),
-                "existing_vectors": len(existing),
-                "pending_chunks": len(pending),
-                "embedding_pending_chunks": len(embed_pending),
-                "vectors_reused_by_body_hash": len(reuse_vectors),
-                "unchanged_chunks": max(len(chunks) - len(pending), 0),
-                "vectors_indexed": 0,
-                "stale_vectors_deleted": 0,
-            }
-            indexed = 0
+            pending_plan = nervous_semantic_adapters.semantic_build_pending_plan(
+                chunks,
+                existing=existing,
+                existing_vectors_by_hash=existing_vectors_by_hash,
+                rebuild=rebuild,
+            )
+            pending = pending_plan["pending"]
+            pending_by_id = pending_plan["pending_by_id"]
+            reuse_vectors = pending_plan["reuse_vectors"]
+            embed_pending = pending_plan["embed_pending"]
+            data["summary"] = pending_plan["summary"]
+            indexed = nervous_semantic_adapters.semantic_build_insert_reused_vectors(
+                conn,
+                reuse_vectors=reuse_vectors,
+                pending_by_id=pending_by_id,
+                started_at=started_at,
+            )
+            data["summary"]["vectors_indexed"] = indexed
             stale_deleted = 0
-            window_size = nervous_semantic_embedding_window_size(semantic)
-            embedding_aggregate: dict[str, Any] = {
-                "ok": True,
-                "items": len(embed_pending),
-                "vectors": 0,
-                "windows": 0,
-                "window_size": window_size,
-                "mode": "windowed_progressive_commit",
-                "reused_by_body_hash": len(reuse_vectors),
-            }
-            if reuse_vectors:
-                indexed += nervous_semantic_insert_vectors(conn, reuse_vectors, pending_by_id, started_at)
-                data["summary"]["vectors_indexed"] = indexed
             if pending:
                 gate = ai_policy_gate_for_class("medium", "nervous semantic-build", force=force_policy)
                 data["policy_gate"] = gate
@@ -21735,79 +21712,28 @@ def nervous_semantic_build(
                     data["error"] = "host AI policy denied semantic embedding build"
                     conn.close()
                     return nervous_semantic_write_latest(data) if write_latest else data
-            if embed_pending:
-                text_items = [
-                    {"id": str(item["chunk_id"]), "text": str(item["embedding_text"])}
-                    for item in embed_pending
-                ]
-                data["embedding_windows"] = []
-                for offset in range(0, len(text_items), window_size):
-                    window = text_items[offset:offset + window_size]
-                    embedding_attempts: list[dict[str, Any]] = [dict(embedding)]
-                    try:
-                        configured_attempt_batch = int(embedding.get("batch_size") or 16)
-                    except (TypeError, ValueError):
-                        configured_attempt_batch = 16
-                    fallback_batch = configured_attempt_batch
-                    while fallback_batch > 8:
-                        fallback_batch = max(8, fallback_batch // 2)
-                        if fallback_batch == configured_attempt_batch:
-                            break
-                        fallback_embedding = dict(embedding)
-                        fallback_embedding["batch_size"] = fallback_batch
-                        embedding_attempts.append(fallback_embedding)
-                        if fallback_batch <= 16:
-                            break
-                    embedding_status: dict[str, Any] = {}
-                    embedding_attempt_summaries: list[dict[str, Any]] = []
-                    for attempt_index, attempt_embedding in enumerate(embedding_attempts):
-                        embedding_status = nervous_semantic_embed_texts(window, attempt_embedding)
-                        attempt_summary = {key: value for key, value in embedding_status.items() if key != "vectors"}
-                        attempt_summary["attempt"] = attempt_index + 1
-                        attempt_summary["batch_size"] = int(attempt_embedding.get("batch_size") or embedding.get("batch_size") or 16)
-                        embedding_attempt_summaries.append(attempt_summary)
-                        if embedding_status.get("ok"):
-                            break
-                    vectors = embedding_status.get("vectors") if isinstance(embedding_status.get("vectors"), dict) else {}
-                    window_status = {key: value for key, value in embedding_status.items() if key != "vectors"}
-                    window_status.update({
-                        "offset": offset,
-                        "items": len(window),
-                        "vectors": len(vectors),
-                        "attempts": embedding_attempt_summaries,
-                    })
-                    data["embedding_windows"].append(window_status)
-                    embedding_aggregate["windows"] = int(embedding_aggregate.get("windows") or 0) + 1
-                    if not embedding_status.get("ok"):
-                        embedding_aggregate["ok"] = False
-                        data["embedding_status"] = embedding_aggregate
-                        data["error"] = embedding_status.get("error") or "embedding subprocess failed"
-                        data["summary"]["vectors_indexed"] = indexed
-                        cache_after = artifact_path_stats(cache_dir_for_provenance, artifact_backup_state(cache_dir_for_provenance))
-                        compile_cache = data.get("provenance", {}).get("compile_cache") if isinstance(data.get("provenance"), dict) else {}
-                        if isinstance(compile_cache, dict):
-                            compile_cache["after"] = cache_after
-                            compile_cache["mtime_changed"] = cache_before.get("mtime") != cache_after.get("mtime")
-                            compile_cache["used_or_regenerated"] = bool(cache_after.get("exists"))
-                        finished_at = now_iso()
-                        nervous_semantic_adapters.record_failed_build_run(
-                            conn,
-                            run_id=run_id,
-                            started_at=started_at,
-                            finished_at=finished_at,
-                            source_chunks=len(chunks),
-                            pending_chunks=len(pending),
-                            vectors_indexed=indexed,
-                            partial=partial,
-                            errors={"embedding_status": window_status, "provenance": data.get("provenance")},
-                        )
-                        conn.close()
-                        return nervous_semantic_write_latest(data) if write_latest else data
-                    window_indexed = nervous_semantic_insert_vectors(conn, vectors, pending_by_id, started_at)
-                    indexed += window_indexed
-                    embedding_aggregate["vectors"] = int(embedding_aggregate.get("vectors") or 0) + window_indexed
-                    data["summary"]["vectors_indexed"] = indexed
-            data["embedding_status"] = embedding_aggregate
+            embedding_windows = nervous_semantic_adapters.semantic_build_embedding_windows(
+                conn,
+                data,
+                semantic_config=semantic,
+                embedding=embedding,
+                chunks=chunks,
+                pending=pending,
+                pending_by_id=pending_by_id,
+                embed_pending=embed_pending,
+                started_at=started_at,
+                run_id=run_id,
+                partial=partial,
+                cache_before=cache_before,
+                cache_dir=cache_dir_for_provenance,
+                cache_stats=lambda path: artifact_path_stats(path, artifact_backup_state(path)),
+                now=now_iso,
+                embed_texts=nervous_semantic_embed_texts,
+            )
+            indexed = int(embedding_windows.get("indexed") or 0)
+            if not embedding_windows.get("ok"):
+                conn.close()
+                return nervous_semantic_write_latest(data) if write_latest else data
             current_ids = {str(item.get("chunk_id")) for item in chunks}
             meta_values = {
                 "schema": f"{SCHEMA_PREFIX}_nervous_semantic_index_v1",
