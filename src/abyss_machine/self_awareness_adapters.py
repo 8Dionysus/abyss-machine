@@ -1528,6 +1528,178 @@ def cycle_partial_document(
     }
 
 
+def cycle_result_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    cycle_id: str,
+    probe_run_id: str,
+    steps: Iterable[Mapping[str, Any]],
+    resource_preflight: Mapping[str, Any],
+    cycle_chain: Mapping[str, Any],
+    bridge_proof: Mapping[str, Any],
+    activation_smoke: Mapping[str, Any],
+    autolink: Mapping[str, Any],
+    stack_handoff_summary: Mapping[str, Any],
+    stack_handoff_closure_readiness: Mapping[str, Any],
+    stack_closure_dossier: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    responses: Mapping[str, Any],
+    export: Mapping[str, Any],
+    from_zero_proof: Mapping[str, Any],
+    e2e_lineage_proof: Mapping[str, Any],
+    lineage: Mapping[str, Any],
+    open_requirement_rows: Iterable[Mapping[str, Any]],
+    open_working_stack_activation_gaps: int,
+    working_stack_activation_summary: Mapping[str, Any],
+    failed_steps: list[str],
+    missing_chain: list[str],
+    mutation_claims: list[Any],
+    automatic_response_count: int,
+    mutating_response_routes: int,
+) -> dict[str, Any]:
+    step_rows = list(steps)
+    chain = dict(cycle_chain)
+    open_rows = list(open_requirement_rows)
+    activation_failed_services = _nested_get(activation_smoke, ["summary", "failed_services"])
+    cycle_ok = (
+        not failed_steps
+        and not missing_chain
+        and not mutation_claims
+        and automatic_response_count == 0
+        and mutating_response_routes == 0
+        and from_zero_proof.get("ok") is True
+        and e2e_lineage_proof.get("ok") is True
+        and lineage.get("complete") is True
+        and bridge_proof.get("ok") is True
+    )
+    status = "covered" if cycle_ok else "incomplete"
+    return {
+        "schema": f"{schema_prefix}_self_awareness_cycle_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": cycle_ok,
+        "status": status,
+        "cycle_id": cycle_id,
+        "probe_run_id": probe_run_id,
+        "summary": {
+            "status": status,
+            "steps": len(step_rows),
+            "from_zero_proof_steps": _nested_get(from_zero_proof, ["summary", "proof_steps"]),
+            "from_zero_chain_obligations": _nested_get(from_zero_proof, ["summary", "chain_obligations"]),
+            "from_zero_proof_ok": from_zero_proof.get("ok"),
+            "e2e_lineage_ok": e2e_lineage_proof.get("ok"),
+            "e2e_lineage_rows": _nested_get(e2e_lineage_proof, ["summary", "rows"]),
+            "e2e_lineage_missing_rows": _nested_get(e2e_lineage_proof, ["summary", "missing_rows"]),
+            "lineage_complete": lineage.get("complete"),
+            "lineage_artifacts": _nested_get(lineage, ["summary", "artifacts"]),
+            "lineage_synthetic_event_ids": _nested_get(lineage, ["summary", "synthetic_event_ids"]),
+            "bridge_proof_ok": bridge_proof.get("ok"),
+            "bridge_proof_rows": _nested_get(bridge_proof, ["summary", "bridges"]),
+            "failed_steps": failed_steps,
+            "chain_passed": sum(1 for value in chain.values() if value),
+            "chain_total": len(chain),
+            "open_stack_requirements": len(open_rows),
+            "stack_closure_dossier_entries": _nested_get(stack_closure_dossier, ["summary", "probes"]),
+            "stack_closure_dossier_missing_checks": _nested_get(stack_closure_dossier, ["summary", "missing_checks"]),
+            "stack_closure_dossier_dependency_edges": _nested_get(stack_closure_dossier, ["summary", "dependency_edges"]),
+            "stack_requirement_closure_acceptance_packets": _nested_get(stack_closure_dossier, ["summary", "closure_acceptance_packets"]),
+            "stack_requirement_closure_acceptance_packets_complete": _nested_get(stack_closure_dossier, ["summary", "closure_acceptance_packets_complete"]),
+            "stack_requirement_compat_requirements": _nested_get(stack_closure_dossier, ["summary", "stack_requirement_compat_requirements"]),
+            "working_stack_activation_gaps": open_working_stack_activation_gaps,
+            "working_stack_activation_entries": _safe_int(working_stack_activation_summary.get("entries"), 0),
+            "working_stack_activation_missing_checks": _safe_int(working_stack_activation_summary.get("missing_checks"), 0),
+            "working_stack_activation_verifier_commands": _safe_int(working_stack_activation_summary.get("verifier_commands"), 0),
+            "working_stack_activation_synthetic_scenarios": _safe_int(working_stack_activation_summary.get("synthetic_scenarios"), 0),
+            "working_stack_activation_synthetic_scenarios_complete": _safe_int(working_stack_activation_summary.get("synthetic_scenarios_complete"), 0),
+            "working_stack_activation_closure_acceptance_packets": _safe_int(working_stack_activation_summary.get("closure_acceptance_packets"), 0),
+            "working_stack_activation_closure_acceptance_packets_complete": _safe_int(working_stack_activation_summary.get("closure_acceptance_packets_complete"), 0),
+            "working_stack_activation_compat_requirements": _safe_int(working_stack_activation_summary.get("activation_compat_requirements"), 0),
+            "working_stack_activation_smoke_rows": _safe_int(_nested_get(activation_smoke, ["summary", "rows"]), 0),
+            "working_stack_activation_smoke_rows_ok": _safe_int(_nested_get(activation_smoke, ["summary", "rows_ok"]), 0),
+            "working_stack_activation_smoke_failed_services": activation_failed_services if isinstance(activation_failed_services, list) else [],
+            "activation_smoke_open_activation_gaps": _safe_int(_nested_get(activation_smoke, ["summary", "open_activation_gaps"]), 0),
+            "working_stack_usage_gaps": _safe_int(
+                _nested_get(autolink, ["summary", "working_stack_usage_gaps"]),
+                _safe_int(_nested_get(activation_smoke, ["summary", "open_activation_gaps"]), open_working_stack_activation_gaps),
+            ),
+            "working_stack_link_integrity_rows": _nested_get(export, ["working_stack_link_integrity", "summary", "rows"]),
+            "working_stack_link_integrity_rows_complete": _nested_get(export, ["working_stack_link_integrity", "summary", "complete_rows"]),
+            "working_stack_link_integrity_missing_rows": _nested_get(export, ["working_stack_link_integrity", "summary", "missing_rows"]),
+            "autolink_organ_links": _nested_get(autolink, ["summary", "organ_links"]),
+            "autolink_organ_links_complete": _nested_get(autolink, ["summary", "organ_links_complete"]),
+            "autolink_stack_requirement_links": _nested_get(autolink, ["summary", "stack_requirement_links"]),
+            "autolink_working_stack_usage_gaps": _nested_get(autolink, ["summary", "working_stack_usage_gaps"]),
+            "autolink_synthetic_scenarios_complete": _nested_get(autolink, ["summary", "synthetic_scenarios_complete"]),
+            "autolink_state_changed": _nested_get(autolink, ["summary", "state_changed"]),
+            "stack_handoff_closure_readiness_packets": _nested_get(stack_handoff_closure_readiness, ["summary", "packets"]),
+            "stack_handoff_closure_readiness_missing_checks": _nested_get(stack_handoff_closure_readiness, ["summary", "missing_checks"]),
+            "stack_handoff_closure_readiness_dependency_edges": _nested_get(stack_handoff_closure_readiness, ["summary", "dependency_edges"]),
+            "stack_handoff_closure_readiness_replayable": _nested_get(replay, ["stack_handoff_replay", "closure_readiness_replayable"]),
+            "resident_cognitive_replay_complete": _nested_get(replay, ["resident_cognitive_replay", "complete"]),
+            "resident_cognitive_export_complete": _nested_get(export, ["resident_cognitive_replay", "complete"]),
+            "body_trace_replayable": _nested_get(replay, ["body_trace_replay", "replayable"]),
+            "response_body_trace_routes": _nested_get(responses, ["summary", "self_awareness_body_trace_routes"]),
+            "response_body_trace_missing": _nested_get(responses, ["summary", "self_awareness_body_trace_missing"]),
+            "body_trace_export_included": _nested_get(export, ["body_trace_handoff", "response_body_trace_included"]),
+            "response_entity_event_document_routes": _nested_get(responses, ["summary", "self_awareness_entity_event_document_routes"]),
+            "response_entity_event_document_missing": _nested_get(responses, ["summary", "self_awareness_entity_event_document_missing"]),
+            "response_entity_event_document_export_included": _nested_get(export, ["portable_contract", "response_entity_event_document_context_included"]),
+            "resident_cognitive_read_only_tools": _nested_get(replay, ["resident_cognitive_replay", "summary", "read_only_tools"]),
+            "resident_cognitive_hypothesis_tests": _nested_get(replay, ["resident_cognitive_replay", "summary", "hypothesis_tests"]),
+            "resident_cognitive_contradiction_notes": _nested_get(replay, ["resident_cognitive_replay", "summary", "contradiction_notes"]),
+            "automatic_responses": automatic_response_count,
+            "routes_with_mutating_command_if_run": mutating_response_routes,
+            "resource_guard_ok": resource_preflight.get("ok"),
+            "resource_guard_reasons": resource_preflight.get("denial_reasons"),
+        },
+        "cycle_chain": chain,
+        "steps": step_rows,
+        "from_zero_proof": dict(from_zero_proof),
+        "e2e_lineage_proof": dict(e2e_lineage_proof),
+        "lineage": dict(lineage),
+        "bridge_proof": dict(bridge_proof),
+        "activation_smoke": dict(activation_smoke),
+        "autolink": dict(autolink),
+        "stack_handoff_summary": dict(stack_handoff_summary),
+        "stack_handoff_closure_readiness": dict(stack_handoff_closure_readiness),
+        "open_stack_requirements": [
+            {
+                "id": str(row.get("id") or ""),
+                "title": row.get("title"),
+                "owner": row.get("owner"),
+                "detector": row.get("detector"),
+                "evidence_refs": row.get("evidence_refs"),
+            }
+            for row in open_rows
+        ],
+        "issues": {
+            "failed_steps": failed_steps,
+            "missing_chain": missing_chain,
+            "mutation_claims": mutation_claims,
+            "from_zero_proof": from_zero_proof.get("summary"),
+            "e2e_lineage_proof": e2e_lineage_proof.get("summary"),
+            "bridge_proof": bridge_proof.get("summary"),
+        },
+        "evidence_refs": [{"path": str(step["artifact"]["path"]), "step": step["id"]} for step in step_rows],
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "automatic_remediation": False,
+            "automatic_responses": automatic_response_count,
+            "routes_with_mutating_command_if_run": mutating_response_routes,
+            "open_stack_requirements_are_blockers_not_host_failures": True,
+            "working_stack_activation_gaps_are_blockers_not_host_failures": True,
+            "claims_require_evidence_refs": True,
+        },
+        "tests": {
+            "e2e_cycle": "probe -> failure-matrix -> investigate -> replay -> brief -> reactions -> responses -> export",
+            "from_zero_command": "abyss-machine self-awareness cycle --json",
+            "validate_command": "abyss-machine self-awareness validate --json",
+        },
+    }
+
+
 def probe_movement_smoke_document(
     *,
     schema_prefix: str,

@@ -671,6 +671,153 @@ def test_cycle_partial_document_builds_public_safe_building_snapshot(tmp_path: P
     }
 
 
+def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
+    steps = [
+        {
+            "id": "probe",
+            "ok": True,
+            "artifact": {"path": str(tmp_path / "probe" / "latest.json"), "ok": True},
+        },
+        {
+            "id": "export",
+            "ok": True,
+            "artifact": {"path": str(tmp_path / "export" / "latest.json"), "ok": True},
+        },
+    ]
+    cycle_chain = {"probe": True, "export": True}
+    from_zero_proof = {"ok": True, "summary": {"proof_steps": 2, "chain_obligations": 2}}
+    e2e_lineage_proof = {"ok": True, "summary": {"rows": 3, "missing_rows": []}}
+    lineage = {"complete": True, "summary": {"artifacts": 2, "synthetic_event_ids": ["event-fixture"]}}
+    bridge_proof = {"ok": True, "summary": {"bridges": 4}}
+    activation_smoke = {"summary": {"rows": "5", "rows_ok": "5", "failed_services": [], "open_activation_gaps": "1"}}
+    autolink = {
+        "summary": {
+            "organ_links": 3,
+            "organ_links_complete": 3,
+            "stack_requirement_links": 2,
+            "working_stack_usage_gaps": "0",
+            "synthetic_scenarios_complete": 2,
+            "state_changed": False,
+        }
+    }
+    stack_closure_dossier = {
+        "summary": {
+            "probes": 7,
+            "missing_checks": 0,
+            "dependency_edges": 3,
+            "closure_acceptance_packets": 2,
+            "closure_acceptance_packets_complete": 2,
+            "stack_requirement_compat_requirements": 1,
+        }
+    }
+    stack_handoff_closure_readiness = {"summary": {"packets": 2, "missing_checks": 0, "dependency_edges": 1}}
+    replay = {
+        "stack_handoff_replay": {"closure_readiness_replayable": True},
+        "resident_cognitive_replay": {
+            "complete": True,
+            "summary": {
+                "read_only_tools": 3,
+                "hypothesis_tests": 2,
+                "contradiction_notes": 0,
+            },
+        },
+        "body_trace_replay": {"replayable": True},
+    }
+    responses = {
+        "summary": {
+            "self_awareness_body_trace_routes": 1,
+            "self_awareness_body_trace_missing": 0,
+            "self_awareness_entity_event_document_routes": 1,
+            "self_awareness_entity_event_document_missing": 0,
+        }
+    }
+    export = {
+        "working_stack_link_integrity": {"summary": {"rows": 2, "complete_rows": 2, "missing_rows": 0}},
+        "resident_cognitive_replay": {"complete": True},
+        "body_trace_handoff": {"response_body_trace_included": True},
+        "portable_contract": {"response_entity_event_document_context_included": True},
+    }
+
+    payload = self_awareness_adapters.cycle_result_document(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-07T00:00:00+00:00",
+        cycle_id="sacycle-fixture",
+        probe_run_id="saprobe-fixture",
+        steps=steps,
+        resource_preflight={"ok": True, "denial_reasons": []},
+        cycle_chain=cycle_chain,
+        bridge_proof=bridge_proof,
+        activation_smoke=activation_smoke,
+        autolink=autolink,
+        stack_handoff_summary={"summary": {"routes": 1}},
+        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
+        stack_closure_dossier=stack_closure_dossier,
+        replay=replay,
+        responses=responses,
+        export=export,
+        from_zero_proof=from_zero_proof,
+        e2e_lineage_proof=e2e_lineage_proof,
+        lineage=lineage,
+        open_requirement_rows=[
+            {
+                "id": "REQ-1",
+                "title": "fixture requirement",
+                "owner": "abyss-stack",
+                "detector": "fixture",
+                "evidence_refs": [{"path": "/tmp/fixture"}],
+                "private_payload": "not projected",
+            }
+        ],
+        open_working_stack_activation_gaps=1,
+        working_stack_activation_summary={
+            "entries": "6",
+            "missing_checks": "0",
+            "verifier_commands": "2",
+            "synthetic_scenarios": "2",
+            "synthetic_scenarios_complete": "2",
+            "closure_acceptance_packets": "1",
+            "closure_acceptance_packets_complete": "1",
+            "activation_compat_requirements": "1",
+        },
+        failed_steps=[],
+        missing_chain=[],
+        mutation_claims=[],
+        automatic_response_count=0,
+        mutating_response_routes=0,
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_cycle_v1"
+    assert payload["ok"] is True
+    assert payload["status"] == "covered"
+    assert payload["summary"]["steps"] == 2
+    assert payload["summary"]["chain_passed"] == 2
+    assert payload["summary"]["chain_total"] == 2
+    assert payload["summary"]["from_zero_proof_ok"] is True
+    assert payload["summary"]["e2e_lineage_rows"] == 3
+    assert payload["summary"]["bridge_proof_rows"] == 4
+    assert payload["summary"]["working_stack_activation_entries"] == 6
+    assert payload["summary"]["working_stack_usage_gaps"] == 0
+    assert payload["summary"]["resident_cognitive_read_only_tools"] == 3
+    assert payload["open_stack_requirements"] == [
+        {
+            "id": "REQ-1",
+            "title": "fixture requirement",
+            "owner": "abyss-stack",
+            "detector": "fixture",
+            "evidence_refs": [{"path": "/tmp/fixture"}],
+        }
+    ]
+    assert payload["evidence_refs"] == [
+        {"path": str(tmp_path / "probe" / "latest.json"), "step": "probe"},
+        {"path": str(tmp_path / "export" / "latest.json"), "step": "export"},
+    ]
+    assert payload["issues"]["failed_steps"] == []
+    assert payload["policy"]["host_layer_mutates_stack"] is False
+    assert payload["policy"]["claims_require_evidence_refs"] is True
+    assert payload["tests"]["validate_command"] == "abyss-machine self-awareness validate --json"
+
+
 def test_probe_result_document_builds_complete_public_safe_shape(tmp_path: Path) -> None:
     chain = {
         "request": True,
