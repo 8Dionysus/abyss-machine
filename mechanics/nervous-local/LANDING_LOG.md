@@ -158,3 +158,8 @@
   latest/index write routing. CLI still owns concrete path constants, live
   source/privacy/policy readers, concrete systemd/latest/count port binding,
   and command rendering.
+- Capture-status readmodel seam: `abyss_machine.nervous_capture_adapters` owns
+  capture latest and browser-content latest reads, private capture root size
+  summaries, screenshot PNG counts, browser-content JSONL counts, browser route
+  paths, and operator control command projection through fakeable ports. CLI
+  still owns concrete path constants and command rendering.

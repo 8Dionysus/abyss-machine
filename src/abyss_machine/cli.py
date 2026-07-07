@@ -84,6 +84,7 @@ try:
     from . import process_adapters
     from . import nervous_browser_content_adapters
     from . import nervous_brief as nervous_brief_contracts
+    from . import nervous_capture_adapters
     from . import nervous_clipboard_adapters
     from . import nervous_events as nervous_events_contracts
     from . import nervous_events_adapters
@@ -245,6 +246,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import observability_contracts
     from abyss_machine import nervous_browser_content_adapters
     from abyss_machine import nervous_brief as nervous_brief_contracts
+    from abyss_machine import nervous_capture_adapters
     from abyss_machine import nervous_clipboard_adapters
     from abyss_machine import nervous_events as nervous_events_contracts
     from abyss_machine import nervous_events_adapters
@@ -18503,54 +18505,19 @@ def nervous_latest() -> dict[str, Any]:
 
 
 def nervous_capture_status() -> dict[str, Any]:
-    latest, error = load_json_document(NERVOUS_CAPTURE_LATEST_PATH)
-    screenshot_bytes = directory_size(NERVOUS_SCREENSHOT_ROOT) if NERVOUS_SCREENSHOT_ROOT.exists() else 0
-    browser_content_bytes = directory_size(NERVOUS_BROWSER_CONTENT_ROOT) if NERVOUS_BROWSER_CONTENT_ROOT.exists() else 0
-    screenshot_count = 0
-    browser_content_count = 0
-    if NERVOUS_SCREENSHOT_ROOT.exists():
-        try:
-            screenshot_count = sum(1 for path in NERVOUS_SCREENSHOT_ROOT.rglob("*.png") if path.is_file())
-        except OSError:
-            screenshot_count = 0
-    if NERVOUS_BROWSER_CONTENT_ROOT.exists():
-        try:
-            browser_content_count = sum(1 for path in NERVOUS_BROWSER_CONTENT_ROOT.rglob("*.jsonl") if path.is_file())
-        except OSError:
-            browser_content_count = 0
-    browser_content_latest, browser_content_error = load_json_document(NERVOUS_BROWSER_CONTENT_LATEST_PATH)
-    return {
-        "schema": f"{SCHEMA_PREFIX}_nervous_capture_status_v1",
-        "version": VERSION,
-        "generated_at": now_iso(),
-        "ok": latest is not None,
-        "latest": latest,
-        "latest_error": error,
-        "browser_content_latest": browser_content_latest,
-        "browser_content_latest_error": browser_content_error,
-        "paths": {
-            "latest": str(NERVOUS_CAPTURE_LATEST_PATH),
-            "private_root": str(NERVOUS_PRIVATE_CAPTURE_ROOT),
-            "screenshots": str(NERVOUS_SCREENSHOT_ROOT),
-            "browser_content": str(NERVOUS_BROWSER_CONTENT_ROOT),
-            "browser_content_latest": str(NERVOUS_BROWSER_CONTENT_LATEST_PATH),
-            "browser_bidi_url": NERVOUS_BROWSER_BIDI_DEFAULT_URL,
-            "browser_tmp": str(NERVOUS_BROWSER_TMP_ROOT),
-        },
-        "storage": {
-            "screenshots_count": screenshot_count,
-            "screenshots_bytes": screenshot_bytes,
-            "browser_content_jsonl_files": browser_content_count,
-            "browser_content_bytes": browser_content_bytes,
-            "private_root_bytes": directory_size(NERVOUS_PRIVATE_CAPTURE_ROOT) if NERVOUS_PRIVATE_CAPTURE_ROOT.exists() else 0,
-        },
-        "controls": {
-            "pause": "abyss-machine nervous privacy-set pause on --reason TEXT --json",
-            "private_mode": "abyss-machine nervous privacy-set private-mode on --reason TEXT --json",
-            "disable_source": "abyss-machine nervous source-disable SOURCE --reason TEXT --json",
-            "forget": "abyss-machine nervous forget --minutes N --json",
-        },
-    }
+    return nervous_capture_adapters.capture_status_document(
+        capture_latest_path=NERVOUS_CAPTURE_LATEST_PATH,
+        private_capture_root=NERVOUS_PRIVATE_CAPTURE_ROOT,
+        screenshot_root=NERVOUS_SCREENSHOT_ROOT,
+        browser_content_root=NERVOUS_BROWSER_CONTENT_ROOT,
+        browser_content_latest_path=NERVOUS_BROWSER_CONTENT_LATEST_PATH,
+        browser_bidi_url=NERVOUS_BROWSER_BIDI_DEFAULT_URL,
+        browser_tmp_root=NERVOUS_BROWSER_TMP_ROOT,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+        latest_reader=load_json_document,
+    )
 
 
 def nervous_source_enabled(sources: dict[str, Any], name: str) -> bool:

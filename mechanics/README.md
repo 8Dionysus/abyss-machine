@@ -37,7 +37,8 @@ Use these mechanic owners for the next extraction slices:
   adapter, screenshot live capture adapter, clipboard live read adapter, lexical
   SQLite/FTS lifecycle, semantic sidecar lifecycle/execution, rerank execution,
   retention contracts plus filesystem/apply adapter, top-level status readmodel
-  assembly/write routing, and derived memory evidence.
+  assembly/write routing, capture-status readmodel filesystem/latest probes,
+  and derived memory evidence.
 - `local-ai-runtime`: host-managed AI model/runtime subprocesses, resource
   gates, token/STT/TTS execution, dictation transcription/recording/audio
   inspection/journal/insertion/calibration/profile/docs/status/validation/replacements,
