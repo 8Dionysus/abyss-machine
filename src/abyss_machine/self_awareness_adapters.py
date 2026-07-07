@@ -1181,6 +1181,177 @@ def stack_model_root_inventory(
     }
 
 
+def working_stack_probe_ok(probes: Iterable[Mapping[str, Any]], service: str, probe: str) -> bool:
+    return any(
+        isinstance(item, Mapping)
+        and item.get("service") == service
+        and item.get("probe") == probe
+        and item.get("ok") is True
+        for item in probes
+    )
+
+
+def working_stack_tool_status(service: str, status: str, probes: Iterable[Mapping[str, Any]]) -> str:
+    probe_rows = list(probes)
+    if service in {"qwen-tts", "tts-router"}:
+        if working_stack_probe_ok(probe_rows, service, "tts-synthesis-artifact"):
+            return "recent_on_demand_tool_signal"
+    if service == "docs-api":
+        if working_stack_probe_ok(probe_rows, service, "health") and working_stack_probe_ok(probe_rows, service, "search:n8n-workflow"):
+            return "active_machine_tool_signal"
+    if service == "aoa-browser":
+        health_ok = working_stack_probe_ok(probe_rows, service, "health")
+        guard_ok = working_stack_probe_ok(probe_rows, service, "private-host-guard")
+        launch_probe_present = any(isinstance(item, Mapping) and item.get("service") == service and item.get("probe") == "playwright-chromium-launch" for item in probe_rows)
+        launch_ok = working_stack_probe_ok(probe_rows, service, "playwright-chromium-launch")
+        if health_ok and guard_ok and launch_ok:
+            return "active_machine_tool_signal"
+        if health_ok and guard_ok and launch_probe_present:
+            return "tool_runtime_degraded"
+        if health_ok and guard_ok:
+            return "tool_guard_visible_unproven_deep_use"
+    return status
+
+
+def collect_stack_model_path_refs(
+    value: Any,
+    *,
+    ai_model_roots: Iterable[Path | str],
+    limit: int = 48,
+) -> list[dict[str, Any]]:
+    roots = tuple(str(path) for path in ai_model_roots)
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def visit(item: Any, depth: int = 0) -> None:
+        if len(refs) >= limit or depth > 8:
+            return
+        if isinstance(item, Mapping):
+            for key in ("path", "model_dir", "root", "local_path"):
+                nested_value = item.get(key)
+                if isinstance(nested_value, str):
+                    visit(nested_value, depth + 1)
+            for nested_value in item.values():
+                if isinstance(nested_value, (Mapping, list)):
+                    visit(nested_value, depth + 1)
+            return
+        if isinstance(item, list):
+            for nested_value in item:
+                visit(nested_value, depth + 1)
+            return
+        if not isinstance(item, str):
+            return
+        path = item.strip()
+        if not path.startswith(roots) or path in seen:
+            return
+        seen.add(path)
+        refs.append(stack_owned_source_ref(Path(path), "ai_capability_source_model"))
+
+    visit(value)
+    return refs
+
+
+def model_row_paths(model_rows: Iterable[Mapping[str, Any]]) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for row in model_rows:
+        if not isinstance(row, Mapping):
+            continue
+        candidates: list[Any] = [row.get("path")]
+        stack_source_refs = row.get("stack_source_refs") if isinstance(row.get("stack_source_refs"), list) else []
+        candidates.extend(ref.get("path") for ref in stack_source_refs if isinstance(ref, Mapping))
+        for value in candidates:
+            path = str(value or "").strip()
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+    return paths
+
+
+def paths_overlap(left: str, right: str) -> bool:
+    left = left.rstrip("/")
+    right = right.rstrip("/")
+    if not left or not right:
+        return False
+    return left == right or left.startswith(right + "/") or right.startswith(left + "/")
+
+
+def _nested_get(value: Mapping[str, Any], path: list[str]) -> Any:
+    current: Any = value
+    for key in path:
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(key)
+    return current
+
+
+def working_stack_model_bridge(
+    service: str,
+    model_rows: Iterable[Mapping[str, Any]],
+    ai_caps: Mapping[str, Any],
+    *,
+    schema_prefix: str,
+    ai_model_roots: Iterable[Path | str],
+    latest_paths: Mapping[str, Path | str],
+) -> dict[str, Any]:
+    capability_key_by_service = {
+        "embeddings": "embeddings",
+        "stt": "stt",
+        "tts": "tts",
+        "llm-registry": "llm_text",
+    }
+    capability_key = capability_key_by_service.get(service)
+    if not capability_key:
+        return {}
+    capabilities = ai_caps.get("capabilities") if isinstance(ai_caps.get("capabilities"), Mapping) else {}
+    capability = capabilities.get(capability_key) if isinstance(capabilities.get(capability_key), Mapping) else {}
+    status = str(capability.get("status") or "")
+    ready_statuses = {"ready", "runtime-ready", "runtime-proven", "resident-running", "executable"}
+    source_refs = collect_stack_model_path_refs(
+        capability,
+        ai_model_roots=ai_model_roots,
+    )
+    source_paths = [str(ref.get("path")) for ref in source_refs if ref.get("path")]
+    model_rows_list = list(model_rows)
+    paths_from_rows = model_row_paths(model_rows_list)
+    linked_paths = [
+        source_path for source_path in source_paths
+        if any(paths_overlap(source_path, model_path) for model_path in paths_from_rows)
+    ]
+    runtime_ready = status in ready_statuses or _nested_get(capability, ["runtime", "ready"]) is True
+    active = bool(runtime_ready and linked_paths)
+    evidence_refs: list[dict[str, Any]] = [
+        {"path": str(latest_paths.get("ai_capabilities") or ""), "schema": ai_caps.get("schema"), "capability": capability_key},
+    ]
+    if service == "llm-registry":
+        evidence_refs.append({"path": str(latest_paths.get("ai_llm_registry") or ""), "schema": f"{schema_prefix}_ai_llm_registry_v1"})
+    if service == "tts":
+        evidence_refs.extend([
+            {"path": str(latest_paths.get("ai_tts_profiles") or ""), "schema": f"{schema_prefix}_ai_tts_profiles_v1"},
+            {"path": str(latest_paths.get("ai_tts_eval_success") or ""), "schema": f"{schema_prefix}_ai_tts_eval_v1"},
+        ])
+    return {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_model_bridge_v1",
+        "service": service,
+        "capability": capability_key,
+        "status": status,
+        "active": active,
+        "runtime_ready": runtime_ready,
+        "primary_bridge": capability.get("primary_bridge") or capability.get("resident_bridge") or capability.get("eval_bridge"),
+        "host_recommended_backend": capability.get("host_recommended_backend"),
+        "model_root_count": len(model_rows_list),
+        "stack_source_model_refs": source_refs[:12],
+        "linked_stack_model_source_paths": linked_paths[:12],
+        "evidence_refs": evidence_refs,
+        "policy": {
+            "read_only_source": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "model_promotion_decision": False,
+        },
+    }
+
+
 def resource_preflight(
     operation: str,
     *,
