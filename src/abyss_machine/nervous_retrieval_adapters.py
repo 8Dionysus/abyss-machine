@@ -13,6 +13,7 @@ from . import typing_nervous_adapters
 
 SearchPort = Callable[..., Mapping[str, Any]]
 StatusPort = Callable[[], Mapping[str, Any]]
+LatestWriterPort = Callable[[dict[str, Any]], dict[str, Any]]
 MaintainAssessPort = Callable[[dict[str, Any], int, float], Mapping[str, Any]]
 NeuralApplyPort = Callable[
     [list[dict[str, Any]], str, set[str], dict[str, Any], dict[str, Any], bool],
@@ -28,6 +29,43 @@ def write_latest_history(data: dict[str, Any], latest_path: Path, daily_root: Pa
         data["ok"] = False
         data["write_errors"] = errors
     return data
+
+
+def rerank_eval_document(
+    *,
+    profile: Mapping[str, Any],
+    rerank_search: SearchPort,
+    latest_path: Path,
+    daily_root: Path,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    force_policy: bool = False,
+    write_latest: bool = True,
+    latest_writer: LatestWriterPort | None = None,
+) -> dict[str, Any]:
+    search = dict(
+        rerank_search(
+            "thermal rapl smoothing gamemode guard",
+            limit=8,
+            candidate_limit=24,
+            force_policy=force_policy,
+            write_latest=True,
+        )
+    )
+    data = nervous_rerank.eval_document(
+        profile=profile,
+        search=search,
+        latest_path=str(latest_path),
+        daily_glob=str(daily_root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+    )
+    if not write_latest:
+        return data
+    writer = latest_writer or (lambda document: write_latest_history(document, latest_path, daily_root))
+    return writer(data)
 
 
 def hybrid_rerank_search(

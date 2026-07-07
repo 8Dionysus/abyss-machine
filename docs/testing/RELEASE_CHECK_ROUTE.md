@@ -296,6 +296,18 @@ ok/status/check counts/warning counts and never copy raw search results,
 embedding text, vectors, source chunks, generated eval latest files, local
 semantic DB rows, or OpenVINO cache payloads into the repository.
 
+For nervous rerank-eval adapter changes, public CI should rely on fake-port
+tests for fixed eval-query dispatch, force-policy fanout, eval document
+assembly through the rerank contract module, and eval latest/history routing.
+Live-host closeout may use compact
+`abyss-machine nervous rerank-eval --json` and, if useful,
+`abyss-machine nervous recall --mode hybrid --query TEXT --json` summaries, but
+should report only ok/status/check counts/warning counts/result counts and
+policy-denial status. Never copy raw rerank results, snippets, titles, source
+payloads, neural debug input/output files, generated latest/history files, local
+index rows, semantic DB rows, vectors, model paths beyond route summaries, or
+OpenVINO cache payloads into the repository.
+
 Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.

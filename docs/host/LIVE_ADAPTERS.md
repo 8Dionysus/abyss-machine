@@ -684,10 +684,11 @@ execution seam:
 
 The CLI still owns nervous rerank config reads, python path discovery, concrete
 runtime callback binding, and command rendering. Hybrid lexical/semantic source
-collection, semantic maintenance assessment, and rerank latest/history writes
-move through `nervous_retrieval_adapters`. The neural execution adapter preserves
-the existing local debug input/output files; cleanup or retention policy for
-those files is a separate local-private temp-artifact slice.
+collection, semantic maintenance assessment, rerank-eval live query/document
+orchestration, and rerank latest/history writes move through
+`nervous_retrieval_adapters`. The neural execution adapter preserves the
+existing local debug input/output files; cleanup or retention policy for those
+files is a separate local-private temp-artifact slice.
 
 ## Extracted Nervous Retrieval/Rerank Live Search Seam
 
@@ -703,6 +704,8 @@ search and write-routing seam:
 - neural rerank application through the existing neural execution port;
 - public-safe rerank search document assembly, source summaries, and policy
   fields;
+- rerank-eval fixed live-query execution, eval document assembly through
+  `nervous_rerank`, and eval latest/history routing;
 - recall pack search-plan dispatch through fakeable lexical/hybrid ports;
 - evidence projection and retrieval-pack document assembly through
   `nervous_recall`;

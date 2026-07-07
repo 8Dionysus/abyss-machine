@@ -135,9 +135,10 @@ parsing, policy-gate callback routing, debug path reporting, and
 resource-profile callback routing.
 `abyss_machine.nervous_retrieval_adapters` now owns the recall/rerank live
 search seam: lexical and semantic search-port collection, semantic maintenance
-assessment routing, hybrid rerank result document assembly, recall search-plan
-dispatch, retrieval-pack assembly through the recall contracts, and latest/
-history write routing for rerank search, rerank eval, and retrieval packs.
+assessment routing, hybrid rerank result document assembly, rerank-eval
+fixed-query orchestration/eval document assembly, recall search-plan dispatch,
+retrieval-pack assembly through the recall contracts, and latest/history write
+routing for rerank search, rerank eval, and retrieval packs.
 `abyss_machine.nervous_retention_adapters` now owns the retention filesystem
 and dry-run/apply seam: route-root scanning, root-missing projection,
 symlink-tail route errors, candidate stat/mtime/size collection,
