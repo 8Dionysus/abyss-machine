@@ -3776,6 +3776,59 @@ def test_artifact_affected_source_ref_matches_embedded_producer_commit(tmp_path:
     assert row["drift"]["source_ref_state"] == "proved_current"
 
 
+def test_artifact_affected_git_source_ref_with_ref_path_proves_current(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    source_ref = "git:origin/main@c0ffee0123456789abcdef0123456789abcdef00"
+    requirement = artifact_bundles.artifact_requirements(
+        artifact_class="bootstrap_install_bundle",
+    )["rows"][0]
+    abi_subject_digest = requirement["source_route"]["generated_contract_surfaces"][0][
+        "source_tree_hash"
+    ]
+    _write_verified_registry_record(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        source_repo="abyss-machine",
+        source_ref=source_ref,
+        source_refs=["manifests/artifact_bundles/bootstrap_install_bundle.bundle.json"],
+        producer="abyss-machine-bootstrap-packager",
+        evidence_refs=["update-repo-verify:bootstrap-install:c0ffee0"],
+        abi_subject_digest=abi_subject_digest,
+        trust_root_evidence={
+            "schema": "abyss_machine_artifact_trust_root_evidence_v1",
+            "kind": "tuf_repository",
+            "mode": "host_managed",
+            "evidence_ref": "host-managed-tuf:bootstrap-install:sha256:" + "d" * 64,
+            "key_ref": "host-managed-tuf-key:abyss-machine:bootstrap-install",
+            "repository_dir": "/srv/abyss-machine/storage/artifact-trust/tuf-repositories/bootstrap-install",
+            "source_repo": "abyss-machine",
+            "source_ref": source_ref,
+            "subject_digest": "sha256:" + "b" * 64,
+            "trusted_root_digest": "sha256:" + "d" * 64,
+            "verifier": "abyss-machine artifacts update-repo-verify --inspect-only",
+        },
+    )
+
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="bootstrap_install_bundle",
+        changed_source_repo="abyss-machine",
+        changed_source_ref=source_ref,
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"fresh": 1}
+    assert row["affected"] is False
+    assert row["verdict"] == "fresh"
+    assert row["reasons"] == []
+    assert row["source_ref_status"]["matched"] is True
+    assert row["source_ref_status"]["matched_ref"] == source_ref
+    assert row["source_ref_status"]["match_type"] == "exact"
+    assert row["source_ref_status"]["proves_current_ref"] is True
+    assert row["drift"]["source_ref_state"] == "proved_current"
+
+
 def test_artifact_affected_explicit_source_ref_mismatch_is_not_fresh_for_filtered_class(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
     current_commit = "c0ffee0123456789abcdef0123456789abcdef00"

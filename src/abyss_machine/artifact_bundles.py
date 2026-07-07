@@ -1667,8 +1667,16 @@ def _source_ref_looks_path_like(value: str) -> bool:
     )
 
 
+def _source_ref_looks_git_commit_ref(value: str) -> bool:
+    if not value.startswith("git:") or "@" not in value:
+        return False
+    return any(_is_git_hash_like(component) for component in _source_ref_components(value))
+
+
 def _source_ref_exact_match_proves_current(value: str) -> bool:
     if value.startswith("source-refresh:"):
+        return True
+    if _source_ref_looks_git_commit_ref(value):
         return True
     return not _source_ref_looks_path_like(value)
 
