@@ -189,6 +189,15 @@ Live-host closeout may use compact `self-awareness status --json` or
 status, and owner-boundary facts, not raw stack paths, model inventories,
 generated readmodels, stack response bodies, or private host evidence.
 
+For self-awareness working-stack runtime-probe adapter changes, public CI should
+rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
+success/failure envelopes, `podman exec` container HTTP probe projection,
+expected-status success mapping, subprocess failure redaction, and runtime smoke
+stdout/stderr hashing without storing raw bodies. Live-host closeout may use
+compact `self-awareness working-stack --json` summaries only when needed; report
+service/probe counts and statuses, never response bodies, stack payloads,
+container stdout/stderr, browser captures, or local stack secrets.
+
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash

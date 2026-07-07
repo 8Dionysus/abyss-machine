@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 import datetime as dt
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,11 @@ LoadAverageReaderPort = Callable[[], tuple[float, float, float]]
 ClockPort = Callable[[], float]
 HttpRequestFactoryPort = Callable[[str, Mapping[str, str], str], Any]
 HttpOpenPort = Callable[[Any, float], Any]
+HttpJsonPort = Callable[[str, float, int], dict[str, Any]]
+HttpStatusPort = Callable[[str, float, int], dict[str, Any]]
+RunCommandPort = Callable[[list[str], float], dict[str, Any]]
+CommandExistsPort = Callable[[str], bool]
+TcpConnectPort = Callable[[str, int, float], None]
 PathExistsPort = Callable[[Path], bool]
 PathIsDirPort = Callable[[Path], bool]
 PathGlobPort = Callable[[Path, str], Iterable[Path]]
@@ -34,6 +40,24 @@ class SelfAwarenessLatestSpec:
     name: str
     path: Path
     schema: str
+
+
+@dataclass(frozen=True)
+class WorkingStackEndpointProbeSpec:
+    service: str
+    probe: str
+    url: str
+    kind: str = "http_json"
+    timeout: float = 1.5
+    max_bytes: int = 131072
+
+
+@dataclass(frozen=True)
+class WorkingStackTcpProbeSpec:
+    service: str
+    host: str
+    port: int
+    timeout: float = 1.2
 
 
 READMODEL_SCHEMA_SUFFIXES: tuple[tuple[str, str], ...] = (
@@ -232,6 +256,372 @@ def http_status_with_headers(
         if status_code is not None:
             payload["status_code"] = status_code
         return payload
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def tcp_probe(
+    service: str,
+    host: str,
+    port: int,
+    *,
+    tcp_connect: TcpConnectPort,
+    clock: ClockPort,
+    timeout: float = 1.2,
+) -> dict[str, Any]:
+    started = clock()
+    ok = False
+    error = None
+    try:
+        tcp_connect(host, int(port), timeout)
+        ok = True
+    except OSError as exc:
+        error = str(exc)
+    return {
+        "service": service,
+        "probe": f"tcp:{host}:{port}",
+        "kind": "tcp_ready",
+        "ok": ok,
+        "url": f"tcp://{host}:{port}",
+        "elapsed_ms": round((clock() - started) * 1000.0, 1),
+        "error": error,
+        "body_stored": False,
+        "raw_private_content": False,
+    }
+
+
+def working_stack_endpoint_probes(
+    *,
+    http_specs: Iterable[WorkingStackEndpointProbeSpec],
+    tcp_specs: Iterable[WorkingStackTcpProbeSpec],
+    http_json: HttpJsonPort,
+    http_status: HttpStatusPort,
+    tcp_connect: TcpConnectPort,
+    clock: ClockPort,
+    enabled: bool = True,
+) -> list[dict[str, Any]]:
+    if not enabled:
+        return []
+    probes: list[dict[str, Any]] = []
+    for spec in http_specs:
+        kind = spec.kind
+        if kind == "http_status":
+            response = http_status(spec.url, spec.timeout, spec.max_bytes)
+        else:
+            kind = "http_json"
+            response = http_json(spec.url, spec.timeout, spec.max_bytes)
+        probes.append({
+            "service": spec.service,
+            "probe": spec.probe,
+            **self_awareness_contracts.http_probe_summary(response, kind),
+        })
+    for spec in tcp_specs:
+        probes.append(tcp_probe(
+            spec.service,
+            spec.host,
+            spec.port,
+            tcp_connect=tcp_connect,
+            clock=clock,
+            timeout=spec.timeout,
+        ))
+    return probes
+
+
+_CONTAINER_HTTP_PROBE_SCRIPT = r'''
+import hashlib, json, sys, time, urllib.error, urllib.parse, urllib.request
+
+url = sys.argv[1]
+method = sys.argv[2].upper()
+payload = sys.argv[3]
+timeout = float(sys.argv[4])
+max_bytes = int(sys.argv[5])
+
+def compact_shape(value):
+    if isinstance(value, dict):
+        shape = {"type": "dict", "keys": sorted(str(key) for key in value.keys())[:32]}
+        if isinstance(value.get("ok"), bool):
+            shape["ok"] = value.get("ok")
+        if isinstance(value.get("results"), list):
+            results = value.get("results") or []
+            shape["results"] = {
+                "type": "list",
+                "length": len(results),
+                "item_keys": sorted(str(key) for key in results[0].keys())[:16] if results and isinstance(results[0], dict) else [],
+            }
+        if isinstance(value.get("url"), str):
+            parsed = urllib.parse.urlparse(value.get("url"))
+            shape["url_scheme"] = parsed.scheme
+            shape["url_host_hash"] = hashlib.sha256((parsed.hostname or "").encode()).hexdigest()[:16]
+        if isinstance(value.get("title"), str):
+            shape["title_hash"] = hashlib.sha256(value.get("title", "").encode()).hexdigest()[:16]
+        if isinstance(value.get("text"), str):
+            text = value.get("text", "")
+            shape["text_chars"] = len(text)
+            shape["text_hash"] = hashlib.sha256(text.encode()).hexdigest()[:16]
+        return shape
+    if isinstance(value, list):
+        return {"type": "list", "length": len(value)}
+    return {"type": type(value).__name__}
+
+headers = {"Accept": "application/json"}
+data = None
+if payload and payload != "null":
+    data = payload.encode("utf-8")
+    headers["Content-Type"] = "application/json"
+started = time.monotonic()
+result = {"url": url, "method": method}
+try:
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = response.read(max_bytes + 1)
+        truncated = len(body) > max_bytes
+        body = body[:max_bytes]
+        text = body.decode("utf-8", "replace")
+        result.update({
+            "ok": 200 <= int(response.status) < 400,
+            "status_code": int(response.status),
+            "elapsed_ms": round((time.monotonic() - started) * 1000.0, 1),
+            "truncated": truncated,
+            "content_hash": hashlib.sha256(body).hexdigest()[:24],
+        })
+        try:
+            result["json_shape"] = compact_shape(json.loads(text))
+        except Exception:
+            result["text_preview_hash"] = hashlib.sha256(text[:512].encode()).hexdigest()[:16]
+except urllib.error.HTTPError as exc:
+    body = exc.read(max_bytes)
+    text = body.decode("utf-8", "replace")
+    result.update({
+        "ok": False,
+        "status_code": int(exc.code),
+        "elapsed_ms": round((time.monotonic() - started) * 1000.0, 1),
+        "truncated": False,
+        "error": str(exc),
+        "content_hash": hashlib.sha256(body).hexdigest()[:24],
+    })
+    try:
+        result["json_shape"] = compact_shape(json.loads(text))
+    except Exception:
+        result["text_preview_hash"] = hashlib.sha256(text[:512].encode()).hexdigest()[:16]
+except Exception as exc:
+    result.update({
+        "ok": False,
+        "status_code": None,
+        "elapsed_ms": round((time.monotonic() - started) * 1000.0, 1),
+        "truncated": False,
+        "error": str(exc)[:400],
+    })
+print(json.dumps(result, sort_keys=True))
+'''
+
+
+def container_http_probe(
+    service: str,
+    container: str,
+    probe: str,
+    url: str,
+    *,
+    command_exists: CommandExistsPort,
+    run_command: RunCommandPort,
+    clock: ClockPort,
+    method: str = "GET",
+    request_json: dict[str, Any] | None = None,
+    timeout: float = 4.0,
+    max_bytes: int = 65536,
+    expected_statuses: set[int] | None = None,
+) -> dict[str, Any]:
+    started = clock()
+    if not command_exists("podman"):
+        return {
+            "service": service,
+            "probe": probe,
+            "container": container,
+            "kind": "container_http_json",
+            "ok": False,
+            "url": url,
+            "method": method.upper(),
+            "error": "podman is not installed",
+            "body_stored": False,
+            "raw_private_content": False,
+        }
+    expected = expected_statuses or set(range(200, 400))
+    payload = json.dumps(request_json, sort_keys=True) if request_json is not None else "null"
+    out = run_command(
+        ["podman", "exec", container, "python", "-c", _CONTAINER_HTTP_PROBE_SCRIPT, url, method.upper(), payload, str(float(timeout)), str(int(max_bytes))],
+        timeout + 8.0,
+    )
+    if not out.get("ok"):
+        return {
+            "service": service,
+            "probe": probe,
+            "container": container,
+            "kind": "container_http_json",
+            "ok": False,
+            "url": url,
+            "method": method.upper(),
+            "elapsed_ms": round((clock() - started) * 1000.0, 1),
+            "error": self_awareness_contracts.redact_text(str(out.get("stderr") or out.get("stdout") or "podman exec failed"), 400),
+            "returncode": out.get("returncode"),
+            "body_stored": False,
+            "raw_private_content": False,
+            "policy": {
+                "host_layer_mutates_stack": False,
+                "writes_project_roots": False,
+                "response_body_stored": False,
+            },
+        }
+    try:
+        response = json.loads(str(out.get("stdout") or "{}"))
+    except json.JSONDecodeError as exc:
+        response = {
+            "ok": False,
+            "error": f"invalid container probe JSON: {exc}",
+            "elapsed_ms": round((clock() - started) * 1000.0, 1),
+        }
+    status_code = _safe_int(response.get("status_code"), 0)
+    response["ok"] = bool(status_code in expected) if status_code else bool(response.get("ok"))
+    return {
+        "service": service,
+        "probe": probe,
+        "container": container,
+        **self_awareness_contracts.http_probe_summary(response, "container_http_json"),
+        "method": method.upper(),
+        "expected_status_codes": sorted(expected),
+        "raw_http_ok": bool(response.get("ok")) if status_code in set(range(200, 400)) else None,
+        "content_hash": response.get("content_hash"),
+        "execution_route": "podman_exec_container_loopback_http",
+        "policy": {
+            "semantic_read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "response_body_stored": False,
+            "raw_private_content": False,
+        },
+    }
+
+
+def container_python_smoke(
+    service: str,
+    container: str,
+    probe: str,
+    script: str,
+    *,
+    run_command: RunCommandPort,
+    clock: ClockPort,
+    timeout: float = 10.0,
+) -> dict[str, Any]:
+    started = clock()
+    out = run_command(["podman", "exec", container, "python", "-c", script], timeout)
+    stdout = str(out.get("stdout") or "")
+    stderr = str(out.get("stderr") or "")
+    error_text = stderr or "container runtime smoke failed"
+    return {
+        "service": service,
+        "probe": probe,
+        "container": container,
+        "kind": "container_runtime_smoke",
+        "ok": bool(out.get("ok")),
+        "url": f"container://{container}/{probe}",
+        "elapsed_ms": round((clock() - started) * 1000.0, 1),
+        "returncode": out.get("returncode"),
+        "stdout_hash": self_awareness_contracts.stable_hash_json(stdout, length=16) if stdout else None,
+        "stderr_hash": self_awareness_contracts.stable_hash_json(stderr, length=16) if stderr else None,
+        "error": self_awareness_contracts.redact_text(error_text, 400) if not out.get("ok") else None,
+        "body_stored": False,
+        "raw_private_content": False,
+        "execution_route": "podman_exec_container_runtime_smoke",
+        "policy": {
+            "semantic_read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "response_body_stored": False,
+            "raw_private_content": False,
+        },
+    }
+
+
+def working_stack_container_tool_probes(
+    runtime_by_service: Mapping[str, dict[str, Any]],
+    *,
+    command_exists: CommandExistsPort,
+    run_command: RunCommandPort,
+    clock: ClockPort,
+    enabled: bool = True,
+) -> list[dict[str, Any]]:
+    if not enabled:
+        return []
+    probes: list[dict[str, Any]] = []
+
+    def container_for(service: str) -> str | None:
+        runtime = runtime_by_service.get(service) if isinstance(runtime_by_service.get(service), dict) else {}
+        if not runtime.get("running"):
+            return None
+        return str(runtime.get("container") or runtime.get("service") or "").strip() or None
+
+    docs_container = container_for("docs-api")
+    if docs_container:
+        probes.append(container_http_probe(
+            "docs-api",
+            docs_container,
+            "health",
+            "http://127.0.0.1:5000/health",
+            command_exists=command_exists,
+            run_command=run_command,
+            clock=clock,
+            timeout=3.0,
+        ))
+        probes.append(container_http_probe(
+            "docs-api",
+            docs_container,
+            "search:n8n-workflow",
+            "http://127.0.0.1:5000/search?q=workflow",
+            command_exists=command_exists,
+            run_command=run_command,
+            clock=clock,
+            timeout=4.0,
+        ))
+
+    browser_container = container_for("aoa-browser")
+    if browser_container:
+        probes.append(container_http_probe(
+            "aoa-browser",
+            browser_container,
+            "health",
+            "http://127.0.0.1:8000/health",
+            command_exists=command_exists,
+            run_command=run_command,
+            clock=clock,
+            timeout=3.0,
+        ))
+        probes.append(container_http_probe(
+            "aoa-browser",
+            browser_container,
+            "private-host-guard",
+            "http://127.0.0.1:8000/read",
+            command_exists=command_exists,
+            run_command=run_command,
+            clock=clock,
+            method="POST",
+            request_json={"url": "http://127.0.0.1:8000/health", "wait_ms": 50, "max_chars": 100},
+            timeout=6.0,
+            expected_statuses={403},
+        ))
+        probes.append(container_python_smoke(
+            "aoa-browser",
+            browser_container,
+            "playwright-chromium-launch",
+            "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n    browser = p.chromium.launch(headless=True)\n    browser.close()\nprint('launch_ok')",
+            run_command=run_command,
+            clock=clock,
+            timeout=18.0,
+        ))
+
+    return probes
 
 
 def env_int(name: str, default: int, *, env_get: EnvGetPort) -> int:

@@ -194,6 +194,185 @@ def test_http_status_with_headers_reports_bounded_error_with_status_code() -> No
     assert payload["error"] == "<redacted> unavailable"
 
 
+def test_working_stack_endpoint_probes_use_fake_http_and_tcp_ports() -> None:
+    http_calls: list[tuple[str, str, float, int]] = []
+    tcp_calls: list[tuple[str, int, float]] = []
+    clock_values = iter([5.0, 5.025])
+
+    def fake_http_json(url: str, timeout: float, max_bytes: int) -> dict[str, Any]:
+        http_calls.append(("json", url, timeout, max_bytes))
+        return {"ok": True, "url": url, "status_code": 200, "json_shape": {"type": "dict", "keys": ["ok"]}}
+
+    def fake_http_status(url: str, timeout: float, max_bytes: int) -> dict[str, Any]:
+        http_calls.append(("status", url, timeout, max_bytes))
+        return {"ok": False, "url": url, "status_code": 503, "error": "down"}
+
+    def fake_tcp_connect(host: str, port: int, timeout: float) -> None:
+        tcp_calls.append((host, port, timeout))
+
+    payload = self_awareness_adapters.working_stack_endpoint_probes(
+        http_specs=[
+            self_awareness_adapters.WorkingStackEndpointProbeSpec("grafana", "health", "http://grafana/api/health"),
+            self_awareness_adapters.WorkingStackEndpointProbeSpec("prometheus", "ready", "http://prom/-/ready", kind="http_status", max_bytes=4096),
+        ],
+        tcp_specs=[self_awareness_adapters.WorkingStackTcpProbeSpec("postgres", "127.0.0.1", 5432, timeout=0.5)],
+        http_json=fake_http_json,
+        http_status=fake_http_status,
+        tcp_connect=fake_tcp_connect,
+        clock=lambda: next(clock_values),
+    )
+
+    assert [(row["service"], row["probe"], row["kind"], row["ok"]) for row in payload] == [
+        ("grafana", "health", "http_json", True),
+        ("prometheus", "ready", "http_status", False),
+        ("postgres", "tcp:127.0.0.1:5432", "tcp_ready", True),
+    ]
+    assert http_calls == [
+        ("json", "http://grafana/api/health", 1.5, 131072),
+        ("status", "http://prom/-/ready", 1.5, 4096),
+    ]
+    assert tcp_calls == [("127.0.0.1", 5432, 0.5)]
+    assert payload[2]["elapsed_ms"] == 25.0
+
+
+def test_tcp_probe_reports_bounded_connect_error() -> None:
+    clock_values = iter([10.0, 10.01])
+
+    def fake_connect(_host: str, _port: int, _timeout: float) -> None:
+        raise OSError("connection refused")
+
+    payload = self_awareness_adapters.tcp_probe(
+        "redis",
+        "127.0.0.1",
+        6379,
+        tcp_connect=fake_connect,
+        clock=lambda: next(clock_values),
+    )
+
+    assert payload["ok"] is False
+    assert payload["error"] == "connection refused"
+    assert payload["body_stored"] is False
+    assert payload["raw_private_content"] is False
+
+
+def test_container_http_probe_uses_fake_runner_expected_status_and_omits_body() -> None:
+    calls: list[tuple[list[str], float]] = []
+
+    def fake_run(command: list[str], timeout: float) -> dict[str, Any]:
+        calls.append((command, timeout))
+        return {
+            "ok": True,
+            "stdout": json.dumps({
+                "ok": False,
+                "status_code": 403,
+                "elapsed_ms": 12.5,
+                "content_hash": "abc123",
+                "json_shape": {"type": "dict", "keys": ["detail"]},
+            }),
+            "stderr": "",
+            "returncode": 0,
+        }
+
+    payload = self_awareness_adapters.container_http_probe(
+        "aoa-browser",
+        "abyss_aoa_browser_1",
+        "private-host-guard",
+        "http://127.0.0.1:8000/read",
+        command_exists=lambda name: name == "podman",
+        run_command=fake_run,
+        clock=lambda: 1.0,
+        method="POST",
+        request_json={"url": "http://127.0.0.1:8000/health"},
+        expected_statuses={403},
+        timeout=6.0,
+    )
+
+    assert payload["ok"] is True
+    assert payload["status_code"] == 403
+    assert payload["expected_status_codes"] == [403]
+    assert payload["method"] == "POST"
+    assert payload["body_stored"] is False
+    assert payload["raw_private_content"] is False
+    assert "text_preview" not in payload
+    assert calls and calls[0][0][:4] == ["podman", "exec", "abyss_aoa_browser_1", "python"]
+    assert calls[0][1] == 14.0
+
+
+def test_container_http_probe_runner_failure_redacts_error() -> None:
+    secret = "Authorization: Bearer " + "sk-" + "testsecret1234567890"
+    clock_values = iter([20.0, 20.25])
+
+    payload = self_awareness_adapters.container_http_probe(
+        "docs-api",
+        "docs",
+        "health",
+        "http://127.0.0.1:5000/health",
+        command_exists=lambda _name: True,
+        run_command=lambda _command, _timeout: {"ok": False, "stderr": f"failed {secret}", "stdout": "", "returncode": 125},
+        clock=lambda: next(clock_values),
+    )
+
+    assert payload["ok"] is False
+    assert payload["returncode"] == 125
+    assert "testsecret1234567890" not in payload["error"]
+    assert payload["policy"]["response_body_stored"] is False
+
+
+def test_container_python_smoke_hashes_output_without_storing_body() -> None:
+    clock_values = iter([30.0, 30.05])
+
+    payload = self_awareness_adapters.container_python_smoke(
+        "aoa-browser",
+        "browser",
+        "playwright-chromium-launch",
+        "print('launch_ok')",
+        run_command=lambda _command, _timeout: {"ok": False, "stdout": "secret launch details", "stderr": "", "returncode": 1},
+        clock=lambda: next(clock_values),
+    )
+
+    assert payload["ok"] is False
+    assert payload["stdout_hash"]
+    assert "secret launch details" not in json.dumps(payload)
+    assert payload["body_stored"] is False
+    assert payload["raw_private_content"] is False
+
+
+def test_working_stack_container_tool_probes_maps_running_services_with_fake_runner() -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], _timeout: float) -> dict[str, Any]:
+        calls.append(command)
+        if command[-1] == "18.0":
+            return {"ok": True, "stdout": "launch_ok", "stderr": "", "returncode": 0}
+        status_code = 403 if any("8000/read" in part for part in command) else 200
+        return {
+            "ok": True,
+            "stdout": json.dumps({"ok": 200 <= status_code < 400, "status_code": status_code, "elapsed_ms": 1.0}),
+            "stderr": "",
+            "returncode": 0,
+        }
+
+    payload = self_awareness_adapters.working_stack_container_tool_probes(
+        {
+            "docs-api": {"running": True, "container": "docs"},
+            "aoa-browser": {"running": True, "container": "browser"},
+            "qdrant": {"running": True, "container": "qdrant"},
+        },
+        command_exists=lambda name: name == "podman",
+        run_command=fake_run,
+        clock=lambda: 100.0,
+    )
+
+    assert [(row["service"], row["probe"], row["ok"]) for row in payload] == [
+        ("docs-api", "health", True),
+        ("docs-api", "search:n8n-workflow", True),
+        ("aoa-browser", "health", True),
+        ("aoa-browser", "private-host-guard", True),
+        ("aoa-browser", "playwright-chromium-launch", True),
+    ]
+    assert len(calls) == 5
+
+
 def test_env_and_meminfo_ports_are_fakeable() -> None:
     env = {"INT": "42", "FLOAT": "2.5", "EMPTY": "", "BAD": "nope"}
 

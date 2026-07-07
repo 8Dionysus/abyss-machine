@@ -50,7 +50,8 @@ Use these mechanic owners for the next extraction slices:
 - `self-awareness`: latest surface specs, fakeable latest load dispatch,
   validation latest-spec selection, bounded status latest summaries, resource
   preflight guard decisions, bounded HTTP status probe ports, working-stack
-  source inventory projections, and cycle artifact evidence snapshots live in
+  endpoint/TCP/container runtime probes, working-stack source inventory
+  projections, and cycle artifact evidence snapshots live in
   `self_awareness_adapters`; probe/cycle orchestration, broader runtime
   refreshes, concrete stack path/latest file reads, and investigate/replay
   execution remain bounded CLI debt.
