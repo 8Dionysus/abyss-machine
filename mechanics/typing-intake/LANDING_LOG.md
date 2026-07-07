@@ -22,8 +22,13 @@
   command rendering stay at the CLI edge.
 - Native-host transport seam: `typing_browser_adapters` owns framed
   little-endian length-prefix message read/write, JSON decode/encode, and
-  malformed-frame errors while CLI binds the adapter to real stdin/stdout,
-  dispatches ingest, and renders the command exit.
+  malformed-frame errors while CLI binds the adapter to real stdin/stdout and
+  renders the command exit.
+- Native-host session seam: `typing_browser_adapters` owns one-message session
+  dispatch over supplied input/output buffers and supplied browser-extension or
+  AI-transcript ingest callbacks, including framed response writing and exit
+  decision projection, while CLI supplies concrete stdio and `typing_ingest`
+  callback wiring.
 - Firefox release-profile seam: `typing_browser_adapters` owns `profiles.ini`
   parsing, relative/absolute profile path projection, extension sidecar path
   projection, and release-profile selection while CLI supplies the configured

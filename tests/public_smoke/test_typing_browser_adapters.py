@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import struct
 
 import pytest
@@ -367,14 +368,125 @@ def test_native_host_transport_reads_and_writes_length_prefixed_json() -> None:
     assert raw[4:] == b'{"ok":true,"status":"captured","note":"synthetic"}'
 
 
-def test_cli_native_host_transport_binds_to_standard_buffers(monkeypatch) -> None:
+def test_native_host_session_routes_extension_message_and_writes_response() -> None:
     message = {
         "schema": "abyss_machine_browser_extension_message_v1",
         "event_kind": "committed_text",
         "text": "synthetic browser text",
     }
-    stdin_buffer = io.BytesIO(typing_browser_adapters.native_host_encode_response_frame(message))
+    out = io.BytesIO()
+    calls: dict[str, object] = {}
+
+    def extension_ingest(payload: dict[str, object]) -> dict[str, object]:
+        calls["extension"] = payload
+        return {
+            "ok": True,
+            "status": "captured",
+            "event": {"event_id": "evt-browser"},
+            "policy": {"automatic_action": False},
+        }
+
+    def ai_ingest(_payload: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("AI transcript route should not be used")
+
+    session = typing_browser_adapters.native_host_run_session(
+        io.BytesIO(typing_browser_adapters.native_host_encode_response_frame(message)),
+        out,
+        browser_extension_ingest=extension_ingest,
+        browser_ai_transcript_ingest=ai_ingest,
+    )
+
+    raw = out.getvalue()
+    response = json.loads(raw[4:])
+    assert struct.unpack("<I", raw[:4])[0] == len(raw[4:])
+    assert calls["extension"] == message
+    assert response == {
+        "ok": True,
+        "status": "captured",
+        "event": {"event_id": "evt-browser"},
+        "policy": {"automatic_action": False},
+    }
+    assert session == {
+        "ok": True,
+        "status": "captured",
+        "route": "browser_extension_explicit",
+        "response": response,
+        "response_written": True,
+        "exit_code": 0,
+    }
+
+
+def test_native_host_session_routes_ai_transcript_and_errors_are_framed() -> None:
+    ai_message = {
+        "schema": "abyss_machine_browser_ai_transcript_message_v1",
+        "event_kind": "ai_transcript_message",
+        "text": "synthetic AI answer",
+    }
+    ai_out = io.BytesIO()
+    error_out = io.BytesIO()
+    calls: dict[str, object] = {}
+
+    def extension_ingest(_payload: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("extension route should not be used")
+
+    def ai_ingest(payload: dict[str, object]) -> dict[str, object]:
+        calls["ai"] = payload
+        return {"ok": True, "status": "ai_transcript_captured", "policy": {"automatic_action": False}}
+
+    ai_session = typing_browser_adapters.native_host_run_session(
+        io.BytesIO(typing_browser_adapters.native_host_encode_response_frame(ai_message)),
+        ai_out,
+        browser_extension_ingest=extension_ingest,
+        browser_ai_transcript_ingest=ai_ingest,
+    )
+
+    assert calls["ai"] == ai_message
+    assert ai_session["route"] == "browser_ai_transcript"
+    assert ai_session["exit_code"] == 0
+    assert json.loads(ai_out.getvalue()[4:])["status"] == "ai_transcript_captured"
+
+    def failing_extension(_payload: dict[str, object]) -> dict[str, object]:
+        raise RuntimeError("synthetic failure")
+
+    error_session = typing_browser_adapters.native_host_run_session(
+        io.BytesIO(typing_browser_adapters.native_host_encode_response_frame({"event_kind": "committed_text"})),
+        error_out,
+        browser_extension_ingest=failing_extension,
+        browser_ai_transcript_ingest=ai_ingest,
+    )
+
+    error_response = json.loads(error_out.getvalue()[4:])
+    assert error_session["ok"] is False
+    assert error_session["exit_code"] == 1
+    assert error_session["route"] == "browser_extension_explicit"
+    assert error_response["status"] == "native_host_error"
+    assert "synthetic failure" in error_response["error"]
+
+
+def test_native_host_session_no_message_is_noop() -> None:
+    out = io.BytesIO()
+    session = typing_browser_adapters.native_host_run_session(
+        io.BytesIO(b""),
+        out,
+        browser_extension_ingest=lambda _payload: (_ for _ in ()).throw(AssertionError("no ingest")),
+        browser_ai_transcript_ingest=lambda _payload: (_ for _ in ()).throw(AssertionError("no ingest")),
+    )
+
+    assert out.getvalue() == b""
+    assert session == {
+        "ok": True,
+        "status": "native_host_no_message",
+        "route": None,
+        "response": None,
+        "response_written": False,
+        "exit_code": 0,
+    }
+
+
+def test_cli_native_host_session_binds_standard_buffers_and_ingest_callbacks(monkeypatch) -> None:
+    stdin_buffer = io.BytesIO()
     stdout_buffer = io.BytesIO()
+    captured: dict[str, object] = {}
 
     class FakeStdin:
         buffer = stdin_buffer
@@ -382,15 +494,36 @@ def test_cli_native_host_transport_binds_to_standard_buffers(monkeypatch) -> Non
     class FakeStdout:
         buffer = stdout_buffer
 
+    def fake_session(input_buffer, output_buffer, *, browser_extension_ingest, browser_ai_transcript_ingest):
+        captured["input_buffer"] = input_buffer
+        captured["output_buffer"] = output_buffer
+        captured["extension"] = browser_extension_ingest({"event_kind": "committed_text"})
+        captured["ai"] = browser_ai_transcript_ingest({"event_kind": "ai_transcript_message"})
+        return {"exit_code": 7}
+
     monkeypatch.setattr(cli.sys, "stdin", FakeStdin())
     monkeypatch.setattr(cli.sys, "stdout", FakeStdout())
+    monkeypatch.setattr(
+        cli.typing_browser_adapters,
+        "native_host_run_session",
+        fake_session,
+    )
+    monkeypatch.setattr(
+        cli,
+        "typing_browser_extension_ingest_message",
+        lambda message, write_latest=True: {"message": message, "write_latest": write_latest},
+    )
+    monkeypatch.setattr(
+        cli,
+        "typing_browser_ai_transcript_ingest_message",
+        lambda message, write_latest=True: {"message": message, "write_latest": write_latest},
+    )
 
-    assert cli.typing_browser_native_host_read_message() == message
-    cli.typing_browser_native_host_write_response({"ok": True, "status": "captured"})
-
-    raw = stdout_buffer.getvalue()
-    assert struct.unpack("<I", raw[:4])[0] == len(raw[4:])
-    assert raw[4:] == b'{"ok":true,"status":"captured"}'
+    assert cli.typing_browser_native_host() == 7
+    assert captured["input_buffer"] is stdin_buffer
+    assert captured["output_buffer"] is stdout_buffer
+    assert captured["extension"] == {"message": {"event_kind": "committed_text"}, "write_latest": True}
+    assert captured["ai"] == {"message": {"event_kind": "ai_transcript_message"}, "write_latest": True}
 
 
 def test_native_host_transport_rejects_malformed_frames() -> None:

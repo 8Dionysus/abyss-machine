@@ -50,6 +50,7 @@ BrowserUrlSchemeAllowed = Callable[[str, Mapping[str, Any]], bool]
 WriteLatestHistory = Callable[[dict[str, Any], Path, Path, int], list[dict[str, Any]]]
 WriteJson = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
 IndexDocument = Callable[[], dict[str, Any]]
+NativeHostIngest = Callable[[dict[str, Any]], Mapping[str, Any]]
 
 
 def _nested_get(data: Mapping[str, Any] | None, path: list[str]) -> Any:
@@ -2529,4 +2530,44 @@ def native_host_error_response(error: BaseException) -> dict[str, Any]:
             "password_fields_captured": False,
             "automatic_action": False,
         },
+    }
+
+
+def native_host_run_session(
+    input_buffer: Any,
+    output_buffer: Any,
+    *,
+    browser_extension_ingest: NativeHostIngest,
+    browser_ai_transcript_ingest: NativeHostIngest,
+    max_message_bytes: int = NATIVE_HOST_MAX_MESSAGE_BYTES,
+) -> dict[str, Any]:
+    route: str | None = None
+    try:
+        message = native_host_read_message(input_buffer, max_message_bytes=max_message_bytes)
+        if message is None:
+            return {
+                "ok": True,
+                "status": "native_host_no_message",
+                "route": None,
+                "response": None,
+                "response_written": False,
+                "exit_code": 0,
+            }
+        route = native_host_message_route(message)
+        if route == BROWSER_AI_TRANSCRIPT_SOURCE:
+            result = browser_ai_transcript_ingest(message)
+        else:
+            result = browser_extension_ingest(message)
+        response = native_host_response(result)
+    except Exception as exc:
+        response = native_host_error_response(exc)
+    native_host_write_response(output_buffer, response)
+    exit_code = 0 if response.get("ok") else 1
+    return {
+        "ok": bool(response.get("ok")),
+        "status": response.get("status"),
+        "route": route,
+        "response": response,
+        "response_written": True,
+        "exit_code": exit_code,
     }
