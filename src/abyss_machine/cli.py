@@ -57614,35 +57614,22 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
     if not isinstance(working_stack_activation_summary, dict):
         working_stack_activation_summary = {}
     open_working_stack_activation_gaps = safe_int(working_stack_activation_summary.get("open_activation_gaps"), 0)
-    stack_handoff_summary = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_cycle_stack_handoff_summary_v1",
-        "open_requirement_ids": stack_handoff_closure_readiness.get("open_requirement_ids") if isinstance(stack_handoff_closure_readiness.get("open_requirement_ids"), list) else [],
-        "closure_readiness_summary": stack_handoff_closure_readiness.get("summary"),
-        "replay": replay.get("stack_handoff_replay"),
-        "requirement_probe_summary": requirement_probes.get("summary"),
-        "stack_closure_dossier_summary": stack_closure_dossier.get("summary"),
-        "working_stack_activation_summary": working_stack_activation_summary,
-        "working_stack_activation_smoke_summary": activation_smoke.get("summary") if isinstance(activation_smoke.get("summary"), dict) else {},
-        "working_stack_activation_handoff": stack_closure_dossier.get("working_stack_activation_handoff") if isinstance(stack_closure_dossier.get("working_stack_activation_handoff"), dict) else {},
-        "stack_closure_dossier_latest": str(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH),
-        "failure_matrix_open_rows": len(open_requirement_rows),
-        "policy": {
-            "handoff_only": True,
-            "read_only": True,
-            "executes_commands": False,
-            "action_execution": False,
-            "host_layer_mutates_stack": False,
-            "open_stack_requirements_are_blockers_not_host_failures": True,
-            "working_stack_activation_gaps_are_blockers_not_host_failures": True,
+    stack_handoff_summary = self_awareness_adapters.cycle_stack_handoff_summary_document(
+        schema_prefix=SCHEMA_PREFIX,
+        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
+        replay=replay,
+        requirement_probes=requirement_probes,
+        stack_closure_dossier=stack_closure_dossier,
+        working_stack_activation_summary=working_stack_activation_summary,
+        activation_smoke=activation_smoke,
+        open_requirement_rows=open_requirement_rows,
+        paths={
+            "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+            "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+            "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+            "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
         },
-        "evidence_refs": [
-            {"path": str(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH), "section": "closure_readiness"},
-            {"path": str(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH), "section": "stack_owner_handoff"},
-            {"path": str(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH), "section": "working_stack_activation_dossier"},
-            {"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH), "section": "machine_usage_gaps"},
-            {"path": str(SELF_AWARENESS_REPLAY_LATEST_PATH), "section": "stack_handoff_replay"},
-        ],
-    }
+    )
     latest_docs = self_awareness_adapters.load_cycle_latest_documents(
         schema_prefix=SCHEMA_PREFIX,
         paths={

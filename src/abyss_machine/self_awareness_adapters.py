@@ -1579,6 +1579,52 @@ def cycle_partial_document(
     }
 
 
+def cycle_stack_handoff_summary_document(
+    *,
+    schema_prefix: str,
+    stack_handoff_closure_readiness: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    requirement_probes: Mapping[str, Any],
+    stack_closure_dossier: Mapping[str, Any],
+    working_stack_activation_summary: Mapping[str, Any],
+    activation_smoke: Mapping[str, Any],
+    open_requirement_rows: Iterable[Mapping[str, Any]],
+    paths: Mapping[str, Path | str],
+) -> dict[str, Any]:
+    open_requirement_ids = stack_handoff_closure_readiness.get("open_requirement_ids")
+    working_stack_activation_smoke_summary = activation_smoke.get("summary")
+    working_stack_activation_handoff = stack_closure_dossier.get("working_stack_activation_handoff")
+    return {
+        "schema": f"{schema_prefix}_self_awareness_cycle_stack_handoff_summary_v1",
+        "open_requirement_ids": open_requirement_ids if isinstance(open_requirement_ids, list) else [],
+        "closure_readiness_summary": stack_handoff_closure_readiness.get("summary"),
+        "replay": replay.get("stack_handoff_replay"),
+        "requirement_probe_summary": requirement_probes.get("summary"),
+        "stack_closure_dossier_summary": stack_closure_dossier.get("summary"),
+        "working_stack_activation_summary": dict(working_stack_activation_summary),
+        "working_stack_activation_smoke_summary": working_stack_activation_smoke_summary if isinstance(working_stack_activation_smoke_summary, dict) else {},
+        "working_stack_activation_handoff": working_stack_activation_handoff if isinstance(working_stack_activation_handoff, dict) else {},
+        "stack_closure_dossier_latest": str(paths["stack_closure_dossier"]),
+        "failure_matrix_open_rows": len(list(open_requirement_rows)),
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "executes_commands": False,
+            "action_execution": False,
+            "host_layer_mutates_stack": False,
+            "open_stack_requirements_are_blockers_not_host_failures": True,
+            "working_stack_activation_gaps_are_blockers_not_host_failures": True,
+        },
+        "evidence_refs": [
+            {"path": str(paths["requirement_probes"]), "section": "closure_readiness"},
+            {"path": str(paths["stack_closure_dossier"]), "section": "stack_owner_handoff"},
+            {"path": str(paths["stack_closure_dossier"]), "section": "working_stack_activation_dossier"},
+            {"path": str(paths["working_stack"]), "section": "machine_usage_gaps"},
+            {"path": str(paths["replay"]), "section": "stack_handoff_replay"},
+        ],
+    }
+
+
 def cycle_result_document(
     *,
     schema_prefix: str,

@@ -721,6 +721,67 @@ def test_cycle_partial_document_builds_public_safe_building_snapshot(tmp_path: P
     }
 
 
+def test_cycle_stack_handoff_summary_document_is_public_safe(tmp_path: Path) -> None:
+    paths = {
+        "requirement_probes": tmp_path / "requirement-probes" / "latest.json",
+        "stack_closure_dossier": tmp_path / "stack-closure-dossier" / "latest.json",
+        "working_stack": tmp_path / "working-stack" / "latest.json",
+        "replay": tmp_path / "replay" / "latest.json",
+    }
+    readiness = {
+        "open_requirement_ids": ["REQ-1"],
+        "summary": {"packets": 2, "missing_checks": 0},
+    }
+    replay = {"stack_handoff_replay": {"closure_readiness_replayable": True}}
+    requirement_probes = {"summary": {"probes": 3}}
+    stack_closure_dossier = {
+        "summary": {"open_stack_requirements": 1},
+        "working_stack_activation_handoff": {"complete": False},
+    }
+    activation_summary = {"entries": 4, "open_activation_gaps": 1}
+    activation_smoke = {"summary": {"rows": 4, "rows_ok": 3}}
+
+    payload = self_awareness_adapters.cycle_stack_handoff_summary_document(
+        schema_prefix="abyss_machine",
+        stack_handoff_closure_readiness=readiness,
+        replay=replay,
+        requirement_probes=requirement_probes,
+        stack_closure_dossier=stack_closure_dossier,
+        working_stack_activation_summary=activation_summary,
+        activation_smoke=activation_smoke,
+        open_requirement_rows=[{"id": "REQ-1"}, {"id": "REQ-2"}],
+        paths=paths,
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_cycle_stack_handoff_summary_v1"
+    assert payload["open_requirement_ids"] == ["REQ-1"]
+    assert payload["closure_readiness_summary"] == {"packets": 2, "missing_checks": 0}
+    assert payload["replay"] == {"closure_readiness_replayable": True}
+    assert payload["requirement_probe_summary"] == {"probes": 3}
+    assert payload["stack_closure_dossier_summary"] == {"open_stack_requirements": 1}
+    assert payload["working_stack_activation_summary"] == activation_summary
+    assert payload["working_stack_activation_smoke_summary"] == {"rows": 4, "rows_ok": 3}
+    assert payload["working_stack_activation_handoff"] == {"complete": False}
+    assert payload["stack_closure_dossier_latest"] == str(paths["stack_closure_dossier"])
+    assert payload["failure_matrix_open_rows"] == 2
+    assert payload["policy"] == {
+        "handoff_only": True,
+        "read_only": True,
+        "executes_commands": False,
+        "action_execution": False,
+        "host_layer_mutates_stack": False,
+        "open_stack_requirements_are_blockers_not_host_failures": True,
+        "working_stack_activation_gaps_are_blockers_not_host_failures": True,
+    }
+    assert payload["evidence_refs"] == [
+        {"path": str(paths["requirement_probes"]), "section": "closure_readiness"},
+        {"path": str(paths["stack_closure_dossier"]), "section": "stack_owner_handoff"},
+        {"path": str(paths["stack_closure_dossier"]), "section": "working_stack_activation_dossier"},
+        {"path": str(paths["working_stack"]), "section": "machine_usage_gaps"},
+        {"path": str(paths["replay"]), "section": "stack_handoff_replay"},
+    ]
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {

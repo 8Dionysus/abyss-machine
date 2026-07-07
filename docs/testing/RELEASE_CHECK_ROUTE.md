@@ -189,9 +189,9 @@ refresh.
 For self-awareness probe/cycle document-builder adapter changes, public CI
 should rely on synthetic shape tests for resource-denied documents, probe result
 documents, movement-smoke summaries, cycle partial/building snapshots, and
-cycle final result snapshots. Keep latest/history writes, concrete stack paths,
-and probe/cycle orchestration in separate live-host checks unless the slice
-intentionally moves those ports.
+cycle stack-handoff/final result snapshots. Keep latest/history writes,
+concrete stack paths, and probe/cycle orchestration in separate live-host checks
+unless the slice intentionally moves those ports.
 
 For self-awareness working-stack source-inventory adapter changes, public CI
 should rely on fake-root/fake-port tests for stack service-name normalization,
