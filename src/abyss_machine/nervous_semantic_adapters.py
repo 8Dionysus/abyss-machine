@@ -21,6 +21,8 @@ ResourceProfile = Callable[[Mapping[str, Any], Mapping[str, Any], str, str], Map
 ConnectDb = Callable[[Path, bool], sqlite3.Connection]
 CountDb = Callable[[Path], dict[str, Any]]
 StatusPort = Callable[[], dict[str, Any]]
+SearchPort = Callable[..., Mapping[str, Any]]
+PolicyGatePort = Callable[[], Mapping[str, Any]]
 LockActivePort = Callable[[], bool]
 ResourceLaunchPort = Callable[..., dict[str, Any]]
 MemoryPlanPort = Callable[[], dict[str, Any]]
@@ -112,7 +114,7 @@ def write_latest(
     return data
 
 
-def write_maintain_latest(
+def write_latest_history(
     data: dict[str, Any],
     latest_path: Path,
     daily_root: Path,
@@ -122,6 +124,14 @@ def write_maintain_latest(
         data["ok"] = False
         data["write_errors"] = errors
     return data
+
+
+def write_maintain_latest(
+    data: dict[str, Any],
+    latest_path: Path,
+    daily_root: Path,
+) -> dict[str, Any]:
+    return write_latest_history(data, latest_path, daily_root)
 
 
 def safe_atomic_write_json(
@@ -1005,6 +1015,196 @@ def semantic_maintain_document(
     else:
         data["reason"] = "semantic sidecar is within maintenance thresholds"
     return finish(data)
+
+
+def semantic_eval_default_probes() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "thermal_zram",
+            "query": "temperature routing thin laptop zram swap policy",
+            "preferred_sources": {"nervous_events", "nervous_episodes", "abyss_machine_facts"},
+        },
+        {
+            "id": "gnome_pidfd",
+            "query": "GNOME Shell pidfd abyss ai mode extension",
+            "avoid_top_sources": {"screenshots"},
+        },
+        {
+            "id": "gemma4_digest",
+            "query": "Gemma4 digest parse_failed seen dictation",
+            "preferred_sources": {"nervous_events", "nervous_episodes", "browser_active_tab", "terminal_stdout_stderr"},
+        },
+        {
+            "id": "thermal_swap",
+            "query": "thermal routing critical swap zram",
+            "preferred_sources": {"nervous_events", "nervous_episodes", "abyss_machine_facts"},
+        },
+    ]
+
+
+def semantic_eval_document(
+    *,
+    semantic_config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    latest_path: Path,
+    daily_root: Path,
+    semantic_status: StatusPort,
+    policy_gate: PolicyGatePort,
+    embed_texts: EmbedTextsPort,
+    lexical_search: SearchPort,
+    semantic_search_with_vector: SearchPort,
+    latest_writer: LatestWriterPort,
+    write_latest: bool = True,
+    probes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    eval_probes = probes if probes is not None else semantic_eval_default_probes()
+    checks: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+
+    def add(level: str, key: str, message: str, details: dict[str, Any] | None = None) -> None:
+        item: dict[str, Any] = {"level": level, "key": key, "message": message}
+        if details is not None:
+            item["details"] = details
+        checks.append(item)
+
+    status = dict(semantic_status())
+    add("ok" if status.get("ready") else "fail", "semantic_ready", "semantic index has vectors", status.get("freshness"))
+    embedding = semantic_config.get("embedding") if isinstance(semantic_config.get("embedding"), Mapping) else {}
+    eval_embedding_status: dict[str, Any] | None = None
+    eval_policy_gate: dict[str, Any] | None = None
+    eval_vectors: dict[str, dict[str, Any]] = {}
+    if status.get("ready"):
+        eval_policy_gate = dict(policy_gate())
+        if not eval_policy_gate.get("ok"):
+            eval_embedding_status = {
+                "ok": False,
+                "policy_denied": True,
+                "error": "host AI policy denied semantic eval",
+                "policy_gate": eval_policy_gate,
+            }
+        else:
+            embedded = embed_texts(
+                [
+                    {"id": str(probe["id"]), "text": nervous_semantic.query_text(str(probe["query"]))}
+                    for probe in eval_probes
+                ],
+                embedding,
+            )
+            eval_embedding_status = {key: value for key, value in embedded.items() if key != "vectors"}
+            eval_embedding_status["policy_gate"] = eval_policy_gate
+            if embedded.get("ok"):
+                raw_vectors = embedded.get("vectors") if isinstance(embedded.get("vectors"), dict) else {}
+                eval_vectors = {
+                    str(key): value
+                    for key, value in raw_vectors.items()
+                    if isinstance(value, dict)
+                }
+            else:
+                add("fail", "semantic_eval.embedding_batch", "semantic eval query embedding batch failed", eval_embedding_status)
+    for probe in eval_probes:
+        lexical = dict(lexical_search(str(probe["query"])))
+        vector_item = eval_vectors.get(str(probe["id"]))
+        vector_blob = vector_item.get("blob") if isinstance(vector_item, dict) else None
+        if isinstance(vector_blob, (bytes, bytearray)):
+            semantic = dict(
+                semantic_search_with_vector(
+                    query=str(probe["query"]),
+                    query_vector_blob=bytes(vector_blob),
+                    query_vector_result={
+                        "embedding_status": eval_embedding_status,
+                        "policy_gate": eval_policy_gate,
+                        "dim": int(vector_item.get("dim") or 0),
+                    },
+                    final_limit=8,
+                    dedupe=True,
+                )
+            )
+        else:
+            semantic = {
+                "ok": False,
+                "error": (eval_embedding_status or {}).get("error") or "semantic eval query embedding missing",
+                "policy_denied": (eval_embedding_status or {}).get("policy_denied"),
+                "policy_gate": (eval_embedding_status or {}).get("policy_gate"),
+            }
+        lexical_results = lexical.get("results") if isinstance(lexical.get("results"), list) else []
+        semantic_results = semantic.get("results") if isinstance(semantic.get("results"), list) else []
+        semantic_sources = [str(item.get("source_id") or "") for item in semantic_results if isinstance(item, dict)]
+        lexical_sources = [str(item.get("source_id") or "") for item in lexical_results if isinstance(item, dict)]
+        semantic_summary = {
+            "ok": semantic.get("ok"),
+            "top_sources": semantic_sources[:5],
+            "top_titles": [item.get("title") for item in semantic_results[:3] if isinstance(item, dict)],
+            "top_scores": [round(float(item.get("score") or 0.0), 5) for item in semantic_results[:3] if isinstance(item, dict)],
+            "error": semantic.get("error"),
+        }
+        if semantic.get("policy_denied") is not None:
+            semantic_summary["policy_denied"] = semantic.get("policy_denied")
+        result = {
+            "id": probe["id"],
+            "query": probe["query"],
+            "lexical": {
+                "ok": lexical.get("ok"),
+                "top_sources": lexical_sources[:5],
+                "top_titles": [item.get("title") for item in lexical_results[:3] if isinstance(item, dict)],
+            },
+            "semantic": semantic_summary,
+        }
+        results.append(result)
+        add(
+            "ok" if semantic.get("ok") and semantic_results else "fail",
+            f"{probe['id']}.semantic_results",
+            "semantic probe returns evidence",
+            result["semantic"],
+        )
+        preferred = probe.get("preferred_sources")
+        if isinstance(preferred, set):
+            hit = bool(set(semantic_sources[:5]) & preferred)
+            add(
+                "ok" if hit else "warn",
+                f"{probe['id']}.preferred_source",
+                "semantic top-5 intersects preferred evidence sources",
+                {"preferred_sources": sorted(preferred), "semantic_top_sources": semantic_sources[:5]},
+            )
+        avoid = probe.get("avoid_top_sources")
+        if isinstance(avoid, set) and semantic_sources:
+            avoided = semantic_sources[0] not in avoid
+            add(
+                "ok" if avoided else "warn",
+                f"{probe['id']}.avoid_noise",
+                "semantic top-1 is not a known noisy source",
+                {"avoid_top_sources": sorted(avoid), "semantic_top_source": semantic_sources[0], "lexical_top_sources": lexical_sources[:5]},
+            )
+    fails = sum(1 for item in checks if item["level"] == "fail")
+    warnings = sum(1 for item in checks if item["level"] == "warn")
+    data = {
+        "schema": f"{schema_prefix}_nervous_semantic_eval_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": fails == 0,
+        "status": "ok" if fails == 0 and warnings == 0 else ("fail" if fails else "warn"),
+        "checks": checks,
+        "results": results,
+        "summary": {
+            "fails": fails,
+            "warnings": warnings,
+            "checks": len(checks),
+            "probes": len(eval_probes),
+        },
+        "embedding_status": eval_embedding_status,
+        "policy": {
+            "model_used": True,
+            "local_only": True,
+            "repo_mutation": False,
+            "resident_service": False,
+        },
+        "paths": {
+            "latest": str(latest_path),
+            "daily_glob": str(daily_root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+        },
+    }
+    return latest_writer(data) if write_latest else data
 
 
 def embed_texts_with_subprocess(

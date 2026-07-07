@@ -276,6 +276,16 @@ behavior or the operator explicitly accepts the host cost. Never copy raw
 embedding text, vectors, source chunks, local semantic DB rows, OpenVINO cache
 payloads, or generated semantic latest files into the repository.
 
+For nervous semantic-eval adapter changes, public CI should rely on fake-port
+tests for probe/check/result document assembly, eval-query embedding fanout,
+lexical/semantic search dispatch, policy-denial projection, and eval
+latest/history routing. Live-host closeout may use compact
+`abyss-machine nervous semantic-status --json` and
+`abyss-machine nervous semantic-eval --json` summaries, but should report only
+ok/status/check counts/warning counts and never copy raw search results,
+embedding text, vectors, source chunks, generated eval latest files, local
+semantic DB rows, or OpenVINO cache payloads into the repository.
+
 Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.
