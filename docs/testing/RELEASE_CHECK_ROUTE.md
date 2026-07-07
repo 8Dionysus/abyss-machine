@@ -276,6 +276,16 @@ behavior or the operator explicitly accepts the host cost. Never copy raw
 embedding text, vectors, source chunks, local semantic DB rows, OpenVINO cache
 payloads, or generated semantic latest files into the repository.
 
+For nervous semantic-search adapter changes, public CI should rely on fake-port
+tests for limit bounding, global-pause refusal, missing-db/no-vector documents,
+query-vector policy/error projection, and vector-search dispatch. Live-host
+closeout may use compact `abyss-machine nervous semantic-status --json` and
+`abyss-machine nervous semantic-search --query TEXT --json` summaries, but
+should report only ok/result counts, freshness, and policy-denial status. Never
+copy raw search results, snippets, titles, embedding text, vectors, source
+chunks, local semantic DB rows, generated latest files, or OpenVINO cache
+payloads into the repository.
+
 For nervous semantic-eval adapter changes, public CI should rely on fake-port
 tests for probe/check/result document assembly, eval-query embedding fanout,
 lexical/semantic search dispatch, policy-denial projection, and eval

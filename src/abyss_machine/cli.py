@@ -21805,61 +21805,19 @@ def nervous_semantic_search(
     sensitivity: str | None = None,
     force_policy: bool = False,
 ) -> dict[str, Any]:
-    semantic = nervous_semantic_config()
-    embedding = semantic.get("embedding") if isinstance(semantic.get("embedding"), dict) else {}
-    search_config = semantic.get("search") if isinstance(semantic.get("search"), dict) else {}
-    max_limit = max(1, int(search_config.get("max_limit") or 50))
-    default_limit = max(1, int(search_config.get("default_limit") or 12))
-    final_limit = max(1, min(int(limit or default_limit), max_limit))
-    privacy = nervous_effective_privacy(write_latest=False)
-    if bool(privacy.get("global_pause")):
-        return {
-            "schema": f"{SCHEMA_PREFIX}_nervous_semantic_search_v1",
-            "version": VERSION,
-            "generated_at": now_iso(),
-            "ok": False,
-            "refused": True,
-            "error": "global_pause is active; semantic search is refused",
-        }
-    if not NERVOUS_SEMANTIC_INDEX_DB_PATH.exists():
-        return {
-            "schema": f"{SCHEMA_PREFIX}_nervous_semantic_search_v1",
-            "version": VERSION,
-            "generated_at": now_iso(),
-            "ok": False,
-            "query": query,
-            "error": "semantic index database missing; run abyss-machine nervous semantic-build --json",
-            "db_path": str(NERVOUS_SEMANTIC_INDEX_DB_PATH),
-        }
-    counts = nervous_semantic_counts()
-    if int(counts.get("vectors") or 0) <= 0:
-        return {
-            "schema": f"{SCHEMA_PREFIX}_nervous_semantic_search_v1",
-            "version": VERSION,
-            "generated_at": now_iso(),
-            "ok": False,
-            "query": query,
-            "error": "semantic index has no vectors; run abyss-machine nervous semantic-build --json when host policy allows medium AI work",
-            "db_path": str(NERVOUS_SEMANTIC_INDEX_DB_PATH),
-            "counts": counts,
-        }
-    query_vector_result = nervous_semantic_query_vector(query, embedding, force_policy=force_policy)
-    if not query_vector_result.get("ok"):
-        return {
-            "schema": f"{SCHEMA_PREFIX}_nervous_semantic_search_v1",
-            "version": VERSION,
-            "generated_at": now_iso(),
-            "ok": False,
-            "query": query,
-            "error": query_vector_result.get("error"),
-            "policy_denied": query_vector_result.get("policy_denied"),
-            "policy_gate": query_vector_result.get("policy_gate"),
-        }
-    return nervous_semantic_search_with_vector(
+    return nervous_semantic_adapters.semantic_search_document(
         query=query,
-        query_vector_blob=bytes(query_vector_result["blob"]),
-        query_vector_result=query_vector_result,
-        final_limit=final_limit,
+        semantic_config=nervous_semantic_config(),
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+        db_path=NERVOUS_SEMANTIC_INDEX_DB_PATH,
+        privacy=nervous_effective_privacy(write_latest=False),
+        counts=nervous_semantic_counts,
+        db_exists=lambda path: path.exists(),
+        query_vector=nervous_semantic_query_vector,
+        semantic_search_with_vector=nervous_semantic_search_with_vector,
+        limit=limit,
         dedupe=dedupe,
         source=source,
         schema=schema,
@@ -21867,6 +21825,7 @@ def nervous_semantic_search(
         until=until,
         severity=severity,
         sensitivity=sensitivity,
+        force_policy=force_policy,
     )
 
 
