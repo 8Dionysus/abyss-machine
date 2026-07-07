@@ -192,11 +192,13 @@ generated readmodels, stack response bodies, or private host evidence.
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
-expected-status success mapping, subprocess failure redaction, and runtime smoke
-stdout/stderr hashing without storing raw bodies. Live-host closeout may use
-compact `self-awareness working-stack --json` summaries only when needed; report
-service/probe counts and statuses, never response bodies, stack payloads,
-container stdout/stderr, browser captures, or local stack secrets.
+expected-status success mapping, subprocess failure redaction, runtime smoke
+stdout/stderr hashing, and TTS smoke sidecar/WAV artifact projection without
+storing raw text or audio. Live-host closeout may use compact
+`self-awareness working-stack --json` summaries only when needed; report
+service/probe counts, artifact presence, and statuses, never response bodies,
+stack payloads, container stdout/stderr, sidecar text, audio payloads, browser
+captures, or local stack secrets.
 
 For typing/nervous changes, prefer bounded JSON status and validation commands:
 

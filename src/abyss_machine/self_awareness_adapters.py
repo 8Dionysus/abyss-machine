@@ -4,11 +4,17 @@ import collections
 import datetime as dt
 import json
 import re
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from . import self_awareness_contracts
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - optional parser; JSON fallback is enough for tests.
+    yaml = None
 
 
 LatestJsonReaderPort = Callable[[Path, str], dict[str, Any]]
@@ -27,12 +33,15 @@ CommandExistsPort = Callable[[str], bool]
 TcpConnectPort = Callable[[str, int, float], None]
 PathExistsPort = Callable[[Path], bool]
 PathIsDirPort = Callable[[Path], bool]
+PathIsFilePort = Callable[[Path], bool]
 PathGlobPort = Callable[[Path, str], Iterable[Path]]
 PathIterdirPort = Callable[[Path], Iterable[Path]]
 PathReadTextPort = Callable[[Path], str]
 PathStatPort = Callable[[Path], Any]
 PathSha256Port = Callable[[Path], str]
 JsonDocumentLoaderPort = Callable[[Path], tuple[Any, str | None]]
+SidecarDocumentLoaderPort = Callable[[str], Any]
+WavFormatReaderPort = Callable[[Path], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -621,6 +630,172 @@ def working_stack_container_tool_probes(
             timeout=18.0,
         ))
 
+    return probes
+
+
+def parse_tts_smoke_sidecar(text: str) -> Any:
+    if yaml is not None:
+        return yaml.safe_load(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        parsed: dict[str, str] = {}
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or ":" not in stripped:
+                continue
+            key, value = stripped.split(":", 1)
+            key = key.strip()
+            if not key:
+                continue
+            parsed[key] = value.strip().strip("'\"")
+        return parsed
+
+
+def read_wav_format(path: Path) -> dict[str, Any]:
+    with wave.open(str(path), "rb") as wav:
+        return {
+            "channels": wav.getnchannels(),
+            "sample_width": wav.getsampwidth(),
+            "framerate": wav.getframerate(),
+            "frames": wav.getnframes(),
+        }
+
+
+def _safe_stat(path: Path, *, path_stat: PathStatPort) -> Any | None:
+    try:
+        return path_stat(path)
+    except OSError:
+        return None
+
+
+def _relative_or_name(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return path.name
+
+
+def working_stack_tts_smoke_evidence(
+    stack_root: Path,
+    *,
+    schema_prefix: str,
+    now: ClockPort,
+    path_exists: PathExistsPort,
+    path_is_file: PathIsFilePort,
+    path_glob: PathGlobPort,
+    path_read_text: PathReadTextPort,
+    path_stat: PathStatPort,
+    sidecar_loads: SidecarDocumentLoaderPort = parse_tts_smoke_sidecar,
+    wav_format_reader: WavFormatReaderPort = read_wav_format,
+    max_age_seconds: int = 24 * 60 * 60,
+    max_sidecars: int = 64,
+) -> dict[str, Any]:
+    tts_log_root = Path(stack_root) / "Logs" / "tts"
+    base = {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_tts_smoke_evidence_v1",
+        "ok": False,
+        "root": str(tts_log_root),
+        "policy": {
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "raw_text_stored": False,
+            "raw_audio_stored": False,
+        },
+    }
+    if not path_exists(tts_log_root):
+        return {**base, "reason": "tts_log_root_missing"}
+
+    sidecars: list[tuple[float, Path]] = []
+    try:
+        candidates = path_glob(tts_log_root, "**/*.json")
+    except OSError:
+        candidates = []
+    for path in candidates:
+        if not path_is_file(path):
+            continue
+        stat_result = _safe_stat(path, path_stat=path_stat)
+        sidecars.append((float(getattr(stat_result, "st_mtime", 0.0) or 0.0), Path(path)))
+    sidecars.sort(key=lambda item: item[0], reverse=True)
+
+    now_ts = now()
+    for _, sidecar in sidecars[:max_sidecars]:
+        try:
+            parsed = sidecar_loads(path_read_text(sidecar))
+        except Exception:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        model_id = str(parsed.get("model_id") or "")
+        saved_path = str(parsed.get("saved_path") or "")
+        if "Qwen3-TTS" not in model_id or not saved_path:
+            continue
+        wav_path = sidecar.with_suffix(".wav")
+        if not path_exists(wav_path):
+            continue
+        sidecar_stat = _safe_stat(sidecar, path_stat=path_stat)
+        wav_stat = _safe_stat(wav_path, path_stat=path_stat)
+        if sidecar_stat is None or wav_stat is None:
+            continue
+        age_seconds = max(0.0, now_ts - max(float(sidecar_stat.st_mtime), float(wav_stat.st_mtime)))
+        if age_seconds > max_age_seconds:
+            continue
+        try:
+            wav_format = wav_format_reader(wav_path)
+        except (OSError, EOFError, wave.Error):
+            continue
+        if getattr(wav_stat, "st_size", 0) <= 44 or _safe_int(wav_format.get("frames"), 0) <= 0:
+            continue
+        return {
+            **base,
+            "ok": True,
+            "sidecar_path": str(sidecar),
+            "wav_path": str(wav_path),
+            "age_seconds": round(age_seconds, 1),
+            "wav_bytes": wav_stat.st_size,
+            "wav_format": wav_format,
+            "sidecar": {
+                "agent_id": parsed.get("agent_id"),
+                "voice_id": parsed.get("voice_id"),
+                "model_id": model_id,
+                "language": parsed.get("language"),
+                "speaker": parsed.get("speaker"),
+                "saved_path": saved_path,
+                "host_rel_path": _relative_or_name(wav_path, tts_log_root),
+                "text_hash": self_awareness_contracts.stable_hash_json(str(parsed.get("text") or ""), length=16) if parsed.get("text") else None,
+                "ts": parsed.get("ts"),
+            },
+            "evidence_refs": [
+                {"path": str(sidecar), "schema": "tts_router_sidecar_yaml", "service": "tts-router"},
+                {"path": str(wav_path), "schema": "riff_wav_audio", "service": "qwen-tts"},
+            ],
+        }
+    return {**base, "reason": "fresh_qwen_tts_sidecar_wav_pair_missing"}
+
+
+def working_stack_tts_smoke_probes(
+    *,
+    evidence: dict[str, Any],
+    enabled: bool = True,
+) -> list[dict[str, Any]]:
+    if not enabled or evidence.get("ok") is not True:
+        return []
+    probes: list[dict[str, Any]] = []
+    for service in ("qwen-tts", "tts-router"):
+        probes.append({
+            "service": service,
+            "probe": "tts-synthesis-artifact",
+            "kind": "artifact_receipt",
+            "ok": True,
+            "url": f"file://{evidence.get('wav_path')}",
+            "body_stored": False,
+            "raw_private_content": False,
+            "semantic_read_only": True,
+            "evidence": evidence,
+            "evidence_refs": evidence.get("evidence_refs") if isinstance(evidence.get("evidence_refs"), list) else [],
+            "policy": evidence.get("policy"),
+        })
     return probes
 
 

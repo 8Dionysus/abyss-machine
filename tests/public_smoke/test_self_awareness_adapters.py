@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -371,6 +372,104 @@ def test_working_stack_container_tool_probes_maps_running_services_with_fake_run
         ("aoa-browser", "playwright-chromium-launch", True),
     ]
     assert len(calls) == 5
+
+
+def test_working_stack_tts_smoke_evidence_reads_sidecar_wav_through_fakeable_ports(tmp_path: Path) -> None:
+    stack_root = tmp_path / "stack"
+    tts_root = stack_root / "Logs" / "tts" / "aoa_archivist"
+    tts_root.mkdir(parents=True)
+    wav_path = tts_root / "self_awareness_smoke.wav"
+    with wave.open(str(wav_path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(24000)
+        wav.writeframes(b"\x00\x00" * 16)
+    sidecar_path = wav_path.with_suffix(".json")
+    sidecar_path.write_text(
+        "\n".join([
+            "agent_id: aoa_archivist",
+            "voice_id: aoa_archivist",
+            "model_id: /models/hf/local/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            "language: Russian",
+            "speaker: Aiden",
+            "saved_path: /out/aoa_archivist/self_awareness_smoke.wav",
+            "text: private smoke phrase",
+            "ts: '2026-06-10 21:45:10'",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    payload = self_awareness_adapters.working_stack_tts_smoke_evidence(
+        stack_root,
+        schema_prefix="abyss_machine",
+        now=lambda: max(sidecar_path.stat().st_mtime, wav_path.stat().st_mtime) + 12.0,
+        path_exists=Path.exists,
+        path_is_file=Path.is_file,
+        path_glob=lambda root, pattern: root.glob(pattern),
+        path_read_text=lambda path: path.read_text(encoding="utf-8", errors="replace"),
+        path_stat=Path.stat,
+    )
+
+    assert payload["ok"] is True
+    assert payload["schema"] == "abyss_machine_self_awareness_working_stack_tts_smoke_evidence_v1"
+    assert payload["wav_path"] == str(wav_path)
+    assert payload["sidecar_path"] == str(sidecar_path)
+    assert payload["age_seconds"] == 12.0
+    assert payload["wav_format"]["framerate"] == 24000
+    assert payload["sidecar"]["host_rel_path"] == "aoa_archivist/self_awareness_smoke.wav"
+    assert payload["sidecar"]["text_hash"]
+    assert "private smoke phrase" not in json.dumps(payload)
+    assert payload["policy"]["raw_text_stored"] is False
+    assert payload["policy"]["raw_audio_stored"] is False
+    assert any(ref["path"] == str(wav_path) for ref in payload["evidence_refs"])
+
+
+def test_working_stack_tts_smoke_evidence_rejects_stale_artifact(tmp_path: Path) -> None:
+    stack_root = tmp_path / "stack"
+    tts_root = stack_root / "Logs" / "tts"
+    tts_root.mkdir(parents=True)
+    sidecar_path = tts_root / "old.json"
+    wav_path = tts_root / "old.wav"
+    sidecar_path.write_text(json.dumps({"model_id": "Qwen3-TTS", "saved_path": "/out/old.wav"}), encoding="utf-8")
+    wav_path.write_bytes(b"RIFF" + b"\x00" * 80)
+
+    payload = self_awareness_adapters.working_stack_tts_smoke_evidence(
+        stack_root,
+        schema_prefix="abyss_machine",
+        now=lambda: 1000.0,
+        path_exists=Path.exists,
+        path_is_file=Path.is_file,
+        path_glob=lambda root, pattern: root.glob(pattern),
+        path_read_text=lambda path: path.read_text(encoding="utf-8", errors="replace"),
+        path_stat=lambda path: type("Stat", (), {"st_mtime": 0.0, "st_size": 84})(),
+        wav_format_reader=lambda _path: {"frames": 16, "channels": 1, "sample_width": 2, "framerate": 24000},
+        max_age_seconds=10,
+    )
+
+    assert payload["ok"] is False
+    assert payload["reason"] == "fresh_qwen_tts_sidecar_wav_pair_missing"
+
+
+def test_working_stack_tts_smoke_probes_are_public_safe_and_disableable(tmp_path: Path) -> None:
+    evidence = {
+        "ok": True,
+        "wav_path": str(tmp_path / "speech.wav"),
+        "evidence_refs": [{"path": str(tmp_path / "speech.wav"), "schema": "riff_wav_audio"}],
+        "policy": {"raw_text_stored": False, "raw_audio_stored": False, "host_layer_mutates_stack": False},
+    }
+
+    disabled = self_awareness_adapters.working_stack_tts_smoke_probes(evidence=evidence, enabled=False)
+    probes = self_awareness_adapters.working_stack_tts_smoke_probes(evidence=evidence)
+
+    assert disabled == []
+    assert [(row["service"], row["probe"], row["ok"]) for row in probes] == [
+        ("qwen-tts", "tts-synthesis-artifact", True),
+        ("tts-router", "tts-synthesis-artifact", True),
+    ]
+    assert probes[0]["body_stored"] is False
+    assert probes[0]["raw_private_content"] is False
+    assert probes[0]["policy"]["host_layer_mutates_stack"] is False
 
 
 def test_env_and_meminfo_ports_are_fakeable() -> None:
