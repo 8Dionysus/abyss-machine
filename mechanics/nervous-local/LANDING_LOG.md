@@ -105,16 +105,16 @@
 - Neural rerank execution seam: `abyss_machine.nervous_rerank_adapters` owns
   OpenVINO scorer temp-payload staging, runner invocation, stdout/output JSON
   parsing, policy-gate callback routing, debug path reporting, and
-  resource-profile callback routing. CLI still owns lexical/semantic source
-  collection, semantic maintenance assessment, latest/history writes, and
-  command rendering.
+  resource-profile callback routing. CLI still owns concrete config/runtime
+  callback binding and command rendering.
 - Retrieval/rerank live search seam: `abyss_machine.nervous_retrieval_adapters`
   owns lexical/semantic search-port collection, semantic maintenance assessment
-  routing, hybrid rerank result assembly, recall search-plan dispatch,
-  retrieval-pack assembly through `nervous_recall`, and latest/history write
-  routing for rerank search, rerank eval, and retrieval packs. CLI still owns
-  privacy refusal binding, concrete config/path/callback binding, and command
-  rendering.
+  routing, hybrid rerank result assembly, rerank-eval fixed-query orchestration
+  and eval document assembly through `nervous_rerank`, recall search-plan
+  dispatch, retrieval-pack assembly through `nervous_recall`, and latest/history
+  write routing for rerank search, rerank eval, and retrieval packs. CLI still
+  owns privacy refusal binding, concrete config/path/callback binding, and
+  command rendering.
 - Synthesis/eval local file seam: `abyss_machine.nervous_synthesis_adapters`
   owns episode/event/candidate JSONL root reads, latest reads, synthesis
   latest/period JSONL/markdown writes, synthesis validate latest routing, eval

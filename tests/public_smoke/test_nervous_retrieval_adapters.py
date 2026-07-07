@@ -147,6 +147,62 @@ def test_write_latest_history_marks_write_errors(tmp_path: Path) -> None:
     assert any(path.startswith(str(blocking_file / "history")) and path.endswith(".jsonl") for path in error_paths)
 
 
+def test_rerank_eval_adapter_runs_search_port_and_latest_writer(tmp_path: Path) -> None:
+    calls: list[tuple[str, object]] = []
+    profile = profile_from_config({})
+
+    def rerank_search(query: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("search", {"query": query, "kwargs": kwargs}))
+        return {
+            "ok": True,
+            "schema": "abyss_machine_nervous_rerank_v1",
+            "query": query,
+            "warnings": [],
+            "notices": [],
+            "summary": {"semantic_used": True},
+            "results": [
+                _host_result(
+                    score=0.9,
+                    rerank={
+                        "score": 0.9,
+                        "source_profile": profile["id"],
+                        "source_score": 1.0,
+                        "source_matched_tokens": ["thermal"],
+                        "machine_query_cap": {"active": True, "applied": False},
+                    },
+                )
+            ],
+        }
+
+    data = nervous_retrieval_adapters.rerank_eval_document(
+        profile=profile,
+        rerank_search=rerank_search,
+        latest_path=tmp_path / "rerank-eval" / "latest.json",
+        daily_root=tmp_path / "rerank-eval",
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at=GENERATED_AT,
+        force_policy=True,
+        write_latest=True,
+        latest_writer=lambda document: {**document, "written": True},
+    )
+
+    assert data["schema"] == "abyss_machine_nervous_rerank_eval_v1"
+    assert data["ok"] is True
+    assert data["written"] is True
+    assert data["paths"]["latest"] == str(tmp_path / "rerank-eval" / "latest.json")
+    assert data["paths"]["daily_glob"] == str(tmp_path / "rerank-eval" / "YYYY" / "MM" / "YYYY-MM-DD.jsonl")
+    assert calls == [
+        (
+            "search",
+            {
+                "query": "thermal rapl smoothing gamemode guard",
+                "kwargs": {"limit": 8, "candidate_limit": 24, "force_policy": True, "write_latest": True},
+            },
+        )
+    ]
+
+
 def test_build_recall_pack_dispatches_search_ports_without_cli_logic(tmp_path: Path) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
 
@@ -265,3 +321,31 @@ def test_cli_rerank_search_binds_retrieval_adapter(monkeypatch: Any) -> None:
     assert captured["source"] == "facts"
     assert captured["use_semantic"] is False
     assert captured["write_latest"] is False
+
+
+def test_cli_rerank_eval_binds_retrieval_adapter(monkeypatch: Any, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_rerank_eval_document(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"ok": True, "schema": "abyss_machine_nervous_rerank_eval_v1"}
+
+    monkeypatch.setattr(cli.nervous_retrieval_adapters, "rerank_eval_document", fake_rerank_eval_document)
+    monkeypatch.setattr(cli, "NERVOUS_RERANK_EVAL_LATEST_PATH", tmp_path / "rerank-eval" / "latest.json")
+    monkeypatch.setattr(cli, "NERVOUS_RERANK_EVAL_ROOT", tmp_path / "rerank-eval")
+    monkeypatch.setattr(cli, "nervous_rerank_profile", lambda: {"id": "test", "weights": {}, "weight_total": 1.0})
+    monkeypatch.setattr(cli, "now_iso", lambda: GENERATED_AT)
+
+    data = cli.nervous_rerank_eval(force_policy=True, write_latest=False)
+
+    assert data == {"ok": True, "schema": "abyss_machine_nervous_rerank_eval_v1"}
+    assert captured["profile"] == {"id": "test", "weights": {}, "weight_total": 1.0}
+    assert captured["rerank_search"] is cli.nervous_rerank_search
+    assert captured["latest_path"] == tmp_path / "rerank-eval" / "latest.json"
+    assert captured["daily_root"] == tmp_path / "rerank-eval"
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["generated_at"] == GENERATED_AT
+    assert captured["force_policy"] is True
+    assert captured["write_latest"] is False
+    assert captured["latest_writer"] is cli.nervous_rerank_eval_write_latest

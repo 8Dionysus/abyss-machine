@@ -22532,27 +22532,23 @@ def nervous_rerank_search(
     )
 
 
+def nervous_rerank_eval_write_latest(data: dict[str, Any]) -> dict[str, Any]:
+    return nervous_retrieval_adapters.write_latest_history(data, NERVOUS_RERANK_EVAL_LATEST_PATH, NERVOUS_RERANK_EVAL_ROOT)
+
+
 def nervous_rerank_eval(force_policy: bool = False, write_latest: bool = True) -> dict[str, Any]:
-    profile = nervous_rerank_profile()
-    search = nervous_rerank_search(
-        "thermal rapl smoothing gamemode guard",
-        limit=8,
-        candidate_limit=24,
-        force_policy=force_policy,
-        write_latest=True,
-    )
-    data = nervous_rerank_contracts.eval_document(
-        profile=profile,
-        search=search,
-        latest_path=str(NERVOUS_RERANK_EVAL_LATEST_PATH),
-        daily_glob=str(NERVOUS_RERANK_EVAL_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+    return nervous_retrieval_adapters.rerank_eval_document(
+        profile=nervous_rerank_profile(),
+        rerank_search=nervous_rerank_search,
+        latest_path=NERVOUS_RERANK_EVAL_LATEST_PATH,
+        daily_root=NERVOUS_RERANK_EVAL_ROOT,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
+        force_policy=force_policy,
+        write_latest=write_latest,
+        latest_writer=nervous_rerank_eval_write_latest,
     )
-    if write_latest:
-        data = nervous_retrieval_adapters.write_latest_history(data, NERVOUS_RERANK_EVAL_LATEST_PATH, NERVOUS_RERANK_EVAL_ROOT)
-    return data
 
 
 def nervous_recall_pack(
