@@ -220,6 +220,15 @@ ok/phase/warning/count summaries and never copy generated latest documents,
 source-state payloads, browser content, local index contents, or private host
 evidence into the repository.
 
+For nervous capture-status adapter changes, public CI should rely on fake-port
+tests for capture/browser latest reads, path-existence checks, private-root size
+summaries, screenshot PNG counts, browser-content JSONL counts, browser route
+path projection, and operator control command projection. Live-host closeout may
+use compact `abyss-machine nervous capture-status --json` summaries; report only
+ok/latest-error/count/byte totals and never publish generated latest payloads,
+browser content, screenshots, private capture roots, or source-state payloads.
+Do not run live capture as validation for a readmodel-only capture-status seam.
+
 For nervous event/episode file/write adapter changes, public CI should rely on
 fake-root tests for JSONL root reads, derived-record replacement writes, latest
 read envelopes, and build/validate latest write routing. Live-host closeout may

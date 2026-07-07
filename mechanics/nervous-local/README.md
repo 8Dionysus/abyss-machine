@@ -56,6 +56,11 @@ systemd unit/status projections, index count summaries, bridge/today counters,
 and status latest/index write routing through fakeable ports. CLI still owns
 concrete path constants, source/privacy/policy readers, systemd/latest/count
 port binding, and rendering.
+`abyss_machine.nervous_capture_adapters` now owns capture-status readmodel
+routing: capture/browser latest reads, private capture root size summaries,
+screenshot PNG counts, browser-content JSONL counts, browser route paths, and
+operator control command projection through fakeable ports. CLI still owns
+concrete path constants and command rendering.
 `abyss_machine.nervous_browser_content_adapters` now owns browser-content local
 store routing: daily JSONL path projection, record-from-page callback binding,
 bounded recent duplicate scanning, JSONL append routing, latest write routing,
