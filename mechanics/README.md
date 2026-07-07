@@ -54,7 +54,7 @@ Use these mechanic owners for the next extraction slices:
   projection, working-stack source inventory projections, working-stack
   model/tool bridge policy, probe/cycle resource-denial documents, probe
   result/movement-smoke document assembly, cycle artifact evidence snapshots,
-  and cycle partial/building document assembly live in
+  and cycle partial/building/final result document assembly live in
   `self_awareness_adapters`; probe/cycle orchestration, broader runtime
   refreshes, concrete stack path/latest file reads, and investigate/replay
   execution remain bounded CLI debt.
