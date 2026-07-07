@@ -7,6 +7,201 @@ from abyss_machine import cli
 from abyss_machine import typing_editor_adapters
 
 
+def test_editor_extension_selftest_plan_builds_committed_text_ingest() -> None:
+    plan = typing_editor_adapters.editor_extension_selftest_plan(
+        generated_at="2026-06-30T12:34:56Z",
+        pid=12345,
+        extension_id="fixture.extension",
+    )
+
+    assert plan["run_id"] == "2026063012345612345"
+    assert plan["probe"]["text"] == "abyss editor extension selftest 2026063012345612345"
+    assert plan["probe"]["text_length"] == len(plan["probe"]["text"])
+    assert plan["probe"]["path"] == "/srv/work/abyss-machine/editor-extension-selftest.txt"
+    assert plan["ingest"]["source"] == "editor_extension_explicit"
+    assert plan["ingest"]["app"] == "code"
+    assert plan["ingest"]["window_title"] == "editor-extension-selftest.txt"
+    assert plan["ingest"]["skip_duplicate"] is True
+    assert plan["ingest"]["metadata"]["editor"] == {
+        "extension_id": "fixture.extension",
+        "selftest": True,
+        "ui_callback_proven": False,
+    }
+
+
+def test_editor_extension_probe_event_from_records_projects_public_safe_event() -> None:
+    plan = typing_editor_adapters.editor_extension_selftest_plan(
+        generated_at="2026-06-30T12:34:56Z",
+        pid=12345,
+        extension_id="fixture.extension",
+    )
+    record = {
+        "event_id": "evt-1",
+        "generated_at": "2026-06-30T12:35:00Z",
+        "status": "captured",
+        "source_adapter": "editor_extension_explicit",
+        "capture_gate": {"decision": "allow_text", "confidence": "editor_path_allowed"},
+        "text": {
+            "text_sha256": plan["probe"]["text_sha256"],
+            "text_length": plan["probe"]["text_length"],
+            "text_chars_stored": plan["probe"]["text_length"],
+        },
+        "causal_context": {
+            "recipient": {"kind": "editor_extension"},
+            "where": {"path": plan["probe"]["path"]},
+            "task": {"kind": "selftest"},
+        },
+    }
+
+    event, errors = typing_editor_adapters.editor_extension_probe_event_from_records(
+        [{"source_adapter": "other"}, record],
+        [{"warning": "parse"}],
+        plan["probe"]["text_sha256"],
+    )
+
+    assert errors == [{"warning": "parse"}]
+    assert event == {
+        "event_id": "evt-1",
+        "generated_at": "2026-06-30T12:35:00Z",
+        "status": "captured",
+        "source_adapter": "editor_extension_explicit",
+        "capture_gate_decision": "allow_text",
+        "capture_gate_confidence": "editor_path_allowed",
+        "text_length": plan["probe"]["text_length"],
+        "text_chars_stored": plan["probe"]["text_length"],
+        "text_sha256": plan["probe"]["text_sha256"],
+        "recipient": {"kind": "editor_extension"},
+        "where": {"path": plan["probe"]["path"]},
+        "task": {"kind": "selftest"},
+    }
+
+
+def test_editor_extension_selftest_document_passes_and_omits_probe_text() -> None:
+    plan = typing_editor_adapters.editor_extension_selftest_plan(
+        generated_at="2026-06-30T12:34:56Z",
+        pid=12345,
+        extension_id="fixture.extension",
+    )
+    event = {
+        "status": "captured",
+        "source_adapter": "editor_extension_explicit",
+        "capture_gate_decision": "allow_text",
+        "capture_gate_confidence": "editor_path_allowed",
+        "text_sha256": plan["probe"]["text_sha256"],
+        "text_chars_stored": plan["probe"]["text_length"],
+        "recipient": {"kind": "editor_extension"},
+    }
+    ingest = {
+        "ok": True,
+        "event_id": "evt-1",
+        "status": "captured",
+        "source_adapter": "editor_extension_explicit",
+        "capture_gate": {"decision": "allow_text", "confidence": "editor_path_allowed"},
+        "text": {"text_length": plan["probe"]["text_length"], "text_chars_stored": plan["probe"]["text_length"]},
+        "causal_context": {"recipient": {"kind": "editor_extension"}},
+    }
+
+    data = typing_editor_adapters.editor_extension_selftest_document(
+        plan=plan,
+        ingest=ingest,
+        event=event,
+        parse_errors=[],
+        latest_status={"ok": True, "status": "activated", "generated_at": "2026-06-30T12:33:00Z"},
+        latest_status_error=None,
+        schema_prefix="abyss_machine",
+        version="0.1.0",
+        generated_at="2026-06-30T12:34:56Z",
+    )
+
+    assert data["ok"] is True
+    assert data["status"] == "passed"
+    assert data["probe"] == {
+        "text_sha256": plan["probe"]["text_sha256"],
+        "text_length": plan["probe"]["text_length"],
+        "text_omitted": True,
+        "path": plan["probe"]["path"],
+    }
+    assert "text" not in data["probe"]
+    assert data["latest_extension_status"]["status"] == "activated"
+    assert data["ingest"]["capture_gate_decision"] == "allow_text"
+    assert data["policy"]["raw_keylogging"] is False
+
+
+def test_editor_extension_latest_status_document_ready_and_failure_precedence(tmp_path) -> None:
+    latest = {
+        "ok": True,
+        "status": "activated",
+        "generated_at": "2026-06-30T12:00:00Z",
+        "policy": {"raw_keylogging": False, "password_fields_captured": False, "automatic_action": False},
+    }
+    selftest = {
+        "ok": True,
+        "status": "passed",
+        "generated_at": "2026-06-30T12:01:00Z",
+        "event": {
+            "source_adapter": "editor_extension_explicit",
+            "status": "captured",
+            "capture_gate_decision": "allow_text",
+            "capture_gate_confidence": "editor_path_allowed",
+            "text_length": 5,
+            "text_chars_stored": 5,
+        },
+        "policy": {"raw_keylogging": False, "password_fields_captured": False, "network_access": False},
+    }
+    callback = {
+        "ok": True,
+        "status": "passed",
+        "generated_at": "2026-06-30T12:02:00Z",
+        "event": {
+            "source_adapter": "editor_extension_explicit",
+            "status": "captured",
+            "capture_gate_decision": "allow_text",
+            "capture_gate_confidence": "editor_path_allowed",
+            "text_length": 5,
+            "text_chars_stored": 5,
+        },
+        "policy": {"raw_keylogging": False, "password_fields_captured": False, "live_vscode_extension_callback": True},
+    }
+
+    ready = typing_editor_adapters.editor_extension_latest_status_document(
+        latest=latest,
+        latest_error=None,
+        selftest=selftest,
+        selftest_error=None,
+        callback=callback,
+        callback_error=None,
+        extension_path_exists=True,
+        max_age_sec=120.0,
+        generated_at="2026-06-30T12:03:00Z",
+        age_seconds_from_iso=lambda value: {"2026-06-30T12:00:00Z": 180.0, "2026-06-30T12:01:00Z": 60.0, "2026-06-30T12:02:00Z": 30.0}.get(value),
+        schema_prefix="abyss_machine",
+        version="0.1.0",
+    )
+
+    missing = typing_editor_adapters.editor_extension_latest_status_document(
+        latest=latest,
+        latest_error=None,
+        selftest=selftest,
+        selftest_error=None,
+        callback=callback,
+        callback_error=None,
+        extension_path_exists=False,
+        max_age_sec=120.0,
+        generated_at="2026-06-30T12:03:00Z",
+        age_seconds_from_iso=lambda _value: 1.0,
+        schema_prefix="abyss_machine",
+        version="0.1.0",
+    )
+
+    assert ready["ok"] is True
+    assert ready["status"] == "ready"
+    assert ready["summary"]["activation_ok"] is True
+    assert ready["summary"]["proof_age_sec"] == 60.0
+    assert ready["policy"]["live_vscode_extension_callback"] is True
+    assert missing["ok"] is False
+    assert missing["status"] == "extension_missing"
+
+
 def test_editor_callback_selftest_reports_missing_code_without_live_ports(tmp_path) -> None:
     data = typing_editor_adapters.editor_callback_selftest_document(
         generated_at="2026-06-30T12:34:56Z",
@@ -203,3 +398,107 @@ def test_cli_editor_callback_selftest_binds_adapter_ports_and_store(monkeypatch,
     assert captured["find_event"] is cli.typing_editor_extension_find_probe_event
     assert captured["terminate_processes"] is cli.typing_terminate_processes_with_arg_token
     assert captured["store"] == {"data": {"ok": True, "status": "passed"}, "write_latest": False}
+
+
+def test_cli_editor_extension_selftest_binds_adapter_plan_ingest_and_store(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    plan = {
+        "probe": {"text_sha256": "sha256-fixture"},
+        "ingest": {
+            "text": "fixture text",
+            "source": "editor_extension_explicit",
+            "app": "code",
+            "window_title": "fixture.txt",
+            "context": "editor_extension selftest=true",
+            "skip_duplicate": True,
+            "metadata": {"editor": {"selftest": True}},
+        },
+    }
+
+    def fake_plan(**kwargs):
+        captured["plan_kwargs"] = kwargs
+        return plan
+
+    def fake_ingest(**kwargs):
+        captured["ingest_kwargs"] = kwargs
+        return {"ok": True, "event_id": "evt-1"}
+
+    def fake_document(**kwargs):
+        captured["document_kwargs"] = kwargs
+        return {"ok": True, "status": "passed"}
+
+    def fake_store(data, write_latest):
+        captured["store"] = {"data": data, "write_latest": write_latest}
+        return {"stored": data, "write_latest": write_latest}
+
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-30T12:34:56Z")
+    monkeypatch.setattr(cli.os, "getpid", lambda: 12345)
+    monkeypatch.setattr(cli, "load_json_document", lambda path: ({"ok": True, "status": "activated"}, None))
+    monkeypatch.setattr(cli.typing_editor_adapters, "editor_extension_selftest_plan", fake_plan)
+    monkeypatch.setattr(cli.typing_editor_adapters, "editor_extension_selftest_document", fake_document)
+    monkeypatch.setattr(cli, "typing_ingest", fake_ingest)
+    monkeypatch.setattr(cli, "typing_editor_extension_find_probe_event", lambda text_sha256: ({"text_sha256": text_sha256}, []))
+    monkeypatch.setattr(cli, "typing_editor_extension_selftest_store", fake_store)
+
+    result = cli.typing_editor_extension_selftest(write_latest=False)
+
+    assert result == {"stored": {"ok": True, "status": "passed"}, "write_latest": False}
+    assert captured["plan_kwargs"] == {
+        "generated_at": "2026-06-30T12:34:56Z",
+        "pid": 12345,
+        "extension_id": cli.TYPING_VSCODE_EXTENSION_ID,
+    }
+    assert captured["ingest_kwargs"] == {**plan["ingest"], "write_latest": False}
+    assert captured["document_kwargs"]["plan"] is plan
+    assert captured["document_kwargs"]["ingest"] == {"ok": True, "event_id": "evt-1"}
+    assert captured["document_kwargs"]["event"] == {"text_sha256": "sha256-fixture"}
+    assert captured["document_kwargs"]["parse_errors"] == []
+    assert captured["document_kwargs"]["latest_status"] == {"ok": True, "status": "activated"}
+    assert captured["document_kwargs"]["latest_status_error"] is None
+    assert captured["document_kwargs"]["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["document_kwargs"]["version"] == cli.VERSION
+    assert captured["document_kwargs"]["generated_at"] == "2026-06-30T12:34:56Z"
+
+
+def test_cli_editor_extension_latest_status_binds_adapter_inputs(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    latest_path = tmp_path / "latest.json"
+    selftest_path = tmp_path / "selftest.json"
+    callback_path = tmp_path / "callback.json"
+    extension_path = tmp_path / "extension"
+
+    def fake_load(path):
+        mapping = {
+            latest_path: ({"status": "activated"}, None),
+            selftest_path: ({"status": "passed"}, None),
+            callback_path: ({"status": "passed"}, "callback warning"),
+        }
+        return mapping[path]
+
+    def fake_status(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "status": "ready"}
+
+    monkeypatch.setattr(cli, "TYPING_EDITOR_EXTENSION_LATEST_PATH", latest_path)
+    monkeypatch.setattr(cli, "TYPING_EDITOR_EXTENSION_SELFTEST_LATEST_PATH", selftest_path)
+    monkeypatch.setattr(cli, "TYPING_EDITOR_EXTENSION_CALLBACK_SELFTEST_LATEST_PATH", callback_path)
+    monkeypatch.setattr(cli, "TYPING_VSCODE_EXTENSION_PATH", extension_path)
+    monkeypatch.setattr(cli, "load_json_document", fake_load)
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-06-30T12:34:56Z")
+    monkeypatch.setattr(cli.typing_editor_adapters, "editor_extension_latest_status_document", fake_status)
+
+    result = cli.typing_editor_extension_latest_status(max_age_sec=42.0)
+
+    assert result == {"ok": True, "status": "ready"}
+    assert captured["latest"] == {"status": "activated"}
+    assert captured["latest_error"] is None
+    assert captured["selftest"] == {"status": "passed"}
+    assert captured["selftest_error"] is None
+    assert captured["callback"] == {"status": "passed"}
+    assert captured["callback_error"] == "callback warning"
+    assert captured["extension_path_exists"] is False
+    assert captured["max_age_sec"] == 42.0
+    assert captured["generated_at"] == "2026-06-30T12:34:56Z"
+    assert captured["age_seconds_from_iso"] is cli.age_seconds_from_iso
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION

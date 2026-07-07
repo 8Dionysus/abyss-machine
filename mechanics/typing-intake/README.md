@@ -45,10 +45,13 @@ session-tail filesystem reads for typing and nervous organs start in
 extraction, user-message route recognition, context-envelope normalization,
 duplicate semantics, metadata/context ingest plans, and public-safe event
 summaries live in `abyss_machine.typing_codex_semantics`.
-VS Code editor callback selftest probe/document assembly, disposable
-user-data/file preparation, extension-host environment projection, subprocess
-lifecycle cleanup, callback polling through supplied recent-record ports, and
-public-safe result documents live in `abyss_machine.typing_editor_adapters`.
+VS Code editor-extension selftest run-id/probe/context/ingest plans,
+recent-record projection, selftest document assembly, latest-status readmodel
+assembly from supplied latest/selftest/callback documents and age/path facts,
+callback selftest probe/document assembly, disposable user-data/file
+preparation, extension-host environment projection, subprocess lifecycle
+cleanup, callback polling through supplied recent-record ports, and public-safe
+result documents live in `abyss_machine.typing_editor_adapters`.
 Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
 plans, synthetic selftest documents, native-host response envelopes, framed
 native-host byte transport, native-host session dispatch over supplied buffers
