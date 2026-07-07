@@ -25314,127 +25314,32 @@ def typing_editor_extension_selftest_store(data: dict[str, Any], write_latest: b
 
 def typing_editor_extension_find_probe_event(text_sha256: str, limit: int = 160) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     records, errors = typing_records(limit)
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        text_payload = record.get("text") if isinstance(record.get("text"), dict) else {}
-        if record.get("source_adapter") != "editor_extension_explicit":
-            continue
-        if text_payload.get("text_sha256") != text_sha256:
-            continue
-        return {
-            "event_id": record.get("event_id"),
-            "generated_at": record.get("generated_at"),
-            "status": record.get("status"),
-            "source_adapter": record.get("source_adapter"),
-            "capture_gate_decision": nested_get(record, ["capture_gate", "decision"]),
-            "capture_gate_confidence": nested_get(record, ["capture_gate", "confidence"]),
-            "text_length": text_payload.get("text_length"),
-            "text_chars_stored": text_payload.get("text_chars_stored"),
-            "text_sha256": text_payload.get("text_sha256"),
-            "recipient": nested_get(record, ["causal_context", "recipient"]),
-            "where": nested_get(record, ["causal_context", "where"]),
-            "task": nested_get(record, ["causal_context", "task"]),
-        }, errors
-    return None, errors
+    return typing_editor_adapters.editor_extension_probe_event_from_records(records, errors, text_sha256)
 
 
 def typing_editor_extension_selftest(write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
-    run_id = re.sub(r"[^0-9]", "", generated_at)[:14] + str(os.getpid())[-5:]
-    probe_text = f"abyss editor extension selftest {run_id}"
-    probe_hash = hashlib.sha256(probe_text.encode("utf-8", errors="replace")).hexdigest()
-    probe_path = "/srv/work/abyss-machine/editor-extension-selftest.txt"
+    plan = typing_editor_adapters.editor_extension_selftest_plan(
+        generated_at=generated_at,
+        pid=os.getpid(),
+        extension_id=TYPING_VSCODE_EXTENSION_ID,
+    )
     latest_status, latest_status_error = load_json_document(TYPING_EDITOR_EXTENSION_LATEST_PATH)
-    context = " ".join([
-        "editor_extension",
-        "selftest=true",
-        f"path={probe_path}",
-        "language=plaintext",
-        "version=0",
-        "app=code",
-    ])
-    ingest = typing_ingest(
-        probe_text,
-        source="editor_extension_explicit",
-        app="code",
-        window_title=Path(probe_path).name,
-        context=context,
-        write_latest=write_latest,
-        skip_duplicate=True,
-        metadata={
-            "file": {
-                "path": probe_path,
-                "root": "/srv/work",
-                "name": Path(probe_path).name,
-            },
-            "editor": {
-                "extension_id": TYPING_VSCODE_EXTENSION_ID,
-                "selftest": True,
-                "ui_callback_proven": False,
-            },
-        },
+    ingest_kwargs = plan.get("ingest") if isinstance(plan.get("ingest"), dict) else {}
+    ingest = typing_ingest(**ingest_kwargs, write_latest=write_latest)
+    probe = plan.get("probe") if isinstance(plan.get("probe"), dict) else {}
+    event, parse_errors = typing_editor_extension_find_probe_event(str(probe.get("text_sha256") or ""))
+    data = typing_editor_adapters.editor_extension_selftest_document(
+        plan=plan,
+        ingest=ingest,
+        event=event,
+        parse_errors=parse_errors,
+        latest_status=latest_status if isinstance(latest_status, dict) else None,
+        latest_status_error=latest_status_error,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=generated_at,
     )
-    event, parse_errors = typing_editor_extension_find_probe_event(probe_hash)
-    event_ok = (
-        isinstance(event, dict)
-        and event.get("status") == "captured"
-        and event.get("source_adapter") == "editor_extension_explicit"
-        and event.get("capture_gate_decision") == "allow_text"
-        and event.get("capture_gate_confidence") == "editor_path_allowed"
-        and event.get("text_sha256") == probe_hash
-        and event.get("text_chars_stored") == len(probe_text)
-        and nested_get(event, ["recipient", "kind"]) == "editor_extension"
-    )
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_typing_editor_extension_selftest_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": bool(ingest.get("ok") and event_ok and not parse_errors),
-        "status": "passed" if bool(ingest.get("ok") and event_ok and not parse_errors) else "failed",
-        "source_adapter": "editor_extension_explicit",
-        "probe": {
-            "text_sha256": probe_hash,
-            "text_length": len(probe_text),
-            "text_omitted": True,
-            "path": probe_path,
-        },
-        "latest_extension_status": {
-            "exists": isinstance(latest_status, dict),
-            "ok": latest_status.get("ok") if isinstance(latest_status, dict) else None,
-            "status": latest_status.get("status") if isinstance(latest_status, dict) else None,
-            "generated_at": latest_status.get("generated_at") if isinstance(latest_status, dict) else None,
-            "error": latest_status_error,
-        },
-        "ingest": {
-            "ok": ingest.get("ok"),
-            "event_id": ingest.get("event_id"),
-            "status": ingest.get("status"),
-            "source_adapter": ingest.get("source_adapter"),
-            "capture_gate_decision": nested_get(ingest, ["capture_gate", "decision"]),
-            "capture_gate_confidence": nested_get(ingest, ["capture_gate", "confidence"]),
-            "text_length": nested_get(ingest, ["text", "text_length"]),
-            "text_chars_stored": nested_get(ingest, ["text", "text_chars_stored"]),
-            "recipient": nested_get(ingest, ["causal_context", "recipient"]),
-            "where": nested_get(ingest, ["causal_context", "where"]),
-            "task": nested_get(ingest, ["causal_context", "task"]),
-        },
-        "event": event,
-        "parse_errors": parse_errors[:20],
-        "policy": {
-            "raw_keylogging": False,
-            "committed_editor_changes_only": True,
-            "password_fields_captured": False,
-            "automatic_action": False,
-            "network_access": False,
-            "ui_callback_required": False,
-        },
-        "non_claims": [
-            "This selftest proves the editor_extension_explicit ingest, capture-gate, and causal-context route.",
-            "It does not prove a live VS Code UI text-change callback fired from a user keystroke.",
-            "It does not read editor buffers and does not collect raw key events.",
-        ],
-    }
     return typing_editor_extension_selftest_store(data, write_latest)
 
 
@@ -25519,141 +25424,20 @@ def typing_editor_extension_latest_status(max_age_sec: float = 86400.0) -> dict[
     latest, latest_error = load_json_document(TYPING_EDITOR_EXTENSION_LATEST_PATH)
     selftest, selftest_error = load_json_document(TYPING_EDITOR_EXTENSION_SELFTEST_LATEST_PATH)
     callback, callback_error = load_json_document(TYPING_EDITOR_EXTENSION_CALLBACK_SELFTEST_LATEST_PATH)
-    latest_data = latest if isinstance(latest, dict) else {}
-    selftest_data = selftest if isinstance(selftest, dict) else {}
-    callback_data = callback if isinstance(callback, dict) else {}
-    selftest_event = selftest_data.get("event") if isinstance(selftest_data.get("event"), dict) else {}
-    callback_event = callback_data.get("event") if isinstance(callback_data.get("event"), dict) else {}
-    latest_policy = latest_data.get("policy") if isinstance(latest_data.get("policy"), dict) else {}
-    selftest_policy = selftest_data.get("policy") if isinstance(selftest_data.get("policy"), dict) else {}
-    callback_policy = callback_data.get("policy") if isinstance(callback_data.get("policy"), dict) else {}
-    latest_age_sec = age_seconds_from_iso(latest_data.get("generated_at"))
-    selftest_age_sec = age_seconds_from_iso(selftest_data.get("generated_at"))
-    callback_age_sec = age_seconds_from_iso(callback_data.get("generated_at"))
-    activation_ok = bool(
-        isinstance(latest, dict)
-        and latest_data.get("ok") is True
-        and latest_data.get("status") in {"activated", "sent", "skipped", "selftest_edit_applied"}
+    return typing_editor_adapters.editor_extension_latest_status_document(
+        latest=latest if isinstance(latest, dict) else None,
+        latest_error=latest_error,
+        selftest=selftest if isinstance(selftest, dict) else None,
+        selftest_error=selftest_error,
+        callback=callback if isinstance(callback, dict) else None,
+        callback_error=callback_error,
+        extension_path_exists=TYPING_VSCODE_EXTENSION_PATH.exists(),
+        max_age_sec=float(max_age_sec),
+        generated_at=now_iso(),
+        age_seconds_from_iso=age_seconds_from_iso,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
     )
-    selftest_ok = bool(
-        isinstance(selftest, dict)
-        and selftest_data.get("ok") is True
-        and selftest_data.get("status") == "passed"
-        and selftest_event.get("source_adapter") == "editor_extension_explicit"
-        and selftest_event.get("status") == "captured"
-        and selftest_event.get("capture_gate_decision") == "allow_text"
-        and selftest_event.get("capture_gate_confidence") == "editor_path_allowed"
-        and selftest_event.get("text_length") == selftest_event.get("text_chars_stored")
-        and selftest_policy.get("raw_keylogging") is False
-        and selftest_policy.get("password_fields_captured") is False
-        and selftest_policy.get("network_access") is False
-    )
-    callback_ok = bool(
-        isinstance(callback, dict)
-        and callback_data.get("ok") is True
-        and callback_data.get("status") == "passed"
-        and callback_event.get("source_adapter") == "editor_extension_explicit"
-        and callback_event.get("status") == "captured"
-        and callback_event.get("capture_gate_decision") == "allow_text"
-        and callback_event.get("capture_gate_confidence") == "editor_path_allowed"
-        and callback_event.get("text_length") == callback_event.get("text_chars_stored")
-        and callback_policy.get("raw_keylogging") is False
-        and callback_policy.get("password_fields_captured") is False
-        and callback_policy.get("live_vscode_extension_callback") is True
-    )
-    policy_ok = bool(
-        latest_policy.get("raw_keylogging") in {False, None}
-        and latest_policy.get("password_fields_captured") in {False, None}
-        and latest_policy.get("automatic_action") in {False, None}
-        and selftest_policy.get("raw_keylogging") is False
-        and selftest_policy.get("password_fields_captured") is False
-        and callback_policy.get("raw_keylogging") is False
-        and callback_policy.get("password_fields_captured") is False
-    )
-    proof_times = [item for item in (selftest_age_sec, callback_age_sec) if isinstance(item, (int, float))]
-    proof_age_sec = max(proof_times) if proof_times else None
-    proofs_fresh = bool(proof_age_sec is not None and proof_age_sec <= float(max_age_sec))
-    if not TYPING_VSCODE_EXTENSION_PATH.exists():
-        status = "extension_missing"
-    elif not activation_ok:
-        status = "activation_missing"
-    elif not selftest_ok:
-        status = "selftest_failed"
-    elif not callback_ok:
-        status = "callback_selftest_failed"
-    elif not policy_ok:
-        status = "policy_violation"
-    elif not proofs_fresh:
-        status = "proof_stale"
-    else:
-        status = "ready"
-    return {
-        "schema": f"{SCHEMA_PREFIX}_typing_editor_extension_status_v1",
-        "version": VERSION,
-        "generated_at": now_iso(),
-        "ok": status == "ready",
-        "status": status,
-        "summary": {
-            "activation_ok": activation_ok,
-            "activation_status": latest_data.get("status") if isinstance(latest, dict) else None,
-            "activation_generated_at": latest_data.get("generated_at") if isinstance(latest, dict) else None,
-            "activation_age_sec": latest_age_sec,
-            "selftest_ok": selftest_ok,
-            "selftest_status": selftest_data.get("status") if isinstance(selftest, dict) else None,
-            "selftest_generated_at": selftest_data.get("generated_at") if isinstance(selftest, dict) else None,
-            "selftest_age_sec": selftest_age_sec,
-            "callback_ok": callback_ok,
-            "callback_status": callback_data.get("status") if isinstance(callback, dict) else None,
-            "callback_generated_at": callback_data.get("generated_at") if isinstance(callback, dict) else None,
-            "callback_age_sec": callback_age_sec,
-            "proof_age_sec": proof_age_sec,
-            "max_age_sec": float(max_age_sec),
-            "selftest_event_status": selftest_event.get("status"),
-            "callback_event_status": callback_event.get("status"),
-        },
-        "latest": {
-            "status": latest_data.get("status") if isinstance(latest, dict) else None,
-            "generated_at": latest_data.get("generated_at") if isinstance(latest, dict) else None,
-            "ok": latest_data.get("ok") if isinstance(latest, dict) else None,
-            "error": latest_error,
-        },
-        "selftest": {
-            "status": selftest_data.get("status") if isinstance(selftest, dict) else None,
-            "generated_at": selftest_data.get("generated_at") if isinstance(selftest, dict) else None,
-            "ok": selftest_data.get("ok") if isinstance(selftest, dict) else None,
-            "event": {
-                "status": selftest_event.get("status"),
-                "source_adapter": selftest_event.get("source_adapter"),
-                "capture_gate_decision": selftest_event.get("capture_gate_decision"),
-                "capture_gate_confidence": selftest_event.get("capture_gate_confidence"),
-            },
-            "error": selftest_error,
-        },
-        "callback_selftest": {
-            "status": callback_data.get("status") if isinstance(callback, dict) else None,
-            "generated_at": callback_data.get("generated_at") if isinstance(callback, dict) else None,
-            "ok": callback_data.get("ok") if isinstance(callback, dict) else None,
-            "event": {
-                "status": callback_event.get("status"),
-                "source_adapter": callback_event.get("source_adapter"),
-                "capture_gate_decision": callback_event.get("capture_gate_decision"),
-                "capture_gate_confidence": callback_event.get("capture_gate_confidence"),
-            },
-            "error": callback_error,
-        },
-        "policy": {
-            "raw_keylogging": False,
-            "committed_editor_changes_only": True,
-            "password_fields_captured": False,
-            "automatic_action": False,
-            "network_access": False,
-            "live_vscode_extension_callback": callback_policy.get("live_vscode_extension_callback"),
-        },
-        "non_claims": [
-            "Editor extension proof covers committed document edits only, not raw keystrokes.",
-            "The callback selftest opens a disposable VS Code window and does not read terminal output.",
-        ],
-    }
 
 
 def typing_context_text(source: str, app: str | None, window_title: str | None, context: str | None, text: str, include_text: bool = True) -> str:
