@@ -263,6 +263,18 @@ never copy raw local vectors, source chunks, model paths beyond route summaries,
 embedding text, OpenVINO cache payloads, or generated semantic DB contents into
 the repository.
 
+For nervous semantic-build window execution adapter changes, public CI should
+rely on fake-port tests for pending/reuse classification, reused-vector insert
+routing, embedding-window fallback batch attempts, progressive vector insert,
+failed-build receipt recording, and compile-cache summary projection. Live-host
+closeout should prefer `abyss-machine nervous semantic-status --json` plus a
+bounded source dry-run/refusal path when available; run
+`abyss-machine nervous semantic-build --max-chunks N --batch-size 1 --device CPU
+--rebuild --json` only when the slice intentionally changes live rebuild
+behavior or the operator explicitly accepts the host cost. Never copy raw
+embedding text, vectors, source chunks, local semantic DB rows, OpenVINO cache
+payloads, or generated semantic latest files into the repository.
+
 Report live-host results separately from public CI. Do not copy the underlying
 `/var/lib/abyss-machine`, `/srv/abyss-machine`, browser, typing, transcript,
 index, cache, or model-weight contents into the repository.

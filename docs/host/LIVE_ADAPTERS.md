@@ -537,6 +537,10 @@ sidecar lifecycle and runtime execution seam:
 - semantic-maintain pre-refresh assessment, dry-run/launch decisions, lock
   refusal, resource gate outcome mapping, timeout/error summaries, and
   latest/history routing through supplied live ports;
+- semantic-build pending/reuse classification, reused-vector insertion,
+  windowed embedding attempts, fallback batch sizing, progressive vector
+  insertion, and failed-build receipt/provenance summaries through supplied
+  ports;
 - embedding batch temp JSONL input/output staging under the configured machine
   temp root;
 - OpenVINO embedding subprocess command invocation through a fakeable command
@@ -548,8 +552,8 @@ sidecar lifecycle and runtime execution seam:
 
 The CLI still owns nervous semantic config/path binding, model/python path
 discovery, privacy and AI policy gates for direct builds, concrete
-resource-launch/memory/status port binding, build-window orchestration, and
-command rendering.
+resource-launch/memory/status port binding, semantic DB/source-index lock
+sequencing, final build metadata writes, and command rendering.
 
 ## Extracted Nervous Retention Filesystem/Apply Seam
 

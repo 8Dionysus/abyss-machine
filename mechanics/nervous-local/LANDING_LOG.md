@@ -78,14 +78,22 @@
   latest/history writes, build-run metadata/provenance transactions, generated
   DB mode/group normalization, and embedding execution. CLI still owns semantic
   config/model/python binding, privacy/policy gates for direct builds,
-  build-window orchestration, and command rendering.
+  final build metadata writes, and command rendering.
 - Semantic-maintain orchestration seam:
   `abyss_machine.nervous_semantic_adapters` owns source-index pre-refresh
   assessment, dry-run/launch decisions, lock refusal, resource-gate outcome
   mapping, batch-policy memory-plan fan-in, deferred-build stdout parsing, and
   semantic-maintain latest/history routing through fakeable ports. CLI still
   owns concrete config/path/status/resource/memory/json binding, direct-build
-  policy gates, build-window orchestration, and command rendering.
+  policy gates, final build metadata writes, and command rendering.
+- Semantic-build window execution seam:
+  `abyss_machine.nervous_semantic_adapters` owns pending/reuse classification,
+  reused-vector insertion, embedding-window fallback attempts, progressive
+  vector insertion, failed-build receipt recording, and compile-cache
+  provenance summary projection through fakeable ports. CLI still owns
+  concrete config/path/model/runtime binding, privacy/AI policy gates, semantic
+  DB/source-index lock sequencing, final build metadata writes, and command
+  rendering.
 - Neural rerank execution seam: `abyss_machine.nervous_rerank_adapters` owns
   OpenVINO scorer temp-payload staging, runner invocation, stdout/output JSON
   parsing, policy-gate callback routing, debug path reporting, and

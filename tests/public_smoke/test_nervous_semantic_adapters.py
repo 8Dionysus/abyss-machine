@@ -414,6 +414,153 @@ def test_cli_nervous_semantic_maintain_binds_orchestration_adapter(monkeypatch, 
     assert captured["write_latest"] is False
 
 
+def test_semantic_build_pending_plan_classifies_reuse_and_embedding() -> None:
+    chunks = [
+        {"chunk_id": "same", "body_sha256": "hash-same"},
+        {"chunk_id": "reuse", "body_sha256": "hash-reuse"},
+        {"chunk_id": "embed", "body_sha256": "hash-embed"},
+    ]
+
+    plan = nervous_semantic_adapters.semantic_build_pending_plan(
+        chunks,
+        existing={"same": "hash-same", "reuse": "old-hash"},
+        existing_vectors_by_hash={"hash-reuse": {"dim": 2, "blob": b"reuse-vector"}},
+        rebuild=False,
+    )
+    rebuild_plan = nervous_semantic_adapters.semantic_build_pending_plan(
+        chunks,
+        existing={"same": "hash-same"},
+        existing_vectors_by_hash={"hash-reuse": {"dim": 2, "blob": b"reuse-vector"}},
+        rebuild=True,
+    )
+
+    assert [item["chunk_id"] for item in plan["pending"]] == ["reuse", "embed"]
+    assert set(plan["pending_by_id"]) == {"reuse", "embed"}
+    assert plan["reuse_vectors"] == {"reuse": {"dim": 2, "blob": b"reuse-vector"}}
+    assert [item["chunk_id"] for item in plan["embed_pending"]] == ["embed"]
+    assert plan["summary"] == {
+        "source_chunks_selected": 3,
+        "existing_vectors": 2,
+        "pending_chunks": 2,
+        "embedding_pending_chunks": 1,
+        "vectors_reused_by_body_hash": 1,
+        "unchanged_chunks": 1,
+        "vectors_indexed": 0,
+        "stale_vectors_deleted": 0,
+    }
+    assert [item["chunk_id"] for item in rebuild_plan["embed_pending"]] == ["same", "reuse", "embed"]
+    assert rebuild_plan["reuse_vectors"] == {}
+
+
+def test_semantic_build_embedding_windows_fallbacks_and_progressively_inserts(tmp_path: Path) -> None:
+    conn = sqlite3.connect(":memory:")
+    data = {
+        "summary": {"vectors_indexed": 1, "vectors_reused_by_body_hash": 1},
+        "provenance": {"compile_cache": {"before": {"mtime": 10}}},
+    }
+    pending = [
+        {"chunk_id": "a", "embedding_text": "alpha"},
+        {"chunk_id": "b", "embedding_text": "beta"},
+    ]
+    calls: list[dict[str, object]] = []
+    inserted: list[dict[str, object]] = []
+
+    def fake_embed_texts(text_items: list[dict[str, str]], embedding: dict[str, object]) -> dict[str, object]:
+        calls.append({"text_items": text_items, "embedding": dict(embedding)})
+        if len(calls) == 1:
+            return {"ok": False, "error": "batch too large"}
+        vector = array.array("f", [1.0, 0.0]).tobytes()
+        return {
+            "ok": True,
+            "vectors": {
+                "a": {"dim": 2, "blob": vector},
+                "b": {"dim": 2, "blob": vector},
+            },
+            "stdout_tail": "ok",
+        }
+
+    def fake_insert_vectors(_conn: sqlite3.Connection, vectors: dict[str, dict[str, object]], pending_by_id: dict[str, dict[str, object]], started_at: str) -> int:
+        inserted.append({"vectors": sorted(vectors), "pending": sorted(pending_by_id), "started_at": started_at})
+        return len(vectors)
+
+    result = nervous_semantic_adapters.semantic_build_embedding_windows(
+        conn,
+        data,
+        semantic_config={"maintain": {"embedding_window_chunks": 2}},
+        embedding={"batch_size": 32},
+        chunks=pending,
+        pending=pending,
+        pending_by_id={str(item["chunk_id"]): item for item in pending},
+        embed_pending=pending,
+        started_at="2026-07-07T01:00:00+00:00",
+        run_id="semantic-run",
+        partial=False,
+        cache_before={"mtime": 10},
+        cache_dir=tmp_path / "cache",
+        cache_stats=lambda _path: {"exists": False, "mtime": 10},
+        now=lambda: "2026-07-07T01:01:00+00:00",
+        embed_texts=fake_embed_texts,
+        insert_vectors_port=fake_insert_vectors,
+    )
+    conn.close()
+
+    assert result["ok"] is True
+    assert result["indexed"] == 3
+    assert data["summary"]["vectors_indexed"] == 3
+    assert data["embedding_status"]["vectors"] == 2
+    assert data["embedding_status"]["windows"] == 1
+    assert data["embedding_status"]["reused_by_body_hash"] == 1
+    assert [call["embedding"]["batch_size"] for call in calls] == [32, 16]
+    assert data["embedding_windows"][0]["attempts"][0]["error"] == "batch too large"
+    assert data["embedding_windows"][0]["attempts"][1]["batch_size"] == 16
+    assert inserted == [{"vectors": ["a", "b"], "pending": ["a", "b"], "started_at": "2026-07-07T01:00:00+00:00"}]
+
+
+def test_semantic_build_embedding_windows_records_failure_and_cache_summary(tmp_path: Path) -> None:
+    conn = sqlite3.connect(":memory:")
+    data = {
+        "summary": {"vectors_indexed": 0, "vectors_reused_by_body_hash": 0},
+        "provenance": {"compile_cache": {"before": {"mtime": 1}}},
+    }
+    pending = [{"chunk_id": "a", "embedding_text": "alpha"}]
+    failed_records: list[dict[str, object]] = []
+
+    def fake_record_failed(_conn: sqlite3.Connection, **kwargs: object) -> None:
+        failed_records.append(kwargs)
+
+    result = nervous_semantic_adapters.semantic_build_embedding_windows(
+        conn,
+        data,
+        semantic_config={"maintain": {"embedding_window_chunks": 1}},
+        embedding={"batch_size": 8},
+        chunks=pending,
+        pending=pending,
+        pending_by_id={"a": pending[0]},
+        embed_pending=pending,
+        started_at="2026-07-07T01:00:00+00:00",
+        run_id="semantic-run",
+        partial=True,
+        cache_before={"mtime": 1},
+        cache_dir=tmp_path / "cache",
+        cache_stats=lambda _path: {"exists": True, "mtime": 2},
+        now=lambda: "2026-07-07T01:02:00+00:00",
+        embed_texts=lambda _items, _embedding: {"ok": False, "error": "runtime failed"},
+        record_failed_build_run_port=fake_record_failed,
+    )
+    conn.close()
+
+    assert result["ok"] is False
+    assert data["error"] == "runtime failed"
+    assert data["embedding_status"]["ok"] is False
+    assert data["provenance"]["compile_cache"]["after"] == {"exists": True, "mtime": 2}
+    assert data["provenance"]["compile_cache"]["mtime_changed"] is True
+    assert data["provenance"]["compile_cache"]["used_or_regenerated"] is True
+    assert failed_records[0]["run_id"] == "semantic-run"
+    assert failed_records[0]["finished_at"] == "2026-07-07T01:02:00+00:00"
+    assert failed_records[0]["partial"] is True
+    assert failed_records[0]["errors"]["embedding_status"]["error"] == "runtime failed"
+
+
 def test_embedding_adapter_returns_empty_without_runtime_calls(tmp_path: Path) -> None:
     called: list[str] = []
 

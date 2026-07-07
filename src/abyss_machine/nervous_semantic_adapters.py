@@ -26,6 +26,11 @@ ResourceLaunchPort = Callable[..., dict[str, Any]]
 MemoryPlanPort = Callable[[], dict[str, Any]]
 LatestWriterPort = Callable[[dict[str, Any]], dict[str, Any]]
 JsonParserPort = Callable[[str], dict[str, Any] | None]
+EmbedTextsPort = Callable[[list[dict[str, str]], Mapping[str, Any]], dict[str, Any]]
+CacheStatsPort = Callable[[Path], dict[str, Any]]
+NowPort = Callable[[], str]
+InsertVectorsPort = Callable[[sqlite3.Connection, dict[str, dict[str, Any]], dict[str, dict[str, Any]], str], int]
+RecordFailedBuildRunPort = Callable[..., None]
 
 DEFAULT_STATE_GROUP = "wheel"
 
@@ -283,6 +288,175 @@ def finish_successful_build_run(
         conn.rollback()
         raise
     return stale_deleted
+
+
+def semantic_build_pending_plan(
+    chunks: list[dict[str, Any]],
+    *,
+    existing: Mapping[str, str],
+    existing_vectors_by_hash: Mapping[str, dict[str, Any]],
+    rebuild: bool,
+) -> dict[str, Any]:
+    pending = [
+        item for item in chunks
+        if rebuild or existing.get(str(item.get("chunk_id"))) != str(item.get("body_sha256"))
+    ]
+    pending_by_id = {str(item["chunk_id"]): item for item in pending}
+    reuse_vectors: dict[str, dict[str, Any]] = {}
+    embed_pending: list[dict[str, Any]] = []
+    if rebuild:
+        embed_pending = list(pending)
+    else:
+        for item in pending:
+            chunk_id = str(item.get("chunk_id"))
+            reusable = existing_vectors_by_hash.get(str(item.get("body_sha256") or ""))
+            if reusable:
+                reuse_vectors[chunk_id] = dict(reusable)
+            else:
+                embed_pending.append(item)
+    return {
+        "pending": pending,
+        "pending_by_id": pending_by_id,
+        "reuse_vectors": reuse_vectors,
+        "embed_pending": embed_pending,
+        "summary": {
+            "source_chunks_selected": len(chunks),
+            "existing_vectors": len(existing),
+            "pending_chunks": len(pending),
+            "embedding_pending_chunks": len(embed_pending),
+            "vectors_reused_by_body_hash": len(reuse_vectors),
+            "unchanged_chunks": max(len(chunks) - len(pending), 0),
+            "vectors_indexed": 0,
+            "stale_vectors_deleted": 0,
+        },
+    }
+
+
+def semantic_build_embedding_attempts(embedding: Mapping[str, Any]) -> list[dict[str, Any]]:
+    attempts: list[dict[str, Any]] = [dict(embedding)]
+    try:
+        configured_batch = int(embedding.get("batch_size") or 16)
+    except (TypeError, ValueError):
+        configured_batch = 16
+    fallback_batch = configured_batch
+    while fallback_batch > 8:
+        fallback_batch = max(8, fallback_batch // 2)
+        if fallback_batch == configured_batch:
+            break
+        fallback_embedding = dict(embedding)
+        fallback_embedding["batch_size"] = fallback_batch
+        attempts.append(fallback_embedding)
+        if fallback_batch <= 16:
+            break
+    return attempts
+
+
+def semantic_build_insert_reused_vectors(
+    conn: sqlite3.Connection,
+    *,
+    reuse_vectors: dict[str, dict[str, Any]],
+    pending_by_id: dict[str, dict[str, Any]],
+    started_at: str,
+    insert_vectors_port: InsertVectorsPort = insert_vectors,
+) -> int:
+    if not reuse_vectors:
+        return 0
+    return insert_vectors_port(conn, reuse_vectors, pending_by_id, started_at)
+
+
+def semantic_build_embedding_windows(
+    conn: sqlite3.Connection,
+    data: dict[str, Any],
+    *,
+    semantic_config: Mapping[str, Any],
+    embedding: Mapping[str, Any],
+    chunks: list[dict[str, Any]],
+    pending: list[dict[str, Any]],
+    pending_by_id: dict[str, dict[str, Any]],
+    embed_pending: list[dict[str, Any]],
+    started_at: str,
+    run_id: str,
+    partial: bool,
+    cache_before: Mapping[str, Any],
+    cache_dir: Path,
+    cache_stats: CacheStatsPort,
+    now: NowPort,
+    embed_texts: EmbedTextsPort,
+    insert_vectors_port: InsertVectorsPort = insert_vectors,
+    record_failed_build_run_port: RecordFailedBuildRunPort = record_failed_build_run,
+) -> dict[str, Any]:
+    indexed = int(_nested_get(data, ["summary", "vectors_indexed"]) or 0)
+    window_size = nervous_semantic.embedding_window_size(dict(semantic_config))
+    embedding_aggregate: dict[str, Any] = {
+        "ok": True,
+        "items": len(embed_pending),
+        "vectors": 0,
+        "windows": 0,
+        "window_size": window_size,
+        "mode": "windowed_progressive_commit",
+        "reused_by_body_hash": int(_nested_get(data, ["summary", "vectors_reused_by_body_hash"]) or 0),
+    }
+    if not embed_pending:
+        data["embedding_status"] = embedding_aggregate
+        return {"ok": True, "data": data, "indexed": indexed}
+
+    text_items = [
+        {"id": str(item["chunk_id"]), "text": str(item["embedding_text"])}
+        for item in embed_pending
+    ]
+    data["embedding_windows"] = []
+    for offset in range(0, len(text_items), window_size):
+        window = text_items[offset:offset + window_size]
+        embedding_status: dict[str, Any] = {}
+        attempt_summaries: list[dict[str, Any]] = []
+        for attempt_index, attempt_embedding in enumerate(semantic_build_embedding_attempts(embedding)):
+            embedding_status = embed_texts(window, attempt_embedding)
+            attempt_summary = {key: value for key, value in embedding_status.items() if key != "vectors"}
+            attempt_summary["attempt"] = attempt_index + 1
+            attempt_summary["batch_size"] = int(attempt_embedding.get("batch_size") or embedding.get("batch_size") or 16)
+            attempt_summaries.append(attempt_summary)
+            if embedding_status.get("ok"):
+                break
+        vectors = embedding_status.get("vectors") if isinstance(embedding_status.get("vectors"), dict) else {}
+        window_status = {key: value for key, value in embedding_status.items() if key != "vectors"}
+        window_status.update({
+            "offset": offset,
+            "items": len(window),
+            "vectors": len(vectors),
+            "attempts": attempt_summaries,
+        })
+        data["embedding_windows"].append(window_status)
+        embedding_aggregate["windows"] = int(embedding_aggregate.get("windows") or 0) + 1
+        if not embedding_status.get("ok"):
+            embedding_aggregate["ok"] = False
+            data["embedding_status"] = embedding_aggregate
+            data["error"] = embedding_status.get("error") or "embedding subprocess failed"
+            data["summary"]["vectors_indexed"] = indexed
+            cache_after = cache_stats(cache_dir)
+            compile_cache = data.get("provenance", {}).get("compile_cache") if isinstance(data.get("provenance"), dict) else {}
+            if isinstance(compile_cache, dict):
+                compile_cache["after"] = cache_after
+                compile_cache["mtime_changed"] = cache_before.get("mtime") != cache_after.get("mtime")
+                compile_cache["used_or_regenerated"] = bool(cache_after.get("exists"))
+            finished_at = now()
+            record_failed_build_run_port(
+                conn,
+                run_id=run_id,
+                started_at=started_at,
+                finished_at=finished_at,
+                source_chunks=len(chunks),
+                pending_chunks=len(pending),
+                vectors_indexed=indexed,
+                partial=partial,
+                errors={"embedding_status": window_status, "provenance": data.get("provenance")},
+            )
+            return {"ok": False, "data": data, "indexed": indexed}
+        window_indexed = insert_vectors_port(conn, vectors, pending_by_id, started_at)
+        indexed += window_indexed
+        embedding_aggregate["vectors"] = int(embedding_aggregate.get("vectors") or 0) + window_indexed
+        data["summary"]["vectors_indexed"] = indexed
+    data["embedding_status"] = embedding_aggregate
+    return {"ok": True, "data": data, "indexed": indexed}
 
 
 def _nested_get(data: Any, path: list[str]) -> Any:
