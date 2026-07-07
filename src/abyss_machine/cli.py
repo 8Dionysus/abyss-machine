@@ -27853,28 +27853,14 @@ def typing_browser_ai_transcript_selftest(write_latest: bool = True) -> dict[str
     return typing_browser_ai_transcript_store(data, write_latest, selftest=True)
 
 
-def typing_browser_native_host_read_message() -> dict[str, Any] | None:
-    return typing_browser_adapters.native_host_read_message(sys.stdin.buffer)
-
-
-def typing_browser_native_host_write_response(payload: dict[str, Any]) -> None:
-    typing_browser_adapters.native_host_write_response(sys.stdout.buffer, payload)
-
-
 def typing_browser_native_host() -> int:
-    try:
-        message = typing_browser_native_host_read_message()
-        if message is None:
-            return 0
-        if typing_browser_adapters.native_host_message_route(message) == "browser_ai_transcript":
-            result = typing_browser_ai_transcript_ingest_message(message, write_latest=True)
-        else:
-            result = typing_browser_extension_ingest_message(message, write_latest=True)
-        response = typing_browser_adapters.native_host_response(result)
-    except Exception as exc:
-        response = typing_browser_adapters.native_host_error_response(exc)
-    typing_browser_native_host_write_response(response)
-    return 0 if response.get("ok") else 1
+    session = typing_browser_adapters.native_host_run_session(
+        sys.stdin.buffer,
+        sys.stdout.buffer,
+        browser_extension_ingest=lambda message: typing_browser_extension_ingest_message(message, write_latest=True),
+        browser_ai_transcript_ingest=lambda message: typing_browser_ai_transcript_ingest_message(message, write_latest=True),
+    )
+    return int(session.get("exit_code") or 0)
 
 
 def typing_browser_extension_profiles() -> list[dict[str, Any]]:

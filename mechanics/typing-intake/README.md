@@ -47,7 +47,8 @@ duplicate semantics, metadata/context ingest plans, and public-safe event
 summaries live in `abyss_machine.typing_codex_semantics`.
 Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
 plans, synthetic selftest documents, native-host response envelopes, framed
-native-host byte transport, safe Firefox selftest profile prefs, temporary
+native-host byte transport, native-host session dispatch over supplied buffers
+and ingest callbacks, safe Firefox selftest profile prefs, temporary
 WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
 serving, subprocess cleanup, and public-safe WebExtension selftest result
 assembly, browser-context selftest temporary-profile/runtime orchestration,
