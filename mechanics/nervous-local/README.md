@@ -89,7 +89,10 @@ execution through fakeable ports.
 `abyss_machine.nervous_events_adapters` now owns derived event/episode local
 file routing: facts/events/episodes JSONL root reads, daily path selection,
 derived-record replacement writes that preserve non-owned records, latest read
-envelopes, and build/validate latest write routing through fakeable ports.
+envelopes, global-pause build refusals, episode refresh orchestration through
+fakeable build ports, and build/validate latest write routing through fakeable
+ports. CLI still owns concrete privacy/source-policy/config/path reads, live
+port binding, and command rendering.
 `abyss_machine.nervous_synthesis_adapters` now owns synthesis/eval local
 file routing: episode/event/candidate JSONL root reads, latest reads,
 synthesis latest/period JSONL/markdown writes, synthesis validate latest

@@ -18,6 +18,8 @@ LatestReaderPort = Callable[[Path], tuple[dict[str, Any] | None, str | None]]
 LatestWriterPort = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
 EventsBuilderPort = Callable[[list[dict[str, Any]]], tuple[list[dict[str, Any]], dict[str, Any]]]
 EpisodesBuilderPort = Callable[[list[dict[str, Any]]], tuple[list[dict[str, Any]], dict[str, Any]]]
+RefusedResultPort = Callable[..., dict[str, Any]]
+EventsRefreshPort = Callable[..., dict[str, Any]]
 
 
 def parse_time(value: Any) -> dt.datetime | None:
@@ -192,6 +194,46 @@ def build_events(
     return data
 
 
+def run_events_build(
+    *,
+    privacy: dict[str, Any] | None,
+    facts_root: Path,
+    events_root: Path,
+    latest_path: Path,
+    events_from_fact_records: EventsBuilderPort,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    write_latest_enabled: bool = True,
+    records_reader: RecordsReaderPort = read_records,
+    derived_writer: Callable[..., dict[str, Any]] = write_derived_records,
+    latest_writer: LatestWriterPort = typing_nervous_adapters.safe_atomic_write_json,
+    refused_result_builder: RefusedResultPort = nervous_events.events_build_refused_result,
+) -> dict[str, Any]:
+    if isinstance(privacy, dict) and bool(privacy.get("global_pause")):
+        data = refused_result_builder(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+        )
+        if write_latest_enabled:
+            data = write_latest(data, latest_path, writer=latest_writer)
+        return data
+    return build_events(
+        facts_root=facts_root,
+        events_root=events_root,
+        latest_path=latest_path,
+        events_from_fact_records=events_from_fact_records,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        write_latest_enabled=write_latest_enabled,
+        records_reader=records_reader,
+        derived_writer=derived_writer,
+        latest_writer=latest_writer,
+    )
+
+
 def validate_events(
     *,
     events_root: Path,
@@ -262,6 +304,52 @@ def build_episodes(
     if write_latest_enabled:
         data = write_latest(data, latest_path, writer=latest_writer)
     return data
+
+
+def run_episodes_build(
+    *,
+    privacy: dict[str, Any] | None,
+    events_root: Path,
+    episodes_root: Path,
+    latest_path: Path,
+    episodes_from_events: EpisodesBuilderPort,
+    event_records_from_items: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    events_builder: EventsRefreshPort,
+    refresh_events: bool = True,
+    write_latest_enabled: bool = True,
+    records_reader: RecordsReaderPort = read_records,
+    derived_writer: Callable[..., dict[str, Any]] = write_derived_records,
+    latest_writer: LatestWriterPort = typing_nervous_adapters.safe_atomic_write_json,
+    refused_result_builder: RefusedResultPort = nervous_events.episodes_build_refused_result,
+) -> dict[str, Any]:
+    if isinstance(privacy, dict) and bool(privacy.get("global_pause")):
+        data = refused_result_builder(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+        )
+        if write_latest_enabled:
+            data = write_latest(data, latest_path, writer=latest_writer)
+        return data
+    events_refresh = events_builder(write_latest=True) if refresh_events else None
+    return build_episodes(
+        events_root=events_root,
+        episodes_root=episodes_root,
+        latest_path=latest_path,
+        episodes_from_events=episodes_from_events,
+        event_records_from_items=event_records_from_items,
+        events_refresh=events_refresh,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        write_latest_enabled=write_latest_enabled,
+        records_reader=records_reader,
+        derived_writer=derived_writer,
+        latest_writer=latest_writer,
+    )
 
 
 def validate_episodes(

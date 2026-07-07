@@ -127,6 +127,42 @@ def test_build_events_reads_facts_writes_derived_records_and_routes_latest(tmp_p
     assert writes == [(str(latest_path), "abyss_machine_nervous_events_build_v1")]
 
 
+def test_run_events_build_refuses_before_file_ports_when_paused(tmp_path: Path) -> None:
+    writes: list[tuple[str, str]] = []
+
+    def fail_port(*_args, **_kwargs):
+        raise AssertionError("global pause should refuse before file/build ports")
+
+    def latest_writer(path: Path, data: dict[str, object], mode: int):
+        writes.append((str(path), str(data.get("schema"))))
+        assert mode == 0o664
+        return None
+
+    data = nervous_events_adapters.run_events_build(
+        privacy={"global_pause": True},
+        facts_root=tmp_path / "facts",
+        events_root=tmp_path / "events",
+        latest_path=tmp_path / "events" / "latest.json",
+        events_from_fact_records=fail_port,
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at=GENERATED_AT,
+        records_reader=fail_port,
+        derived_writer=fail_port,
+        latest_writer=latest_writer,
+    )
+
+    assert data == {
+        "schema": "abyss_machine_nervous_events_build_v1",
+        "version": "test",
+        "generated_at": GENERATED_AT,
+        "ok": False,
+        "refused": True,
+        "error": "global_pause is active; event build did not touch derived event files",
+    }
+    assert writes == [(str(tmp_path / "events" / "latest.json"), "abyss_machine_nervous_events_build_v1")]
+
+
 def test_validate_events_uses_fakeable_latest_and_record_ports(tmp_path: Path) -> None:
     writes: list[tuple[str, str]] = []
     events_root = tmp_path / "events"
@@ -228,25 +264,115 @@ def test_build_and_validate_episodes_route_files_and_latest(tmp_path: Path) -> N
     ]
 
 
+def test_run_episodes_build_refreshes_events_inside_adapter(tmp_path: Path) -> None:
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    latest_path = episodes_root / "latest.json"
+    writes: list[tuple[str, str]] = []
+    refresh_calls: list[bool] = []
+    refresh_document = {"ok": True, "summary": {"events": 1}}
+
+    def records_reader(root: Path):
+        if root == events_root:
+            return [{"record": _event(), "path": "events.jsonl", "line": 1}], []
+        raise AssertionError(root)
+
+    def episodes_builder(events):
+        assert [event["event_id"] for event in events] == ["evt-new"]
+        return [_episode("eps-run")], {"input_events": 1, "episodes": 1}
+
+    def events_builder(write_latest: bool = True):
+        refresh_calls.append(write_latest)
+        return refresh_document
+
+    def latest_writer(path: Path, data: dict[str, object], mode: int):
+        writes.append((str(path), str(data.get("schema"))))
+        assert mode == 0o664
+        return None
+
+    data = nervous_events_adapters.run_episodes_build(
+        privacy={"global_pause": False},
+        events_root=events_root,
+        episodes_root=episodes_root,
+        latest_path=latest_path,
+        episodes_from_events=episodes_builder,
+        event_records_from_items=lambda items: [item["record"] for item in items],
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at=GENERATED_AT,
+        events_builder=events_builder,
+        refresh_events=True,
+        records_reader=records_reader,
+        latest_writer=latest_writer,
+    )
+
+    day = episodes_root / "2026" / "06" / "2026-06-25.jsonl"
+    assert data["ok"] is True
+    assert data["source"]["events_refresh"] == {"ok": True, "events": 1}
+    assert _read_jsonl(day)[0]["episode_id"] == "eps-run"
+    assert refresh_calls == [True]
+    assert writes == [(str(latest_path), "abyss_machine_nervous_episodes_build_v1")]
+
+
+def test_run_episodes_build_refuses_before_refresh_when_paused(tmp_path: Path) -> None:
+    writes: list[tuple[str, str]] = []
+
+    def fail_port(*_args, **_kwargs):
+        raise AssertionError("global pause should refuse before refresh/build ports")
+
+    def latest_writer(path: Path, data: dict[str, object], mode: int):
+        writes.append((str(path), str(data.get("schema"))))
+        assert mode == 0o664
+        return None
+
+    data = nervous_events_adapters.run_episodes_build(
+        privacy={"global_pause": True},
+        events_root=tmp_path / "events",
+        episodes_root=tmp_path / "episodes",
+        latest_path=tmp_path / "episodes" / "latest.json",
+        episodes_from_events=fail_port,
+        event_records_from_items=fail_port,
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at=GENERATED_AT,
+        events_builder=fail_port,
+        records_reader=fail_port,
+        derived_writer=fail_port,
+        latest_writer=latest_writer,
+    )
+
+    assert data == {
+        "schema": "abyss_machine_nervous_episodes_build_v1",
+        "version": "test",
+        "generated_at": GENERATED_AT,
+        "ok": False,
+        "refused": True,
+        "error": "global_pause is active; episode build did not touch derived episode files",
+    }
+    assert writes == [(str(tmp_path / "episodes" / "latest.json"), "abyss_machine_nervous_episodes_build_v1")]
+
+
 def test_cli_events_build_binds_file_work_to_adapter(monkeypatch, tmp_path: Path) -> None:
     facts_root = tmp_path / "facts"
     events_root = tmp_path / "events"
     latest_path = events_root / "latest.json"
     captured: dict[str, object] = {}
+    privacy_doc = {"global_pause": False}
 
-    def fake_build_events(**kwargs):
+    def fake_run_events_build(**kwargs):
         captured.update(kwargs)
         return {"ok": True, "from_adapter": True}
 
     monkeypatch.setattr(cli, "NERVOUS_FACTS_ROOT", facts_root)
     monkeypatch.setattr(cli, "NERVOUS_EVENTS_ROOT", events_root)
     monkeypatch.setattr(cli, "NERVOUS_EVENTS_LATEST_PATH", latest_path)
-    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli.nervous_events_adapters, "build_events", fake_build_events)
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy_doc)
+    monkeypatch.setattr(cli.nervous_events_adapters, "run_events_build", fake_run_events_build)
 
     data = cli.nervous_events_build(write_latest=False)
 
     assert data == {"ok": True, "from_adapter": True}
+    assert captured["privacy"] is privacy_doc
     assert captured["facts_root"] == facts_root
     assert captured["events_root"] == events_root
     assert captured["latest_path"] == latest_path
@@ -255,38 +381,33 @@ def test_cli_events_build_binds_file_work_to_adapter(monkeypatch, tmp_path: Path
     assert captured["latest_writer"] is cli.safe_atomic_write_json
 
 
-def test_cli_episodes_build_keeps_refresh_orchestration_at_edge(monkeypatch, tmp_path: Path) -> None:
+def test_cli_episodes_build_binds_refresh_port_to_adapter(monkeypatch, tmp_path: Path) -> None:
     events_root = tmp_path / "events"
     episodes_root = tmp_path / "episodes"
     latest_path = episodes_root / "latest.json"
     captured: dict[str, object] = {}
-    refresh_calls: list[bool] = []
-    refresh_document = {"ok": True, "summary": {"events": 1}}
+    privacy_doc = {"global_pause": False}
 
-    def fake_build_episodes(**kwargs):
+    def fake_run_episodes_build(**kwargs):
         captured.update(kwargs)
         return {"ok": True, "from_adapter": True}
-
-    def fake_events_build(write_latest: bool = True):
-        refresh_calls.append(write_latest)
-        return refresh_document
 
     monkeypatch.setattr(cli, "NERVOUS_EVENTS_ROOT", events_root)
     monkeypatch.setattr(cli, "NERVOUS_EPISODES_ROOT", episodes_root)
     monkeypatch.setattr(cli, "NERVOUS_EPISODES_LATEST_PATH", latest_path)
-    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False})
-    monkeypatch.setattr(cli, "nervous_events_build", fake_events_build)
-    monkeypatch.setattr(cli.nervous_events_adapters, "build_episodes", fake_build_episodes)
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: privacy_doc)
+    monkeypatch.setattr(cli.nervous_events_adapters, "run_episodes_build", fake_run_episodes_build)
 
     data = cli.nervous_episodes_build(write_latest=True, refresh_events=True)
 
     assert data == {"ok": True, "from_adapter": True}
-    assert refresh_calls == [True]
+    assert captured["privacy"] is privacy_doc
     assert captured["events_root"] == events_root
     assert captured["episodes_root"] == episodes_root
     assert captured["latest_path"] == latest_path
     assert captured["episodes_from_events"] is cli.nervous_episodes_from_events
-    assert captured["events_refresh"] == refresh_document
+    assert captured["events_builder"] is cli.nervous_events_build
+    assert captured["refresh_events"] is True
     assert captured["write_latest_enabled"] is True
     assert captured["latest_writer"] is cli.safe_atomic_write_json
 

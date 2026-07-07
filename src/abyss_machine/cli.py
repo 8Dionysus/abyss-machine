@@ -21217,16 +21217,8 @@ def nervous_events_from_fact_records(items: list[dict[str, Any]]) -> tuple[list[
 
 def nervous_events_build(write_latest: bool = True) -> dict[str, Any]:
     privacy = nervous_effective_privacy(write_latest=False)
-    if bool(privacy.get("global_pause")):
-        data = nervous_events_contracts.events_build_refused_result(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=now_iso(),
-        )
-        if write_latest:
-            nervous_events_adapters.write_latest(data, NERVOUS_EVENTS_LATEST_PATH, writer=safe_atomic_write_json)
-        return data
-    return nervous_events_adapters.build_events(
+    return nervous_events_adapters.run_events_build(
+        privacy=privacy,
         facts_root=NERVOUS_FACTS_ROOT,
         events_root=NERVOUS_EVENTS_ROOT,
         latest_path=NERVOUS_EVENTS_LATEST_PATH,
@@ -21291,26 +21283,18 @@ def nervous_episodes_from_events(events: list[dict[str, Any]]) -> tuple[list[dic
 
 def nervous_episodes_build(write_latest: bool = True, refresh_events: bool = True) -> dict[str, Any]:
     privacy = nervous_effective_privacy(write_latest=False)
-    if bool(privacy.get("global_pause")):
-        data = nervous_events_contracts.episodes_build_refused_result(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=now_iso(),
-        )
-        if write_latest:
-            nervous_events_adapters.write_latest(data, NERVOUS_EPISODES_LATEST_PATH, writer=safe_atomic_write_json)
-        return data
-    events_refresh = nervous_events_build(write_latest=True) if refresh_events else None
-    return nervous_events_adapters.build_episodes(
+    return nervous_events_adapters.run_episodes_build(
+        privacy=privacy,
         events_root=NERVOUS_EVENTS_ROOT,
         episodes_root=NERVOUS_EPISODES_ROOT,
         latest_path=NERVOUS_EPISODES_LATEST_PATH,
         episodes_from_events=nervous_episodes_from_events,
         event_records_from_items=lambda items: nervous_events_contracts.event_records_from_items(items, schema_prefix=SCHEMA_PREFIX),
-        events_refresh=events_refresh,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
+        events_builder=nervous_events_build,
+        refresh_events=refresh_events,
         write_latest_enabled=write_latest,
         latest_writer=safe_atomic_write_json,
     )

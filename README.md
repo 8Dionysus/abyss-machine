@@ -128,7 +128,8 @@ latest/history writes, browser selftest callback binding, and command rendering;
 nervous derived event/episode record shapes, classification/grouping,
 build-envelope, and validation contracts live in `abyss_machine.nervous_events`;
 local JSONL reads, derived event/episode replacement writes, latest read
-envelopes, and build/validate latest write routing for events/episodes live in
+envelopes, global-pause build refusals, episode refresh orchestration through
+fakeable ports, and build/validate latest write routing for events/episodes live in
 `abyss_machine.nervous_events_adapters`;
 nervous synthesis selection, candidate build orchestration, path/write-result
 envelopes, markdown, validation, eval run execution-plan, and deterministic eval run/validate envelopes live in
