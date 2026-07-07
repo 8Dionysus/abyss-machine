@@ -19,7 +19,7 @@
       "https://docs.sigstore.dev/"
     ],
     "c2pa": [
-      "https://spec.c2pa.org/specifications/specifications/2.2/specs/C2PA_Specification.html",
+      "https://spec.c2pa.org/specifications/specifications/2.4/specs/C2PA_Specification.html",
       "https://c2pa.org/conformance/",
       "https://raw.githubusercontent.com/c2pa-org/conformance-public/refs/heads/main/trust-list/C2PA-TRUST-LIST.pem",
       "https://opensource.contentauthenticity.org/docs/c2patool/docs/usage/"
@@ -33,7 +33,8 @@
       "https://theupdateframework.github.io/specification/latest/"
     ],
     "scitt": [
-      "https://datatracker.ietf.org/doc/rfc9699/"
+      "https://datatracker.ietf.org/doc/draft-ietf-scitt-architecture/",
+      "https://datatracker.ietf.org/doc/draft-ietf-scitt-scrapi/"
     ]
   },
   "abi_signature": {
@@ -562,7 +563,7 @@
         "authority_ref": ["mechanics/local-ai-runtime/README.md", "tools/ai/AGENTS.md", "config-templates/etc/abyss-machine/storage-policy.json"],
         "producer": "runtime packaging or container build from tracked runtime helpers and host policy templates",
         "consumer_expectation": "runtime consumers verify ABI epoch, SBOM, build/install provenance, signer/builder identity, and distribution digest",
-        "privacy_boundary": "publishable only after excluding local model caches, compile blobs, private benchmarks, and /srv runtime state",
+        "privacy_boundary": "publishable only after excluding local model caches, compile blobs, private benchmarks, and /srv runtime state; no private material from host evidence is included",
         "content_identity": "artifact digest plus release sidecar digests",
         "abi_epoch": "v1 via host-runtime-artifact-route",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#runtime_or_container_artifact",
@@ -586,7 +587,7 @@
         "authority_ref": ["mechanics/local-ai-runtime/README.md", "tools/ai/AGENTS.md", "config-templates/etc/abyss-machine/ai/config.json"],
         "producer": "model/runtime download, conversion, packaging, or release process from tracked host AI runtime routes",
         "consumer_expectation": "AI runtime consumers verify ABI epoch, ML-BOM, SBOM when software is bundled, SLSA/in-toto provenance, signer identity, and model/source digests",
-        "privacy_boundary": "publishable only after excluding local prompts, private traces, benchmark scratch, compile caches, and host-specific /srv state",
+        "privacy_boundary": "publishable only after excluding local prompts, private traces, benchmark scratch, compile caches, and host-specific /srv state; no private material from host evidence is included",
         "content_identity": "model/runtime bundle digest plus model, dataset, conversion, and framework-config identities",
         "abi_epoch": "v1 via host-ai-runtime-route",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#ai_model_or_runtime_bundle",
@@ -610,7 +611,7 @@
         "authority_ref": ["tools/typing/AGENTS.md", "tools/typing/firefox-extension/AGENTS.md", "mechanics/typing-intake/README.md"],
         "producer": "extension packaging from tracked typed-text intake source",
         "consumer_expectation": "extension consumers verify ABI epoch, package provenance, extension-store signing boundary, and optional detached release signature",
-        "privacy_boundary": "package contains code only; typed text, browser captures, and local histories stay private",
+        "privacy_boundary": "package contains code only; no private typed text, browser captures, local histories, or host evidence is included",
         "content_identity": "zip/xpi digest plus ABI source tree hash",
         "abi_epoch": "v1 via typing-extension-package",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#browser_extension_package",
@@ -634,7 +635,7 @@
         "authority_ref": ["generated/release_manifest.json", "schemas/release_manifest.schema.json", "mechanics/release-support/docs/CODEX_PORTABLE_LAYER.md"],
         "producer": "aoa-skills release manifest builder from generated export surfaces, bundle indexes, install profiles, and release identity",
         "consumer_expectation": "consumers verify the aoa-skills generated release manifest digest, artifact identity, schema, generated-file digests, local release provenance, skill bundle revisions, and install profile revisions before trusting a portable export handoff",
-        "privacy_boundary": "public-safe generated export metadata and digests only; no secrets, host runtime state, downstream adoption truth, or private workspace evidence",
+        "privacy_boundary": "public-safe generated export metadata and digests only; no private workspace evidence, no secrets, no host runtime state, and no downstream adoption truth",
         "content_identity": "generated/release_manifest.json digest plus artifact_identity from the owning aoa-skills repository",
         "abi_epoch": "aoa_skills_release_manifest_v1",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#aoa_skills_release_manifest",
@@ -658,7 +659,7 @@
         "authority_ref": ["AGENTS.md", "DESIGN.md", "DESIGN.AGENTS.md", "PIPELINE.md", "INSTALL.md", "READINESS.md", "scripts/aoa_session_memory.py"],
         "producer": "aoa-session-memory export-bundle from portable kernel source, with clean export excluding raw sessions and host-local runtime evidence by default",
         "consumer_expectation": "workspace and agent installers verify portable bundle digests, ABI identity, SBOM-lite source inventory, SLSA/in-toto export provenance, portable audit readiness, and trust-gate allow/warn verdict before install or use; raw .aoa evidence never becomes trust authority",
-        "privacy_boundary": "public-safe portable kernel, route docs, schemas, scripts, skills, hook examples, tests, and compact export metadata only; no raw transcripts, session archives, hook receipts, diagnostics payloads, search databases, graph sidecars, secrets, or private workspace evidence",
+        "privacy_boundary": "public-safe portable kernel, route docs, schemas, scripts, skills, hook examples, tests, and compact export metadata only; no private workspace evidence, raw transcripts, session archives, hook receipts, diagnostics payloads, search databases, graph sidecars, or secrets",
         "content_identity": "clean portable export bundle digest plus aoa-session-memory portable kernel subject inventory",
         "abi_epoch": "aoa_session_memory_portable_bundle_v1",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#aoa_session_memory_portable_bundle",
@@ -826,7 +827,7 @@
         "authority_ref": ["pyproject.toml", "sdk/distribution/package-contract/README.md", "mechanics/release-support/README.md", ".github/workflows/release-artifacts.yml"],
         "producer": "aoa-sdk Python build backend from tracked SDK source and package metadata",
         "consumer_expectation": "package consumers verify wheel/sdist digests, ABI identity, SBOM package/dependency inventory, and SLSA/in-toto provenance before trusting built SDK distributions",
-        "privacy_boundary": "public package artifacts only; no host runtime state, private workspace evidence, session traces, caches, or local /srv data",
+        "privacy_boundary": "public package artifacts only; no private workspace evidence, host runtime state, session traces, caches, or local /srv data",
         "content_identity": "wheel and sdist digests plus repo-local aoa-sdk artifact identity manifest",
         "abi_epoch": "aoa_sdk_python_distribution_v1",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#aoa_sdk_python_distribution",
@@ -995,7 +996,7 @@
         "authority_ref": ["docs/publication/PUBLICATION_BOUNDARY.md", "manifests/artifact_signature_policy.manifest.json"],
         "producer": "reviewed export process from public-safe source or privacy-reviewed host material",
         "consumer_expectation": "content consumers verify C2PA manifest, credential onboarding phase, and, when bundled for release, release asset digest or signature",
-        "privacy_boundary": "public only after review; private host evidence keeps its local provenance and does not become public automatically",
+        "privacy_boundary": "public only after review; no private material from host evidence is included in public exports, and source evidence keeps its local provenance",
         "content_identity": "media digest plus C2PA manifest or sidecar",
         "abi_epoch": "not_applicable_content_credential",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.4#public_media_export",

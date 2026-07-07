@@ -195,6 +195,13 @@ if state == "expired":
         "argv": sys.argv[1:],
     }))
     sys.exit(0)
+if state == "invalid_credential":
+    print(json.dumps({
+        "validation_state": "Valid",
+        "validation_status": [{"code": "signingCredential.invalid"}],
+        "argv": sys.argv[1:],
+    }))
+    sys.exit(0)
 if state == "revoked":
     print(json.dumps({
         "validation_state": "Valid",
@@ -330,41 +337,10 @@ def test_artifact_scenario_matrix_covers_required_os_trust_loop() -> None:
     assert matrix["summary"]["owner_or_manual_evidence_required"] == 2
     assert matrix["summary"]["owner_or_manual_evidence_open"] == 2
     assert matrix["summary"]["durable_evidence_checked"] == 0
-    assert matrix["summary"]["source_freshness_checked"] == 0
-    assert matrix["summary"]["source_freshness_open"] == 0
 
 
-def test_artifact_scenario_matrix_reports_durable_owner_evidence(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_artifact_scenario_matrix_reports_durable_owner_evidence(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
-    workspace = tmp_path / "workspace"
-    consumer_contract = {
-        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class aoa_evals_generated_report_index_bundle --consumer-intent agent --json",
-        "admission_gate": "fail_closed_consumer_admission",
-        "subject_store_required": True,
-    }
-    manifest_dir = workspace / "aoa-evals" / "mechanics" / "release-support" / "parts" / "artifact-bundles" / "manifests"
-    manifest_dir.mkdir(parents=True)
-    (manifest_dir / "report_index.bundle.json").write_text(
-        json.dumps(
-            {
-                "schema": "abyss_machine_artifact_bundle_manifest_v1",
-                "id": "aoa-evals-report-index",
-                "artifact_class": "aoa_evals_generated_report_index_bundle",
-                "owner_repo": "aoa-evals",
-                "policy_ref": artifact_bundles.POLICY_REF,
-                "mode": "os_abyss_local",
-                "public_safe": True,
-                "consumer_contract": consumer_contract,
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
     _write_verified_registry_record(
         registry,
         evidence_refs=["owner-evidence:aoa-evals-report-index"],
@@ -372,7 +348,6 @@ def test_artifact_scenario_matrix_reports_durable_owner_evidence(
         source_repo="aoa-evals",
         source_ref="mechanics/release-support/parts/artifact-bundles/manifests/report_index.bundle.json",
         producer="aoa-evals generated report-index builder",
-        consumer_contract=consumer_contract,
     )
 
     matrix = artifact_bundles.artifact_scenario_matrix(
@@ -387,33 +362,36 @@ def test_artifact_scenario_matrix_reports_durable_owner_evidence(
     assert row["durable_evidence"]["status"] == "durable_gate_allow"
     assert row["durable_evidence"]["trust_gate_verdict"] == "allow"
     assert row["durable_evidence"]["latest_source_repo"] == "aoa-evals"
-    assert row["source_freshness"]["freshness"] == "fresh"
-    assert row["source_freshness_open"] is False
     assert matrix["summary"]["owner_or_manual_evidence_required"] == 1
     assert matrix["summary"]["owner_or_manual_evidence_open"] == 0
     assert matrix["summary"]["durable_evidence_checked"] == 1
-    assert matrix["summary"]["source_freshness_checked"] == 1
-    assert matrix["summary"]["source_freshness_open"] == 0
 
 
-def test_artifact_scenario_matrix_keeps_stale_source_open(tmp_path: Path) -> None:
-    _bundle, registry = _public_source_seed_registry(tmp_path)
-    _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
+def test_artifact_scenario_matrix_keeps_owner_evidence_open_for_wrong_source_repo(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    _write_verified_registry_record(
+        registry,
+        evidence_refs=["wrong-owner-evidence"],
+        artifact_class="aoa_evals_generated_report_index_bundle",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        producer="abyss-machine fixture",
+    )
 
     matrix = artifact_bundles.artifact_scenario_matrix(
-        scenario_id="public_source_seed",
+        scenario_id="eval_report",
         registry_dir=registry,
     )
     row = matrix["rows"][0]
 
-    assert row["durable_evidence"]["status"] == "durable_gate_allow"
-    assert row["source_freshness"]["freshness"] == "stale"
-    assert row["source_freshness"]["reasons"] == ["abi_subject_digest_stale"]
-    assert row["source_freshness_open"] is True
+    assert row["manual_or_owner_evidence_required"] is True
     assert row["owner_or_manual_evidence_open"] is True
-    assert "stale against current source contracts" in row["claim_limit"]
-    assert matrix["summary"]["source_freshness_checked"] == 1
-    assert matrix["summary"]["source_freshness_open"] == 1
+    assert row["durable_evidence"]["status"] == "durable_gate_denied"
+    assert row["durable_evidence"]["expected_source_repo"] == "aoa-evals"
+    assert row["durable_evidence"]["latest_source_repo"] == "abyss-machine"
+    assert row["durable_evidence"]["trust_gate_verdict"] == "deny"
+    assert "source_repo_mismatch" in row["durable_evidence"]["trust_gate_reasons"]
+    assert matrix["summary"]["owner_or_manual_evidence_open"] == 1
 
 
 def test_artifacts_validate_document_contract_is_module_owned(tmp_path: Path) -> None:
@@ -485,8 +463,12 @@ def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pyte
     assert data["schema"] == "abyss_machine_artifact_scenario_matrix_v1"
     assert data["scenario_filter"] == "eval_report"
     assert data["rows"][0]["manual_or_owner_evidence_required"] is True
+    assert data["rows"][0]["owner_or_manual_evidence_open"] is True
+    assert data["rows"][0]["durable_evidence"]["status"] == "not_checked"
+    assert data["summary"]["durable_evidence_checked"] == 0
     latest = json.loads((scenarios_root / "latest.json").read_text(encoding="utf-8"))
     assert latest["rows"][0]["scenario_id"] == "eval_report"
+    assert latest["rows"][0]["durable_evidence"]["status"] == "not_checked"
 
 
 def test_artifacts_affected_cli_fails_on_operational_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
@@ -517,6 +499,45 @@ def test_artifacts_affected_cli_fails_on_operational_blocking(tmp_path: Path, mo
     assert data["gate"]["reasons"] == ["operationally_blocking:1"]
     latest = json.loads((affected_root / "latest.json").read_text(encoding="utf-8"))
     assert latest["gate"]["exit_code"] == 2
+
+
+def test_artifacts_affected_cli_exit_reflects_write_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    affected_root = tmp_path / "affected"
+    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_ROOT", affected_root)
+    monkeypatch.setattr(cli, "ARTIFACTS_AFFECTED_LATEST_PATH", affected_root / "latest.json")
+    monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
+
+    def fake_atomic_write(path: Path, payload: dict[str, object], mode: int) -> str | None:
+        if Path(path) == affected_root / "latest.json":
+            return "permission denied writing affected latest"
+        return None
+
+    monkeypatch.setattr(cli, "safe_atomic_write_json", fake_atomic_write)
+
+    rc = cli.main(
+        [
+            "artifacts",
+            "affected",
+            "--registry-dir",
+            str(tmp_path / "empty-registry"),
+            "--artifact-class",
+            "public_source_seed",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert rc == 1
+    assert data["ok"] is False
+    assert data["write_errors"] == ["permission denied writing affected latest"]
+    assert data["gate"]["allowed"] is False
+    assert data["gate"]["exit_code"] == 1
+    assert "write_errors_present" in data["gate"]["reasons"]
 
 
 def test_artifacts_affected_cli_can_fail_on_accepted_sibling_lag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
@@ -755,6 +776,101 @@ def _rewrite_latest_record(registry: Path, **updates: object) -> dict[str, objec
     return record
 
 
+def _copy_contract_source_root(target: Path) -> Path:
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(artifact_bundles.REPO_ROOT / "manifests", target / "manifests")
+    (target / "generated").mkdir()
+    shutil.copy2(
+        artifact_bundles.REPO_ROOT / artifact_bundles.ABI_REF,
+        target / artifact_bundles.ABI_REF,
+    )
+    return target
+
+
+def _rewrite_public_seed_abi_digest(source_root: Path, digest: str) -> None:
+    abi_path = source_root / artifact_bundles.ABI_REF
+    abi = json.loads(abi_path.read_text(encoding="utf-8"))
+    for surface in abi.get("contract_surfaces", []):
+        if isinstance(surface, dict) and surface.get("artifact_class") == "public_source_seed":
+            surface["source_tree_hash"] = digest
+            break
+    abi_path.write_text(json.dumps(abi, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def test_materialize_artifact_subjects_rejects_tampered_subjects_aggregate_before_gate(tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    artifact = dist / "abyss-machine-bootstrap.tar"
+    artifact.write_text("bootstrap payload\n", encoding="utf-8")
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "bootstrap-install-bundle-contract",
+        "artifact_class": "bootstrap_install_bundle",
+        "owner_repo": "abyss-machine",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "mode": "os_abyss_local",
+        "public_safe": True,
+        "subject_repo_root": ".",
+        "artifact_subjects": [
+            {"path": "dist/abyss-machine-bootstrap.tar", "role": "bootstrap_install_bundle"},
+        ],
+        "build_type": "urn:abyssos:buildtype:bootstrap-install-bundle:v1",
+        "package": {
+            "ecosystem": "bootstrap",
+            "name": "abyss-machine-bootstrap",
+            "purl": "pkg:generic/abyss-machine-bootstrap@0",
+        },
+        "consumer_contract": {
+            "stable_interface": "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer --json",
+            "admission_gate": "fail_closed_consumer_admission",
+            "subject_store_required": True,
+        },
+    }
+    manifest_path = tmp_path / "bootstrap_install.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    subjects_path = bundle / artifact_bundles.SUBJECTS_SIDECAR
+    subjects = json.loads(subjects_path.read_text(encoding="utf-8"))
+    subjects["files"][0]["tampered"] = True
+    subjects_path.write_text(json.dumps(subjects, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    materialized = artifact_bundles.materialize_artifact_subjects(
+        bundle,
+        store_root=tmp_path / "subject-store",
+        registry_dir=registry,
+        manifest_ref=manifest_path,
+    )
+
+    assert materialized["ok"] is False
+    assert materialized["errors"] == ["artifact.subjects.json aggregate_digest mismatch"]
+    assert materialized["written"] == []
+
+
+def test_artifact_subject_store_dir_rejects_dot_tokens(tmp_path: Path) -> None:
+    for subjects in (
+        {"artifact_class": ".", "aggregate_digest": "sha256:" + "a" * 64},
+        {"artifact_class": "portable_bundle", "aggregate_digest": "sha256:.."},
+    ):
+        with pytest.raises(ValueError, match="safe artifact-store token"):
+            artifact_bundles.artifact_subject_store_dir(subjects, store_root=tmp_path)
+
+
+def test_portable_path_ref_for_external_paths_is_cwd_independent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bundle = tmp_path / "job-123" / "bundle"
+    bundle.mkdir(parents=True)
+
+    monkeypatch.chdir(tmp_path)
+    first = artifact_bundles._portable_path_ref(bundle)
+    monkeypatch.chdir("/")
+    second = artifact_bundles._portable_path_ref(bundle)
+
+    assert first == "bundle"
+    assert second == "bundle"
+
+
 def _write_role_registry_source_manifest(workspace: Path, *, consumer_contract: dict[str, object]) -> Path:
     manifest_dir = workspace / "aoa-agents" / "manifests" / "artifact_bundles"
     manifest_dir.mkdir(parents=True)
@@ -835,6 +951,20 @@ def _write_role_registry_latest(
     )
 
 
+def _mock_role_registry_trust_tools_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cli,
+        "artifacts_trust_tools",
+        lambda write_latest=False: {
+            "summary": {
+                "status": "ok",
+                "available_controls": ["abi_signature", "slsa_in_toto"],
+                "missing_controls": [],
+            }
+        },
+    )
+
+
 def test_trust_coverage_blocks_stale_abi_registry_latest(tmp_path: Path) -> None:
     _bundle, registry = _public_source_seed_registry(tmp_path)
     _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
@@ -873,6 +1003,62 @@ def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) 
     assert row["source_freshness"]["freshness"] == "stale"
     assert row["source_freshness"]["reasons"] == ["consumer_contract_stale"]
     assert row["source_freshness"]["current_consumer_contract"]["admission_gate"] == "fail_closed_consumer_admission"
+    assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
+
+
+def test_trust_coverage_source_root_selects_abi_freshness(tmp_path: Path) -> None:
+    _bundle, registry = _public_source_seed_registry(tmp_path)
+    fresh_root = _copy_contract_source_root(tmp_path / "fresh-source-root")
+    stale_root = _copy_contract_source_root(tmp_path / "stale-source-root")
+    _rewrite_public_seed_abi_digest(stale_root, "sha256:" + "0" * 64)
+
+    stale = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        source_root=stale_root,
+        write_latest=False,
+    )
+    fresh = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        source_root=fresh_root,
+        write_latest=False,
+    )
+    stale_row = next(item for item in stale["rows"] if item["artifact_class"] == "public_source_seed")
+    fresh_row = next(item for item in fresh["rows"] if item["artifact_class"] == "public_source_seed")
+
+    assert stale_row["source_freshness"]["freshness"] == "stale"
+    assert stale_row["source_freshness"]["reasons"] == ["abi_subject_digest_stale"]
+    assert stale_row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
+    assert fresh["source_context"]["public_seed_root"] == str(fresh_root)
+    assert fresh_row["source_context"]["public_seed_root"] == str(fresh_root)
+    assert fresh_row["source_freshness"]["freshness"] == "fresh"
+    assert fresh_row["status"] == "DURABLE_GATE_COVERED"
+
+
+def test_trust_coverage_source_ref_context_blocks_unproved_ref(tmp_path: Path) -> None:
+    _bundle, registry = _public_source_seed_registry(tmp_path)
+    source_root = _copy_contract_source_root(tmp_path / "source-root")
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        source_root=source_root,
+        source_repo="abyss-machine",
+        source_ref="source-refresh:not-promoted-current-ref",
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "public_source_seed")
+
+    assert coverage["source_context"]["requested_source_repo"] == "abyss-machine"
+    assert coverage["source_context"]["requested_source_ref"] == "source-refresh:not-promoted-current-ref"
+    assert row["source_freshness"]["freshness"] == "stale"
+    assert "source_context_rebuild_required" in row["source_freshness"]["reasons"]
+    assert row["source_freshness"]["affected_drift"]["source_ref_status"]["proves_current_ref"] is False
+    assert row["source_freshness"]["affected_drift"]["drift"]["operationally_blocking"] is True
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
 
 
@@ -960,6 +1146,7 @@ def test_trust_coverage_checks_cross_repo_manifest_consumer_contract(
     _write_role_registry_source_manifest(workspace, consumer_contract=consumer_contract)
     _write_role_registry_latest(registry, consumer_contract=consumer_contract)
     monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
+    _mock_role_registry_trust_tools_available(monkeypatch)
 
     coverage = cli.artifacts_trust_coverage(
         registry_dir=registry,
@@ -977,6 +1164,47 @@ def test_trust_coverage_checks_cross_repo_manifest_consumer_contract(
         "aoa-agents/manifests/artifact_bundles/role_contract_registry.bundle.json"
     )
     assert row["status"] == "DURABLE_GATE_COVERED"
+
+
+def test_trust_coverage_durable_only_excludes_rows_with_unavailable_required_controls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "registry"
+    workspace = tmp_path / "workspace"
+    consumer_contract = {
+        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class role_contract_registry --consumer-intent agent --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    _write_role_registry_source_manifest(workspace, consumer_contract=consumer_contract)
+    _write_role_registry_latest(registry, consumer_contract=consumer_contract)
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
+    monkeypatch.setattr(
+        cli,
+        "artifacts_trust_tools",
+        lambda write_latest=False: {
+            "summary": {
+                "status": "partial",
+                "available_controls": ["abi_signature"],
+                "missing_controls": ["slsa_in_toto"],
+            }
+        },
+    )
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "role_contract_registry")
+
+    assert row["installed_verification"]["trust_gate_verdict"] == "allow"
+    assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
+    assert "slsa_in_toto" in row["remaining_blocker"]
+    assert coverage["summary"]["durable_gate_covered"] == 0
+    assert coverage["summary"]["deferred_with_real_blocker"] >= 1
 
 
 def test_trust_coverage_falls_back_to_durable_source_ref_for_manifest(
@@ -998,6 +1226,7 @@ def test_trust_coverage_falls_back_to_durable_source_ref_for_manifest(
         source_ref=str(manifest_path),
     )
     monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
+    _mock_role_registry_trust_tools_available(monkeypatch)
 
     coverage = cli.artifacts_trust_coverage(
         registry_dir=registry,
@@ -1011,6 +1240,74 @@ def test_trust_coverage_falls_back_to_durable_source_ref_for_manifest(
     assert row["source_freshness"]["freshness"] == "fresh"
     assert row["source_freshness"]["manifest_resolution"]["resolved"] is True
     assert row["source_freshness"]["manifest_resolution"]["path"] == str(manifest_path)
+    assert row["status"] == "DURABLE_GATE_COVERED"
+
+
+def test_trust_coverage_allows_current_manifest_after_stale_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "registry"
+    workspace = tmp_path / "workspace"
+    current_contract = {
+        "stable_interface": "abyss-machine artifacts trust-gate --artifact-class role_contract_registry --consumer-intent agent --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    stale_contract = {
+        "stable_interface": "abyss-machine artifacts bundle-registry --artifact-class role_contract_registry --json",
+        "admission_gate": "fail_closed_consumer_admission",
+        "subject_store_required": True,
+    }
+    stale_manifest = _write_role_registry_source_manifest(workspace, consumer_contract=stale_contract)
+    current_manifest = _write_role_registry_source_manifest(workspace / "current", consumer_contract=current_contract)
+    _write_role_registry_latest(registry, consumer_contract=current_contract)
+    _rewrite_latest_record(
+        registry,
+        bundle_manifest_ref=str(stale_manifest),
+        source_ref=str(current_manifest),
+    )
+    monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
+    _mock_role_registry_trust_tools_available(monkeypatch)
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "role_contract_registry")
+
+    assert row["source_freshness"]["checked"] is True
+    assert row["source_freshness"]["freshness"] == "fresh"
+    assert row["source_freshness"]["reasons"] == []
+    assert row["source_freshness"]["manifest_resolution"]["path"] == str(current_manifest)
+    assert row["status"] == "DURABLE_GATE_COVERED"
+
+
+def test_trust_coverage_checks_requirement_manifest_when_latest_ref_is_not_manifest(tmp_path: Path) -> None:
+    _bundle, registry = _public_source_seed_registry(tmp_path)
+    _rewrite_latest_record(
+        registry,
+        bundle_manifest_ref="",
+        source_ref="source-refresh:" + "e" * 40,
+        source_refs=["source-refresh:" + "e" * 40],
+    )
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "public_source_seed")
+
+    assert row["source_freshness"]["checked"] is True
+    assert row["source_freshness"]["freshness"] == "fresh"
+    assert row["source_freshness"]["manifest_resolution"]["basis"] == "requirement.source_route.bundle_manifest_refs"
+    assert row["source_freshness"]["manifest_resolution"]["path"].endswith(
+        "manifests/artifact_bundles/public_source_seed.bundle.json"
+    )
     assert row["status"] == "DURABLE_GATE_COVERED"
 
 
@@ -1081,6 +1378,7 @@ def _build_public_media_export_test_bundle(
     trust_anchors_profile: str | None = None,
     trust_config_ref: str | None = None,
     allowed_list: str | None = None,
+    allowed_list_ref: str | None = None,
     allow_embedded_manifest: bool = False,
     production_onboarding: bool = False,
     capture_argv: bool = False,
@@ -1166,7 +1464,9 @@ def _build_public_media_export_test_bundle(
     else:
         monkeypatch.delenv(artifact_bundles.C2PA_TRUST_CONFIG_ENV, raising=False)
         monkeypatch.delenv("C2PATOOL_TRUST_CONFIG", raising=False)
-    if allowed_list is not None:
+    if allowed_list_ref is not None:
+        monkeypatch.setenv(artifact_bundles.C2PA_ALLOWED_LIST_ENV, allowed_list_ref)
+    elif allowed_list is not None:
         allowed = tmp_path / "c2pa-allowed-list.pem"
         allowed.write_text(allowed_list, encoding="utf-8")
         monkeypatch.setenv(artifact_bundles.C2PA_ALLOWED_LIST_ENV, str(allowed))
@@ -1473,6 +1773,34 @@ def test_public_media_export_recognizes_canonical_content_credentials_trust_redi
     assert artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_CANONICAL_URL in argv
 
 
+def test_public_media_export_recognizes_canonical_content_credentials_allowed_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, argv_capture = _build_public_media_export_test_bundle(
+        tmp_path,
+        monkeypatch,
+        fake_state="trusted",
+        trust_anchors_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_CANONICAL_URL,
+        trust_config_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_CANONICAL_URL,
+        allowed_list_ref=artifact_bundles.C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_CANONICAL_URL,
+        allow_embedded_manifest=True,
+        capture_argv=True,
+    )
+
+    verify = artifact_bundles.verify_bundle(bundle, repo_root=bundle.parent)
+
+    assert verify["ok"] is True
+    c2pa_trust = verify["control_evidence"]["c2pa"]["trust"]
+    assert c2pa_trust["trust_tier"] == "legacy_interim_trust_store"
+    assert c2pa_trust["allowed_list_end_entity_configured"] is True
+    assert c2pa_trust["trust_sources"]["allowed_list_ref"] == artifact_bundles.C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_CANONICAL_URL
+    assert c2pa_trust["production_trust_list_trusted"] is False
+    assert argv_capture is not None
+    argv = json.loads(argv_capture.read_text(encoding="utf-8"))
+    assert artifact_bundles.C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_CANONICAL_URL in argv
+
+
 def test_public_media_export_uses_active_manifest_for_c2pa_credential_trust(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1606,6 +1934,7 @@ def test_public_media_export_warns_when_c2pa_credential_trust_is_not_reported(
     ("fake_state", "expected_error"),
     [
         ("expired", "signing credential is expired"),
+        ("invalid_credential", "signing credential is invalid"),
         ("revoked", "signing credential is revoked"),
     ],
 )
@@ -1804,6 +2133,48 @@ def test_trust_coverage_exposes_pre_organization_c2pa_onboarding(
     assert "credential onboarding phase is pre_organization" in row["remaining_blocker"]
 
 
+def test_trust_coverage_derives_legacy_production_c2pa_onboarding_from_latest_trust(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "trusted",
+        "trust_tier": "production_trust_list",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": True,
+        "trust_anchor_profile": "official_c2pa_trust_list",
+        "status_codes": ["signingCredential.trusted"],
+    }
+    registry = tmp_path / "registry"
+    _write_public_media_registry_record(registry, c2pa_trust=c2pa_trust)
+    monkeypatch.setattr(
+        cli,
+        "artifacts_trust_tools",
+        lambda write_latest=False: {
+            "summary": {
+                "status": "ready",
+                "available_controls": ["c2pa"],
+                "missing_controls": [],
+            }
+        },
+    )
+
+    coverage = cli.artifacts_trust_coverage(
+        registry_dir=registry,
+        manual_evidence_roots=[],
+        durable_only=True,
+        write_latest=False,
+    )
+    row = next(item for item in coverage["rows"] if item["artifact_class"] == "public_media_export")
+
+    assert row["credential_onboarding"]["phase"] == "production_trust_list_ready"
+    assert row["credential_onboarding"]["production_onboarding_declared"] is False
+    assert row["credential_onboarding"]["production_claim_allowed"] is False
+    assert row["credential_onboarding"]["readiness_source"] == "legacy_c2pa_trust_verdict_without_explicit_onboarding"
+
+
 def test_trust_coverage_operating_posture_keeps_pre_org_public_claim_blocker_separate() -> None:
     rows = [
         {
@@ -1870,6 +2241,37 @@ def test_trust_coverage_operating_posture_blocks_internal_readiness_for_normal_d
             "trust_gate_verdict": "manual_review_required",
         }
     ]
+
+
+def test_trust_coverage_operating_posture_does_not_hide_public_media_non_c2pa_blockers() -> None:
+    rows = [
+        {
+            "artifact_class": "public_media_export",
+            "status": "DEFERRED_WITH_REAL_BLOCKER",
+            "remaining_blocker": "Manual negative/adversarial installed evidence was not found for this artifact class.",
+            "installed_verification": {"trust_gate_verdict": "warn"},
+            "credential_onboarding": {
+                "phase": "pre_organization",
+                "legal_subject_state": "organization_pending",
+                "production_claim_allowed": False,
+                "blocked_claims": ["production C2PA Trust List proof"],
+            },
+        },
+    ]
+
+    posture = cli.artifact_trust_coverage_operating_posture(rows)
+
+    assert posture["profile"] == "pre_organization"
+    assert posture["os_internal_consumption"]["ready"] is False
+    assert posture["os_internal_consumption"]["blocked_artifact_classes"] == [
+        {
+            "artifact_class": "public_media_export",
+            "status": "DEFERRED_WITH_REAL_BLOCKER",
+            "reason": "Manual negative/adversarial installed evidence was not found for this artifact class.",
+            "trust_gate_verdict": "warn",
+        }
+    ]
+    assert posture["public_release_claims"]["blocked_artifact_classes"][0]["artifact_class"] == "public_media_export"
 
 
 def test_trust_coverage_exposes_registry_path_warning_for_empty_shadow_registry(
@@ -1959,6 +2361,61 @@ def test_trust_gate_warns_on_legacy_content_credentials_c2pa_from_structured_ver
     assert gate["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is False
 
 
+def test_trust_gate_reclassifies_old_content_credentials_profile_from_registry_record(tmp_path: Path) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Trusted",
+        "credential_status": "trusted",
+        "trust_tier": "production_trust_list",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": True,
+        "allowed_list_end_entity_configured": False,
+        "trust_anchor_profile": "official_content_credentials_trust_store",
+        "trust_sources": {
+            "trust_anchors": "ABYSS_MACHINE_C2PA_TRUST_ANCHORS",
+            "trust_anchors_ref": artifact_bundles.C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
+            "trust_anchors_profile": "official_content_credentials_trust_store",
+        },
+        "status_codes": ["signingCredential.trusted"],
+        "credential_onboarding": {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "production_trust_list_ready",
+            "legal_subject_state": "validated_legal_subject",
+            "interim_posture": "production_c2pa_trust_list",
+            "production_onboarding_declared": True,
+            "production_claim_allowed": True,
+            "readiness_source": "legacy registry fixture",
+        },
+    }
+    _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
+
+    release_consumer = artifact_bundles.trust_gate(
+        tmp_path / "registry",
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+    public_release = artifact_bundles.trust_gate(
+        tmp_path / "registry",
+        artifact_class="public_media_export",
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert release_consumer["ok"] is True
+    assert release_consumer["verdict"] == "warn"
+    assert any("legacy interim Content Credentials trust store" in warning for warning in release_consumer["warnings"])
+    inspected = release_consumer["inspected_claims"]["c2pa_trust"]
+    assert inspected["trust_tier"] == "legacy_interim_trust_store"
+    assert inspected["production_trust_list_configured"] is False
+    assert inspected["production_trust_list_trusted"] is False
+    assert inspected["trust_anchor_profile"] == "legacy_content_credentials_interim_trust_store"
+    assert inspected["legacy_trust_anchor_profile"] == "official_content_credentials_trust_store"
+    assert public_release["ok"] is False
+    assert public_release["verdict"] == "manual_review_required"
+    assert "public_release_claim_requires_production_c2pa_trust_list" in public_release["manual_review"]
+
+
 def test_trust_gate_warns_when_production_c2pa_trust_list_lacks_onboarding_readiness(tmp_path: Path) -> None:
     c2pa_trust = {
         "schema": "abyss_machine_c2pa_trust_verdict_v1",
@@ -1999,6 +2456,45 @@ def test_trust_gate_warns_when_production_c2pa_trust_list_lacks_onboarding_readi
     assert artifact_bundles.C2PA_PRE_ORGANIZATION_WARNING in gate["warnings"]
     assert gate["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is True
     assert gate["inspected_claims"]["c2pa_trust"]["credential_onboarding"]["production_claim_allowed"] is False
+
+
+def test_trust_gate_warns_on_legacy_autofilled_c2pa_onboarding_without_marker(tmp_path: Path) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "trusted",
+        "trust_tier": "production_trust_list",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": True,
+        "allowed_list_end_entity_configured": False,
+        "trust_anchor_profile": "official_c2pa_trust_list",
+        "trust_sources": {
+            "trust_anchors": "ABYSS_MACHINE_C2PA_TRUST_ANCHORS",
+            "trust_anchors_ref": artifact_bundles.C2PA_OFFICIAL_TRUST_LIST_URL,
+            "trust_anchors_profile": "official_c2pa_trust_list",
+        },
+        "status_codes": ["signingCredential.trusted"],
+        "credential_onboarding": {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "production_trust_list_ready",
+            "legal_subject_state": "validated_legal_subject",
+            "interim_posture": "production_c2pa_trust_list",
+            "production_claim_allowed": True,
+        },
+    }
+    _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
+
+    gate = artifact_bundles.trust_gate(
+        tmp_path / "registry",
+        artifact_class="public_media_export",
+        consumer_intent="release_consumer",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is True
+    assert gate["verdict"] == "warn"
+    assert artifact_bundles.C2PA_TRUST_GAP_WARNINGS[6] in gate["warnings"]
+    assert gate["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is True
 
 
 def test_trust_gate_blocks_public_media_public_release_claim_until_c2pa_production_ready(
@@ -2045,6 +2541,50 @@ def test_trust_gate_blocks_public_media_public_release_claim_until_c2pa_producti
     assert public_release["decision"]["allow"] is False
     assert "public_release_claim_requires_production_c2pa_trust_list" in public_release["manual_review"]
     assert artifact_bundles.C2PA_PRE_ORGANIZATION_WARNING in public_release["warnings"]
+
+
+def test_trust_gate_blocks_public_media_public_release_claim_with_false_onboarding_claim(
+    tmp_path: Path,
+) -> None:
+    c2pa_trust = {
+        "schema": "abyss_machine_c2pa_trust_verdict_v1",
+        "validation_state": "Valid",
+        "credential_status": "untrusted",
+        "trust_tier": "untrusted",
+        "production_trust_list_configured": True,
+        "production_trust_list_trusted": False,
+        "allowed_list_end_entity_configured": False,
+        "trust_anchor_profile": "official_c2pa_trust_list",
+        "status_codes": ["signingCredential.untrusted"],
+        "credential_onboarding": {
+            "schema": artifact_bundles.C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
+            "phase": "production_trust_list_ready",
+            "legal_subject_state": "validated_legal_subject",
+            "interim_posture": "production_c2pa_trust_list",
+            "production_onboarding_declared": True,
+            "production_claim_allowed": True,
+            "readiness_source": "artifact_manifest_c2pa_credential_onboarding",
+        },
+    }
+    registry = tmp_path / "registry"
+    _write_public_media_registry_record(registry, c2pa_trust=c2pa_trust)
+
+    public_release = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_media_export",
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert public_release["ok"] is False
+    assert public_release["verdict"] == "manual_review_required"
+    assert public_release["decision"]["allow"] is False
+    assert "public_release_claim_requires_production_c2pa_trust_list" in public_release["manual_review"]
+    assert public_release["inspected_claims"]["c2pa_trust"]["production_trust_list_trusted"] is False
+    assert (
+        public_release["inspected_claims"]["c2pa_trust"]["credential_onboarding"]["production_claim_allowed"]
+        is True
+    )
 
 
 def test_registry_latest_blocks_public_media_public_release_claim_without_production_c2pa(
@@ -2106,7 +2646,9 @@ def test_trust_gate_allows_public_media_with_production_c2pa_trust_list(tmp_path
             "phase": "production_trust_list_ready",
             "legal_subject_state": "validated_legal_subject",
             "interim_posture": "production_c2pa_trust_list",
+            "production_onboarding_declared": True,
             "production_claim_allowed": True,
+            "readiness_source": "artifact_manifest_c2pa_credential_onboarding",
         },
     }
     _write_public_media_registry_record(tmp_path / "registry", c2pa_trust=c2pa_trust)
@@ -2233,6 +2775,8 @@ def test_artifact_producer_profiles_resolve_owner_local_commands(tmp_path: Path)
 
 
 def test_artifact_producer_profiles_resolve_workspace_alias(tmp_path: Path) -> None:
+    stale_alias = tmp_path / "workspace" / ".aoa"
+    stale_alias.mkdir(parents=True)
     owner_root = tmp_path / "workspace" / "bundles" / "aoa-session-memory"
     script = owner_root / "scripts" / "aoa_session_memory.py"
     script.parent.mkdir(parents=True)
@@ -2250,6 +2794,7 @@ def test_artifact_producer_profiles_resolve_workspace_alias(tmp_path: Path) -> N
     assert row["automation_readiness"]["status"] == "owner_local_producer_validated"
     assert resolution["owner_repo_root"] == str(owner_root)
     assert resolution["owner_repo_root_source"] == "workspace_alias"
+    assert resolution["owner_repo_root"] != str(stale_alias)
     assert resolution["resolved_commands"][0]["resolved_paths"] == [str(script)]
 
 
@@ -2283,6 +2828,42 @@ def test_artifact_producer_profiles_prefer_owner_source_root_hint(tmp_path: Path
     assert row["automation_readiness"]["status"] == "owner_local_producer_validated"
     assert resolution["owner_repo_root"] == str(source_root)
     assert resolution["owner_repo_root_source"] == "owner_source_root_hint"
+    assert resolution["resolved_commands"][0]["resolved_paths"] == [str(script)]
+
+
+def test_artifact_producer_profiles_continue_past_existing_hint_when_command_ref_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    owner_root = workspace / "abyss-stack"
+    script = owner_root / "scripts" / "release_check.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    monkeypatch.setenv("ABYSS_STACK_SOURCE_ROOT_FOR_TEST", str(workspace))
+
+    manifest = json.loads((ROOT / artifact_bundles.POLICY_REF).read_text(encoding="utf-8"))
+    manifest["producer_profiles"]["abyss-stack"]["owner_source_root_hints"] = [
+        "${ABYSS_STACK_SOURCE_ROOT_FOR_TEST}"
+    ]
+    policy_path = tmp_path / artifact_bundles.POLICY_REF
+    policy_path.parent.mkdir(parents=True)
+    policy_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    profiles = artifact_bundles.artifact_producer_profiles(
+        owner_repo="abyss-stack",
+        repo_root=tmp_path,
+        workspace_root=workspace,
+        require_command_resolution=True,
+    )
+    row = profiles["rows"][0]
+    resolution = row["automation_readiness"]["command_resolution"]
+
+    assert profiles["ok"] is True
+    assert row["automation_readiness"]["status"] == "owner_local_producer_validated"
+    assert resolution["owner_repo_root"] == str(owner_root)
+    assert resolution["owner_repo_root_source"] == "workspace_owner_repo"
     assert resolution["resolved_commands"][0]["resolved_paths"] == [str(script)]
 
 
@@ -2433,6 +3014,36 @@ def test_artifact_affected_marks_contract_source_as_stale(tmp_path: Path) -> Non
     assert row["matches"][0]["matched_ref"] == "src/abyss_machine"
 
 
+def test_artifact_affected_keeps_rebuild_when_contract_source_and_abi_digest_are_stale(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        trust_root_mode="host_managed",
+    )
+    _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
+
+    affected = artifact_bundles.artifact_affected(
+        ["src/abyss_machine/artifact_bundles.py"],
+        artifact_class="public_source_seed",
+        registry_dir=registry,
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"needs_rebuild": 1}
+    assert row["verdict"] == "needs_rebuild"
+    assert row["drift"]["needs_rebuild"] is True
+    assert row["drift"]["needs_reverify"] is False
+    assert "contract_source_changed" in row["reasons"]
+    assert "abi_subject_digest_stale" in row["reasons"]
+    assert "rebuild artifact sidecars in the source owner route" in row["next_actions"]
+
+
 def test_artifact_affected_marks_missing_registry_latest_as_stale(tmp_path: Path) -> None:
     affected = artifact_bundles.artifact_affected(
         [],
@@ -2567,6 +3178,7 @@ def test_artifact_affected_infers_sibling_repo_from_absolute_path() -> None:
     assert row["drift"]["status"] == "blocked_missing_sibling"
     assert row["drift"]["source_ref_state"] == "not_requested"
     assert row["drift"]["operationally_blocking"] is True
+    assert row["next_actions"][1] == "run the producer profile in owner repo aoa-session-memory"
 
 
 def test_artifact_affected_keeps_raw_to_normalized_path_mapping_for_sibling_paths() -> None:
@@ -2624,7 +3236,6 @@ def _write_verified_registry_record(
     producer: str = "aoa-sdk:release-audit-publish-helper@commit:current",
     trust_root_mode: str = "host_managed",
     trust_root_evidence: dict[str, Any] | None = None,
-    consumer_contract: dict[str, Any] | None = None,
 ) -> None:
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
@@ -2651,22 +3262,13 @@ def _write_verified_registry_record(
         "producer_command": "python mechanics/release-support/parts/release-audit-publish-helper/scripts/validate_abyss_machine_package_artifact_bundle.py --json",
         "trust_root_mode": trust_root_mode,
         "trust_root_evidence": trust_root_evidence or {},
-        "privacy_boundary": "public package artifacts only; no host runtime state, private workspace evidence, session traces, caches, or local /srv data",
+        "privacy_boundary": "public package artifacts only; no private workspace evidence, no host runtime state, no session traces, no caches, and no local /srv data",
         "verifier_versions": {"test": "source-ref-freshness"},
         "evidence_refs": evidence_refs,
         "created_at": "2026-06-21T00:00:00Z",
         "policy_ref": artifact_bundles.POLICY_REF,
         "abi_ref": artifact_bundles.ABI_REF,
     }
-    if consumer_contract is not None:
-        record["consumer_contract"] = consumer_contract
-        subject_store_required = consumer_contract.get("subject_store_required") is True
-        record["artifact_subject_store"] = {
-            "required": subject_store_required,
-            "ok": True,
-            "aggregate_digest": subject_digest,
-            "path_basis": "synthetic_test_evidence",
-        }
     if abi_subject_digest is not None:
         record["abi_subject_digest"] = abi_subject_digest
     records = registry / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
@@ -2809,6 +3411,7 @@ def test_trust_gate_denies_ephemeral_evidence_refs(tmp_path: Path) -> None:
             "tmp:abi-signs-source-freshness-evidence-20260625T091251Z/aoa-sdk-python-distribution",
             "/srv/abyss-machine/tmp/pr68-bootstrap-trust-gate/aoa-kag/verify.json",
             "file:///tmp/abyss-machine-artifact-bundle/verify.json",
+            "file://localhost/tmp/abyss-machine-artifact-bundle/verify.json",
         ],
     )
 
@@ -2826,6 +3429,7 @@ def test_trust_gate_denies_ephemeral_evidence_refs(tmp_path: Path) -> None:
         "tmp:abi-signs-source-freshness-evidence-20260625T091251Z/aoa-sdk-python-distribution",
         "/srv/abyss-machine/tmp/pr68-bootstrap-trust-gate/aoa-kag/verify.json",
         "file:///tmp/abyss-machine-artifact-bundle/verify.json",
+        "file://localhost/tmp/abyss-machine-artifact-bundle/verify.json",
     ]
 
 
@@ -3206,6 +3810,26 @@ def test_artifact_affected_explicit_source_ref_mismatch_is_not_fresh_for_filtere
     assert row["drift"]["status"] == "reverify_required"
     assert row["drift"]["operationally_blocking"] is True
     assert row["drift"]["source_ref_state"] == "missing_current_proof"
+
+
+def test_artifact_affected_missing_latest_takes_precedence_over_source_ref_reverify(tmp_path: Path) -> None:
+    current_commit = "c0ffee0123456789abcdef0123456789abcdef00"
+
+    affected = artifact_bundles.artifact_affected(
+        [],
+        artifact_class="bootstrap_install_bundle",
+        changed_source_ref=current_commit,
+        registry_dir=tmp_path / "empty-registry",
+    )
+    row = affected["rows"][0]
+
+    assert affected["summary"]["status_counts"] == {"needs_rebuild": 1}
+    assert row["affected"] is True
+    assert row["verdict"] == "needs_rebuild"
+    assert row["drift"]["status"] == "missing_durable_evidence"
+    assert row["drift"]["evidence_state"] == "durable_latest_missing"
+    assert row["drift"]["source_ref_state"] == "missing_current_proof"
+    assert row["source_ref_status"]["required"] is True
 
 
 def test_artifact_affected_source_ref_does_not_block_out_of_scope_sibling_rows(tmp_path: Path) -> None:
@@ -3841,8 +4465,8 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
     monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
 
-    manifest_ref = tmp_path / "manifests" / "bootstrap_install_bundle.bundle.json"
-    source_ref = "manifests/bootstrap_install_bundle.bundle.json"
+    source_ref = "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json"
+    manifest_ref = tmp_path / source_ref
     manifest = json.loads((ROOT / "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json").read_text(encoding="utf-8"))
     manifest["subject_repo_root"] = str(tmp_path)
     manifest["artifact_subjects"] = [
@@ -3857,6 +4481,9 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     subject = tmp_path / "dist" / "abyss-machine-bootstrap-pytest-update-target.tar.gz"
     subject.parent.mkdir(parents=True, exist_ok=True)
     subject.write_text("bootstrap update target\n", encoding="utf-8")
+    production_subject = ROOT / "dist" / "abyss-machine-bootstrap-pytest-update-target.tar.gz"
+    production_subject.parent.mkdir(parents=True, exist_ok=True)
+    production_subject.write_text("bootstrap update target\n", encoding="utf-8")
     bundle = tmp_path / "bootstrap-update-bundle"
     registry = tmp_path / "registry"
     store_root = tmp_path / "subject-store"
@@ -3907,6 +4534,11 @@ def _bootstrap_update_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         )
     finally:
         subject.unlink(missing_ok=True)
+        production_subject.unlink(missing_ok=True)
+        try:
+            production_subject.parent.rmdir()
+        except OSError:
+            pass
 
     subject_digest = str(subjects["aggregate_digest"])
     gate = artifact_bundles.trust_gate(
@@ -3991,6 +4623,25 @@ def test_scitt_receipt_verifier_allows_external_relying_party_with_bound_receipt
     assert result["errors"] == []
     assert cli_result["ok"] is True
     assert cli_result["verdict"] == "allow"
+
+
+def test_scitt_receipt_verifier_rejects_malformed_artifact_digest() -> None:
+    statement = _scitt_statement(digest="sha256:nothex")
+    receipt = _scitt_receipt(statement)
+
+    result = artifact_bundles.verify_scitt_receipt(
+        statement,
+        receipt=receipt,
+        external_relying_party=True,
+        expected_statement_class="release_update_artifact",
+        expected_issuer="did:web:abyss.example:issuer:release",
+        expected_transparency_service="did:web:transparency.abyss.example",
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert result["ok"] is False
+    assert result["verdict"] == "deny"
+    assert "artifact_digest_missing" in result["errors"]
 
 
 def test_scitt_receipt_verifier_allows_external_relying_party_with_registry_link(tmp_path: Path) -> None:
@@ -4151,6 +4802,8 @@ def test_scitt_receipt_verifier_denies_missing_or_wrong_registry_link(tmp_path: 
     registry = _write_scitt_registry_record(tmp_path, record_id=record_id, digest=artifact_digest)
     statement = _scitt_statement(digest=artifact_digest, record_id=record_id)
     receipt = _scitt_receipt(statement)
+    missing_record_statement = _scitt_statement(digest=artifact_digest, record_id="")
+    missing_record_statement["subject"].pop("record_id", None)
     wrong_digest_statement = _scitt_statement(digest="sha256:" + ("3" * 64), record_id=record_id)
 
     missing_registry = artifact_bundles.verify_scitt_receipt(
@@ -4178,6 +4831,15 @@ def test_scitt_receipt_verifier_denies_missing_or_wrong_registry_link(tmp_path: 
         require_registry_link=True,
         now="2026-06-21T00:00:00Z",
     )
+    missing_record = artifact_bundles.verify_scitt_receipt(
+        missing_record_statement,
+        receipt=_scitt_receipt(missing_record_statement),
+        external_relying_party=True,
+        registry_dir=registry,
+        expected_record_id=record_id,
+        require_registry_link=True,
+        now="2026-06-21T00:00:00Z",
+    )
 
     assert missing_registry["ok"] is False
     assert "scitt_registry_required" in missing_registry["errors"]
@@ -4185,6 +4847,8 @@ def test_scitt_receipt_verifier_denies_missing_or_wrong_registry_link(tmp_path: 
     assert "registry_record_id_mismatch" in wrong_record["errors"]
     assert wrong_digest["ok"] is False
     assert "artifact_digest_registry_mismatch" in wrong_digest["errors"]
+    assert missing_record["ok"] is False
+    assert "registry_record_id_missing" in missing_record["errors"]
 
 
 def test_oci_publication_verifier_allows_digest_pinned_referrers_with_trust_gate(tmp_path: Path) -> None:
@@ -4237,6 +4901,113 @@ def test_oci_publication_verifier_allows_digest_pinned_referrers_with_trust_gate
     assert result["consumer_admission"]["trust_gate"]["verdict"] == "allow"
     assert cli_result["ok"] is True
     assert cli_result["consumer_admission"]["trust_gate"]["inspected_claims"]["trust_root_evidence"]["ok"] is True
+
+
+def test_oci_publication_trust_gate_requires_explicit_registry_binding(tmp_path: Path) -> None:
+    registry, record_id, record_subject_digest = _write_oci_runtime_registry_record(tmp_path)
+    subject_digest = "sha256:" + ("1" * 64)
+    evidence = _oci_publication_evidence(subject_digest=subject_digest)
+
+    result = artifact_bundles.verify_oci_publication(
+        evidence,
+        expected_artifact_class="runtime_or_container_artifact",
+        expected_subject_digest=subject_digest,
+        required_referrer_types=[
+            "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "application/vnd.cyclonedx+json",
+            "application/vnd.in-toto+jsonl",
+        ],
+        registry_dir=registry,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="oci_registry",
+        require_trust_gate=True,
+    )
+    bound = artifact_bundles.verify_oci_publication(
+        evidence,
+        expected_artifact_class="runtime_or_container_artifact",
+        expected_subject_digest=subject_digest,
+        expected_record_id=record_id,
+        expected_record_subject_digest=record_subject_digest,
+        required_referrer_types=[
+            "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "application/vnd.cyclonedx+json",
+            "application/vnd.in-toto+jsonl",
+        ],
+        registry_dir=registry,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="oci_registry",
+        require_trust_gate=True,
+    )
+
+    assert result["ok"] is False
+    assert result["verdict"] == "deny"
+    assert "trust_gate_record_binding_required" in result["errors"]
+    assert result["consumer_admission"]["trust_gate"] is None
+    assert bound["ok"] is True
+    assert bound["verdict"] == "allow"
+    assert bound["record_link"]["evidence_record_id"] is None
+    assert bound["record_link"]["expected_record_id"] == record_id
+    assert bound["consumer_admission"]["trust_gate"]["verdict"] == "allow"
+
+
+def test_oci_publication_rejects_mismatched_expected_registry_record(tmp_path: Path) -> None:
+    registry, record_id, record_subject_digest = _write_oci_runtime_registry_record(tmp_path)
+    subject_digest = "sha256:" + ("1" * 64)
+    evidence = _oci_publication_evidence(
+        subject_digest=subject_digest,
+        record_id="sha256:" + ("4" * 64),
+        record_subject_digest="sha256:" + ("5" * 64),
+    )
+
+    result = artifact_bundles.verify_oci_publication(
+        evidence,
+        expected_artifact_class="runtime_or_container_artifact",
+        expected_subject_digest=subject_digest,
+        expected_record_id=record_id,
+        expected_record_subject_digest=record_subject_digest,
+        required_referrer_types=[
+            "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "application/vnd.cyclonedx+json",
+            "application/vnd.in-toto+jsonl",
+        ],
+        registry_dir=registry,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="oci_registry",
+        require_trust_gate=True,
+    )
+
+    assert result["ok"] is False
+    assert result["verdict"] == "deny"
+    assert "registry_record_id_mismatch" in result["errors"]
+    assert "registry_record_subject_digest_mismatch" in result["errors"]
+    assert result["consumer_admission"]["trust_gate"] is None
+
+
+def test_oci_publication_verifier_reads_local_referrer_manifest_types(tmp_path: Path) -> None:
+    subject = tmp_path / "runtime-tools.tar.gz"
+    subject.write_bytes(b"runtime tools payload\n")
+    sigstore = tmp_path / "artifact.sigstore.json"
+    sigstore.write_text("sigstore bundle\n", encoding="utf-8")
+    published = artifact_bundles.build_oci_layout_publication(
+        subject,
+        tmp_path / "oci-layout",
+        artifact_class="runtime_or_container_artifact",
+        registry_ref="ghcr.io/8dionysus/abyss-machine/runtime-tools",
+        referrers=[{"artifact_type": "application/vnd.dev.sigstore.bundle.v0.3+json", "path": str(sigstore)}],
+    )
+    evidence = dict(published["evidence"])
+    evidence["referrers"] = [dict(evidence["referrers"][0])]
+    evidence["referrers"][0]["artifactType"] = "application/vnd.cyclonedx+json"
+
+    result = artifact_bundles.verify_oci_publication(
+        evidence,
+        expected_artifact_class="runtime_or_container_artifact",
+        expected_subject_digest=str(published["subject_digest"]),
+        required_referrer_types=["application/vnd.cyclonedx+json"],
+    )
+
+    assert result["ok"] is False
+    assert "referrer_0_manifest_artifact_type_mismatch" in result["errors"]
 
 
 def test_oci_layout_publish_and_consume_materializes_digest_pinned_subject_with_referrers(tmp_path: Path) -> None:
@@ -4386,6 +5157,54 @@ def test_oci_layout_publish_and_consume_materializes_digest_pinned_subject_with_
     assert Path(consumed_wrapper["pulled"]["subject"]["path"]).read_bytes() == subject.read_bytes()
 
 
+def test_oci_consume_rejects_unsafe_subject_payload_title(tmp_path: Path) -> None:
+    subject = tmp_path / "runtime-tools.tar.gz"
+    subject.write_bytes(b"runtime tools payload\n")
+    published = artifact_bundles.build_oci_layout_publication(
+        subject,
+        tmp_path / "oci-layout",
+        artifact_class="runtime_or_container_artifact",
+        registry_ref="ghcr.io/8dionysus/abyss-machine/runtime-tools",
+    )
+    evidence = json.loads(json.dumps(published["evidence"]))
+    layout = Path(evidence["local_oci_layout"]["path"])
+    payload = dict(evidence["subject"]["payload"])
+    payload["annotations"] = {
+        **(payload.get("annotations") if isinstance(payload.get("annotations"), dict) else {}),
+        "org.opencontainers.image.title": "../escaped-runtime-tools.tar.gz",
+    }
+    manifest = {
+        "schemaVersion": 2,
+        "mediaType": artifact_bundles.OCI_ARTIFACT_MANIFEST_MEDIA_TYPE,
+        "artifactType": artifact_bundles.OCI_DEFAULT_SUBJECT_ARTIFACT_TYPE,
+        "blobs": [payload],
+    }
+    manifest_blob = artifact_bundles._write_oci_blob(layout, artifact_bundles._canonical_json_bytes(manifest))
+    evidence["subject"]["digest"] = manifest_blob["digest"]
+    evidence["subject"]["size"] = manifest_blob["size"]
+    evidence["subject"]["reference"] = artifact_bundles._digest_pinned_oci_ref(
+        "ghcr.io/8dionysus/abyss-machine/runtime-tools",
+        str(manifest_blob["digest"]),
+    )
+    evidence["registry_ref"] = evidence["subject"]["reference"]
+    evidence["local_oci_layout"]["subject_manifest_digest"] = manifest_blob["digest"]
+    output = tmp_path / "pulled"
+
+    consumed = artifact_bundles.consume_oci_publication(
+        evidence,
+        output,
+        expected_artifact_class="runtime_or_container_artifact",
+        expected_subject_digest=str(manifest_blob["digest"]),
+        allow_missing_referrers=True,
+        require_trust_gate=False,
+    )
+
+    assert consumed["ok"] is False
+    assert "subject_payload_title_unsafe" in consumed["errors"]
+    assert not (output / "escaped-runtime-tools.tar.gz").exists()
+    assert consumed["pulled"]["subject"] is None
+
+
 def test_oci_consume_denies_tag_only_or_missing_trust_gate_registry(tmp_path: Path) -> None:
     registry, record_id, record_subject_digest = _write_oci_runtime_registry_record(tmp_path)
     subject = tmp_path / "runtime-tools.tar.gz"
@@ -4470,6 +5289,10 @@ def test_consumer_cli_verify_commands_require_trust_gate_by_default_and_separate
         str(metadata_path),
         "--previous-trusted",
         str(previous_update_path),
+        "--registry-dir",
+        str(tmp_path / "inspect-registry"),
+        "--subject-digest",
+        "sha256:" + ("f" * 64),
         "--now",
         "2026-06-21T00:00:00Z",
         "--inspect-only",
@@ -4525,6 +5348,10 @@ def test_consumer_cli_verify_commands_require_trust_gate_by_default_and_separate
         "--previous-trusted",
         str(previous_tuf_path),
         "--require-trusted-root",
+        "--registry-dir",
+        str(tmp_path / "inspect-registry"),
+        "--subject-digest",
+        "sha256:" + ("f" * 64),
         "--now",
         "2026-06-21T00:00:00Z",
         "--inspect-only",
@@ -4565,6 +5392,12 @@ def test_consumer_cli_verify_commands_require_trust_gate_by_default_and_separate
         "application/vnd.cyclonedx+json",
         "--required-referrer-type",
         "application/vnd.in-toto+jsonl",
+        "--registry-dir",
+        str(tmp_path / "inspect-registry"),
+        "--record-id",
+        "sha256:" + ("e" * 64),
+        "--record-subject-digest",
+        "sha256:" + ("f" * 64),
         "--inspect-only",
     )
 
@@ -4679,6 +5512,10 @@ def test_tuf_repository_builder_creates_client_bootstrap_and_consumes_with_trust
         version=2,
         generate_missing_keys=True,
         now="2026-06-21T00:00:00Z",
+        root_expires="2999-01-01T00:00:00Z",
+        targets_expires="2999-01-01T00:00:00Z",
+        snapshot_expires="2999-01-01T00:00:00Z",
+        timestamp_expires="2999-01-01T00:00:00Z",
         write_latest=False,
     )
     verify = cli.artifacts_update_repo_verify(
@@ -4723,6 +5560,71 @@ def test_tuf_repository_builder_creates_client_bootstrap_and_consumes_with_trust
     assert bootstrap_row["external_tuf_repository"]["status"] == "verified_current"
     assert bootstrap_row["external_tuf_repository"]["consumer_admission"]["record_id"]
     assert bootstrap_row["external_tuf_repository"]["target_digest"].startswith("sha256:")
+    assert bootstrap_row["external_tuf_repository"]["role_expiration_freshness"]["ok"] is True
+
+
+def test_update_lane_rejects_expired_external_tuf_history_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, registry_subject_digest = _bootstrap_update_registry(tmp_path, monkeypatch)
+    target = tmp_path / "update-target.tar.gz"
+    target.write_bytes(b"external tuf update target\n")
+    tuf_repo = tmp_path / "published-tuf-repository"
+
+    build = cli.artifacts_update_repo_build(
+        tuf_repo,
+        target_file=target,
+        target_path="dist/update-target.tar.gz",
+        artifact_class="bootstrap_install_bundle",
+        version=2,
+        generate_missing_keys=True,
+        now="2026-06-21T00:00:00Z",
+        root_expires="2999-01-01T00:00:00Z",
+        targets_expires="2999-01-01T00:00:00Z",
+        snapshot_expires="2999-01-01T00:00:00Z",
+        timestamp_expires="2999-01-01T00:00:00Z",
+        write_latest=False,
+    )
+    verify = cli.artifacts_update_repo_verify(
+        tuf_repo,
+        target_path="dist/update-target.tar.gz",
+        artifact_class="bootstrap_install_bundle",
+        target_digest=str(build["target_digest"]),
+        trusted_root_path=Path(str(build["trusted_root_path"])),
+        previous_trusted_path=Path(str(build["client_state_path"])),
+        registry_dir=registry,
+        subject_digest=registry_subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="github_oidc",
+        require_trusted_root=True,
+        require_trust_gate=True,
+        now="2026-06-21T00:00:00Z",
+        write_latest=False,
+    )
+    expired_verify = dict(verify)
+    expired_verify["role_expirations"] = {
+        "root": "2000-01-01T00:00:00Z",
+        "targets": "2000-01-01T00:00:00Z",
+        "snapshot": "2000-01-01T00:00:00Z",
+        "timestamp": "2000-01-01T00:00:00Z",
+    }
+    history_root = tmp_path / "update-lane-history"
+    history_path = history_root / "2026" / "06" / "2026-06-21.jsonl"
+    history_path.parent.mkdir(parents=True)
+    history_path.write_text(json.dumps(expired_verify) + "\n", encoding="utf-8")
+
+    lane = cli.artifacts_update_lane(
+        history_root=history_root,
+        registry_dir=registry,
+        write_latest=False,
+    )
+    bootstrap_row = next(row for row in lane["rows"] if row["artifact_class"] == "bootstrap_install_bundle")
+
+    assert verify["ok"] is True
+    assert lane["summary"]["external_tuf_verified_artifact_classes"] == 0
+    assert bootstrap_row["status"] == "TUF_REQUIRED_FOR_UPDATE_CLIENT"
+    assert "external_tuf_repository" not in bootstrap_row
 
 
 def test_tuf_repository_builder_denies_keyless_production_build(tmp_path: Path) -> None:
@@ -4751,6 +5653,46 @@ def test_tuf_repository_builder_denies_keyless_production_build(tmp_path: Path) 
     )
     assert source_repo_output["ok"] is False
     assert "tuf_repository_dir_must_be_outside_source_repo" in source_repo_output["errors"]
+
+    source_key_dir = ROOT / ".tmp-test-tuf-key-dir-in-source"
+    if source_key_dir.exists():
+        shutil.rmtree(source_key_dir)
+    try:
+        source_key_output = artifact_bundles.build_tuf_repository(
+            tmp_path / "published-tuf-repository-with-source-key-dir",
+            target_file=target,
+            target_path="dist/update-target.tar.gz",
+            artifact_class="bootstrap_install_bundle",
+            key_dir=source_key_dir,
+            generate_missing_keys=True,
+            now="2026-06-21T00:00:00Z",
+        )
+        assert source_key_output["ok"] is False
+        assert "tuf_key_dir_must_be_outside_source_repo" in source_key_output["errors"]
+        assert not source_key_dir.exists()
+    finally:
+        if source_key_dir.exists():
+            shutil.rmtree(source_key_dir)
+
+
+def test_tuf_repository_builder_reports_malformed_key_file(tmp_path: Path) -> None:
+    target = tmp_path / "update-target.tar.gz"
+    target.write_bytes(b"external tuf update target\n")
+    key_dir = tmp_path / "tuf-keys"
+    key_dir.mkdir()
+    (key_dir / "root.ed25519.pem").write_text("not a pem key\n", encoding="utf-8")
+
+    result = artifact_bundles.build_tuf_repository(
+        tmp_path / "published-tuf-repository",
+        target_file=target,
+        target_path="dist/update-target.tar.gz",
+        artifact_class="bootstrap_install_bundle",
+        key_dir=key_dir,
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert result["ok"] is False
+    assert any(error.startswith("root_key_unreadable:") for error in result["errors"])
 
 
 def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(tmp_path: Path) -> None:
@@ -4801,6 +5743,34 @@ def test_external_tuf_repository_verifier_allows_cryptographically_signed_repo(t
     assert cli_result["ok"] is True
     assert cli_result["trusted_root_path"] == str(trusted_root_path)
     assert cli_result["previous_trusted_path"] == str(previous_path)
+
+
+def test_external_tuf_repository_trusted_root_matches_by_signed_payload(tmp_path: Path) -> None:
+    tuf_repo = _write_tuf_repository(tmp_path)
+    trusted_root = {
+        **tuf_repo["root_metadata"],
+        "signatures": [
+            *tuf_repo["root_metadata"]["signatures"],
+            {"keyid": "observer-note", "sig": "not-a-threshold-signature"},
+        ],
+        "client_note": "outer metadata envelope is not part of the trusted root identity",
+    }
+
+    result = artifact_bundles.verify_tuf_repository(
+        tuf_repo["repo"],
+        target_path=str(tuf_repo["target_path"]),
+        artifact_class="bootstrap_install_bundle",
+        target_digest=str(tuf_repo["target_digest"]),
+        trusted_root=trusted_root,
+        require_trusted_root=True,
+        now="2026-06-21T00:00:00Z",
+    )
+
+    assert result["ok"] is True
+    assert result["trusted_root"]["trusted_root_match"] is True
+    assert result["trusted_root"]["rotation"] is False
+    assert result["trusted_root"]["trusted_root_sha256"] != result["trusted_root"]["repository_root_canonical_sha256"]
+    assert result["trusted_root"]["trusted_root_canonical_sha256"] == result["trusted_root"]["repository_root_canonical_sha256"]
 
 
 def test_external_tuf_repository_verifier_denies_bad_digest_expiry_rollback_freeze_and_missing_gate(
@@ -5026,6 +5996,35 @@ def test_update_metadata_consumption_allows_after_trust_gate(
     assert cli_result["consumer_admission"]["verdict"] == "allow"
 
 
+def test_update_metadata_consumption_rejects_subject_digest_target_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, subject_digest = _bootstrap_update_registry(tmp_path, monkeypatch)
+    target_digest = "sha256:" + "f" * 64
+    metadata = _update_metadata(target={
+        "path": "dist/abyss-machine-bootstrap-pytest-update-target.tar.gz",
+        "sha256": target_digest,
+    })
+
+    result = artifact_bundles.verify_update_metadata(
+        metadata,
+        now="2026-06-21T00:00:00Z",
+        registry_dir=registry,
+        subject_digest=subject_digest,
+        expected_source_repo="abyss-machine",
+        expected_trust_root_mode="github_oidc",
+        require_trust_gate=True,
+    )
+
+    assert result["ok"] is False
+    assert result["metadata_ok"] is True
+    assert "subject_digest_target_mismatch" in result["errors"]
+    assert result["consumer_admission"]["subject_digest"] == target_digest
+    assert result["consumer_admission"]["requested_subject_digest"] == subject_digest
+    assert result["consumer_admission"]["trust_gate"] is None
+
+
 def test_update_metadata_consumption_preserves_warn_trust_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -5122,6 +6121,7 @@ def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> Non
     assert registered["record"]["trust_root_mode"] == "local_dev"
     assert registered["record"]["verifier_versions"]["artifact_bundle_verifier"]["schema"] == "abyss_machine_artifact_bundle_verify_v1"
     assert len(registered["written"]) == 2
+    assert registered["registry"]["path_status"]["index_exists"] is True
 
     index = artifact_bundles.read_bundle_registry(registry, artifact_class="public_source_seed")
     persisted_index = json.loads((registry / artifact_bundles.BUNDLE_REGISTRY_INDEX).read_text(encoding="utf-8"))
@@ -5130,6 +6130,7 @@ def test_bundle_registry_tracks_latest_and_terminal_state(tmp_path: Path) -> Non
     assert persisted_index["registry_dir"] == "registry"
     assert persisted_index["records_dir"] == "registry/records"
     assert persisted_index["index_ref"] == "registry/index.json"
+    assert persisted_index["path_status"]["index_exists"] is True
     assert index["warnings"] == []
     assert index["path_status"]["suspected_noncanonical_empty_registry"] is False
     latest = index["latest_by_artifact_class"]["public_source_seed"]
@@ -5256,10 +6257,10 @@ def test_trust_gate_denies_digest_mismatch_and_revoked_records(tmp_path: Path) -
     )
 
     assert wrong_digest["ok"] is False
-    assert wrong_digest["verdict"] == "deny"
+    assert wrong_digest["verdict"] == "unknown"
     assert wrong_digest["decision"]["allow"] is False
     assert wrong_digest["inspected_claims"]["subject_identity"]["subject_digest_matched"] is False
-    assert "subject_digest_mismatch" in wrong_digest["blockers"]
+    assert "registry_record_subject_digest_not_found" in wrong_digest["blockers"]
     assert revoked["ok"] is True
     assert revoked_gate["ok"] is False
     assert revoked_gate["verdict"] == "deny"
@@ -5383,6 +6384,13 @@ def test_trust_gate_allows_public_boundary_with_private_exclusions_for_release_c
     assert "private captures" in gate["inspected_claims"]["privacy_boundary"]["value"]
     assert gate["inspected_claims"]["privacy_boundary"]["production_public_ready"] is True
     assert gate["inspected_claims"]["trust_root_evidence"]["ok"] is True
+    assert (
+        artifact_bundles.production_privacy_boundary_review_reason(
+            "public-safe rendered runtime config only; no Secrets, Logs, Models, stack.env values, "
+            "private host captures, local databases, or deployed /srv mutable state"
+        )
+        == ""
+    )
 
 
 def test_trust_gate_requires_manual_review_for_host_managed_public_release_consumers(tmp_path: Path) -> None:
@@ -5468,6 +6476,50 @@ def test_trust_gate_requires_manual_review_for_private_production_boundary(tmp_p
     )
     record = json.loads(record_path.read_text(encoding="utf-8"))
     record["privacy_boundary"] = "private host evidence; not public repo content and not release-signed by default"
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="public_source_seed",
+        consumer_intent="public_release",
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "manual_review_required"
+    assert gate["manual_review"] == ["production_consumer_requires_public_privacy_boundary"]
+    assert gate["inspected_claims"]["privacy_boundary"]["production_public_ready"] is False
+
+
+def test_trust_gate_requires_manual_review_when_public_boundary_contains_private_marker(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    registry = tmp_path / "registry"
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    subject_digest = _bundle_subject_digest(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        source_repo="abyss-machine",
+        source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        producer="pytest public seed publisher",
+        trust_root_mode="public_release",
+        trust_root_evidence=_trust_root_evidence(
+            "public_release",
+            subject_digest=subject_digest,
+            source_repo="abyss-machine",
+            source_ref="manifests/artifact_bundles/public_source_seed.bundle.json",
+        ),
+    )
+    record_path = (
+        registry
+        / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+        / f"{promoted['record']['record_id'].removeprefix('sha256:')}.json"
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["privacy_boundary"] = "public-safe publishable bundle with private host evidence and local /srv captures"
     record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     gate = artifact_bundles.trust_gate(
@@ -5739,6 +6791,24 @@ def test_materialized_artifact_subject_store_supports_installed_verification(
     assert materialized["materialization_admission"]["reason"] == "only_required_subject_store_missing"
     assert materialized["trust_gate"]["verdict"] == "deny"
     assert artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER in materialized["trust_gate"]["blockers"]
+    assert materialized["registry_update"]["ok"] is True
+    latest_after_materialize = artifact_bundles.read_bundle_registry(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+    )
+    refreshed_gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="bootstrap_install_bundle",
+        subject_digest=pre_materialize_promotion["record"]["subject_digest"],
+        consumer_intent="installer",
+        expected_trust_root_mode=trust_root_mode,
+    )
+    assert latest_after_materialize["latest_by_artifact_class"]["bootstrap_install_bundle"][
+        "artifact_subject_store"
+    ]["ok"] is True
+    assert refreshed_gate["ok"] is True
+    assert refreshed_gate["verdict"] == "allow"
+    assert refreshed_gate["inspected_claims"]["artifact_subject_store"]["ok"] is True
     assert verify["ok"] is True
     assert verify["artifact_subject_resolution"][0]["source"] == "artifact_subject_store"
     assert str(tmp_path.resolve()) not in (bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8")
@@ -5813,6 +6883,39 @@ def test_materialize_subjects_fails_closed_without_consumer_trust_gate(tmp_path:
     assert empty_registry["trust_gate"]["verdict"] == "unknown"
     assert empty_registry["trust_gate"]["blockers"] == ["no_registry_record"]
     assert not store_root.exists()
+
+
+def test_subject_store_materialization_admission_rejects_extra_reasons() -> None:
+    gate = {
+        "verdict": "deny",
+        "blockers": [artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER],
+        "reasons": ["source_repo_mismatch"],
+        "manual_review": [],
+    }
+
+    admission = artifact_bundles._subject_store_materialization_admission(gate)
+
+    assert admission["allow"] is False
+    assert admission["verdict"] == "deny"
+
+
+def test_subject_store_materialization_admission_preserves_manual_review() -> None:
+    gate = {
+        "verdict": "manual_review_required",
+        "blockers": [artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER],
+        "reasons": [
+            artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER,
+            "production_consumer_requires_public_privacy_boundary",
+        ],
+        "manual_review": ["production_consumer_requires_public_privacy_boundary"],
+    }
+
+    admission = artifact_bundles._subject_store_materialization_admission(gate)
+
+    assert admission["allow"] is True
+    assert admission["verdict"] == "allow"
+    assert admission["reason"] == "only_required_subject_store_missing_with_review_preserved"
+    assert admission["manual_review"] == ["production_consumer_requires_public_privacy_boundary"]
 
 
 def _build_ai_runtime_ml_bom_test_bundle(
@@ -6018,6 +7121,30 @@ def test_ai_model_runtime_bundle_rejects_missing_dependency_relationship(
     assert any("dependency graph metadata component must depend" in error for error in verify["errors"])
 
 
+def test_ai_model_runtime_bundle_rejects_partial_framework_dependency_relationship(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, ml_bom, _verify, _build = _build_ai_runtime_ml_bom_test_bundle(tmp_path, monkeypatch)
+    framework_ref = _ml_bom_component(ml_bom, "framework_configs")["bom-ref"]
+    model_ref = _ml_bom_component(ml_bom, "models")["bom-ref"]
+    conversion_ref = _ml_bom_component(ml_bom, "conversions")["bom-ref"]
+    for dependency in ml_bom["dependencies"]:
+        if dependency["ref"] == framework_ref:
+            dependency["dependsOn"] = [model_ref]
+    _write_ml_bom(bundle, ml_bom)
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert any(
+        "dependency graph framework config" in error
+        and framework_ref in error
+        and conversion_ref in error
+        for error in verify["errors"]
+    )
+
+
 def test_ai_model_runtime_bundle_rejects_missing_dataset_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -6082,6 +7209,65 @@ def test_host_local_evidence_bundle_roundtrip_uses_local_provenance(tmp_path: Pa
     assert verify["verified_controls"] == ["local_provenance"]
     assert not (bundle / artifact_bundles.ABI_SIDECAR).exists()
     assert (bundle / artifact_bundles.LOCAL_PROVENANCE_SIDECAR).is_file()
+
+
+def test_abi_contract_surface_must_match_generated_manifest(tmp_path: Path) -> None:
+    bundle = tmp_path / "public-source-seed"
+    fake_digest = "sha256:" + "0" * 64
+
+    artifact_bundles.build_sidecars_from_manifest(bundle)
+    artifact_bundles.sign_bundle(bundle)
+    abi_path = bundle / artifact_bundles.ABI_SIDECAR
+    abi = json.loads(abi_path.read_text(encoding="utf-8"))
+    abi["contract_surface"]["source_tree_hash"] = fake_digest
+    abi_path.write_text(json.dumps(abi, sort_keys=True) + "\n", encoding="utf-8")
+    provenance_path = bundle / artifact_bundles.PROVENANCE_SIDECAR
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["subject"]["digest"] = fake_digest
+    provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n", encoding="utf-8")
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert "artifact.abi.json contract_surface does not match generated ABI manifest" in verify["errors"]
+
+
+def test_local_provenance_rejects_sibling_private_path(tmp_path: Path) -> None:
+    bundle = tmp_path / "host-local-evidence"
+
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref="manifests/artifact_bundles/host_local_evidence.sample.bundle.json",
+    )
+    artifact_bundles.sign_bundle(bundle)
+    local_path = bundle / artifact_bundles.LOCAL_PROVENANCE_SIDECAR
+    local = json.loads(local_path.read_text(encoding="utf-8"))
+    local["content_identity"]["path"] = "/var/lib/abyss-machine-private/evidence.json"
+    local_path.write_text(json.dumps(local, sort_keys=True) + "\n", encoding="utf-8")
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert "artifact.local-provenance.json content_identity.path must stay under /var/lib/abyss-machine" in verify["errors"]
+
+
+def test_local_provenance_requires_full_file_identity(tmp_path: Path) -> None:
+    bundle = tmp_path / "host-local-evidence"
+
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref="manifests/artifact_bundles/host_local_evidence.sample.bundle.json",
+    )
+    artifact_bundles.sign_bundle(bundle)
+    local_path = bundle / artifact_bundles.LOCAL_PROVENANCE_SIDECAR
+    local = json.loads(local_path.read_text(encoding="utf-8"))
+    local["content_identity"].pop("size_bytes")
+    local_path.write_text(json.dumps(local, sort_keys=True) + "\n", encoding="utf-8")
+
+    verify = artifact_bundles.verify_bundle(bundle, write=False)
+
+    assert verify["ok"] is False
+    assert "artifact.local-provenance.json content_identity.size_bytes must be a non-negative integer" in verify["errors"]
 
 
 def test_external_release_manifest_subject_roundtrip(tmp_path: Path) -> None:
@@ -6839,6 +8025,37 @@ def test_aoa_sdk_python_distribution_generates_sbom_and_slsa_subject_controls(tm
     assert str(sibling) not in public_payload
     assert str(bundle) not in public_payload
 
+    missing_spdx_bundle = tmp_path / "missing-spdx-bundle"
+    shutil.copytree(bundle, missing_spdx_bundle)
+    (missing_spdx_bundle / artifact_bundles.SBOM_SPDX_SIDECAR).unlink()
+    missing_spdx = artifact_bundles.verify_bundle(missing_spdx_bundle, write=False)
+    assert missing_spdx["ok"] is False
+    assert artifact_bundles.SBOM_SPDX_SIDECAR in "\n".join(missing_spdx["errors"])
+    assert "sbom" not in missing_spdx["verified_controls"]
+
+    tampered_subjects_bundle = tmp_path / "tampered-subjects-bundle"
+    shutil.copytree(bundle, tampered_subjects_bundle)
+    tampered_subjects_path = tampered_subjects_bundle / artifact_bundles.SUBJECTS_SIDECAR
+    tampered_subjects = json.loads(tampered_subjects_path.read_text(encoding="utf-8"))
+    tampered_subjects["aggregate_digest"] = "sha256:" + "0" * 64
+    tampered_subjects_path.write_text(json.dumps(tampered_subjects, sort_keys=True) + "\n", encoding="utf-8")
+    tampered_subjects_verify = artifact_bundles.verify_bundle(tampered_subjects_bundle, write=False)
+    assert tampered_subjects_verify["ok"] is False
+    assert "artifact.subjects.json aggregate_digest mismatch" in tampered_subjects_verify["errors"]
+
+    tampered_provenance_bundle = tmp_path / "tampered-provenance-bundle"
+    shutil.copytree(bundle, tampered_provenance_bundle)
+    tampered_provenance_path = tampered_provenance_bundle / artifact_bundles.PROVENANCE_SIDECAR
+    tampered_provenance = json.loads(tampered_provenance_path.read_text(encoding="utf-8"))
+    tampered_provenance["artifact_subjects_digest"] = "sha256:" + "1" * 64
+    tampered_provenance_path.write_text(json.dumps(tampered_provenance, sort_keys=True) + "\n", encoding="utf-8")
+    tampered_provenance_verify = artifact_bundles.verify_bundle(tampered_provenance_bundle, write=False)
+    assert tampered_provenance_verify["ok"] is False
+    assert (
+        "artifact.provenance.json artifact_subjects_digest does not match artifact.subjects.json"
+        in tampered_provenance_verify["errors"]
+    )
+
 
 def test_abyss_stack_runtime_config_bundle_generates_runtime_config_controls(tmp_path: Path) -> None:
     sibling = tmp_path / "abyss-stack"
@@ -6867,7 +8084,6 @@ def test_abyss_stack_runtime_config_bundle_generates_runtime_config_controls(tmp
         "policy_ref": artifact_bundles.POLICY_REF,
         "mode": "github_release",
         "subject_repo_root": "../../..",
-        "build_type": "https://abyssos.local/buildtypes/runtime-config-bundle/v1",
         "artifact_identity": {
             "artifact_class": "abyss_stack_runtime_config_bundle",
             "abi_epoch": "abyss_stack_runtime_config_bundle_v1",

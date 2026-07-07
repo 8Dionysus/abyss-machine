@@ -50,9 +50,10 @@ jobs:
             scripts/abyss-machine-bootstrap \
             src/abyss_machine \
             config-templates \
+            generated \
+            manifests \
             systemd \
-            schemas/bootstrap-report.schema.json \
-            manifests/bootstrap_profiles.manifest.json
+            schemas/bootstrap-report.schema.json
           sha256sum "${artifact}" > "${artifact}.sha256"
 
       - name: Upload bootstrap archive

@@ -12,8 +12,9 @@ import shlex
 import shutil
 import subprocess
 import tomllib
+import urllib.parse
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
 try:
@@ -56,12 +57,20 @@ C2PA_TRUST_CONFIG_ENV = "ABYSS_MACHINE_C2PA_TRUST_CONFIG"
 C2PA_OFFICIAL_TRUST_LIST_URL = "https://raw.githubusercontent.com/c2pa-org/conformance-public/refs/heads/main/trust-list/C2PA-TRUST-LIST.pem"
 C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL = "https://contentcredentials.org/trust/anchors.pem"
 C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_URL = "https://contentcredentials.org/trust/store.cfg"
+C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_URL = "https://contentcredentials.org/trust/allowed.sha256.txt"
 C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_CANONICAL_URL = "https://verify.contentauthenticity.org/trust/anchors.pem"
 C2PA_CONTENT_CREDENTIALS_TRUST_CONFIG_CANONICAL_URL = "https://verify.contentauthenticity.org/trust/store.cfg"
+C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_CANONICAL_URL = "https://verify.contentauthenticity.org/trust/allowed.sha256.txt"
 C2PA_CONTENT_CREDENTIALS_TRUST_ANCHOR_URLS = frozenset(
     {
         C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_URL,
         C2PA_CONTENT_CREDENTIALS_TRUST_ANCHORS_CANONICAL_URL,
+    }
+)
+C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_URLS = frozenset(
+    {
+        C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_URL,
+        C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_CANONICAL_URL,
     }
 )
 C2PA_PRODUCTION_TRUST_LIST_PROFILES = frozenset(
@@ -69,6 +78,12 @@ C2PA_PRODUCTION_TRUST_LIST_PROFILES = frozenset(
         "official_c2pa_trust_list",
         "c2pa_conformance_trust_list",
         "production_c2pa_trust_list",
+    }
+)
+C2PA_LEGACY_CONTENT_CREDENTIALS_PROFILES = frozenset(
+    {
+        "official_content_credentials_trust_store",
+        "legacy_content_credentials_interim_trust_store",
     }
 )
 C2PA_TRUST_GAP_WARNINGS = (
@@ -205,6 +220,12 @@ CONTROL_FILES = {
     "sigstore_cosign": [SIGSTORE_BUNDLE_SIDECAR, COSIGN_SIGNATURE_SIDECAR, COSIGN_PUBLIC_KEY_SIDECAR],
     "c2pa": [C2PA_MANIFEST_SIDECAR, C2PA_REPORT_SIDECAR],
 }
+ALL_OF_CONTROLS = {"sbom"}
+DEFAULT_SLSA_BUILD_TYPES = {
+    "aoa_sdk_python_distribution": "https://abyssos.local/buildtypes/python-distribution/v1",
+    "abyss_stack_runtime_config_bundle": "https://abyssos.local/buildtypes/runtime-config-bundle/v1",
+    "aoa_evals_generated_report_index_bundle": "https://abyssos.local/buildtypes/aoa-evals-generated-report-index/v1",
+}
 ML_BOM_CATEGORIES = ("models", "datasets", "conversions", "framework_configs")
 ML_BOM_COMPONENT_TYPES = {
     "models": "machine-learning-model",
@@ -266,6 +287,16 @@ PRIVATE_PRIVACY_BOUNDARY_MARKERS = (
     "must not be published",
     "not release-signed",
 )
+PRIVATE_PRIVACY_EXCLUSION_MARKERS = (
+    "no private",
+    "no secrets, logs, models",
+    "without private",
+    "excludes private",
+    "must not include",
+    "not include",
+    "private payload included: false",
+    "private_payload_included false",
+)
 ARTIFACT_AFFECTED_VERDICTS = (
     "fresh",
     "stale",
@@ -293,6 +324,7 @@ PUBLIC_MEDIA_PUBLIC_RELEASE_C2PA_TRUST_LIST_VERIFIER_REQUIRED = (
 BUNDLE_REGISTRY_INDEX = "index.json"
 BUNDLE_REGISTRY_RECORDS_DIR = "records"
 DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT = Path("/var/lib/abyss-machine/artifacts/subjects")
+LOCAL_PROVENANCE_CONTENT_ROOT = PurePosixPath("/var/lib/abyss-machine")
 ARTIFACT_SUBJECT_STORE_META = "subject-store.json"
 
 
@@ -450,6 +482,21 @@ def _owner_root_has_declared_command_refs(root: Path, row: dict[str, Any]) -> bo
     return saw_local_ref and root.exists()
 
 
+def _owner_profile_declares_command_refs(row: dict[str, Any]) -> bool:
+    return any(_owner_local_refs_for_command(command) for command in _string_list(row.get("producer_commands")))
+
+
+def _owner_root_matches_declared_refs(root: Path, row: dict[str, Any]) -> bool:
+    if not root.exists():
+        return False
+    if _owner_profile_declares_command_refs(row):
+        return _owner_root_has_declared_command_refs(root, row)
+    route_refs = _string_list(row.get("owner_route_refs"))
+    if route_refs:
+        return all((root / ref).exists() for ref in route_refs)
+    return True
+
+
 def _owner_repo_root_for_profile(
     row: dict[str, Any],
     *,
@@ -469,18 +516,28 @@ def _owner_repo_root_for_profile(
             if candidate is not None and _owner_root_has_declared_command_refs(candidate, row):
                 return candidate, "owner_source_root_hint"
         return repo_root, "policy_repo_root"
+    existing_hint_roots: list[tuple[Path, str]] = []
     for hint in _string_list(row.get("owner_source_root_hints")):
         candidate = _expand_owner_source_root_hint(hint)
-        if candidate is not None and candidate.exists():
+        if candidate is None:
+            continue
+        if _owner_root_matches_declared_refs(candidate, row):
             return candidate, "owner_source_root_hint"
+        if candidate.exists():
+            existing_hint_roots.append((candidate, "owner_source_root_hint"))
     if workspace_root is None:
-        return None, "not_checked"
+        return existing_hint_roots[0] if existing_hint_roots else (None, "not_checked")
     workspace = Path(workspace_root)
     candidates: list[tuple[Path, str]] = []
     if owner_repo:
         candidates.append((workspace / owner_repo, "workspace_owner_repo"))
     for alias in _string_list(row.get("workspace_aliases")):
         candidates.append((workspace / alias, "workspace_alias"))
+    for candidate, source in candidates:
+        if _owner_root_matches_declared_refs(candidate, row):
+            return candidate, source
+    if existing_hint_roots:
+        return existing_hint_roots[0]
     for candidate, source in candidates:
         if candidate.exists():
             return candidate, source
@@ -647,6 +704,7 @@ def _scenario_durable_evidence_status(
     *,
     artifact_class: str,
     consumer_intent: str,
+    expected_source_repo: str = "",
 ) -> dict[str, Any]:
     if registry_dir is None:
         return {
@@ -662,6 +720,7 @@ def _scenario_durable_evidence_status(
         registry_dir,
         artifact_class=artifact_class,
         consumer_intent=consumer_intent,
+        expected_source_repo=expected_source_repo,
         require_latest=True,
     )
     verdict = str(gate.get("verdict") or "unknown")
@@ -683,6 +742,7 @@ def _scenario_durable_evidence_status(
         "status": status,
         "registry_dir": registry.get("registry_dir"),
         "consumer_intent": consumer_intent,
+        "expected_source_repo": expected_source_repo or None,
         "has_latest": latest is not None,
         "latest_record_id": latest.get("record_id") if isinstance(latest, dict) else None,
         "latest_source_repo": latest.get("source_repo") if isinstance(latest, dict) else None,
@@ -693,270 +753,6 @@ def _scenario_durable_evidence_status(
         "trust_gate_reasons": gate.get("reasons", []) if isinstance(gate, dict) else [],
         "claim_limit": "This is a durable registry/trust-gate readout; it does not produce evidence or replace source-owner proof.",
     }
-
-
-def artifact_trust_source_repo_aliases(source_repo: str) -> list[str]:
-    repo = str(source_repo or "").strip()
-    if not repo:
-        return []
-    aliases = [repo]
-    if repo == "aoa-session-memory":
-        aliases.extend([".aoa", "bundles/aoa-session-memory"])
-    return list(dict.fromkeys(aliases))
-
-
-def artifact_trust_source_workspace_roots() -> list[Path]:
-    roots: list[Path] = []
-    env_roots = os.environ.get("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", "")
-    for raw in env_roots.split(os.pathsep):
-        if raw.strip():
-            roots.append(Path(raw).expanduser())
-    roots.extend([
-        Path.cwd(),
-        Path.cwd().parent,
-        REPO_ROOT,
-        REPO_ROOT.parent,
-        Path("/srv/AbyssOS"),
-        Path.home() / "src",
-    ])
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for root in roots:
-        try:
-            key = str(root.resolve(strict=False))
-        except OSError:
-            key = str(root)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(root)
-    return unique
-
-
-def artifact_trust_source_repo_roots(source_repo: str) -> list[Path]:
-    repo = str(source_repo or "").strip()
-    roots: list[Path] = []
-    if not repo or repo == "abyss-machine":
-        roots.append(REPO_ROOT)
-    aliases = artifact_trust_source_repo_aliases(repo)
-    for workspace_root in artifact_trust_source_workspace_roots():
-        roots.append(workspace_root)
-        for alias in aliases:
-            roots.append(workspace_root / alias)
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for root in roots:
-        try:
-            key = str(root.resolve(strict=False))
-        except OSError:
-            key = str(root)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(root)
-    return unique
-
-
-def artifact_trust_split_manifest_ref(manifest_ref: str, fallback_source_repo: str) -> tuple[str, str]:
-    ref = str(manifest_ref or "").strip()
-    source_repo = str(fallback_source_repo or "").strip()
-    if not ref.startswith("repo:"):
-        return source_repo, ref
-    repo_ref = ref.removeprefix("repo:")
-    for alias in artifact_trust_source_repo_aliases(source_repo) + ["abyss-machine"]:
-        prefix = f"{alias}/"
-        if repo_ref.startswith(prefix):
-            return alias if alias != "abyss-machine" else "abyss-machine", repo_ref[len(prefix):]
-    if "/" in repo_ref:
-        owner, path = repo_ref.split("/", 1)
-        return owner, path
-    return source_repo, ref
-
-
-def artifact_trust_is_bundle_manifest_ref(manifest_ref: str, *, source_repo: str) -> bool:
-    _repo, normalized_ref = artifact_trust_split_manifest_ref(manifest_ref, source_repo)
-    return str(normalized_ref or "").endswith(".bundle.json")
-
-
-def artifact_trust_load_source_manifest(
-    manifest_ref: str,
-    *,
-    source_repo: str,
-) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    resolved_source_repo, normalized_ref = artifact_trust_split_manifest_ref(manifest_ref, source_repo)
-    if not normalized_ref:
-        return None, {
-            "source_repo": resolved_source_repo or None,
-            "manifest_ref": None,
-            "resolved": False,
-            "error": "source_manifest_ref_missing",
-            "search_roots": [],
-        }
-    path = Path(normalized_ref)
-    search_roots = artifact_trust_source_repo_roots(resolved_source_repo)
-    candidates: list[tuple[Path, Path | None]] = []
-    if path.is_absolute():
-        candidates.append((path, None))
-    else:
-        candidates.extend((root / path, root) for root in search_roots)
-    unique_candidates: list[tuple[Path, Path | None]] = []
-    seen: set[str] = set()
-    for candidate, root in candidates:
-        try:
-            key = str(candidate.resolve(strict=False))
-        except OSError:
-            key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_candidates.append((candidate, root))
-    for candidate, root in unique_candidates:
-        if not candidate.is_file():
-            continue
-        try:
-            manifest = load_bundle_manifest(candidate)
-        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError) as exc:
-            return None, {
-                "source_repo": resolved_source_repo or None,
-                "manifest_ref": normalized_ref,
-                "resolved": False,
-                "path": str(candidate),
-                "error": str(exc),
-                "search_roots": [str(root) for root in search_roots[:12]],
-            }
-        return manifest, {
-            "source_repo": resolved_source_repo or None,
-            "manifest_ref": normalized_ref,
-            "resolved": True,
-            "path": str(candidate),
-            "source_root": str(root) if root is not None else None,
-            "search_roots": [str(root) for root in search_roots[:12]],
-        }
-    return None, {
-        "source_repo": resolved_source_repo or None,
-        "manifest_ref": normalized_ref,
-        "resolved": False,
-        "error": f"source_manifest_unresolved:{normalized_ref}",
-        "search_roots": [str(root) for root in search_roots[:12]],
-    }
-
-
-def artifact_source_freshness(
-    class_id: str,
-    *,
-    latest: dict[str, Any] | None,
-    requirement: dict[str, Any],
-) -> dict[str, Any]:
-    reasons: list[str] = []
-    current_abi_digests: list[str] = []
-    manifest_ref = ""
-    manifest_error = ""
-    manifest_resolution: dict[str, Any] = {}
-    current_consumer_contract: dict[str, Any] | None = None
-    latest_consumer_contract: dict[str, Any] | None = None
-
-    if not isinstance(latest, dict):
-        return {
-            "checked": False,
-            "freshness": "unknown",
-            "reasons": [],
-            "claim_limit": "Source freshness is checked only after a latest durable registry record exists.",
-        }
-
-    source_repo = str(latest.get("source_repo") or requirement.get("owner_repo") or "")
-    controls = requirement.get("controls") if isinstance(requirement.get("controls"), dict) else {}
-    required_controls = [str(item) for item in controls.get("required", []) if str(item)]
-    abi_required = "abi_signature" in required_controls
-    source_route = requirement.get("source_route") if isinstance(requirement.get("source_route"), dict) else {}
-    generated_surfaces = source_route.get("generated_contract_surfaces")
-    if isinstance(generated_surfaces, list):
-        for surface in generated_surfaces:
-            if not isinstance(surface, dict):
-                continue
-            digest = str(surface.get("source_tree_hash") or "")
-            if digest:
-                current_abi_digests.append(digest)
-
-    latest_abi_digest = str(latest.get("abi_subject_digest") or "")
-    if current_abi_digests:
-        if not latest_abi_digest:
-            reasons.append("abi_subject_digest_missing")
-        elif latest_abi_digest not in current_abi_digests:
-            reasons.append("abi_subject_digest_stale")
-
-    manifest_refs = [
-        str(item or "")
-        for item in (latest.get("bundle_manifest_ref"), latest.get("source_ref"))
-        if str(item or "")
-    ]
-    manifest_refs = list(dict.fromkeys(manifest_refs))
-    for candidate_ref in manifest_refs:
-        manifest_ref = candidate_ref
-        if not artifact_trust_is_bundle_manifest_ref(candidate_ref, source_repo=source_repo):
-            manifest_resolution = {
-                "source_repo": source_repo or None,
-                "manifest_ref": candidate_ref,
-                "resolved": False,
-                "skipped": True,
-                "reason": "source_ref_is_not_bundle_manifest",
-            }
-            continue
-        manifest, manifest_resolution = artifact_trust_load_source_manifest(
-            candidate_ref,
-            source_repo=source_repo,
-        )
-        if manifest is None:
-            manifest_error = str(manifest_resolution.get("error") or "source_manifest_unresolved")
-            continue
-        manifest_error = ""
-        manifest_contract = manifest.get("consumer_contract")
-        if isinstance(manifest_contract, dict) and manifest_contract:
-            current_consumer_contract = manifest_contract
-            record_contract = latest.get("consumer_contract")
-            latest_consumer_contract = record_contract if isinstance(record_contract, dict) else None
-            if latest_consumer_contract != current_consumer_contract:
-                reasons.append("consumer_contract_stale")
-        elif abi_required and not current_abi_digests:
-            reasons.append("source_contract_uncheckable")
-        break
-    if manifest_refs and not isinstance(current_consumer_contract, dict) and manifest_error:
-        reasons.append("source_manifest_unresolved")
-
-    checked = bool(current_abi_digests or current_consumer_contract is not None or reasons)
-    return {
-        "checked": checked,
-        "freshness": "stale" if reasons else "fresh" if checked else "unknown",
-        "reasons": reasons,
-        "source_repo": source_repo or None,
-        "current_abi_subject_digests": current_abi_digests,
-        "latest_abi_subject_digest": latest_abi_digest or None,
-        "bundle_manifest_ref": manifest_ref or None,
-        "manifest_resolution": manifest_resolution or None,
-        "manifest_error": manifest_error or None,
-        "current_consumer_contract": current_consumer_contract,
-        "latest_consumer_contract": latest_consumer_contract,
-        "claim_limit": "Source freshness compares current local ABI/manifest contracts with the latest durable registry record; it does not rebuild or promote evidence.",
-    }
-
-
-def _scenario_source_freshness_status(
-    registry_dir: str | Path | None,
-    *,
-    artifact_class: str,
-    repo_root: Path,
-) -> dict[str, Any]:
-    if registry_dir is None:
-        return {
-            "checked": False,
-            "freshness": "unknown",
-            "reasons": [],
-            "claim_limit": "Scenario source freshness is only checked when a registry_dir is supplied.",
-        }
-    registry = read_bundle_registry(registry_dir, artifact_class=artifact_class)
-    latest_by_class = registry.get("latest_by_artifact_class") if isinstance(registry.get("latest_by_artifact_class"), dict) else {}
-    latest = latest_by_class.get(artifact_class) if isinstance(latest_by_class.get(artifact_class), dict) else None
-    requirement = artifact_requirement_row(artifact_class, registry_dir=registry_dir, repo_root=repo_root)
-    return artifact_source_freshness(artifact_class, latest=latest, requirement=requirement)
 
 
 def _producer_profile_rows(
@@ -1156,26 +952,22 @@ def artifact_scenario_matrix(
             "recommended_for_consumer_intent",
             [],
         )
+        owner_repo = str(rule.get("identity", {}).get("owner_repo") or "")
         durable_evidence = _scenario_durable_evidence_status(
             registry_dir,
             artifact_class=class_id,
             consumer_intent=consumer_intent,
+            expected_source_repo=owner_repo,
         )
-        source_freshness = _scenario_source_freshness_status(
-            registry_dir,
-            artifact_class=class_id,
-            repo_root=repo_root,
-        )
-        source_freshness_open = source_freshness.get("freshness") == "stale"
-        owner_evidence_open = source_freshness_open or ((not executable) and durable_evidence.get("status") not in {
+        owner_evidence_open = (not executable) and durable_evidence.get("status") not in {
             "durable_gate_allow",
             "durable_gate_warn",
-        })
+        }
         row = {
             "schema": "abyss_machine_artifact_scenario_matrix_row_v1",
             "scenario_id": str(spec.get("scenario_id") or ""),
             "artifact_class": class_id,
-            "owner_repo": str(rule.get("identity", {}).get("owner_repo") or ""),
+            "owner_repo": owner_repo,
             "required_owner_route": str(spec.get("required_owner_route") or ""),
             "consumer_intent": consumer_intent,
             "required_controls": required_controls,
@@ -1193,8 +985,6 @@ def artifact_scenario_matrix(
             "manual_or_owner_evidence_required": not executable,
             "owner_or_manual_evidence_open": owner_evidence_open,
             "durable_evidence": durable_evidence,
-            "source_freshness": source_freshness,
-            "source_freshness_open": source_freshness_open,
             "agent_loop": {
                 "detect_artifact_class": f"abyss-machine artifacts classify --artifact-class {class_id} --json",
                 "inspect_requirements": f"abyss-machine artifacts requirements --artifact-class {class_id} --json",
@@ -1228,21 +1018,12 @@ def artifact_scenario_matrix(
                 else None,
             },
             "claim_limit": (
-                (
-                    "Synthetic executable coverage exists, but latest durable evidence is stale against current source contracts; "
-                    "refresh or supersede the registry record before consumer use."
-                )
-                if executable and source_freshness_open
-                else "Synthetic executable coverage proves the OS Abyss bundle/gate route shape, not a published production artifact."
+                "Synthetic executable coverage proves the OS Abyss bundle/gate route shape, not a published production artifact."
                 if executable
                 else (
-                    "Latest durable evidence is stale against current source contracts; refresh or supersede the registry record before consumer use."
-                    if source_freshness_open
-                    else (
-                        "Owner/manual evidence must still land in a durable registry before consumers treat this scenario as covered."
-                        if owner_evidence_open
-                        else "Durable registry admission is present; the scenario remains policy_or_owner_declared because the source owner still owns proof meaning."
-                    )
+                    "Owner/manual evidence must still land in a durable registry before consumers treat this scenario as covered."
+                    if owner_evidence_open
+                    else "Durable registry admission is present; the scenario remains policy_or_owner_declared because the source owner still owns proof meaning."
                 )
             ),
         }
@@ -1257,23 +1038,13 @@ def artifact_scenario_matrix(
     owner_required_rows = [row for row in rows if row.get("manual_or_owner_evidence_required") is True]
     owner_open_rows = [row for row in rows if row.get("owner_or_manual_evidence_open") is True]
     durable_status_counts: dict[str, int] = {}
-    freshness_status_counts: dict[str, int] = {}
     durable_checked = 0
-    freshness_checked = 0
-    freshness_open = 0
     for row in rows:
         durable = row.get("durable_evidence") if isinstance(row.get("durable_evidence"), dict) else {}
         status = str(durable.get("status") or "not_checked")
         durable_status_counts[status] = durable_status_counts.get(status, 0) + 1
         if durable.get("checked") is True:
             durable_checked += 1
-        freshness = row.get("source_freshness") if isinstance(row.get("source_freshness"), dict) else {}
-        freshness_status = str(freshness.get("freshness") or "unknown")
-        freshness_status_counts[freshness_status] = freshness_status_counts.get(freshness_status, 0) + 1
-        if freshness.get("checked") is True:
-            freshness_checked += 1
-        if row.get("source_freshness_open") is True:
-            freshness_open += 1
     return {
         "ok": not errors and not missing_artifact_classes,
         "schema": "abyss_machine_artifact_scenario_matrix_v1",
@@ -1292,9 +1063,6 @@ def artifact_scenario_matrix(
             "missing_artifact_classes": missing_artifact_classes,
             "durable_evidence_checked": durable_checked,
             "durable_evidence_status_counts": durable_status_counts,
-            "source_freshness_checked": freshness_checked,
-            "source_freshness_open": freshness_open,
-            "source_freshness_status_counts": freshness_status_counts,
         },
         "agent_loop": [
             "detect artifact class",
@@ -1934,7 +1702,8 @@ def _source_ref_match(
 def _source_ref_status(row: dict[str, Any], changed_source_ref: str) -> dict[str, Any]:
     expected = str(changed_source_ref or "").strip()
     registry = row.get("registry_status") if isinstance(row.get("registry_status"), dict) else {}
-    known_refs = [str(item) for item in registry.get("latest_source_ref_tokens", []) if str(item)]
+    known_ref_basis = registry.get("freshness_source_ref_tokens") or registry.get("latest_source_ref_tokens", [])
+    known_refs = [str(item) for item in known_ref_basis if str(item)]
     if not expected:
         return {
             "required": False,
@@ -2041,18 +1810,21 @@ def verify_update_metadata(
         errors.append("freeze_attack_or_stale_metadata")
 
     metadata_ok = not errors
-    consumer_admission_required = bool(require_trust_gate or registry_dir is not None)
+    consumer_admission_required = bool(require_trust_gate)
     trust_gate_result: dict[str, Any] | None = None
     consumer_admission_errors: list[str] = []
+    target_digest = str(target.get("sha256") or "")
+    requested_subject_digest = str(subject_digest or "")
     if consumer_admission_required:
         if registry_dir is None:
             consumer_admission_errors.append("trust_gate_registry_required")
+        elif requested_subject_digest and target_digest and requested_subject_digest != target_digest:
+            consumer_admission_errors.append("subject_digest_target_mismatch")
         else:
-            gate_subject_digest = str(subject_digest or target.get("sha256") or "")
             trust_gate_result = trust_gate(
                 registry_dir,
                 artifact_class=artifact_class,
-                subject_digest=gate_subject_digest,
+                subject_digest=target_digest,
                 consumer_intent="update_client",
                 expected_source_repo=expected_source_repo,
                 expected_trust_root_mode=expected_trust_root_mode,
@@ -2083,7 +1855,8 @@ def verify_update_metadata(
             "verdict": consumer_verdict,
             "consumer_intent": "update_client",
             "registry_dir": str(registry_dir) if registry_dir is not None else None,
-            "subject_digest": str(subject_digest or target.get("sha256") or "") or None,
+            "subject_digest": target_digest or None,
+            "requested_subject_digest": requested_subject_digest or None,
             "expected_source_repo": expected_source_repo or None,
             "expected_trust_root_mode": expected_trust_root_mode or None,
             "errors": consumer_admission_errors,
@@ -2270,7 +2043,10 @@ def _default_tuf_expires(now_dt: dt.datetime, role: str) -> str:
 def _load_tuf_private_key(path: Path) -> Any:
     if serialization is None or Ed25519PrivateKey is None:
         raise RuntimeError("cryptography Ed25519 support is unavailable")
-    key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    try:
+        key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    except (OSError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"{path} is unreadable: {exc}") from exc
     if not isinstance(key, Ed25519PrivateKey):
         raise RuntimeError(f"{path} is not an Ed25519 private key")
     return key
@@ -2395,6 +2171,20 @@ def build_tuf_repository(
     role_version = _positive_int(version)
     if role_version is None:
         errors.append("version_must_be_positive")
+
+    if errors:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_tuf_repository_build_v1",
+            "policy_ref": POLICY_REF,
+            "repository_dir": str(repo),
+            "target_file": str(source),
+            "target_path": normalized_target or None,
+            "artifact_class": artifact_class or None,
+            "verdict": "deny",
+            "errors": errors,
+            "warnings": warnings,
+        }
 
     keys, key_sources, key_errors, key_warnings = _tuf_private_keys(
         Path(key_dir) if key_dir is not None else None,
@@ -2641,13 +2431,14 @@ def verify_tuf_repository(
             errors.append(f"{threshold['role']}_signature_threshold_not_met")
 
     root_digest = _file_digest(role_files["root"]) if role_files.get("root", Path()).is_file() else ""
-    root_canonical_digest = _stable_digest(role_metadata["root"]) if "root" in role_metadata else ""
+    root_canonical_digest = _stable_digest(root_signed) if root_signed else ""
     trusted_root_result: dict[str, Any] = {
         "required": bool(require_trusted_root),
         "provided": isinstance(trusted_root, dict),
         "trusted_root_match": False,
         "rotation": False,
         "trusted_root_sha256": None,
+        "trusted_root_canonical_sha256": None,
         "repository_root_sha256": root_digest or None,
         "repository_root_canonical_sha256": root_canonical_digest or None,
         "old_root_threshold": None,
@@ -2660,11 +2451,13 @@ def verify_tuf_repository(
         trusted_errors: list[str] = []
         trusted_signed = _tuf_role_signed(trusted_root, "root", trusted_errors)
         trusted_root_digest = _stable_digest(trusted_root)
+        trusted_root_canonical_digest = _stable_digest(trusted_signed) if trusted_signed else ""
         trusted_root_result["trusted_root_sha256"] = trusted_root_digest
+        trusted_root_result["trusted_root_canonical_sha256"] = trusted_root_canonical_digest or None
         trusted_root_result["trusted_root_parse_errors"] = trusted_errors
         if trusted_errors:
             trusted_root_result["errors"].extend(f"trusted_root_{item}" for item in trusted_errors)
-        elif root_canonical_digest and trusted_root_digest == root_canonical_digest:
+        elif root_canonical_digest and trusted_root_canonical_digest == root_canonical_digest:
             trusted_root_result["trusted_root_match"] = True
         elif root_signed:
             trusted_root_result["rotation"] = True
@@ -2757,7 +2550,7 @@ def verify_tuf_repository(
     ):
         errors.append("freeze_attack_or_stale_timestamp")
 
-    consumer_admission_required = bool(require_trust_gate or registry_dir is not None)
+    consumer_admission_required = bool(require_trust_gate)
     trust_gate_result: dict[str, Any] | None = None
     consumer_admission_errors: list[str] = []
     if consumer_admission_required:
@@ -2883,7 +2676,7 @@ def verify_scitt_receipt(
     if expected_issuer and issuer != expected_issuer:
         errors.append("issuer_mismatch")
     artifact_digest = str(subject.get("artifact_digest") or subject.get("subject_digest") or subject.get("digest") or "")
-    if not artifact_digest.startswith("sha256:"):
+    if not _is_sha256_digest(artifact_digest):
         errors.append("artifact_digest_missing")
     if expected_artifact_digest and artifact_digest != expected_artifact_digest:
         errors.append("artifact_digest_mismatch")
@@ -2913,16 +2706,11 @@ def verify_scitt_receipt(
             registry = read_bundle_registry(registry_dir, artifact_class=class_id or None)
             latest = registry.get("latest_by_artifact_class", {}).get(class_id) if class_id else None
             registry_link["latest_record_id"] = latest.get("record_id") if isinstance(latest, dict) else None
-            statement_record_id = str(
-                subject.get("record_id")
-                or subject.get("registry_record_id")
-                or expected_record_id
-                or ""
-            )
-            if expected_record_id and statement_record_id != expected_record_id:
-                registry_link["errors"].append("registry_record_id_mismatch")
+            statement_record_id = str(subject.get("record_id") or subject.get("registry_record_id") or "")
             if not statement_record_id:
                 registry_link["errors"].append("registry_record_id_missing")
+            elif expected_record_id and statement_record_id != expected_record_id:
+                registry_link["errors"].append("registry_record_id_mismatch")
             registry_link["record_id"] = statement_record_id or None
             records = registry.get("records") if isinstance(registry.get("records"), list) else []
             record = next(
@@ -3038,6 +2826,20 @@ def _oci_subject_digest(referrer: dict[str, Any]) -> str:
     )
 
 
+def _safe_oci_output_title(value: str, *, fallback: str) -> str:
+    title = str(value or "").strip() or fallback
+    if (
+        not title
+        or title in {".", ".."}
+        or "/" in title
+        or "\\" in title
+        or Path(title).is_absolute()
+        or any(part == ".." for part in Path(title).parts)
+    ):
+        raise ValueError("unsafe OCI output title")
+    return title
+
+
 def _oci_blob_path(layout_dir: Path, digest: str) -> Path:
     return layout_dir / "blobs" / "sha256" / digest.removeprefix("sha256:")
 
@@ -3083,6 +2885,47 @@ def _digest_pinned_oci_ref(registry_ref: str, digest: str) -> str:
     if "@sha256:" in base:
         base = base.split("@sha256:", 1)[0]
     return f"{base}@{digest}"
+
+
+def _verify_oci_referrer_manifests(evidence: dict[str, Any], *, subject_digest: str) -> list[str]:
+    local_layout = evidence.get("local_oci_layout") if isinstance(evidence.get("local_oci_layout"), dict) else {}
+    layout_path = str(local_layout.get("path") or "")
+    if not layout_path:
+        return []
+    layout = Path(layout_path)
+    referrers = evidence.get("referrers") if isinstance(evidence.get("referrers"), list) else []
+    errors: list[str] = []
+    for index, referrer in enumerate(referrers):
+        if not isinstance(referrer, dict):
+            continue
+        digest = str(referrer.get("digest") or "")
+        if not _is_sha256_digest(digest):
+            continue
+        manifest_path = _oci_blob_path(layout, digest)
+        if not manifest_path.is_file():
+            errors.append(f"referrer_{index}_manifest_blob_missing")
+            continue
+        if _file_digest(manifest_path) != digest:
+            errors.append(f"referrer_{index}_manifest_digest_mismatch")
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            errors.append(f"referrer_{index}_manifest_json_invalid")
+            continue
+        if not isinstance(manifest, dict):
+            errors.append(f"referrer_{index}_manifest_json_invalid")
+            continue
+        manifest_type = str(manifest.get("artifactType") or "")
+        evidence_type = _oci_referrer_type(referrer)
+        if not manifest_type:
+            errors.append(f"referrer_{index}_manifest_artifact_type_missing")
+        elif evidence_type and manifest_type != evidence_type:
+            errors.append(f"referrer_{index}_manifest_artifact_type_mismatch")
+        manifest_subject_digest = _oci_subject_digest(manifest)
+        if subject_digest and manifest_subject_digest != subject_digest:
+            errors.append(f"referrer_{index}_manifest_subject_digest_mismatch")
+    return errors
 
 
 def build_oci_layout_publication(
@@ -3272,13 +3115,16 @@ def verify_oci_publication(
     subject = evidence.get("subject") if isinstance(evidence.get("subject"), dict) else {}
     registry_ref = str(evidence.get("registry_ref") or subject.get("registry_ref") or subject.get("reference") or "")
     subject_digest = str(subject.get("digest") or evidence.get("subject_digest") or "")
-    record_id = str(evidence.get("record_id") or evidence.get("bundle_record_id") or expected_record_id or "")
-    record_subject_digest = str(
+    evidence_record_id = str(evidence.get("record_id") or evidence.get("bundle_record_id") or "")
+    evidence_record_subject_digest = str(
         evidence.get("record_subject_digest")
         or evidence.get("bundle_subject_digest")
-        or expected_record_subject_digest
         or ""
     )
+    expected_record_id = str(expected_record_id or "")
+    expected_record_subject_digest = str(expected_record_subject_digest or "")
+    record_id = evidence_record_id or expected_record_id
+    record_subject_digest = evidence_record_subject_digest or expected_record_subject_digest
     discovery = evidence.get("referrers_discovery") if isinstance(evidence.get("referrers_discovery"), dict) else {}
     discovery_method = str(
         discovery.get("method")
@@ -3313,6 +3159,12 @@ def verify_oci_publication(
     if registry_ref_digest and subject_digest:
         if _is_sha256_digest(registry_ref_digest) and registry_ref_digest != subject_digest:
             errors.append("registry_ref_digest_mismatch")
+    if expected_record_id and evidence_record_id:
+        if evidence_record_id != expected_record_id:
+            errors.append("registry_record_id_mismatch")
+    if expected_record_subject_digest and evidence_record_subject_digest:
+        if evidence_record_subject_digest != expected_record_subject_digest:
+            errors.append("registry_record_subject_digest_mismatch")
 
     if discovery_method and discovery_method not in OCI_REFERRER_DISCOVERY_METHODS:
         errors.append("unknown_referrers_discovery_method")
@@ -3346,14 +3198,19 @@ def verify_oci_publication(
         referrer_subject_digest = _oci_subject_digest(referrer)
         if referrer_subject_digest and subject_digest and referrer_subject_digest != subject_digest:
             referrer_errors.append(f"referrer_{index}_subject_digest_mismatch")
+    referrer_errors.extend(_verify_oci_referrer_manifests(evidence, subject_digest=subject_digest))
     errors.extend(referrer_errors)
 
-    consumer_admission_required = bool(require_trust_gate or registry_dir is not None or record_id)
+    consumer_admission_required = bool(require_trust_gate)
     trust_gate_result: dict[str, Any] | None = None
     consumer_admission_errors: list[str] = []
     if consumer_admission_required:
         if registry_dir is None:
             consumer_admission_errors.append("trust_gate_registry_required")
+        elif not record_id and not record_subject_digest:
+            consumer_admission_errors.append("trust_gate_record_binding_required")
+        elif errors:
+            trust_gate_result = None
         else:
             trust_gate_result = trust_gate(
                 registry_dir,
@@ -3402,6 +3259,10 @@ def verify_oci_publication(
             "required": consumer_admission_required,
             "record_id": record_id or None,
             "record_subject_digest": record_subject_digest or None,
+            "evidence_record_id": evidence_record_id or None,
+            "evidence_record_subject_digest": evidence_record_subject_digest or None,
+            "expected_record_id": expected_record_id or None,
+            "expected_record_subject_digest": expected_record_subject_digest or None,
             "registry_dir": str(registry_dir) if registry_dir is not None else None,
         },
         "consumer_admission": {
@@ -3498,15 +3359,23 @@ def consume_oci_publication(
                 else:
                     output = Path(output_dir)
                     annotations = payload.get("annotations") if isinstance(payload.get("annotations"), dict) else {}
-                    title = str(annotations.get("org.opencontainers.image.title") or payload_digest.replace(":", "-"))
-                    subject_out = output / "subject" / title
-                    subject_out.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(payload_path, subject_out)
-                    pulled["subject"] = {
-                        "path": str(subject_out),
-                        "digest": payload_digest,
-                        "manifest_digest": subject_digest,
-                    }
+                    try:
+                        title = _safe_oci_output_title(
+                            str(annotations.get("org.opencontainers.image.title") or ""),
+                            fallback=payload_digest.replace(":", "-"),
+                        )
+                    except ValueError:
+                        errors.append("subject_payload_title_unsafe")
+                        title = ""
+                    if title:
+                        subject_out = output / "subject" / title
+                        subject_out.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(payload_path, subject_out)
+                        pulled["subject"] = {
+                            "path": str(subject_out),
+                            "digest": payload_digest,
+                            "manifest_digest": subject_digest,
+                        }
             for index, referrer in enumerate(evidence.get("referrers") if isinstance(evidence.get("referrers"), list) else []):
                 if not isinstance(referrer, dict):
                     continue
@@ -3546,14 +3415,14 @@ def production_privacy_boundary_review_reason(privacy_boundary: object) -> str:
     normalized = " ".join(str(privacy_boundary or "").lower().split())
     if not normalized:
         return "production_consumer_requires_privacy_boundary"
+    if any(marker in normalized for marker in PRIVATE_PRIVACY_BOUNDARY_MARKERS):
+        return "production_consumer_requires_public_privacy_boundary"
+    if "private" in normalized and not any(marker in normalized for marker in PRIVATE_PRIVACY_EXCLUSION_MARKERS):
+        return "production_consumer_requires_public_privacy_boundary"
     if normalized.startswith(PUBLIC_PRIVACY_BOUNDARY_PREFIXES):
         return ""
     if "public-safe" in normalized or "publishable" in normalized:
         return ""
-    if any(marker in normalized for marker in PRIVATE_PRIVACY_BOUNDARY_MARKERS):
-        return "production_consumer_requires_public_privacy_boundary"
-    if "private" in normalized:
-        return "production_consumer_requires_public_privacy_boundary"
     return "production_consumer_requires_public_privacy_boundary"
 
 
@@ -3561,6 +3430,9 @@ def artifact_requirement_row(
     artifact_class: str,
     *,
     registry_dir: str | Path | None = None,
+    record_id: str = "",
+    subject_digest: str = "",
+    require_latest: bool = True,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     policy = load_policy(repo_root)
@@ -3591,6 +3463,9 @@ def artifact_requirement_row(
             for record in registry.get("records", [])
             if isinstance(record, dict) and str(record.get("artifact_class") or "") == artifact_class
         ]
+        selected = _find_registry_record(class_records, record_id=record_id, subject_digest=subject_digest)
+        freshness_record = selected if isinstance(selected, dict) else latest
+        freshness_basis = "selected_record" if isinstance(selected, dict) else "latest_record"
         registry_status = {
             "checked": True,
             "registry_dir": registry.get("registry_dir"),
@@ -3608,10 +3483,27 @@ def artifact_requirement_row(
             "latest_trust_root_mode": latest.get("trust_root_mode") if isinstance(latest, dict) else None,
             "latest_verified_controls": latest.get("verified_controls", []) if isinstance(latest, dict) else [],
             "latest_abi_subject_digest": latest.get("abi_subject_digest") if isinstance(latest, dict) else None,
+            "freshness_record_basis": freshness_basis if isinstance(freshness_record, dict) else None,
+            "freshness_record_id": freshness_record.get("record_id") if isinstance(freshness_record, dict) else None,
+            "freshness_record_is_latest": (
+                bool(isinstance(freshness_record, dict) and isinstance(latest, dict))
+                and str(freshness_record.get("record_id") or "") == str(latest.get("record_id") or "")
+            ),
+            "freshness_source_ref": freshness_record.get("source_ref") if isinstance(freshness_record, dict) else None,
+            "freshness_source_refs": freshness_record.get("source_refs", []) if isinstance(freshness_record, dict) else [],
+            "freshness_source_ref_tokens": _record_source_ref_tokens(freshness_record if isinstance(freshness_record, dict) else None),
+            "freshness_abi_subject_digest": freshness_record.get("abi_subject_digest") if isinstance(freshness_record, dict) else None,
         }
-        gate = trust_gate(registry_dir, artifact_class=artifact_class, consumer_intent=consumer_intent) if isinstance(latest, dict) else {}
+        gate = trust_gate(
+            registry_dir,
+            artifact_class=artifact_class,
+            subject_digest=subject_digest,
+            record_id=record_id,
+            consumer_intent=consumer_intent,
+            require_latest=require_latest,
+        ) if isinstance(freshness_record, dict) else {}
         trust_gate_status = {
-            "checked": isinstance(latest, dict),
+            "checked": isinstance(freshness_record, dict),
             "consumer_intent": consumer_intent,
             "verdict": gate.get("verdict") if isinstance(gate, dict) else None,
             "ok": gate.get("ok") if isinstance(gate, dict) else False,
@@ -3695,13 +3587,23 @@ def artifact_requirements(
     artifact_class: str = "",
     *,
     registry_dir: str | Path | None = None,
+    record_id: str = "",
+    subject_digest: str = "",
+    require_latest: bool = True,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     policy = load_policy(repo_root)
     classes = policy.get("artifact_classes") if isinstance(policy.get("artifact_classes"), dict) else {}
     selected = [artifact_class] if artifact_class else sorted(str(item) for item in classes)
     rows = [
-        artifact_requirement_row(class_id, registry_dir=registry_dir, repo_root=repo_root)
+        artifact_requirement_row(
+            class_id,
+            registry_dir=registry_dir,
+            record_id=record_id if class_id == artifact_class else "",
+            subject_digest=subject_digest if class_id == artifact_class else "",
+            require_latest=require_latest,
+            repo_root=repo_root,
+        )
         for class_id in selected
         if class_id in classes
     ]
@@ -3805,6 +3707,7 @@ def _artifact_abi_subject_status(row: dict[str, Any]) -> dict[str, Any]:
         if isinstance(surface, dict) and str(surface.get("source_tree_hash") or "")
     ] if isinstance(generated_surfaces, list) else []
     latest_digest = str(registry.get("latest_abi_subject_digest") or "")
+    registry_digest = str(registry.get("freshness_abi_subject_digest") or latest_digest)
     if not registry.get("checked"):
         state = "not_checked"
         fresh = None
@@ -3814,20 +3717,24 @@ def _artifact_abi_subject_status(row: dict[str, Any]) -> dict[str, Any]:
     elif not current_digests:
         state = "no_local_abi_subject"
         fresh = True
-    elif latest_digest and latest_digest in current_digests:
+    elif registry_digest and registry_digest in current_digests:
         state = "current"
         fresh = True
-    elif latest_digest:
+    elif registry_digest:
         state = "stale"
         fresh = False
     else:
-        state = "missing_latest_abi_subject_digest"
+        state = "missing_registry_abi_subject_digest"
         fresh = False
     return {
         "checked": bool(registry.get("checked")),
         "state": state,
         "fresh": fresh,
         "current_abi_subject_digests": current_digests,
+        "freshness_record_basis": registry.get("freshness_record_basis"),
+        "freshness_record_id": registry.get("freshness_record_id"),
+        "freshness_record_is_latest": registry.get("freshness_record_is_latest"),
+        "registry_abi_subject_digest": registry_digest or None,
         "latest_abi_subject_digest": latest_digest or None,
     }
 
@@ -3862,7 +3769,20 @@ def _artifact_affected_verdict(
         "abi_signature_readmodel_changed",
         "abi_subject_digest_stale",
     }
-    if any(reason in affected_reasons for reason in abi_reverify_reasons) or abi_status.get("state") == "stale":
+    rebuild_reasons = {
+        "contract_source_changed",
+        "bundle_manifest_changed",
+        "authority_ref_changed",
+        "producer_profile_route_changed",
+        "release_artifact_pattern_changed",
+    }
+    has_abi_reverify_reason = (
+        any(reason in affected_reasons for reason in abi_reverify_reasons)
+        or abi_status.get("state") == "stale"
+    )
+    if has_abi_reverify_reason and any(reason in affected_reasons for reason in rebuild_reasons):
+        return "needs_rebuild"
+    if has_abi_reverify_reason:
         if registry.get("checked") and not registry.get("has_latest"):
             return "needs_rebuild"
         return "needs_reverify"
@@ -3895,16 +3815,16 @@ def _artifact_affected_verdict(
         if gate.get("checked") and gate.get("verdict") not in {None, "allow", "warn"}:
             return "needs_reverify"
         return "fresh"
-    if any(reason in affected_reasons for reason in ("contract_source_changed", "bundle_manifest_changed", "authority_ref_changed", "producer_profile_route_changed", "release_artifact_pattern_changed")):
+    if any(reason in affected_reasons for reason in rebuild_reasons):
         return "needs_rebuild"
     if any(reason in affected_reasons for reason in ("policy_manifest_changed", "abi_signature_readmodel_changed")):
         return "needs_reverify"
     if owner_repo_changed:
         return "needs_rebuild"
-    if source_status.get("required") is True and source_status.get("proves_current_ref") is not True:
-        return "needs_reverify"
     if registry.get("checked") and not registry.get("has_latest"):
         return "needs_rebuild"
+    if source_status.get("required") is True and source_status.get("proves_current_ref") is not True:
+        return "needs_reverify"
     if gate.get("verdict") == "manual_review_required":
         return "manual_review_required"
     if gate.get("checked") and gate.get("verdict") not in {None, "allow", "warn"}:
@@ -3992,6 +3912,9 @@ def artifact_affected(
     changed_source_ref: str = "",
     artifact_class: str = "",
     registry_dir: str | Path | None = None,
+    record_id: str = "",
+    subject_digest: str = "",
+    require_latest: bool = True,
     accept_sibling_lag: bool = False,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
@@ -4013,7 +3936,14 @@ def artifact_affected(
         for path in raw_paths
     ]
     normalized_paths = sorted(set(normalized_path_rows))
-    requirements = artifact_requirements(artifact_class, registry_dir=registry_dir, repo_root=repo_root)
+    requirements = artifact_requirements(
+        artifact_class,
+        registry_dir=registry_dir,
+        record_id=record_id,
+        subject_digest=subject_digest,
+        require_latest=require_latest,
+        repo_root=repo_root,
+    )
     rows: list[dict[str, Any]] = []
     for requirement in requirements.get("rows", []):
         if not isinstance(requirement, dict):
@@ -4121,7 +4051,7 @@ def artifact_affected(
         if verdict in {"needs_reverify", "manual_review_required"}:
             next_actions.append(f"abyss-machine artifacts trust-gate --artifact-class {requirement.get('artifact_class')} --json")
         if verdict in {"blocked_by_missing_sibling", "accepted_lag"}:
-            producer_owner = changed_source_repo if profile_owner_changed else owner_repo
+            producer_owner = effective_source_repo if profile_owner_changed else owner_repo
             next_actions.append(f"run the producer profile in owner repo {producer_owner}")
             next_actions.append("promote the new owner-produced evidence into the host registry")
         rows.append({
@@ -4148,6 +4078,12 @@ def artifact_affected(
                 "latest_producer": registry.get("latest_producer"),
                 "latest_evidence_refs": registry.get("latest_evidence_refs", []),
                 "latest_abi_subject_digest": registry.get("latest_abi_subject_digest"),
+                "freshness_record_basis": registry.get("freshness_record_basis"),
+                "freshness_record_id": registry.get("freshness_record_id"),
+                "freshness_record_is_latest": registry.get("freshness_record_is_latest"),
+                "freshness_source_ref": registry.get("freshness_source_ref"),
+                "freshness_source_refs": registry.get("freshness_source_refs", []),
+                "freshness_abi_subject_digest": registry.get("freshness_abi_subject_digest"),
             },
             "trust_gate": {
                 "checked": gate.get("checked"),
@@ -4214,10 +4150,15 @@ def build_local_provenance_packet(
 
     content_identity = local.get("content_identity")
     if not isinstance(content_identity, dict):
+        identity_bytes = _canonical_json_bytes(identity)
         content_identity = {
             "path": "/var/lib/abyss-machine/artifacts/example/latest.json",
             "sha256": _stable_digest(identity),
+            "size_bytes": len(identity_bytes),
+            "mtime_ns": 0,
         }
+    else:
+        content_identity = dict(content_identity)
     activity = local.get("activity")
     if not isinstance(activity, dict):
         activity = {
@@ -4315,9 +4256,17 @@ def _safe_repo_relative_path(path_text: str, *, field: str) -> Path:
 def _safe_store_token(value: str, *, field: str) -> str:
     token = str(value)
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-    if not token or any(ch not in allowed for ch in token):
+    if not token or token in {".", ".."} or any(ch not in allowed for ch in token):
         raise ValueError(f"{field} must be a safe artifact-store token: {value}")
     return token
+
+
+def _default_slsa_build_type(artifact_class: str) -> str:
+    if artifact_class in DEFAULT_SLSA_BUILD_TYPES:
+        return DEFAULT_SLSA_BUILD_TYPES[artifact_class]
+    if artifact_class:
+        return "https://abyssos.local/buildtypes/" + artifact_class.replace("_", "-") + "/v1"
+    return DEFAULT_SLSA_BUILD_TYPES["aoa_sdk_python_distribution"]
 
 
 def _artifact_subject_store_roots() -> list[Path]:
@@ -4358,11 +4307,10 @@ def _portable_path_ref(path: Path) -> str:
     if not path.is_absolute():
         return path.as_posix()
     resolved = path.resolve()
-    for root in (Path.cwd().resolve(), REPO_ROOT.resolve()):
-        try:
-            return resolved.relative_to(root).as_posix()
-        except ValueError:
-            continue
+    try:
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        pass
     return resolved.name
 
 
@@ -4370,11 +4318,10 @@ def _registry_path_ref(registry_dir: Path, path: Path) -> str:
     if not path.is_absolute():
         return path.as_posix()
     resolved = path.resolve()
-    for root in (Path.cwd().resolve(), REPO_ROOT.resolve()):
-        try:
-            return resolved.relative_to(root).as_posix()
-        except ValueError:
-            continue
+    try:
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        pass
     registry_root = registry_dir.resolve()
     try:
         relative = resolved.relative_to(registry_root)
@@ -4550,8 +4497,15 @@ def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dic
         }
     raw_verdict = str(gate.get("verdict") or "unknown")
     blockers = [str(item) for item in gate.get("blockers", []) if str(item)]
+    reasons = [str(item) for item in gate.get("reasons", []) if str(item)]
     manual_review = [str(item) for item in gate.get("manual_review", []) if str(item)]
+    warnings = [str(item) for item in gate.get("warnings", []) if str(item)]
     hard_blockers = [item for item in blockers if item != REQUIRED_SUBJECT_STORE_BLOCKER]
+    extra_reasons = [
+        item
+        for item in reasons
+        if item not in blockers and item not in manual_review and item not in warnings
+    ]
     if raw_verdict in {"allow", "warn"}:
         return {
             "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
@@ -4560,15 +4514,23 @@ def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dic
             "reason": "consumer_trust_gate_already_allows",
             "raw_trust_gate_verdict": raw_verdict,
             "blockers": blockers,
+            "reasons": reasons,
         }
-    if REQUIRED_SUBJECT_STORE_BLOCKER in blockers and not hard_blockers and not manual_review:
+    if REQUIRED_SUBJECT_STORE_BLOCKER in blockers and not hard_blockers and not extra_reasons:
         return {
             "schema": "abyss_machine_artifact_subject_materialization_admission_v1",
             "allow": True,
             "verdict": "allow",
-            "reason": "only_required_subject_store_missing",
+            "reason": (
+                "only_required_subject_store_missing"
+                if not manual_review and not warnings
+                else "only_required_subject_store_missing_with_review_preserved"
+            ),
             "raw_trust_gate_verdict": raw_verdict,
             "blockers": blockers,
+            "reasons": reasons,
+            "manual_review": manual_review,
+            "warnings": warnings,
         }
     if manual_review:
         return {
@@ -4587,6 +4549,7 @@ def _subject_store_materialization_admission(gate: dict[str, Any] | None) -> dic
         "reason": "consumer_trust_gate_has_hard_blockers",
         "raw_trust_gate_verdict": raw_verdict,
         "blockers": blockers,
+        "extra_reasons": extra_reasons,
     }
 
 
@@ -4634,6 +4597,9 @@ def materialize_artifact_subjects(
 
     artifact_class = str(subjects.get("artifact_class") or identity.get("artifact_class") or manifest.get("artifact_class") or "")
     aggregate_digest = str(subjects.get("aggregate_digest") or "")
+    recomputed_aggregate_digest = _stable_digest(subject_files)
+    if aggregate_digest != recomputed_aggregate_digest:
+        errors.append("artifact.subjects.json aggregate_digest mismatch")
     subject_root = _subject_repo_root(manifest)
     target_dir = artifact_subject_store_dir(subjects, store_root=store_root)
     copy_plan: list[tuple[Path, Path, dict[str, Any]]] = []
@@ -4738,8 +4704,22 @@ def materialize_artifact_subjects(
     _write_json(target_dir / ARTIFACT_SUBJECT_STORE_META, meta)
     written.append(str(target_dir / ARTIFACT_SUBJECT_STORE_META))
     status = _artifact_subject_store_status(subjects, store_root=store_root)
+    registry_update = {"ok": False, "errors": ["artifact_subject_store_registry_update_not_attempted"], "written": []}
+    if status.get("ok"):
+        selected_record_id = str(gate.get("record_id") or record_id or "") if isinstance(gate, dict) else str(record_id or "")
+        registry_update = _update_registry_record_subject_store(
+            registry_dir,
+            record_id=selected_record_id,
+            subject_store=status,
+        )
+    materialization_errors: list[str] = []
+    if not status.get("ok"):
+        materialization_errors.append("materialized artifact subject store did not verify")
+    if not registry_update.get("ok"):
+        update_errors = ",".join([str(item) for item in registry_update.get("errors", []) if str(item)])
+        materialization_errors.append("materialized artifact subject store registry update failed: " + update_errors)
     return {
-        "ok": bool(status.get("ok")),
+        "ok": bool(status.get("ok") and registry_update.get("ok")),
         "schema": "abyss_machine_artifact_subject_materialize_v1",
         "bundle_dir": _portable_path_ref(bundle),
         "manifest_ref": str(manifest_ref) if manifest_ref else identity.get("bundle_manifest_ref"),
@@ -4752,7 +4732,8 @@ def materialize_artifact_subjects(
         "materialization_admission": materialization_admission,
         "written": written,
         "status": status,
-        "errors": [] if status.get("ok") else ["materialized artifact subject store did not verify"],
+        "registry_update": registry_update,
+        "errors": materialization_errors,
     }
 
 
@@ -5053,7 +5034,7 @@ def build_slsa_statement(
 ) -> dict[str, Any]:
     subject_files = subjects.get("files") if isinstance(subjects.get("files"), list) else []
     source_refs = [POLICY_REF]
-    build_type = "https://abyssos.local/buildtypes/python-distribution/v1"
+    build_type = _default_slsa_build_type(str(identity.get("artifact_class") or ""))
     if isinstance(manifest, dict):
         source_refs.append(str(_public_manifest_ref(manifest) or ""))
         if manifest.get("build_type"):
@@ -5112,6 +5093,13 @@ def build_sidecars(
         contract_surface_id = str(manifest.get("contract_surface_id") or contract_surface_id or "") or None
         mode = str(manifest.get("mode") or mode)
     policy = load_policy(repo_root)
+    if manifest is None:
+        manifest_refs = _bundle_manifest_refs_for_class(repo_root, artifact_class)
+        if len(manifest_refs) == 1:
+            manifest = load_bundle_manifest(manifest_refs[0], repo_root=repo_root)
+            artifact_class = str(manifest["artifact_class"])
+            contract_surface_id = str(manifest.get("contract_surface_id") or contract_surface_id or "") or None
+            mode = str(manifest.get("mode") or mode)
     rule = artifact_class_rule(artifact_class, repo_root=repo_root)
     required = required_controls_for_rule(rule)
     deferred = deferred_controls_for_rule(rule)
@@ -5353,6 +5341,8 @@ def _c2pa_trust_args(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
             sources["trust_anchors_ref"] = _c2pa_trust_anchor_ref(value)
             sources["trust_anchors_profile"] = profile
             sources["trust_anchors_profile_source"] = profile_source
+        if option == "allowed_list":
+            sources["allowed_list_ref"] = _c2pa_trust_anchor_ref(value)
     return args, sources
 
 
@@ -5402,7 +5392,9 @@ def _c2pa_active_manifest_status_codes(report: dict[str, Any]) -> list[str]:
 
 def _c2pa_credential_status(status_codes: list[str]) -> str:
     code_set = set(status_codes)
-    if "signingCredential.expired" in code_set or "signingCredential.invalid" in code_set:
+    if "signingCredential.invalid" in code_set:
+        return "invalid"
+    if "signingCredential.expired" in code_set:
         return "expired"
     if "signingCredential.revoked" in code_set or "signingCredential.ocsp.revoked" in code_set:
         return "revoked"
@@ -5425,6 +5417,14 @@ def _c2pa_trust_verdict(
     allowed_list_configured = bool(trust_sources.get("allowed_list"))
     trust_config_configured = bool(trust_sources.get("trust_config"))
     trust_anchor_profile = str(trust_sources.get("trust_anchors_profile") or "")
+    content_credentials_allowed_list_configured = (
+        str(trust_sources.get("allowed_list_ref") or "").strip()
+        in C2PA_CONTENT_CREDENTIALS_ALLOWED_LIST_URLS
+    )
+    legacy_content_credentials_store_configured = bool(
+        trust_anchor_profile == "legacy_content_credentials_interim_trust_store"
+        and (not allowed_list_configured or content_credentials_allowed_list_configured)
+    )
     production_trust_list_configured = bool(
         trust_anchors_configured
         and not allowed_list_configured
@@ -5436,10 +5436,10 @@ def _c2pa_trust_verdict(
     )
     if production_trust_list_trusted:
         trust_tier = "production_trust_list"
+    elif credential_status == "trusted" and legacy_content_credentials_store_configured:
+        trust_tier = "legacy_interim_trust_store"
     elif credential_status == "trusted" and allowed_list_configured:
         trust_tier = "allowed_list_end_entity"
-    elif credential_status == "trusted" and trust_anchor_profile == "legacy_content_credentials_interim_trust_store":
-        trust_tier = "legacy_interim_trust_store"
     elif credential_status == "trusted" and trust_anchors_configured:
         trust_tier = "custom_trust_anchor_store"
     elif credential_status == "trusted":
@@ -5515,12 +5515,19 @@ def _c2pa_credential_onboarding_status(
         and interim_posture == "production_c2pa_trust_list"
     )
     production_ready = trust_list_trusted and production_onboarding_declared
+    readiness_source = (
+        "artifact_manifest_c2pa_credential_onboarding"
+        if config
+        else "default_pre_organization_policy"
+    )
     return {
         "schema": C2PA_CREDENTIAL_ONBOARDING_SCHEMA,
         "phase": phase,
         "legal_subject_state": legal_subject_state,
         "interim_posture": interim_posture,
+        "production_onboarding_declared": production_onboarding_declared,
         "production_claim_allowed": production_ready,
+        "readiness_source": readiness_source,
         "release_consumer_verdict_without_production_credential": (
             "allow" if production_ready else str(config.get("release_consumer_verdict_without_production_credential") or "warn")
         ),
@@ -5561,6 +5568,13 @@ def _c2pa_credential_onboarding_status(
     }
 
 
+def _c2pa_onboarding_production_ready(onboarding: dict[str, Any]) -> bool:
+    return (
+        onboarding.get("production_claim_allowed") is True
+        and onboarding.get("production_onboarding_declared") is True
+    )
+
+
 def _c2pa_pre_organization_warning(c2pa_trust: dict[str, Any]) -> str:
     if not c2pa_trust:
         return ""
@@ -5575,7 +5589,7 @@ def _c2pa_trust_gap_warning(c2pa_trust: dict[str, Any]) -> str:
         return C2PA_TRUST_GAP_WARNINGS[3]
     if c2pa_trust.get("production_trust_list_trusted") is True:
         onboarding = c2pa_trust.get("credential_onboarding") if isinstance(c2pa_trust.get("credential_onboarding"), dict) else {}
-        if onboarding.get("production_claim_allowed") is not True:
+        if not _c2pa_onboarding_production_ready(onboarding):
             return C2PA_TRUST_GAP_WARNINGS[6]
         return ""
     trust_tier = str(c2pa_trust.get("trust_tier") or "")
@@ -5818,6 +5832,49 @@ def _has_any(bundle: Path, names: list[str]) -> bool:
     return any((bundle / name).exists() for name in names)
 
 
+def _has_all(bundle: Path, names: list[str]) -> bool:
+    return all((bundle / name).exists() for name in names)
+
+
+def _control_is_present(bundle: Path, control: str) -> bool:
+    names = CONTROL_FILES[control]
+    if control in ALL_OF_CONTROLS:
+        return _has_all(bundle, names)
+    return _has_any(bundle, names)
+
+
+def _posix_path_is_under(value: str, root: PurePosixPath) -> bool:
+    try:
+        path = PurePosixPath(value)
+    except TypeError:
+        return False
+    if not path.is_absolute():
+        return False
+    return path == root or root in path.parents
+
+
+def _validate_abi_contract_surface(
+    contract_surface: dict[str, Any],
+    *,
+    identity: dict[str, Any],
+    artifact_class: str,
+    repo_root: Path,
+    errors: list[str],
+) -> None:
+    surface_id = str(identity.get("contract_surface_id") or contract_surface.get("id") or "")
+    try:
+        trusted_surface = contract_surface_for_class(
+            artifact_class,
+            contract_surface_id=surface_id or None,
+            repo_root=repo_root,
+        )
+    except ValueError as exc:
+        errors.append(f"artifact.abi.json trusted contract surface is unavailable: {exc}")
+        return
+    if contract_surface != trusted_surface:
+        errors.append("artifact.abi.json contract_surface does not match generated ABI manifest")
+
+
 def _validate_local_provenance_packet(
     packet: dict[str, Any],
     identity: dict[str, Any],
@@ -5856,10 +5913,15 @@ def _validate_local_provenance_packet(
         errors.append("artifact.local-provenance.json content_identity must be an object")
         return
     path = str(content_identity.get("path") or "")
-    if not path.startswith("/var/lib/abyss-machine"):
+    if not _posix_path_is_under(path, LOCAL_PROVENANCE_CONTENT_ROOT):
         errors.append("artifact.local-provenance.json content_identity.path must stay under /var/lib/abyss-machine")
     if not (content_identity.get("sha256") or content_identity.get("tree_hash")):
         errors.append("artifact.local-provenance.json content_identity must include sha256 or tree_hash")
+    if content_identity.get("sha256"):
+        for field in ("size_bytes", "mtime_ns"):
+            value = content_identity.get(field)
+            if not isinstance(value, int) or value < 0:
+                errors.append(f"artifact.local-provenance.json content_identity.{field} must be a non-negative integer")
     for key in ("source_refs", "verification"):
         value = packet.get(key)
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
@@ -5887,12 +5949,31 @@ def _subject_digest_hexes(subjects: dict[str, Any], errors: list[str]) -> set[st
     return digests
 
 
+def _validate_subject_aggregate_binding(
+    subjects: dict[str, Any],
+    provenance: dict[str, Any],
+    errors: list[str],
+) -> None:
+    files = subjects.get("files")
+    if not isinstance(files, list) or not files:
+        return
+    aggregate_digest = str(subjects.get("aggregate_digest") or "")
+    recomputed = _stable_digest(files)
+    if aggregate_digest != recomputed:
+        errors.append("artifact.subjects.json aggregate_digest mismatch")
+    provenance_digest = str(provenance.get("artifact_subjects_digest") or "")
+    if provenance_digest and aggregate_digest and provenance_digest != aggregate_digest:
+        errors.append("artifact.provenance.json artifact_subjects_digest does not match artifact.subjects.json")
+
+
 def _validate_sbom_sidecars(bundle: Path, subjects: dict[str, Any], errors: list[str]) -> None:
     expected = _subject_digest_hexes(subjects, errors)
     if not expected:
         return
     seen: set[str] = set()
     cdx_path = bundle / SBOM_CYCLONEDX_SIDECAR
+    if not cdx_path.is_file():
+        errors.append(f"{SBOM_CYCLONEDX_SIDECAR} is required when sbom control is required")
     if cdx_path.is_file():
         cdx = _read_json(cdx_path)
         if cdx.get("bomFormat") != "CycloneDX":
@@ -5910,6 +5991,8 @@ def _validate_sbom_sidecars(bundle: Path, subjects: dict[str, Any], errors: list
                     if isinstance(digest, dict) and str(digest.get("alg") or "").upper() == "SHA-256":
                         seen.add(str(digest.get("content") or ""))
     spdx_path = bundle / SBOM_SPDX_SIDECAR
+    if not spdx_path.is_file():
+        errors.append(f"{SBOM_SPDX_SIDECAR} is required when sbom control is required")
     if spdx_path.is_file():
         spdx = _read_json(spdx_path)
         if not str(spdx.get("spdxVersion") or "").startswith("SPDX-"):
@@ -6031,10 +6114,13 @@ def _validate_ml_bom_dependency_graph(
     )
     framework_refs = refs_by_category.get("framework_configs", set())
     if framework_refs and referenced_runtime_refs:
-        if not any(dependency_map.get(ref, set()).intersection(referenced_runtime_refs) for ref in framework_refs):
+        for ref in sorted(framework_refs):
+            missing = sorted(referenced_runtime_refs - dependency_map.get(ref, set()))
+            if not missing:
+                continue
             errors.append(
-                f"{MLBOM_CYCLONEDX_SIDECAR} dependency graph must link framework config to referenced "
-                "model, dataset, or conversion components"
+                f"{MLBOM_CYCLONEDX_SIDECAR} dependency graph framework config {ref} must depend on all "
+                "referenced model, dataset, or conversion components: " + ", ".join(missing)
             )
 
 
@@ -6541,6 +6627,13 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
             errors.append("artifact.abi.json artifact_class does not match artifact.identity.json")
         if provenance.get("subject", {}).get("digest") != contract_surface.get("source_tree_hash"):
             errors.append("artifact.provenance.json subject digest does not match ABI source_tree_hash")
+        _validate_abi_contract_surface(
+            contract_surface,
+            identity=identity,
+            artifact_class=artifact_class,
+            repo_root=repo_root,
+            errors=errors,
+        )
     elif external_subject:
         if artifact_class and external_subject.get("artifact_class") != artifact_class:
             errors.append("artifact.abi.json external_subject artifact_class does not match artifact.identity.json")
@@ -6590,9 +6683,10 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
         errors.append("required cryptographic signature was not produced")
     if "sigstore_cosign" in required_controls:
         _validate_cosign_signature(bundle, signature, missing, errors)
+    _validate_subject_aggregate_binding(subjects, provenance, errors)
 
     for control in required_controls:
-        if not _has_any(bundle, CONTROL_FILES[control]):
+        if not _control_is_present(bundle, control):
             missing.append(" or ".join(CONTROL_FILES[control]))
     deferred_controls = identity.get("deferred_controls") if isinstance(identity.get("deferred_controls"), dict) else {}
     for control in policy_controls:
@@ -6603,7 +6697,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
             warnings.append(f"deferred control lacks explicit not-required reason: {control}")
 
     ok = not missing and not errors
-    present_controls = [control for control in required_controls if _has_any(bundle, CONTROL_FILES[control])]
+    present_controls = [control for control in required_controls if _control_is_present(bundle, control)]
     payload = {
         "ok": ok,
         "schema": "abyss_machine_artifact_bundle_verify_v1",
@@ -6727,6 +6821,32 @@ def _public_media_public_release_c2pa_promotion_errors(record: dict[str, Any]) -
 def _registry_record_path(registry_dir: Path, record_id: str) -> Path:
     filename = record_id.removeprefix("sha256:") + ".json"
     return registry_dir / BUNDLE_REGISTRY_RECORDS_DIR / filename
+
+
+def _update_registry_record_subject_store(
+    registry_dir: str | Path,
+    *,
+    record_id: str,
+    subject_store: dict[str, Any],
+) -> dict[str, Any]:
+    root = Path(registry_dir)
+    record_path = _registry_record_path(root, record_id)
+    if not record_id:
+        return {"ok": False, "errors": ["registry_record_id_missing"], "written": []}
+    if not record_path.is_file():
+        return {"ok": False, "errors": ["registry_record_missing"], "written": []}
+    try:
+        record = _read_json(record_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return {"ok": False, "errors": [f"registry_record_unreadable:{exc}"], "written": []}
+    if not isinstance(record, dict):
+        return {"ok": False, "errors": ["registry_record_invalid"], "written": []}
+    record["artifact_subject_store"] = subject_store
+    _write_json(record_path, record)
+    index = read_bundle_registry(root)
+    index_path = root / BUNDLE_REGISTRY_INDEX
+    _write_json(index_path, index)
+    return {"ok": True, "errors": [], "written": [str(record_path), str(index_path)]}
 
 
 def bundle_registry_record(
@@ -7001,14 +7121,20 @@ def write_bundle_registry_record(
     record_path = _registry_record_path(root, str(record["record_id"]))
     _write_json(record_path, record)
     index = read_bundle_registry(root)
-    _write_json(root / BUNDLE_REGISTRY_INDEX, index)
+    index_path = root / BUNDLE_REGISTRY_INDEX
+    _write_json(index_path, index)
+    path_status = _bundle_registry_path_status(root, root / BUNDLE_REGISTRY_RECORDS_DIR)
+    index["path_status"] = path_status
+    index["warnings"] = list(path_status.get("warnings", []))
+    index["summary"]["registry_path_warnings"] = len(path_status.get("warnings", []))
+    _write_json(index_path, index)
     return {
         **payload,
         "registry_dir": _registry_path_ref(root, root),
         "record_ref": _registry_path_ref(root, record_path),
         "written": [
             _registry_path_ref(root, record_path),
-            _registry_path_ref(root, root / BUNDLE_REGISTRY_INDEX),
+            _registry_path_ref(root, index_path),
         ],
         "registry": index,
     }
@@ -7412,11 +7538,39 @@ def _trust_root_evidence_digest_values(evidence: dict[str, Any]) -> set[str]:
 def _record_c2pa_trust(record: dict[str, Any]) -> dict[str, Any]:
     trust = record.get("c2pa_trust")
     if isinstance(trust, dict) and trust:
-        return trust
+        return _normalize_record_c2pa_trust(trust)
     control_evidence = record.get("control_evidence") if isinstance(record.get("control_evidence"), dict) else {}
     c2pa_evidence = control_evidence.get("c2pa") if isinstance(control_evidence.get("c2pa"), dict) else {}
     trust = c2pa_evidence.get("trust")
-    return trust if isinstance(trust, dict) else {}
+    return _normalize_record_c2pa_trust(trust) if isinstance(trust, dict) else {}
+
+
+def _c2pa_trust_uses_legacy_content_credentials_store(trust: dict[str, Any]) -> bool:
+    profile = str(trust.get("trust_anchor_profile") or "")
+    if profile in C2PA_LEGACY_CONTENT_CREDENTIALS_PROFILES:
+        return True
+    sources = trust.get("trust_sources") if isinstance(trust.get("trust_sources"), dict) else {}
+    if str(sources.get("trust_anchors_profile") or "") in C2PA_LEGACY_CONTENT_CREDENTIALS_PROFILES:
+        return True
+    if str(sources.get("trust_anchors_ref") or "") in C2PA_CONTENT_CREDENTIALS_TRUST_ANCHOR_URLS:
+        return True
+    return False
+
+
+def _normalize_record_c2pa_trust(trust: dict[str, Any]) -> dict[str, Any]:
+    if not trust:
+        return {}
+    if not _c2pa_trust_uses_legacy_content_credentials_store(trust):
+        return trust
+    normalized = dict(trust)
+    original_profile = str(normalized.get("trust_anchor_profile") or "")
+    normalized["trust_tier"] = "legacy_interim_trust_store"
+    normalized["production_trust_list_configured"] = False
+    normalized["production_trust_list_trusted"] = False
+    normalized["trust_anchor_profile"] = "legacy_content_credentials_interim_trust_store"
+    if original_profile and original_profile != normalized["trust_anchor_profile"]:
+        normalized["legacy_trust_anchor_profile"] = original_profile
+    return normalized
 
 
 def _production_trust_root_expected_modes(
@@ -7517,6 +7671,12 @@ def _is_ephemeral_evidence_ref(ref: str) -> bool:
         pathish_values.append(lowered.removeprefix("file://"))
     if lowered.startswith("file:"):
         pathish_values.append(lowered.removeprefix("file:"))
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme == "file":
+            if parsed.netloc in {"", "localhost"}:
+                pathish_values.append(urllib.parse.unquote(parsed.path).lower())
+            else:
+                pathish_values.append(urllib.parse.unquote(f"/{parsed.netloc}{parsed.path}").lower())
 
     for pathish in pathish_values:
         if _path_ref_matches_root(pathish, "/tmp"):
@@ -7684,11 +7844,19 @@ def trust_gate(
     records = [record for record in registry.get("records", []) if isinstance(record, dict)]
     latest = registry.get("latest_by_artifact_class", {}).get(artifact_class)
     selected = _find_registry_record(records, record_id=record_id, subject_digest=subject_digest)
-    if selected is None and isinstance(latest, dict):
+    explicit_record_selector = bool(record_id or subject_digest)
+    if selected is None and isinstance(latest, dict) and not explicit_record_selector:
         selected = latest
 
     if selected is None:
-        blockers = ["no_registry_record"]
+        if not records:
+            blockers = ["no_registry_record"]
+        elif record_id:
+            blockers = ["registry_record_id_not_found"]
+        elif subject_digest:
+            blockers = ["registry_record_subject_digest_not_found"]
+        else:
+            blockers = ["no_registry_record"]
         manual_review: list[str] = []
         warnings: list[str] = []
         verdict = "unknown"
@@ -7823,7 +7991,11 @@ def trust_gate(
                 if isinstance(c2pa_trust.get("credential_onboarding"), dict)
                 else {}
             )
-            if consumer_intent == "public_release" and onboarding.get("production_claim_allowed") is not True:
+            production_c2pa_ready = (
+                c2pa_trust.get("production_trust_list_trusted") is True
+                and _c2pa_onboarding_production_ready(onboarding)
+            )
+            if consumer_intent == "public_release" and not production_c2pa_ready:
                 manual_review.append("public_release_claim_requires_production_c2pa_trust_list")
 
     if selected.get("verification_warnings"):
