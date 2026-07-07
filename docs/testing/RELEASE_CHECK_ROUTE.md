@@ -172,6 +172,12 @@ latest/readmodel refresh. Report status/counts/reasons only, never raw stack
 responses, local latest payloads, generated event/fabric stores, browser
 captures, or private host evidence.
 
+For self-awareness latest-read adapter changes, public CI should rely on fake
+latest-reader tests for spec order, schema selection, cycle latest document
+dispatch, and bridge-document load dispatch. Live-host closeout may use compact
+`self-awareness status --json` summaries; avoid refreshing probe/cycle
+readmodels unless orchestration or concrete write ports changed.
+
 For self-awareness cycle artifact-evidence adapter changes, public CI should
 rely on fake-port tests for latest-artifact existence/stat/hash/mtime
 projection, missing artifact behavior, bridge steps with `requires_ok=false`,

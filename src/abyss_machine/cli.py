@@ -57643,25 +57643,29 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
             {"path": str(SELF_AWARENESS_REPLAY_LATEST_PATH), "section": "stack_handoff_replay"},
         ],
     }
-    latest_docs = {
-        "capabilities": load_latest_json(SELF_AWARENESS_CAPABILITIES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_capabilities_v1"),
-        "requirements": load_latest_json(SELF_AWARENESS_REQUIREMENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirements_v1"),
-        "trace_context": load_latest_json(SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_trace_context_fallback_v1"),
-        "working_stack": load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1"),
-        "collect": load_latest_json(SELF_AWARENESS_COLLECT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_collect_v1"),
-        "events": load_latest_json(SELF_AWARENESS_EVENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_events_v1"),
-        "query": load_latest_json(SELF_AWARENESS_QUERY_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_query_v1"),
-        "correlation": load_latest_json(SELF_AWARENESS_CORRELATION_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_correlation_v1"),
-        "timeline": load_latest_json(SELF_AWARENESS_TIMELINE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_timeline_v1"),
-        "spatial_graph": load_latest_json(SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_spatial_graph_v1"),
-        "context": load_latest_json(SELF_AWARENESS_CONTEXT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_context_v1"),
-        "episodes": load_latest_json(SELF_AWARENESS_EPISODES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_episodes_v1"),
-        "alerts": load_latest_json(SELF_AWARENESS_ALERTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_alerts_v1"),
-    }
-    bridge_docs = {
-        str(surface["id"]): load_latest_json(surface["path"], str(surface["schema"]))
-        for surface in self_awareness_cycle_bridge_surfaces()
-    }
+    latest_docs = self_awareness_adapters.load_cycle_latest_documents(
+        schema_prefix=SCHEMA_PREFIX,
+        paths={
+            "capabilities": SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
+            "requirements": SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+            "trace_context": SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH,
+            "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+            "collect": SELF_AWARENESS_COLLECT_LATEST_PATH,
+            "events": SELF_AWARENESS_EVENTS_LATEST_PATH,
+            "query": SELF_AWARENESS_QUERY_LATEST_PATH,
+            "correlation": SELF_AWARENESS_CORRELATION_LATEST_PATH,
+            "timeline": SELF_AWARENESS_TIMELINE_LATEST_PATH,
+            "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+            "context": SELF_AWARENESS_CONTEXT_LATEST_PATH,
+            "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
+            "alerts": SELF_AWARENESS_ALERTS_LATEST_PATH,
+        },
+        load_latest_json=load_latest_json,
+    )
+    bridge_docs = self_awareness_adapters.load_cycle_bridge_documents(
+        self_awareness_cycle_bridge_surfaces(),
+        load_latest_json=load_latest_json,
+    )
     steps = [
         artifact_step("probe", "abyss-machine self-awareness probe --json", SELF_AWARENESS_PROBE_LATEST_PATH, probe, evidence_extra={"run_id": probe_run_id, "chain": probe_chain}),
         artifact_step("capabilities", "abyss-machine self-awareness capabilities --json", SELF_AWARENESS_CAPABILITIES_LATEST_PATH, latest_docs["capabilities"]),
