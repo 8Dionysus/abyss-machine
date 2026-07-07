@@ -48345,20 +48345,7 @@ def self_awareness_failure_matrix(write_latest: bool = True) -> dict[str, Any]:
 
 
 def self_awareness_failure_matrix_row_is_open_requirement(row: Any) -> bool:
-    if not isinstance(row, dict) or not str(row.get("id") or "").startswith("requirement:"):
-        return False
-    failure_kind = str(row.get("failure_kind") or "")
-    if failure_kind == "open_requirement":
-        return True
-    if failure_kind == "closed_requirement_regression_guard":
-        return False
-    current_state = row.get("current_state") if isinstance(row.get("current_state"), dict) else {}
-    status = str(current_state.get("status") or row.get("status") or "")
-    if current_state.get("closed_by_current_probe") is True:
-        return False
-    if status in {"closed", "not_current_requirement"}:
-        return False
-    return current_state.get("requirement_present") is True
+    return self_awareness_adapters.failure_matrix_row_is_open_requirement(row)
 
 
 def self_awareness_resident_worker_detail(
@@ -57566,54 +57553,41 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
     artifact_step = self_awareness_cycle_artifact_step
 
     probe_chain = probe.get("chain") if isinstance(probe.get("chain"), dict) else {}
-    cycle_chain = {
-        "synthetic_request": bool(probe_chain.get("request")),
-        "capability_inventory": bool(probe_chain.get("capability_map")),
-        "requirement_probes": bool(probe_chain.get("requirement_probes")) and bool(requirement_probes.get("ok")),
-        "stack_closure_dossier": bool(probe_chain.get("stack_closure_dossier")) and bool(stack_closure_dossier.get("ok")),
-        "failure_matrix": bool(probe_chain.get("failure_matrix")) and bool(failure_matrix.get("ok")),
-        "working_stack": bool(probe_chain.get("working_stack")),
-        "signal_fabric": all(bool(probe_chain.get(key)) for key in ("metric", "log", "trace_context", "context", "observation_events")),
-        "query": bool(probe_chain.get("query")),
-        "correlation": bool(probe_chain.get("correlation")),
-        "timeline": bool(probe_chain.get("timeline")),
-        "spatial_graph": bool(probe_chain.get("spatial_graph")),
-        "causal_episode": bool(probe_chain.get("causal_episode")),
-        "alert": bool(probe_chain.get("alert")),
-        "warm_e2b_worker": bool(probe_chain.get("warm_e2b")),
-        "rag_memory": bool(probe_chain.get("rag_memory")),
-        "nervous_freshness": bool(probe_chain.get("nervous_freshness")),
-        "langgraph_investigation": bool(investigation.get("ok")) and bool(investigation.get("checkpoints")),
-        "replay": bool(replay.get("ok")) and safe_int(nested_get(replay, ["summary", "divergences"]), 0) == 0,
-        "resident_cognitive_replay": self_awareness_resident_cognitive_replay_complete(replay.get("resident_cognitive_replay") if isinstance(replay.get("resident_cognitive_replay"), dict) else {}),
-        "working_stack_activation_smoke": self_awareness_working_stack_activation_smoke_complete(activation_smoke),
-        "stack_handoff_readiness_replay": nested_get(replay, ["stack_handoff_replay", "closure_readiness_replayable"]) is True,
-        "trace_context_fallback": self_awareness_trace_context_fallback_complete(trace_context_fallback),
-        "semantic_brief": bool(brief.get("ok")),
-        "reaction_candidate": bool(probe_chain.get("reaction_candidate")) and bool(reactions.get("ok", True)),
-        "governed_response": bool(probe_chain.get("governed_response")) and bool(responses.get("ok", True)),
-    }
+    cycle_chain = self_awareness_adapters.cycle_initial_chain(
+        probe_chain=probe_chain,
+        requirement_probes=requirement_probes,
+        stack_closure_dossier=stack_closure_dossier,
+        failure_matrix=failure_matrix,
+        investigation=investigation,
+        replay=replay,
+        activation_smoke=activation_smoke,
+        trace_context_fallback=trace_context_fallback,
+        brief=brief,
+        reactions=reactions,
+        responses=responses,
+        resident_cognitive_replay_complete=self_awareness_resident_cognitive_replay_complete,
+        working_stack_activation_smoke_complete=self_awareness_working_stack_activation_smoke_complete,
+        trace_context_fallback_complete=self_awareness_trace_context_fallback_complete,
+    )
     bridge_proof = self_awareness_cycle_bridge_proof(
         generated_at=generated_at,
         cycle_id=cycle_id,
         probe_run_id=probe_run_id,
     )
     cycle_chain["machine_bridges"] = self_awareness_cycle_bridge_proof_complete(bridge_proof)
-    open_requirement_rows = [
-        row for row in failure_matrix.get("rows", [])
-        if self_awareness_failure_matrix_row_is_open_requirement(row)
-    ]
-    automatic_response_count = safe_int(nested_get(responses, ["summary", "automatic_responses"]), 0)
-    mutating_response_routes = safe_int(nested_get(responses, ["summary", "routes_with_mutating_command_if_run"]), 0)
-    mutation_claims = [
-        row.get("id") for row in failure_matrix.get("rows", [])
-        if isinstance(row, dict) and (row.get("host_layer_mutates_stack") is not False or row.get("automatic_remediation") is not False)
-    ]
-    stack_handoff_closure_readiness = replay.get("stack_handoff_closure_readiness") if isinstance(replay.get("stack_handoff_closure_readiness"), dict) else {}
-    working_stack_activation_summary = nested_get(stack_closure_dossier, ["working_stack_activation_dossier", "summary"])
-    if not isinstance(working_stack_activation_summary, dict):
-        working_stack_activation_summary = {}
-    open_working_stack_activation_gaps = safe_int(working_stack_activation_summary.get("open_activation_gaps"), 0)
+    cycle_issue_inputs = self_awareness_adapters.cycle_issue_inputs(
+        failure_matrix=failure_matrix,
+        replay=replay,
+        stack_closure_dossier=stack_closure_dossier,
+        responses=responses,
+    )
+    open_requirement_rows = cycle_issue_inputs["open_requirement_rows"]
+    automatic_response_count = cycle_issue_inputs["automatic_response_count"]
+    mutating_response_routes = cycle_issue_inputs["mutating_response_routes"]
+    mutation_claims = cycle_issue_inputs["mutation_claims"]
+    stack_handoff_closure_readiness = cycle_issue_inputs["stack_handoff_closure_readiness"]
+    working_stack_activation_summary = cycle_issue_inputs["working_stack_activation_summary"]
+    open_working_stack_activation_gaps = cycle_issue_inputs["open_working_stack_activation_gaps"]
     stack_handoff_summary = self_awareness_adapters.cycle_stack_handoff_summary_document(
         schema_prefix=SCHEMA_PREFIX,
         stack_handoff_closure_readiness=stack_handoff_closure_readiness,
@@ -57717,28 +57691,20 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
         activation_smoke_doc=activation_smoke,
     )
     steps.append(artifact_step("autolink", "abyss-machine self-awareness autolink --json", SELF_AWARENESS_AUTOLINK_LATEST_PATH, autolink))
-    cycle_chain["autolink"] = self_awareness_autolink_complete(autolink)
     export = self_awareness_export(run_id=probe_run_id, write_latest=True, include_cycle=True)
     steps.append(artifact_step("export", "abyss-machine self-awareness export --json", SELF_AWARENESS_EXPORT_LATEST_PATH, export))
-    cycle_chain["export"] = bool(export.get("ok"))
-    cycle_chain["resident_cognitive_export"] = self_awareness_resident_cognitive_replay_complete(export.get("resident_cognitive_replay") if isinstance(export.get("resident_cognitive_replay"), dict) else {})
-    cycle_chain["body_trace"] = (
-        bool(probe_chain.get("body_trace"))
-        and nested_get(replay, ["body_trace_replay", "replayable"]) is True
-        and safe_int(nested_get(responses, ["summary", "self_awareness_body_trace_routes"]), 0) >= 1
-        and safe_int(nested_get(responses, ["summary", "self_awareness_body_trace_missing"]), -1) == 0
-        and nested_get(export, ["body_trace_handoff", "host_body_context_packet_included"]) is True
-        and nested_get(export, ["body_trace_handoff", "resident_body_trace_replayable"]) is True
-        and nested_get(export, ["body_trace_handoff", "response_body_trace_included"]) is True
+    cycle_chain.update(
+        self_awareness_adapters.cycle_export_chain_updates(
+            probe_chain=probe_chain,
+            replay=replay,
+            responses=responses,
+            export=export,
+            autolink=autolink,
+            autolink_complete=self_awareness_autolink_complete,
+            resident_cognitive_replay_complete=self_awareness_resident_cognitive_replay_complete,
+            working_stack_link_integrity_complete=self_awareness_working_stack_link_integrity_matrix_complete,
+        )
     )
-    cycle_chain["entity_event_document"] = (
-        bool(probe_chain.get("entity_event_document"))
-        and safe_int(nested_get(responses, ["summary", "self_awareness_entity_event_document_routes"]), 0) >= 1
-        and safe_int(nested_get(responses, ["summary", "self_awareness_entity_event_document_missing"]), -1) == 0
-        and nested_get(export, ["portable_contract", "response_entity_event_document_context_included"]) is True
-        and nested_get(export, ["response_entity_event_document_handoff", "complete"]) is True
-    )
-    cycle_chain["working_stack_link_integrity"] = self_awareness_working_stack_link_integrity_matrix_complete(export.get("working_stack_link_integrity") if isinstance(export.get("working_stack_link_integrity"), dict) else {})
     failed_steps = [step["id"] for step in steps if not step.get("ok")]
     missing_chain = [key for key, value in cycle_chain.items() if not value]
     from_zero_proof = self_awareness_cycle_from_zero_proof(

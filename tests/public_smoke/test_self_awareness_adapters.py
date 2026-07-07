@@ -782,6 +782,248 @@ def test_cycle_stack_handoff_summary_document_is_public_safe(tmp_path: Path) -> 
     ]
 
 
+def test_failure_matrix_open_requirement_rule_stays_policy_owned() -> None:
+    assert self_awareness_adapters.failure_matrix_row_is_open_requirement(
+        {
+            "id": "requirement:stack.trace-backend",
+            "failure_kind": "open_requirement",
+        }
+    ) is True
+    assert self_awareness_adapters.failure_matrix_row_is_open_requirement(
+        {
+            "id": "requirement:stack.closed",
+            "failure_kind": "closed_requirement_regression_guard",
+            "current_state": {"requirement_present": True},
+        }
+    ) is False
+    assert self_awareness_adapters.failure_matrix_row_is_open_requirement(
+        {
+            "id": "requirement:stack.present",
+            "current_state": {"requirement_present": True, "status": "open"},
+        }
+    ) is True
+    assert self_awareness_adapters.failure_matrix_row_is_open_requirement(
+        {
+            "id": "requirement:stack.closed-by-probe",
+            "current_state": {"requirement_present": True, "closed_by_current_probe": True},
+        }
+    ) is False
+    assert self_awareness_adapters.failure_matrix_row_is_open_requirement({"id": "other:thing"}) is False
+
+
+def test_cycle_issue_inputs_extract_guard_inputs_without_live_io() -> None:
+    failure_matrix = {
+        "rows": [
+            {
+                "id": "requirement:open-kind",
+                "failure_kind": "open_requirement",
+                "host_layer_mutates_stack": False,
+                "automatic_remediation": False,
+            },
+            {
+                "id": "requirement:present-state",
+                "current_state": {"requirement_present": True, "status": "open"},
+                "host_layer_mutates_stack": False,
+                "automatic_remediation": False,
+            },
+            {
+                "id": "requirement:closed",
+                "current_state": {"requirement_present": True, "status": "closed"},
+                "host_layer_mutates_stack": False,
+                "automatic_remediation": False,
+            },
+            {
+                "id": "requirement:unsafe-claim",
+                "failure_kind": "open_requirement",
+                "host_layer_mutates_stack": True,
+                "automatic_remediation": False,
+            },
+        ]
+    }
+    replay = {
+        "stack_handoff_closure_readiness": {
+            "open_requirement_ids": ["requirement:open-kind"],
+            "summary": {"packets": 2},
+        }
+    }
+    stack_closure_dossier = {
+        "working_stack_activation_dossier": {
+            "summary": {"entries": 3, "open_activation_gaps": "2"}
+        }
+    }
+    responses = {
+        "summary": {
+            "automatic_responses": "0",
+            "routes_with_mutating_command_if_run": "1",
+        }
+    }
+
+    payload = self_awareness_adapters.cycle_issue_inputs(
+        failure_matrix=failure_matrix,
+        replay=replay,
+        stack_closure_dossier=stack_closure_dossier,
+        responses=responses,
+    )
+
+    assert [row["id"] for row in payload["open_requirement_rows"]] == [
+        "requirement:open-kind",
+        "requirement:present-state",
+        "requirement:unsafe-claim",
+    ]
+    assert payload["automatic_response_count"] == 0
+    assert payload["mutating_response_routes"] == 1
+    assert payload["mutation_claims"] == ["requirement:unsafe-claim"]
+    assert payload["stack_handoff_closure_readiness"]["summary"] == {"packets": 2}
+    assert payload["working_stack_activation_summary"] == {"entries": 3, "open_activation_gaps": "2"}
+    assert payload["open_working_stack_activation_gaps"] == 2
+
+
+def test_cycle_initial_chain_uses_supplied_completion_predicates() -> None:
+    probe_chain = {
+        key: True
+        for key in (
+            "request",
+            "capability_map",
+            "requirement_probes",
+            "stack_closure_dossier",
+            "failure_matrix",
+            "working_stack",
+            "metric",
+            "log",
+            "trace_context",
+            "context",
+            "observation_events",
+            "query",
+            "correlation",
+            "timeline",
+            "spatial_graph",
+            "causal_episode",
+            "alert",
+            "warm_e2b",
+            "rag_memory",
+            "nervous_freshness",
+            "reaction_candidate",
+            "governed_response",
+        )
+    }
+    resident_packets: list[Any] = []
+    activation_packets: list[Any] = []
+    trace_packets: list[Any] = []
+
+    def resident_complete(packet: Any) -> bool:
+        resident_packets.append(packet)
+        return isinstance(packet, dict) and packet.get("complete") is True
+
+    def activation_complete(packet: Any) -> bool:
+        activation_packets.append(packet)
+        return isinstance(packet, dict) and packet.get("complete") is True
+
+    def trace_complete(packet: Any) -> bool:
+        trace_packets.append(packet)
+        return isinstance(packet, dict) and packet.get("complete") is True
+
+    replay = {
+        "ok": True,
+        "summary": {"divergences": "0"},
+        "resident_cognitive_replay": {"complete": True},
+        "stack_handoff_replay": {"closure_readiness_replayable": True},
+    }
+    activation_smoke = {"complete": True}
+    trace_context = {"complete": True}
+
+    chain = self_awareness_adapters.cycle_initial_chain(
+        probe_chain=probe_chain,
+        requirement_probes={"ok": True},
+        stack_closure_dossier={"ok": True},
+        failure_matrix={"ok": True},
+        investigation={"ok": True, "checkpoints": ["checkpoint-fixture"]},
+        replay=replay,
+        activation_smoke=activation_smoke,
+        trace_context_fallback=trace_context,
+        brief={"ok": True},
+        reactions={"ok": True},
+        responses={"ok": True},
+        resident_cognitive_replay_complete=resident_complete,
+        working_stack_activation_smoke_complete=activation_complete,
+        trace_context_fallback_complete=trace_complete,
+    )
+
+    assert chain["signal_fabric"] is True
+    assert chain["langgraph_investigation"] is True
+    assert chain["replay"] is True
+    assert chain["resident_cognitive_replay"] is True
+    assert chain["working_stack_activation_smoke"] is True
+    assert chain["stack_handoff_readiness_replay"] is True
+    assert chain["trace_context_fallback"] is True
+    assert chain["semantic_brief"] is True
+    assert chain["reaction_candidate"] is True
+    assert chain["governed_response"] is True
+    assert resident_packets == [{"complete": True}]
+    assert activation_packets == [activation_smoke]
+    assert trace_packets == [trace_context]
+
+
+def test_cycle_export_chain_updates_keep_handoff_guards_public_safe() -> None:
+    responses = {
+        "summary": {
+            "self_awareness_body_trace_routes": "1",
+            "self_awareness_body_trace_missing": "0",
+            "self_awareness_entity_event_document_routes": "1",
+            "self_awareness_entity_event_document_missing": "0",
+        }
+    }
+    export = {
+        "ok": True,
+        "resident_cognitive_replay": {"complete": True},
+        "body_trace_handoff": {
+            "host_body_context_packet_included": True,
+            "resident_body_trace_replayable": True,
+            "response_body_trace_included": True,
+        },
+        "portable_contract": {"response_entity_event_document_context_included": True},
+        "response_entity_event_document_handoff": {"complete": True},
+        "working_stack_link_integrity": {"complete": True},
+    }
+
+    updates = self_awareness_adapters.cycle_export_chain_updates(
+        probe_chain={"body_trace": True, "entity_event_document": True},
+        replay={"body_trace_replay": {"replayable": True}},
+        responses=responses,
+        export=export,
+        autolink={"complete": True},
+        autolink_complete=lambda packet: packet.get("complete") is True,
+        resident_cognitive_replay_complete=lambda packet: packet.get("complete") is True,
+        working_stack_link_integrity_complete=lambda packet: packet.get("complete") is True,
+    )
+
+    assert updates == {
+        "autolink": True,
+        "export": True,
+        "resident_cognitive_export": True,
+        "body_trace": True,
+        "entity_event_document": True,
+        "working_stack_link_integrity": True,
+    }
+
+    broken = self_awareness_adapters.cycle_export_chain_updates(
+        probe_chain={"body_trace": True, "entity_event_document": True},
+        replay={"body_trace_replay": {"replayable": True}},
+        responses={
+            "summary": {
+                **responses["summary"],
+                "self_awareness_entity_event_document_missing": "1",
+            }
+        },
+        export=export,
+        autolink={"complete": True},
+        autolink_complete=lambda packet: packet.get("complete") is True,
+        resident_cognitive_replay_complete=lambda packet: packet.get("complete") is True,
+        working_stack_link_integrity_complete=lambda packet: packet.get("complete") is True,
+    )
+    assert broken["body_trace"] is True
+    assert broken["entity_event_document"] is False
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {

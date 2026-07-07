@@ -1336,6 +1336,146 @@ def _nested_get(value: Mapping[str, Any], path: list[str]) -> Any:
     return current
 
 
+def failure_matrix_row_is_open_requirement(row: Any) -> bool:
+    if not isinstance(row, Mapping) or not str(row.get("id") or "").startswith("requirement:"):
+        return False
+    failure_kind = str(row.get("failure_kind") or "")
+    if failure_kind == "open_requirement":
+        return True
+    if failure_kind == "closed_requirement_regression_guard":
+        return False
+    current_state = row.get("current_state") if isinstance(row.get("current_state"), Mapping) else {}
+    status = str(current_state.get("status") or row.get("status") or "")
+    if current_state.get("closed_by_current_probe") is True:
+        return False
+    if status in {"closed", "not_current_requirement"}:
+        return False
+    return current_state.get("requirement_present") is True
+
+
+def cycle_initial_chain(
+    *,
+    probe_chain: Mapping[str, Any],
+    requirement_probes: Mapping[str, Any],
+    stack_closure_dossier: Mapping[str, Any],
+    failure_matrix: Mapping[str, Any],
+    investigation: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    activation_smoke: Mapping[str, Any],
+    trace_context_fallback: Mapping[str, Any],
+    brief: Mapping[str, Any],
+    reactions: Mapping[str, Any],
+    responses: Mapping[str, Any],
+    resident_cognitive_replay_complete: Callable[[Any], bool],
+    working_stack_activation_smoke_complete: Callable[[Any], bool],
+    trace_context_fallback_complete: Callable[[Any], bool],
+) -> dict[str, bool]:
+    resident_replay = replay.get("resident_cognitive_replay") if isinstance(replay.get("resident_cognitive_replay"), Mapping) else {}
+    return {
+        "synthetic_request": bool(probe_chain.get("request")),
+        "capability_inventory": bool(probe_chain.get("capability_map")),
+        "requirement_probes": bool(probe_chain.get("requirement_probes")) and bool(requirement_probes.get("ok")),
+        "stack_closure_dossier": bool(probe_chain.get("stack_closure_dossier")) and bool(stack_closure_dossier.get("ok")),
+        "failure_matrix": bool(probe_chain.get("failure_matrix")) and bool(failure_matrix.get("ok")),
+        "working_stack": bool(probe_chain.get("working_stack")),
+        "signal_fabric": all(bool(probe_chain.get(key)) for key in ("metric", "log", "trace_context", "context", "observation_events")),
+        "query": bool(probe_chain.get("query")),
+        "correlation": bool(probe_chain.get("correlation")),
+        "timeline": bool(probe_chain.get("timeline")),
+        "spatial_graph": bool(probe_chain.get("spatial_graph")),
+        "causal_episode": bool(probe_chain.get("causal_episode")),
+        "alert": bool(probe_chain.get("alert")),
+        "warm_e2b_worker": bool(probe_chain.get("warm_e2b")),
+        "rag_memory": bool(probe_chain.get("rag_memory")),
+        "nervous_freshness": bool(probe_chain.get("nervous_freshness")),
+        "langgraph_investigation": bool(investigation.get("ok")) and bool(investigation.get("checkpoints")),
+        "replay": bool(replay.get("ok")) and _safe_int(_nested_get(replay, ["summary", "divergences"]), 0) == 0,
+        "resident_cognitive_replay": resident_cognitive_replay_complete(resident_replay),
+        "working_stack_activation_smoke": working_stack_activation_smoke_complete(activation_smoke),
+        "stack_handoff_readiness_replay": _nested_get(replay, ["stack_handoff_replay", "closure_readiness_replayable"]) is True,
+        "trace_context_fallback": trace_context_fallback_complete(trace_context_fallback),
+        "semantic_brief": bool(brief.get("ok")),
+        "reaction_candidate": bool(probe_chain.get("reaction_candidate")) and bool(reactions.get("ok", True)),
+        "governed_response": bool(probe_chain.get("governed_response")) and bool(responses.get("ok", True)),
+    }
+
+
+def cycle_issue_inputs(
+    *,
+    failure_matrix: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    stack_closure_dossier: Mapping[str, Any],
+    responses: Mapping[str, Any],
+) -> dict[str, Any]:
+    rows = failure_matrix.get("rows") if isinstance(failure_matrix.get("rows"), list) else []
+    open_requirement_rows = [
+        row for row in rows
+        if failure_matrix_row_is_open_requirement(row)
+    ]
+    stack_handoff_closure_readiness = (
+        replay.get("stack_handoff_closure_readiness")
+        if isinstance(replay.get("stack_handoff_closure_readiness"), Mapping)
+        else {}
+    )
+    working_stack_activation_summary = _nested_get(stack_closure_dossier, ["working_stack_activation_dossier", "summary"])
+    if not isinstance(working_stack_activation_summary, Mapping):
+        working_stack_activation_summary = {}
+    return {
+        "open_requirement_rows": open_requirement_rows,
+        "automatic_response_count": _safe_int(_nested_get(responses, ["summary", "automatic_responses"]), 0),
+        "mutating_response_routes": _safe_int(_nested_get(responses, ["summary", "routes_with_mutating_command_if_run"]), 0),
+        "mutation_claims": [
+            row.get("id") for row in rows
+            if isinstance(row, Mapping)
+            and (row.get("host_layer_mutates_stack") is not False or row.get("automatic_remediation") is not False)
+        ],
+        "stack_handoff_closure_readiness": dict(stack_handoff_closure_readiness),
+        "working_stack_activation_summary": dict(working_stack_activation_summary),
+        "open_working_stack_activation_gaps": _safe_int(working_stack_activation_summary.get("open_activation_gaps"), 0),
+    }
+
+
+def cycle_export_chain_updates(
+    *,
+    probe_chain: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    responses: Mapping[str, Any],
+    export: Mapping[str, Any],
+    autolink: Mapping[str, Any],
+    autolink_complete: Callable[[Any], bool],
+    resident_cognitive_replay_complete: Callable[[Any], bool],
+    working_stack_link_integrity_complete: Callable[[Any], bool],
+) -> dict[str, bool]:
+    resident_export = export.get("resident_cognitive_replay") if isinstance(export.get("resident_cognitive_replay"), Mapping) else {}
+    working_stack_link_integrity = (
+        export.get("working_stack_link_integrity")
+        if isinstance(export.get("working_stack_link_integrity"), Mapping)
+        else {}
+    )
+    return {
+        "autolink": autolink_complete(autolink),
+        "export": bool(export.get("ok")),
+        "resident_cognitive_export": resident_cognitive_replay_complete(resident_export),
+        "body_trace": (
+            bool(probe_chain.get("body_trace"))
+            and _nested_get(replay, ["body_trace_replay", "replayable"]) is True
+            and _safe_int(_nested_get(responses, ["summary", "self_awareness_body_trace_routes"]), 0) >= 1
+            and _safe_int(_nested_get(responses, ["summary", "self_awareness_body_trace_missing"]), -1) == 0
+            and _nested_get(export, ["body_trace_handoff", "host_body_context_packet_included"]) is True
+            and _nested_get(export, ["body_trace_handoff", "resident_body_trace_replayable"]) is True
+            and _nested_get(export, ["body_trace_handoff", "response_body_trace_included"]) is True
+        ),
+        "entity_event_document": (
+            bool(probe_chain.get("entity_event_document"))
+            and _safe_int(_nested_get(responses, ["summary", "self_awareness_entity_event_document_routes"]), 0) >= 1
+            and _safe_int(_nested_get(responses, ["summary", "self_awareness_entity_event_document_missing"]), -1) == 0
+            and _nested_get(export, ["portable_contract", "response_entity_event_document_context_included"]) is True
+            and _nested_get(export, ["response_entity_event_document_handoff", "complete"]) is True
+        ),
+        "working_stack_link_integrity": working_stack_link_integrity_complete(working_stack_link_integrity),
+    }
+
+
 def working_stack_model_bridge(
     service: str,
     model_rows: Iterable[Mapping[str, Any]],
