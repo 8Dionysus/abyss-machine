@@ -414,6 +414,143 @@ def test_cli_nervous_semantic_maintain_binds_orchestration_adapter(monkeypatch, 
     assert captured["write_latest"] is False
 
 
+def test_semantic_eval_adapter_runs_fake_ports_without_writing(tmp_path: Path) -> None:
+    calls: list[tuple[str, object]] = []
+    vector = array.array("f", [1.0, 0.0]).tobytes()
+    probes = [
+        {"id": "thermal", "query": "thermal zram", "preferred_sources": {"nervous_events"}},
+        {"id": "desktop", "query": "gnome pidfd", "avoid_top_sources": {"screenshots"}},
+    ]
+
+    def embed_texts(text_items: list[dict[str, str]], embedding: dict[str, object]) -> dict[str, object]:
+        calls.append(("embed", {"items": text_items, "embedding": embedding}))
+        return {
+            "ok": True,
+            "vectors": {
+                "thermal": {"dim": 2, "blob": vector},
+                "desktop": {"dim": 2, "blob": vector},
+            },
+            "summary": {"items": 2},
+        }
+
+    def lexical_search(query: str) -> dict[str, object]:
+        calls.append(("lexical", query))
+        return {"ok": True, "results": [{"source_id": "nervous_events", "title": f"lexical {query}"}]}
+
+    def semantic_search_with_vector(**kwargs: object) -> dict[str, object]:
+        calls.append(("semantic", {key: value for key, value in kwargs.items() if key != "query_vector_blob"}))
+        return {
+            "ok": True,
+            "results": [
+                {
+                    "source_id": "nervous_events",
+                    "title": f"semantic {kwargs['query']}",
+                    "score": 0.875,
+                }
+            ],
+        }
+
+    data = nervous_semantic_adapters.semantic_eval_document(
+        semantic_config={"embedding": {"batch_size": 2}},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T02:00:00+00:00",
+        latest_path=tmp_path / "semantic-eval" / "latest.json",
+        daily_root=tmp_path / "semantic-eval",
+        semantic_status=lambda: {"ready": True, "freshness": {"vectors": 2}},
+        policy_gate=lambda: {"ok": True, "class": "medium"},
+        embed_texts=embed_texts,
+        lexical_search=lexical_search,
+        semantic_search_with_vector=semantic_search_with_vector,
+        latest_writer=lambda document: {**document, "written": True},
+        probes=probes,
+        write_latest=True,
+    )
+
+    assert data["written"] is True
+    assert data["ok"] is True
+    assert data["status"] == "ok"
+    assert data["summary"] == {"fails": 0, "warnings": 0, "checks": 5, "probes": 2}
+    assert data["embedding_status"]["summary"] == {"items": 2}
+    assert data["results"][0]["semantic"]["top_scores"] == [0.875]
+    assert data["results"][1]["semantic"]["top_sources"] == ["nervous_events"]
+    assert not (tmp_path / "semantic-eval").exists()
+    assert calls[0][0] == "embed"
+    assert calls[0][1]["items"][0]["id"] == "thermal"
+    assert calls[1] == ("lexical", "thermal zram")
+    assert calls[2][0] == "semantic"
+    assert calls[2][1]["query_vector_result"]["dim"] == 2
+
+
+def test_semantic_eval_adapter_projects_policy_denial_without_embedding(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def embed_texts(text_items: list[dict[str, str]], embedding: dict[str, object]) -> dict[str, object]:
+        calls.append("embed")
+        return {"ok": True, "vectors": {}}
+
+    def semantic_search_with_vector(**kwargs: object) -> dict[str, object]:
+        calls.append("semantic")
+        return {"ok": True, "results": []}
+
+    data = nervous_semantic_adapters.semantic_eval_document(
+        semantic_config={"embedding": {"batch_size": 2}},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T02:00:00+00:00",
+        latest_path=tmp_path / "semantic-eval" / "latest.json",
+        daily_root=tmp_path / "semantic-eval",
+        semantic_status=lambda: {"ready": True, "freshness": {"vectors": 2}},
+        policy_gate=lambda: {"ok": False, "reason": "test policy"},
+        embed_texts=embed_texts,
+        lexical_search=lambda query: {"ok": True, "results": []},
+        semantic_search_with_vector=semantic_search_with_vector,
+        latest_writer=lambda document: document,
+        probes=[{"id": "blocked", "query": "blocked query"}],
+        write_latest=False,
+    )
+
+    assert data["ok"] is False
+    assert data["status"] == "fail"
+    assert data["summary"] == {"fails": 1, "warnings": 0, "checks": 2, "probes": 1}
+    assert data["embedding_status"]["policy_denied"] is True
+    assert data["results"][0]["semantic"]["policy_denied"] is True
+    assert calls == []
+
+
+def test_cli_nervous_semantic_eval_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_EVAL_LATEST_PATH", tmp_path / "eval" / "latest.json")
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_EVAL_ROOT", tmp_path / "eval")
+    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"embedding": {"batch_size": 3}})
+    monkeypatch.setattr(cli, "nervous_semantic_status", lambda write_latest=False: {"ready": True, "write_latest": write_latest})
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-07-07T02:00:00+00:00")
+    monkeypatch.setattr(cli, "ai_policy_gate_for_class", lambda cls, action, force=False: {"ok": True, "class": cls, "action": action, "force": force})
+
+    def fake_adapter(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    monkeypatch.setattr(nervous_semantic_adapters, "semantic_eval_document", fake_adapter)
+
+    data = cli.nervous_semantic_eval(force_policy=True, write_latest=False)
+
+    assert data == {"ok": True, "from_adapter": True}
+    assert captured["semantic_config"] == {"embedding": {"batch_size": 3}}
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["generated_at"] == "2026-07-07T02:00:00+00:00"
+    assert captured["latest_path"] == tmp_path / "eval" / "latest.json"
+    assert captured["daily_root"] == tmp_path / "eval"
+    assert captured["semantic_status"]() == {"ready": True, "write_latest": False}
+    assert captured["policy_gate"]() == {"ok": True, "class": "medium", "action": "nervous semantic-eval", "force": True}
+    assert captured["embed_texts"] is cli.nervous_semantic_embed_texts
+    assert captured["semantic_search_with_vector"] is cli.nervous_semantic_search_with_vector
+    assert captured["latest_writer"] is cli.nervous_semantic_eval_write_latest
+    assert captured["write_latest"] is False
+
+
 def test_semantic_build_pending_plan_classifies_reuse_and_embedding() -> None:
     chunks = [
         {"chunk_id": "same", "body_sha256": "hash-same"},

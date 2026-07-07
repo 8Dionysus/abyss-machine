@@ -95,9 +95,12 @@
   semantic-build command/embedding override shaping, refusal documents,
   source-index summary/reload/defer documents, policy-denial projection, and
   successful-build finalization of compile-cache summaries, provenance counters,
-  meta values, DB mode, and counts. CLI still owns concrete config/path/model/
-  runtime binding, privacy/AI policy gate invocation, semantic DB/source-index
-  lock sequencing, concrete DB connection lifetime, and command rendering.
+  meta values, DB mode, and counts. The follow-up semantic-eval seam moves
+  probe/check/result assembly, eval-query embedding fanout, lexical/semantic
+  search dispatch, and semantic-eval latest/history routing through fakeable
+  ports. CLI still owns concrete config/path/model/runtime binding, privacy/AI
+  policy gate invocation, semantic DB/source-index lock sequencing, concrete DB
+  connection lifetime, and command rendering.
 - Neural rerank execution seam: `abyss_machine.nervous_rerank_adapters` owns
   OpenVINO scorer temp-payload staging, runner invocation, stdout/output JSON
   parsing, policy-gate callback routing, debug path reporting, and

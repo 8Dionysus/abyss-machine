@@ -21359,6 +21359,10 @@ def nervous_semantic_maintain_write_latest(data: dict[str, Any]) -> dict[str, An
     return nervous_semantic_adapters.write_maintain_latest(data, NERVOUS_SEMANTIC_MAINTAIN_LATEST_PATH, NERVOUS_SEMANTIC_MAINTAIN_ROOT)
 
 
+def nervous_semantic_eval_write_latest(data: dict[str, Any]) -> dict[str, Any]:
+    return nervous_semantic_adapters.write_latest_history(data, NERVOUS_SEMANTIC_EVAL_LATEST_PATH, NERVOUS_SEMANTIC_EVAL_ROOT)
+
+
 def nervous_semantic_lock_active() -> bool:
     return nervous_semantic_adapters.semantic_lock_active(NERVOUS_SEMANTIC_INDEX_ROOT)
 
@@ -21867,174 +21871,21 @@ def nervous_semantic_search(
 
 
 def nervous_semantic_eval(force_policy: bool = False, write_latest: bool = True) -> dict[str, Any]:
-    probes = [
-        {
-            "id": "thermal_zram",
-            "query": "temperature routing thin laptop zram swap policy",
-            "preferred_sources": {"nervous_events", "nervous_episodes", "abyss_machine_facts"},
-        },
-        {
-            "id": "gnome_pidfd",
-            "query": "GNOME Shell pidfd abyss ai mode extension",
-            "avoid_top_sources": {"screenshots"},
-        },
-        {
-            "id": "gemma4_digest",
-            "query": "Gemma4 digest parse_failed seen dictation",
-            "preferred_sources": {"nervous_events", "nervous_episodes", "browser_active_tab", "terminal_stdout_stderr"},
-        },
-        {
-            "id": "thermal_swap",
-            "query": "thermal routing critical swap zram",
-            "preferred_sources": {"nervous_events", "nervous_episodes", "abyss_machine_facts"},
-        },
-    ]
-    checks: list[dict[str, Any]] = []
-    results: list[dict[str, Any]] = []
-
-    def add(level: str, key: str, message: str, details: dict[str, Any] | None = None) -> None:
-        item: dict[str, Any] = {"level": level, "key": key, "message": message}
-        if details is not None:
-            item["details"] = details
-        checks.append(item)
-
-    status = nervous_semantic_status(write_latest=False)
-    add("ok" if status.get("ready") else "fail", "semantic_ready", "semantic index has vectors", status.get("freshness"))
-    semantic_config = nervous_semantic_config()
-    embedding = semantic_config.get("embedding") if isinstance(semantic_config.get("embedding"), dict) else {}
-    eval_embedding_status: dict[str, Any] | None = None
-    eval_policy_gate: dict[str, Any] | None = None
-    eval_vectors: dict[str, dict[str, Any]] = {}
-    if status.get("ready"):
-        eval_policy_gate = ai_policy_gate_for_class("medium", "nervous semantic-eval", force=force_policy)
-        if not eval_policy_gate.get("ok"):
-            eval_embedding_status = {
-                "ok": False,
-                "policy_denied": True,
-                "error": "host AI policy denied semantic eval",
-                "policy_gate": eval_policy_gate,
-            }
-        else:
-            embedded = nervous_semantic_embed_texts(
-                [
-                    {"id": str(probe["id"]), "text": nervous_semantic_query_text(str(probe["query"]))}
-                    for probe in probes
-                ],
-                embedding,
-            )
-            eval_embedding_status = {key: value for key, value in embedded.items() if key != "vectors"}
-            eval_embedding_status["policy_gate"] = eval_policy_gate
-            if embedded.get("ok"):
-                raw_vectors = embedded.get("vectors") if isinstance(embedded.get("vectors"), dict) else {}
-                eval_vectors = {
-                    str(key): value
-                    for key, value in raw_vectors.items()
-                    if isinstance(value, dict)
-                }
-            else:
-                add("fail", "semantic_eval.embedding_batch", "semantic eval query embedding batch failed", eval_embedding_status)
-    for probe in probes:
-        lexical = nervous_index_search(probe["query"], limit=8, dedupe=False, order="ranked")
-        vector_item = eval_vectors.get(str(probe["id"]))
-        vector_blob = vector_item.get("blob") if isinstance(vector_item, dict) else None
-        if isinstance(vector_blob, (bytes, bytearray)):
-            semantic = nervous_semantic_search_with_vector(
-                query=str(probe["query"]),
-                query_vector_blob=bytes(vector_blob),
-                query_vector_result={
-                    "embedding_status": eval_embedding_status,
-                    "policy_gate": eval_policy_gate,
-                    "dim": int(vector_item.get("dim") or 0),
-                },
-                final_limit=8,
-                dedupe=True,
-            )
-        else:
-            semantic = {
-                "ok": False,
-                "error": (eval_embedding_status or {}).get("error") or "semantic eval query embedding missing",
-                "policy_denied": (eval_embedding_status or {}).get("policy_denied"),
-                "policy_gate": (eval_embedding_status or {}).get("policy_gate"),
-            }
-        lexical_results = lexical.get("results") if isinstance(lexical.get("results"), list) else []
-        semantic_results = semantic.get("results") if isinstance(semantic.get("results"), list) else []
-        semantic_sources = [str(item.get("source_id") or "") for item in semantic_results]
-        lexical_sources = [str(item.get("source_id") or "") for item in lexical_results]
-        result = {
-            "id": probe["id"],
-            "query": probe["query"],
-            "lexical": {
-                "ok": lexical.get("ok"),
-                "top_sources": lexical_sources[:5],
-                "top_titles": [item.get("title") for item in lexical_results[:3]],
-            },
-            "semantic": {
-                "ok": semantic.get("ok"),
-                "top_sources": semantic_sources[:5],
-                "top_titles": [item.get("title") for item in semantic_results[:3]],
-                "top_scores": [round(float(item.get("score") or 0.0), 5) for item in semantic_results[:3]],
-                "error": semantic.get("error"),
-            },
-        }
-        results.append(result)
-        add(
-            "ok" if semantic.get("ok") and semantic_results else "fail",
-            f"{probe['id']}.semantic_results",
-            "semantic probe returns evidence",
-            result["semantic"],
-        )
-        preferred = probe.get("preferred_sources")
-        if isinstance(preferred, set):
-            hit = bool(set(semantic_sources[:5]) & preferred)
-            add(
-                "ok" if hit else "warn",
-                f"{probe['id']}.preferred_source",
-                "semantic top-5 intersects preferred evidence sources",
-                {"preferred_sources": sorted(preferred), "semantic_top_sources": semantic_sources[:5]},
-            )
-        avoid = probe.get("avoid_top_sources")
-        if isinstance(avoid, set) and semantic_sources:
-            avoided = semantic_sources[0] not in avoid
-            add(
-                "ok" if avoided else "warn",
-                f"{probe['id']}.avoid_noise",
-                "semantic top-1 is not a known noisy source",
-                {"avoid_top_sources": sorted(avoid), "semantic_top_source": semantic_sources[0], "lexical_top_sources": lexical_sources[:5]},
-            )
-    fails = sum(1 for item in checks if item["level"] == "fail")
-    warnings = sum(1 for item in checks if item["level"] == "warn")
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_nervous_semantic_eval_v1",
-        "version": VERSION,
-        "generated_at": now_iso(),
-        "ok": fails == 0,
-        "status": "ok" if fails == 0 and warnings == 0 else ("fail" if fails else "warn"),
-        "checks": checks,
-        "results": results,
-        "summary": {
-            "fails": fails,
-            "warnings": warnings,
-            "checks": len(checks),
-            "probes": len(probes),
-        },
-        "embedding_status": eval_embedding_status,
-        "policy": {
-            "model_used": True,
-            "local_only": True,
-            "repo_mutation": False,
-            "resident_service": False,
-        },
-        "paths": {
-            "latest": str(NERVOUS_SEMANTIC_EVAL_LATEST_PATH),
-            "daily_glob": str(NERVOUS_SEMANTIC_EVAL_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
-        },
-    }
-    if write_latest:
-        errors = nervous_write_json_latest_and_daily(NERVOUS_SEMANTIC_EVAL_LATEST_PATH, NERVOUS_SEMANTIC_EVAL_ROOT, data)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
+    return nervous_semantic_adapters.semantic_eval_document(
+        semantic_config=nervous_semantic_config(),
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+        latest_path=NERVOUS_SEMANTIC_EVAL_LATEST_PATH,
+        daily_root=NERVOUS_SEMANTIC_EVAL_ROOT,
+        semantic_status=lambda: nervous_semantic_status(write_latest=False),
+        policy_gate=lambda: ai_policy_gate_for_class("medium", "nervous semantic-eval", force=force_policy),
+        embed_texts=nervous_semantic_embed_texts,
+        lexical_search=lambda query: nervous_index_search(query, limit=8, dedupe=False, order="ranked"),
+        semantic_search_with_vector=nervous_semantic_search_with_vector,
+        latest_writer=nervous_semantic_eval_write_latest,
+        write_latest=write_latest,
+    )
 
 
 def nervous_latest_read(path: Path, read_schema: str) -> dict[str, Any]:
