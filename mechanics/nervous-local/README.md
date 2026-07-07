@@ -122,10 +122,12 @@ windowed embedding attempts, fallback batch sizing, progressive vector insert,
 failed-build receipt/provenance summaries, command/receipt/refusal/source-reload
 documents, and successful-build finalization of compile-cache summaries,
 provenance counters, meta values, DB mode, and counts through fakeable ports.
-It also owns semantic-eval probe/check/result assembly, eval-query embedding
-batch routing, lexical/semantic search fanout, and semantic-eval latest/history
-write routing through fakeable ports. CLI still owns concrete config/path/model/
-runtime binding, direct-build/eval policy gate invocation, semantic
+It also owns semantic-search limit/privacy/preflight/query-vector projection and
+vector-search dispatch through fakeable ports, plus semantic-eval
+probe/check/result assembly, eval-query embedding batch routing,
+lexical/semantic search fanout, and semantic-eval latest/history write routing
+through fakeable ports. CLI still owns concrete config/path/model/runtime
+binding, direct-build/search/eval policy gate invocation, semantic
 DB/source-index lock sequencing, concrete DB connection lifetime, and rendering.
 `abyss_machine.nervous_rerank_adapters` now owns the neural rerank scorer
 subprocess seam for temp-payload staging, command invocation, stdout/output JSON

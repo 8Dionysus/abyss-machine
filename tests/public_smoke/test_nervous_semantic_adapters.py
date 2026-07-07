@@ -414,6 +414,208 @@ def test_cli_nervous_semantic_maintain_binds_orchestration_adapter(monkeypatch, 
     assert captured["write_latest"] is False
 
 
+def test_semantic_search_adapter_dispatches_fake_vector_search(tmp_path: Path) -> None:
+    calls: list[tuple[str, object]] = []
+
+    def query_vector(query: str, embedding: dict[str, object], force_policy: bool = False) -> dict[str, object]:
+        calls.append(("query_vector", {"query": query, "embedding": embedding, "force_policy": force_policy}))
+        return {"ok": True, "blob": b"query-vector", "dim": 2, "embedding_status": {"ok": True}}
+
+    def search_with_vector(**kwargs: object) -> dict[str, object]:
+        calls.append(("search_with_vector", {key: value for key, value in kwargs.items() if key != "query_vector_blob"}))
+        return {"ok": True, "summary": {"results": 1}, "results": [{"chunk_id": "hit"}]}
+
+    data = nervous_semantic_adapters.semantic_search_document(
+        query="thermal zram",
+        semantic_config={"embedding": {"model_dir": "/models/embed"}, "search": {"default_limit": 8, "max_limit": 20}},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T03:00:00+00:00",
+        db_path=tmp_path / "semantic.db",
+        privacy={},
+        counts=lambda: {"vectors": 3},
+        db_exists=lambda path: path == tmp_path / "semantic.db",
+        query_vector=query_vector,
+        semantic_search_with_vector=search_with_vector,
+        limit=99,
+        dedupe=False,
+        source="nervous_events",
+        schema="abyss_machine_nervous_event_v1",
+        since="2026-07-01T00:00:00+00:00",
+        until="2026-07-07T00:00:00+00:00",
+        severity="warn",
+        sensitivity="normal",
+        force_policy=True,
+    )
+
+    assert data["ok"] is True
+    assert data["summary"] == {"results": 1}
+    assert calls[0] == (
+        "query_vector",
+        {"query": "thermal zram", "embedding": {"model_dir": "/models/embed"}, "force_policy": True},
+    )
+    assert calls[1][0] == "search_with_vector"
+    assert calls[1][1]["query"] == "thermal zram"
+    assert calls[1][1]["query_vector_result"]["dim"] == 2
+    assert calls[1][1]["final_limit"] == 20
+    assert calls[1][1]["dedupe"] is False
+    assert calls[1][1]["source"] == "nervous_events"
+    assert calls[1][1]["schema"] == "abyss_machine_nervous_event_v1"
+    assert calls[1][1]["since"] == "2026-07-01T00:00:00+00:00"
+    assert calls[1][1]["until"] == "2026-07-07T00:00:00+00:00"
+    assert calls[1][1]["severity"] == "warn"
+    assert calls[1][1]["sensitivity"] == "normal"
+
+
+def test_semantic_search_adapter_preflight_is_lazy_and_public_safe(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def counts() -> dict[str, object]:
+        calls.append("counts")
+        return {"vectors": 0}
+
+    def query_vector(*args: object, **kwargs: object) -> dict[str, object]:
+        calls.append("query_vector")
+        return {"ok": True, "blob": b"query-vector"}
+
+    def search_with_vector(**kwargs: object) -> dict[str, object]:
+        calls.append("search_with_vector")
+        return {"ok": True}
+
+    paused = nervous_semantic_adapters.semantic_search_document(
+        query="paused",
+        semantic_config={},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T03:00:00+00:00",
+        db_path=tmp_path / "missing.db",
+        privacy={"global_pause": True},
+        counts=counts,
+        db_exists=lambda path: False,
+        query_vector=query_vector,
+        semantic_search_with_vector=search_with_vector,
+    )
+    missing = nervous_semantic_adapters.semantic_search_document(
+        query="missing",
+        semantic_config={},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T03:00:00+00:00",
+        db_path=tmp_path / "missing.db",
+        privacy={},
+        counts=counts,
+        db_exists=lambda path: False,
+        query_vector=query_vector,
+        semantic_search_with_vector=search_with_vector,
+    )
+    no_vectors = nervous_semantic_adapters.semantic_search_document(
+        query="empty",
+        semantic_config={},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T03:00:00+00:00",
+        db_path=tmp_path / "semantic.db",
+        privacy={},
+        counts=counts,
+        db_exists=lambda path: True,
+        query_vector=query_vector,
+        semantic_search_with_vector=search_with_vector,
+    )
+
+    assert paused["refused"] is True
+    assert paused["error"] == "global_pause is active; semantic search is refused"
+    assert missing["db_path"] == str(tmp_path / "missing.db")
+    assert "run abyss-machine nervous semantic-build --json" in missing["error"]
+    assert no_vectors["counts"] == {"vectors": 0}
+    assert "host policy allows medium AI work" in no_vectors["error"]
+    assert calls == ["counts"]
+
+
+def test_semantic_search_adapter_projects_query_vector_policy_denial(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def search_with_vector(**kwargs: object) -> dict[str, object]:
+        calls.append("search_with_vector")
+        return {"ok": True}
+
+    data = nervous_semantic_adapters.semantic_search_document(
+        query="blocked",
+        semantic_config={"embedding": {"model_dir": "/models/embed"}},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-07-07T03:00:00+00:00",
+        db_path=tmp_path / "semantic.db",
+        privacy={},
+        counts=lambda: {"vectors": 1},
+        db_exists=lambda path: True,
+        query_vector=lambda query, embedding, force_policy=False: {
+            "ok": False,
+            "policy_denied": True,
+            "policy_gate": {"ok": False, "reason": "test"},
+            "error": "host AI policy denied semantic search",
+        },
+        semantic_search_with_vector=search_with_vector,
+        force_policy=False,
+    )
+
+    assert data["ok"] is False
+    assert data["query"] == "blocked"
+    assert data["policy_denied"] is True
+    assert data["policy_gate"] == {"ok": False, "reason": "test"}
+    assert calls == []
+
+
+def test_cli_nervous_semantic_search_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "NERVOUS_SEMANTIC_INDEX_DB_PATH", tmp_path / "semantic.db")
+    monkeypatch.setattr(cli, "nervous_semantic_config", lambda: {"embedding": {"model_dir": "/models/embed"}})
+    monkeypatch.setattr(cli, "nervous_effective_privacy", lambda write_latest=False: {"global_pause": False, "write_latest": write_latest})
+    monkeypatch.setattr(cli, "nervous_semantic_counts", lambda: {"vectors": 4})
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-07-07T03:00:00+00:00")
+
+    def fake_adapter(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "from_adapter": True}
+
+    monkeypatch.setattr(nervous_semantic_adapters, "semantic_search_document", fake_adapter)
+
+    data = cli.nervous_semantic_search(
+        "thermal",
+        limit=7,
+        dedupe=False,
+        source="nervous_events",
+        schema="schema",
+        since="since",
+        until="until",
+        severity="warn",
+        sensitivity="normal",
+        force_policy=True,
+    )
+
+    assert data == {"ok": True, "from_adapter": True}
+    assert captured["query"] == "thermal"
+    assert captured["semantic_config"] == {"embedding": {"model_dir": "/models/embed"}}
+    assert captured["schema_prefix"] == cli.SCHEMA_PREFIX
+    assert captured["version"] == cli.VERSION
+    assert captured["generated_at"] == "2026-07-07T03:00:00+00:00"
+    assert captured["db_path"] == tmp_path / "semantic.db"
+    assert captured["privacy"] == {"global_pause": False, "write_latest": False}
+    assert captured["counts"]() == {"vectors": 4}
+    assert captured["db_exists"](tmp_path / "semantic.db") is False
+    assert captured["query_vector"] is cli.nervous_semantic_query_vector
+    assert captured["semantic_search_with_vector"] is cli.nervous_semantic_search_with_vector
+    assert captured["limit"] == 7
+    assert captured["dedupe"] is False
+    assert captured["source"] == "nervous_events"
+    assert captured["schema"] == "schema"
+    assert captured["since"] == "since"
+    assert captured["until"] == "until"
+    assert captured["severity"] == "warn"
+    assert captured["sensitivity"] == "normal"
+    assert captured["force_policy"] is True
+
+
 def test_semantic_eval_adapter_runs_fake_ports_without_writing(tmp_path: Path) -> None:
     calls: list[tuple[str, object]] = []
     vector = array.array("f", [1.0, 0.0]).tobytes()

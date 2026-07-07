@@ -23,6 +23,8 @@ CountDb = Callable[[Path], dict[str, Any]]
 StatusPort = Callable[[], dict[str, Any]]
 SearchPort = Callable[..., Mapping[str, Any]]
 PolicyGatePort = Callable[[], Mapping[str, Any]]
+PathExistsPort = Callable[[Path], bool]
+CountsPort = Callable[[], Mapping[str, Any]]
 LockActivePort = Callable[[], bool]
 ResourceLaunchPort = Callable[..., dict[str, Any]]
 MemoryPlanPort = Callable[[], dict[str, Any]]
@@ -1040,6 +1042,94 @@ def semantic_eval_default_probes() -> list[dict[str, Any]]:
             "preferred_sources": {"nervous_events", "nervous_episodes", "abyss_machine_facts"},
         },
     ]
+
+
+def semantic_search_document(
+    *,
+    query: str,
+    semantic_config: Mapping[str, Any],
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    db_path: Path,
+    privacy: Mapping[str, Any],
+    counts: CountsPort,
+    db_exists: PathExistsPort,
+    query_vector: SearchPort,
+    semantic_search_with_vector: SearchPort,
+    limit: int | None = None,
+    dedupe: bool = True,
+    source: str | None = None,
+    schema: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    severity: str | None = None,
+    sensitivity: str | None = None,
+    force_policy: bool = False,
+) -> dict[str, Any]:
+    embedding = semantic_config.get("embedding") if isinstance(semantic_config.get("embedding"), Mapping) else {}
+    search_config = semantic_config.get("search") if isinstance(semantic_config.get("search"), Mapping) else {}
+    max_limit = max(1, int(search_config.get("max_limit") or 50))
+    default_limit = max(1, int(search_config.get("default_limit") or 12))
+    final_limit = max(1, min(int(limit or default_limit), max_limit))
+    if bool(privacy.get("global_pause")):
+        return {
+            "schema": f"{schema_prefix}_nervous_semantic_search_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "refused": True,
+            "error": "global_pause is active; semantic search is refused",
+        }
+    if not db_exists(db_path):
+        return {
+            "schema": f"{schema_prefix}_nervous_semantic_search_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "query": query,
+            "error": "semantic index database missing; run abyss-machine nervous semantic-build --json",
+            "db_path": str(db_path),
+        }
+    counts_doc = dict(counts())
+    if int(counts_doc.get("vectors") or 0) <= 0:
+        return {
+            "schema": f"{schema_prefix}_nervous_semantic_search_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "query": query,
+            "error": "semantic index has no vectors; run abyss-machine nervous semantic-build --json when host policy allows medium AI work",
+            "db_path": str(db_path),
+            "counts": counts_doc,
+        }
+    query_vector_result = dict(query_vector(query, embedding, force_policy=force_policy))
+    if not query_vector_result.get("ok"):
+        return {
+            "schema": f"{schema_prefix}_nervous_semantic_search_v1",
+            "version": version,
+            "generated_at": generated_at,
+            "ok": False,
+            "query": query,
+            "error": query_vector_result.get("error"),
+            "policy_denied": query_vector_result.get("policy_denied"),
+            "policy_gate": query_vector_result.get("policy_gate"),
+        }
+    return dict(
+        semantic_search_with_vector(
+            query=query,
+            query_vector_blob=bytes(query_vector_result["blob"]),
+            query_vector_result=query_vector_result,
+            final_limit=final_limit,
+            dedupe=dedupe,
+            source=source,
+            schema=schema,
+            since=since,
+            until=until,
+            severity=severity,
+            sensitivity=sensitivity,
+        )
+    )
 
 
 def semantic_eval_document(
