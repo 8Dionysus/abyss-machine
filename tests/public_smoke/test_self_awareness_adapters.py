@@ -213,6 +213,76 @@ def test_latest_artifact_ref_does_not_hash_missing_artifact(tmp_path: Path) -> N
     assert hash_calls == []
 
 
+def test_artifact_ref_uses_fake_stat_ports(tmp_path: Path) -> None:
+    latest_path = tmp_path / "memory-space" / "latest.json"
+    calls: dict[str, list[Any]] = {"exists": [], "stat": [], "mtime": []}
+
+    class _FakeStat:
+        st_size = 42
+        st_mtime = 1800.0
+
+    ref = self_awareness_adapters.artifact_ref(
+        latest_path,
+        {
+            "schema": "abyss_machine_maps_v1",
+            "generated_at": "2026-07-08T00:00:00+00:00",
+            "ok": True,
+            "summary": {"nodes": 7},
+        },
+        "generated_route_atlas",
+        path_exists=lambda path: calls["exists"].append(path) or True,
+        path_stat=lambda path: calls["stat"].append(path) or _FakeStat(),
+        mtime_iso=lambda mtime: calls["mtime"].append(mtime) or "mtime-fixture",
+    )
+
+    assert ref == {
+        "path": str(latest_path),
+        "truth_level": "generated_route_atlas",
+        "exists": True,
+        "schema": "abyss_machine_maps_v1",
+        "generated_at": "2026-07-08T00:00:00+00:00",
+        "ok": True,
+        "summary": {"nodes": 7},
+        "freshness_must_precede_reasoning": True,
+        "raw_evidence_is_not_truth": True,
+        "size_bytes": 42,
+        "mtime": "mtime-fixture",
+    }
+    assert calls["exists"] == [latest_path]
+    assert calls["stat"] == [latest_path]
+    assert calls["mtime"] == [1800.0]
+
+
+def test_artifact_ref_keeps_public_safe_shape_when_stat_missing(tmp_path: Path) -> None:
+    missing_path = tmp_path / "missing" / "latest.json"
+    mtime_calls: list[float] = []
+
+    def missing_stat(_path: Path) -> object:
+        raise OSError("missing")
+
+    ref = self_awareness_adapters.artifact_ref(
+        missing_path,
+        {},
+        "generated_route_atlas",
+        path_exists=lambda _path: False,
+        path_stat=missing_stat,
+        mtime_iso=lambda mtime: mtime_calls.append(mtime) or "should-not-happen",
+    )
+
+    assert ref == {
+        "path": str(missing_path),
+        "truth_level": "generated_route_atlas",
+        "exists": False,
+        "schema": None,
+        "generated_at": None,
+        "ok": None,
+        "summary": None,
+        "freshness_must_precede_reasoning": True,
+        "raw_evidence_is_not_truth": True,
+    }
+    assert mtime_calls == []
+
+
 def test_body_closure_status_document_is_adapter_owned(tmp_path: Path) -> None:
     latest_paths = {
         "heartbeat": tmp_path / "heartbeat" / "latest.json",
