@@ -3002,6 +3002,234 @@ def working_stack_activation_entry_complete(entry: Any, *, schema_prefix: str) -
     )
 
 
+
+def working_stack_activation_dossier_document(
+    working_stack_doc: Mapping[str, Any],
+    *,
+    generated_at: str,
+    version: str,
+    schema_prefix: str,
+    working_stack_latest_path: Path | str,
+    spatial_graph_latest_path: Path | str,
+    episodes_latest_path: Path | str,
+    alerts_latest_path: Path | str,
+    artifact_refs: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    working_stack_doc = working_stack_doc if isinstance(working_stack_doc, Mapping) else {}
+    working_stack_organs = [
+        organ for organ in (working_stack_doc.get("organs") if isinstance(working_stack_doc.get("organs"), list) else [])
+        if isinstance(organ, Mapping) and organ.get("service")
+    ]
+    working_stack_service_ids = sorted(str(organ.get("service")) for organ in working_stack_organs)
+    entries = [
+        working_stack_activation_entry(
+            organ,
+            index,
+            generated_at,
+            schema_prefix=schema_prefix,
+            working_stack_latest_path=working_stack_latest_path,
+            spatial_graph_latest_path=spatial_graph_latest_path,
+            episodes_latest_path=episodes_latest_path,
+            alerts_latest_path=alerts_latest_path,
+        )
+        for index, organ in enumerate(
+            [
+                organ for organ in working_stack_organs
+                if isinstance(organ, Mapping) and organ.get("service") and organ.get("usage_gap")
+            ],
+            start=1,
+        )
+    ]
+    synthetic_scenarios = [
+        entry.get("synthetic_scenario")
+        for entry in entries
+        if isinstance(entry.get("synthetic_scenario"), Mapping)
+    ]
+    synthetic_scenario_by_service = {
+        str(scenario.get("service")): scenario
+        for scenario in synthetic_scenarios
+        if isinstance(scenario, Mapping) and scenario.get("service")
+    }
+    closure_acceptance_packets = [
+        entry.get("closure_acceptance")
+        for entry in entries
+        if isinstance(entry.get("closure_acceptance"), Mapping)
+    ]
+    closure_acceptance_by_service = {
+        str(packet.get("service")): packet
+        for packet in closure_acceptance_packets
+        if isinstance(packet, Mapping) and packet.get("service")
+    }
+    closure_acceptance_matrix = {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_closure_acceptance_matrix_v1",
+        "generated_at": generated_at,
+        "ok": len(closure_acceptance_packets) == len(entries) and all(working_stack_activation_closure_acceptance_complete(packet, schema_prefix=schema_prefix) for packet in closure_acceptance_packets),
+        "owner": "abyss-stack",
+        "services": sorted(closure_acceptance_by_service),
+        "packets": closure_acceptance_packets,
+        "packet_by_service": closure_acceptance_by_service,
+        "summary": {
+            "packets": len(closure_acceptance_packets),
+            "complete": sum(1 for packet in closure_acceptance_packets if packet.get("complete") is True),
+            "services": len(closure_acceptance_by_service),
+            "compat_requirements": len({
+                str(_nested_get(packet, ["stack_compat_requirement", "requirement_id"]))
+                for packet in closure_acceptance_packets
+                if _nested_get(packet, ["stack_compat_requirement", "requirement_id"])
+            }),
+        },
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "automatic_remediation": False,
+            "raw_secrets_included": False,
+        },
+    }
+    synthetic_scenario_matrix = {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_synthetic_scenario_matrix_v1",
+        "generated_at": generated_at,
+        "ok": len(synthetic_scenarios) == len(entries) and all(working_stack_activation_synthetic_scenario_complete(scenario, schema_prefix=schema_prefix) for scenario in synthetic_scenarios),
+        "owner": "abyss-stack",
+        "services": sorted(synthetic_scenario_by_service),
+        "scenarios": synthetic_scenarios,
+        "scenario_by_service": synthetic_scenario_by_service,
+        "summary": {
+            "scenarios": len(synthetic_scenarios),
+            "complete": sum(1 for scenario in synthetic_scenarios if scenario.get("complete") is True),
+            "services": len(synthetic_scenario_by_service),
+            "open_gap_scenarios": len(synthetic_scenarios),
+        },
+        "policy": {
+            "synthetic_only": True,
+            "handoff_only": True,
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "automatic_remediation": False,
+            "raw_secrets_included": False,
+        },
+    }
+    missing_check_total = sum(len(entry.get("missing_checks") if isinstance(entry.get("missing_checks"), list) else []) for entry in entries)
+    fulfilled_check_total = sum(len(entry.get("fulfilled_checks") if isinstance(entry.get("fulfilled_checks"), list) else []) for entry in entries)
+    verifier_commands = sorted({
+        str(command)
+        for entry in entries
+        for command in (entry.get("verifier_commands") if isinstance(entry.get("verifier_commands"), list) else [])
+        if command
+    })
+    activation_coverage_planes = sorted({
+        str(plane)
+        for entry in entries
+        for plane in (entry.get("coverage_planes") if isinstance(entry.get("coverage_planes"), list) else [])
+        if plane
+    })
+    service_ids = [str(entry.get("service")) for entry in entries if entry.get("service")]
+    verifier_chain = [
+        {"command": "abyss-machine self-awareness working-stack --json", "must": ["usage-gap services have stable time-space-context links and bounded probe evidence"]},
+        {"command": "abyss-machine self-awareness stack-closure-dossier --json", "must": ["working_stack_activation_dossier lists every usage gap as stack-owner handoff work"]},
+        {"command": "abyss-machine self-awareness coverage-audit --json", "must": ["working_stack_gap_rows match activation dossier service ids"]},
+        {"command": "abyss-machine self-awareness export --json", "must": ["portable export includes working-stack activation handoff"]},
+        {"command": "abyss-machine self-awareness cycle --json", "must": ["cycle preserves activation-gap counts and non-mutating response policy"]},
+        {"command": "abyss-machine self-awareness validate --json", "must": ["stack_closure_dossier_depth and export_stack_handoff validate activation dossier depth"]},
+    ]
+    activation_order = [
+        {
+            "service": entry.get("service"),
+            "order": entry.get("order"),
+            "activation_kind": entry.get("activation_kind"),
+            "machine_usage_status": entry.get("machine_usage_status"),
+            "working_stack_link_id": entry.get("working_stack_link_id"),
+            "closure_blocker_keys": entry.get("closure_blocker_keys"),
+            "safe_next_action": entry.get("safe_next_action"),
+            "runbook_candidate_id": _nested_get(entry, ["runbook_candidate", "id"]),
+            "closure_acceptance_id": _nested_get(entry, ["closure_acceptance", "acceptance_id"]),
+            "compat_requirement_id": _nested_get(entry, ["closure_acceptance", "stack_compat_requirement", "requirement_id"]),
+            "synthetic_scenario_id": _nested_get(entry, ["synthetic_scenario", "scenario_id"]),
+            "verifier_commands": entry.get("verifier_commands"),
+        }
+        for entry in entries
+    ]
+    handoff = {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_handoff_v1",
+        "owner": "abyss-stack",
+        "open_service_ids": service_ids,
+        "activation_order": activation_order,
+        "synthetic_scenario_ids": [
+            str(scenario.get("scenario_id"))
+            for scenario in synthetic_scenarios
+            if isinstance(scenario, Mapping) and scenario.get("scenario_id")
+        ],
+        "verifier_chain": verifier_chain,
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "operator_approval_required_before_stack_mutation": True,
+            "abyss_machine_executes_stack_change": False,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "actions_executed": False,
+        },
+    }
+    artifact_refs = artifact_refs if isinstance(artifact_refs, Mapping) else {}
+    return {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_dossier_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": all(working_stack_activation_entry_complete(entry, schema_prefix=schema_prefix) for entry in entries),
+        "status": "open_activation_gaps" if entries else "no_open_activation_gaps",
+        "summary": {
+            "working_stack_organs": len(working_stack_service_ids),
+            "working_stack_service_ids": working_stack_service_ids,
+            "working_stack_usage_gaps": len(entries),
+            "entries": len(entries),
+            "open_activation_gaps": len(entries),
+            "activation_entries_complete": sum(1 for entry in entries if entry.get("complete") is True),
+            "synthetic_scenarios": len(synthetic_scenarios),
+            "synthetic_scenarios_complete": sum(1 for scenario in synthetic_scenarios if scenario.get("complete") is True),
+            "closure_acceptance_packets": len(closure_acceptance_packets),
+            "closure_acceptance_packets_complete": sum(1 for packet in closure_acceptance_packets if packet.get("complete") is True),
+            "activation_compat_requirements": _safe_int(_nested_get(closure_acceptance_matrix, ["summary", "compat_requirements"]), 0),
+            "missing_checks": missing_check_total,
+            "fulfilled_checks": fulfilled_check_total,
+            "coverage_planes": activation_coverage_planes,
+            "verifier_commands": len(verifier_commands),
+            "top_service": service_ids[0] if service_ids else None,
+        },
+        "open_service_ids": service_ids,
+        "activation_order": activation_order,
+        "entries": entries,
+        "open_activation_gaps": entries,
+        "synthetic_scenarios": synthetic_scenarios,
+        "synthetic_scenario_matrix": synthetic_scenario_matrix,
+        "closure_acceptance_packets": closure_acceptance_packets,
+        "closure_acceptance_matrix": closure_acceptance_matrix,
+        "working_stack_activation_handoff": handoff,
+        "verifier_commands": verifier_commands,
+        "verifier_chain": verifier_chain,
+        "artifact_refs": dict(artifact_refs),
+        "evidence_refs": [
+            {"path": str(working_stack_latest_path), "schema": working_stack_doc.get("schema")},
+            {"path": str(spatial_graph_latest_path), "schema": f"{schema_prefix}_self_awareness_spatial_graph_v1"},
+            {"path": str(episodes_latest_path), "schema": f"{schema_prefix}_self_awareness_episodes_v1"},
+            {"path": str(alerts_latest_path), "schema": f"{schema_prefix}_self_awareness_alerts_v1"},
+        ],
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "raw_secrets_included": False,
+            "working_stack_activation_gaps_are_stack_owner_work": True,
+            "stack_owner_may_mutate_stack_after_operator_approval": True,
+        },
+    }
+
 def working_stack_activation_synthetic_proof(
     entry: Mapping[str, Any],
     *,
