@@ -2048,6 +2048,273 @@ def activation_entries_cover_expected(
     return bool(expected) and expected == actual
 
 
+def stack_requirement_handoff_route(
+    requirement_id: str,
+    *,
+    episode_id: str | None = None,
+    stack_handoff: Mapping[str, Any] | None = None,
+    closure_packet: Mapping[str, Any] | None = None,
+    stack_replay: Mapping[str, Any] | None = None,
+    schema_prefix: str,
+    stack_closure_dossier_latest_path: Path | str,
+    requirement_probes_latest_path: Path | str,
+    replay_latest_path: Path | str,
+    closure_acceptance_complete: Callable[[Any], bool],
+) -> dict[str, Any]:
+    requirement_id = str(requirement_id or "").strip()
+    if not requirement_id:
+        return {}
+    stack_handoff = stack_handoff if isinstance(stack_handoff, Mapping) else {}
+    closure_packet = closure_packet if isinstance(closure_packet, Mapping) else {}
+    stack_replay = stack_replay if isinstance(stack_replay, Mapping) else {}
+    marker = stack_handoff.get("marker") if isinstance(stack_handoff.get("marker"), Mapping) else {}
+    closure_readiness = marker.get("closure_readiness") if isinstance(marker.get("closure_readiness"), Mapping) else {}
+    coverage_impact = marker.get("coverage_impact") if isinstance(marker.get("coverage_impact"), Mapping) else {}
+    if not coverage_impact:
+        coverage_impact = _nested_get(closure_packet, ["stack_compat_requirement", "coverage_contract"]) or {}
+    safe_next = stack_handoff.get("safe_next_action") if isinstance(stack_handoff.get("safe_next_action"), Mapping) else {}
+    if not safe_next:
+        safe_next = marker.get("safe_next_action") if isinstance(marker.get("safe_next_action"), Mapping) else {}
+    if not safe_next:
+        safe_next = closure_packet.get("safe_next_action") if isinstance(closure_packet.get("safe_next_action"), Mapping) else {}
+    verifier_commands = [
+        str(item)
+        for item in (
+            stack_handoff.get("verifier_commands")
+            if isinstance(stack_handoff.get("verifier_commands"), list)
+            else marker.get("verifier_commands")
+            if isinstance(marker.get("verifier_commands"), list)
+            else closure_readiness.get("verifier_commands")
+            if isinstance(closure_readiness.get("verifier_commands"), list)
+            else []
+        )
+        if item
+    ]
+    if not verifier_commands:
+        verifier_commands = [
+            "abyss-machine self-awareness capabilities --json",
+            "abyss-machine self-awareness requirements --json",
+            "abyss-machine self-awareness cycle --json",
+            "abyss-machine self-awareness validate --json",
+            "abyss-machine stack-bridge validate --json",
+        ]
+    closure_blocker_keys = [
+        str(item)
+        for item in (
+            stack_handoff.get("closure_blocker_keys")
+            if isinstance(stack_handoff.get("closure_blocker_keys"), list)
+            else marker.get("closure_blocker_keys")
+            if isinstance(marker.get("closure_blocker_keys"), list)
+            else closure_readiness.get("blocking_check_keys")
+            if isinstance(closure_readiness.get("blocking_check_keys"), list)
+            else _nested_get(closure_packet, ["pre_close_identity", "missing_check_keys"])
+            if isinstance(_nested_get(closure_packet, ["pre_close_identity", "missing_check_keys"]), list)
+            else []
+        )
+        if item
+    ]
+    missing_check_keys = [
+        str(item)
+        for item in (
+            _nested_get(closure_packet, ["pre_close_identity", "missing_check_keys"])
+            if isinstance(_nested_get(closure_packet, ["pre_close_identity", "missing_check_keys"]), list)
+            else closure_readiness.get("blocking_check_keys")
+            if isinstance(closure_readiness.get("blocking_check_keys"), list)
+            else closure_blocker_keys
+        )
+        if item
+    ]
+    fulfilled_check_keys = [
+        str(item)
+        for item in (
+            _nested_get(closure_packet, ["pre_close_identity", "fulfilled_check_keys"])
+            if isinstance(_nested_get(closure_packet, ["pre_close_identity", "fulfilled_check_keys"]), list)
+            else [
+                check.get("key")
+                for check in (closure_readiness.get("fulfilled_checks") if isinstance(closure_readiness.get("fulfilled_checks"), list) else [])
+                if isinstance(check, Mapping)
+            ]
+        )
+        if item
+    ]
+    coverage_planes = [
+        str(item)
+        for item in (
+            coverage_impact.get("coverage_planes")
+            if isinstance(coverage_impact, Mapping) and isinstance(coverage_impact.get("coverage_planes"), list)
+            else marker.get("coverage_planes")
+            if isinstance(marker.get("coverage_planes"), list)
+            else _nested_get(closure_packet, ["pre_close_identity", "coverage_planes"])
+            if isinstance(_nested_get(closure_packet, ["pre_close_identity", "coverage_planes"]), list)
+            else []
+        )
+        if item
+    ]
+    evidence_refs: list[dict[str, Any]] = []
+    for source in (
+        stack_handoff.get("evidence_refs"),
+        marker.get("evidence_refs"),
+        closure_readiness.get("evidence_refs"),
+        closure_packet.get("evidence_refs"),
+    ):
+        if isinstance(source, list):
+            evidence_refs.extend(dict(item) for item in source if isinstance(item, Mapping))
+    evidence_refs.extend([
+        {"path": str(stack_closure_dossier_latest_path), "requirement_id": requirement_id, "section": "closure_acceptance_matrix"},
+        {"path": str(requirement_probes_latest_path), "requirement_id": requirement_id},
+        {"path": str(replay_latest_path), "requirement_id": requirement_id, "section": "stack_handoff_replay"},
+    ])
+    open_requirement_ids = stack_replay.get("open_requirement_ids") if isinstance(stack_replay.get("open_requirement_ids"), list) else []
+    route = {
+        "schema": f"{schema_prefix}_self_awareness_stack_requirement_handoff_route_v1",
+        "route_id": "sastackreqroute-" + self_awareness_contracts.stable_hash_json({
+            "episode_id": episode_id,
+            "requirement_id": requirement_id,
+            "current_state_digest": _nested_get(closure_packet, ["pre_close_identity", "current_state_digest"]) or _nested_get(closure_packet, ["closure_diff_contract", "current_state_digest_before"]),
+        }, length=24),
+        "episode_id": episode_id,
+        "requirement_id": requirement_id,
+        "owner_route": "abyss-stack",
+        "machine_action": "handoff_only",
+        "status": closure_packet.get("status") or closure_readiness.get("status") or "open",
+        "requirement_status": closure_packet.get("requirement_status") or marker.get("status") or closure_readiness.get("status"),
+        "surface_kind": closure_packet.get("surface_kind") or closure_readiness.get("probe_kind") or _nested_get(closure_packet, ["stack_compat_requirement", "surface_kind"]),
+        "priority": {
+            "class": marker.get("priority_class"),
+            "rank": marker.get("priority_rank"),
+            "score": marker.get("priority_score"),
+            "top_unblocking": bool(_nested_get(closure_packet, ["closure_impact", "is_unblocking_requirement"])),
+        },
+        "impact": {
+            "organ": coverage_impact.get("organ") if isinstance(coverage_impact, Mapping) else None,
+            "coverage_planes": coverage_planes,
+            "closure_value": coverage_impact.get("closure_value") if isinstance(coverage_impact, Mapping) else None,
+            "blocks_stack_usage_requirements": (
+                coverage_impact.get("blocks_stack_usage_requirements")
+                if isinstance(coverage_impact, Mapping) and isinstance(coverage_impact.get("blocks_stack_usage_requirements"), list)
+                else []
+            ),
+            "depends_on_requirement_ids": _nested_get(closure_packet, ["pre_close_identity", "depends_on_requirement_ids"]) or [],
+            "unblocks_requirement_ids": _nested_get(closure_packet, ["pre_close_identity", "unblocks_requirement_ids"]) or [],
+        },
+        "current_state_identity": {
+            "digest": _nested_get(closure_packet, ["pre_close_identity", "current_state_digest"]) or _nested_get(closure_packet, ["closure_diff_contract", "current_state_digest_before"]),
+            "keys": _nested_get(closure_packet, ["pre_close_identity", "current_state_keys"]) or _nested_get(closure_readiness, ["current_state_digest", "keys"]) or [],
+            "missing_check_keys": missing_check_keys,
+            "fulfilled_check_keys": fulfilled_check_keys,
+            "readiness_score": closure_readiness.get("readiness_score"),
+        },
+        "closure_acceptance": {
+            "schema": closure_packet.get("schema"),
+            "acceptance_id": closure_packet.get("acceptance_id"),
+            "complete": closure_acceptance_complete(closure_packet),
+            "compat_requirement_id": _nested_get(closure_packet, ["stack_compat_requirement", "requirement_id"]),
+            "negative_controls": len(closure_packet.get("negative_controls") if isinstance(closure_packet.get("negative_controls"), list) else []),
+            "post_close_success_predicates": len(closure_packet.get("post_close_success_predicates") if isinstance(closure_packet.get("post_close_success_predicates"), list) else []),
+            "post_close_verifier_steps": len(closure_packet.get("post_close_verifier_chain") if isinstance(closure_packet.get("post_close_verifier_chain"), list) else []),
+        },
+        "lineage": {
+            "stack_handoff_replayable": stack_replay.get("closure_readiness_replayable"),
+            "open_requirement_present_in_replay": requirement_id in {str(item) for item in open_requirement_ids},
+            "source_kind": "stack_closure_dossier_and_stack_handoff_replay",
+        },
+        "closure_blocker_keys": closure_blocker_keys,
+        "safe_next_action": dict(safe_next) if isinstance(safe_next, Mapping) else {},
+        "verifier_commands": verifier_commands,
+        "evidence_refs": evidence_refs[:40],
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "automatic_execution": False,
+            "executes_commands": False,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "raw_secret_storage": False,
+            "raw_private_payloads": False,
+            "open_stack_requirements_are_blockers_not_host_failures": True,
+        },
+    }
+    if not _nested_get(route, ["impact", "organ"]):
+        route["impact"]["organ"] = marker.get("impact_organ")
+    route["complete"] = stack_requirement_handoff_route_complete(route, schema_prefix=schema_prefix)
+    return route
+
+
+def stack_requirement_handoff_route_complete(route: Any, *, schema_prefix: str) -> bool:
+    if not isinstance(route, Mapping):
+        return False
+    safe_next = route.get("safe_next_action") if isinstance(route.get("safe_next_action"), Mapping) else {}
+    policy = route.get("policy") if isinstance(route.get("policy"), Mapping) else {}
+    current_state_identity = route.get("current_state_identity") if isinstance(route.get("current_state_identity"), Mapping) else {}
+    closure_acceptance = route.get("closure_acceptance") if isinstance(route.get("closure_acceptance"), Mapping) else {}
+    lineage = route.get("lineage") if isinstance(route.get("lineage"), Mapping) else {}
+    impact = route.get("impact") if isinstance(route.get("impact"), Mapping) else {}
+    return (
+        route.get("schema") == f"{schema_prefix}_self_awareness_stack_requirement_handoff_route_v1"
+        and bool(route.get("route_id"))
+        and bool(route.get("requirement_id"))
+        and route.get("owner_route") == "abyss-stack"
+        and route.get("machine_action") == "handoff_only"
+        and bool(route.get("status"))
+        and bool(route.get("surface_kind"))
+        and bool(impact.get("organ"))
+        and isinstance(impact.get("coverage_planes"), list)
+        and bool(impact.get("coverage_planes"))
+        and bool(current_state_identity.get("digest"))
+        and isinstance(current_state_identity.get("missing_check_keys"), list)
+        and closure_acceptance.get("complete") is True
+        and lineage.get("stack_handoff_replayable") is True
+        and lineage.get("open_requirement_present_in_replay") is True
+        and isinstance(route.get("closure_blocker_keys"), list)
+        and bool(route.get("closure_blocker_keys"))
+        and safe_next.get("requires_human_approval") is True
+        and safe_next.get("executes_commands") is False
+        and safe_next.get("host_layer_mutates_stack") is False
+        and isinstance(route.get("verifier_commands"), list)
+        and bool(route.get("verifier_commands"))
+        and bool(route.get("evidence_refs"))
+        and policy.get("handoff_only") is True
+        and policy.get("automatic_execution") is False
+        and policy.get("executes_commands") is False
+        and policy.get("host_layer_mutates_stack") is False
+        and policy.get("writes_project_roots") is False
+        and policy.get("raw_secret_storage") is False
+    )
+
+
+def working_stack_activation_gap_route(
+    working_stack_gap: Mapping[str, Any],
+    *,
+    episode_id: str | None = None,
+    activation_row: Mapping[str, Any] | None = None,
+    schema_prefix: str,
+    working_stack_latest_path: Path | str,
+    activation_smoke_latest_path: Path | str,
+    episodes_latest_path: Path | str,
+    process_container_latest_path: Path | str,
+) -> dict[str, Any]:
+    working_stack_gap = working_stack_gap if isinstance(working_stack_gap, Mapping) else {}
+    service = str(working_stack_gap.get("service") or "")
+    status = str(working_stack_gap.get("machine_usage_status") or "unknown")
+    evidence_refs = [
+        {"path": str(working_stack_latest_path), "service": service, "status": status},
+        {"path": str(activation_smoke_latest_path), "service": service, "episode_id": episode_id},
+        {"path": str(episodes_latest_path), "episode_id": episode_id, "section": "working_stack_gap"},
+        {"path": str(process_container_latest_path), "service": service, "container": working_stack_gap.get("container")},
+    ]
+    return self_awareness_contracts.working_stack_activation_gap_route(
+        dict(working_stack_gap),
+        episode_id=episode_id,
+        activation_row=dict(activation_row) if isinstance(activation_row, Mapping) else None,
+        evidence_refs=evidence_refs,
+        schema_prefix=schema_prefix,
+    )
+
+
+def working_stack_activation_gap_route_complete(route: Any, *, schema_prefix: str) -> bool:
+    return self_awareness_contracts.working_stack_activation_gap_route_complete(route, schema_prefix=schema_prefix)
+
+
 def stack_organ_use_packet_complete(
     packet: Any,
     *,
