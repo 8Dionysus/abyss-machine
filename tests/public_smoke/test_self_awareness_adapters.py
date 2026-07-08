@@ -1789,6 +1789,54 @@ def test_activation_entry_builder_is_adapter_owned(tmp_path: Path) -> None:
     assert entry["evidence_refs"][0]["path"] == str(tmp_path / "working-stack/latest.json")
 
 
+def test_activation_dossier_document_is_adapter_owned(tmp_path: Path) -> None:
+    prefix = "abyss_machine"
+    service = "aoa-browser"
+    status = "tool_runtime_degraded"
+    link_id = "saworklink-aoa-browser"
+    working_stack_doc = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "organs": [
+            {
+                "service": service,
+                "owner": "abyss-stack",
+                "machine_usage_status": status,
+                "usage_gap": "functional runtime smoke failed",
+                "runtime": {"present": True, "running": True, "container": service, "health": "healthy"},
+                "declared": {"present": True, "modules": ["compose/51-browser-tools.yml"]},
+                "endpoint_ok": False,
+                "deep_usage_proven": False,
+                "time_space_context_link": {"link_id": link_id, "time": {"observed_at": "2026-07-08T00:00:00Z"}},
+                "endpoint_probes": [{"probe": "playwright-chromium-launch", "kind": "tool_smoke", "ok": False}],
+                "stack_source_refs": [{"path": "compose/51-browser-tools.yml", "kind": "compose"}],
+                "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/working-stack/latest.json"}],
+            }
+        ],
+    }
+
+    dossier = self_awareness_adapters.working_stack_activation_dossier_document(
+        working_stack_doc,
+        generated_at="2026-07-08T00:00:00Z",
+        version="0.0-test",
+        schema_prefix=prefix,
+        working_stack_latest_path=tmp_path / "working-stack/latest.json",
+        spatial_graph_latest_path=tmp_path / "spatial-graph/latest.json",
+        episodes_latest_path=tmp_path / "episodes/latest.json",
+        alerts_latest_path=tmp_path / "alerts/latest.json",
+        artifact_refs={"working_stack": {"path": str(tmp_path / "working-stack/latest.json"), "exists": False}},
+    )
+
+    assert dossier["schema"] == "abyss_machine_self_awareness_working_stack_activation_dossier_v1"
+    assert dossier["ok"] is True
+    assert dossier["summary"]["open_activation_gaps"] == 1
+    assert dossier["summary"]["activation_entries_complete"] == 1
+    assert dossier["synthetic_scenario_matrix"]["ok"] is True
+    assert dossier["closure_acceptance_matrix"]["ok"] is True
+    assert dossier["working_stack_activation_handoff"]["policy"]["host_layer_mutates_stack"] is False
+    assert dossier["entries"][0]["service"] == service
+    assert dossier["artifact_refs"]["working_stack"]["exists"] is False
+
+
 def test_activation_synthetic_proof_and_export_overlay_are_adapter_owned(tmp_path: Path) -> None:
     prefix = "abyss_machine"
     service = "aoa-browser"
