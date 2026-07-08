@@ -276,12 +276,13 @@ and fake completion ports for route assembly and completion predicates. Keep
 actual investigate/replay execution, stack latest reads, and latest/history
 writes at the CLI/live binding edge.
 
-For self-awareness activation synthetic-scenario or closure-acceptance packet
-adapter changes, public CI should rely on synthetic activation entries with
-missing/fulfilled checks, verifier command lists, stack source refs, and
-evidence refs for scenario/closure packet assembly and completion predicates.
-Keep actual proof replay, export overlays, latest reads, and latest/history
-writes at the CLI/live binding edge.
+For self-awareness activation synthetic-scenario, closure-acceptance,
+activation synthetic-proof, or export-overlay adapter changes, public CI should
+rely on synthetic activation entries, verifier command lists, stack source refs,
+evidence refs, replay summaries, coverage rows, cycle documents, and export
+documents for packet/proof/overlay assembly and completion predicates. Keep
+actual proof replay execution, concrete export writes, latest reads, and
+latest/history writes at the CLI/live binding edge.
 
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect

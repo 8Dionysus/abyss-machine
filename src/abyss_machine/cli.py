@@ -33699,343 +33699,36 @@ def self_awareness_working_stack_activation_synthetic_proof(
     replay_doc: dict[str, Any],
     coverage_row: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    service = str(entry.get("service") or "")
-    status = str(entry.get("machine_usage_status") or "unknown")
-    usage_gap = str(entry.get("usage_gap") or "")
-    link_id = str(entry.get("working_stack_link_id") or "")
-    service_node_id = f"service:{service}" if service else ""
-    link_node_id = f"working_stack_link:{link_id}" if link_id else ""
-    coverage_row = coverage_row if isinstance(coverage_row, dict) else {}
-
-    organs = working_stack_doc.get("organs") if isinstance(working_stack_doc.get("organs"), list) else []
-    organ = next((item for item in organs if isinstance(item, dict) and str(item.get("service") or "") == service), {})
-    spatial_nodes = spatial_doc.get("nodes") if isinstance(spatial_doc.get("nodes"), list) else []
-    spatial_edges = spatial_doc.get("edges") if isinstance(spatial_doc.get("edges"), list) else []
-    node_ids = {str(node.get("id")) for node in spatial_nodes if isinstance(node, dict) and node.get("id")}
-    service_node = next((node for node in spatial_nodes if isinstance(node, dict) and str(node.get("id") or "") == service_node_id), {})
-    link_node = next((node for node in spatial_nodes if isinstance(node, dict) and str(node.get("id") or "") == link_node_id), {})
-    usage_gap_nodes = [
-        node for node in spatial_nodes
-        if isinstance(node, dict)
-        and node.get("kind") == "usage_gap"
-        and (str(node.get("label") or "") == service or str(node.get("status") or "") == status)
-    ]
-    link_edge = next((
-        edge for edge in spatial_edges
-        if isinstance(edge, dict)
-        and str(edge.get("from") or "") == service_node_id
-        and str(edge.get("to") or "") == link_node_id
-        and edge.get("kind") == "has_time_space_context_link"
-    ), {})
-    gap_edge = next((
-        edge for edge in spatial_edges
-        if isinstance(edge, dict)
-        and str(edge.get("from") or "") == service_node_id
-        and str(edge.get("to") or "").startswith("usage_gap:")
-        and edge.get("kind") == "has_unexhausted_potential"
-    ), {})
-
-    episodes = episodes_doc.get("episodes") if isinstance(episodes_doc.get("episodes"), list) else []
-    episode = next((
-        item for item in episodes
-        if isinstance(item, dict)
-        and item.get("episode_kind") == "working_stack_usage_gap"
-        and str(nested_get(item, ["working_stack_gap", "service"]) or "") == service
-        and str(nested_get(item, ["working_stack_gap", "machine_usage_status"]) or "") == status
-    ), {})
-    episode_nodes = episode.get("affected_spatial_nodes") if isinstance(episode.get("affected_spatial_nodes"), list) else []
-
-    candidates = []
-    for key in ("reaction_candidates", "candidates"):
-        value = alerts_doc.get(key) if isinstance(alerts_doc.get(key), list) else []
-        candidates.extend(item for item in value if isinstance(item, dict))
-    candidate = next((
-        item for item in candidates
-        if str(item.get("working_stack_gap_service") or nested_get(item, ["response_contract", "working_stack_gap", "service"]) or "") == service
-        and str(item.get("working_stack_gap_status") or nested_get(item, ["response_contract", "working_stack_gap", "machine_usage_status"]) or "") == status
-    ), {})
-    response_contract = candidate.get("response_contract") if isinstance(candidate.get("response_contract"), dict) else {}
-    contract_replay = response_contract.get("replay") if isinstance(response_contract.get("replay"), dict) else {}
-    contract_investigation = response_contract.get("investigation") if isinstance(response_contract.get("investigation"), dict) else {}
-
-    latest_investigation_matches = (
-        str(nested_get(investigation_doc, ["working_stack_gap", "service"]) or "") == service
-        and str(nested_get(investigation_doc, ["working_stack_gap", "machine_usage_status"]) or "") == status
-        and nested_get(investigation_doc, ["working_stack_gap", "complete"]) is True
+    return self_awareness_adapters.working_stack_activation_synthetic_proof(
+        entry,
+        generated_at=generated_at,
+        working_stack_doc=working_stack_doc,
+        spatial_doc=spatial_doc,
+        episodes_doc=episodes_doc,
+        alerts_doc=alerts_doc,
+        export_doc=export_doc,
+        cycle_doc=cycle_doc,
+        investigation_doc=investigation_doc,
+        replay_doc=replay_doc,
+        coverage_row=coverage_row,
+        schema_prefix=SCHEMA_PREFIX,
+        working_stack_latest_path=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        spatial_graph_latest_path=SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+        episodes_latest_path=SELF_AWARENESS_EPISODES_LATEST_PATH,
+        alerts_latest_path=SELF_AWARENESS_ALERTS_LATEST_PATH,
+        investigate_latest_path=SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+        replay_latest_path=SELF_AWARENESS_REPLAY_LATEST_PATH,
+        coverage_audit_latest_path=SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
+        export_latest_path=SELF_AWARENESS_EXPORT_LATEST_PATH,
+        cycle_latest_path=SELF_AWARENESS_CYCLE_LATEST_PATH,
+        validate_latest_path=SELF_AWARENESS_VALIDATE_LATEST_PATH,
     )
-    latest_replay_matches = (
-        str(nested_get(replay_doc, ["working_stack_gap_replay", "service"]) or "") == service
-        and str(nested_get(replay_doc, ["working_stack_gap_replay", "machine_usage_status"]) or "") == status
-        and nested_get(replay_doc, ["working_stack_gap_replay", "replayable"]) is True
-    )
-
-    export_services = [
-        str(item) for item in (nested_get(export_doc, ["stack_handoff", "working_stack_activation_service_ids"]) or [])
-        if item
-    ]
-    export_entries = nested_get(export_doc, ["stack_handoff", "working_stack_activation_entries"])
-    export_entries = export_entries if isinstance(export_entries, list) else []
-    export_entry = next((item for item in export_entries if isinstance(item, dict) and str(item.get("service") or "") == service), {})
-
-    scenario = entry.get("synthetic_scenario") if isinstance(entry.get("synthetic_scenario"), dict) else {}
-    proof_steps = [
-        {
-            "step": "inventory",
-            "command": "abyss-machine self-awareness working-stack --json",
-            "ok": (
-                bool(organ)
-                and organ.get("owner") in (None, "abyss-stack")
-                and str(organ.get("machine_usage_status") or "") == status
-                and bool(organ.get("usage_gap"))
-                and str(nested_get(organ, ["time_space_context_link", "link_id"]) or nested_get(organ, ["time_space_context_link", "context", "working_stack_link_id"]) or "") == link_id
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH), "service": service, "working_stack_link_id": link_id}],
-            "details": {
-                "service_present": bool(organ),
-                "machine_usage_status": organ.get("machine_usage_status") if isinstance(organ, dict) else None,
-                "usage_gap": organ.get("usage_gap") if isinstance(organ, dict) else None,
-                "working_stack_link_id": link_id or None,
-            },
-        },
-        {
-            "step": "space",
-            "command": "abyss-machine self-awareness spatial-graph --json",
-            "ok": (
-                bool(service_node)
-                and bool(link_node)
-                and bool(link_edge)
-                and bool(usage_gap_nodes)
-                and bool(gap_edge)
-                and service_node.get("owner_surface") == "abyss-stack"
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH), "service": service, "nodes": [node for node in [service_node_id, link_node_id, str(gap_edge.get("to") or "")] if node]}],
-            "details": {
-                "service_node": service_node_id in node_ids,
-                "link_node": link_node_id in node_ids,
-                "usage_gap_nodes": [node.get("id") for node in usage_gap_nodes],
-                "link_edge_id": link_edge.get("id"),
-                "gap_edge_id": gap_edge.get("id"),
-            },
-        },
-        {
-            "step": "causal_episode",
-            "command": "abyss-machine self-awareness episodes --json",
-            "ok": (
-                bool(episode)
-                and nested_get(episode, ["policy", "host_layer_mutates_stack"]) is False
-                and nested_get(episode, ["policy", "executes_commands"]) is False
-                and service_node_id in episode_nodes
-                and (not link_node_id or link_node_id in episode_nodes)
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_EPISODES_LATEST_PATH), "episode_id": episode.get("episode_id"), "service": service}],
-            "details": {
-                "episode_id": episode.get("episode_id"),
-                "time_window": episode.get("time_window") if isinstance(episode.get("time_window"), dict) else {},
-                "affected_spatial_nodes": episode_nodes,
-            },
-        },
-        {
-            "step": "reaction_response_contract",
-            "command": "abyss-machine self-awareness alerts --json",
-            "ok": (
-                bool(candidate)
-                and candidate.get("automatic") is False
-                and bool(response_contract)
-                and nested_get(response_contract, ["policy", "host_layer_mutates_stack"]) is False
-                and nested_get(response_contract, ["policy", "executes_commands"]) is False
-                and nested_get(response_contract, ["approval", "human_approval_before_mutation"]) is True
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_ALERTS_LATEST_PATH), "candidate_id": candidate.get("id"), "service": service}],
-            "details": {
-                "candidate_id": candidate.get("id"),
-                "episode_id": candidate.get("episode_id"),
-                "automatic": candidate.get("automatic"),
-                "approval_required": nested_get(response_contract, ["approval", "required"]),
-            },
-        },
-        {
-            "step": "investigation_replay_contract",
-            "command": "abyss-machine self-awareness investigate --episode-id EPISODE_ID --json; abyss-machine self-awareness replay --thread-id THREAD_ID --json",
-            "ok": (
-                bool(response_contract)
-                and safe_int(nested_get(contract_investigation, ["summary", "checkpoints"]), 0) > 0
-                and contract_replay.get("ok") is True
-                and nested_get(response_contract, ["working_stack_gap", "policy", "host_layer_mutates_stack"]) is False
-                and nested_get(response_contract, ["working_stack_gap", "policy", "executes_commands"]) is False
-            ),
-            "evidence_refs": [
-                {"path": str(SELF_AWARENESS_INVESTIGATE_LATEST_PATH), "thread_id": contract_investigation.get("thread_id") or nested_get(response_contract, ["investigation", "thread_id"]), "latest_matches_service": latest_investigation_matches},
-                {"path": str(SELF_AWARENESS_REPLAY_LATEST_PATH), "thread_id": contract_replay.get("thread_id") or nested_get(response_contract, ["replay", "thread_id"]), "latest_matches_service": latest_replay_matches},
-            ],
-            "details": {
-                "contract_investigation_thread_id": contract_investigation.get("thread_id"),
-                "contract_replay_thread_id": contract_replay.get("thread_id"),
-                "contract_replay_ok": contract_replay.get("ok"),
-                "latest_investigation_matches_service": latest_investigation_matches,
-                "latest_replay_matches_service": latest_replay_matches,
-            },
-        },
-        {
-            "step": "coverage_row",
-            "command": "abyss-machine self-awareness coverage-audit --json",
-            "ok": (
-                coverage_row.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_working_stack_gap_coverage_row_v1"
-                and coverage_row.get("service") == service
-                and coverage_row.get("machine_usage_status") == status
-                and coverage_row.get("working_stack_link_id") == link_id
-                and self_awareness_working_stack_activation_synthetic_scenario_complete(scenario)
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH), "coverage_row": coverage_row.get("id"), "service": service}],
-            "details": {
-                "coverage_row_id": coverage_row.get("id"),
-                "scenario_id": scenario.get("scenario_id") if isinstance(scenario, dict) else None,
-                "scenario_complete": self_awareness_working_stack_activation_synthetic_scenario_complete(scenario),
-            },
-        },
-        {
-            "step": "export",
-            "command": "abyss-machine self-awareness export --json",
-            "ok": (
-                export_doc.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_export_v1"
-                and service in set(export_services)
-                and bool(export_entry)
-                and nested_get(export_entry, ["policy", "host_layer_mutates_stack"]) is False
-                and nested_get(export_entry, ["policy", "executes_commands"]) is False
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_EXPORT_LATEST_PATH), "service": service}],
-            "details": {
-                "export_service_present": service in set(export_services),
-                "export_entry_complete": export_entry.get("complete") if isinstance(export_entry, dict) else None,
-                "export_generated_at": export_doc.get("generated_at"),
-            },
-        },
-        {
-            "step": "cycle",
-            "command": "abyss-machine self-awareness cycle --json",
-            "ok": (
-                cycle_doc.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_cycle_v1"
-                and safe_int(nested_get(cycle_doc, ["summary", "working_stack_activation_entries"]), 0) >= 1
-                and safe_int(nested_get(cycle_doc, ["summary", "automatic_responses"]), -1) == 0
-                and safe_int(nested_get(cycle_doc, ["summary", "routes_with_mutating_command_if_run"]), -1) == 0
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_CYCLE_LATEST_PATH), "service": service}],
-            "details": {
-                "cycle_id": cycle_doc.get("cycle_id"),
-                "activation_entries": nested_get(cycle_doc, ["summary", "working_stack_activation_entries"]),
-                "automatic_responses": nested_get(cycle_doc, ["summary", "automatic_responses"]),
-                "routes_with_mutating_command_if_run": nested_get(cycle_doc, ["summary", "routes_with_mutating_command_if_run"]),
-            },
-        },
-        {
-            "step": "boundary_policy",
-            "command": "abyss-machine self-awareness validate --json",
-            "ok": (
-                nested_get(entry, ["policy", "host_layer_mutates_stack"]) is False
-                and nested_get(entry, ["policy", "executes_commands"]) is False
-                and nested_get(entry, ["safe_next_action", "host_layer_mutates_stack"]) is False
-                and nested_get(entry, ["safe_next_action", "executes_commands"]) is False
-                and nested_get(entry, ["safe_next_action", "requires_human_approval"]) is True
-                and nested_get(coverage_row, ["policy", "host_layer_mutates_stack"]) is False
-                and nested_get(coverage_row, ["policy", "executes_commands"]) is False
-                and nested_get(coverage_row, ["policy", "automatic_remediation"]) is False
-            ),
-            "evidence_refs": [{"path": str(SELF_AWARENESS_VALIDATE_LATEST_PATH), "service": service}],
-            "details": {
-                "entry_policy": entry.get("policy") if isinstance(entry.get("policy"), dict) else {},
-                "coverage_policy": coverage_row.get("policy") if isinstance(coverage_row.get("policy"), dict) else {},
-                "safe_next_action": entry.get("safe_next_action") if isinstance(entry.get("safe_next_action"), dict) else {},
-            },
-        },
-    ]
-    ok_steps = [step for step in proof_steps if step.get("ok") is True]
-    proof = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_synthetic_proof_v1",
-        "proof_id": "saproof-working-stack-activation-" + stable_hash_json({
-            "service": service,
-            "machine_usage_status": status,
-            "working_stack_link_id": link_id,
-        }, length=24),
-        "generated_at": generated_at,
-        "service": service,
-        "owner": "abyss-stack",
-        "machine_usage_status": status,
-        "usage_gap": usage_gap,
-        "working_stack_link_id": link_id or None,
-        "proof_status": "proved_open_activation_gap" if len(ok_steps) == len(proof_steps) else "proof_incomplete",
-        "proof_steps": proof_steps,
-        "summary": {
-            "steps": len(proof_steps),
-            "ok_steps": len(ok_steps),
-            "failed_steps": [str(step.get("step")) for step in proof_steps if step.get("ok") is not True],
-            "latest_investigation_matches_service": latest_investigation_matches,
-            "latest_replay_matches_service": latest_replay_matches,
-            "response_contract_replay_ok": contract_replay.get("ok") is True,
-        },
-        "evidence_refs": [
-            ref
-            for step in proof_steps
-            for ref in (step.get("evidence_refs") if isinstance(step.get("evidence_refs"), list) else [])
-            if isinstance(ref, dict)
-        ],
-        "policy": {
-            "readmodel_smoke": True,
-            "synthetic_scenario_contract": True,
-            "handoff_only": True,
-            "read_only": True,
-            "host_layer_mutates_stack": False,
-            "executes_commands": False,
-            "action_execution": False,
-            "automatic_remediation": False,
-            "raw_secrets_included": False,
-            "raw_private_content_included": False,
-            "latest_replay_may_cover_only_selected_episode": True,
-        },
-    }
-    proof["complete"] = self_awareness_working_stack_activation_synthetic_proof_complete(proof)
-    return proof
 
 
 def self_awareness_working_stack_activation_synthetic_proof_complete(proof: Any) -> bool:
-    if not isinstance(proof, dict):
-        return False
-    steps = proof.get("proof_steps") if isinstance(proof.get("proof_steps"), list) else []
-    required_steps = {
-        "inventory",
-        "space",
-        "causal_episode",
-        "reaction_response_contract",
-        "investigation_replay_contract",
-        "coverage_row",
-        "export",
-        "cycle",
-        "boundary_policy",
-    }
-    step_by_name = {
-        str(step.get("step")): step
-        for step in steps
-        if isinstance(step, dict) and step.get("step")
-    }
-    return (
-        proof.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_synthetic_proof_v1"
-        and bool(proof.get("proof_id"))
-        and bool(proof.get("service"))
-        and proof.get("owner") == "abyss-stack"
-        and bool(proof.get("machine_usage_status"))
-        and bool(proof.get("usage_gap"))
-        and bool(proof.get("working_stack_link_id"))
-        and proof.get("proof_status") == "proved_open_activation_gap"
-        and required_steps.issubset(set(step_by_name))
-        and all(step_by_name[name].get("ok") is True for name in required_steps)
-        and safe_int(nested_get(proof, ["summary", "ok_steps"]), 0) == safe_int(nested_get(proof, ["summary", "steps"]), -1)
-        and bool(proof.get("evidence_refs"))
-        and nested_get(proof, ["policy", "readmodel_smoke"]) is True
-        and nested_get(proof, ["policy", "synthetic_scenario_contract"]) is True
-        and nested_get(proof, ["policy", "host_layer_mutates_stack"]) is False
-        and nested_get(proof, ["policy", "executes_commands"]) is False
-        and nested_get(proof, ["policy", "action_execution"]) is False
-        and nested_get(proof, ["policy", "automatic_remediation"]) is False
-        and nested_get(proof, ["policy", "raw_secrets_included"]) is False
-        and nested_get(proof, ["policy", "raw_private_content_included"]) is False
+    return self_awareness_adapters.working_stack_activation_synthetic_proof_complete(
+        proof,
+        schema_prefix=SCHEMA_PREFIX,
     )
 
 
@@ -34045,67 +33738,13 @@ def self_awareness_export_overlay_working_stack_activation_proof(
     *,
     generated_at: str,
 ) -> Any:
-    if not isinstance(proof, dict):
-        return proof
-    service = str(proof.get("service") or "")
-    export_entry = activation_entry_by_service.get(service)
-    if not service or not isinstance(export_entry, dict):
-        return proof
-    steps = proof.get("proof_steps") if isinstance(proof.get("proof_steps"), list) else []
-    adjusted_steps: list[dict[str, Any]] = []
-    overlay_applied = False
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        adjusted_step = dict(step)
-        if step.get("step") == "export":
-            details = dict(step.get("details") if isinstance(step.get("details"), dict) else {})
-            adjusted_step["ok"] = (
-                export_entry.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_entry_v1"
-                and export_entry.get("service") == service
-                and export_entry.get("complete") is True
-                and export_entry.get("working_stack_link_id") == proof.get("working_stack_link_id")
-                and nested_get(export_entry, ["policy", "host_layer_mutates_stack"]) is False
-                and nested_get(export_entry, ["policy", "executes_commands"]) is False
-            )
-            details.update({
-                "export_service_present": True,
-                "export_entry_complete": export_entry.get("complete"),
-                "export_generated_at": generated_at,
-                "export_handoff_overlay_applied": True,
-            })
-            adjusted_step["details"] = details
-            evidence_refs = adjusted_step.get("evidence_refs") if isinstance(adjusted_step.get("evidence_refs"), list) else []
-            adjusted_step["evidence_refs"] = [
-                *evidence_refs,
-                {"path": str(SELF_AWARENESS_EXPORT_LATEST_PATH), "section": "current_export_handoff", "service": service},
-            ]
-            overlay_applied = True
-        adjusted_steps.append(adjusted_step)
-    if not overlay_applied:
-        return proof
-    adjusted = dict(proof)
-    adjusted["proof_steps"] = adjusted_steps
-    ok_steps = [step for step in adjusted_steps if step.get("ok") is True]
-    summary = dict(adjusted.get("summary") if isinstance(adjusted.get("summary"), dict) else {})
-    summary.update({
-        "steps": len(adjusted_steps),
-        "ok_steps": len(ok_steps),
-        "failed_steps": [str(step.get("step")) for step in adjusted_steps if step.get("ok") is not True],
-        "export_handoff_overlay_applied": True,
-    })
-    adjusted["summary"] = summary
-    adjusted["proof_status"] = "proved_open_activation_gap" if len(ok_steps) == len(adjusted_steps) else "proof_incomplete"
-    evidence_refs = [
-        ref
-        for step in adjusted_steps
-        for ref in (step.get("evidence_refs") if isinstance(step.get("evidence_refs"), list) else [])
-        if isinstance(ref, dict)
-    ]
-    if evidence_refs:
-        adjusted["evidence_refs"] = evidence_refs
-    adjusted["complete"] = self_awareness_working_stack_activation_synthetic_proof_complete(adjusted)
-    return adjusted
+    return self_awareness_adapters.export_overlay_working_stack_activation_proof(
+        proof,
+        activation_entry_by_service,
+        generated_at=generated_at,
+        schema_prefix=SCHEMA_PREFIX,
+        export_latest_path=SELF_AWARENESS_EXPORT_LATEST_PATH,
+    )
 
 
 def self_awareness_working_stack_activation_entry(organ: dict[str, Any], order: int, generated_at: str) -> dict[str, Any]:
