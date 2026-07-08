@@ -1652,6 +1652,77 @@ def test_activation_gap_and_handoff_routes_are_adapter_owned(tmp_path: Path) -> 
     ) is False
 
 
+def test_activation_scenario_and_closure_packets_are_adapter_owned() -> None:
+    prefix = "abyss_machine"
+    entry = {
+        "service": "aoa-browser",
+        "machine_usage_status": "tool_runtime_degraded",
+        "activation_kind": "stack_tool_runtime_smoke_gap",
+        "working_stack_link_id": "saworklink-aoa-browser",
+        "usage_gap": "functional runtime smoke failed",
+        "current_state_digest": "state-aoa-browser",
+        "coverage_planes": ["working_stack_body", "runtime_organs", "investigation_replay"],
+        "missing_checks": [
+            {"key": "working_stack_usage_gap", "message": "gap remains open"},
+            {"key": "probe_failed:playwright-chromium-launch", "probe": "playwright-chromium-launch"},
+        ],
+        "fulfilled_checks": [
+            {"key": "working_stack_time_space_context_link"},
+            {"key": "runtime_container_running"},
+        ],
+        "failed_probe_names": ["playwright-chromium-launch"],
+        "ok_probe_names": ["health", "private-host-guard"],
+        "runtime": {"container": "aoa-browser", "running": True, "health": "healthy"},
+        "verifier_commands": [
+            "abyss-machine self-awareness working-stack --json",
+            "abyss-machine self-awareness coverage-audit --json",
+        ],
+        "stack_source_refs": [{"path": "compose/51-browser-tools.yml", "kind": "compose"}],
+        "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/working-stack/latest.json"}],
+        "closure_blocker_keys": ["working_stack_usage_gap", "probe_failed:playwright-chromium-launch"],
+    }
+
+    scenario = self_awareness_adapters.working_stack_activation_synthetic_scenario(
+        entry,
+        "2026-07-08T00:00:00Z",
+        schema_prefix=prefix,
+    )
+    assert self_awareness_adapters.working_stack_activation_synthetic_scenario_complete(
+        scenario,
+        schema_prefix=prefix,
+    ) is True
+    assert scenario["current_result"] == "functional_tool_smoke_failed"
+    assert scenario["current_observation"]["failed_probe_names"] == ["playwright-chromium-launch"]
+    assert scenario["policy"]["host_layer_mutates_stack"] is False
+
+    closure = self_awareness_adapters.working_stack_activation_closure_acceptance(
+        entry,
+        "2026-07-08T00:00:00Z",
+        schema_prefix=prefix,
+    )
+    assert self_awareness_adapters.working_stack_activation_closure_acceptance_complete(
+        closure,
+        schema_prefix=prefix,
+    ) is True
+    assert closure["status"] == "awaiting_stack_owner_change"
+    assert closure["stack_compat_requirement"]["owner"] == "abyss-stack"
+    assert closure["stack_compat_requirement"]["operator_boundary"]["abyss_machine_executes_stack_change"] is False
+    assert closure["policy"]["executes_commands"] is False
+
+    broken_scenario = json.loads(json.dumps(scenario))
+    broken_scenario["evidence_refs"] = []
+    assert self_awareness_adapters.working_stack_activation_synthetic_scenario_complete(
+        broken_scenario,
+        schema_prefix=prefix,
+    ) is False
+    broken_closure = json.loads(json.dumps(closure))
+    broken_closure["pre_close_identity"]["missing_check_keys"] = []
+    assert self_awareness_adapters.working_stack_activation_closure_acceptance_complete(
+        broken_closure,
+        schema_prefix=prefix,
+    ) is False
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {
