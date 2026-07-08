@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from abyss_machine import self_awareness_adapters
+from abyss_machine import self_awareness_contracts
 
 
 def _path_map(tmp_path: Path) -> dict[str, Path]:
@@ -1634,6 +1635,127 @@ def test_working_stack_inventory_document_assembles_readmodel_without_cli(tmp_pa
         {"path": str(latest_paths["working_stack"]), "schema": "abyss_machine_self_awareness_working_stack_inventory_v1"},
     ]
     assert all(ref["host_layer_mutates_stack"] is False for row in organs.values() for ref in row["stack_source_refs"])
+
+
+def test_working_stack_events_assemble_movement_observations_without_cli(tmp_path: Path) -> None:
+    source_stack = tmp_path / "source-stack"
+    srv_stack = tmp_path / "srv-stack"
+    working_stack_latest = tmp_path / "self-awareness" / "working-stack" / "latest.json"
+    qdrant_organ = {
+        "service": "qdrant",
+        "roles": ["vector_store"],
+        "runtime": {
+            "container": "qdrant",
+            "pid": 4242,
+            "pid_alive": True,
+            "running": True,
+            "state": "running",
+            "health": "healthy",
+            "restart_count": 0,
+        },
+        "declared": {"present": True},
+        "endpoint_probes": [{"service": "qdrant", "probe": "collections", "ok": True, "status_code": 200}],
+        "endpoint_ok": True,
+        "model_roots": 0,
+        "machine_usage_status": "active_dependency_signal",
+        "deep_usage_proven": True,
+        "usage_gap": None,
+        "model_bridge": {},
+        "time_space_context_link": {
+            "link_id": "wsl-qdrant",
+            "context": {"working_stack_link_id": "wsl-qdrant"},
+        },
+        "evidence_refs": [{"path": str(working_stack_latest), "schema": "abyss_machine_self_awareness_working_stack_inventory_v1"}],
+        "stack_source_refs": [
+            self_awareness_adapters.stack_owned_source_ref(source_stack / "compose" / "modules" / "30-memory.yml", "compose_module"),
+        ],
+    }
+    browser_organ = {
+        "service": "aoa-browser",
+        "roles": ["browser_tool"],
+        "runtime": {
+            "container": "aoa-browser",
+            "pid": 5252,
+            "pid_alive": True,
+            "running": True,
+            "state": "running",
+            "health": "starting",
+            "restart_count": 1,
+        },
+        "declared": {"present": True},
+        "endpoint_probes": [
+            {"service": "aoa-browser", "probe": "health", "ok": True, "status_code": 200},
+            {"service": "aoa-browser", "probe": "playwright-chromium-launch", "ok": False, "error": "launch failed"},
+        ],
+        "endpoint_ok": True,
+        "model_roots": 0,
+        "machine_usage_status": "tool_runtime_degraded",
+        "deep_usage_proven": False,
+        "usage_gap": "stack tool is reachable and guarded, but its functional runtime smoke failed",
+        "model_bridge": {},
+        "time_space_context_link": {
+            "link_id": "wsl-aoa-browser",
+            "context": {"working_stack_link_id": "wsl-aoa-browser"},
+        },
+        "evidence_refs": [{"path": str(working_stack_latest), "schema": "abyss_machine_self_awareness_working_stack_inventory_v1"}],
+        "stack_source_refs": [
+            self_awareness_adapters.stack_owned_source_ref(srv_stack / "Services" / "aoa-browser", "service_root"),
+        ],
+    }
+    qdrant_digest = self_awareness_adapters.working_stack_organ_state_digest(qdrant_organ)
+
+    events = self_awareness_adapters.working_stack_events(
+        {"organs": [qdrant_organ, browser_organ]},
+        "2026-07-08T12:00:00+00:00",
+        schema_prefix="abyss_machine",
+        previous_smoke={
+            "by_service": {
+                "qdrant": {
+                    "stack_organ_use_packet": {
+                        "current_state": {"current_state_digest": qdrant_digest},
+                    }
+                },
+                "aoa-browser": {
+                    "stack_organ_use_packet": {
+                        "current_state": {"current_state_digest": "older-digest"},
+                    }
+                },
+            }
+        },
+        working_stack_latest_path=working_stack_latest,
+        host="fixture-host",
+    )
+
+    by_service = {event["resource"]["service"]: event for event in events}
+    assert set(by_service) == {"aoa-browser", "qdrant"}
+    assert by_service["qdrant"]["severity"] == "info"
+    assert by_service["qdrant"]["context"]["state_changed"] is False
+    assert by_service["qdrant"]["resource"]["movement_categories"] == [
+        "raw_signal",
+        "correlation_candidate",
+        "ignore/noise",
+    ]
+    assert by_service["aoa-browser"]["severity"] == "warning"
+    assert by_service["aoa-browser"]["context"]["state_changed"] is True
+    assert by_service["aoa-browser"]["resource"]["selected_for_episode"] is True
+    assert by_service["aoa-browser"]["resource"]["selected_for_resident_reasoning"] is True
+    assert by_service["aoa-browser"]["resource"]["degradation_reasons"] == [
+        "usage_gap",
+        "failed_endpoint_probe",
+        "degraded_status",
+    ]
+    assert by_service["aoa-browser"]["space"]["host"] == "fixture-host"
+    assert by_service["aoa-browser"]["space"]["path"] == str(working_stack_latest)
+    assert all(
+        not str(ref.get("path", "")).startswith((str(source_stack), str(srv_stack)))
+        for event in events
+        for ref in event["evidence_refs"]
+    )
+    assert all(
+        self_awareness_contracts.event_issues(event, schema_prefix="abyss_machine") == []
+        for event in events
+    )
+    assert all(event["fabric"]["policy"]["host_layer_mutates_stack"] is False for event in events)
 
 
 def test_parse_compose_services_returns_empty_on_read_error(tmp_path: Path) -> None:
