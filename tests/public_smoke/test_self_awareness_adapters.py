@@ -1837,6 +1837,94 @@ def test_activation_dossier_document_is_adapter_owned(tmp_path: Path) -> None:
     assert dossier["artifact_refs"]["working_stack"]["exists"] is False
 
 
+def test_working_stack_gap_episodes_are_adapter_owned(tmp_path: Path) -> None:
+    prefix = "abyss_machine"
+    service = "aoa-browser"
+    status = "tool_runtime_degraded"
+    link_id = "saworklink-aoa-browser"
+    working_stack_path = tmp_path / "working-stack/latest.json"
+    events_path = tmp_path / "events/latest.json"
+    spatial_path = tmp_path / "spatial-graph/latest.json"
+    process_path = tmp_path / "process-container/latest.json"
+    working_stack_doc = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "organs": [
+            {
+                "service": service,
+                "owner": "abyss-stack",
+                "machine_usage_status": status,
+                "usage_gap": "functional runtime smoke failed",
+                "runtime": {
+                    "present": True,
+                    "running": True,
+                    "container": service,
+                    "health": "healthy",
+                    "state": "running",
+                    "status": "Up 3 minutes",
+                    "stack_managed": True,
+                },
+                "declared": {"present": True, "modules": ["compose/51-browser-tools.yml"]},
+                "endpoint_ok": False,
+                "deep_usage_proven": False,
+                "time_space_context_link": {
+                    "link_id": link_id,
+                    "time": {"observed_at": "2026-07-08T00:00:00Z", "bucket": "2026-07-08T00:00:00Z"},
+                },
+                "endpoint_probes": [
+                    {"probe": "playwright-chromium-launch", "kind": "tool_smoke", "ok": False},
+                    {"probe": "http-health", "kind": "http_json", "ok": True, "url": "http://127.0.0.1:9222/json/version"},
+                ],
+                "service_roots": ["fixture-stack-root"],
+                "evidence_refs": [{"path": str(tmp_path / "fixture-evidence/latest.json"), "service": service}],
+            }
+        ],
+    }
+    events = [
+        {
+            "source": "working-stack",
+            "event_id": "saevt-working-stack-browser",
+            "resource": {"service": service},
+        }
+    ]
+
+    episodes, episode_ids = self_awareness_adapters.working_stack_gap_episodes(
+        working_stack=working_stack_doc,
+        events=events,
+        generated_at="2026-07-08T00:05:00Z",
+        schema_prefix=prefix,
+        working_stack_latest_path=working_stack_path,
+        events_latest_path=events_path,
+        spatial_graph_latest_path=spatial_path,
+        process_container_latest_path=process_path,
+    )
+
+    assert len(episodes) == 1
+    episode = episodes[0]
+    gap = episode["working_stack_gap"]
+    assert episode_ids == [episode["episode_id"]]
+    assert episode["schema"] == "abyss_machine_causal_episode_v1"
+    assert episode["episode_kind"] == "working_stack_usage_gap"
+    assert episode["event_ids"] == ["saevt-working-stack-browser"]
+    assert episode["working_stack_link_id"] == link_id
+    assert f"service:{service}" in episode["affected_spatial_nodes"]
+    assert f"working_stack_link:{link_id}" in episode["affected_spatial_nodes"]
+    assert gap["schema"] == "abyss_machine_self_awareness_working_stack_usage_gap_v1"
+    assert gap["service"] == service
+    assert gap["machine_usage_status"] == status
+    assert gap["activation_kind"] == "stack_tool_runtime_smoke_gap"
+    assert gap["failed_probe_names"] == ["playwright-chromium-launch"]
+    assert gap["ok_probe_names"] == ["http-health"]
+    assert gap["policy"]["host_layer_mutates_stack"] is False
+    assert gap["policy"]["executes_commands"] is False
+    assert episode["policy"]["host_layer_mutates_stack"] is False
+    assert episode["policy"]["executes_commands"] is False
+    evidence_paths = {ref["path"] for ref in episode["evidence_refs"] if isinstance(ref, dict)}
+    assert str(working_stack_path) in evidence_paths
+    assert str(events_path) in evidence_paths
+    assert str(spatial_path) in evidence_paths
+    assert str(process_path) in evidence_paths
+
+
 def test_activation_synthetic_proof_and_export_overlay_are_adapter_owned(tmp_path: Path) -> None:
     prefix = "abyss_machine"
     service = "aoa-browser"

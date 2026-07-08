@@ -53,8 +53,9 @@ Use these mechanic owners for the next extraction slices:
   HTTP status probe ports, working-stack endpoint/TCP/container runtime probes,
   TTS smoke artifact evidence/probe projection, working-stack source inventory
   projections, working-stack inventory assembly/readmodel, working-stack
-  movement/event assembly, working-stack link-integrity matrix assembly plus
-  match/freshness predicates, autolink row-state/completion/episode-coverage,
+  movement/event assembly, working-stack usage-gap episode builders,
+  working-stack link-integrity matrix assembly plus match/freshness
+  predicates, autolink row-state/completion/episode-coverage,
   activation-entry builders/completion predicates, activation-dossier document
   builders, activation-smoke and stack-organ-use
   completion/compact/refresh predicates, activation-gap and stack-requirement
