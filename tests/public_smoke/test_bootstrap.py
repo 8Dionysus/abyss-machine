@@ -221,6 +221,34 @@ def test_bootstrap_install_local_development_skip_is_explicit(tmp_path: Path) ->
     assert payload["actions"][0]["required"] is False
 
 
+def test_bootstrap_refresh_code_local_development_skip_is_explicit(tmp_path: Path) -> None:
+    payload = run_bootstrap(
+        "refresh-code",
+        "--dry-run",
+        "--skip-artifact-trust-gate",
+        "--artifact-registry-dir",
+        str(tmp_path / "missing-registry"),
+    )
+
+    action_names = [action["action"] for action in payload["actions"]]
+    admission = payload["artifact_admission"]
+    assert payload["command"] == "refresh-code"
+    assert payload["dry_run"] is True
+    assert payload["mutation_scope"] == "cli_package_and_public_seed_only"
+    assert payload["config_rendered"] is False
+    assert payload["systemd_rendered"] is False
+    assert admission["ok"] is True
+    assert admission["required"] is False
+    assert admission["verdict"] == "not_required"
+    assert admission["trust_gate"] is None
+    assert "explicit local-development opt-out" in admission["claim_limit"]
+    assert "install_cli" in action_names
+    assert "install_public_seed" in action_names
+    assert "render" not in action_names
+    assert "copy_binary" not in action_names
+    assert "mkdir" not in action_names
+
+
 def test_bootstrap_install_rejects_trust_gate_skip_for_live_apply() -> None:
     result = run_bootstrap_process(
         "install",
@@ -235,6 +263,25 @@ def test_bootstrap_install_rejects_trust_gate_skip_for_live_apply() -> None:
     assert payload["artifact_admission"]["errors"] == ["artifact_trust_gate_skip_not_allowed_for_live_apply"]
     assert "isolated from live default roots" in payload["artifact_admission"]["claim_limit"]
     assert not any(action["action"] == "ensure_root" for action in payload["actions"])
+
+
+def test_bootstrap_refresh_code_rejects_trust_gate_skip_for_live_apply() -> None:
+    result = run_bootstrap_process(
+        "refresh-code",
+        "--apply",
+        "--skip-artifact-trust-gate",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["command"] == "refresh-code"
+    assert payload["mutation_scope"] == "cli_package_and_public_seed_only"
+    assert payload["config_rendered"] is False
+    assert payload["systemd_rendered"] is False
+    assert payload["artifact_admission"]["verdict"] == "skip_rejected"
+    assert payload["artifact_admission"]["errors"] == ["artifact_trust_gate_skip_not_allowed_for_live_apply"]
+    assert not any(action["action"] == "install_cli" for action in payload["actions"])
 
 
 def test_bootstrap_install_allows_trust_gate_skip_for_tmp_projection_apply(tmp_path: Path) -> None:
@@ -1106,3 +1153,59 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     revoked_latest_data = json.loads(revoked_latest_result.stdout)
     assert revoked_latest_data["has_latest"] is False
     assert revoked_latest_data["errors"] == ["no_latest_record"]
+
+
+def test_bootstrap_refresh_code_projects_only_cli_modules_and_public_seed(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    libexec_dir = tmp_path / "libexec"
+    etc_root = tmp_path / "etc" / "abyss-machine"
+    state_root = tmp_path / "var" / "lib" / "abyss-machine"
+    srv_root = tmp_path / "srv" / "abyss-machine"
+    run_root = tmp_path / "run" / "abyss-machine"
+    systemd_system_dir = tmp_path / "systemd" / "system"
+    systemd_user_dir = tmp_path / "systemd" / "user"
+    payload = run_bootstrap(
+        "refresh-code",
+        "--apply",
+        "--skip-artifact-trust-gate",
+        "--local-bin-dir",
+        str(bin_dir),
+        "--local-libexec-dir",
+        str(libexec_dir),
+        "--etc-root",
+        str(etc_root),
+        "--state-root",
+        str(state_root),
+        "--srv-root",
+        str(srv_root),
+        "--run-root",
+        str(run_root),
+        "--systemd-system-dir",
+        str(systemd_system_dir),
+        "--systemd-user-dir",
+        str(systemd_user_dir),
+    )
+
+    actions = {action["action"]: action for action in payload["actions"]}
+    action_names = [action["action"] for action in payload["actions"]]
+    assert payload["command"] == "refresh-code"
+    assert payload["ok"] is True
+    assert payload["dry_run"] is False
+    assert payload["mutation_scope"] == "cli_package_and_public_seed_only"
+    assert payload["config_rendered"] is False
+    assert payload["systemd_rendered"] is False
+    assert "install_cli" in actions
+    assert "install_public_seed" in actions
+    assert "render" not in action_names
+    assert "mkdir" not in action_names
+    assert (libexec_dir / "abyss-machine").is_file()
+    assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
+    assert (bin_dir / "abyss-machine").is_symlink()
+    assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
+    assert (tmp_path / "share" / "abyss-machine" / "generated" / "contract_abi_signatures.min.json").is_file()
+    assert not etc_root.exists()
+    assert not state_root.exists()
+    assert not srv_root.exists()
+    assert not run_root.exists()
+    assert not systemd_system_dir.exists()
+    assert not systemd_user_dir.exists()

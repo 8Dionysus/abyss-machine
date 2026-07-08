@@ -493,6 +493,53 @@ def cmd_install(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_refresh_code(args: argparse.Namespace) -> int:
+    actions: list[dict[str, Any]] = []
+    policy = path_policy_from_args(args)
+    values = policy.render_vars()
+    apply = bool(args.apply)
+    artifact_admission = install_artifact_admission(args, policy)
+    actions.append({
+        "action": "artifact_trust_gate",
+        "required": artifact_admission["required"],
+        "artifact_class": artifact_admission["artifact_class"],
+        "consumer_intent": artifact_admission["consumer_intent"],
+        "registry_dir": artifact_admission["registry_dir"],
+        "verdict": artifact_admission["verdict"],
+        "record_id": artifact_admission.get("record_id"),
+        "latest_record_id": artifact_admission.get("latest_record_id"),
+    })
+    if isinstance(artifact_admission.get("freshness_gate"), dict):
+        actions[0]["freshness_verdict"] = artifact_admission["freshness_gate"].get("verdict")
+    if not artifact_admission["ok"]:
+        payload = command_payload(
+            "refresh-code",
+            False,
+            actions,
+            dry_run=not apply,
+            artifact_admission=artifact_admission,
+            mutation_scope="cli_package_and_public_seed_only",
+            config_rendered=False,
+            systemd_rendered=False,
+        )
+        emit(payload, json_output=args.json)
+        return 1
+    install_cli(values, apply=apply, actions=actions)
+    install_public_seed(values, apply=apply, actions=actions)
+    payload = command_payload(
+        "refresh-code",
+        True,
+        actions,
+        dry_run=not apply,
+        artifact_admission=artifact_admission,
+        mutation_scope="cli_package_and_public_seed_only",
+        config_rendered=False,
+        systemd_rendered=False,
+    )
+    emit(payload, json_output=args.json)
+    return 0
+
+
 def cmd_enable_profile(args: argparse.Namespace) -> int:
     actions: list[dict[str, Any]] = []
     units = PROFILE_UNITS[args.profile]
@@ -532,6 +579,36 @@ def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true")
 
 
+def add_artifact_gate_options(parser: argparse.ArgumentParser) -> None:
+    artifact_gate = parser.add_mutually_exclusive_group()
+    artifact_gate.add_argument(
+        "--require-artifact-trust-gate",
+        dest="require_artifact_trust_gate",
+        action="store_true",
+        default=True,
+        help="deny bootstrap mutation unless durable artifact trust-gate allows the selected install bundle; this is the default",
+    )
+    artifact_gate.add_argument(
+        "--skip-artifact-trust-gate",
+        dest="require_artifact_trust_gate",
+        action="store_false",
+        help="explicit local-development opt-out for isolated projection rehearsals; production mutations remain fail-closed",
+    )
+    parser.add_argument("--artifact-registry-dir", default="", help="bundle registry root for bootstrap install admission")
+    parser.add_argument("--artifact-class", default="bootstrap_install_bundle", help="artifact class consumed by this bootstrap mutation")
+    parser.add_argument("--artifact-subject-digest", default="", help="expected install bundle subject digest")
+    parser.add_argument("--artifact-record-id", default="", help="expected install bundle registry record id")
+    parser.add_argument("--artifact-consumer-intent", default="installer", help="trust-gate consumer intent for bootstrap install")
+    parser.add_argument("--artifact-source-repo", default="abyss-machine", help="expected source repo for bootstrap install material")
+    parser.add_argument(
+        "--artifact-trust-root-mode",
+        default="",
+        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        help="expected trust root mode for bootstrap install material",
+    )
+    parser.add_argument("--allow-non-latest-artifact", action="store_true", help="permit a selected non-latest install bundle record")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Render and install the portable abyss-machine seed.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -552,34 +629,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_options(install)
     install.add_argument("--dry-run", action="store_true")
     install.add_argument("--apply", action="store_true")
-    artifact_gate = install.add_mutually_exclusive_group()
-    artifact_gate.add_argument(
-        "--require-artifact-trust-gate",
-        dest="require_artifact_trust_gate",
-        action="store_true",
-        default=True,
-        help="deny bootstrap install unless durable artifact trust-gate allows the selected install bundle; this is the default",
-    )
-    artifact_gate.add_argument(
-        "--skip-artifact-trust-gate",
-        dest="require_artifact_trust_gate",
-        action="store_false",
-        help="explicit local-development opt-out for isolated projection rehearsals; production installs remain fail-closed",
-    )
-    install.add_argument("--artifact-registry-dir", default="", help="bundle registry root for bootstrap install admission")
-    install.add_argument("--artifact-class", default="bootstrap_install_bundle", help="artifact class consumed by this bootstrap install")
-    install.add_argument("--artifact-subject-digest", default="", help="expected install bundle subject digest")
-    install.add_argument("--artifact-record-id", default="", help="expected install bundle registry record id")
-    install.add_argument("--artifact-consumer-intent", default="installer", help="trust-gate consumer intent for bootstrap install")
-    install.add_argument("--artifact-source-repo", default="abyss-machine", help="expected source repo for bootstrap install material")
-    install.add_argument(
-        "--artifact-trust-root-mode",
-        default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
-        help="expected trust root mode for bootstrap install material",
-    )
-    install.add_argument("--allow-non-latest-artifact", action="store_true", help="permit a selected non-latest install bundle record")
+    add_artifact_gate_options(install)
     install.set_defaults(func=cmd_install)
+
+    refresh_code = sub.add_parser("refresh-code")
+    add_common_options(refresh_code)
+    refresh_code.add_argument("--dry-run", action="store_true")
+    refresh_code.add_argument("--apply", action="store_true")
+    add_artifact_gate_options(refresh_code)
+    refresh_code.set_defaults(func=cmd_refresh_code)
 
     enable = sub.add_parser("enable-profile")
     add_common_options(enable)

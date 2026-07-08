@@ -99,6 +99,20 @@ def main() -> int:
     require(any(item.get("action") == "install_cli" and item.get("package_target") for item in install_actions if isinstance(item, dict)), "install actions must include CLI package modules", failures)
     require(any(item.get("action") == "install_public_seed" and item.get("target") for item in install_actions if isinstance(item, dict)), "install actions must include public seed share projection", failures)
 
+    refresh = run_bootstrap(
+        "refresh-code",
+        "--dry-run",
+        "--skip-artifact-trust-gate",
+    )
+    require(refresh.get("ok") is True and refresh.get("dry_run") is True, "refresh-code dry-run must be ok and dry_run", failures)
+    require(refresh.get("mutation_scope") == "cli_package_and_public_seed_only", "refresh-code must name bounded mutation scope", failures)
+    require(refresh.get("config_rendered") is False, "refresh-code must not render config templates", failures)
+    require(refresh.get("systemd_rendered") is False, "refresh-code must not render systemd units", failures)
+    refresh_actions = refresh.get("actions") if isinstance(refresh.get("actions"), list) else []
+    require(any(item.get("action") == "install_cli" and item.get("package_target") for item in refresh_actions if isinstance(item, dict)), "refresh-code actions must include CLI package modules", failures)
+    require(any(item.get("action") == "install_public_seed" and item.get("target") for item in refresh_actions if isinstance(item, dict)), "refresh-code actions must include public seed share projection", failures)
+    require(not any(item.get("action") == "render" for item in refresh_actions if isinstance(item, dict)), "refresh-code must not include config/systemd render actions", failures)
+
     if failures:
         return fail("bootstrap contract validation failed", failures)
     return ok("bootstrap contract validation passed")
