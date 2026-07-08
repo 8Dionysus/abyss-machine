@@ -148,6 +148,71 @@ def test_missing_latest_document_names_only_reports_error_documents() -> None:
     assert self_awareness_adapters.missing_latest_document_names(documents) == ["validate"]
 
 
+def test_latest_artifact_ref_uses_fake_filesystem_ports(tmp_path: Path) -> None:
+    latest_path = tmp_path / "self-awareness" / "working-stack" / "latest.json"
+    calls: dict[str, list[Any]] = {"load": [], "exists": [], "sha256": [], "history": []}
+
+    def fake_load(path: Path, schema: str) -> dict[str, Any]:
+        calls["load"].append((path, schema))
+        return {
+            "schema": schema,
+            "ok": True,
+            "status": "ready",
+            "generated_at": "2026-07-08T00:00:00+00:00",
+            "summary": {"organs": 2},
+        }
+
+    ref = self_awareness_adapters.latest_artifact_ref(
+        "working_stack",
+        latest_path,
+        "abyss_machine_self_awareness_working_stack_inventory_v1",
+        load_latest_json=fake_load,
+        path_exists=lambda path: calls["exists"].append(path) or True,
+        path_sha256=lambda path: calls["sha256"].append(path) or "a" * 64,
+        daily_jsonl_path=lambda root: calls["history"].append(root) or root / "2026-07-08.jsonl",
+    )
+
+    assert ref == {
+        "name": "working_stack",
+        "path": str(latest_path),
+        "history_path": str(latest_path.parent / "2026-07-08.jsonl"),
+        "exists": True,
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "expected_schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "schema_ok": True,
+        "ok": True,
+        "status": "ready",
+        "generated_at": "2026-07-08T00:00:00+00:00",
+        "summary": {"organs": 2},
+        "sha256": "a" * 64,
+    }
+    assert calls["load"] == [(latest_path, "abyss_machine_self_awareness_working_stack_inventory_v1")]
+    assert calls["exists"] == [latest_path]
+    assert calls["sha256"] == [latest_path]
+    assert calls["history"] == [latest_path.parent]
+
+
+def test_latest_artifact_ref_does_not_hash_missing_artifact(tmp_path: Path) -> None:
+    missing_path = tmp_path / "self-awareness" / "missing" / "latest.json"
+    hash_calls: list[Path] = []
+
+    ref = self_awareness_adapters.latest_artifact_ref(
+        "missing",
+        missing_path,
+        "abyss_machine_self_awareness_missing_v1",
+        load_latest_json=lambda _path, _schema: {"error": "missing"},
+        path_exists=lambda _path: False,
+        path_sha256=lambda path: hash_calls.append(path) or "should-not-happen",
+        daily_jsonl_path=lambda root: root / "2026-07-08.jsonl",
+    )
+
+    assert ref["exists"] is False
+    assert ref["schema"] == "abyss_machine_self_awareness_missing_v1"
+    assert ref["schema_ok"] is False
+    assert ref["sha256"] is None
+    assert hash_calls == []
+
+
 def test_body_closure_status_document_is_adapter_owned(tmp_path: Path) -> None:
     latest_paths = {
         "heartbeat": tmp_path / "heartbeat" / "latest.json",

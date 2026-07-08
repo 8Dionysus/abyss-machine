@@ -44698,22 +44698,15 @@ def self_awareness_requirement_probes(
 
 
 def self_awareness_latest_artifact_ref(name: str, path: Path, schema: str) -> dict[str, Any]:
-    data = load_latest_json(path, schema)
-    exists = path.exists()
-    return {
-        "name": name,
-        "path": str(path),
-        "history_path": str(ai_daily_jsonl_path(path.parent)),
-        "exists": exists,
-        "schema": data.get("schema") or schema,
-        "expected_schema": schema,
-        "schema_ok": data.get("schema") == schema if data.get("schema") else False,
-        "ok": data.get("ok"),
-        "status": data.get("status"),
-        "generated_at": data.get("generated_at"),
-        "summary": data.get("summary"),
-        "sha256": sha256_path(path) if exists else None,
-    }
+    return self_awareness_adapters.latest_artifact_ref(
+        name,
+        path,
+        schema,
+        load_latest_json=load_latest_json,
+        path_exists=lambda candidate: candidate.exists(),
+        path_sha256=sha256_path,
+        daily_jsonl_path=ai_daily_jsonl_path,
+    )
 
 
 def self_awareness_stack_requirement_coverage_impact(requirement_id: str) -> dict[str, Any]:
