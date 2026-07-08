@@ -52,6 +52,16 @@ class SelfAwarenessLatestSpec:
 
 
 @dataclass(frozen=True)
+class CycleArtifactStepSpec:
+    step_id: str
+    command: str
+    path_key: str
+    document_group: str
+    document_key: str
+    requires_ok: bool = True
+
+
+@dataclass(frozen=True)
 class WorkingStackEndpointProbeSpec:
     service: str
     probe: str
@@ -112,6 +122,48 @@ CYCLE_LATEST_READ_NAMES: tuple[str, ...] = (
     "context",
     "episodes",
     "alerts",
+)
+
+CYCLE_INITIAL_ARTIFACT_STEP_SPECS: tuple[CycleArtifactStepSpec, ...] = (
+    CycleArtifactStepSpec("probe", "abyss-machine self-awareness probe --json", "probe", "direct", "probe"),
+    CycleArtifactStepSpec("capabilities", "abyss-machine self-awareness capabilities --json", "capabilities", "latest", "capabilities"),
+    CycleArtifactStepSpec("requirements", "abyss-machine self-awareness requirements --json", "requirements", "latest", "requirements"),
+    CycleArtifactStepSpec("requirement_probes", "abyss-machine self-awareness requirement-probes --json", "requirement_probes", "direct", "requirement_probes"),
+    CycleArtifactStepSpec("stack_closure_dossier", "abyss-machine self-awareness stack-closure-dossier --json", "stack_closure_dossier", "direct", "stack_closure_dossier"),
+    CycleArtifactStepSpec("trace_context", "abyss-machine self-awareness trace-context --json", "trace_context", "latest", "trace_context"),
+    CycleArtifactStepSpec("activation_smoke", "abyss-machine self-awareness activation-smoke --json", "activation_smoke", "direct", "activation_smoke"),
+    CycleArtifactStepSpec("failure_matrix", "abyss-machine self-awareness failure-matrix --json", "failure_matrix", "direct", "failure_matrix"),
+    CycleArtifactStepSpec("working_stack", "abyss-machine self-awareness working-stack --json", "working_stack", "latest", "working_stack"),
+    CycleArtifactStepSpec("collect", "abyss-machine self-awareness collect --json", "collect", "latest", "collect"),
+    CycleArtifactStepSpec("events", "abyss-machine self-awareness events/latest.json", "events", "latest", "events"),
+    CycleArtifactStepSpec("query", "abyss-machine self-awareness query --query RUN_ID --json", "query", "latest", "query"),
+    CycleArtifactStepSpec("correlation", "abyss-machine self-awareness correlate --json", "correlation", "latest", "correlation"),
+    CycleArtifactStepSpec("timeline", "abyss-machine self-awareness timeline --json", "timeline", "latest", "timeline"),
+    CycleArtifactStepSpec("spatial_graph", "abyss-machine self-awareness spatial-graph --json", "spatial_graph", "latest", "spatial_graph"),
+    CycleArtifactStepSpec("context", "abyss-machine self-awareness context --json", "context", "latest", "context"),
+    CycleArtifactStepSpec("episodes", "abyss-machine self-awareness episodes --json", "episodes", "latest", "episodes"),
+    CycleArtifactStepSpec("alerts", "abyss-machine self-awareness alerts --json", "alerts", "latest", "alerts"),
+    CycleArtifactStepSpec("heartbeats", "abyss-machine heartbeats pulse --json", "heartbeats", "bridge", "heartbeats", requires_ok=False),
+    CycleArtifactStepSpec("memory", "abyss-machine memory status --json", "memory", "bridge", "memory", requires_ok=False),
+    CycleArtifactStepSpec("mode", "abyss-machine mode status --json", "mode", "bridge", "mode", requires_ok=False),
+    CycleArtifactStepSpec("resource", "abyss-machine resource status --json", "resource", "bridge", "resource", requires_ok=False),
+    CycleArtifactStepSpec("processes", "abyss-machine processes latest --json", "processes", "bridge", "processes", requires_ok=False),
+    CycleArtifactStepSpec("process_containers", "abyss-machine processes containers --json", "process_containers", "bridge", "process_containers", requires_ok=False),
+    CycleArtifactStepSpec("process_thermal_plan", "abyss-machine processes thermal-plan --seconds 3 --interval 0.5 --json", "process_thermal_plan", "bridge", "process_thermal_plan", requires_ok=False),
+    CycleArtifactStepSpec("cooling", "abyss-machine cooling status --json", "cooling", "bridge", "cooling", requires_ok=False),
+    CycleArtifactStepSpec("typing_events", "abyss-machine typing latest --json", "typing_events", "bridge", "typing_events", requires_ok=False),
+    CycleArtifactStepSpec("typing_validate", "abyss-machine typing validate --json", "typing_validate", "bridge", "typing_validate", requires_ok=False),
+    CycleArtifactStepSpec("nervous_brief", "abyss-machine nervous brief --scope now --json", "nervous_brief", "bridge", "nervous_brief", requires_ok=False),
+    CycleArtifactStepSpec("investigate", "abyss-machine self-awareness investigate --query RUN_ID --json", "investigate", "direct", "investigation"),
+    CycleArtifactStepSpec("replay", "abyss-machine self-awareness replay --thread-id THREAD_ID --json", "replay", "direct", "replay"),
+    CycleArtifactStepSpec("brief", "abyss-machine self-awareness brief --json", "brief", "direct", "brief"),
+    CycleArtifactStepSpec("reactions", "abyss-machine reactions --json", "reactions", "direct", "reactions"),
+    CycleArtifactStepSpec("responses", "abyss-machine responses --json", "responses", "direct", "responses"),
+)
+
+CYCLE_FINAL_ARTIFACT_STEP_SPECS: tuple[CycleArtifactStepSpec, ...] = (
+    CycleArtifactStepSpec("autolink", "abyss-machine self-awareness autolink --json", "autolink", "direct", "autolink"),
+    CycleArtifactStepSpec("export", "abyss-machine self-awareness export --json", "export", "direct", "export"),
 )
 
 COMPLETION_AUDIT_SCHEMA_SUFFIX = "self_awareness_completion_audit_v1"
@@ -2076,6 +2128,71 @@ def probe_result_document(
             "searchable_run_id": run_id,
         },
     }
+
+
+def _cycle_artifact_document(
+    spec: CycleArtifactStepSpec,
+    *,
+    direct_documents: Mapping[str, Mapping[str, Any]],
+    latest_documents: Mapping[str, Mapping[str, Any]],
+    bridge_documents: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    groups = {
+        "direct": direct_documents,
+        "latest": latest_documents,
+        "bridge": bridge_documents,
+    }
+    try:
+        group = groups[spec.document_group]
+    except KeyError as exc:
+        raise KeyError(f"unknown cycle artifact document group for {spec.step_id}: {spec.document_group}") from exc
+    try:
+        document = group[spec.document_key]
+    except KeyError as exc:
+        raise KeyError(f"missing cycle artifact document for {spec.step_id}: {spec.document_group}.{spec.document_key}") from exc
+    return dict(document) if isinstance(document, Mapping) else {}
+
+
+def cycle_artifact_steps(
+    *,
+    specs: Iterable[CycleArtifactStepSpec],
+    paths: Mapping[str, Path | str],
+    direct_documents: Mapping[str, Mapping[str, Any]],
+    latest_documents: Mapping[str, Mapping[str, Any]] | None = None,
+    bridge_documents: Mapping[str, Mapping[str, Any]] | None = None,
+    path_exists: PathExistsPort,
+    path_stat: PathStatPort,
+    path_sha256: PathSha256Port,
+    evidence_extra_by_step: Mapping[str, Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    latest_documents = latest_documents or {}
+    bridge_documents = bridge_documents or {}
+    evidence_extra_by_step = evidence_extra_by_step or {}
+    steps: list[dict[str, Any]] = []
+    for spec in specs:
+        try:
+            artifact_path = paths[spec.path_key]
+        except KeyError as exc:
+            raise KeyError(f"missing cycle artifact path for {spec.step_id}: {spec.path_key}") from exc
+        steps.append(
+            cycle_artifact_step(
+                spec.step_id,
+                spec.command,
+                Path(artifact_path),
+                _cycle_artifact_document(
+                    spec,
+                    direct_documents=direct_documents,
+                    latest_documents=latest_documents,
+                    bridge_documents=bridge_documents,
+                ),
+                path_exists=path_exists,
+                path_stat=path_stat,
+                path_sha256=path_sha256,
+                requires_ok=spec.requires_ok,
+                evidence_extra=evidence_extra_by_step.get(spec.step_id),
+            )
+        )
+    return steps
 
 
 def cycle_artifact_step(

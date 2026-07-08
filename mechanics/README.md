@@ -54,10 +54,11 @@ Use these mechanic owners for the next extraction slices:
   TTS smoke artifact evidence/probe projection, working-stack source inventory
   projections, working-stack model/tool bridge policy, probe/cycle
   resource-denial documents, probe result/movement-smoke document assembly,
-  cycle artifact evidence snapshots, cycle open-requirement/issue guard input
-  assembly, cycle chain assembly through supplied completion predicates, cycle
-  post-export chain updates, cycle stack-handoff summary document assembly, and
-  cycle partial/building/final result document assembly live in
+  cycle artifact step manifest/order/nonblocking bridge policy, cycle artifact
+  evidence snapshots, cycle open-requirement/issue guard input assembly, cycle
+  chain assembly through supplied completion predicates, cycle post-export chain
+  updates, cycle stack-handoff summary document assembly, and cycle
+  partial/building/final result document assembly live in
   `self_awareness_adapters`; probe/cycle orchestration, broader runtime
   refreshes, concrete stack path/latest file reads, and investigate/replay
   execution remain bounded CLI debt.
