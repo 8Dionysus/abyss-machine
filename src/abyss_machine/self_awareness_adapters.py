@@ -40,6 +40,7 @@ PathReadTextPort = Callable[[Path], str]
 PathStatPort = Callable[[Path], Any]
 PathSha256Port = Callable[[Path], str]
 DailyJsonlPathPort = Callable[[Path], Path]
+MtimeIsoFormatterPort = Callable[[float], str]
 JsonDocumentLoaderPort = Callable[[Path], tuple[Any, str | None]]
 SidecarDocumentLoaderPort = Callable[[str], Any]
 WavFormatReaderPort = Callable[[Path], dict[str, Any]]
@@ -356,6 +357,35 @@ def latest_artifact_ref(
         "summary": data.get("summary"),
         "sha256": path_sha256(path) if exists else None,
     }
+
+
+def artifact_ref(
+    path: Path,
+    doc: Mapping[str, Any],
+    truth_level: str,
+    *,
+    path_exists: PathExistsPort,
+    path_stat: PathStatPort,
+    mtime_iso: MtimeIsoFormatterPort,
+) -> dict[str, Any]:
+    ref: dict[str, Any] = {
+        "path": str(path),
+        "truth_level": truth_level,
+        "exists": path_exists(path),
+        "schema": doc.get("schema") if isinstance(doc, Mapping) else None,
+        "generated_at": doc.get("generated_at") if isinstance(doc, Mapping) else None,
+        "ok": doc.get("ok") if isinstance(doc, Mapping) else None,
+        "summary": doc.get("summary") if isinstance(doc, Mapping) else None,
+        "freshness_must_precede_reasoning": True,
+        "raw_evidence_is_not_truth": True,
+    }
+    try:
+        stat = path_stat(path)
+    except OSError:
+        return ref
+    ref["size_bytes"] = stat.st_size
+    ref["mtime"] = mtime_iso(float(stat.st_mtime))
+    return ref
 
 
 def body_closure_status_document(

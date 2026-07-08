@@ -36417,24 +36417,14 @@ def self_awareness_match_score(value: Any, query: Any) -> int:
 
 
 def self_awareness_artifact_ref(path: Path, doc: dict[str, Any], truth_level: str) -> dict[str, Any]:
-    ref: dict[str, Any] = {
-        "path": str(path),
-        "truth_level": truth_level,
-        "exists": path.exists(),
-        "schema": doc.get("schema") if isinstance(doc, dict) else None,
-        "generated_at": doc.get("generated_at") if isinstance(doc, dict) else None,
-        "ok": doc.get("ok") if isinstance(doc, dict) else None,
-        "summary": doc.get("summary") if isinstance(doc, dict) else None,
-        "freshness_must_precede_reasoning": True,
-        "raw_evidence_is_not_truth": True,
-    }
-    try:
-        stat = path.stat()
-        ref["size_bytes"] = stat.st_size
-        ref["mtime"] = dt.datetime.fromtimestamp(stat.st_mtime, dt.timezone.utc).astimezone().isoformat(timespec="seconds")
-    except OSError:
-        pass
-    return ref
+    return self_awareness_adapters.artifact_ref(
+        path,
+        doc,
+        truth_level,
+        path_exists=lambda candidate: candidate.exists(),
+        path_stat=lambda candidate: candidate.stat(),
+        mtime_iso=lambda mtime: dt.datetime.fromtimestamp(mtime, dt.timezone.utc).astimezone().isoformat(timespec="seconds"),
+    )
 
 
 def self_awareness_freshness_gate(

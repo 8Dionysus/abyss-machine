@@ -212,8 +212,13 @@ and live probe/cycle orchestration at the CLI/live binding edge.
 For self-awareness latest artifact-ref adapter changes, public CI should rely on
 fake latest-loader, path-exists, path-hash, and history-path ports for schema
 projection, missing artifact behavior, summary passthrough, and hash gating.
-Keep concrete filesystem paths and live artifact stat/hash reads at the CLI/live
-binding edge.
+Keep concrete filesystem paths and live artifact hash/history binding at the
+CLI/live binding edge.
+
+For self-awareness artifact evidence-ref adapter changes, public CI should rely
+on fake path-exists, path-stat, and mtime-format ports for public-safe evidence
+ref shape, missing-stat behavior, summary passthrough, and freshness/truth
+flags. Keep concrete filesystem path/stat binding at the CLI/live binding edge.
 
 For self-awareness cycle artifact-evidence adapter changes, public CI should
 rely on fake-port tests for latest-artifact existence/stat/hash/mtime
@@ -313,8 +318,8 @@ For self-awareness activation-dossier document-builder adapter changes, public
 CI should rely on synthetic working-stack documents, supplied latest paths, and
 supplied artifact refs for activation order, closure/scenario matrices, handoff,
 summary, evidence refs, and policy coverage. Keep working-stack latest reads,
-artifact stat/hash collection, refresh fallback, and latest/history writes at
-the CLI/live binding edge.
+artifact hash collection, refresh fallback, and latest/history writes at the
+CLI/live binding edge.
 
 For self-awareness activation-gap or stack-requirement handoff route adapter
 changes, public CI should rely on synthetic working-stack gap documents,
