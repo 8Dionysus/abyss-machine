@@ -34266,115 +34266,19 @@ def self_awareness_status() -> dict[str, Any]:
             for row in autolink_requirement_rows
             if isinstance(row, dict) and row.get("requirement_id")
         })
-    open_potential_rows: list[dict[str, Any]] = []
-    for row in autolink_organ_rows:
-        if not isinstance(row, dict) or not row.get("usage_gap"):
-            continue
-        service = str(row.get("service") or "")
-        activation = activation_by_service.get(service, {})
-        smoke = row.get("activation_smoke") if isinstance(row.get("activation_smoke"), dict) else {}
-        current_state = activation.get("current_state") if isinstance(activation.get("current_state"), dict) else {}
-        runtime = activation.get("runtime") if isinstance(activation.get("runtime"), dict) else {}
-        if not runtime:
-            runtime = current_state.get("runtime") if isinstance(current_state.get("runtime"), dict) else {}
-        declared = activation.get("declared") if isinstance(activation.get("declared"), dict) else {}
-        if not declared:
-            declared = current_state.get("declared") if isinstance(current_state.get("declared"), dict) else {}
-        activation_gap_route = self_awareness_working_stack_activation_gap_route(
-            {
-                "service": service,
-                "owner_route": row.get("owner") or "abyss-stack",
-                "working_stack_link_id": row.get("working_stack_link_id"),
-                "machine_usage_status": row.get("machine_usage_status") or activation.get("machine_usage_status"),
-                "activation_kind": activation.get("activation_kind"),
-                "usage_gap": row.get("usage_gap") or activation.get("usage_gap"),
-                "runtime_present": runtime.get("present"),
-                "runtime_running": runtime.get("running"),
-                "container": runtime.get("container"),
-                "health": runtime.get("health"),
-                "runtime_state": runtime.get("state"),
-                "runtime_status": runtime.get("status"),
-                "runtime_stack_managed": runtime.get("stack_managed"),
-                "declared": declared.get("present") if isinstance(declared, dict) else None,
-                "declared_modules": declared.get("modules") if isinstance(declared.get("modules"), list) else [],
-                "endpoint_ok": activation.get("endpoint_ok") if "endpoint_ok" in activation else current_state.get("endpoint_ok"),
-                "service_roots": activation.get("service_roots"),
-                "model_roots": activation.get("model_roots"),
-                "deep_usage_proven": activation.get("deep_usage_proven") if "deep_usage_proven" in activation else current_state.get("deep_usage_proven"),
-                "failed_probe_names": activation.get("failed_probe_names") if isinstance(activation.get("failed_probe_names"), list) else [],
-                "ok_probe_names": activation.get("ok_probe_names") if isinstance(activation.get("ok_probe_names"), list) else [],
-                "endpoint_probe_count": len(activation.get("failed_probe_names") if isinstance(activation.get("failed_probe_names"), list) else [])
-                + len(activation.get("ok_probe_names") if isinstance(activation.get("ok_probe_names"), list) else []),
-                "closure_blocker_keys": activation.get("closure_blocker_keys") if isinstance(activation.get("closure_blocker_keys"), list) else [],
-                "safe_next_action": activation.get("safe_next_action") if isinstance(activation.get("safe_next_action"), dict) else {},
-                "verifier_commands": activation.get("verifier_commands") if isinstance(activation.get("verifier_commands"), list) else [],
-            },
-            episode_id=next((str(item) for item in (row.get("episode_ids") if isinstance(row.get("episode_ids"), list) else []) if str(item).startswith("saepisode-working-stack-gap-")), None),
-            activation_row=activation_smoke_by_service.get(service, {}),
-        )
-        open_potential_rows.append({
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_open_potential_service_status_v1",
-            "service": service,
-            "owner": row.get("owner") or "abyss-stack",
-            "machine_usage_status": row.get("machine_usage_status"),
-            "usage_gap": row.get("usage_gap"),
-            "working_stack_link_id": row.get("working_stack_link_id"),
-            "event_id": row.get("event_id"),
-            "episode_ids": row.get("episode_ids") if isinstance(row.get("episode_ids"), list) else [],
-            "activation_smoke": {
-                "complete": smoke.get("complete"),
-                "thread_id": smoke.get("thread_id"),
-                "working_stack_link_id": smoke.get("working_stack_link_id"),
-                "link_matches_current": smoke.get("working_stack_link_id") == row.get("working_stack_link_id"),
-            },
-            "activation_gap_route": activation_gap_route,
-            "activation_gap_classification": activation_gap_route.get("classification"),
-            "closure_blocker_keys": activation.get("closure_blocker_keys") if isinstance(activation.get("closure_blocker_keys"), list) else [],
-            "missing_checks": activation.get("missing_checks") if isinstance(activation.get("missing_checks"), list) else [],
-            "verifier_commands": activation.get("verifier_commands") if isinstance(activation.get("verifier_commands"), list) else [],
-            "safe_next_action": activation.get("safe_next_action") if isinstance(activation.get("safe_next_action"), dict) else {},
-            "evidence_refs": row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else [],
-            "policy": {
-                "owner_route": "abyss-stack",
-                "handoff_only": True,
-                "host_layer_mutates_stack": False,
-                "executes_commands": False,
-                "automatic_remediation": False,
-            },
-        })
-    open_stack_requirement_rows: list[dict[str, Any]] = []
-    for row in autolink_requirement_rows:
-        if not isinstance(row, dict) or row.get("automatic_link_state") != "open_stack_blocker":
-            continue
-        requirement_id = str(row.get("requirement_id") or "")
-        requirement = requirement_by_id.get(requirement_id, {})
-        closure = stack_closure_by_id.get(requirement_id, {})
-        closure_acceptance = closure.get("closure_acceptance") if isinstance(closure.get("closure_acceptance"), dict) else {}
-        coverage_impact = closure.get("coverage_impact") if isinstance(closure.get("coverage_impact"), dict) else requirement.get("coverage_impact") if isinstance(requirement.get("coverage_impact"), dict) else {}
-        open_stack_requirement_rows.append({
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_open_stack_requirement_status_v1",
-            "requirement_id": requirement_id,
-            "title": requirement.get("title") or closure.get("title"),
-            "owner": row.get("owner") or requirement.get("owner") or "abyss-stack",
-            "automatic_link_state": row.get("automatic_link_state"),
-            "blocking_check_keys": requirement.get("blocking_check_keys") if isinstance(requirement.get("blocking_check_keys"), list) else closure.get("blocking_check_keys") if isinstance(closure.get("blocking_check_keys"), list) else [],
-            "coverage_planes": coverage_impact.get("coverage_planes") if isinstance(coverage_impact.get("coverage_planes"), list) else [],
-            "missing_checks": nested_get(closure, ["closure_readiness", "missing_checks"]) if isinstance(nested_get(closure, ["closure_readiness", "missing_checks"]), list) else [],
-            "runbook_candidate_id": requirement.get("runbook_candidate_id") or closure.get("runbook_candidate_id"),
-            "closure_acceptance_id": closure_acceptance.get("acceptance_id"),
-            "compat_requirement_id": nested_get(closure_acceptance, ["stack_compat_requirement", "requirement_id"]),
-            "verifier_commands": closure.get("verifier_commands") if isinstance(closure.get("verifier_commands"), list) else [],
-            "safe_next_action": closure.get("safe_next_action") if isinstance(closure.get("safe_next_action"), dict) else {},
-            "episode_ids": row.get("episode_ids") if isinstance(row.get("episode_ids"), list) else [],
-            "evidence_refs": row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else closure.get("evidence_refs") if isinstance(closure.get("evidence_refs"), list) else [],
-            "policy": {
-                "owner_route": "abyss-stack",
-                "handoff_only": True,
-                "host_layer_mutates_stack": False,
-                "executes_commands": False,
-                "automatic_remediation": False,
-            },
-        })
+    open_potential_rows = self_awareness_adapters.status_open_potential_rows(
+        autolink_organ_rows=autolink_organ_rows,
+        activation_by_service=activation_by_service,
+        activation_smoke_by_service=activation_smoke_by_service,
+        schema_prefix=SCHEMA_PREFIX,
+        activation_gap_route=self_awareness_working_stack_activation_gap_route,
+    )
+    open_stack_requirement_rows = self_awareness_adapters.status_open_stack_requirement_rows(
+        autolink_requirement_rows=autolink_requirement_rows,
+        requirement_by_id=requirement_by_id,
+        stack_closure_by_id=stack_closure_by_id,
+        schema_prefix=SCHEMA_PREFIX,
+    )
     readmodel_status = "ready" if not missing and bool(latests["validate"].get("ok")) else "degraded"
     completion_stack_usage_closure_complete = summary_value(completion_audit_latest, "stack_usage_closure_complete")
     completion_green_but_incomplete = summary_value(completion_audit_latest, "validator_green_but_stack_usage_incomplete")
