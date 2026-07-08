@@ -269,6 +269,12 @@ smoke documents, and activation entries for completion, compact projection, and
 refresh predicates. Keep actual investigate/replay execution, latest reads,
 and latest/history writes at the CLI/live binding edge.
 
+For self-awareness activation-entry adapter changes, public CI should rely on
+synthetic working-stack organs with supplied latest paths for activation
+readiness, runbook, closure, scenario, evidence-ref, and completion predicate
+coverage. Keep working-stack latest reads, dossier refresh, probe/cycle
+execution, and all stack mutations at the CLI/live binding edge.
+
 For self-awareness activation-gap or stack-requirement handoff route adapter
 changes, public CI should rely on synthetic working-stack gap documents,
 activation-smoke row summaries, stack closure packets, stack replay summaries,

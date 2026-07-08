@@ -1723,6 +1723,72 @@ def test_activation_scenario_and_closure_packets_are_adapter_owned() -> None:
     ) is False
 
 
+def test_activation_entry_builder_is_adapter_owned(tmp_path: Path) -> None:
+    prefix = "abyss_machine"
+    service = "aoa-browser"
+    status = "tool_runtime_degraded"
+    link_id = "saworklink-aoa-browser"
+    organ = {
+        "service": service,
+        "owner": "abyss-stack",
+        "machine_usage_status": status,
+        "usage_gap": "functional runtime smoke failed",
+        "runtime": {
+            "present": True,
+            "running": True,
+            "container": "aoa-browser",
+            "health": "healthy",
+            "state": "running",
+            "status": "Up",
+        },
+        "declared": {"present": True, "modules": ["compose/51-browser-tools.yml"]},
+        "endpoint_ok": False,
+        "deep_usage_proven": False,
+        "time_space_context_link": {
+            "link_id": link_id,
+            "time": {"observed_at": "2026-07-08T00:00:00Z"},
+        },
+        "endpoint_probes": [
+            {
+                "probe": "playwright-chromium-launch",
+                "kind": "tool_smoke",
+                "ok": False,
+                "error": "browser launch failed",
+                "elapsed_ms": 120,
+            },
+            {
+                "probe": "http-health",
+                "kind": "http_json",
+                "ok": True,
+                "status_code": 200,
+                "elapsed_ms": 14,
+            },
+        ],
+        "stack_source_refs": [{"path": "compose/51-browser-tools.yml", "kind": "compose"}],
+        "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/working-stack/latest.json"}],
+    }
+
+    entry = self_awareness_adapters.working_stack_activation_entry(
+        organ,
+        1,
+        "2026-07-08T00:00:00Z",
+        schema_prefix=prefix,
+        working_stack_latest_path=tmp_path / "working-stack/latest.json",
+        spatial_graph_latest_path=tmp_path / "spatial-graph/latest.json",
+        episodes_latest_path=tmp_path / "episodes/latest.json",
+        alerts_latest_path=tmp_path / "alerts/latest.json",
+    )
+
+    assert self_awareness_adapters.working_stack_activation_entry_complete(entry, schema_prefix=prefix) is True
+    assert entry["activation_kind"] == "stack_tool_runtime_smoke_gap"
+    assert "probe_failed:playwright-chromium-launch" in entry["closure_blocker_keys"]
+    assert entry["safe_next_action"]["host_layer_mutates_stack"] is False
+    assert entry["runbook_candidate"]["machine_executes_stack_change"] is False
+    assert entry["closure_acceptance"]["complete"] is True
+    assert entry["synthetic_scenario"]["complete"] is True
+    assert entry["evidence_refs"][0]["path"] == str(tmp_path / "working-stack/latest.json")
+
+
 def test_activation_synthetic_proof_and_export_overlay_are_adapter_owned(tmp_path: Path) -> None:
     prefix = "abyss_machine"
     service = "aoa-browser"
