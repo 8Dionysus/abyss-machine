@@ -270,6 +270,13 @@ activation-entry coverage predicates. Keep concrete latest reads, refresh
 orchestration, and latest/history writes at the CLI/live binding edge.
 Live-host closeout may use compact `self-awareness status --json` summaries.
 
+For self-awareness autolink document-builder adapter changes, public CI should
+rely on synthetic working-stack, coverage-audit, stack-closure, activation-smoke,
+episodes, and previous-autolink documents for organ links, stack-requirement
+links, state deltas, synthetic scenarios, evidence refs, summary counts, and
+non-mutating policy. Keep stale checks, dependency refresh orchestration,
+latest reads, and latest/history writes at the CLI/live binding edge.
+
 For self-awareness activation-smoke predicate adapter changes, public CI should
 rely on synthetic stack-organ-use packets, activation-smoke rows, compact rows,
 smoke documents, and activation entries for completion, compact projection, and

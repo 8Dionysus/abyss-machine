@@ -1299,6 +1299,143 @@ def test_autolink_predicates_are_adapter_owned() -> None:
     assert self_awareness_adapters.autolink_complete(broken, schema_prefix="abyss_machine") is False
 
 
+def test_autolink_document_is_adapter_owned(tmp_path: Path) -> None:
+    prefix = "abyss_machine"
+    service = "aoa-browser"
+    requirement_id = "stack.browser-tools.runtime"
+    link_id = "saworklink-aoa-browser"
+    latest_paths = {
+        "working_stack": tmp_path / "working-stack/latest.json",
+        "coverage_audit": tmp_path / "coverage-audit/latest.json",
+        "stack_closure_dossier": tmp_path / "stack-closure-dossier/latest.json",
+        "activation_smoke": tmp_path / "activation-smoke/latest.json",
+        "episodes": tmp_path / "episodes/latest.json",
+        "autolink": tmp_path / "autolink/latest.json",
+    }
+    coverage_audit = {
+        "schema": "abyss_machine_self_awareness_objective_coverage_audit_v1",
+        "working_stack_link_integrity": {
+            "rows": [
+                {
+                    "service": service,
+                    "owner": "abyss-stack",
+                    "machine_usage_status": "tool_runtime_degraded",
+                    "usage_gap": "functional runtime smoke failed",
+                    "working_stack_link_id": link_id,
+                    "event_id": "saevt-working-stack-browser",
+                    "movement_packet_id": "samove-browser",
+                    "current_state_digest": "state-browser",
+                    "state_changed": True,
+                    "movement_categories": ["degradation", "episode_candidate"],
+                    "selected_for_episode": True,
+                    "selected_for_resident_reasoning": True,
+                    "degradation_reasons": ["failed_endpoint_probe"],
+                    "timeline_bucket": "2026-07-08T00:00:00Z",
+                    "spatial_nodes": [f"service:{service}", f"working_stack_link:{link_id}"],
+                    "context_key": link_id,
+                    "episode_required": True,
+                    "episode_ids": ["saepisode-gap"],
+                    "adjacent_episode_ids": ["saepisode-browser-adjacent"],
+                    "coverage_gap_row_id": "working_stack_gap:aoa-browser",
+                    "complete": True,
+                    "evidence_refs": [{"path": "fixture/autolink-source.json", "service": service}],
+                    "policy": {"host_layer_mutates_stack": False},
+                }
+            ]
+        },
+    }
+    stack_closure_dossier = {
+        "schema": "abyss_machine_self_awareness_stack_closure_dossier_v1",
+        "summary": {"open_stack_requirements": 1},
+        "entries": [
+            {
+                "requirement_id": requirement_id,
+                "owner": "abyss-stack",
+                "status": "open",
+                "complete": True,
+                "blocking_check_keys": ["working_stack_usage_gap"],
+                "current_state_digest": "state-requirement",
+                "closure_acceptance": {
+                    "acceptance_id": "saaccept-browser-runtime",
+                    "complete": True,
+                    "stack_compat_requirement": {"requirement_id": requirement_id},
+                },
+                "coverage_impact": {
+                    "complete": True,
+                    "coverage_planes": ["runtime"],
+                    "affected_stack_surfaces": ["compose/51-browser-tools.yml"],
+                    "affected_machine_surfaces": [f"service:{service}"],
+                },
+                "evidence_refs": [{"path": "fixture/stack-requirement.json", "requirement_id": requirement_id}],
+                "policy": {"host_layer_mutates_stack": False},
+            }
+        ],
+    }
+    doc = self_awareness_adapters.autolink_document(
+        working_stack_doc={
+            "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+            "summary": {"usage_gaps": 1},
+        },
+        coverage_audit_doc=coverage_audit,
+        stack_closure_dossier_doc=stack_closure_dossier,
+        activation_smoke_doc={
+            "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_v1",
+            "by_service": {service: {"ok": True, "service": service, "working_stack_link_id": link_id}},
+        },
+        episodes_doc={
+            "schema": "abyss_machine_self_awareness_episodes_v1",
+            "episodes": [
+                {"episode_id": "saepisode-gap", "affected_spatial_nodes": [f"stack_requirement:{requirement_id}"]}
+            ],
+        },
+        previous={
+            "schema": "abyss_machine_self_awareness_autolink_v1",
+            "generated_at": "2026-07-08T00:00:00Z",
+            "state_digest": "previous-state",
+            "summary": {"service_ids": [service], "requirement_ids": [], "open_stack_requirements": 0, "working_stack_usage_gaps": 0},
+            "organ_links_by_service": {service: {"current_state_digest": "old-state"}},
+            "stack_requirement_links_by_requirement": {},
+        },
+        dependency_refresh={"events": 1},
+        generated_at="2026-07-08T00:05:00Z",
+        version="0.0-test",
+        schema_prefix=prefix,
+        cycle_id="sacycle-fixture",
+        probe_run_id="saprobe-fixture",
+        latest_paths=latest_paths,
+        activation_smoke_compact=lambda row: {
+            "complete": True,
+            "working_stack_link_id": row.get("working_stack_link_id"),
+        },
+        stack_requirement_closure_acceptance_complete=lambda packet: packet.get("complete") is True,
+        stack_coverage_impact_complete=lambda packet: packet.get("complete") is True,
+    )
+
+    assert self_awareness_adapters.autolink_complete(doc, schema_prefix=prefix) is True
+    assert doc["schema"] == "abyss_machine_self_awareness_autolink_v1"
+    assert doc["ok"] is True
+    assert doc["cycle_id"] == "sacycle-fixture"
+    assert doc["summary"]["organ_links"] == 1
+    assert doc["summary"]["stack_requirement_links"] == 1
+    assert doc["summary"]["synthetic_scenarios_complete"] == 3
+    assert doc["summary"]["state_changed"] is True
+    assert doc["summary"]["changed_services"] == [service]
+    assert doc["summary"]["dependency_refresh_applied"] is True
+    assert doc["organ_links_by_service"][service]["activation_smoke"]["complete"] is True
+    assert doc["stack_requirement_links_by_requirement"][requirement_id]["episode_ids"] == ["saepisode-gap"]
+    assert doc["state_delta"]["added_requirements"] == [requirement_id]
+    assert doc["policy"]["host_layer_mutates_stack"] is False
+    assert doc["policy"]["executes_commands"] is False
+    evidence_paths = {ref["path"] for ref in doc["evidence_refs"]}
+    assert str(latest_paths["working_stack"]) in evidence_paths
+    assert str(latest_paths["autolink"]) in {
+        ref["path"]
+        for scenario in doc["synthetic_scenarios"]
+        for ref in scenario["evidence_refs"]
+        if isinstance(ref, dict)
+    }
+
+
 def test_activation_smoke_predicates_are_adapter_owned() -> None:
     prefix = "abyss_machine"
     service = "aoa-browser"

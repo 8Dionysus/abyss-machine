@@ -1969,6 +1969,383 @@ def autolink_complete(doc: Any, *, schema_prefix: str) -> bool:
     )
 
 
+def autolink_document(
+    *,
+    working_stack_doc: Mapping[str, Any],
+    coverage_audit_doc: Mapping[str, Any],
+    stack_closure_dossier_doc: Mapping[str, Any],
+    activation_smoke_doc: Mapping[str, Any],
+    episodes_doc: Mapping[str, Any],
+    previous: Mapping[str, Any],
+    dependency_refresh: Mapping[str, Any] | None,
+    generated_at: str,
+    version: str,
+    schema_prefix: str,
+    cycle_id: str | None,
+    probe_run_id: str | None,
+    latest_paths: Mapping[str, Path | str],
+    activation_smoke_compact: Callable[[Any], dict[str, Any]],
+    stack_requirement_closure_acceptance_complete: Callable[[Any], bool],
+    stack_coverage_impact_complete: Callable[[Any], bool],
+) -> dict[str, Any]:
+    link_integrity = coverage_audit_doc.get("working_stack_link_integrity") if isinstance(coverage_audit_doc.get("working_stack_link_integrity"), Mapping) else {}
+    link_rows = link_integrity.get("rows") if isinstance(link_integrity.get("rows"), list) else []
+    previous_organ_by_service = previous.get("organ_links_by_service") if isinstance(previous.get("organ_links_by_service"), Mapping) else {}
+    previous_requirement_by_id = previous.get("stack_requirement_links_by_requirement") if isinstance(previous.get("stack_requirement_links_by_requirement"), Mapping) else {}
+    activation_by_service = activation_smoke_doc.get("by_service") if isinstance(activation_smoke_doc.get("by_service"), Mapping) else {}
+
+    organ_links: list[dict[str, Any]] = []
+    for source_row in link_rows:
+        if not isinstance(source_row, Mapping):
+            continue
+        service = str(source_row.get("service") or "")
+        if not service:
+            continue
+        activation_smoke = activation_by_service.get(service) if isinstance(activation_by_service.get(service), Mapping) else {}
+        current_state = autolink_row_state(source_row)
+        current_state["activation_smoke_thread_id"] = _nested_get(activation_smoke, ["investigation", "thread_id"]) or _nested_get(activation_smoke, ["replay", "thread_id"])
+        current_state["activation_smoke_working_stack_link_id"] = activation_smoke.get("working_stack_link_id")
+        current_state_digest = self_awareness_contracts.stable_hash_json(current_state, length=24)
+        previous_row = previous_organ_by_service.get(service) if isinstance(previous_organ_by_service.get(service), Mapping) else {}
+        previous_state_digest = previous_row.get("current_state_digest")
+        episode_required = source_row.get("episode_required") is True
+        checks = {
+            "source_integrity": source_row.get("complete") is True,
+            "time_linked": bool(source_row.get("timeline_bucket")),
+            "space_linked": bool(source_row.get("spatial_nodes")),
+            "context_linked": bool(source_row.get("context_key")),
+            "movement_packet_linked": bool(source_row.get("movement_packet_id") and source_row.get("current_state_digest")),
+            "episode_linked": bool(not episode_required or source_row.get("episode_ids")),
+            "gap_has_activation_smoke": bool(
+                not source_row.get("usage_gap")
+                or (
+                    activation_smoke.get("ok") is True
+                    and activation_smoke.get("working_stack_link_id") == source_row.get("working_stack_link_id")
+                )
+            ),
+            "policy": _nested_get(source_row, ["policy", "host_layer_mutates_stack"]) is False,
+        }
+        missing_checks = [key for key, ok in checks.items() if not ok]
+        organ_links.append({
+            "schema": f"{schema_prefix}_self_awareness_autolink_organ_row_v1",
+            "autolink_id": "saautolink-" + self_awareness_contracts.stable_hash_json({"service": service, "link": source_row.get("working_stack_link_id"), "at": generated_at}, length=20),
+            "service": service,
+            "owner": source_row.get("owner") or "abyss-stack",
+            "automatic_link_state": "open_potential" if source_row.get("usage_gap") else "active",
+            "machine_usage_status": source_row.get("machine_usage_status"),
+            "usage_gap": source_row.get("usage_gap"),
+            "working_stack_link_id": source_row.get("working_stack_link_id"),
+            "event_id": source_row.get("event_id"),
+            "movement_packet_id": source_row.get("movement_packet_id"),
+            "observed_signal": source_row.get("observed_signal"),
+            "observed_source": source_row.get("observed_source"),
+            "pid": source_row.get("pid"),
+            "pid_alive": source_row.get("pid_alive"),
+            "movement_current_state_digest": source_row.get("current_state_digest"),
+            "movement_state_changed": source_row.get("state_changed"),
+            "movement_categories": source_row.get("movement_categories") if isinstance(source_row.get("movement_categories"), list) else [],
+            "selected_for_episode": source_row.get("selected_for_episode") is True,
+            "selected_for_resident_reasoning": source_row.get("selected_for_resident_reasoning") is True,
+            "selected_reason": source_row.get("selected_reason"),
+            "not_selected_reason": source_row.get("not_selected_reason"),
+            "degradation_reasons": source_row.get("degradation_reasons") if isinstance(source_row.get("degradation_reasons"), list) else [],
+            "time": {"bucket": source_row.get("timeline_bucket"), "observed_at": generated_at},
+            "space": {"nodes": source_row.get("spatial_nodes") if isinstance(source_row.get("spatial_nodes"), list) else [], "pid": source_row.get("pid")},
+            "context": {"key": source_row.get("context_key"), "correlation_keys": [source_row.get("context_key"), source_row.get("working_stack_link_id")]},
+            "episode_required": episode_required,
+            "episode_ids": source_row.get("episode_ids") if isinstance(source_row.get("episode_ids"), list) else [],
+            "adjacent_episode_ids": source_row.get("adjacent_episode_ids") if isinstance(source_row.get("adjacent_episode_ids"), list) else [],
+            "coverage_gap_row_id": source_row.get("coverage_gap_row_id"),
+            "activation_smoke": activation_smoke_compact(activation_smoke) if activation_smoke else {},
+            "current_state_digest": current_state_digest,
+            "previous_state_digest": previous_state_digest,
+            "state_changed_since_previous_autolink": bool(previous_state_digest and previous_state_digest != current_state_digest),
+            "checks": checks,
+            "missing_checks": missing_checks,
+            "complete": not missing_checks,
+            "evidence_refs": source_row.get("evidence_refs") if isinstance(source_row.get("evidence_refs"), list) else [],
+            "policy": {
+                "read_only": True,
+                "host_layer_mutates_stack": False,
+                "writes_project_roots": False,
+                "executes_commands": False,
+                "automatic_remediation": False,
+                "raw_evidence_is_not_truth": True,
+            },
+        })
+
+    episodes = episodes_doc.get("episodes") if isinstance(episodes_doc.get("episodes"), list) else []
+    stack_requirement_links: list[dict[str, Any]] = []
+    entries = stack_closure_dossier_doc.get("entries") if isinstance(stack_closure_dossier_doc.get("entries"), list) else []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        requirement_id = str(entry.get("requirement_id") or "")
+        if not requirement_id:
+            continue
+        closure_acceptance = entry.get("closure_acceptance") if isinstance(entry.get("closure_acceptance"), Mapping) else {}
+        coverage_impact = entry.get("coverage_impact") if isinstance(entry.get("coverage_impact"), Mapping) else {}
+        closed_by_current_probe = entry.get("closed_by_current_probe") is True or entry.get("status") == "closed"
+        requirement_episodes = [
+            str(episode.get("episode_id"))
+            for episode in episodes
+            if isinstance(episode, Mapping)
+            and (
+                str(episode.get("requirement_id") or "") == requirement_id
+                or requirement_id in [str(node).replace("stack_requirement:", "") for node in (episode.get("affected_spatial_nodes") if isinstance(episode.get("affected_spatial_nodes"), list) else [])]
+            )
+            and episode.get("episode_id")
+        ][:8]
+        current_state = {
+            "requirement_id": requirement_id,
+            "status": entry.get("status"),
+            "closed_by_current_probe": closed_by_current_probe,
+            "blocking_check_keys": entry.get("blocking_check_keys") if isinstance(entry.get("blocking_check_keys"), list) else [],
+            "current_state_digest": entry.get("current_state_digest"),
+            "closure_acceptance_id": closure_acceptance.get("acceptance_id"),
+            "coverage_planes": coverage_impact.get("coverage_planes") if isinstance(coverage_impact.get("coverage_planes"), list) else [],
+        }
+        current_state_digest = self_awareness_contracts.stable_hash_json(current_state, length=24)
+        previous_row = previous_requirement_by_id.get(requirement_id) if isinstance(previous_requirement_by_id.get(requirement_id), Mapping) else {}
+        previous_state_digest = previous_row.get("current_state_digest")
+        checks = {
+            "dossier_entry_complete": entry.get("complete") is True,
+            "closure_acceptance": stack_requirement_closure_acceptance_complete(closure_acceptance),
+            "coverage_impact": stack_coverage_impact_complete(coverage_impact),
+            "owner_route": entry.get("owner") == "abyss-stack",
+            "time_linked": bool(entry.get("current_state_digest")),
+            "space_linked": bool(coverage_impact.get("affected_stack_surfaces") or coverage_impact.get("affected_machine_surfaces")),
+            "context_linked": bool(entry.get("blocking_check_keys")) or closed_by_current_probe,
+            "episode_linked": bool(requirement_episodes) or closed_by_current_probe,
+            "policy": _nested_get(entry, ["policy", "host_layer_mutates_stack"]) is False,
+        }
+        missing_checks = [key for key, ok in checks.items() if not ok]
+        stack_requirement_links.append({
+            "schema": f"{schema_prefix}_self_awareness_autolink_stack_requirement_row_v1",
+            "autolink_id": "saautolink-req-" + self_awareness_contracts.stable_hash_json({"requirement": requirement_id, "at": generated_at}, length=20),
+            "requirement_id": requirement_id,
+            "owner": entry.get("owner") or "abyss-stack",
+            "status": "closed" if closed_by_current_probe else (entry.get("status") or "open"),
+            "closed_by_current_probe": closed_by_current_probe,
+            "automatic_link_state": "closed" if closed_by_current_probe else "open_stack_blocker",
+            "time": {"bucket": self_awareness_contracts.time_bucket(generated_at), "observed_at": generated_at},
+            "space": {
+                "nodes": ["stack_requirement:" + requirement_id, "owner:abyss-stack"],
+                "affected_stack_surfaces": coverage_impact.get("affected_stack_surfaces") if isinstance(coverage_impact.get("affected_stack_surfaces"), list) else [],
+                "affected_machine_surfaces": coverage_impact.get("affected_machine_surfaces") if isinstance(coverage_impact.get("affected_machine_surfaces"), list) else [],
+            },
+            "context": {
+                "closure_acceptance_id": closure_acceptance.get("acceptance_id"),
+                "compat_requirement_id": _nested_get(closure_acceptance, ["stack_compat_requirement", "requirement_id"]),
+                "blocking_check_keys": entry.get("blocking_check_keys") if isinstance(entry.get("blocking_check_keys"), list) else [],
+                "coverage_planes": coverage_impact.get("coverage_planes") if isinstance(coverage_impact.get("coverage_planes"), list) else [],
+            },
+            "episode_ids": requirement_episodes,
+            "current_state_digest": current_state_digest,
+            "previous_state_digest": previous_state_digest,
+            "state_changed_since_previous_autolink": bool(previous_state_digest and previous_state_digest != current_state_digest),
+            "checks": checks,
+            "missing_checks": missing_checks,
+            "complete": not missing_checks,
+            "evidence_refs": entry.get("evidence_refs") if isinstance(entry.get("evidence_refs"), list) else [],
+            "policy": {
+                "read_only": True,
+                "handoff_only": True,
+                "host_layer_mutates_stack": False,
+                "writes_project_roots": False,
+                "executes_commands": False,
+                "automatic_remediation": False,
+                "raw_evidence_is_not_truth": True,
+            },
+        })
+
+    state_basis = {
+        "organ_states": {str(row.get("service")): row.get("current_state_digest") for row in organ_links},
+        "requirement_states": {str(row.get("requirement_id")): row.get("current_state_digest") for row in stack_requirement_links},
+        "open_stack_requirements": _safe_int(_nested_get(stack_closure_dossier_doc, ["summary", "open_stack_requirements"]), 0),
+        "working_stack_usage_gaps": _safe_int(_nested_get(working_stack_doc, ["summary", "usage_gaps"]), 0),
+    }
+    state_digest = self_awareness_contracts.stable_hash_json(state_basis, length=32)
+    previous_digest = previous.get("state_digest") if isinstance(previous, Mapping) else None
+    previous_services = set(str(item) for item in (_nested_get(previous, ["summary", "service_ids"]) if isinstance(_nested_get(previous, ["summary", "service_ids"]), list) else []))
+    current_services = {str(row.get("service")) for row in organ_links if row.get("service")}
+    previous_requirements = set(str(item) for item in (_nested_get(previous, ["summary", "requirement_ids"]) if isinstance(_nested_get(previous, ["summary", "requirement_ids"]), list) else []))
+    current_requirements = {str(row.get("requirement_id")) for row in stack_requirement_links if row.get("requirement_id")}
+    changed_services = sorted(str(row.get("service")) for row in organ_links if row.get("state_changed_since_previous_autolink") is True)
+    changed_requirements = sorted(str(row.get("requirement_id")) for row in stack_requirement_links if row.get("state_changed_since_previous_autolink") is True)
+    previous_seen = previous.get("schema") == f"{schema_prefix}_self_awareness_autolink_v1" if isinstance(previous, Mapping) else False
+    added_services = sorted(current_services - previous_services)
+    removed_services = sorted(previous_services - current_services)
+    added_requirements = sorted(current_requirements - previous_requirements)
+    removed_requirements = sorted(previous_requirements - current_requirements)
+    state_changed = bool(
+        previous_seen
+        and (
+            not previous_digest
+            or previous_digest != state_digest
+            or added_services
+            or removed_services
+            or changed_services
+            or added_requirements
+            or removed_requirements
+            or changed_requirements
+        )
+    )
+    state_delta = {
+        "schema": f"{schema_prefix}_self_awareness_autolink_state_delta_v1",
+        "previous_seen": previous_seen,
+        "previous_generated_at": previous.get("generated_at") if isinstance(previous, Mapping) else None,
+        "previous_state_digest": previous_digest,
+        "current_state_digest": state_digest,
+        "state_changed": state_changed,
+        "added_services": added_services,
+        "removed_services": removed_services,
+        "changed_services": changed_services,
+        "added_requirements": added_requirements,
+        "removed_requirements": removed_requirements,
+        "changed_requirements": changed_requirements,
+        "open_stack_requirements_delta": _safe_int(_nested_get(stack_closure_dossier_doc, ["summary", "open_stack_requirements"]), 0) - _safe_int(_nested_get(previous, ["summary", "open_stack_requirements"]), 0),
+        "working_stack_usage_gaps_delta": _safe_int(_nested_get(working_stack_doc, ["summary", "usage_gaps"]), 0) - _safe_int(_nested_get(previous, ["summary", "working_stack_usage_gaps"]), 0),
+        "policy": {"read_only": True, "host_layer_mutates_stack": False, "executes_commands": False},
+    }
+
+    gap_row = next((row for row in organ_links if row.get("usage_gap")), organ_links[0] if organ_links else {})
+    open_requirement_rows = [row for row in stack_requirement_links if row.get("automatic_link_state") == "open_stack_blocker"]
+    requirement_row = open_requirement_rows[0] if open_requirement_rows else stack_requirement_links[0] if stack_requirement_links else {}
+    synthetic_scenarios = [
+        {
+            "schema": f"{schema_prefix}_self_awareness_autolink_synthetic_scenario_v1",
+            "id": "organ_time_space_context_replay",
+            "selected": gap_row.get("service"),
+            "complete": bool(
+                gap_row
+                and gap_row.get("complete") is True
+                and (
+                    not gap_row.get("usage_gap")
+                    or (
+                        _nested_get(gap_row, ["activation_smoke", "complete"]) is True
+                        and _nested_get(gap_row, ["activation_smoke", "working_stack_link_id"]) == gap_row.get("working_stack_link_id")
+                    )
+                )
+            ),
+            "checks": {
+                "organ_link": bool(gap_row.get("working_stack_link_id")),
+                "time": bool(_nested_get(gap_row, ["time", "bucket"])),
+                "space": bool(_nested_get(gap_row, ["space", "nodes"])),
+                "context": bool(_nested_get(gap_row, ["context", "key"])),
+                "episode": bool(gap_row.get("episode_ids")),
+                "activation_replay_if_gap": bool(
+                    not gap_row.get("usage_gap")
+                    or (
+                        _nested_get(gap_row, ["activation_smoke", "complete"]) is True
+                        and _nested_get(gap_row, ["activation_smoke", "working_stack_link_id"]) == gap_row.get("working_stack_link_id")
+                    )
+                ),
+            },
+            "evidence_refs": gap_row.get("evidence_refs") if isinstance(gap_row.get("evidence_refs"), list) else [],
+            "policy": {"host_layer_mutates_stack": False, "executes_commands": False, "action_execution": False},
+        },
+        {
+            "schema": f"{schema_prefix}_self_awareness_autolink_synthetic_scenario_v1",
+            "id": "stack_blocker_owner_routed_context",
+            "selected": requirement_row.get("requirement_id"),
+            "complete": bool(not stack_requirement_links or requirement_row.get("complete") is True),
+            "checks": {
+                "requirement_present": bool(not stack_requirement_links or requirement_row.get("requirement_id")),
+                "closure_acceptance": bool(not stack_requirement_links or _nested_get(requirement_row, ["checks", "closure_acceptance"]) is True),
+                "coverage_impact": bool(not stack_requirement_links or _nested_get(requirement_row, ["checks", "coverage_impact"]) is True),
+                "episode_or_closed_state": bool(
+                    not stack_requirement_links
+                    or requirement_row.get("episode_ids")
+                    or (
+                        requirement_row.get("automatic_link_state") == "closed"
+                        and requirement_row.get("closed_by_current_probe") is True
+                    )
+                ),
+                "owner_route": bool(not stack_requirement_links or requirement_row.get("owner") == "abyss-stack"),
+            },
+            "evidence_refs": requirement_row.get("evidence_refs") if isinstance(requirement_row.get("evidence_refs"), list) else [],
+            "policy": {"host_layer_mutates_stack": False, "executes_commands": False, "action_execution": False},
+        },
+        {
+            "schema": f"{schema_prefix}_self_awareness_autolink_synthetic_scenario_v1",
+            "id": "state_delta_digest",
+            "selected": state_digest,
+            "complete": bool(state_digest and isinstance(state_delta, Mapping)),
+            "checks": {
+                "state_digest": bool(state_digest),
+                "previous_allowed_empty": state_delta.get("previous_seen") is True or previous_digest in (None, ""),
+                "delta_lists": all(isinstance(state_delta.get(key), list) for key in ("added_services", "removed_services", "changed_services", "added_requirements", "removed_requirements", "changed_requirements")),
+            },
+            "evidence_refs": [{"path": str(latest_paths.get("autolink") or ""), "previous_generated_at": state_delta.get("previous_generated_at")}],
+            "policy": {"host_layer_mutates_stack": False, "executes_commands": False, "action_execution": False},
+        },
+    ]
+
+    incomplete_organs = [str(row.get("service")) for row in organ_links if row.get("complete") is not True]
+    incomplete_requirements = [str(row.get("requirement_id")) for row in stack_requirement_links if row.get("complete") is not True]
+    incomplete_scenarios = [str(row.get("id")) for row in synthetic_scenarios if row.get("complete") is not True]
+    return {
+        "schema": f"{schema_prefix}_self_awareness_autolink_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": bool(organ_links) and not incomplete_organs and not incomplete_requirements and not incomplete_scenarios,
+        "status": "linked" if not incomplete_organs and not incomplete_requirements and not incomplete_scenarios else "incomplete",
+        "cycle_id": cycle_id,
+        "probe_run_id": probe_run_id,
+        "state_digest": state_digest,
+        "state_delta": state_delta,
+        "summary": {
+            "organ_links": len(organ_links),
+            "organ_links_complete": sum(1 for row in organ_links if row.get("complete") is True),
+            "stack_requirement_links": len(stack_requirement_links),
+            "stack_requirement_links_complete": sum(1 for row in stack_requirement_links if row.get("complete") is True),
+            "working_stack_usage_gaps": _safe_int(_nested_get(working_stack_doc, ["summary", "usage_gaps"]), 0),
+            "open_stack_requirements": _safe_int(_nested_get(stack_closure_dossier_doc, ["summary", "open_stack_requirements"]), 0),
+            "synthetic_scenarios": len(synthetic_scenarios),
+            "synthetic_scenarios_complete": sum(1 for row in synthetic_scenarios if row.get("complete") is True),
+            "incomplete_organs": incomplete_organs,
+            "incomplete_requirements": incomplete_requirements,
+            "incomplete_scenarios": incomplete_scenarios,
+            "service_ids": sorted(current_services),
+            "requirement_ids": sorted(current_requirements),
+            "state_changed": state_delta["state_changed"],
+            "changed_services": changed_services,
+            "changed_requirements": changed_requirements,
+            "dependency_refresh_applied": bool(dependency_refresh),
+        },
+        "dependency_refresh": dict(dependency_refresh) if dependency_refresh else None,
+        "organ_links": organ_links,
+        "organ_links_by_service": {str(row.get("service")): row for row in organ_links if row.get("service")},
+        "stack_requirement_links": stack_requirement_links,
+        "stack_requirement_links_by_requirement": {str(row.get("requirement_id")): row for row in stack_requirement_links if row.get("requirement_id")},
+        "synthetic_scenarios": synthetic_scenarios,
+        "evidence_refs": [
+            {"path": str(latest_paths.get("working_stack") or ""), "schema": working_stack_doc.get("schema")},
+            {"path": str(latest_paths.get("coverage_audit") or ""), "schema": coverage_audit_doc.get("schema")},
+            {"path": str(latest_paths.get("stack_closure_dossier") or ""), "schema": stack_closure_dossier_doc.get("schema")},
+            {"path": str(latest_paths.get("activation_smoke") or ""), "schema": activation_smoke_doc.get("schema")},
+            {"path": str(latest_paths.get("episodes") or ""), "schema": episodes_doc.get("schema")},
+        ],
+        "policy": {
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "automatic_remediation": False,
+            "raw_evidence_is_not_truth": True,
+            "open_stack_requirements_are_blockers_not_host_failures": True,
+            "working_stack_usage_gaps_are_open_potential_not_host_failures": True,
+        },
+        "tests": {
+            "smoke": "abyss-machine self-awareness autolink --json",
+            "cycle": "abyss-machine self-awareness cycle --json includes autolink in chain and export",
+            "synthetic": "synthetic_scenarios prove organ link, stack blocker owner route, and state delta digest",
+        },
+    }
+
+
 def episodes_cover_stack_requirements(
     episodes_doc: Any,
     stack_closure_dossier_doc: Any,
