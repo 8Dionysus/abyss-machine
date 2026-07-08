@@ -108,6 +108,29 @@ def _path_is_strictly_inside(path: Path, root: Path) -> bool:
 
 
 def install_targets_are_isolated(policy: AbyssMachinePathPolicy) -> bool:
+    return _targets_are_isolated_from_live_roots(
+        (
+            *policy.install_roots,
+            policy.local_bin_dir,
+            policy.local_libexec_dir,
+            policy.systemd_system_dir,
+            policy.systemd_user_dir or policy.home / ".config/systemd/user",
+        )
+    )
+
+
+def refresh_code_targets_are_isolated(policy: AbyssMachinePathPolicy) -> bool:
+    values = policy.render_vars()
+    return _targets_are_isolated_from_live_roots(
+        (
+            policy.local_bin_dir,
+            policy.local_libexec_dir,
+            public_seed_share_root(values),
+        )
+    )
+
+
+def _targets_are_isolated_from_live_roots(target_roots: tuple[Path, ...]) -> bool:
     live_policy = DEFAULT_PATH_POLICY
     live_roots = (
         *live_policy.install_roots,
@@ -115,13 +138,6 @@ def install_targets_are_isolated(policy: AbyssMachinePathPolicy) -> bool:
         live_policy.local_libexec_dir,
         live_policy.systemd_system_dir,
         live_policy.systemd_user_dir or live_policy.home / ".config/systemd/user",
-    )
-    target_roots = (
-        *policy.install_roots,
-        policy.local_bin_dir,
-        policy.local_libexec_dir,
-        policy.systemd_system_dir,
-        policy.systemd_user_dir or policy.home / ".config/systemd/user",
     )
     rehearsal_roots = (live_policy.tmp_root,)
     return not any(
@@ -292,7 +308,14 @@ def emit(payload: dict[str, Any], *, json_output: bool) -> None:
         print(f"- {action.get('action')}: {action.get('target') or action.get('path') or action.get('source')}")
 
 
-def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePathPolicy) -> dict[str, Any]:
+def install_artifact_admission(
+    args: argparse.Namespace,
+    policy: AbyssMachinePathPolicy,
+    *,
+    mutation_name: str = "install",
+    targets_are_isolated: bool | None = None,
+    isolation_claim: str = "all install targets",
+) -> dict[str, Any]:
     artifact_class = str(args.artifact_class or "bootstrap_install_bundle")
     consumer_intent = str(args.artifact_consumer_intent or artifact_bundles.consumer_intent_for_artifact_class(artifact_class))
     registry_dir = Path(args.artifact_registry_dir) if args.artifact_registry_dir else default_artifact_registry_dir(policy)
@@ -309,7 +332,8 @@ def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePat
         "require_latest": not bool(args.allow_non_latest_artifact),
     }
     if not args.require_artifact_trust_gate:
-        if bool(args.apply) and not install_targets_are_isolated(policy):
+        isolated = install_targets_are_isolated(policy) if targets_are_isolated is None else bool(targets_are_isolated)
+        if bool(args.apply) and not isolated:
             return {
                 **base,
                 "ok": False,
@@ -317,8 +341,8 @@ def install_artifact_admission(args: argparse.Namespace, policy: AbyssMachinePat
                 "trust_gate": None,
                 "errors": ["artifact_trust_gate_skip_not_allowed_for_live_apply"],
                 "claim_limit": (
-                    "Bootstrap install --apply may skip artifact trust-gate only when all install "
-                    "targets are isolated from live default roots."
+                    f"Bootstrap {mutation_name} --apply may skip artifact trust-gate only when "
+                    f"{isolation_claim} are isolated from live default roots."
                 ),
             }
         return {
@@ -498,7 +522,13 @@ def cmd_refresh_code(args: argparse.Namespace) -> int:
     policy = path_policy_from_args(args)
     values = policy.render_vars()
     apply = bool(args.apply)
-    artifact_admission = install_artifact_admission(args, policy)
+    artifact_admission = install_artifact_admission(
+        args,
+        policy,
+        mutation_name="refresh-code",
+        targets_are_isolated=refresh_code_targets_are_isolated(policy),
+        isolation_claim="refresh-code mutation targets",
+    )
     actions.append({
         "action": "artifact_trust_gate",
         "required": artifact_admission["required"],

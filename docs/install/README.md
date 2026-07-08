@@ -50,8 +50,10 @@ public seed projection must be refreshed after a landed source change, use the
 bounded refresh route instead of the full install route:
 
 ```bash
-scripts/abyss-machine-bootstrap refresh-code --dry-run --json
-scripts/abyss-machine-bootstrap refresh-code --apply --json
+scripts/abyss-machine-bootstrap refresh-code --dry-run --skip-artifact-trust-gate --json
+scripts/abyss-machine-bootstrap refresh-code --apply --artifact-record-id <bootstrap-install-bundle-record-id> --json
+# or:
+scripts/abyss-machine-bootstrap refresh-code --apply --artifact-subject-digest sha256:<bootstrap-install-bundle-subject> --json
 ```
 
 `refresh-code` uses the same artifact trust-gate admission as full install, but
@@ -59,6 +61,7 @@ it does not render `/etc/abyss-machine` templates or systemd units. Host
 closeout still needs change-ledger preflight, parity validation, and rollback
 notes for `/usr/local/bin/abyss-machine`, `/usr/local/libexec/abyss-machine`,
 and `/usr/local/share/abyss-machine`.
-The commands above require the same admitted install-bundle selector as full
-install for live roots; use `--skip-artifact-trust-gate` only for isolated
-projection rehearsals under non-live roots.
+Live `--apply` requires the same admitted install-bundle selector as full
+install. Use `--skip-artifact-trust-gate` only for dry-run review or isolated
+projection rehearsals whose refresh mutation targets are redirected away from
+live roots.
