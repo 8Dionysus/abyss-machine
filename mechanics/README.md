@@ -53,7 +53,8 @@ Use these mechanic owners for the next extraction slices:
   HTTP status probe ports, working-stack endpoint/TCP/container runtime probes,
   TTS smoke artifact evidence/probe projection, working-stack source inventory
   projections, working-stack inventory assembly/readmodel, working-stack
-  movement/event assembly, working-stack model/tool bridge policy, probe/cycle
+  movement/event assembly, working-stack link-integrity matrix assembly plus
+  match/freshness predicates, working-stack model/tool bridge policy, probe/cycle
   resource-denial documents, probe result/movement-smoke document assembly,
   cycle artifact step manifest/order/nonblocking bridge policy, cycle artifact
   evidence snapshots, cycle open-requirement/issue guard input assembly, cycle

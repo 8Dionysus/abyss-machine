@@ -248,6 +248,14 @@ read-only/no-mutation policy. Keep previous latest reads, concrete
 working-stack latest paths, and host identity binding at the CLI/live binding
 edge; do not run live `self-awareness collect` merely to prove event assembly.
 
+For self-awareness working-stack link-integrity adapter changes, public CI
+should rely on synthetic working-stack, events, timeline, spatial graph,
+context, episodes, and coverage-gap documents for matrix rows, match/freshness
+predicates, usage-gap coverage accounting, evidence refs, and read-only policy.
+Keep concrete latest reads and dependency-refresh orchestration at the CLI/live
+binding edge. Live-host closeout may use compact `self-awareness status --json`
+or `self-awareness working-stack --json` summaries when needed.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,

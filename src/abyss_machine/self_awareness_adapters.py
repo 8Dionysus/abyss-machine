@@ -1544,6 +1544,331 @@ def cycle_export_chain_updates(
     }
 
 
+def _latest_path_text(latest_paths: Mapping[str, Path | str], name: str) -> str:
+    return str(latest_paths.get(name) or name)
+
+
+def working_stack_link_integrity_matches_working_stack(
+    working_stack_doc: Mapping[str, Any],
+    link_integrity: Mapping[str, Any],
+) -> bool:
+    organs = working_stack_doc.get("organs") if isinstance(working_stack_doc.get("organs"), list) else []
+    rows = link_integrity.get("rows") if isinstance(link_integrity.get("rows"), list) else []
+    if not organs or not rows:
+        return False
+    rows_by_service = {
+        str(row.get("service")): row
+        for row in rows
+        if isinstance(row, Mapping) and row.get("service")
+    }
+    for organ in organs:
+        if not isinstance(organ, Mapping) or not organ.get("service"):
+            continue
+        service = str(organ.get("service") or "")
+        status = str(organ.get("machine_usage_status") or "")
+        link_id = str(
+            _nested_get(organ, ["time_space_context_link", "link_id"])
+            or _nested_get(organ, ["time_space_context_link", "context", "working_stack_link_id"])
+            or ""
+        )
+        row = rows_by_service.get(service)
+        if not isinstance(row, Mapping):
+            return False
+        if str(row.get("working_stack_link_id") or "") != link_id:
+            return False
+        if str(row.get("machine_usage_status") or "") != status:
+            return False
+    return True
+
+
+def working_stack_link_integrity_matrix(
+    *,
+    working_stack_doc: Mapping[str, Any],
+    events_doc: Mapping[str, Any] | None = None,
+    timeline_doc: Mapping[str, Any] | None = None,
+    spatial_doc: Mapping[str, Any] | None = None,
+    context_doc: Mapping[str, Any] | None = None,
+    episodes_doc: Mapping[str, Any] | None = None,
+    coverage_gap_rows: list[dict[str, Any]] | None = None,
+    generated_at: str,
+    schema_prefix: str,
+    version: str,
+    latest_paths: Mapping[str, Path | str],
+) -> dict[str, Any]:
+    events_doc = events_doc if isinstance(events_doc, Mapping) else {}
+    timeline_doc = timeline_doc if isinstance(timeline_doc, Mapping) else {}
+    spatial_doc = spatial_doc if isinstance(spatial_doc, Mapping) else {}
+    context_doc = context_doc if isinstance(context_doc, Mapping) else {}
+    episodes_doc = episodes_doc if isinstance(episodes_doc, Mapping) else {}
+    coverage_gap_rows = coverage_gap_rows if isinstance(coverage_gap_rows, list) else []
+
+    organs = working_stack_doc.get("organs") if isinstance(working_stack_doc.get("organs"), list) else []
+    events = events_doc.get("events") if isinstance(events_doc.get("events"), list) else []
+    windows = timeline_doc.get("windows") if isinstance(timeline_doc.get("windows"), list) else []
+    nodes = spatial_doc.get("nodes") if isinstance(spatial_doc.get("nodes"), list) else []
+    edges = spatial_doc.get("edges") if isinstance(spatial_doc.get("edges"), list) else []
+    contexts = context_doc.get("contexts") if isinstance(context_doc.get("contexts"), list) else []
+    episodes = episodes_doc.get("episodes") if isinstance(episodes_doc.get("episodes"), list) else []
+
+    node_ids = {str(node.get("id")) for node in nodes if isinstance(node, Mapping) and node.get("id")}
+    edge_tuples = {
+        (str(edge.get("from")), str(edge.get("to")), str(edge.get("kind")))
+        for edge in edges
+        if isinstance(edge, Mapping) and edge.get("from") and edge.get("to") and edge.get("kind")
+    }
+    timeline_event_ids = {
+        str(event_id)
+        for window in windows
+        if isinstance(window, Mapping)
+        for event_id in (window.get("event_ids") if isinstance(window.get("event_ids"), list) else [])
+        if event_id
+    }
+    contexts_by_link = {
+        str(item.get("key")): item
+        for item in contexts
+        if isinstance(item, Mapping) and item.get("key")
+    }
+    for item in contexts:
+        if not isinstance(item, Mapping):
+            continue
+        link_id = _nested_get(item, ["context", "working_stack_link_id"])
+        if link_id:
+            contexts_by_link.setdefault(str(link_id), item)
+    gap_rows_by_service = {
+        str(row.get("service")): row
+        for row in coverage_gap_rows
+        if isinstance(row, Mapping) and row.get("service")
+    }
+
+    rows: list[dict[str, Any]] = []
+    for organ in organs:
+        if not isinstance(organ, Mapping):
+            continue
+        service = str(organ.get("service") or "")
+        if not service:
+            continue
+        link = organ.get("time_space_context_link") if isinstance(organ.get("time_space_context_link"), Mapping) else {}
+        link_id = str(link.get("link_id") or _nested_get(link, ["context", "working_stack_link_id"]) or "")
+        status = str(organ.get("machine_usage_status") or "")
+        usage_gap = str(organ.get("usage_gap") or "")
+        service_node = "service:" + service
+        link_node = "working_stack_link:" + link_id if link_id else ""
+        matching_events = [
+            event for event in events
+            if isinstance(event, Mapping)
+            and event.get("source") == "working-stack"
+            and str(_nested_get(event, ["resource", "service"]) or "") == service
+            and (
+                not link_id
+                or str(
+                    _nested_get(event, ["context", "working_stack_link_id"])
+                    or _nested_get(event, ["fabric", "context_links", "links", "working_stack_link_id"])
+                    or ""
+                ) == link_id
+            )
+        ]
+        event = matching_events[0] if matching_events else {}
+        event_id = str(event.get("event_id") or "")
+        event_resource = event.get("resource") if isinstance(event.get("resource"), Mapping) else {}
+        event_context = event.get("context") if isinstance(event.get("context"), Mapping) else {}
+        movement_packet_id = str(event_resource.get("movement_packet_id") or event_context.get("movement_packet_id") or "")
+        movement_current_state_digest = str(event_context.get("current_state_digest") or event_resource.get("current_state_digest") or "")
+        movement_pid = event_resource.get("pid") or event_context.get("pid")
+        movement_pid_alive = event_resource.get("pid_alive") if "pid_alive" in event_resource else event_context.get("pid_alive")
+        movement_categories = event_resource.get("movement_categories") if isinstance(event_resource.get("movement_categories"), list) else []
+        movement_degradation_reasons = event_resource.get("degradation_reasons") if isinstance(event_resource.get("degradation_reasons"), list) else []
+        event_selected_for_episode = _nested_get(event, ["resource", "selected_for_episode"]) is True
+        episode_required = bool(usage_gap or event_selected_for_episode)
+        context_item = contexts_by_link.get(link_id, {})
+        coverage_row = gap_rows_by_service.get(service, {})
+        activation_smoke = coverage_row.get("activation_smoke") if isinstance(coverage_row.get("activation_smoke"), Mapping) else {}
+        episode_matches = [
+            episode for episode in episodes
+            if isinstance(episode, Mapping)
+            and (
+                (event_id and event_id in [str(item) for item in (episode.get("event_ids") if isinstance(episode.get("event_ids"), list) else [])])
+                or service_node in [str(item) for item in (episode.get("affected_spatial_nodes") if isinstance(episode.get("affected_spatial_nodes"), list) else [])]
+                or str(_nested_get(episode, ["working_stack_gap", "service"]) or "") == service
+            )
+        ]
+        episode_ids = [str(episode.get("episode_id")) for episode in episode_matches if isinstance(episode, Mapping) and episode.get("episode_id")][:8]
+        selected_episode_ids = episode_ids if episode_required else []
+        checks = {
+            "working_stack_link": bool(link_id and link.get("schema") == f"{schema_prefix}_self_awareness_working_stack_time_space_context_link_v1"),
+            "event_projected": bool(event_id),
+            "movement_packet": bool(movement_packet_id and movement_current_state_digest),
+            "event_fabric_link": bool(
+                event_id
+                and _nested_get(event, ["fabric", "schema"]) == f"{schema_prefix}_self_awareness_signal_fabric_v1"
+                and str(
+                    _nested_get(event, ["fabric", "context_links", "links", "working_stack_link_id"])
+                    or _nested_get(event, ["context", "working_stack_link_id"])
+                    or ""
+                ) == link_id
+                and _nested_get(event, ["fabric", "policy", "host_layer_mutates_stack"]) is False
+            ),
+            "timeline_window": bool(event_id and event_id in timeline_event_ids),
+            "spatial_service_node": service_node in node_ids,
+            "spatial_link_node": bool(link_node and link_node in node_ids),
+            "spatial_service_to_link_edge": bool(link_node and (service_node, link_node, "has_time_space_context_link") in edge_tuples),
+            "context_indexed": bool(context_item and link_id),
+            "episode_present": bool(not episode_required or episode_matches),
+            "coverage_gap_row": bool(not usage_gap or (coverage_row and coverage_row.get("working_stack_link_id") == link_id)),
+            "activation_smoke_if_gap": bool(not usage_gap or (activation_smoke.get("complete") is True and activation_smoke.get("working_stack_link_id") == link_id)),
+            "policy": _nested_get(organ, ["policy", "host_layer_mutates_stack"]) is False,
+        }
+        missing_checks = [key for key, value in checks.items() if not value]
+        rows.append({
+            "schema": f"{schema_prefix}_self_awareness_working_stack_link_integrity_row_v1",
+            "service": service,
+            "owner": "abyss-stack",
+            "machine_usage_status": status,
+            "usage_gap": usage_gap or None,
+            "working_stack_link_id": link_id or None,
+            "event_id": event_id or None,
+            "movement_packet_id": movement_packet_id or None,
+            "observed_signal": event_resource.get("observed_signal"),
+            "observed_source": event_resource.get("observed_source"),
+            "pid": movement_pid,
+            "pid_alive": movement_pid_alive,
+            "current_state_digest": movement_current_state_digest or None,
+            "state_changed": event_context.get("state_changed"),
+            "movement_categories": movement_categories,
+            "selected_for_episode": event_selected_for_episode,
+            "selected_for_resident_reasoning": event_resource.get("selected_for_resident_reasoning") is True,
+            "selected_reason": event_resource.get("selected_reason"),
+            "not_selected_reason": event_resource.get("not_selected_reason"),
+            "degradation_reasons": movement_degradation_reasons,
+            "event_selected_for_episode": event_selected_for_episode,
+            "episode_required": episode_required,
+            "timeline_bucket": _nested_get(link, ["time", "bucket"]),
+            "spatial_nodes": [item for item in [service_node, link_node, f"process:{movement_pid}" if movement_pid else None] if item],
+            "context_key": context_item.get("key") if isinstance(context_item, Mapping) else None,
+            "episode_ids": selected_episode_ids,
+            "adjacent_episode_ids": episode_ids,
+            "coverage_gap_row_id": coverage_row.get("id") if isinstance(coverage_row, Mapping) else None,
+            "checks": checks,
+            "missing_checks": missing_checks,
+            "complete": not missing_checks,
+            "evidence_refs": [
+                {"path": _latest_path_text(latest_paths, "working_stack"), "service": service, "working_stack_link_id": link_id or None},
+                {"path": _latest_path_text(latest_paths, "events"), "event_id": event_id or None},
+                {"path": _latest_path_text(latest_paths, "timeline"), "event_id": event_id or None},
+                {"path": _latest_path_text(latest_paths, "spatial_graph"), "nodes": [item for item in [service_node, link_node] if item]},
+                {"path": _latest_path_text(latest_paths, "context"), "context_key": context_item.get("key") if isinstance(context_item, Mapping) else None},
+                {"path": _latest_path_text(latest_paths, "episodes"), "episode_ids": selected_episode_ids, "adjacent_episode_ids": episode_ids},
+            ],
+            "policy": {
+                "read_only": True,
+                "host_layer_mutates_stack": False,
+                "writes_project_roots": False,
+                "actions_executed": False,
+                "automatic_remediation": False,
+                "raw_evidence_is_not_truth": True,
+            },
+        })
+
+    missing_rows = [str(row.get("service")) for row in rows if not row.get("complete")]
+    gap_rows = [row for row in rows if row.get("usage_gap")]
+    return {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_link_integrity_matrix_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": bool(rows) and not missing_rows,
+        "summary": {
+            "organs": len(organs),
+            "rows": len(rows),
+            "complete_rows": sum(1 for row in rows if row.get("complete") is True),
+            "missing_rows": missing_rows,
+            "usage_gap_rows": len(gap_rows),
+            "usage_gap_rows_with_coverage": sum(1 for row in gap_rows if _nested_get(row, ["checks", "coverage_gap_row"]) is True),
+            "usage_gap_rows_with_activation_smoke": sum(1 for row in gap_rows if _nested_get(row, ["checks", "activation_smoke_if_gap"]) is True),
+            "event_projected": sum(1 for row in rows if _nested_get(row, ["checks", "event_projected"]) is True),
+            "timeline_linked": sum(1 for row in rows if _nested_get(row, ["checks", "timeline_window"]) is True),
+            "spatial_linked": sum(1 for row in rows if _nested_get(row, ["checks", "spatial_service_to_link_edge"]) is True),
+            "context_indexed": sum(1 for row in rows if _nested_get(row, ["checks", "context_indexed"]) is True),
+            "episode_linked": sum(1 for row in rows if row.get("episode_required") is True and row.get("episode_ids")),
+            "episode_required_rows": sum(1 for row in rows if row.get("episode_required") is True),
+            "episode_not_required_rows": sum(1 for row in rows if row.get("episode_required") is not True),
+        },
+        "rows": rows,
+        "rows_by_service": {str(row.get("service")): row for row in rows if row.get("service")},
+        "policy": {
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "actions_executed": False,
+            "automatic_remediation": False,
+            "raw_evidence_is_not_truth": True,
+            "coverage_gap_rows_required_only_for_usage_gaps": True,
+        },
+        "evidence_refs": [
+            {"path": _latest_path_text(latest_paths, "working_stack"), "schema": working_stack_doc.get("schema")},
+            {"path": _latest_path_text(latest_paths, "events"), "schema": events_doc.get("schema")},
+            {"path": _latest_path_text(latest_paths, "timeline"), "schema": timeline_doc.get("schema")},
+            {"path": _latest_path_text(latest_paths, "spatial_graph"), "schema": spatial_doc.get("schema")},
+            {"path": _latest_path_text(latest_paths, "context"), "schema": context_doc.get("schema")},
+            {"path": _latest_path_text(latest_paths, "episodes"), "schema": episodes_doc.get("schema")},
+        ],
+    }
+
+
+def working_stack_link_integrity_matrix_complete(matrix: Any, *, schema_prefix: str) -> bool:
+    if not isinstance(matrix, Mapping):
+        return False
+    rows = matrix.get("rows") if isinstance(matrix.get("rows"), list) else []
+    return (
+        matrix.get("schema") == f"{schema_prefix}_self_awareness_working_stack_link_integrity_matrix_v1"
+        and bool(rows)
+        and matrix.get("ok") is True
+        and _safe_int(_nested_get(matrix, ["summary", "rows"]), -1) == len(rows)
+        and _safe_int(_nested_get(matrix, ["summary", "complete_rows"]), -1) == len(rows)
+        and not _nested_get(matrix, ["summary", "missing_rows"])
+        and _safe_int(_nested_get(matrix, ["summary", "organs"]), -1) == len(rows)
+        and _nested_get(matrix, ["policy", "host_layer_mutates_stack"]) is False
+        and all(
+            isinstance(row, Mapping)
+            and row.get("schema") == f"{schema_prefix}_self_awareness_working_stack_link_integrity_row_v1"
+            and row.get("complete") is True
+            and row.get("service")
+            and row.get("working_stack_link_id")
+            and row.get("event_id")
+            and row.get("movement_packet_id")
+            and row.get("current_state_digest")
+            and _nested_get(row, ["checks", "working_stack_link"]) is True
+            and _nested_get(row, ["checks", "event_projected"]) is True
+            and _nested_get(row, ["checks", "movement_packet"]) is True
+            and _nested_get(row, ["checks", "event_fabric_link"]) is True
+            and _nested_get(row, ["checks", "timeline_window"]) is True
+            and _nested_get(row, ["checks", "spatial_service_to_link_edge"]) is True
+            and _nested_get(row, ["checks", "context_indexed"]) is True
+            and _nested_get(row, ["checks", "episode_present"]) is True
+            and (row.get("episode_required") is not True or row.get("episode_ids"))
+            and _nested_get(row, ["checks", "coverage_gap_row"]) is True
+            and _nested_get(row, ["checks", "activation_smoke_if_gap"]) is True
+            and _nested_get(row, ["policy", "host_layer_mutates_stack"]) is False
+            and row.get("evidence_refs")
+            for row in rows
+        )
+    )
+
+
+def working_stack_dependent_link_readmodels_fresh(matrix: Any) -> bool:
+    if not isinstance(matrix, Mapping):
+        return False
+    summary = matrix.get("summary") if isinstance(matrix.get("summary"), Mapping) else {}
+    rows = _safe_int(summary.get("rows"), 0)
+    if rows <= 0:
+        return False
+    episode_required_rows = _safe_int(summary.get("episode_required_rows"), 0)
+    return (
+        _safe_int(summary.get("timeline_linked"), -1) == rows
+        and _safe_int(summary.get("spatial_linked"), -1) == rows
+        and _safe_int(summary.get("context_indexed"), -1) == rows
+        and _safe_int(summary.get("episode_linked"), -1) >= episode_required_rows
+    )
+
+
 def working_stack_model_bridge(
     service: str,
     model_rows: Iterable[Mapping[str, Any]],
