@@ -1163,6 +1163,142 @@ def test_working_stack_link_integrity_matrix_is_adapter_owned(tmp_path: Path) ->
     assert self_awareness_adapters.working_stack_link_integrity_matches_working_stack(mismatched, matrix) is False
 
 
+def test_autolink_predicates_are_adapter_owned() -> None:
+    source_rows = [
+        {
+            "service": "aoa-browser",
+            "machine_usage_status": "tool_runtime_degraded",
+            "usage_gap": "fixture browser launch failed",
+            "working_stack_link_id": "saworklink-fixture",
+            "current_state_digest": "state-fixture",
+            "spatial_nodes": ["service:aoa-browser", "working_stack_link:saworklink-fixture"],
+            "context_key": "saworklink-fixture",
+            "episode_required": True,
+            "episode_ids": ["saepisode-fixture"],
+            "coverage_gap_row_id": "working_stack_gap:aoa-browser",
+        },
+        {
+            "service": "prometheus",
+            "machine_usage_status": "active_machine_signal",
+            "working_stack_link_id": "saworklink-prometheus",
+        },
+    ]
+    expected_entries = [{
+        "service": "aoa-browser",
+        "machine_usage_status": "tool_runtime_degraded",
+        "working_stack_link_id": "saworklink-fixture",
+    }]
+
+    state = self_awareness_adapters.autolink_row_state(source_rows[0])
+    activation_entries = self_awareness_adapters.activation_entries_from_link_rows(source_rows)
+
+    assert state["movement_current_state_digest"] == "state-fixture"
+    assert state["spatial_nodes"] == ["service:aoa-browser", "working_stack_link:saworklink-fixture"]
+    assert activation_entries == expected_entries
+    assert self_awareness_adapters.activation_entries_cover_expected(activation_entries, expected_entries) is True
+    assert self_awareness_adapters.activation_entries_cover_expected([], expected_entries) is False
+
+    dossier = {
+        "entries": [
+            {"requirement_id": "stack.database-graph.read-route", "status": "open"},
+            {"requirement_id": "stack.trace-backend", "status": "closed"},
+        ],
+    }
+    stale_episodes = {
+        "schema": "abyss_machine_self_awareness_episodes_v1",
+        "episodes": [{"episode_id": "saepisode-trace", "affected_spatial_nodes": ["stack_requirement:stack.trace-backend"]}],
+    }
+    fresh_episodes = {
+        "schema": "abyss_machine_self_awareness_episodes_v1",
+        "episodes": [{"episode_id": "saepisode-db", "affected_spatial_nodes": ["stack_requirement:stack.database-graph.read-route"]}],
+    }
+
+    assert self_awareness_adapters.episodes_cover_stack_requirements(
+        stale_episodes,
+        dossier,
+        schema_prefix="abyss_machine",
+    ) is False
+    assert self_awareness_adapters.episodes_cover_stack_requirements(
+        fresh_episodes,
+        dossier,
+        schema_prefix="abyss_machine",
+    ) is True
+
+    autolink_doc = {
+        "schema": "abyss_machine_self_awareness_autolink_v1",
+        "ok": True,
+        "state_digest": "a" * 32,
+        "state_delta": {"policy": {"host_layer_mutates_stack": False, "executes_commands": False}},
+        "summary": {
+            "organ_links": 1,
+            "organ_links_complete": 1,
+            "stack_requirement_links": 1,
+            "stack_requirement_links_complete": 1,
+            "synthetic_scenarios": 1,
+            "synthetic_scenarios_complete": 1,
+        },
+        "organ_links": [
+            {
+                "schema": "abyss_machine_self_awareness_autolink_organ_row_v1",
+                "complete": True,
+                "service": "aoa-browser",
+                "working_stack_link_id": "saworklink-fixture",
+                "usage_gap": "fixture browser launch failed",
+                "event_id": "saevt-fixture",
+                "movement_packet_id": "samove-fixture",
+                "movement_current_state_digest": "state-fixture",
+                "episode_required": True,
+                "episode_ids": ["saepisode-fixture"],
+                "activation_smoke": {
+                    "complete": True,
+                    "working_stack_link_id": "saworklink-fixture",
+                },
+                "checks": {
+                    "time_linked": True,
+                    "space_linked": True,
+                    "context_linked": True,
+                    "movement_packet_linked": True,
+                    "episode_linked": True,
+                    "gap_has_activation_smoke": True,
+                },
+                "policy": {"host_layer_mutates_stack": False},
+            }
+        ],
+        "stack_requirement_links": [
+            {
+                "schema": "abyss_machine_self_awareness_autolink_stack_requirement_row_v1",
+                "complete": True,
+                "requirement_id": "stack.database-graph.read-route",
+                "episode_ids": ["saepisode-db"],
+                "checks": {
+                    "closure_acceptance": True,
+                    "coverage_impact": True,
+                    "owner_route": True,
+                },
+                "policy": {"host_layer_mutates_stack": False},
+            }
+        ],
+        "synthetic_scenarios": [
+            {
+                "schema": "abyss_machine_self_awareness_autolink_synthetic_scenario_v1",
+                "complete": True,
+                "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+            }
+        ],
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "automatic_remediation": False,
+        },
+    }
+
+    assert self_awareness_adapters.autolink_complete(autolink_doc, schema_prefix="abyss_machine") is True
+
+    broken = json.loads(json.dumps(autolink_doc))
+    broken["organ_links"][0]["activation_smoke"]["working_stack_link_id"] = "saworklink-stale"
+    assert self_awareness_adapters.autolink_complete(broken, schema_prefix="abyss_machine") is False
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {

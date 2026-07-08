@@ -35386,166 +35386,27 @@ def self_awareness_working_stack_dependent_link_readmodels_fresh(matrix: Any) ->
 
 
 def self_awareness_autolink_row_state(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "service": row.get("service"),
-        "working_stack_link_id": row.get("working_stack_link_id"),
-        "machine_usage_status": row.get("machine_usage_status"),
-        "usage_gap": row.get("usage_gap"),
-        "movement_current_state_digest": row.get("current_state_digest"),
-        "observed_signal": row.get("observed_signal"),
-        "observed_source": row.get("observed_source"),
-        "pid": row.get("pid"),
-        "pid_alive": row.get("pid_alive"),
-        "movement_categories": row.get("movement_categories") if isinstance(row.get("movement_categories"), list) else [],
-        "selected_for_episode": row.get("selected_for_episode") is True,
-        "selected_for_resident_reasoning": row.get("selected_for_resident_reasoning") is True,
-        "not_selected_reason": row.get("not_selected_reason"),
-        "degradation_reasons": row.get("degradation_reasons") if isinstance(row.get("degradation_reasons"), list) else [],
-        "spatial_nodes": row.get("spatial_nodes") if isinstance(row.get("spatial_nodes"), list) else [],
-        "context_key": row.get("context_key"),
-        "episode_required": row.get("episode_required"),
-        "episode_ids": row.get("episode_ids") if isinstance(row.get("episode_ids"), list) else [],
-        "coverage_gap_row_id": row.get("coverage_gap_row_id"),
-    }
+    return self_awareness_adapters.autolink_row_state(row)
 
 
 def self_awareness_autolink_complete(doc: Any) -> bool:
-    if not isinstance(doc, dict):
-        return False
-    organ_rows = doc.get("organ_links") if isinstance(doc.get("organ_links"), list) else []
-    requirement_rows = doc.get("stack_requirement_links") if isinstance(doc.get("stack_requirement_links"), list) else []
-    scenarios = doc.get("synthetic_scenarios") if isinstance(doc.get("synthetic_scenarios"), list) else []
-    return (
-        doc.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_autolink_v1"
-        and doc.get("ok") is True
-        and bool(organ_rows)
-        and safe_int(nested_get(doc, ["summary", "organ_links"]), -1) == len(organ_rows)
-        and safe_int(nested_get(doc, ["summary", "organ_links_complete"]), -1) == len(organ_rows)
-        and safe_int(nested_get(doc, ["summary", "stack_requirement_links"]), -1) == len(requirement_rows)
-        and safe_int(nested_get(doc, ["summary", "stack_requirement_links_complete"]), -1) == len(requirement_rows)
-        and safe_int(nested_get(doc, ["summary", "synthetic_scenarios"]), -1) == len(scenarios)
-        and safe_int(nested_get(doc, ["summary", "synthetic_scenarios_complete"]), -1) == len(scenarios)
-        and bool(doc.get("state_digest"))
-        and isinstance(doc.get("state_delta"), dict)
-        and nested_get(doc, ["policy", "host_layer_mutates_stack"]) is False
-        and nested_get(doc, ["policy", "executes_commands"]) is False
-        and nested_get(doc, ["policy", "automatic_remediation"]) is False
-        and all(
-            isinstance(row, dict)
-            and row.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_autolink_organ_row_v1"
-            and row.get("complete") is True
-            and row.get("service")
-            and row.get("working_stack_link_id")
-            and row.get("event_id")
-            and row.get("movement_packet_id")
-            and row.get("movement_current_state_digest")
-            and nested_get(row, ["checks", "time_linked"]) is True
-            and nested_get(row, ["checks", "space_linked"]) is True
-            and nested_get(row, ["checks", "context_linked"]) is True
-            and nested_get(row, ["checks", "movement_packet_linked"]) is True
-            and nested_get(row, ["checks", "episode_linked"]) is True
-            and (row.get("episode_required") is not True or row.get("episode_ids"))
-            and (
-                not row.get("usage_gap")
-                or (
-                    nested_get(row, ["checks", "gap_has_activation_smoke"]) is True
-                    and nested_get(row, ["activation_smoke", "complete"]) is True
-                    and nested_get(row, ["activation_smoke", "working_stack_link_id"]) == row.get("working_stack_link_id")
-                )
-            )
-            and nested_get(row, ["policy", "host_layer_mutates_stack"]) is False
-            for row in organ_rows
-        )
-        and all(
-            isinstance(row, dict)
-            and row.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_autolink_stack_requirement_row_v1"
-            and row.get("complete") is True
-            and row.get("requirement_id")
-            and (
-                row.get("episode_ids")
-                or (
-                    row.get("automatic_link_state") == "closed"
-                    and row.get("closed_by_current_probe") is True
-                )
-            )
-            and nested_get(row, ["checks", "closure_acceptance"]) is True
-            and nested_get(row, ["checks", "coverage_impact"]) is True
-            and nested_get(row, ["checks", "owner_route"]) is True
-            and nested_get(row, ["policy", "host_layer_mutates_stack"]) is False
-            for row in requirement_rows
-        )
-        and all(
-            isinstance(row, dict)
-            and row.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_autolink_synthetic_scenario_v1"
-            and row.get("complete") is True
-            and nested_get(row, ["policy", "host_layer_mutates_stack"]) is False
-            and nested_get(row, ["policy", "executes_commands"]) is False
-            for row in scenarios
-        )
-    )
+    return self_awareness_adapters.autolink_complete(doc, schema_prefix=SCHEMA_PREFIX)
 
 
 def self_awareness_episodes_cover_stack_requirements(episodes_doc: Any, stack_closure_dossier_doc: Any) -> bool:
-    if not isinstance(episodes_doc, dict) or episodes_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_episodes_v1":
-        return False
-    entries = stack_closure_dossier_doc.get("entries") if isinstance(stack_closure_dossier_doc, dict) and isinstance(stack_closure_dossier_doc.get("entries"), list) else []
-    open_requirement_ids = {
-        str(entry.get("requirement_id") or "")
-        for entry in entries
-        if isinstance(entry, dict)
-        and entry.get("requirement_id")
-        and not (entry.get("closed_by_current_probe") is True or entry.get("status") == "closed")
-    }
-    open_requirement_ids.discard("")
-    if not open_requirement_ids:
-        return True
-    covered_requirement_ids: set[str] = set()
-    for episode in episodes_doc.get("episodes", []) if isinstance(episodes_doc.get("episodes"), list) else []:
-        if not isinstance(episode, dict):
-            continue
-        requirement_id = str(episode.get("requirement_id") or "")
-        if requirement_id:
-            covered_requirement_ids.add(requirement_id)
-        for node in episode.get("affected_spatial_nodes", []) if isinstance(episode.get("affected_spatial_nodes"), list) else []:
-            node_text = str(node)
-            if node_text.startswith("stack_requirement:"):
-                covered_requirement_ids.add(node_text.split(":", 1)[1])
-    return open_requirement_ids <= covered_requirement_ids
+    return self_awareness_adapters.episodes_cover_stack_requirements(
+        episodes_doc,
+        stack_closure_dossier_doc,
+        schema_prefix=SCHEMA_PREFIX,
+    )
 
 
 def self_awareness_activation_entries_from_link_rows(link_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for row in link_rows:
-        if not isinstance(row, dict) or not row.get("usage_gap"):
-            continue
-        entries.append({
-            "service": row.get("service"),
-            "machine_usage_status": row.get("machine_usage_status"),
-            "working_stack_link_id": row.get("working_stack_link_id"),
-        })
-    return entries
+    return self_awareness_adapters.activation_entries_from_link_rows(link_rows)
 
 
 def self_awareness_activation_entries_cover_expected(activation_entries: list[dict[str, Any]], expected_entries: list[dict[str, Any]]) -> bool:
-    expected = {
-        (
-            str(entry.get("service") or ""),
-            str(entry.get("machine_usage_status") or ""),
-            str(entry.get("working_stack_link_id") or ""),
-        )
-        for entry in expected_entries
-        if isinstance(entry, dict) and entry.get("service")
-    }
-    actual = {
-        (
-            str(entry.get("service") or ""),
-            str(entry.get("machine_usage_status") or ""),
-            str(entry.get("working_stack_link_id") or ""),
-        )
-        for entry in activation_entries
-        if isinstance(entry, dict) and entry.get("service")
-    }
-    return bool(expected) and expected == actual
+    return self_awareness_adapters.activation_entries_cover_expected(activation_entries, expected_entries)
 
 
 def self_awareness_refresh_working_stack_dependent_readmodels(

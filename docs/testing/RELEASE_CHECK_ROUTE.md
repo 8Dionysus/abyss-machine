@@ -256,6 +256,13 @@ Keep concrete latest reads and dependency-refresh orchestration at the CLI/live
 binding edge. Live-host closeout may use compact `self-awareness status --json`
 or `self-awareness working-stack --json` summaries when needed.
 
+For self-awareness autolink predicate adapter changes, public CI should rely on
+synthetic autolink documents, working-stack link rows, episodes, and stack
+closure dossiers for row-state projection, completion, episode coverage, and
+activation-entry coverage predicates. Keep concrete latest reads, refresh
+orchestration, and latest/history writes at the CLI/live binding edge.
+Live-host closeout may use compact `self-awareness status --json` summaries.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
