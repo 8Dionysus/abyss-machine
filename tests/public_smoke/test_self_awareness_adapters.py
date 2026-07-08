@@ -1513,6 +1513,145 @@ def test_activation_smoke_predicates_are_adapter_owned() -> None:
     ) is True
 
 
+def test_activation_gap_and_handoff_routes_are_adapter_owned(tmp_path: Path) -> None:
+    prefix = "abyss_machine"
+    service = "aoa-browser"
+    status = "tool_runtime_degraded"
+    requirement_id = "stack.trace-backend"
+    safe_next = self_awareness_contracts.working_stack_gap_safe_next_action(
+        service,
+        status,
+        "functional runtime smoke failed",
+    )
+
+    activation_route = self_awareness_adapters.working_stack_activation_gap_route(
+        {
+            "schema": "abyss_machine_self_awareness_working_stack_usage_gap_v1",
+            "service": service,
+            "owner_route": "abyss-stack",
+            "working_stack_link_id": "saworklink-aoa-browser",
+            "machine_usage_status": status,
+            "activation_kind": "stack_tool_runtime_smoke_gap",
+            "usage_gap": "functional runtime smoke failed",
+            "runtime_present": True,
+            "runtime_running": True,
+            "container": service,
+            "health": "healthy",
+            "runtime_state": "running",
+            "runtime_status": "Up 1 minute",
+            "runtime_stack_managed": True,
+            "declared": True,
+            "declared_modules": ["51-browser-tools.yml"],
+            "endpoint_ok": True,
+            "endpoint_probe_count": 3,
+            "failed_probe_names": ["playwright-chromium-launch"],
+            "ok_probe_names": ["health", "private-host-guard"],
+            "service_roots": 1,
+            "model_roots": 0,
+            "deep_usage_proven": False,
+            "closure_blocker_keys": [status, "usage_gap:fixture"],
+            "safe_next_action": safe_next,
+            "verifier_commands": safe_next["verifier_commands"],
+        },
+        episode_id="saepisode-gap",
+        activation_row={
+            "complete": True,
+            "investigation": {"thread_id": "sainv-gap", "selected_episode_matches": True},
+            "replay": {
+                "thread_id": "sainv-gap",
+                "thread_matches": True,
+                "working_stack_gap_replayable": True,
+            },
+        },
+        schema_prefix=prefix,
+        working_stack_latest_path=tmp_path / "working-stack/latest.json",
+        activation_smoke_latest_path=tmp_path / "activation-smoke/latest.json",
+        episodes_latest_path=tmp_path / "episodes/latest.json",
+        process_container_latest_path=tmp_path / "processes/containers/latest.json",
+    )
+
+    assert self_awareness_adapters.working_stack_activation_gap_route_complete(
+        activation_route,
+        schema_prefix=prefix,
+    ) is True
+    assert activation_route["classification"] == "running_functional_smoke_failed"
+    assert activation_route["activation_smoke"]["working_stack_gap_replayable"] is True
+    assert activation_route["policy"]["host_layer_mutates_stack"] is False
+    assert [Path(ref["path"]).name for ref in activation_route["evidence_refs"]] == ["latest.json"] * 4
+
+    closure_packet = {
+        "schema": "abyss_machine_self_awareness_stack_requirement_closure_acceptance_v1",
+        "acceptance_id": "saclose-trace-backend",
+        "status": "open",
+        "requirement_status": "open",
+        "surface_kind": "trace_backend",
+        "safe_next_action": {
+            "requires_human_approval": True,
+            "executes_commands": False,
+            "host_layer_mutates_stack": False,
+        },
+        "stack_compat_requirement": {
+            "requirement_id": requirement_id,
+            "surface_kind": "trace_backend",
+            "coverage_contract": {
+                "organ": "trace_join_backbone",
+                "coverage_planes": ["trace_context", "replay"],
+                "closure_value": "stack trace joins become replayable",
+            },
+        },
+        "pre_close_identity": {
+            "current_state_digest": "state-trace-backend",
+            "current_state_keys": ["trace_backend:missing"],
+            "missing_check_keys": ["trace_search_ready"],
+            "fulfilled_check_keys": ["trace_storage_ready"],
+            "coverage_planes": ["trace_context", "replay"],
+        },
+        "negative_controls": [{"key": "host_does_not_patch_stack"}],
+        "post_close_success_predicates": [{"key": "trace_search_ready"}],
+        "post_close_verifier_chain": [{"command": "abyss-machine self-awareness cycle --json"}],
+    }
+
+    handoff_route = self_awareness_adapters.stack_requirement_handoff_route(
+        requirement_id,
+        episode_id="saepisode-stack",
+        closure_packet=closure_packet,
+        stack_replay={
+            "closure_readiness_replayable": True,
+            "open_requirement_ids": [requirement_id],
+        },
+        schema_prefix=prefix,
+        stack_closure_dossier_latest_path=tmp_path / "stack-closure/latest.json",
+        requirement_probes_latest_path=tmp_path / "requirement-probes/latest.json",
+        replay_latest_path=tmp_path / "replay/latest.json",
+        closure_acceptance_complete=lambda packet: packet.get("acceptance_id") == "saclose-trace-backend",
+    )
+
+    assert self_awareness_adapters.stack_requirement_handoff_route_complete(
+        handoff_route,
+        schema_prefix=prefix,
+    ) is True
+    assert handoff_route["owner_route"] == "abyss-stack"
+    assert handoff_route["impact"]["organ"] == "trace_join_backbone"
+    assert handoff_route["closure_acceptance"]["complete"] is True
+    assert handoff_route["lineage"]["open_requirement_present_in_replay"] is True
+    assert handoff_route["policy"]["host_layer_mutates_stack"] is False
+    assert self_awareness_adapters.stack_requirement_handoff_route(
+        "",
+        schema_prefix=prefix,
+        stack_closure_dossier_latest_path=tmp_path / "stack-closure/latest.json",
+        requirement_probes_latest_path=tmp_path / "requirement-probes/latest.json",
+        replay_latest_path=tmp_path / "replay/latest.json",
+        closure_acceptance_complete=lambda _packet: False,
+    ) == {}
+
+    broken = json.loads(json.dumps(handoff_route))
+    broken["lineage"]["stack_handoff_replayable"] = False
+    assert self_awareness_adapters.stack_requirement_handoff_route_complete(
+        broken,
+        schema_prefix=prefix,
+    ) is False
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {

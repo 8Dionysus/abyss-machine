@@ -269,6 +269,13 @@ smoke documents, and activation entries for completion, compact projection, and
 refresh predicates. Keep actual investigate/replay execution, latest reads,
 and latest/history writes at the CLI/live binding edge.
 
+For self-awareness activation-gap or stack-requirement handoff route adapter
+changes, public CI should rely on synthetic working-stack gap documents,
+activation-smoke row summaries, stack closure packets, stack replay summaries,
+and fake completion ports for route assembly and completion predicates. Keep
+actual investigate/replay execution, stack latest reads, and latest/history
+writes at the CLI/live binding edge.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
