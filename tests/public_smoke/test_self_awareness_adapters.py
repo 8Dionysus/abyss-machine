@@ -1723,6 +1723,176 @@ def test_activation_scenario_and_closure_packets_are_adapter_owned() -> None:
     ) is False
 
 
+def test_activation_synthetic_proof_and_export_overlay_are_adapter_owned(tmp_path: Path) -> None:
+    prefix = "abyss_machine"
+    service = "aoa-browser"
+    status = "tool_runtime_degraded"
+    link_id = "saworklink-aoa-browser"
+    entry = {
+        "service": service,
+        "machine_usage_status": status,
+        "working_stack_link_id": link_id,
+        "usage_gap": "functional runtime smoke failed",
+        "safe_next_action": {
+            "requires_human_approval": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+        },
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+        "synthetic_scenario": self_awareness_adapters.working_stack_activation_synthetic_scenario(
+            {
+                "service": service,
+                "machine_usage_status": status,
+                "activation_kind": "stack_tool_runtime_smoke_gap",
+                "working_stack_link_id": link_id,
+                "usage_gap": "functional runtime smoke failed",
+                "missing_checks": [{"key": "working_stack_usage_gap"}],
+                "verifier_commands": ["abyss-machine self-awareness working-stack --json"],
+                "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/working-stack/latest.json"}],
+            },
+            "2026-07-08T00:00:00Z",
+            schema_prefix=prefix,
+        ),
+    }
+    working_stack_doc = {
+        "organs": [
+            {
+                "service": service,
+                "owner": "abyss-stack",
+                "machine_usage_status": status,
+                "usage_gap": "functional runtime smoke failed",
+                "time_space_context_link": {"link_id": link_id},
+            }
+        ]
+    }
+    spatial_doc = {
+        "nodes": [
+            {"id": f"service:{service}", "owner_surface": "abyss-stack"},
+            {"id": f"working_stack_link:{link_id}"},
+            {"id": "usage_gap:fixture", "kind": "usage_gap", "label": service, "status": status},
+        ],
+        "edges": [
+            {"from": f"service:{service}", "to": f"working_stack_link:{link_id}", "kind": "has_time_space_context_link"},
+            {"from": f"service:{service}", "to": "usage_gap:fixture", "kind": "has_unexhausted_potential"},
+        ],
+    }
+    episodes_doc = {
+        "episodes": [
+            {
+                "episode_id": "saepisode-gap",
+                "episode_kind": "working_stack_usage_gap",
+                "working_stack_gap": {"service": service, "machine_usage_status": status},
+                "affected_spatial_nodes": [f"service:{service}", f"working_stack_link:{link_id}"],
+                "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+            }
+        ]
+    }
+    alerts_doc = {
+        "candidates": [
+            {
+                "id": "sacandidate-gap",
+                "automatic": False,
+                "working_stack_gap_service": service,
+                "working_stack_gap_status": status,
+                "response_contract": {
+                    "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+                    "approval": {"human_approval_before_mutation": True},
+                    "working_stack_gap": {"policy": {"host_layer_mutates_stack": False, "executes_commands": False}},
+                    "investigation": {"thread_id": "sainv-gap", "summary": {"checkpoints": 3}},
+                    "replay": {"thread_id": "sainv-gap", "ok": True},
+                },
+            }
+        ]
+    }
+    export_entry = {
+        "schema": "abyss_machine_self_awareness_working_stack_activation_entry_v1",
+        "service": service,
+        "complete": True,
+        "working_stack_link_id": link_id,
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+    }
+    export_doc = {
+        "schema": "abyss_machine_self_awareness_export_v1",
+        "generated_at": "2026-07-08T00:00:00Z",
+        "stack_handoff": {
+            "working_stack_activation_service_ids": [service],
+            "working_stack_activation_entries": [export_entry],
+        },
+    }
+    cycle_doc = {
+        "schema": "abyss_machine_self_awareness_cycle_v1",
+        "cycle_id": "sacycle-gap",
+        "summary": {"working_stack_activation_entries": 1, "automatic_responses": 0, "routes_with_mutating_command_if_run": 0},
+    }
+    investigation_doc = {
+        "working_stack_gap": {"service": service, "machine_usage_status": status, "complete": True},
+    }
+    replay_doc = {
+        "working_stack_gap_replay": {"service": service, "machine_usage_status": status, "replayable": True},
+    }
+    coverage_row = {
+        "schema": "abyss_machine_self_awareness_working_stack_gap_coverage_row_v1",
+        "id": "sacoverage-gap",
+        "service": service,
+        "machine_usage_status": status,
+        "working_stack_link_id": link_id,
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False, "automatic_remediation": False},
+    }
+
+    proof = self_awareness_adapters.working_stack_activation_synthetic_proof(
+        entry,
+        generated_at="2026-07-08T00:00:00Z",
+        working_stack_doc=working_stack_doc,
+        spatial_doc=spatial_doc,
+        episodes_doc=episodes_doc,
+        alerts_doc=alerts_doc,
+        export_doc=export_doc,
+        cycle_doc=cycle_doc,
+        investigation_doc=investigation_doc,
+        replay_doc=replay_doc,
+        coverage_row=coverage_row,
+        schema_prefix=prefix,
+        working_stack_latest_path=tmp_path / "working-stack/latest.json",
+        spatial_graph_latest_path=tmp_path / "spatial-graph/latest.json",
+        episodes_latest_path=tmp_path / "episodes/latest.json",
+        alerts_latest_path=tmp_path / "alerts/latest.json",
+        investigate_latest_path=tmp_path / "investigate/latest.json",
+        replay_latest_path=tmp_path / "replay/latest.json",
+        coverage_audit_latest_path=tmp_path / "coverage-audit/latest.json",
+        export_latest_path=tmp_path / "export/latest.json",
+        cycle_latest_path=tmp_path / "cycle/latest.json",
+        validate_latest_path=tmp_path / "validate/latest.json",
+    )
+    assert self_awareness_adapters.working_stack_activation_synthetic_proof_complete(
+        proof,
+        schema_prefix=prefix,
+    ) is True
+    assert proof["summary"]["failed_steps"] == []
+    assert proof["policy"]["host_layer_mutates_stack"] is False
+
+    proof_needing_overlay = json.loads(json.dumps(proof))
+    export_step = next(step for step in proof_needing_overlay["proof_steps"] if step["step"] == "export")
+    export_step["ok"] = False
+    proof_needing_overlay["proof_status"] = "proof_incomplete"
+    proof_needing_overlay["summary"]["ok_steps"] = len(proof_needing_overlay["proof_steps"]) - 1
+    proof_needing_overlay["summary"]["failed_steps"] = ["export"]
+    proof_needing_overlay["complete"] = False
+
+    adjusted = self_awareness_adapters.export_overlay_working_stack_activation_proof(
+        proof_needing_overlay,
+        {service: export_entry},
+        generated_at="2026-07-08T00:00:00Z",
+        schema_prefix=prefix,
+        export_latest_path=tmp_path / "export/latest.json",
+    )
+
+    assert adjusted["complete"] is True
+    assert adjusted["proof_status"] == "proved_open_activation_gap"
+    assert adjusted["summary"]["failed_steps"] == []
+    adjusted_export_step = next(step for step in adjusted["proof_steps"] if step["step"] == "export")
+    assert adjusted_export_step["details"]["export_handoff_overlay_applied"] is True
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {
