@@ -1494,6 +1494,148 @@ def test_working_stack_tool_status_classifies_deep_tool_probes_without_cli() -> 
     assert self_awareness_adapters.working_stack_tool_status("qwen-tts", "declared_not_running", probes) == "recent_on_demand_tool_signal"
 
 
+def test_working_stack_inventory_document_assembles_readmodel_without_cli(tmp_path: Path) -> None:
+    stack_root = tmp_path / "abyss-stack"
+    model_root = stack_root / "Models"
+    embedding_path = model_root / "ovms" / "OpenVINO" / "Qwen3-Embedding"
+    docs_module = stack_root / "compose" / "modules" / "20-tools.yml"
+    service_root = stack_root / "Services" / "qwen-tts-api"
+    latest_paths = {
+        "process_container": tmp_path / "processes" / "containers" / "latest.json",
+        "stack_observability": tmp_path / "stack-bridge" / "observability" / "latest.json",
+        "working_stack": tmp_path / "self-awareness" / "working-stack" / "latest.json",
+        "ai_capabilities": tmp_path / "ai" / "capabilities" / "latest.json",
+    }
+    pid_calls: list[int] = []
+    tool_runtime_seen: dict[str, dict[str, Any]] = {}
+
+    def fake_pid_alive(pid: int) -> bool:
+        pid_calls.append(pid)
+        return pid == 4242
+
+    def fake_container_tool_probes(runtime_by_service: dict[str, dict[str, Any]], enabled: bool) -> list[dict[str, Any]]:
+        tool_runtime_seen.update(runtime_by_service)
+        assert enabled is True
+        return [
+            {"service": "docs-api", "probe": "health", "ok": True, "container": "docs-api"},
+            {"service": "docs-api", "probe": "search:n8n-workflow", "ok": True, "container": "docs-api"},
+        ]
+
+    def fake_tts_smoke_probes(enabled: bool) -> list[dict[str, Any]]:
+        assert enabled is True
+        return [
+            {
+                "service": "qwen-tts",
+                "probe": "tts-synthesis-artifact",
+                "ok": True,
+                "policy": {"raw_text_stored": False, "raw_audio_stored": False},
+            }
+        ]
+
+    payload = self_awareness_adapters.working_stack_inventory_document(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-08T00:00:00+00:00",
+        stack_paths={"srv_abyss_stack": str(stack_root), "host_layer_mutates_stack": False},
+        stack_doc={"schema": "abyss_machine_stack_observability_v1"},
+        container_health={
+            "schema": "abyss_machine_process_container_health_v1",
+            "containers": [
+                {
+                    "name": "docs-api",
+                    "names": ["abyss_docs_api_1"],
+                    "pid": 4242,
+                    "running": True,
+                    "state": "running",
+                    "compose": {"project": "abyss", "service": "docs-api", "stack_managed": True},
+                },
+                {
+                    "name": "unrelated",
+                    "names": ["unrelated"],
+                    "pid": 99,
+                    "running": True,
+                    "compose": {"project": "other"},
+                },
+            ],
+        },
+        compose_inventory={
+            "ok": True,
+            "services": [
+                {
+                    "service": "docs-api",
+                    "declared": True,
+                    "modules": ["20-tools.yml"],
+                    "stack_source_refs": [self_awareness_adapters.stack_owned_source_ref(docs_module, "compose_module")],
+                }
+            ],
+            "module_refs": [self_awareness_adapters.stack_owned_source_ref(docs_module, "compose_module")],
+        },
+        service_roots_inventory={
+            "services": [
+                {
+                    "service": "qwen-tts",
+                    "stack_source_refs": [self_awareness_adapters.stack_owned_source_ref(service_root, "service_root", service="qwen-tts")],
+                }
+            ],
+            "summary": {"service_roots": 1},
+        },
+        model_inventory={
+            "models": [
+                {
+                    "service_candidates": ["embeddings"],
+                    "stack_source_refs": [
+                        self_awareness_adapters.stack_owned_source_ref(
+                            embedding_path,
+                            "model_root",
+                            tags=["embeddings", "openvino"],
+                        )
+                    ],
+                }
+            ],
+            "summary": {"model_roots": 1},
+        },
+        selection_policy={"services": {}, "documents": []},
+        ai_caps={
+            "schema": "abyss_machine_ai_capabilities_v1",
+            "capabilities": {
+                "embeddings": {
+                    "status": "ready",
+                    "source_models": [{"path": str(embedding_path / "model.xml"), "read_only_source": True}],
+                }
+            },
+        },
+        initial_endpoint_probes=[],
+        include_endpoint_probes=True,
+        pid_alive=fake_pid_alive,
+        container_tool_probes=fake_container_tool_probes,
+        tts_smoke_probes=fake_tts_smoke_probes,
+        ai_model_roots=[model_root],
+        latest_paths=latest_paths,
+        expected_live_services=("docs-api", "qwen-tts", "embeddings"),
+    )
+
+    organs = {row["service"]: row for row in payload["organs"]}
+    assert payload["schema"] == "abyss_machine_self_awareness_working_stack_inventory_v1"
+    assert payload["ok"] is True
+    assert pid_calls == [4242]
+    assert sorted(tool_runtime_seen) == ["docs-api"]
+    assert organs["docs-api"]["runtime"]["pid_alive"] is True
+    assert organs["docs-api"]["machine_usage_status"] == "active_machine_tool_signal"
+    assert organs["docs-api"]["deep_usage_proven"] is True
+    assert organs["qwen-tts"]["machine_usage_status"] == "recent_on_demand_tool_signal"
+    assert organs["qwen-tts"]["usage_gap"] is None
+    assert organs["embeddings"]["machine_usage_status"] == "active_model_root_bridge"
+    assert organs["embeddings"]["model_bridge"]["active"] is True
+    assert payload["summary"]["runtime_services"] == 1
+    assert payload["summary"]["deep_usage_proven_services"] == ["docs-api", "embeddings", "qwen-tts"]
+    assert payload["evidence_refs"] == [
+        {"path": str(latest_paths["process_container"]), "schema": "abyss_machine_process_container_health_v1"},
+        {"path": str(latest_paths["stack_observability"]), "schema": "abyss_machine_stack_observability_v1"},
+        {"path": str(latest_paths["working_stack"]), "schema": "abyss_machine_self_awareness_working_stack_inventory_v1"},
+    ]
+    assert all(ref["host_layer_mutates_stack"] is False for row in organs.values() for ref in row["stack_source_refs"])
+
+
 def test_parse_compose_services_returns_empty_on_read_error(tmp_path: Path) -> None:
     assert self_awareness_adapters.parse_compose_services(
         tmp_path / "missing.yml",

@@ -215,6 +215,14 @@ Live-host closeout may use compact `self-awareness status --json` or
 status, and owner-boundary facts, not raw stack paths, model inventories,
 generated readmodels, stack response bodies, or private host evidence.
 
+For self-awareness working-stack inventory assembly/readmodel adapter changes,
+public CI should rely on synthetic documents and fake ports for container
+service extraction, PID-alive projection, supplied container-tool/TTS probes,
+AI model-root bridge status, service-selection policy status, evidence refs,
+usage-gap classification, and summary counts. Keep concrete stack path
+discovery, endpoint URL construction, subprocess/socket runners, AI latest
+loading, and latest/history writes at the CLI/live binding edge.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
