@@ -263,6 +263,12 @@ activation-entry coverage predicates. Keep concrete latest reads, refresh
 orchestration, and latest/history writes at the CLI/live binding edge.
 Live-host closeout may use compact `self-awareness status --json` summaries.
 
+For self-awareness activation-smoke predicate adapter changes, public CI should
+rely on synthetic stack-organ-use packets, activation-smoke rows, compact rows,
+smoke documents, and activation entries for completion, compact projection, and
+refresh predicates. Keep actual investigate/replay execution, latest reads,
+and latest/history writes at the CLI/live binding edge.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
