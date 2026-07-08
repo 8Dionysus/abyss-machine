@@ -148,6 +148,98 @@ def test_missing_latest_document_names_only_reports_error_documents() -> None:
     assert self_awareness_adapters.missing_latest_document_names(documents) == ["validate"]
 
 
+def test_body_closure_status_document_is_adapter_owned(tmp_path: Path) -> None:
+    latest_paths = {
+        "heartbeat": tmp_path / "heartbeat" / "latest.json",
+        "reactions": tmp_path / "reactions" / "latest.json",
+        "responses": tmp_path / "responses" / "latest.json",
+        "doctor": tmp_path / "doctor" / "latest.json",
+        "topology": tmp_path / "topology" / "latest.json",
+        "stack_bridge": tmp_path / "stack-bridge" / "latest.json",
+        "changes": tmp_path / "changes" / "latest.json",
+        "nervous_brief": tmp_path / "nervous" / "latest.json",
+        "backup": tmp_path / "backup" / "latest.json",
+    }
+
+    payload = self_awareness_adapters.body_closure_status_document(
+        heartbeat={"summary": {"status": "watch"}},
+        reactions={"summary": {"status": "open", "candidates": 2, "by_category": {"working_stack": 2}}},
+        responses={"summary": {"status": "open", "routes": 1, "by_category": {"owner_gate": 1}}},
+        doctor={"summary": {"status": "warn", "warnings": 1, "fails": 0}},
+        topology={"summary": {"status": "fail", "warnings": 0, "fails": 1}},
+        stack_bridge={"summary": {"status": "warn", "warnings": 1, "fails": 1}},
+        changes={"summary": {"active_records": 1}, "backup_plane_active": True},
+        nervous_brief={"readiness": {"status": "warming"}},
+        backup={"blockers": ["vault_not_mounted"]},
+        latest_paths=latest_paths,
+        schema_prefix="abyss_machine",
+        backup_plane_active_change=lambda document: document.get("backup_plane_active") is True,
+        backup_plane_blockers=lambda document: list(document.get("blockers", [])),
+    )
+
+    assert payload["schema"] == "abyss_machine_self_awareness_body_closure_v1"
+    assert payload["status"] == "watch"
+    assert payload["complete"] is False
+    assert {source["kind"] for source in payload["watch_sources"]} == {
+        "heartbeat",
+        "reactions",
+        "responses",
+        "doctor",
+        "topology",
+        "stack_bridge",
+        "changes",
+        "nervous",
+        "backup",
+    }
+    assert payload["summary"] == {
+        "watch_sources": 9,
+        "reaction_candidates": 2,
+        "response_routes": 1,
+        "doctor_warnings": 1,
+        "doctor_fails": 0,
+        "topology_warnings": 0,
+        "topology_fails": 1,
+        "stack_bridge_warnings": 1,
+        "stack_bridge_fails": 1,
+        "active_changes": 1,
+        "nervous_status": "warming",
+        "backup_blockers": ["vault_not_mounted"],
+    }
+    backup_source = next(source for source in payload["watch_sources"] if source["kind"] == "backup")
+    assert backup_source["evidence"]["path"] == str(latest_paths["backup"])
+    assert payload["policy"] == {
+        "read_model": True,
+        "does_not_refresh": True,
+        "does_not_execute_commands": True,
+        "host_layer_mutates_stack": False,
+        "separates_stack_usage_from_body_closure": True,
+    }
+
+
+def test_body_closure_status_document_ready_path_has_no_watch_sources(tmp_path: Path) -> None:
+    payload = self_awareness_adapters.body_closure_status_document(
+        heartbeat={"summary": {"status": "steady"}},
+        reactions={"summary": {"status": "ok", "candidates": 0}},
+        responses={"summary": {"status": "ok", "routes": 0}},
+        doctor={"summary": {"status": "ok", "warnings": 0, "fails": 0}},
+        topology={"summary": {"status": "ok", "warnings": 0, "fails": 0}},
+        stack_bridge={"summary": {"status": "ok", "warnings": 0, "fails": 0}},
+        changes={"summary": {"active_records": 0}},
+        nervous_brief={"readiness": {"status": "ready"}},
+        backup={},
+        latest_paths={"heartbeat": tmp_path / "heartbeat" / "latest.json"},
+        schema_prefix="abyss_machine",
+        backup_plane_active_change=lambda _document: False,
+        backup_plane_blockers=lambda _document: [],
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["complete"] is True
+    assert payload["watch_sources"] == []
+    assert payload["summary"]["watch_sources"] == 0
+    assert payload["summary"]["backup_blockers"] == []
+
+
 class _FakeHttpResponse:
     def __init__(self, *, status: int, headers: dict[str, str], body: bytes) -> None:
         self.status = status

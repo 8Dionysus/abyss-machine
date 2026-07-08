@@ -45,6 +45,8 @@ WavFormatReaderPort = Callable[[Path], dict[str, Any]]
 PidAlivePort = Callable[[int], bool]
 ContainerToolProbesPort = Callable[[dict[str, dict[str, Any]], bool], list[dict[str, Any]]]
 TtsSmokeProbesPort = Callable[[bool], list[dict[str, Any]]]
+BackupPlaneActiveChangePort = Callable[[Mapping[str, Any]], bool]
+BackupPlaneBlockersPort = Callable[[Mapping[str, Any]], list[str]]
 
 
 @dataclass(frozen=True)
@@ -323,6 +325,132 @@ def missing_latest_document_names(documents: Mapping[str, dict[str, Any]]) -> li
         for name, document in documents.items()
         if isinstance(document, dict) and not document.get("ok") and document.get("error")
     ]
+
+
+def body_closure_status_document(
+    *,
+    heartbeat: Mapping[str, Any],
+    reactions: Mapping[str, Any],
+    responses: Mapping[str, Any],
+    doctor: Mapping[str, Any],
+    topology: Mapping[str, Any],
+    stack_bridge: Mapping[str, Any],
+    changes: Mapping[str, Any],
+    nervous_brief: Mapping[str, Any],
+    backup: Mapping[str, Any],
+    latest_paths: Mapping[str, Path | str],
+    schema_prefix: str,
+    backup_plane_active_change: BackupPlaneActiveChangePort,
+    backup_plane_blockers: BackupPlaneBlockersPort,
+) -> dict[str, Any]:
+    watch_sources: list[dict[str, Any]] = []
+
+    def latest_path(name: str) -> str:
+        return str(latest_paths.get(name) or "")
+
+    def add_source(kind: str, status: str, evidence: dict[str, Any]) -> None:
+        watch_sources.append({"kind": kind, "status": status, "evidence": evidence})
+
+    heartbeat_status = str(_nested_get(heartbeat, ["summary", "status"]) or heartbeat.get("status") or "")
+    if heartbeat_status and heartbeat_status not in {"steady", "linked", "ok", "ready"}:
+        add_source("heartbeat", heartbeat_status, {"path": latest_path("heartbeat"), "summary": heartbeat.get("summary")})
+
+    reaction_candidates = _safe_int(_nested_get(reactions, ["summary", "candidates"]), 0)
+    reaction_status = str(_nested_get(reactions, ["summary", "status"]) or reactions.get("status") or "")
+    if reaction_candidates > 0:
+        add_source(
+            "reactions",
+            reaction_status or "open",
+            {
+                "path": latest_path("reactions"),
+                "candidates": reaction_candidates,
+                "by_category": _nested_get(reactions, ["summary", "by_category"]),
+            },
+        )
+
+    response_routes = _safe_int(_nested_get(responses, ["summary", "routes"]), 0)
+    response_status = str(_nested_get(responses, ["summary", "status"]) or responses.get("status") or "")
+    if response_routes > 0:
+        add_source(
+            "responses",
+            response_status or "open",
+            {
+                "path": latest_path("responses"),
+                "routes": response_routes,
+                "by_category": _nested_get(responses, ["summary", "by_category"]),
+            },
+        )
+
+    doctor_warnings = _safe_int(_nested_get(doctor, ["summary", "warnings"]), 0)
+    doctor_fails = _safe_int(_nested_get(doctor, ["summary", "fails"]), 0)
+    if doctor_warnings > 0 or doctor_fails > 0:
+        add_source(
+            "doctor",
+            str(_nested_get(doctor, ["summary", "status"]) or "warn"),
+            {"path": latest_path("doctor"), "warnings": doctor_warnings, "fails": doctor_fails},
+        )
+
+    topology_warnings = _safe_int(_nested_get(topology, ["summary", "warnings"]), 0)
+    topology_fails = _safe_int(_nested_get(topology, ["summary", "fails"]), 0)
+    if topology_warnings > 0 or topology_fails > 0:
+        add_source(
+            "topology",
+            str(_nested_get(topology, ["summary", "status"]) or "warn"),
+            {"path": latest_path("topology"), "warnings": topology_warnings, "fails": topology_fails},
+        )
+
+    stack_bridge_warnings = _safe_int(_nested_get(stack_bridge, ["summary", "warnings"]), 0)
+    stack_bridge_fails = _safe_int(_nested_get(stack_bridge, ["summary", "fails"]), 0)
+    if stack_bridge_warnings > 0 or stack_bridge_fails > 0:
+        add_source(
+            "stack_bridge",
+            str(_nested_get(stack_bridge, ["summary", "status"]) or "warn"),
+            {"path": latest_path("stack_bridge"), "warnings": stack_bridge_warnings, "fails": stack_bridge_fails},
+        )
+
+    active_changes = _safe_int(_nested_get(changes, ["summary", "active_records"]), 0)
+    if active_changes > 0:
+        add_source("changes", "active", {"path": latest_path("changes"), "active_records": active_changes})
+
+    readiness = nervous_brief.get("readiness") if isinstance(nervous_brief.get("readiness"), Mapping) else {}
+    nervous_status = str(readiness.get("status") or "")
+    if nervous_status and nervous_status not in {"ready", "ok"}:
+        add_source("nervous", nervous_status, {"path": latest_path("nervous_brief"), "readiness": readiness})
+
+    backup_blockers: list[str] = []
+    if backup_plane_active_change(changes):
+        backup_blockers = backup_plane_blockers(backup)
+        if backup_blockers:
+            add_source("backup", "blocked", {"path": latest_path("backup"), "blockers": backup_blockers})
+
+    body_status = "ready" if not watch_sources else "watch"
+    return {
+        "schema": f"{schema_prefix}_self_awareness_body_closure_v1",
+        "status": body_status,
+        "complete": body_status == "ready",
+        "watch_sources": watch_sources,
+        "summary": {
+            "watch_sources": len(watch_sources),
+            "reaction_candidates": reaction_candidates,
+            "response_routes": response_routes,
+            "doctor_warnings": doctor_warnings,
+            "doctor_fails": doctor_fails,
+            "topology_warnings": topology_warnings,
+            "topology_fails": topology_fails,
+            "stack_bridge_warnings": stack_bridge_warnings,
+            "stack_bridge_fails": stack_bridge_fails,
+            "active_changes": active_changes,
+            "nervous_status": nervous_status or None,
+            "backup_blockers": backup_blockers,
+        },
+        "policy": {
+            "read_model": True,
+            "does_not_refresh": True,
+            "does_not_execute_commands": True,
+            "host_layer_mutates_stack": False,
+            "separates_stack_usage_from_body_closure": True,
+        },
+    }
 
 
 def http_status_with_headers(

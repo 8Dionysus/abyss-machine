@@ -195,6 +195,13 @@ dispatch, and bridge-document load dispatch. Live-host closeout may use compact
 `self-awareness status --json` summaries; avoid refreshing probe/cycle
 readmodels unless orchestration or concrete write ports changed.
 
+For self-awareness body-closure status document-builder adapter changes, public
+CI should rely on synthetic heartbeat, reaction, response, doctor, topology,
+stack-bridge, change-index, nervous-brief, and backup documents for watch-source
+classification, summary counts, backup blocker projection, and non-mutating
+policy. Keep latest reads and backup-plane policy callbacks at the CLI/live
+binding edge.
+
 For self-awareness cycle artifact-evidence adapter changes, public CI should
 rely on fake-port tests for latest-artifact existence/stat/hash/mtime
 projection, missing artifact behavior, bridge steps with `requires_ok=false`,
