@@ -1299,6 +1299,220 @@ def test_autolink_predicates_are_adapter_owned() -> None:
     assert self_awareness_adapters.autolink_complete(broken, schema_prefix="abyss_machine") is False
 
 
+def test_activation_smoke_predicates_are_adapter_owned() -> None:
+    prefix = "abyss_machine"
+    service = "aoa-browser"
+    link_id = "saworklink-fixture"
+    status = "tool_runtime_degraded"
+
+    def event_issues(event: dict[str, object]) -> list[str]:
+        if event.get("schema") == "abyss_machine_observation_event_v1" and event.get("event_id"):
+            return []
+        return ["invalid_event"]
+
+    documents = [
+        {"document_id": f"self-awareness.fixture.{index}", "path": f"/var/lib/abyss-machine/fixture/{index}.json"}
+        for index in range(5)
+    ]
+    packet = {
+        "schema": "abyss_machine_self_awareness_stack_organ_use_packet_v1",
+        "packet_id": "sause-fixture",
+        "service": service,
+        "owner": "abyss-stack",
+        "entity": {
+            "schema": "abyss_machine_self_awareness_stack_organ_use_entity_v1",
+            "entity_kind": "stack_organ",
+            "entity_id": f"stack.organ.{service}",
+        },
+        "event": {
+            "schema": "abyss_machine_self_awareness_stack_organ_use_event_v1",
+            "event_id": "saevt-fixture",
+            "working_stack_link_id": link_id,
+            "machine_usage_status": status,
+            "classification": "running_functional_smoke_failed",
+        },
+        "documents": documents,
+        "document_ids": [str(doc["document_id"]) for doc in documents],
+        "current_state": {"current_state_digest": "state-fixture"},
+        "time_space_context": {"context": {"working_stack_link_id": link_id}},
+        "observed_signal": {"schema": "abyss_machine_observation_event_v1", "event_id": "saevt-observed"},
+        "movement_selection": {
+            "schema": "abyss_machine_self_awareness_stack_organ_movement_selection_v1",
+            "categories": ["raw_signal", "degradation"],
+            "selected_reason": "fixture degradation",
+            "selected_for_resident_reasoning": True,
+        },
+        "activation_gap": {"classification": "running_functional_smoke_failed"},
+        "automation": {
+            "required_in": ["activation-smoke", "export", "validate"],
+            "host_layer_mutates_stack": False,
+            "executes_stack_verifiers": False,
+        },
+        "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/activation-smoke/latest.json"}],
+        "checks": {"entity_named": True, "event_named": True, "policy": True},
+        "missing_checks": [],
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "automatic_remediation": False,
+            "raw_secrets_included": False,
+            "raw_private_content_included": False,
+        },
+    }
+    movement_row = {
+        "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_row_v1",
+        "row_kind": "organ_movement",
+        "ok": True,
+        "service": service,
+        "owner": "abyss-stack",
+        "machine_usage_status": status,
+        "working_stack_link_id": link_id,
+        "investigation": {
+            "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_investigation_v1",
+            "actual_run": False,
+        },
+        "replay": {
+            "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_replay_v1",
+            "actual_run": False,
+        },
+        "stack_organ_use_packet": packet,
+        "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/working-stack/latest.json"}],
+        "policy": {
+            "movement_packet": True,
+            "actual_investigate_replay_run": False,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "automatic_remediation": False,
+        },
+    }
+
+    assert self_awareness_adapters.stack_organ_use_packet_complete(
+        packet,
+        schema_prefix=prefix,
+        event_issues=event_issues,
+    ) is True
+    assert self_awareness_adapters.working_stack_activation_smoke_row_complete(
+        movement_row,
+        schema_prefix=prefix,
+        investigation_node_count=3,
+        event_issues=event_issues,
+    ) is True
+
+    actual_row = json.loads(json.dumps(movement_row))
+    actual_row.pop("row_kind")
+    actual_row["usage_gap"] = "fixture usage gap"
+    actual_row["episode_id"] = "saepisode-fixture"
+    actual_row["investigation"] = {
+        "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_investigation_v1",
+        "ok": True,
+        "selected_episode_matches": True,
+        "working_stack_gap_complete": True,
+        "working_stack_gap_matches": True,
+        "evidence_validation_fails": 0,
+        "checkpoints": 3,
+        "graph_nodes": 3,
+    }
+    actual_row["replay"] = {
+        "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_replay_v1",
+        "ok": True,
+        "thread_matches": True,
+        "working_stack_gap_selected": True,
+        "working_stack_gap_replayable": True,
+        "working_stack_gap_matches": True,
+        "divergences": 0,
+        "stack_handoff_closure_readiness_replayable": True,
+        "resident_cognitive_replay_complete": True,
+    }
+    actual_row["policy"]["actual_investigate_replay_run"] = True
+
+    assert self_awareness_adapters.working_stack_activation_smoke_row_complete(
+        actual_row,
+        schema_prefix=prefix,
+        investigation_node_count=3,
+        event_issues=event_issues,
+    ) is True
+    actual_row["replay"]["divergences"] = 1
+    assert self_awareness_adapters.working_stack_activation_smoke_row_complete(
+        actual_row,
+        schema_prefix=prefix,
+        investigation_node_count=3,
+        event_issues=event_issues,
+    ) is False
+
+    compact = self_awareness_adapters.working_stack_activation_smoke_compact(
+        movement_row,
+        schema_prefix=prefix,
+        investigation_node_count=3,
+        event_issues=event_issues,
+    )
+    assert compact["schema"] == "abyss_machine_self_awareness_working_stack_activation_smoke_compact_v1"
+    assert compact["complete"] is True
+    assert compact["stack_organ_use_packet_id"] == "sause-fixture"
+    assert compact["activation_gap_classification"] == "running_functional_smoke_failed"
+
+    smoke = {
+        "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_v1",
+        "ok": True,
+        "run_id": "saactsmoke-fixture",
+        "rows": [movement_row],
+        "stack_organ_use_packets": [packet],
+        "stack_organ_use_packet_by_service": {service: packet},
+        "summary": {
+            "stack_organs_expected_services": [service],
+            "stack_organs_expected": 1,
+            "rows": 1,
+            "rows_ok": 1,
+            "stack_organ_use_packets": 1,
+            "stack_organ_use_packets_complete": 1,
+            "service_ids": [service],
+            "stack_organs_without_use_packets": [],
+            "all_stack_organs_have_use_packets": True,
+            "failed_services": [],
+        },
+        "evidence_refs": [{"path": "/var/lib/abyss-machine/self-awareness/activation-smoke/latest.json"}],
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "automatic_remediation": False,
+        },
+    }
+    activation_entries = [{"service": service, "machine_usage_status": status, "working_stack_link_id": link_id}]
+
+    assert self_awareness_adapters.working_stack_activation_smoke_complete(
+        smoke,
+        schema_prefix=prefix,
+        investigation_node_count=3,
+        event_issues=event_issues,
+    ) is True
+    assert self_awareness_adapters.activation_smoke_needs_refresh(
+        smoke,
+        activation_entries,
+        schema_prefix=prefix,
+        investigation_node_count=3,
+        event_issues=event_issues,
+    ) is False
+
+    broken_packet = json.loads(json.dumps(packet))
+    broken_packet["observed_signal"]["event_id"] = ""
+    assert self_awareness_adapters.stack_organ_use_packet_complete(
+        broken_packet,
+        schema_prefix=prefix,
+        event_issues=event_issues,
+    ) is False
+    changed_entries = [{"service": service, "machine_usage_status": status, "working_stack_link_id": "saworklink-new"}]
+    assert self_awareness_adapters.activation_smoke_needs_refresh(
+        smoke,
+        changed_entries,
+        schema_prefix=prefix,
+        investigation_node_count=3,
+        event_issues=event_issues,
+    ) is True
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {
