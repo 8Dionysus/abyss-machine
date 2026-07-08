@@ -186,6 +186,12 @@ and extra evidence merging. Live-host closeout may use compact
 unless orchestration itself changed or the operator accepts live latest/readmodel
 refresh.
 
+For self-awareness cycle artifact-step manifest changes, public CI should rely
+on synthetic tests for step order, command strings, document source grouping,
+required-vs-nonblocking step policy, and extra evidence routing. Keep concrete
+path constants and live latest document loading at the CLI edge; do not run live
+`self-awareness cycle` merely to prove manifest assembly.
+
 For self-awareness probe/cycle document-builder adapter changes, public CI
 should rely on synthetic shape tests for resource-denied documents, probe result
 documents, movement-smoke summaries, cycle partial/building snapshots, and

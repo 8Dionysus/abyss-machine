@@ -57492,28 +57492,6 @@ def self_awareness_objective_coverage_audit(
     return data
 
 
-def self_awareness_cycle_artifact_step(
-    step_id: str,
-    command: str,
-    artifact_path: Path,
-    data: dict[str, Any],
-    *,
-    requires_ok: bool = True,
-    evidence_extra: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return self_awareness_adapters.cycle_artifact_step(
-        step_id,
-        command,
-        artifact_path,
-        data,
-        path_exists=lambda path: path.exists(),
-        path_stat=lambda path: path.stat(),
-        path_sha256=sha256_path,
-        requires_ok=requires_ok,
-        evidence_extra=evidence_extra,
-    )
-
-
 def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
     seed = {"at": generated_at, "host": platform.node(), "pid": os.getpid(), "kind": "self-awareness-cycle"}
@@ -57550,7 +57528,6 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
     reactions = reaction_status(write_latest=True)
     responses = response_status(write_latest=True, reactions=reactions, refresh_reactions=False)
     brief = self_awareness_brief(write_latest=True)
-    artifact_step = self_awareness_cycle_artifact_step
 
     probe_chain = probe.get("chain") if isinstance(probe.get("chain"), dict) else {}
     cycle_chain = self_awareness_adapters.cycle_initial_chain(
@@ -57627,42 +57604,71 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
         self_awareness_cycle_bridge_surfaces(),
         load_latest_json=load_latest_json,
     )
-    steps = [
-        artifact_step("probe", "abyss-machine self-awareness probe --json", SELF_AWARENESS_PROBE_LATEST_PATH, probe, evidence_extra={"run_id": probe_run_id, "chain": probe_chain}),
-        artifact_step("capabilities", "abyss-machine self-awareness capabilities --json", SELF_AWARENESS_CAPABILITIES_LATEST_PATH, latest_docs["capabilities"]),
-        artifact_step("requirements", "abyss-machine self-awareness requirements --json", SELF_AWARENESS_REQUIREMENTS_LATEST_PATH, latest_docs["requirements"]),
-        artifact_step("requirement_probes", "abyss-machine self-awareness requirement-probes --json", SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH, requirement_probes),
-        artifact_step("stack_closure_dossier", "abyss-machine self-awareness stack-closure-dossier --json", SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH, stack_closure_dossier),
-        artifact_step("trace_context", "abyss-machine self-awareness trace-context --json", SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH, latest_docs["trace_context"]),
-        artifact_step("activation_smoke", "abyss-machine self-awareness activation-smoke --json", SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, activation_smoke),
-        artifact_step("failure_matrix", "abyss-machine self-awareness failure-matrix --json", SELF_AWARENESS_FAILURE_MATRIX_LATEST_PATH, failure_matrix),
-        artifact_step("working_stack", "abyss-machine self-awareness working-stack --json", SELF_AWARENESS_WORKING_STACK_LATEST_PATH, latest_docs["working_stack"]),
-        artifact_step("collect", "abyss-machine self-awareness collect --json", SELF_AWARENESS_COLLECT_LATEST_PATH, latest_docs["collect"]),
-        artifact_step("events", "abyss-machine self-awareness events/latest.json", SELF_AWARENESS_EVENTS_LATEST_PATH, latest_docs["events"]),
-        artifact_step("query", "abyss-machine self-awareness query --query RUN_ID --json", SELF_AWARENESS_QUERY_LATEST_PATH, latest_docs["query"]),
-        artifact_step("correlation", "abyss-machine self-awareness correlate --json", SELF_AWARENESS_CORRELATION_LATEST_PATH, latest_docs["correlation"]),
-        artifact_step("timeline", "abyss-machine self-awareness timeline --json", SELF_AWARENESS_TIMELINE_LATEST_PATH, latest_docs["timeline"]),
-        artifact_step("spatial_graph", "abyss-machine self-awareness spatial-graph --json", SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH, latest_docs["spatial_graph"]),
-        artifact_step("context", "abyss-machine self-awareness context --json", SELF_AWARENESS_CONTEXT_LATEST_PATH, latest_docs["context"]),
-        artifact_step("episodes", "abyss-machine self-awareness episodes --json", SELF_AWARENESS_EPISODES_LATEST_PATH, latest_docs["episodes"]),
-        artifact_step("alerts", "abyss-machine self-awareness alerts --json", SELF_AWARENESS_ALERTS_LATEST_PATH, latest_docs["alerts"]),
-        artifact_step("heartbeats", "abyss-machine heartbeats pulse --json", HEARTBEATS_LATEST_PATH, bridge_docs["heartbeats"], requires_ok=False),
-        artifact_step("memory", "abyss-machine memory status --json", MEMORY_LATEST_PATH, bridge_docs["memory"], requires_ok=False),
-        artifact_step("mode", "abyss-machine mode status --json", MODE_LATEST_PATH, bridge_docs["mode"], requires_ok=False),
-        artifact_step("resource", "abyss-machine resource status --json", RESOURCE_LATEST_PATH, bridge_docs["resource"], requires_ok=False),
-        artifact_step("processes", "abyss-machine processes latest --json", PROCESS_LATEST_PATH, bridge_docs["processes"], requires_ok=False),
-        artifact_step("process_containers", "abyss-machine processes containers --json", PROCESS_CONTAINER_LATEST_PATH, bridge_docs["process_containers"], requires_ok=False),
-        artifact_step("process_thermal_plan", "abyss-machine processes thermal-plan --seconds 3 --interval 0.5 --json", PROCESS_THERMAL_PLAN_LATEST_PATH, bridge_docs["process_thermal_plan"], requires_ok=False),
-        artifact_step("cooling", "abyss-machine cooling status --json", COOLING_LATEST_PATH, bridge_docs["cooling"], requires_ok=False),
-        artifact_step("typing_events", "abyss-machine typing latest --json", TYPING_EVENTS_LATEST_PATH, bridge_docs["typing_events"], requires_ok=False),
-        artifact_step("typing_validate", "abyss-machine typing validate --json", TYPING_VALIDATE_LATEST_PATH, bridge_docs["typing_validate"], requires_ok=False),
-        artifact_step("nervous_brief", "abyss-machine nervous brief --scope now --json", NERVOUS_BRIEF_LATEST_PATH, bridge_docs["nervous_brief"], requires_ok=False),
-        artifact_step("investigate", "abyss-machine self-awareness investigate --query RUN_ID --json", SELF_AWARENESS_INVESTIGATE_LATEST_PATH, investigation, evidence_extra={"thread_id": investigation.get("thread_id")}),
-        artifact_step("replay", "abyss-machine self-awareness replay --thread-id THREAD_ID --json", SELF_AWARENESS_REPLAY_LATEST_PATH, replay, evidence_extra={"thread_id": replay.get("thread_id")}),
-        artifact_step("brief", "abyss-machine self-awareness brief --json", SELF_AWARENESS_BRIEF_LATEST_PATH, brief),
-        artifact_step("reactions", "abyss-machine reactions --json", REACTIONS_LATEST_PATH, reactions),
-        artifact_step("responses", "abyss-machine responses --json", RESPONSES_LATEST_PATH, responses),
-    ]
+    cycle_artifact_paths = {
+        "probe": SELF_AWARENESS_PROBE_LATEST_PATH,
+        "capabilities": SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
+        "requirements": SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+        "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+        "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+        "trace_context": SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH,
+        "activation_smoke": SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
+        "failure_matrix": SELF_AWARENESS_FAILURE_MATRIX_LATEST_PATH,
+        "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        "collect": SELF_AWARENESS_COLLECT_LATEST_PATH,
+        "events": SELF_AWARENESS_EVENTS_LATEST_PATH,
+        "query": SELF_AWARENESS_QUERY_LATEST_PATH,
+        "correlation": SELF_AWARENESS_CORRELATION_LATEST_PATH,
+        "timeline": SELF_AWARENESS_TIMELINE_LATEST_PATH,
+        "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+        "context": SELF_AWARENESS_CONTEXT_LATEST_PATH,
+        "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
+        "alerts": SELF_AWARENESS_ALERTS_LATEST_PATH,
+        "heartbeats": HEARTBEATS_LATEST_PATH,
+        "memory": MEMORY_LATEST_PATH,
+        "mode": MODE_LATEST_PATH,
+        "resource": RESOURCE_LATEST_PATH,
+        "processes": PROCESS_LATEST_PATH,
+        "process_containers": PROCESS_CONTAINER_LATEST_PATH,
+        "process_thermal_plan": PROCESS_THERMAL_PLAN_LATEST_PATH,
+        "cooling": COOLING_LATEST_PATH,
+        "typing_events": TYPING_EVENTS_LATEST_PATH,
+        "typing_validate": TYPING_VALIDATE_LATEST_PATH,
+        "nervous_brief": NERVOUS_BRIEF_LATEST_PATH,
+        "investigate": SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+        "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
+        "brief": SELF_AWARENESS_BRIEF_LATEST_PATH,
+        "reactions": REACTIONS_LATEST_PATH,
+        "responses": RESPONSES_LATEST_PATH,
+        "autolink": SELF_AWARENESS_AUTOLINK_LATEST_PATH,
+        "export": SELF_AWARENESS_EXPORT_LATEST_PATH,
+    }
+    cycle_direct_docs = {
+        "probe": probe,
+        "requirement_probes": requirement_probes,
+        "stack_closure_dossier": stack_closure_dossier,
+        "activation_smoke": activation_smoke,
+        "failure_matrix": failure_matrix,
+        "investigation": investigation,
+        "replay": replay,
+        "brief": brief,
+        "reactions": reactions,
+        "responses": responses,
+    }
+    steps = self_awareness_adapters.cycle_artifact_steps(
+        specs=self_awareness_adapters.CYCLE_INITIAL_ARTIFACT_STEP_SPECS,
+        paths=cycle_artifact_paths,
+        direct_documents=cycle_direct_docs,
+        latest_documents=latest_docs,
+        bridge_documents=bridge_docs,
+        path_exists=lambda path: path.exists(),
+        path_stat=lambda path: path.stat(),
+        path_sha256=sha256_path,
+        evidence_extra_by_step={
+            "probe": {"run_id": probe_run_id, "chain": probe_chain},
+            "investigate": {"thread_id": investigation.get("thread_id")},
+            "replay": {"thread_id": replay.get("thread_id")},
+        },
+    )
     partial_data = self_awareness_adapters.cycle_partial_document(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
@@ -57690,9 +57696,17 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
         stack_closure_dossier_doc=stack_closure_dossier,
         activation_smoke_doc=activation_smoke,
     )
-    steps.append(artifact_step("autolink", "abyss-machine self-awareness autolink --json", SELF_AWARENESS_AUTOLINK_LATEST_PATH, autolink))
     export = self_awareness_export(run_id=probe_run_id, write_latest=True, include_cycle=True)
-    steps.append(artifact_step("export", "abyss-machine self-awareness export --json", SELF_AWARENESS_EXPORT_LATEST_PATH, export))
+    steps.extend(
+        self_awareness_adapters.cycle_artifact_steps(
+            specs=self_awareness_adapters.CYCLE_FINAL_ARTIFACT_STEP_SPECS,
+            paths=cycle_artifact_paths,
+            direct_documents={"autolink": autolink, "export": export},
+            path_exists=lambda path: path.exists(),
+            path_stat=lambda path: path.stat(),
+            path_sha256=sha256_path,
+        )
+    )
     cycle_chain.update(
         self_awareness_adapters.cycle_export_chain_updates(
             probe_chain=probe_chain,

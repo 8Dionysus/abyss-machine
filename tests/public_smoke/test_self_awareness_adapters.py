@@ -1597,3 +1597,120 @@ def test_cycle_artifact_step_requires_ok_false_keeps_bridge_step_non_blocking(tm
     assert step["ok"] is True
     assert step["artifact"]["ok"] is False
     assert step["artifact"]["summary"] == {"status": "degraded"}
+
+
+def test_cycle_artifact_step_specs_keep_cycle_order_and_bridge_policy() -> None:
+    initial = self_awareness_adapters.CYCLE_INITIAL_ARTIFACT_STEP_SPECS
+    final = self_awareness_adapters.CYCLE_FINAL_ARTIFACT_STEP_SPECS
+
+    assert [spec.step_id for spec in initial[:6]] == [
+        "probe",
+        "capabilities",
+        "requirements",
+        "requirement_probes",
+        "stack_closure_dossier",
+        "trace_context",
+    ]
+    assert [spec.step_id for spec in initial[-5:]] == ["investigate", "replay", "brief", "reactions", "responses"]
+    assert [spec.step_id for spec in final] == ["autolink", "export"]
+
+    bridge_specs = [spec for spec in initial if spec.document_group == "bridge"]
+    assert [spec.step_id for spec in bridge_specs] == [
+        "heartbeats",
+        "memory",
+        "mode",
+        "resource",
+        "processes",
+        "process_containers",
+        "process_thermal_plan",
+        "cooling",
+        "typing_events",
+        "typing_validate",
+        "nervous_brief",
+    ]
+    assert all(spec.requires_ok is False for spec in bridge_specs)
+    assert all(spec.requires_ok is True for spec in initial if spec.document_group != "bridge")
+
+
+def test_cycle_artifact_steps_builds_grouped_manifest_without_live_io(tmp_path: Path) -> None:
+    specs = (
+        self_awareness_adapters.CycleArtifactStepSpec(
+            "probe",
+            "abyss-machine self-awareness probe --json",
+            "probe",
+            "direct",
+            "probe",
+        ),
+        self_awareness_adapters.CycleArtifactStepSpec(
+            "capabilities",
+            "abyss-machine self-awareness capabilities --json",
+            "capabilities",
+            "latest",
+            "capabilities",
+        ),
+        self_awareness_adapters.CycleArtifactStepSpec(
+            "memory",
+            "abyss-machine memory status --json",
+            "memory",
+            "bridge",
+            "memory",
+            requires_ok=False,
+        ),
+    )
+    paths = {
+        "probe": tmp_path / "probe" / "latest.json",
+        "capabilities": tmp_path / "capabilities" / "latest.json",
+        "memory": tmp_path / "memory" / "latest.json",
+    }
+    docs = {
+        "direct": {
+            "probe": {
+                "schema": "abyss_machine_self_awareness_probe_v1",
+                "ok": True,
+                "summary": {"chain_passed": 3},
+            }
+        },
+        "latest": {
+            "capabilities": {
+                "schema": "abyss_machine_self_awareness_capabilities_v1",
+                "ok": False,
+                "summary": {"missing": 1},
+            }
+        },
+        "bridge": {
+            "memory": {
+                "schema": "abyss_machine_memory_status_v1",
+                "ok": False,
+                "summary": {"status": "degraded"},
+            }
+        },
+    }
+    calls: list[str] = []
+
+    steps = self_awareness_adapters.cycle_artifact_steps(
+        specs=specs,
+        paths=paths,
+        direct_documents=docs["direct"],
+        latest_documents=docs["latest"],
+        bridge_documents=docs["bridge"],
+        path_exists=lambda path: calls.append(f"exists:{path.name}") or False,
+        path_stat=lambda _path: calls.append("stat"),
+        path_sha256=lambda _path: calls.append("sha256") or "sha256:unused",
+        evidence_extra_by_step={"probe": {"run_id": "saprobe-fixture"}},
+    )
+
+    assert [step["id"] for step in steps] == ["probe", "capabilities", "memory"]
+    assert [step["command"] for step in steps] == [
+        "abyss-machine self-awareness probe --json",
+        "abyss-machine self-awareness capabilities --json",
+        "abyss-machine memory status --json",
+    ]
+    assert steps[0]["ok"] is True
+    assert steps[0]["artifact"]["schema"] == "abyss_machine_self_awareness_probe_v1"
+    assert steps[0]["artifact"]["run_id"] == "saprobe-fixture"
+    assert steps[1]["ok"] is False
+    assert steps[1]["artifact"]["summary"] == {"missing": 1}
+    assert steps[2]["ok"] is True
+    assert steps[2]["artifact"]["ok"] is False
+    assert steps[2]["artifact"]["summary"] == {"status": "degraded"}
+    assert calls == ["exists:latest.json", "exists:latest.json", "exists:latest.json"]
