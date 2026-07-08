@@ -209,6 +209,12 @@ classification, handoff policy, activation-gap route callback binding, and
 stack-owner requirement projection. Keep latest reads, status document assembly,
 and live probe/cycle orchestration at the CLI/live binding edge.
 
+For self-awareness latest artifact-ref adapter changes, public CI should rely on
+fake latest-loader, path-exists, path-hash, and history-path ports for schema
+projection, missing artifact behavior, summary passthrough, and hash gating.
+Keep concrete filesystem paths and live artifact stat/hash reads at the CLI/live
+binding edge.
+
 For self-awareness cycle artifact-evidence adapter changes, public CI should
 rely on fake-port tests for latest-artifact existence/stat/hash/mtime
 projection, missing artifact behavior, bridge steps with `requires_ok=false`,

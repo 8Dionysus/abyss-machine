@@ -39,6 +39,7 @@ PathIterdirPort = Callable[[Path], Iterable[Path]]
 PathReadTextPort = Callable[[Path], str]
 PathStatPort = Callable[[Path], Any]
 PathSha256Port = Callable[[Path], str]
+DailyJsonlPathPort = Callable[[Path], Path]
 JsonDocumentLoaderPort = Callable[[Path], tuple[Any, str | None]]
 SidecarDocumentLoaderPort = Callable[[str], Any]
 WavFormatReaderPort = Callable[[Path], dict[str, Any]]
@@ -326,6 +327,35 @@ def missing_latest_document_names(documents: Mapping[str, dict[str, Any]]) -> li
         for name, document in documents.items()
         if isinstance(document, dict) and not document.get("ok") and document.get("error")
     ]
+
+
+def latest_artifact_ref(
+    name: str,
+    path: Path,
+    expected_schema: str,
+    *,
+    load_latest_json: LatestJsonReaderPort,
+    path_exists: PathExistsPort,
+    path_sha256: PathSha256Port,
+    daily_jsonl_path: DailyJsonlPathPort,
+) -> dict[str, Any]:
+    data = load_latest_json(path, expected_schema)
+    exists = path_exists(path)
+    data_schema = data.get("schema")
+    return {
+        "name": name,
+        "path": str(path),
+        "history_path": str(daily_jsonl_path(path.parent)),
+        "exists": exists,
+        "schema": data_schema or expected_schema,
+        "expected_schema": expected_schema,
+        "schema_ok": data_schema == expected_schema if data_schema else False,
+        "ok": data.get("ok"),
+        "status": data.get("status"),
+        "generated_at": data.get("generated_at"),
+        "summary": data.get("summary"),
+        "sha256": path_sha256(path) if exists else None,
+    }
 
 
 def body_closure_status_document(
