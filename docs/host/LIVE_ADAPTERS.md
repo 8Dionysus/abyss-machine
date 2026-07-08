@@ -1220,7 +1220,8 @@ downloads, or destructive cleanup.
    predicates, autolink row-state/completion/episode-coverage and
    activation-entry predicates, activation-smoke and stack-organ-use
    completion/compact/refresh predicates, activation-gap and stack-requirement
-   handoff route builders/completion predicates, working-stack model/tool bridge policy, probe/cycle
+   handoff route builders/completion predicates, activation synthetic-scenario
+   and closure-acceptance packet builders/completion predicates, working-stack model/tool bridge policy, probe/cycle
    resource-denial documents, probe result/movement-smoke document assembly,
    cycle artifact step manifest/order/nonblocking bridge policy, cycle artifact
    evidence snapshots, cycle open-requirement/issue guard input assembly, cycle
