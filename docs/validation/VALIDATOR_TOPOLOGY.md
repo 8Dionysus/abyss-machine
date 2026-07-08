@@ -110,6 +110,12 @@ Closeout reports should use `--summary --json`, which omits path details,
 digest values, raw runtime stderr/stdout, and raw runtime JSON. The full
 `--json` document is for parity-route debugging.
 
+For already-installed hosts, `scripts/abyss-machine-bootstrap refresh-code`
+provides the narrow maintenance projection for installed CLI/package modules
+and the compact public seed share. It shares the full install artifact
+admission contract but intentionally avoids config rendering, systemd rendering,
+root creation, and daemon reload requirements.
+
 The typing/nervous policy validator keeps the first subsystem split honest:
 private nervous captures, search and semantic indexes, browser/tool adapters,
 typing tmp/cache paths, and user-level systemd unit paths must derive from the

@@ -1402,6 +1402,8 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
         "host_closeout_route": {
             "preflight": "abyss-machine changes preflight --intent TEXT --surface /usr/local/bin/abyss-machine --json",
             "apply": "scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json",
+            "refresh_code": "scripts/abyss-machine-bootstrap refresh-code --apply --json",
+            "refresh_code_scope": "installed CLI/package modules plus public seed share only; no config or systemd projection",
             "daemon_reload": "systemctl daemon-reload and systemctl --user daemon-reload after a real host projection",
             "installed_smoke": "scripts/validators/first_run_installed_projection.py --require-host-installed --json",
             "ledger_close": "abyss-machine changes close ... after validation and rollback notes",

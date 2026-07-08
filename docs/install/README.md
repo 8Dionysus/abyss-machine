@@ -42,3 +42,23 @@ then runs the temp-installed CLI without `PYTHONPATH=src`. It checks:
 For a real host install closeout, run the same validator with
 `--require-host-installed` after the host projection has been applied and the
 systemd daemon reloads have completed.
+
+## Installed Code Refresh
+
+When the host is already installed and only the CLI package modules plus compact
+public seed projection must be refreshed after a landed source change, use the
+bounded refresh route instead of the full install route:
+
+```bash
+scripts/abyss-machine-bootstrap refresh-code --dry-run --json
+scripts/abyss-machine-bootstrap refresh-code --apply --json
+```
+
+`refresh-code` uses the same artifact trust-gate admission as full install, but
+it does not render `/etc/abyss-machine` templates or systemd units. Host
+closeout still needs change-ledger preflight, parity validation, and rollback
+notes for `/usr/local/bin/abyss-machine`, `/usr/local/libexec/abyss-machine`,
+and `/usr/local/share/abyss-machine`.
+The commands above require the same admitted install-bundle selector as full
+install for live roots; use `--skip-artifact-trust-gate` only for isolated
+projection rehearsals under non-live roots.

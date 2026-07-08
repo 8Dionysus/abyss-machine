@@ -5,7 +5,8 @@ interfaces may remain in `tools/` until a mechanic owns them.
 
 Current public entrypoint:
 
-- `abyss-machine-bootstrap`: render, install, and enable profile surfaces.
+- `abyss-machine-bootstrap`: render, install, refresh installed code/public-seed
+  projections, and enable profile surfaces.
 - `ci_gate.py`: run manifest-backed validation lanes from GitHub, OS Abyss
   local CLI, host schedulers, release pipelines, or agent loops.
 - `generate_contract_abi_signatures.py`: build the public contract ABI

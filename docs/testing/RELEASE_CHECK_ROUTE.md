@@ -71,6 +71,23 @@ Closeout reports should use `--summary --json`, which keeps drift counts,
 bounded samples, runtime check status, and warning/failure counts while omitting
 path details, digest values, raw runtime stderr/stdout, and raw runtime JSON.
 
+If the only live drift after a source landing is installed CLI/package modules
+or compact public seed files, close it with the bounded bootstrap route:
+
+```bash
+abyss-machine changes preflight --intent "refresh installed abyss-machine code from landed source" --surface /usr/local/bin/abyss-machine --surface /usr/local/libexec/abyss-machine --surface /usr/local/share/abyss-machine --json
+scripts/abyss-machine-bootstrap refresh-code --dry-run --json
+scripts/abyss-machine-bootstrap refresh-code --apply --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --summary --json
+```
+
+Use full `install --apply` only when config templates, root creation, or systemd
+unit projection must change. `refresh-code` does not render `/etc` or systemd,
+and it does not authorize skipping the artifact trust gate for live defaults.
+The apply command must include the admitted bundle selector for production/live
+roots; `--skip-artifact-trust-gate` remains limited to isolated projection
+rehearsals.
+
 For storage apply adapter changes, public CI should rely on fake-port tests and
 live-safe `storage cleanup-plan` / `storage apply --dry-run` summaries. Do not
 run `storage apply --confirm` as validation unless the operator explicitly

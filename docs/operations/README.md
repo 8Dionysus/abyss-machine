@@ -28,3 +28,19 @@ For an actual host projection, close the loop explicitly:
 
 The temp validator never enables units, runs collectors, records live ledger
 entries, or writes raw typing/browser evidence.
+
+For an already-installed host where source/install/runtime parity drift is only
+the installed CLI/package/public-seed projection, prefer the narrower route:
+
+```bash
+scripts/abyss-machine-bootstrap refresh-code --dry-run --json
+scripts/abyss-machine-bootstrap refresh-code --apply --json
+PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --summary --json
+```
+
+`refresh-code` does not render `/etc/abyss-machine` or systemd units, so no
+daemon reload is needed unless another step changes unit files. It still
+requires change-ledger preflight before live `/usr/local` mutation and a closeout
+with rollback notes after parity and touched-organ smoke checks. Live-root
+refresh uses the same admitted install-bundle selector as full install; the
+artifact-gate skip remains limited to isolated projection rehearsals.

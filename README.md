@@ -28,6 +28,7 @@ python -m pip install -e .
 scripts/abyss-machine-bootstrap doctor --dry-run --json
 scripts/abyss-machine-bootstrap render --profile linux-systemd-core --dry-run --json
 scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json
+scripts/abyss-machine-bootstrap refresh-code --dry-run --json
 python scripts/validators/first_run_installed_projection.py --json
 ```
 
@@ -41,6 +42,9 @@ Bootstrap installs the CLI entrypoint together with its `abyss_machine` package
 modules and a compact public seed projection under
 `/usr/local/share/abyss-machine` so installed validators and read models do not
 depend on a live source checkout.
+After a host is already installed, `refresh-code` refreshes only the installed
+CLI/package modules and compact public seed share projection; use full
+`install --apply` for config, root, or systemd projection changes.
 Shared validation summary and validation-document envelopes live in
 `abyss_machine.validation_contracts`; the CLI supplies schema, version, current
 time, and subsystem-specific facts.
