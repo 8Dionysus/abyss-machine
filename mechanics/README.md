@@ -52,7 +52,8 @@ Use these mechanic owners for the next extraction slices:
   bounded status latest summaries, resource preflight guard decisions, bounded
   HTTP status probe ports, working-stack endpoint/TCP/container runtime probes,
   TTS smoke artifact evidence/probe projection, working-stack source inventory
-  projections, working-stack model/tool bridge policy, probe/cycle
+  projections, working-stack inventory assembly/readmodel, working-stack
+  model/tool bridge policy, probe/cycle
   resource-denial documents, probe result/movement-smoke document assembly,
   cycle artifact step manifest/order/nonblocking bridge policy, cycle artifact
   evidence snapshots, cycle open-requirement/issue guard input assembly, cycle

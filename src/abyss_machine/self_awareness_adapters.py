@@ -42,6 +42,9 @@ PathSha256Port = Callable[[Path], str]
 JsonDocumentLoaderPort = Callable[[Path], tuple[Any, str | None]]
 SidecarDocumentLoaderPort = Callable[[str], Any]
 WavFormatReaderPort = Callable[[Path], dict[str, Any]]
+PidAlivePort = Callable[[int], bool]
+ContainerToolProbesPort = Callable[[dict[str, dict[str, Any]], bool], list[dict[str, Any]]]
+TtsSmokeProbesPort = Callable[[bool], list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -967,6 +970,19 @@ def normalize_stack_service_name(value: Any) -> str:
     return aliases.get(name, name)
 
 
+def service_from_container(item: Mapping[str, Any]) -> str:
+    compose = item.get("compose") if isinstance(item.get("compose"), Mapping) else {}
+    service = normalize_stack_service_name(compose.get("service"))
+    if service:
+        return service
+    names = item.get("names") if isinstance(item.get("names"), list) else []
+    for name in [item.get("name"), *names]:
+        service = normalize_stack_service_name(name)
+        if service:
+            return service
+    return "unknown"
+
+
 def working_stack_service_selection_policy(
     *,
     schema_prefix: str,
@@ -1591,6 +1607,305 @@ def working_stack_model_bridge(
             "host_layer_mutates_stack": False,
             "writes_project_roots": False,
             "model_promotion_decision": False,
+        },
+    }
+
+
+def _working_stack_usage_gap_reason(status: str) -> str | None:
+    if status == "runtime_visible_unproven_deep_use":
+        return "running stack organ is visible, but no deeper machine usage path is proven yet"
+    if status == "endpoint_visible_unproven_deep_use":
+        return "endpoint is readable, but no sustained machine reasoning path is proven yet"
+    if status == "tool_runtime_degraded":
+        return "stack tool is reachable and guarded, but its functional runtime smoke failed"
+    if status == "tool_guard_visible_unproven_deep_use":
+        return "stack tool health and safety guard are visible, but functional runtime smoke is not proven yet"
+    if status == "declared_not_running":
+        return "declared stack service is not running in the current runtime body"
+    if status == "model_root_visible":
+        return "stack model root is visible, but no direct runtime/service linkage is proven yet"
+    return None
+
+
+def working_stack_inventory_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    stack_paths: Mapping[str, Any],
+    stack_doc: Mapping[str, Any],
+    container_health: Mapping[str, Any],
+    compose_inventory: Mapping[str, Any],
+    service_roots_inventory: Mapping[str, Any],
+    model_inventory: Mapping[str, Any],
+    selection_policy: Mapping[str, Any],
+    ai_caps: Mapping[str, Any],
+    initial_endpoint_probes: Iterable[Mapping[str, Any]],
+    include_endpoint_probes: bool,
+    pid_alive: PidAlivePort,
+    container_tool_probes: ContainerToolProbesPort,
+    tts_smoke_probes: TtsSmokeProbesPort,
+    ai_model_roots: Iterable[Path | str],
+    latest_paths: Mapping[str, Path | str],
+    expected_live_services: Iterable[str],
+) -> dict[str, Any]:
+    selection_by_service = selection_policy.get("services") if isinstance(selection_policy.get("services"), Mapping) else {}
+
+    declared_by_service = {
+        str(row.get("service")): row
+        for row in compose_inventory.get("services", [])
+        if isinstance(row, Mapping) and row.get("service")
+    }
+    service_roots_by_service: dict[str, list[Mapping[str, Any]]] = {}
+    for row in service_roots_inventory.get("services", []) if isinstance(service_roots_inventory.get("services"), list) else []:
+        if isinstance(row, Mapping) and row.get("service"):
+            service_roots_by_service.setdefault(str(row["service"]), []).append(row)
+    model_roots_by_service: dict[str, list[Mapping[str, Any]]] = {}
+    for row in model_inventory.get("models", []) if isinstance(model_inventory.get("models"), list) else []:
+        if not isinstance(row, Mapping):
+            continue
+        for service in row.get("service_candidates", []) if isinstance(row.get("service_candidates"), list) else []:
+            model_roots_by_service.setdefault(str(service), []).append(row)
+
+    endpoint_probes: list[dict[str, Any]] = [dict(probe) for probe in initial_endpoint_probes if isinstance(probe, Mapping)]
+    probes_by_service: dict[str, list[dict[str, Any]]] = {}
+    for probe in endpoint_probes:
+        if probe.get("service"):
+            probes_by_service.setdefault(str(probe["service"]), []).append(probe)
+
+    expected_live = tuple(str(service) for service in expected_live_services)
+    runtime_by_service: dict[str, dict[str, Any]] = {}
+    containers = container_health.get("containers") if isinstance(container_health.get("containers"), list) else []
+    for item in containers:
+        if not isinstance(item, Mapping):
+            continue
+        service = service_from_container(item)
+        compose = item.get("compose") if isinstance(item.get("compose"), Mapping) else {}
+        stack_managed = bool(compose.get("stack_managed") or compose.get("project") == "abyss")
+        known = (
+            service in declared_by_service
+            or service in expected_live
+            or service in service_roots_by_service
+            or service in probes_by_service
+        )
+        if not stack_managed and not known:
+            continue
+        container_pid = _safe_int(item.get("pid"), 0)
+        runtime_by_service[service] = {
+            "service": service,
+            "container": item.get("name"),
+            "pid": container_pid if container_pid > 0 else None,
+            "pid_alive": pid_alive(container_pid) if container_pid > 0 else False,
+            "names": item.get("names") if isinstance(item.get("names"), list) else [],
+            "running": bool(item.get("running")),
+            "state": item.get("state"),
+            "status": item.get("status"),
+            "health": item.get("health"),
+            "restart_count": item.get("restart_count"),
+            "ports": item.get("ports"),
+            "compose": dict(compose),
+            "attention_reasons": item.get("attention_reasons") if isinstance(item.get("attention_reasons"), list) else [],
+            "evidence_refs": [{
+                "path": str(latest_paths.get("process_container") or ""),
+                "schema": container_health.get("schema"),
+                "service": service,
+                "container": item.get("name"),
+            }],
+        }
+
+    endpoint_probes.extend(container_tool_probes(runtime_by_service, include_endpoint_probes))
+    endpoint_probes.extend(tts_smoke_probes(include_endpoint_probes))
+    probes_by_service = {}
+    for probe in endpoint_probes:
+        if isinstance(probe, Mapping) and probe.get("service"):
+            probes_by_service.setdefault(str(probe["service"]), []).append(dict(probe))
+
+    service_names = sorted(
+        set(declared_by_service)
+        | set(service_roots_by_service)
+        | set(model_roots_by_service)
+        | set(probes_by_service)
+        | set(runtime_by_service)
+    )
+    organs: list[dict[str, Any]] = []
+    usage_gaps: list[dict[str, Any]] = []
+    links: list[dict[str, Any]] = []
+    latest_paths_for_bridge = {
+        "ai_capabilities": latest_paths.get("ai_capabilities") or "",
+        "ai_llm_registry": latest_paths.get("ai_llm_registry") or "",
+        "ai_tts_profiles": latest_paths.get("ai_tts_profiles") or "",
+        "ai_tts_eval_success": latest_paths.get("ai_tts_eval_success") or "",
+    }
+    working_stack_schema = f"{schema_prefix}_self_awareness_working_stack_inventory_v1"
+    for service in service_names:
+        runtime = runtime_by_service.get(service, {})
+        declared = declared_by_service.get(service, {})
+        root_rows = service_roots_by_service.get(service, [])
+        model_rows = model_roots_by_service.get(service, [])
+        probes = probes_by_service.get(service, [])
+        endpoint_ok = any(probe.get("ok") is True for probe in probes)
+        running = bool(runtime.get("running"))
+        model_bridge = working_stack_model_bridge(
+            service,
+            model_rows,
+            ai_caps,
+            schema_prefix=schema_prefix,
+            ai_model_roots=ai_model_roots,
+            latest_paths=latest_paths_for_bridge,
+        )
+        usage_status = self_awareness_contracts.working_stack_status(
+            service,
+            running=running,
+            declared=bool(declared),
+            endpoint_ok=endpoint_ok,
+            model_roots=len(model_rows),
+        )
+        usage_status = working_stack_tool_status(service, usage_status, probes)
+        if usage_status == "model_root_visible" and model_bridge.get("active") is True:
+            usage_status = "active_model_root_bridge"
+        selection = selection_by_service.get(service) if isinstance(selection_by_service.get(service), Mapping) else {}
+        usage_status = self_awareness_contracts.working_stack_policy_status(usage_status, selection)
+        gap_reason = _working_stack_usage_gap_reason(usage_status)
+        link = self_awareness_contracts.working_stack_link(
+            service,
+            generated_at,
+            status=usage_status,
+            container=str(runtime.get("container") or "") or None,
+            pid=runtime.get("pid") if isinstance(runtime.get("pid"), int) else None,
+            endpoint_ok=endpoint_ok,
+            schema_prefix=schema_prefix,
+        )
+        links.append(link)
+        stack_source_refs: list[Any] = []
+        if isinstance(declared.get("stack_source_refs"), list):
+            stack_source_refs.extend(declared["stack_source_refs"])
+        for root_row in root_rows:
+            stack_source_refs.extend(root_row.get("stack_source_refs") if isinstance(root_row.get("stack_source_refs"), list) else [])
+        for model_row in model_rows[:8]:
+            stack_source_refs.extend(model_row.get("stack_source_refs") if isinstance(model_row.get("stack_source_refs"), list) else [])
+        organ = {
+            "schema": f"{schema_prefix}_self_awareness_working_stack_organ_v1",
+            "service": service,
+            "owner_surface": "abyss-stack",
+            "machine_role": "read_only_consumer",
+            "roles": self_awareness_contracts.working_stack_roles(service),
+            "runtime": runtime or {"present": False, "running": False},
+            "declared": {
+                "present": bool(declared),
+                "modules": declared.get("modules") if isinstance(declared, Mapping) else [],
+            },
+            "service_roots": len(root_rows),
+            "model_roots": len(model_rows),
+            "endpoint_probes": probes,
+            "endpoint_ok": endpoint_ok,
+            "model_bridge": model_bridge,
+            "service_selection": dict(selection),
+            "machine_usage_status": usage_status,
+            "deep_usage_proven": usage_status in {"active_machine_signal", "active_dependency_signal", "active_machine_tool_signal", "active_model_root_bridge", "recent_on_demand_tool_signal"},
+            "usage_gap": gap_reason,
+            "time_space_context_link": link,
+            "evidence_refs": [
+                {
+                    "path": str(latest_paths.get("working_stack") or ""),
+                    "schema": working_stack_schema,
+                    "service": service,
+                },
+                *runtime.get("evidence_refs", []),
+                *(model_bridge.get("evidence_refs", []) if isinstance(model_bridge.get("evidence_refs"), list) and model_bridge.get("active") is True else []),
+            ],
+            "stack_source_refs": stack_source_refs[:24],
+            "policy": {
+                "read_only": True,
+                "host_layer_mutates_stack": False,
+                "writes_project_roots": False,
+                "raw_evidence_is_not_truth": True,
+            },
+        }
+        organs.append(organ)
+        if gap_reason:
+            usage_gaps.append({
+                "service": service,
+                "status": usage_status,
+                "reason": gap_reason,
+                "owner_surface": "abyss-stack",
+                "machine_next_step": "wire a bounded read-only query/health/semantic route before treating this organ as deeply used",
+                "policy": {"host_layer_mutates_stack": False, "automatic_remediation": False},
+            })
+
+    active_runtime_services = sorted(service for service, row in runtime_by_service.items() if row.get("running"))
+    missing_expected_live = sorted(service for service in expected_live if service not in active_runtime_services)
+    organ_services = sorted(str(organ.get("service")) for organ in organs if organ.get("service"))
+    endpoint_probe_services = sorted(str(probe.get("service")) for probe in endpoint_probes if isinstance(probe, Mapping) and probe.get("service"))
+    deep_usage_proven_services = sorted(str(organ.get("service")) for organ in organs if organ.get("service") and organ.get("deep_usage_proven") is True)
+    organs_without_endpoint_probe = sorted(set(organ_services) - set(endpoint_probe_services))
+    return {
+        "schema": working_stack_schema,
+        "version": version,
+        "generated_at": generated_at,
+        "ok": bool(organs and runtime_by_service and compose_inventory.get("ok")),
+        "status": "mapped_with_usage_gaps" if usage_gaps else "mapped",
+        "summary": {
+            "organs": len(organs),
+            "runtime_services": len(runtime_by_service),
+            "running_services": len(active_runtime_services),
+            "declared_services": len(declared_by_service),
+            "service_roots": _nested_get(service_roots_inventory, ["summary", "service_roots"]),
+            "model_roots": _nested_get(model_inventory, ["summary", "model_roots"]),
+            "endpoint_probes": len(endpoint_probes),
+            "endpoint_ok": sum(1 for probe in endpoint_probes if probe.get("ok") is True),
+            "time_space_context_links": len(links),
+            "usage_gaps": len(usage_gaps),
+            "policy_deferred_services": sum(1 for organ in organs if str(organ.get("machine_usage_status") or "").startswith("policy_deferred_")),
+            "missing_expected_live": missing_expected_live,
+            "active_runtime_services": active_runtime_services,
+            "organ_services": organ_services,
+            "endpoint_probe_services": endpoint_probe_services,
+            "deep_usage_proven_services": deep_usage_proven_services,
+            "organs_without_endpoint_probe": organs_without_endpoint_probe,
+        },
+        "owner_boundary": {
+            "stack_owner": "abyss-stack",
+            "machine_role": "read_only_consumer",
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+        },
+        "policy": {
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "automatic_remediation": False,
+            "raw_evidence_is_not_truth": True,
+            "endpoint_bodies_stored": False,
+            "stack_source_refs_are_read_only": True,
+        },
+        "stack_paths": dict(stack_paths),
+        "compose": dict(compose_inventory),
+        "service_roots": dict(service_roots_inventory),
+        "model_roots": dict(model_inventory),
+        "service_selection_policy": dict(selection_policy),
+        "endpoint_probes": endpoint_probes,
+        "runtime_services": list(runtime_by_service.values()),
+        "organs": organs,
+        "time_space_context_links": links,
+        "machine_usage_gaps": usage_gaps,
+        "evidence_refs": [
+            {"path": str(latest_paths.get("process_container") or ""), "schema": container_health.get("schema")},
+            {"path": str(latest_paths.get("stack_observability") or ""), "schema": stack_doc.get("schema")},
+            {"path": str(latest_paths.get("working_stack") or ""), "schema": working_stack_schema},
+        ],
+        "stack_source_refs": ([
+            ref
+            for source in (compose_inventory.get("module_refs") if isinstance(compose_inventory.get("module_refs"), list) else [])
+            for ref in [source]
+        ] + [
+            doc.get("source_ref")
+            for doc in (selection_policy.get("documents") if isinstance(selection_policy.get("documents"), list) else [])
+            if isinstance(doc, Mapping) and isinstance(doc.get("source_ref"), Mapping)
+        ])[:96],
+        "tests": {
+            "live_smoke": "abyss-machine self-awareness working-stack --json",
+            "fabric_smoke": "abyss-machine self-awareness collect --json then inspect working-stack service events",
+            "boundary": "stack paths appear only as read-only stack_source_refs; event evidence_refs use host-owned readmodels",
         },
     }
 

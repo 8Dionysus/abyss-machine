@@ -33214,16 +33214,7 @@ def self_awareness_working_stack_policy_status(status: str, selection: dict[str,
 
 
 def self_awareness_service_from_container(item: dict[str, Any]) -> str:
-    compose = item.get("compose") if isinstance(item.get("compose"), dict) else {}
-    service = self_awareness_normalize_stack_service_name(compose.get("service"))
-    if service:
-        return service
-    names = item.get("names") if isinstance(item.get("names"), list) else []
-    for name in [item.get("name"), *names]:
-        service = self_awareness_normalize_stack_service_name(name)
-        if service:
-            return service
-    return "unknown"
+    return self_awareness_adapters.service_from_container(item)
 
 
 def self_awareness_stack_compose_module_roots() -> list[Path]:
@@ -33569,259 +33560,35 @@ def self_awareness_working_stack_inventory(
     generated_at = now_iso()
     stack_doc = stack_doc if isinstance(stack_doc, dict) else stack_bridge_observability(write_latest=True)
     container_health = container_health if isinstance(container_health, dict) else process_container_health(write_latest=True)
-    compose_inventory = self_awareness_stack_compose_service_inventory()
-    service_roots_inventory = self_awareness_stack_service_root_inventory()
-    model_inventory = self_awareness_stack_model_root_inventory()
-    ai_caps = ai_capabilities_latest()
-    selection_policy = self_awareness_working_stack_service_selection_policy()
-    selection_by_service = selection_policy.get("services") if isinstance(selection_policy.get("services"), dict) else {}
-    endpoint_probes = self_awareness_working_stack_endpoint_probes(enabled=include_endpoint_probes)
-
-    declared_by_service = {
-        str(row.get("service")): row
-        for row in compose_inventory.get("services", [])
-        if isinstance(row, dict) and row.get("service")
-    }
-    service_roots_by_service: dict[str, list[dict[str, Any]]] = {}
-    for row in service_roots_inventory.get("services", []) if isinstance(service_roots_inventory.get("services"), list) else []:
-        if isinstance(row, dict) and row.get("service"):
-            service_roots_by_service.setdefault(str(row["service"]), []).append(row)
-    model_roots_by_service: dict[str, list[dict[str, Any]]] = {}
-    for row in model_inventory.get("models", []) if isinstance(model_inventory.get("models"), list) else []:
-        if not isinstance(row, dict):
-            continue
-        for service in row.get("service_candidates", []) if isinstance(row.get("service_candidates"), list) else []:
-            model_roots_by_service.setdefault(str(service), []).append(row)
-    probes_by_service: dict[str, list[dict[str, Any]]] = {}
-    for probe in endpoint_probes:
-        if isinstance(probe, dict) and probe.get("service"):
-            probes_by_service.setdefault(str(probe["service"]), []).append(probe)
-
-    runtime_by_service: dict[str, dict[str, Any]] = {}
-    containers = container_health.get("containers") if isinstance(container_health.get("containers"), list) else []
-    for item in containers:
-        if not isinstance(item, dict):
-            continue
-        service = self_awareness_service_from_container(item)
-        compose = item.get("compose") if isinstance(item.get("compose"), dict) else {}
-        stack_managed = bool(compose.get("stack_managed") or compose.get("project") == "abyss")
-        known = (
-            service in declared_by_service
-            or service in SELF_AWARENESS_WORKING_STACK_EXPECTED_LIVE_SERVICES
-            or service in service_roots_by_service
-            or service in probes_by_service
-        )
-        if not stack_managed and not known:
-            continue
-        container_pid = safe_int(item.get("pid"), 0)
-        runtime_by_service[service] = {
-            "service": service,
-            "container": item.get("name"),
-            "pid": container_pid if container_pid > 0 else None,
-            "pid_alive": pid_alive(container_pid) if container_pid > 0 else False,
-            "names": item.get("names") if isinstance(item.get("names"), list) else [],
-            "running": bool(item.get("running")),
-            "state": item.get("state"),
-            "status": item.get("status"),
-            "health": item.get("health"),
-            "restart_count": item.get("restart_count"),
-            "ports": item.get("ports"),
-            "compose": compose,
-            "attention_reasons": item.get("attention_reasons") if isinstance(item.get("attention_reasons"), list) else [],
-            "evidence_refs": [{
-                "path": str(PROCESS_CONTAINER_LATEST_PATH),
-                "schema": container_health.get("schema"),
-                "service": service,
-                "container": item.get("name"),
-            }],
-            }
-
-    endpoint_probes.extend(self_awareness_working_stack_container_tool_probes(runtime_by_service, enabled=include_endpoint_probes))
-    endpoint_probes.extend(self_awareness_working_stack_tts_smoke_probes(enabled=include_endpoint_probes))
-    probes_by_service = {}
-    for probe in endpoint_probes:
-        if isinstance(probe, dict) and probe.get("service"):
-            probes_by_service.setdefault(str(probe["service"]), []).append(probe)
-
-    service_names = sorted(set(declared_by_service) | set(service_roots_by_service) | set(model_roots_by_service) | set(probes_by_service) | set(runtime_by_service))
-    organs: list[dict[str, Any]] = []
-    usage_gaps: list[dict[str, Any]] = []
-    links: list[dict[str, Any]] = []
-    for service in service_names:
-        runtime = runtime_by_service.get(service, {})
-        declared = declared_by_service.get(service, {})
-        root_rows = service_roots_by_service.get(service, [])
-        model_rows = model_roots_by_service.get(service, [])
-        probes = probes_by_service.get(service, [])
-        endpoint_ok = any(probe.get("ok") is True for probe in probes)
-        running = bool(runtime.get("running"))
-        model_bridge = self_awareness_working_stack_model_bridge(service, model_rows, ai_caps)
-        usage_status = self_awareness_working_stack_status(
-            service,
-            running=running,
-            declared=bool(declared),
-            endpoint_ok=endpoint_ok,
-            model_roots=len(model_rows),
-        )
-        usage_status = self_awareness_working_stack_tool_status(service, usage_status, probes)
-        if usage_status == "model_root_visible" and model_bridge.get("active") is True:
-            usage_status = "active_model_root_bridge"
-        selection = selection_by_service.get(service) if isinstance(selection_by_service.get(service), dict) else {}
-        usage_status = self_awareness_working_stack_policy_status(usage_status, selection)
-        gap_reason = None
-        if usage_status == "runtime_visible_unproven_deep_use":
-            gap_reason = "running stack organ is visible, but no deeper machine usage path is proven yet"
-        elif usage_status == "endpoint_visible_unproven_deep_use":
-            gap_reason = "endpoint is readable, but no sustained machine reasoning path is proven yet"
-        elif usage_status == "tool_runtime_degraded":
-            gap_reason = "stack tool is reachable and guarded, but its functional runtime smoke failed"
-        elif usage_status == "tool_guard_visible_unproven_deep_use":
-            gap_reason = "stack tool health and safety guard are visible, but functional runtime smoke is not proven yet"
-        elif usage_status == "declared_not_running":
-            gap_reason = "declared stack service is not running in the current runtime body"
-        elif usage_status == "model_root_visible":
-            gap_reason = "stack model root is visible, but no direct runtime/service linkage is proven yet"
-        link = self_awareness_working_stack_link(
-            service,
-            generated_at,
-            status=usage_status,
-            container=str(runtime.get("container") or "") or None,
-            pid=runtime.get("pid") if isinstance(runtime.get("pid"), int) else None,
-            endpoint_ok=endpoint_ok,
-        )
-        links.append(link)
-        stack_source_refs = []
-        if isinstance(declared.get("stack_source_refs"), list):
-            stack_source_refs.extend(declared["stack_source_refs"])
-        for root_row in root_rows:
-            stack_source_refs.extend(root_row.get("stack_source_refs") if isinstance(root_row.get("stack_source_refs"), list) else [])
-        for model_row in model_rows[:8]:
-            stack_source_refs.extend(model_row.get("stack_source_refs") if isinstance(model_row.get("stack_source_refs"), list) else [])
-        organ = {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_working_stack_organ_v1",
-            "service": service,
-            "owner_surface": "abyss-stack",
-            "machine_role": "read_only_consumer",
-            "roles": self_awareness_working_stack_roles(service),
-            "runtime": runtime or {"present": False, "running": False},
-            "declared": {
-                "present": bool(declared),
-                "modules": declared.get("modules") if isinstance(declared, dict) else [],
-            },
-            "service_roots": len(root_rows),
-            "model_roots": len(model_rows),
-            "endpoint_probes": probes,
-            "endpoint_ok": endpoint_ok,
-            "model_bridge": model_bridge,
-            "service_selection": selection,
-            "machine_usage_status": usage_status,
-            "deep_usage_proven": usage_status in {"active_machine_signal", "active_dependency_signal", "active_machine_tool_signal", "active_model_root_bridge", "recent_on_demand_tool_signal"},
-            "usage_gap": gap_reason,
-            "time_space_context_link": link,
-            "evidence_refs": [
-                {
-                    "path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH),
-                    "schema": f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1",
-                    "service": service,
-                },
-                *runtime.get("evidence_refs", []),
-                *(model_bridge.get("evidence_refs", []) if isinstance(model_bridge.get("evidence_refs"), list) and model_bridge.get("active") is True else []),
-            ],
-            "stack_source_refs": stack_source_refs[:24],
-            "policy": {
-                "read_only": True,
-                "host_layer_mutates_stack": False,
-                "writes_project_roots": False,
-                "raw_evidence_is_not_truth": True,
-            },
-        }
-        organs.append(organ)
-        if gap_reason:
-            usage_gaps.append({
-                "service": service,
-                "status": usage_status,
-                "reason": gap_reason,
-                "owner_surface": "abyss-stack",
-                "machine_next_step": "wire a bounded read-only query/health/semantic route before treating this organ as deeply used",
-                "policy": {"host_layer_mutates_stack": False, "automatic_remediation": False},
-            })
-
-    active_runtime_services = sorted(service for service, row in runtime_by_service.items() if row.get("running"))
-    missing_expected_live = sorted(service for service in SELF_AWARENESS_WORKING_STACK_EXPECTED_LIVE_SERVICES if service not in active_runtime_services)
-    organ_services = sorted(str(organ.get("service")) for organ in organs if isinstance(organ, dict) and organ.get("service"))
-    endpoint_probe_services = sorted(str(probe.get("service")) for probe in endpoint_probes if isinstance(probe, dict) and probe.get("service"))
-    deep_usage_proven_services = sorted(str(organ.get("service")) for organ in organs if isinstance(organ, dict) and organ.get("service") and organ.get("deep_usage_proven") is True)
-    organs_without_endpoint_probe = sorted(set(organ_services) - set(endpoint_probe_services))
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": bool(organs and runtime_by_service and compose_inventory.get("ok")),
-        "status": "mapped_with_usage_gaps" if usage_gaps else "mapped",
-        "summary": {
-            "organs": len(organs),
-            "runtime_services": len(runtime_by_service),
-            "running_services": len(active_runtime_services),
-            "declared_services": len(declared_by_service),
-            "service_roots": nested_get(service_roots_inventory, ["summary", "service_roots"]),
-            "model_roots": nested_get(model_inventory, ["summary", "model_roots"]),
-            "endpoint_probes": len(endpoint_probes),
-            "endpoint_ok": sum(1 for probe in endpoint_probes if probe.get("ok") is True),
-            "time_space_context_links": len(links),
-            "usage_gaps": len(usage_gaps),
-            "policy_deferred_services": sum(1 for organ in organs if str(organ.get("machine_usage_status") or "").startswith("policy_deferred_")),
-            "missing_expected_live": missing_expected_live,
-            "active_runtime_services": active_runtime_services,
-            "organ_services": organ_services,
-            "endpoint_probe_services": endpoint_probe_services,
-            "deep_usage_proven_services": deep_usage_proven_services,
-            "organs_without_endpoint_probe": organs_without_endpoint_probe,
+    data = self_awareness_adapters.working_stack_inventory_document(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=generated_at,
+        stack_paths=stack_paths(),
+        stack_doc=stack_doc,
+        container_health=container_health,
+        compose_inventory=self_awareness_stack_compose_service_inventory(),
+        service_roots_inventory=self_awareness_stack_service_root_inventory(),
+        model_inventory=self_awareness_stack_model_root_inventory(),
+        selection_policy=self_awareness_working_stack_service_selection_policy(),
+        ai_caps=ai_capabilities_latest(),
+        initial_endpoint_probes=self_awareness_working_stack_endpoint_probes(enabled=include_endpoint_probes),
+        include_endpoint_probes=include_endpoint_probes,
+        pid_alive=pid_alive,
+        container_tool_probes=self_awareness_working_stack_container_tool_probes,
+        tts_smoke_probes=self_awareness_working_stack_tts_smoke_probes,
+        ai_model_roots=AI_MODEL_ROOTS,
+        latest_paths={
+            "process_container": PROCESS_CONTAINER_LATEST_PATH,
+            "stack_observability": STACK_OBSERVABILITY_LATEST_PATH,
+            "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+            "ai_capabilities": AI_CAPABILITIES_LATEST_PATH,
+            "ai_llm_registry": AI_LLM_REGISTRY_LATEST_PATH,
+            "ai_tts_profiles": AI_TTS_PROFILES_LATEST_PATH,
+            "ai_tts_eval_success": AI_TTS_EVAL_LATEST_SUCCESS_PATH,
         },
-        "owner_boundary": {
-            "stack_owner": "abyss-stack",
-            "machine_role": "read_only_consumer",
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-        },
-        "policy": {
-            "read_only": True,
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-            "automatic_remediation": False,
-            "raw_evidence_is_not_truth": True,
-            "endpoint_bodies_stored": False,
-            "stack_source_refs_are_read_only": True,
-        },
-        "stack_paths": stack_paths(),
-        "compose": compose_inventory,
-        "service_roots": service_roots_inventory,
-        "model_roots": model_inventory,
-        "service_selection_policy": selection_policy,
-        "endpoint_probes": endpoint_probes,
-        "runtime_services": list(runtime_by_service.values()),
-        "organs": organs,
-        "time_space_context_links": links,
-        "machine_usage_gaps": usage_gaps,
-        "evidence_refs": [
-            {"path": str(PROCESS_CONTAINER_LATEST_PATH), "schema": container_health.get("schema")},
-            {"path": str(STACK_OBSERVABILITY_LATEST_PATH), "schema": stack_doc.get("schema")},
-            {"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1"},
-        ],
-        "stack_source_refs": ([
-            ref
-            for source in (compose_inventory.get("module_refs") if isinstance(compose_inventory.get("module_refs"), list) else [])
-            for ref in [source]
-        ] + [
-            doc.get("source_ref")
-            for doc in (selection_policy.get("documents") if isinstance(selection_policy.get("documents"), list) else [])
-            if isinstance(doc, dict) and isinstance(doc.get("source_ref"), dict)
-        ])[:96],
-        "tests": {
-            "live_smoke": "abyss-machine self-awareness working-stack --json",
-            "fabric_smoke": "abyss-machine self-awareness collect --json then inspect working-stack service events",
-            "boundary": "stack paths appear only as read-only stack_source_refs; event evidence_refs use host-owned readmodels",
-        },
-    }
+        expected_live_services=SELF_AWARENESS_WORKING_STACK_EXPECTED_LIVE_SERVICES,
+    )
     if write_latest:
         errors = write_latest_and_history(data, SELF_AWARENESS_WORKING_STACK_LATEST_PATH, SELF_AWARENESS_WORKING_STACK_ROOT)
         if errors:
