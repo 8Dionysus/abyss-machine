@@ -41,6 +41,9 @@ PathStatPort = Callable[[Path], Any]
 PathSha256Port = Callable[[Path], str]
 DailyJsonlPathPort = Callable[[Path], Path]
 MtimeIsoFormatterPort = Callable[[float], str]
+NowDatetimePort = Callable[[], dt.datetime]
+ParseTimePort = Callable[[Any], dt.datetime | None]
+ArtifactRefBuilderPort = Callable[[Path, Mapping[str, Any], str], dict[str, Any]]
 JsonDocumentLoaderPort = Callable[[Path], tuple[Any, str | None]]
 SidecarDocumentLoaderPort = Callable[[str], Any]
 WavFormatReaderPort = Callable[[Path], dict[str, Any]]
@@ -386,6 +389,54 @@ def artifact_ref(
     ref["size_bytes"] = stat.st_size
     ref["mtime"] = mtime_iso(float(stat.st_mtime))
     return ref
+
+
+def freshness_gate(
+    gate_id: str,
+    title: str,
+    path: Path,
+    doc: Mapping[str, Any],
+    truth_level: str,
+    *,
+    path_exists: PathExistsPort,
+    parse_time: ParseTimePort,
+    now_utc: NowDatetimePort,
+    artifact_ref: ArtifactRefBuilderPort,
+    ok: bool | None = None,
+    generated_at: Any = None,
+    stale: bool | None = None,
+    maintenance_route: str | None = None,
+    evidence_refs: Iterable[Mapping[str, Any]] | None = None,
+    details: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    generated_at = generated_at or (doc.get("generated_at") if isinstance(doc, Mapping) else None)
+    parsed = parse_time(generated_at)
+    age_sec = None
+    if parsed is not None:
+        age_sec = max(0, int((now_utc() - parsed.astimezone(dt.timezone.utc)).total_seconds()))
+    exists = path_exists(path)
+    doc_ok = doc.get("ok") if isinstance(doc, Mapping) else None
+    status_ok = bool(exists and (doc_ok is not False) and (ok is not False) and stale is not True)
+    refs: list[dict[str, Any]] = [artifact_ref(path, doc if isinstance(doc, Mapping) else {}, truth_level)]
+    if evidence_refs:
+        refs.extend(dict(ref) for ref in evidence_refs if isinstance(ref, Mapping))
+    gate = {
+        "gate_id": gate_id,
+        "title": title,
+        "status": "fresh" if status_ok else ("stale" if stale else "missing_or_degraded"),
+        "ok": status_ok,
+        "stale": bool(stale),
+        "generated_at": generated_at,
+        "age_sec": age_sec,
+        "maintenance_route": maintenance_route,
+        "blocks_deep_reasoning": not status_ok,
+        "freshness_must_precede_reasoning": True,
+        "raw_evidence_is_not_truth": True,
+        "evidence_refs": refs,
+    }
+    if details:
+        gate["details"] = dict(details)
+    return gate
 
 
 def body_closure_status_document(

@@ -220,6 +220,12 @@ on fake path-exists, path-stat, and mtime-format ports for public-safe evidence
 ref shape, missing-stat behavior, summary passthrough, and freshness/truth
 flags. Keep concrete filesystem path/stat binding at the CLI/live binding edge.
 
+For self-awareness freshness-gate adapter changes, public CI should rely on fake
+path-exists, parse-time, clock, and artifact-ref ports for age calculation,
+fresh/stale/missing status, evidence-ref filtering, and maintenance/details
+projection. Keep concrete path, clock, parser, and artifact-ref binding at the
+CLI/live binding edge.
+
 For self-awareness cycle artifact-evidence adapter changes, public CI should
 rely on fake-port tests for latest-artifact existence/stat/hash/mtime
 projection, missing artifact behavior, bridge steps with `requires_ok=false`,

@@ -36441,34 +36441,23 @@ def self_awareness_freshness_gate(
     evidence_refs: list[dict[str, Any]] | None = None,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    generated_at = generated_at or (doc.get("generated_at") if isinstance(doc, dict) else None)
-    parsed = self_awareness_parse_time(generated_at)
-    age_sec = None
-    if parsed is not None:
-        age_sec = max(0, int((dt.datetime.now(dt.timezone.utc) - parsed.astimezone(dt.timezone.utc)).total_seconds()))
-    exists = path.exists()
-    doc_ok = doc.get("ok") if isinstance(doc, dict) else None
-    status_ok = bool(exists and (doc_ok is not False) and (ok is not False) and stale is not True)
-    refs = [self_awareness_artifact_ref(path, doc if isinstance(doc, dict) else {}, truth_level)]
-    if evidence_refs:
-        refs.extend(ref for ref in evidence_refs if isinstance(ref, dict))
-    gate = {
-        "gate_id": gate_id,
-        "title": title,
-        "status": "fresh" if status_ok else ("stale" if stale else "missing_or_degraded"),
-        "ok": status_ok,
-        "stale": bool(stale),
-        "generated_at": generated_at,
-        "age_sec": age_sec,
-        "maintenance_route": maintenance_route,
-        "blocks_deep_reasoning": not status_ok,
-        "freshness_must_precede_reasoning": True,
-        "raw_evidence_is_not_truth": True,
-        "evidence_refs": refs,
-    }
-    if details:
-        gate["details"] = details
-    return gate
+    return self_awareness_adapters.freshness_gate(
+        gate_id,
+        title,
+        path,
+        doc,
+        truth_level,
+        path_exists=lambda candidate: candidate.exists(),
+        parse_time=self_awareness_parse_time,
+        now_utc=lambda: dt.datetime.now(dt.timezone.utc),
+        artifact_ref=self_awareness_artifact_ref,
+        ok=ok,
+        generated_at=generated_at,
+        stale=stale,
+        maintenance_route=maintenance_route,
+        evidence_refs=evidence_refs,
+        details=details,
+    )
 
 
 def self_awareness_memory_space_overlay(

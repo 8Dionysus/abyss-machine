@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import wave
 from pathlib import Path
@@ -281,6 +282,78 @@ def test_artifact_ref_keeps_public_safe_shape_when_stat_missing(tmp_path: Path) 
         "raw_evidence_is_not_truth": True,
     }
     assert mtime_calls == []
+
+
+def test_freshness_gate_uses_fake_ports_for_age_status_and_refs(tmp_path: Path) -> None:
+    latest_path = tmp_path / "rag" / "latest.json"
+    calls: dict[str, list[Any]] = {"exists": [], "parse": [], "artifact": []}
+
+    def fake_artifact_ref(path: Path, doc: dict[str, Any], truth_level: str) -> dict[str, Any]:
+        calls["artifact"].append((path, doc, truth_level))
+        return {"path": str(path), "truth_level": truth_level, "exists": True}
+
+    extra_refs: list[Any] = [{"path": "/tmp/extra.json"}, "not-a-ref"]
+    gate = self_awareness_adapters.freshness_gate(
+        "rag_trace",
+        "Machine RAG trace packet",
+        latest_path,
+        {"schema": "abyss_machine_rag_trace_v1", "generated_at": "2026-07-08T12:00:00+00:00", "ok": True},
+        "generated_rag_trace",
+        path_exists=lambda path: calls["exists"].append(path) or True,
+        parse_time=lambda value: calls["parse"].append(value) or dt.datetime(2026, 7, 8, 12, 0, tzinfo=dt.timezone.utc),
+        now_utc=lambda: dt.datetime(2026, 7, 8, 12, 2, 30, tzinfo=dt.timezone.utc),
+        artifact_ref=fake_artifact_ref,
+        ok=True,
+        maintenance_route="abyss-machine rag trace --query TEXT --json",
+        evidence_refs=extra_refs,
+        details={"checks": 2},
+    )
+
+    assert gate == {
+        "gate_id": "rag_trace",
+        "title": "Machine RAG trace packet",
+        "status": "fresh",
+        "ok": True,
+        "stale": False,
+        "generated_at": "2026-07-08T12:00:00+00:00",
+        "age_sec": 150,
+        "maintenance_route": "abyss-machine rag trace --query TEXT --json",
+        "blocks_deep_reasoning": False,
+        "freshness_must_precede_reasoning": True,
+        "raw_evidence_is_not_truth": True,
+        "evidence_refs": [
+            {"path": str(latest_path), "truth_level": "generated_rag_trace", "exists": True},
+            {"path": "/tmp/extra.json"},
+        ],
+        "details": {"checks": 2},
+    }
+    assert calls["exists"] == [latest_path]
+    assert calls["parse"] == ["2026-07-08T12:00:00+00:00"]
+    assert calls["artifact"] == [(latest_path, {"schema": "abyss_machine_rag_trace_v1", "generated_at": "2026-07-08T12:00:00+00:00", "ok": True}, "generated_rag_trace")]
+
+
+def test_freshness_gate_stale_or_missing_blocks_deep_reasoning(tmp_path: Path) -> None:
+    latest_path = tmp_path / "nervous" / "latest.json"
+
+    gate = self_awareness_adapters.freshness_gate(
+        "nervous_freshness",
+        "Nervous freshness/readiness",
+        latest_path,
+        {"ok": True},
+        "nervous_readiness",
+        path_exists=lambda _path: False,
+        parse_time=lambda _value: None,
+        now_utc=lambda: dt.datetime(2026, 7, 8, tzinfo=dt.timezone.utc),
+        artifact_ref=lambda path, _doc, truth_level: {"path": str(path), "truth_level": truth_level, "exists": False},
+        stale=True,
+    )
+
+    assert gate["status"] == "stale"
+    assert gate["ok"] is False
+    assert gate["stale"] is True
+    assert gate["age_sec"] is None
+    assert gate["blocks_deep_reasoning"] is True
+    assert gate["evidence_refs"] == [{"path": str(latest_path), "truth_level": "nervous_readiness", "exists": False}]
 
 
 def test_body_closure_status_document_is_adapter_owned(tmp_path: Path) -> None:
