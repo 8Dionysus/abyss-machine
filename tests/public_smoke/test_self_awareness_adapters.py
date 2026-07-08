@@ -1025,6 +1025,144 @@ def test_cycle_export_chain_updates_keep_handoff_guards_public_safe() -> None:
     assert broken["entity_event_document"] is False
 
 
+def test_working_stack_link_integrity_matrix_is_adapter_owned(tmp_path: Path) -> None:
+    generated_at = "2026-01-01T00:00:00+00:00"
+    latest_paths = {
+        "working_stack": tmp_path / "working-stack" / "latest.json",
+        "events": tmp_path / "events" / "latest.json",
+        "timeline": tmp_path / "timeline" / "latest.json",
+        "spatial_graph": tmp_path / "spatial-graph" / "latest.json",
+        "context": tmp_path / "context" / "latest.json",
+        "episodes": tmp_path / "episodes" / "latest.json",
+    }
+    services = [
+        ("prometheus", "active_machine_signal", None),
+        ("aoa-browser", "tool_runtime_degraded", "fixture browser launch failed"),
+    ]
+    organs: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
+    nodes: list[dict[str, Any]] = [{"id": "host:fixture", "kind": "host"}]
+    edges: list[dict[str, Any]] = []
+    contexts: list[dict[str, Any]] = []
+    episodes: list[dict[str, Any]] = []
+    coverage_rows: list[dict[str, Any]] = []
+
+    for service, status, usage_gap in services:
+        link = self_awareness_contracts.working_stack_link(
+            service,
+            generated_at,
+            status=status,
+            container=service,
+            endpoint_ok=True,
+        )
+        link_id = link["link_id"]
+        movement_packet_id = "samove-fixture-" + service
+        current_state_digest = "state-fixture-" + service
+        organs.append({
+            "schema": "abyss_machine_self_awareness_working_stack_organ_v1",
+            "service": service,
+            "machine_usage_status": status,
+            "usage_gap": usage_gap,
+            "time_space_context_link": link,
+            "runtime": {"running": True, "container": service},
+            "deep_usage_proven": usage_gap is None,
+            "evidence_refs": [{"path": str(latest_paths["working_stack"]), "service": service}],
+            "policy": {"host_layer_mutates_stack": False},
+        })
+        event = self_awareness_contracts.make_event(
+            "organ_movement",
+            "working-stack",
+            event_time=generated_at,
+            resource={
+                "service": service,
+                "container": service,
+                "owner_surface": "abyss-stack",
+                "movement_packet_id": movement_packet_id,
+                "current_state_digest": current_state_digest,
+                "movement_categories": ["raw_signal", "episode_candidate"] if usage_gap else ["raw_signal"],
+                "selected_for_episode": usage_gap is not None,
+                "write": False,
+            },
+            context={
+                "working_stack_link_id": link_id,
+                "movement_packet_id": movement_packet_id,
+                "current_state_digest": current_state_digest,
+            },
+            space={"host": "fixture", "owner_surface": "abyss-stack", "service": service, "container": service},
+            evidence_refs=[{"path": str(latest_paths["working_stack"]), "service": service}],
+            truth_level="working_stack_inventory",
+        )
+        events.append(event)
+        service_node = "service:" + service
+        link_node = "working_stack_link:" + link_id
+        nodes.extend([
+            {"id": service_node, "kind": "service"},
+            {"id": link_node, "kind": "working_stack_context_link"},
+        ])
+        edges.append({"from": service_node, "to": link_node, "kind": "has_time_space_context_link"})
+        contexts.append({"key": link_id, "event_ids": [event["event_id"]], "context": {"working_stack_link_id": link_id}})
+        episodes.append({
+            "episode_id": "episode-" + service,
+            "event_ids": [event["event_id"]],
+            "affected_spatial_nodes": [service_node, link_node],
+        })
+        if usage_gap:
+            coverage_rows.append({
+                "id": "working_stack_gap:" + service,
+                "service": service,
+                "working_stack_link_id": link_id,
+                "activation_smoke": {
+                    "schema": "abyss_machine_self_awareness_working_stack_activation_smoke_compact_v1",
+                    "complete": True,
+                    "service": service,
+                    "working_stack_link_id": link_id,
+                    "policy": {"host_layer_mutates_stack": False},
+                },
+            })
+
+    working_stack = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "summary": {"organs": len(organs), "usage_gaps": 1},
+        "organs": organs,
+    }
+    matrix = self_awareness_adapters.working_stack_link_integrity_matrix(
+        working_stack_doc=working_stack,
+        events_doc={"schema": "abyss_machine_self_awareness_events_v1", "events": events},
+        timeline_doc={"schema": "abyss_machine_self_awareness_timeline_v1", "windows": [{"event_ids": [event["event_id"] for event in events]}]},
+        spatial_doc={"schema": "abyss_machine_self_awareness_spatial_graph_v1", "nodes": nodes, "edges": edges},
+        context_doc={"schema": "abyss_machine_self_awareness_context_v1", "contexts": contexts},
+        episodes_doc={"schema": "abyss_machine_self_awareness_episodes_v1", "episodes": episodes},
+        coverage_gap_rows=coverage_rows,
+        generated_at=generated_at,
+        schema_prefix="abyss_machine",
+        version="0.test",
+        latest_paths=latest_paths,
+    )
+
+    assert matrix["schema"] == "abyss_machine_self_awareness_working_stack_link_integrity_matrix_v1"
+    assert matrix["ok"] is True
+    assert self_awareness_adapters.working_stack_link_integrity_matrix_complete(matrix, schema_prefix="abyss_machine") is True
+    assert self_awareness_adapters.working_stack_dependent_link_readmodels_fresh(matrix) is True
+    assert self_awareness_adapters.working_stack_link_integrity_matches_working_stack(working_stack, matrix) is True
+    assert matrix["summary"]["rows"] == 2
+    assert matrix["summary"]["complete_rows"] == 2
+    assert matrix["summary"]["usage_gap_rows"] == 1
+    assert matrix["summary"]["usage_gap_rows_with_coverage"] == 1
+    assert matrix["summary"]["usage_gap_rows_with_activation_smoke"] == 1
+    assert set(matrix["rows_by_service"]) == {"prometheus", "aoa-browser"}
+    assert matrix["rows_by_service"]["aoa-browser"]["episode_ids"] == ["episode-aoa-browser"]
+    assert matrix["rows_by_service"]["prometheus"]["adjacent_episode_ids"] == ["episode-prometheus"]
+    assert matrix["evidence_refs"][0]["path"] == str(latest_paths["working_stack"])
+
+    stale = json.loads(json.dumps(matrix))
+    stale["summary"]["timeline_linked"] = 0
+    assert self_awareness_adapters.working_stack_dependent_link_readmodels_fresh(stale) is False
+
+    mismatched = json.loads(json.dumps(working_stack))
+    mismatched["organs"][0]["machine_usage_status"] = "different"
+    assert self_awareness_adapters.working_stack_link_integrity_matches_working_stack(mismatched, matrix) is False
+
+
 def test_cycle_result_document_builds_public_safe_final_snapshot(tmp_path: Path) -> None:
     steps = [
         {
