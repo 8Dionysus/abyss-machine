@@ -34159,83 +34159,31 @@ def self_awareness_body_closure_status() -> dict[str, Any]:
     changes = load_latest_json(CHANGE_INDEX_PATH, f"{SCHEMA_PREFIX}_changes_index_v1")
     nervous_brief = load_latest_json(NERVOUS_BRIEF_LATEST_PATH, f"{SCHEMA_PREFIX}_nervous_brief_v1")
     backup = load_latest_json(BACKUP_LATEST_PATH, "abyss_backup_latest_v1")
-    watch_sources: list[dict[str, Any]] = []
-
-    def add_source(kind: str, status: str, evidence: dict[str, Any]) -> None:
-        watch_sources.append({"kind": kind, "status": status, "evidence": evidence})
-
-    heartbeat_status = str(nested_get(heartbeat, ["summary", "status"]) or heartbeat.get("status") or "")
-    if heartbeat_status and heartbeat_status not in {"steady", "linked", "ok", "ready"}:
-        add_source("heartbeat", heartbeat_status, {"path": str(HEARTBEATS_LATEST_PATH), "summary": heartbeat.get("summary")})
-
-    reaction_candidates = safe_int(nested_get(reactions, ["summary", "candidates"]), 0)
-    reaction_status = str(nested_get(reactions, ["summary", "status"]) or reactions.get("status") or "")
-    if reaction_candidates > 0:
-        add_source("reactions", reaction_status or "open", {"path": str(REACTIONS_LATEST_PATH), "candidates": reaction_candidates, "by_category": nested_get(reactions, ["summary", "by_category"])})
-
-    response_routes = safe_int(nested_get(responses, ["summary", "routes"]), 0)
-    response_status = str(nested_get(responses, ["summary", "status"]) or responses.get("status") or "")
-    if response_routes > 0:
-        add_source("responses", response_status or "open", {"path": str(RESPONSES_LATEST_PATH), "routes": response_routes, "by_category": nested_get(responses, ["summary", "by_category"])})
-
-    doctor_warnings = safe_int(nested_get(doctor, ["summary", "warnings"]), 0)
-    doctor_fails = safe_int(nested_get(doctor, ["summary", "fails"]), 0)
-    if doctor_warnings > 0 or doctor_fails > 0:
-        add_source("doctor", str(nested_get(doctor, ["summary", "status"]) or "warn"), {"path": str(DOCTOR_LATEST_PATH), "warnings": doctor_warnings, "fails": doctor_fails})
-
-    topology_warnings = safe_int(nested_get(topology, ["summary", "warnings"]), 0)
-    topology_fails = safe_int(nested_get(topology, ["summary", "fails"]), 0)
-    if topology_warnings > 0 or topology_fails > 0:
-        add_source("topology", str(nested_get(topology, ["summary", "status"]) or "warn"), {"path": str(TOPOLOGY_VALIDATE_LATEST_PATH), "warnings": topology_warnings, "fails": topology_fails})
-
-    stack_bridge_warnings = safe_int(nested_get(stack_bridge, ["summary", "warnings"]), 0)
-    stack_bridge_fails = safe_int(nested_get(stack_bridge, ["summary", "fails"]), 0)
-    if stack_bridge_warnings > 0 or stack_bridge_fails > 0:
-        add_source("stack_bridge", str(nested_get(stack_bridge, ["summary", "status"]) or "warn"), {"path": str(STACK_BRIDGE_VALIDATE_LATEST_PATH), "warnings": stack_bridge_warnings, "fails": stack_bridge_fails})
-
-    active_changes = safe_int(nested_get(changes, ["summary", "active_records"]), 0)
-    if active_changes > 0:
-        add_source("changes", "active", {"path": str(CHANGE_INDEX_PATH), "active_records": active_changes})
-
-    readiness = nervous_brief.get("readiness") if isinstance(nervous_brief.get("readiness"), dict) else {}
-    nervous_status = str(readiness.get("status") or "")
-    if nervous_status and nervous_status not in {"ready", "ok"}:
-        add_source("nervous", nervous_status, {"path": str(NERVOUS_BRIEF_LATEST_PATH), "readiness": readiness})
-
-    backup_blockers: list[str] = []
-    if abyssvault_backup_plane_active_change(changes):
-        backup_blockers = abyssvault_backup_plane_blockers(backup)
-        if backup_blockers:
-            add_source("backup", "blocked", {"path": str(BACKUP_LATEST_PATH), "blockers": backup_blockers})
-
-    body_status = "ready" if not watch_sources else "watch"
-    return {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_body_closure_v1",
-        "status": body_status,
-        "complete": body_status == "ready",
-        "watch_sources": watch_sources,
-        "summary": {
-            "watch_sources": len(watch_sources),
-            "reaction_candidates": reaction_candidates,
-            "response_routes": response_routes,
-            "doctor_warnings": doctor_warnings,
-            "doctor_fails": doctor_fails,
-            "topology_warnings": topology_warnings,
-            "topology_fails": topology_fails,
-            "stack_bridge_warnings": stack_bridge_warnings,
-            "stack_bridge_fails": stack_bridge_fails,
-            "active_changes": active_changes,
-            "nervous_status": nervous_status or None,
-            "backup_blockers": backup_blockers,
+    return self_awareness_adapters.body_closure_status_document(
+        heartbeat=heartbeat,
+        reactions=reactions,
+        responses=responses,
+        doctor=doctor,
+        topology=topology,
+        stack_bridge=stack_bridge,
+        changes=changes,
+        nervous_brief=nervous_brief,
+        backup=backup,
+        latest_paths={
+            "heartbeat": HEARTBEATS_LATEST_PATH,
+            "reactions": REACTIONS_LATEST_PATH,
+            "responses": RESPONSES_LATEST_PATH,
+            "doctor": DOCTOR_LATEST_PATH,
+            "topology": TOPOLOGY_VALIDATE_LATEST_PATH,
+            "stack_bridge": STACK_BRIDGE_VALIDATE_LATEST_PATH,
+            "changes": CHANGE_INDEX_PATH,
+            "nervous_brief": NERVOUS_BRIEF_LATEST_PATH,
+            "backup": BACKUP_LATEST_PATH,
         },
-        "policy": {
-            "read_model": True,
-            "does_not_refresh": True,
-            "does_not_execute_commands": True,
-            "host_layer_mutates_stack": False,
-            "separates_stack_usage_from_body_closure": True,
-        },
-    }
+        schema_prefix=SCHEMA_PREFIX,
+        backup_plane_active_change=abyssvault_backup_plane_active_change,
+        backup_plane_blockers=abyssvault_backup_plane_blockers,
+    )
 
 
 def self_awareness_status() -> dict[str, Any]:
