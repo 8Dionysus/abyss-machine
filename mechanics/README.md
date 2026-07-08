@@ -54,8 +54,8 @@ Use these mechanic owners for the next extraction slices:
   TTS smoke artifact evidence/probe projection, working-stack source inventory
   projections, working-stack inventory assembly/readmodel, working-stack
   movement/event assembly, working-stack link-integrity matrix assembly plus
-  match/freshness predicates, autolink row-state/completion/episode-coverage
-  and activation-entry predicates, activation-smoke and stack-organ-use
+  match/freshness predicates, autolink row-state/completion/episode-coverage,
+  activation-entry builders/completion predicates, activation-smoke and stack-organ-use
   completion/compact/refresh predicates, activation-gap and stack-requirement
   handoff route builders/completion predicates, activation synthetic-scenario,
   closure-acceptance, activation synthetic-proof, and export-overlay

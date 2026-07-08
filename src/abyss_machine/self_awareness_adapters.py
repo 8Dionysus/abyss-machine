@@ -2710,6 +2710,298 @@ def working_stack_activation_closure_acceptance_complete(packet: Any, *, schema_
     )
 
 
+def working_stack_activation_entry(
+    organ: Mapping[str, Any],
+    order: int,
+    generated_at: str,
+    *,
+    schema_prefix: str,
+    working_stack_latest_path: Path | str,
+    spatial_graph_latest_path: Path | str,
+    episodes_latest_path: Path | str,
+    alerts_latest_path: Path | str,
+) -> dict[str, Any]:
+    organ = organ if isinstance(organ, Mapping) else {}
+    service = str(organ.get("service") or "")
+    status = str(organ.get("machine_usage_status") or "unknown")
+    gap_reason = str(organ.get("usage_gap") or "")
+    activation_kind = self_awareness_contracts.working_stack_gap_activation_kind(status)
+    coverage_planes = self_awareness_contracts.working_stack_gap_coverage_planes(status)
+    runtime = organ.get("runtime") if isinstance(organ.get("runtime"), Mapping) else {}
+    declared = organ.get("declared") if isinstance(organ.get("declared"), Mapping) else {}
+    link = organ.get("time_space_context_link") if isinstance(organ.get("time_space_context_link"), Mapping) else {}
+    link_id = str(link.get("link_id") or _nested_get(link, ["context", "working_stack_link_id"]) or "")
+    probes = [
+        probe for probe in (organ.get("endpoint_probes") if isinstance(organ.get("endpoint_probes"), list) else [])
+        if isinstance(probe, Mapping)
+    ]
+    failed_probes = [
+        {
+            "probe": probe.get("probe"),
+            "ok": probe.get("ok"),
+            "kind": probe.get("kind"),
+            "status_code": probe.get("status_code"),
+            "error": probe.get("error"),
+            "elapsed_ms": probe.get("elapsed_ms"),
+        }
+        for probe in probes
+        if probe.get("ok") is not True
+    ]
+    ok_probe_names = [str(probe.get("probe")) for probe in probes if probe.get("ok") is True and probe.get("probe")]
+    failed_probe_names = [str(probe.get("probe")) for probe in probes if probe.get("ok") is not True and probe.get("probe")]
+    fulfilled_checks: list[dict[str, Any]] = []
+    missing_checks: list[dict[str, Any]] = [
+        {
+            "key": "working_stack_usage_gap",
+            "level": "open",
+            "message": gap_reason,
+            "status": status,
+        }
+    ]
+    if link_id:
+        fulfilled_checks.append({"key": "working_stack_time_space_context_link", "ok": True, "link_id": link_id})
+    else:
+        missing_checks.append({"key": "working_stack_time_space_context_link_missing", "level": "fail", "message": "working-stack gap has no stable time-space-context link"})
+    if runtime.get("running") is True:
+        fulfilled_checks.append({"key": "runtime_container_running", "ok": True, "container": runtime.get("container"), "health": runtime.get("health")})
+    elif status == "declared_not_running":
+        missing_checks.append({"key": "declared_service_not_running", "level": "open", "message": "declared stack service is not running in the current runtime body"})
+    if declared.get("present") is True:
+        fulfilled_checks.append({"key": "compose_declaration_present", "ok": True, "modules": declared.get("modules") if isinstance(declared.get("modules"), list) else []})
+    if organ.get("endpoint_ok") is True:
+        fulfilled_checks.append({"key": "endpoint_probe_ok", "ok": True, "probes": ok_probe_names})
+    for probe_name in ok_probe_names:
+        fulfilled_checks.append({"key": "probe_ok:" + probe_name, "ok": True, "probe": probe_name})
+    for probe_name in failed_probe_names:
+        missing_checks.append({"key": "probe_failed:" + probe_name, "level": "open", "message": "bounded working-stack probe failed", "probe": probe_name})
+    if status == "tool_runtime_degraded" and not failed_probe_names:
+        missing_checks.append({"key": "functional_runtime_smoke_not_proven", "level": "open", "message": "tool runtime is degraded but the failed functional smoke is not represented"})
+    if status in {"runtime_visible_unproven_deep_use", "endpoint_visible_unproven_deep_use", "tool_guard_visible_unproven_deep_use"}:
+        missing_checks.append({"key": "deep_machine_usage_route_not_proven", "level": "open", "message": "machine has visibility but no sustained reasoning/action route through this stack organ"})
+    model_bridge = organ.get("model_bridge") if isinstance(organ.get("model_bridge"), Mapping) else {}
+    if model_bridge.get("active") is True:
+        fulfilled_checks.append({"key": "model_runtime_bridge_active", "ok": True, "model_bridge_id": model_bridge.get("bridge_id")})
+    elif status == "model_root_visible":
+        missing_checks.append({"key": "model_runtime_bridge_not_proven", "level": "open", "message": "model root is visible without a current service/runtime linkage"})
+    stack_source_refs = organ.get("stack_source_refs") if isinstance(organ.get("stack_source_refs"), list) else []
+    if stack_source_refs:
+        fulfilled_checks.append({"key": "stack_source_refs_read_only", "ok": True, "count": len(stack_source_refs)})
+
+    missing_checks = [item for index, item in enumerate(missing_checks) if item.get("key") and item.get("key") not in {m.get("key") for m in missing_checks[:index]}]
+    fulfilled_checks = [item for index, item in enumerate(fulfilled_checks) if item.get("key") and item.get("key") not in {m.get("key") for m in fulfilled_checks[:index]}]
+    closure_blocker_keys = [str(item.get("key")) for item in missing_checks if item.get("key")]
+    verifier_commands = list(dict.fromkeys([
+        *self_awareness_contracts.working_stack_gap_verifier_commands(service),
+        "abyss-machine self-awareness stack-closure-dossier --json",
+        "abyss-machine self-awareness coverage-audit --json",
+        "abyss-machine self-awareness cycle --json",
+    ]))
+    safe_next_action = self_awareness_contracts.working_stack_gap_safe_next_action(service, status, gap_reason)
+    safe_next_action["verifier_commands"] = verifier_commands
+    activation_score = round(len(fulfilled_checks) / max(1, len(fulfilled_checks) + len(missing_checks)), 2)
+    evidence_refs = [
+        {"path": str(working_stack_latest_path), "schema": f"{schema_prefix}_self_awareness_working_stack_inventory_v1", "service": service},
+        {"path": str(spatial_graph_latest_path), "service": service, "node": "service:" + service},
+        {"path": str(episodes_latest_path), "episode_kind": "working_stack_usage_gap", "service": service},
+        {"path": str(alerts_latest_path), "candidate_kind": "working_stack_gap", "service": service},
+    ]
+    evidence_refs.extend(organ.get("evidence_refs") if isinstance(organ.get("evidence_refs"), list) else [])
+    current_state = {
+        "service": service,
+        "machine_usage_status": status,
+        "activation_kind": activation_kind,
+        "runtime": {
+            "present": bool(runtime and runtime.get("present") is not False),
+            "running": runtime.get("running"),
+            "container": runtime.get("container"),
+            "health": runtime.get("health"),
+            "state": runtime.get("state"),
+            "status": runtime.get("status"),
+        },
+        "declared": declared,
+        "endpoint_ok": organ.get("endpoint_ok"),
+        "deep_usage_proven": organ.get("deep_usage_proven"),
+        "working_stack_link_id": link_id or None,
+        "failed_probe_names": failed_probe_names,
+        "ok_probe_names": ok_probe_names,
+        "observed_at": _nested_get(link, ["time", "observed_at"]) or generated_at,
+    }
+    runbook_candidate = {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_runbook_candidate_v1",
+        "id": "stack-activation-runbook-" + self_awareness_contracts.stable_hash_json({"service": service, "status": status}, length=20),
+        "service": service,
+        "owner": "abyss-stack",
+        "status": "open_activation_gap",
+        "activation_kind": activation_kind,
+        "machine_action": "handoff_only",
+        "source_command": "abyss-machine self-awareness stack-closure-dossier --json",
+        "host_layer_mutates_stack": False,
+        "machine_executes_stack_change": False,
+        "stack_owner_may_mutate_stack": True,
+        "operator_approval_required": True,
+        "proposed_stack_work": [
+            "stack owner reviews service runtime declaration, container state, bounded probes, and intended machine usage route",
+            "stack owner enables or repairs the service/tool/model route only after operator approval",
+            "abyss-machine re-runs read-only smoke, coverage audit, cycle, and validation after the stack-owned change",
+        ],
+        "acceptance_steps": [
+            "working-stack inventory keeps the service linked by service, time bucket, owner surface, and working_stack_link_id",
+            "service no longer appears in machine_usage_gaps for the same gap reason",
+            "causal episode, alert candidate, investigation replay, coverage audit, export, and cycle agree on closure without stack mutation claims",
+        ],
+        "acceptance_verifiers": [
+            {"command": command, "must": ["current evidence refs remain host-owned readmodels", "host_layer_mutates_stack=false", "executes_commands=false"]}
+            for command in verifier_commands
+        ],
+        "risk": "stack runtime/service/model activation can change resource pressure and dependent routes; machine records only handoff evidence",
+        "blast_radius": ["abyss-stack service runtime", "machine self-awareness coverage", "operator-visible stack closure route"],
+        "rollback": "stack owner reverts stack service/runtime change; abyss-machine regenerates read-only latest/history artifacts",
+        "evidence_refs": evidence_refs,
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "raw_secrets_included": False,
+        },
+    }
+    activation_readiness = {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_readiness_v1",
+        "service": service,
+        "owner": "abyss-stack",
+        "status": "open_activation_gap",
+        "activation_kind": activation_kind,
+        "readiness_score": activation_score,
+        "open_blocker_count": len(missing_checks),
+        "fulfilled_checks": fulfilled_checks,
+        "missing_checks": missing_checks,
+        "blocking_check_keys": closure_blocker_keys,
+        "coverage_planes": coverage_planes,
+        "closure_evidence_needed": [
+            "bounded read-only service/tool/model smoke evidence",
+            "fresh working-stack inventory without this usage gap",
+            "matching causal/replay/export/coverage evidence after stack-owner activation",
+        ],
+        "required_fields": [
+            "service",
+            "machine_usage_status",
+            "working_stack_link_id",
+            "bounded smoke or runtime evidence",
+            "evidence_refs",
+            "policy.host_layer_mutates_stack=false",
+        ],
+        "success_predicates": [
+            "service has a current time-space-context link",
+            "functional runtime smoke passes when the service is a tool",
+            "declared service is running when closure depends on runtime presence",
+            "machine route proves deep usage without raw private payloads",
+        ],
+        "redaction_rules": ["no credentials", "no raw private payloads", "no prompts/messages/row bodies"],
+        "boundedness": {"max_probe_rows": 32, "raw_private_content_allowed": False, "stack_mutation_allowed": False},
+        "safe_next_action": safe_next_action,
+        "verifier_commands": verifier_commands,
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "raw_secrets_included": False,
+        },
+    }
+    entry = {
+        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_entry_v1",
+        "order": order,
+        "service": service,
+        "owner": "abyss-stack",
+        "activation_kind": activation_kind,
+        "machine_usage_status": status,
+        "usage_gap": gap_reason,
+        "working_stack_link_id": link_id or None,
+        "runtime": current_state["runtime"],
+        "declared": declared,
+        "endpoint_ok": organ.get("endpoint_ok"),
+        "deep_usage_proven": organ.get("deep_usage_proven"),
+        "coverage_planes": coverage_planes,
+        "blocked_coverage_planes": coverage_planes,
+        "closure_blocker_keys": closure_blocker_keys,
+        "current_state": current_state,
+        "current_state_digest": self_awareness_contracts.stable_hash_json(current_state, length=24),
+        "fulfilled_checks": fulfilled_checks,
+        "missing_checks": missing_checks,
+        "failed_probes": failed_probes,
+        "failed_probe_names": failed_probe_names,
+        "ok_probe_names": ok_probe_names,
+        "activation_readiness": activation_readiness,
+        "safe_next_action": safe_next_action,
+        "runbook_candidate": runbook_candidate,
+        "verifier_commands": verifier_commands,
+        "evidence_refs": evidence_refs,
+        "stack_source_refs": stack_source_refs[:24],
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "executes_commands": False,
+            "action_execution": False,
+            "raw_secrets_included": False,
+            "working_stack_gap_is_open_potential_not_host_failure": True,
+        },
+    }
+    entry["closure_acceptance"] = working_stack_activation_closure_acceptance(
+        entry,
+        generated_at,
+        schema_prefix=schema_prefix,
+    )
+    entry["synthetic_scenario"] = working_stack_activation_synthetic_scenario(
+        entry,
+        generated_at,
+        schema_prefix=schema_prefix,
+    )
+    entry["complete"] = working_stack_activation_entry_complete(entry, schema_prefix=schema_prefix)
+    return entry
+
+
+def working_stack_activation_entry_complete(entry: Any, *, schema_prefix: str) -> bool:
+    return (
+        isinstance(entry, Mapping)
+        and entry.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_entry_v1"
+        and bool(entry.get("service"))
+        and entry.get("owner") == "abyss-stack"
+        and bool(entry.get("usage_gap"))
+        and bool(entry.get("machine_usage_status"))
+        and bool(entry.get("working_stack_link_id"))
+        and isinstance(entry.get("coverage_planes"), list)
+        and bool(entry.get("coverage_planes"))
+        and isinstance(entry.get("closure_blocker_keys"), list)
+        and bool(entry.get("closure_blocker_keys"))
+        and isinstance(entry.get("missing_checks"), list)
+        and bool(entry.get("missing_checks"))
+        and isinstance(entry.get("fulfilled_checks"), list)
+        and isinstance(entry.get("activation_readiness"), Mapping)
+        and entry["activation_readiness"].get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_readiness_v1"
+        and bool(entry["activation_readiness"].get("verifier_commands"))
+        and isinstance(entry.get("runbook_candidate"), Mapping)
+        and entry["runbook_candidate"].get("machine_executes_stack_change") is False
+        and entry["runbook_candidate"].get("host_layer_mutates_stack") is False
+        and working_stack_activation_closure_acceptance_complete(entry.get("closure_acceptance"), schema_prefix=schema_prefix)
+        and working_stack_activation_synthetic_scenario_complete(entry.get("synthetic_scenario"), schema_prefix=schema_prefix)
+        and isinstance(entry.get("safe_next_action"), Mapping)
+        and entry["safe_next_action"].get("requires_human_approval") is True
+        and entry["safe_next_action"].get("host_layer_mutates_stack") is False
+        and entry["safe_next_action"].get("executes_commands") is False
+        and isinstance(entry.get("verifier_commands"), list)
+        and bool(entry.get("verifier_commands"))
+        and bool(entry.get("evidence_refs"))
+        and _nested_get(entry, ["policy", "host_layer_mutates_stack"]) is False
+        and _nested_get(entry, ["policy", "executes_commands"]) is False
+        and _nested_get(entry, ["policy", "action_execution"]) is False
+        and _nested_get(entry, ["policy", "raw_secrets_included"]) is False
+    )
+
+
 def working_stack_activation_synthetic_proof(
     entry: Mapping[str, Any],
     *,
