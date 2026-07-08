@@ -202,6 +202,13 @@ classification, summary counts, backup blocker projection, and non-mutating
 policy. Keep latest reads and backup-plane policy callbacks at the CLI/live
 binding edge.
 
+For self-awareness status open-potential/open-requirement row-builder adapter
+changes, public CI should rely on synthetic autolink rows, activation dossier
+rows, activation-smoke rows, requirements, and stack-closure rows for row
+classification, handoff policy, activation-gap route callback binding, and
+stack-owner requirement projection. Keep latest reads, status document assembly,
+and live probe/cycle orchestration at the CLI/live binding edge.
+
 For self-awareness cycle artifact-evidence adapter changes, public CI should
 rely on fake-port tests for latest-artifact existence/stat/hash/mtime
 projection, missing artifact behavior, bridge steps with `requires_ok=false`,

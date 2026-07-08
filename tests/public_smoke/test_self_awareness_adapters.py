@@ -240,6 +240,129 @@ def test_body_closure_status_document_ready_path_has_no_watch_sources(tmp_path: 
     assert payload["summary"]["backup_blockers"] == []
 
 
+def test_status_open_rows_are_adapter_owned() -> None:
+    route_calls: list[dict[str, Any]] = []
+
+    def fake_activation_gap_route(
+        gap: dict[str, Any],
+        *,
+        episode_id: str | None = None,
+        activation_row: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        route_calls.append({"gap": gap, "episode_id": episode_id, "activation_row": activation_row})
+        return {
+            "schema": "abyss_machine_self_awareness_working_stack_activation_gap_route_v1",
+            "complete": True,
+            "service": gap["service"],
+            "classification": "running_functional_smoke_failed",
+            "current_state": {"runtime": {"running": gap["runtime_running"]}},
+            "activation_smoke": {"working_stack_gap_replayable": True},
+            "policy": {"host_layer_mutates_stack": False},
+        }
+
+    potential_rows = self_awareness_adapters.status_open_potential_rows(
+        autolink_organ_rows=[
+            {"service": "ignored", "usage_gap": False},
+            {
+                "service": "aoa-browser",
+                "owner": "abyss-stack",
+                "machine_usage_status": "runtime_present_but_not_used",
+                "usage_gap": "functional_smoke_failed",
+                "working_stack_link_id": "wslink-aoa-browser",
+                "event_id": "event-1",
+                "episode_ids": ["other", "saepisode-working-stack-gap-1"],
+                "activation_smoke": {
+                    "complete": True,
+                    "thread_id": "thread-1",
+                    "working_stack_link_id": "wslink-aoa-browser",
+                },
+                "evidence_refs": [{"name": "autolink"}],
+            },
+        ],
+        activation_by_service={
+            "aoa-browser": {
+                "machine_usage_status": "runtime_present",
+                "activation_kind": "browser_tool_runtime",
+                "usage_gap": "functional_smoke_failed",
+                "current_state": {
+                    "runtime": {"present": True, "running": True, "container": "aoa-browser"},
+                    "declared": {"present": True, "modules": ["browser"]},
+                    "endpoint_ok": False,
+                    "deep_usage_proven": False,
+                },
+                "failed_probe_names": ["playwright-chromium-launch"],
+                "ok_probe_names": ["container-running"],
+                "closure_blocker_keys": ["playwright_chromium_launch"],
+                "missing_checks": ["browser_launch_smoke"],
+                "verifier_commands": ["abyss-machine self-awareness working-stack --json"],
+                "safe_next_action": {"requires_human_approval": True},
+            }
+        },
+        activation_smoke_by_service={"aoa-browser": {"service": "aoa-browser", "complete": False}},
+        schema_prefix="abyss_machine",
+        activation_gap_route=fake_activation_gap_route,
+    )
+
+    assert len(potential_rows) == 1
+    row = potential_rows[0]
+    assert row["schema"] == "abyss_machine_self_awareness_open_potential_service_status_v1"
+    assert row["service"] == "aoa-browser"
+    assert row["activation_gap_classification"] == "running_functional_smoke_failed"
+    assert row["activation_smoke"]["link_matches_current"] is True
+    assert row["closure_blocker_keys"] == ["playwright_chromium_launch"]
+    assert row["missing_checks"] == ["browser_launch_smoke"]
+    assert row["policy"]["host_layer_mutates_stack"] is False
+    assert route_calls[0]["episode_id"] == "saepisode-working-stack-gap-1"
+    assert route_calls[0]["activation_row"] == {"service": "aoa-browser", "complete": False}
+    assert route_calls[0]["gap"]["endpoint_probe_count"] == 2
+    assert route_calls[0]["gap"]["declared_modules"] == ["browser"]
+
+    requirement_rows = self_awareness_adapters.status_open_stack_requirement_rows(
+        autolink_requirement_rows=[
+            {"requirement_id": "closed", "automatic_link_state": "closed"},
+            {
+                "requirement_id": "stack.trace-backend",
+                "owner": "abyss-stack",
+                "automatic_link_state": "open_stack_blocker",
+                "episode_ids": ["saepisode-req-1"],
+                "evidence_refs": [{"name": "autolink"}],
+            },
+        ],
+        requirement_by_id={
+            "stack.trace-backend": {
+                "title": "Trace backend",
+                "owner": "abyss-stack",
+                "blocking_check_keys": ["langchain_trace_backend_coupled"],
+                "coverage_impact": {"coverage_planes": ["trace_backend"]},
+                "runbook_candidate_id": "runbook-trace",
+            }
+        },
+        stack_closure_by_id={
+            "stack.trace-backend": {
+                "closure_readiness": {"missing_checks": ["span_log_metric_join"]},
+                "closure_acceptance": {
+                    "acceptance_id": "accept-trace",
+                    "stack_compat_requirement": {"requirement_id": "stack.trace-backend"},
+                },
+                "verifier_commands": ["abyss-stack trace verify"],
+                "safe_next_action": {"requires_human_approval": True},
+            }
+        },
+        schema_prefix="abyss_machine",
+    )
+
+    assert len(requirement_rows) == 1
+    requirement = requirement_rows[0]
+    assert requirement["schema"] == "abyss_machine_self_awareness_open_stack_requirement_status_v1"
+    assert requirement["requirement_id"] == "stack.trace-backend"
+    assert requirement["blocking_check_keys"] == ["langchain_trace_backend_coupled"]
+    assert requirement["coverage_planes"] == ["trace_backend"]
+    assert requirement["missing_checks"] == ["span_log_metric_join"]
+    assert requirement["closure_acceptance_id"] == "accept-trace"
+    assert requirement["compat_requirement_id"] == "stack.trace-backend"
+    assert requirement["policy"]["executes_commands"] is False
+
+
 class _FakeHttpResponse:
     def __init__(self, *, status: int, headers: dict[str, str], body: bytes) -> None:
         self.status = status

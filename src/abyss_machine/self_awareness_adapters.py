@@ -47,6 +47,7 @@ ContainerToolProbesPort = Callable[[dict[str, dict[str, Any]], bool], list[dict[
 TtsSmokeProbesPort = Callable[[bool], list[dict[str, Any]]]
 BackupPlaneActiveChangePort = Callable[[Mapping[str, Any]], bool]
 BackupPlaneBlockersPort = Callable[[Mapping[str, Any]], list[str]]
+ActivationGapRouteBuilderPort = Callable[..., dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -451,6 +452,144 @@ def body_closure_status_document(
             "separates_stack_usage_from_body_closure": True,
         },
     }
+
+
+def status_open_potential_rows(
+    *,
+    autolink_organ_rows: Iterable[Any],
+    activation_by_service: Mapping[str, Mapping[str, Any]],
+    activation_smoke_by_service: Mapping[str, Mapping[str, Any]],
+    schema_prefix: str,
+    activation_gap_route: ActivationGapRouteBuilderPort,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in autolink_organ_rows:
+        if not isinstance(row, Mapping) or not row.get("usage_gap"):
+            continue
+        service = str(row.get("service") or "")
+        activation = activation_by_service.get(service, {})
+        smoke = row.get("activation_smoke") if isinstance(row.get("activation_smoke"), Mapping) else {}
+        current_state = activation.get("current_state") if isinstance(activation.get("current_state"), Mapping) else {}
+        runtime = activation.get("runtime") if isinstance(activation.get("runtime"), Mapping) else {}
+        if not runtime:
+            runtime = current_state.get("runtime") if isinstance(current_state.get("runtime"), Mapping) else {}
+        declared = activation.get("declared") if isinstance(activation.get("declared"), Mapping) else {}
+        if not declared:
+            declared = current_state.get("declared") if isinstance(current_state.get("declared"), Mapping) else {}
+        episode_ids = row.get("episode_ids") if isinstance(row.get("episode_ids"), list) else []
+        activation_gap = {
+            "service": service,
+            "owner_route": row.get("owner") or "abyss-stack",
+            "working_stack_link_id": row.get("working_stack_link_id"),
+            "machine_usage_status": row.get("machine_usage_status") or activation.get("machine_usage_status"),
+            "activation_kind": activation.get("activation_kind"),
+            "usage_gap": row.get("usage_gap") or activation.get("usage_gap"),
+            "runtime_present": runtime.get("present"),
+            "runtime_running": runtime.get("running"),
+            "container": runtime.get("container"),
+            "health": runtime.get("health"),
+            "runtime_state": runtime.get("state"),
+            "runtime_status": runtime.get("status"),
+            "runtime_stack_managed": runtime.get("stack_managed"),
+            "declared": declared.get("present") if isinstance(declared, Mapping) else None,
+            "declared_modules": declared.get("modules") if isinstance(declared.get("modules"), list) else [],
+            "endpoint_ok": activation.get("endpoint_ok") if "endpoint_ok" in activation else current_state.get("endpoint_ok"),
+            "service_roots": activation.get("service_roots"),
+            "model_roots": activation.get("model_roots"),
+            "deep_usage_proven": activation.get("deep_usage_proven") if "deep_usage_proven" in activation else current_state.get("deep_usage_proven"),
+            "failed_probe_names": activation.get("failed_probe_names") if isinstance(activation.get("failed_probe_names"), list) else [],
+            "ok_probe_names": activation.get("ok_probe_names") if isinstance(activation.get("ok_probe_names"), list) else [],
+            "endpoint_probe_count": len(activation.get("failed_probe_names") if isinstance(activation.get("failed_probe_names"), list) else [])
+            + len(activation.get("ok_probe_names") if isinstance(activation.get("ok_probe_names"), list) else []),
+            "closure_blocker_keys": activation.get("closure_blocker_keys") if isinstance(activation.get("closure_blocker_keys"), list) else [],
+            "safe_next_action": activation.get("safe_next_action") if isinstance(activation.get("safe_next_action"), Mapping) else {},
+            "verifier_commands": activation.get("verifier_commands") if isinstance(activation.get("verifier_commands"), list) else [],
+        }
+        route = activation_gap_route(
+            activation_gap,
+            episode_id=next((str(item) for item in episode_ids if str(item).startswith("saepisode-working-stack-gap-")), None),
+            activation_row=activation_smoke_by_service.get(service, {}),
+        )
+        rows.append({
+            "schema": f"{schema_prefix}_self_awareness_open_potential_service_status_v1",
+            "service": service,
+            "owner": row.get("owner") or "abyss-stack",
+            "machine_usage_status": row.get("machine_usage_status"),
+            "usage_gap": row.get("usage_gap"),
+            "working_stack_link_id": row.get("working_stack_link_id"),
+            "event_id": row.get("event_id"),
+            "episode_ids": episode_ids,
+            "activation_smoke": {
+                "complete": smoke.get("complete"),
+                "thread_id": smoke.get("thread_id"),
+                "working_stack_link_id": smoke.get("working_stack_link_id"),
+                "link_matches_current": smoke.get("working_stack_link_id") == row.get("working_stack_link_id"),
+            },
+            "activation_gap_route": route,
+            "activation_gap_classification": route.get("classification"),
+            "closure_blocker_keys": activation.get("closure_blocker_keys") if isinstance(activation.get("closure_blocker_keys"), list) else [],
+            "missing_checks": activation.get("missing_checks") if isinstance(activation.get("missing_checks"), list) else [],
+            "verifier_commands": activation.get("verifier_commands") if isinstance(activation.get("verifier_commands"), list) else [],
+            "safe_next_action": activation.get("safe_next_action") if isinstance(activation.get("safe_next_action"), Mapping) else {},
+            "evidence_refs": row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else [],
+            "policy": {
+                "owner_route": "abyss-stack",
+                "handoff_only": True,
+                "host_layer_mutates_stack": False,
+                "executes_commands": False,
+                "automatic_remediation": False,
+            },
+        })
+    return rows
+
+
+def status_open_stack_requirement_rows(
+    *,
+    autolink_requirement_rows: Iterable[Any],
+    requirement_by_id: Mapping[str, Mapping[str, Any]],
+    stack_closure_by_id: Mapping[str, Mapping[str, Any]],
+    schema_prefix: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in autolink_requirement_rows:
+        if not isinstance(row, Mapping) or row.get("automatic_link_state") != "open_stack_blocker":
+            continue
+        requirement_id = str(row.get("requirement_id") or "")
+        requirement = requirement_by_id.get(requirement_id, {})
+        closure = stack_closure_by_id.get(requirement_id, {})
+        closure_acceptance = closure.get("closure_acceptance") if isinstance(closure.get("closure_acceptance"), Mapping) else {}
+        coverage_impact = (
+            closure.get("coverage_impact")
+            if isinstance(closure.get("coverage_impact"), Mapping)
+            else requirement.get("coverage_impact")
+            if isinstance(requirement.get("coverage_impact"), Mapping)
+            else {}
+        )
+        rows.append({
+            "schema": f"{schema_prefix}_self_awareness_open_stack_requirement_status_v1",
+            "requirement_id": requirement_id,
+            "title": requirement.get("title") or closure.get("title"),
+            "owner": row.get("owner") or requirement.get("owner") or "abyss-stack",
+            "automatic_link_state": row.get("automatic_link_state"),
+            "blocking_check_keys": requirement.get("blocking_check_keys") if isinstance(requirement.get("blocking_check_keys"), list) else closure.get("blocking_check_keys") if isinstance(closure.get("blocking_check_keys"), list) else [],
+            "coverage_planes": coverage_impact.get("coverage_planes") if isinstance(coverage_impact.get("coverage_planes"), list) else [],
+            "missing_checks": _nested_get(closure, ["closure_readiness", "missing_checks"]) if isinstance(_nested_get(closure, ["closure_readiness", "missing_checks"]), list) else [],
+            "runbook_candidate_id": requirement.get("runbook_candidate_id") or closure.get("runbook_candidate_id"),
+            "closure_acceptance_id": closure_acceptance.get("acceptance_id"),
+            "compat_requirement_id": _nested_get(closure_acceptance, ["stack_compat_requirement", "requirement_id"]),
+            "verifier_commands": closure.get("verifier_commands") if isinstance(closure.get("verifier_commands"), list) else [],
+            "safe_next_action": closure.get("safe_next_action") if isinstance(closure.get("safe_next_action"), Mapping) else {},
+            "episode_ids": row.get("episode_ids") if isinstance(row.get("episode_ids"), list) else [],
+            "evidence_refs": row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else closure.get("evidence_refs") if isinstance(closure.get("evidence_refs"), list) else [],
+            "policy": {
+                "owner_route": "abyss-stack",
+                "handoff_only": True,
+                "host_layer_mutates_stack": False,
+                "executes_commands": False,
+                "automatic_remediation": False,
+            },
+        })
+    return rows
 
 
 def http_status_with_headers(
