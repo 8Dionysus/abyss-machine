@@ -223,6 +223,14 @@ usage-gap classification, and summary counts. Keep concrete stack path
 discovery, endpoint URL construction, subprocess/socket runners, AI latest
 loading, and latest/history writes at the CLI/live binding edge.
 
+For self-awareness working-stack movement/event assembly adapter changes,
+public CI should rely on synthetic inventory documents and synthetic previous
+activation-smoke rows for signal/source routing, state-digest comparison,
+movement selection, severity, fabric correlation keys, event evidence refs, and
+read-only/no-mutation policy. Keep previous latest reads, concrete
+working-stack latest paths, and host identity binding at the CLI/live binding
+edge; do not run live `self-awareness collect` merely to prove event assembly.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,

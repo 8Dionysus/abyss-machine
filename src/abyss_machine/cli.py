@@ -33598,123 +33598,15 @@ def self_awareness_working_stack_inventory(
 
 
 def self_awareness_working_stack_events(inventory: dict[str, Any], generated_at: str) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    organs = inventory.get("organs") if isinstance(inventory.get("organs"), list) else []
     previous_smoke = load_latest_json(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1")
-    previous_by_service = previous_smoke.get("by_service") if isinstance(previous_smoke.get("by_service"), dict) else {}
-    for organ in organs:
-        if not isinstance(organ, dict):
-            continue
-        service = str(organ.get("service") or "")
-        if not service:
-            continue
-        link = organ.get("time_space_context_link") if isinstance(organ.get("time_space_context_link"), dict) else {}
-        runtime = organ.get("runtime") if isinstance(organ.get("runtime"), dict) else {}
-        signal_route = self_awareness_stack_organ_signal_route(service, organ)
-        current_state_digest = self_awareness_stack_organ_state_digest(organ)
-        previous_row = previous_by_service.get(service) if isinstance(previous_by_service.get(service), dict) else None
-        selection = self_awareness_stack_organ_movement_selection(
-            organ,
-            current_state_digest=current_state_digest,
-            previous_row=previous_row,
-        )
-        movement_packet_id = "samove-" + stable_hash_json({
-            "service": service,
-            "working_stack_link_id": link.get("link_id"),
-            "state": current_state_digest,
-            "observed_at": generated_at,
-        }, length=24)
-        context = link.get("context") if isinstance(link.get("context"), dict) else {}
-        context = {
-            "working_stack_link_id": context.get("working_stack_link_id") or link.get("link_id"),
-            "machine_usage_status": organ.get("machine_usage_status"),
-            "movement_packet_id": movement_packet_id,
-            "pid": runtime.get("pid"),
-            "pid_alive": runtime.get("pid_alive"),
-            "current_state_digest": current_state_digest,
-            "state_changed": selection.get("state_changed"),
-        }
-        evidence_refs = [
-            {"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH), "service": service, "working_stack_link_id": link.get("link_id")},
-            *(
-                organ.get("evidence_refs")
-                if isinstance(organ.get("evidence_refs"), list)
-                else [{"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH)}]
-            ),
-        ]
-        events.append(self_awareness_make_event(
-            "organ_movement",
-            "working-stack",
-            event_time=generated_at,
-            source_query=f"abyss-machine self-awareness working-stack --json#organs.{service}",
-            resource={
-                "service": service,
-                "container": runtime.get("container"),
-                "pid": runtime.get("pid"),
-                "pid_alive": runtime.get("pid_alive"),
-                "owner_surface": "abyss-stack",
-                "path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH),
-                "model": service if organ.get("model_roots") else None,
-                "route": "working-stack/" + service,
-                "observed_signal": signal_route.get("signal"),
-                "observed_source": signal_route.get("source"),
-                "movement_packet_id": movement_packet_id,
-                "machine_usage_status": organ.get("machine_usage_status"),
-                "movement_categories": selection.get("categories") if isinstance(selection.get("categories"), list) else [],
-                "selected_reason": selection.get("selected_reason"),
-                "not_selected_reason": selection.get("not_selected_reason"),
-                "degradation_reasons": selection.get("degradation_reasons") if isinstance(selection.get("degradation_reasons"), list) else [],
-                "selected_for_episode": selection.get("selected_for_episode"),
-                "selected_for_resident_reasoning": selection.get("selected_for_resident_reasoning"),
-                "write": False,
-            },
-            context=context,
-            space={
-                "host": platform.node(),
-                "owner_surface": "abyss-stack",
-                "layer": "working-stack-runtime",
-                "service": service,
-                "container": runtime.get("container"),
-                "pid": runtime.get("pid"),
-                "pid_alive": runtime.get("pid_alive"),
-                "route": "working-stack/" + service,
-                "path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH),
-            },
-            severity=(
-                "warning" if selection.get("selected_for_resident_reasoning")
-                else "notice" if selection.get("selected_for_episode")
-                else "info" if organ.get("deep_usage_proven")
-                else "notice"
-            ),
-            confidence={
-                "score": 0.9 if runtime.get("running") or organ.get("endpoint_ok") else 0.7,
-                "reason": "Read-only working stack inventory projected as an organ movement observation",
-            },
-            body={
-                "schema": f"{SCHEMA_PREFIX}_self_awareness_stack_organ_movement_observation_v1",
-                "movement_packet_id": movement_packet_id,
-                "service": service,
-                "observed_signal": signal_route.get("signal"),
-                "observed_source": signal_route.get("source"),
-                "roles": organ.get("roles"),
-                "container": runtime.get("container"),
-                "pid": runtime.get("pid"),
-                "pid_alive": runtime.get("pid_alive"),
-                "runtime_running": runtime.get("running"),
-                "health": runtime.get("health"),
-                "declared": nested_get(organ, ["declared", "present"]),
-                "endpoint_ok": organ.get("endpoint_ok"),
-                "machine_usage_status": organ.get("machine_usage_status"),
-                "deep_usage_proven": organ.get("deep_usage_proven"),
-                "usage_gap": organ.get("usage_gap"),
-                "current_state_digest": current_state_digest,
-                "movement_selection": selection,
-                "stack_source_ref_count": len(organ.get("stack_source_refs") if isinstance(organ.get("stack_source_refs"), list) else []),
-            },
-            evidence_refs=evidence_refs[:12],
-            truth_level="working_stack_movement_observation",
-        ))
-    return events
+    return self_awareness_adapters.working_stack_events(
+        inventory,
+        generated_at,
+        schema_prefix=SCHEMA_PREFIX,
+        previous_smoke=previous_smoke,
+        working_stack_latest_path=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        host=platform.node(),
+    )
 
 
 def self_awareness_working_stack_gap_verifier_commands(service: str) -> list[str]:
@@ -51887,75 +51779,11 @@ def self_awareness_working_stack_activation_missing_episode_services(
 
 
 def self_awareness_stack_organ_signal_route(service: str, organ: dict[str, Any]) -> dict[str, str]:
-    service_l = service.lower()
-    if service_l in {"prometheus"}:
-        return {"signal": "metric", "source": "prometheus"}
-    if service_l in {"loki"}:
-        return {"signal": "log", "source": "loki"}
-    if service_l in {"grafana"}:
-        return {"signal": "service", "source": "grafana"}
-    if service_l in {"alertmanager"}:
-        return {"signal": "alert", "source": "alertmanager"}
-    if service_l in {"alloy", "tempo"}:
-        return {"signal": "trace_context", "source": "alloy" if service_l == "alloy" else "observability"}
-    if service_l in {"postgres"}:
-        return {"signal": "memory", "source": "postgres"}
-    if service_l in {"neo4j"}:
-        return {"signal": "memory", "source": "neo4j"}
-    if service_l in {"rag-api", "qdrant", "rerank-api"}:
-        return {"signal": "rag", "source": "rag-api" if service_l == "rag-api" else "rag"}
-    if service_l in {"embeddings"}:
-        return {"signal": "model", "source": "embeddings"}
-    if service_l in {"route-api"}:
-        return {"signal": "service", "source": "route-api"}
-    if service_l in {"langchain-api", "langchain-api-llamacpp"}:
-        return {"signal": "model", "source": "langchain-api"}
-    if service_l in {"llama-cpp", "llm-registry", "litellm", "ollama", "ovms"}:
-        return {"signal": "model", "source": "llm"}
-    if "tts" in service_l or service_l in {"qwen-tts", "babelvox-tts"}:
-        return {"signal": "model", "source": "tts"}
-    if service_l == "stt":
-        return {"signal": "model", "source": "stt"}
-    if service_l in {"redis"}:
-        return {"signal": "memory", "source": "memory"}
-    if service_l in {"cadvisor"}:
-        return {"signal": "container", "source": "processes"}
-    runtime = organ.get("runtime") if isinstance(organ.get("runtime"), dict) else {}
-    if runtime.get("container"):
-        return {"signal": "container", "source": "podman"}
-    return {"signal": "service", "source": "working-stack"}
+    return self_awareness_adapters.working_stack_organ_signal_route(service, organ)
 
 
 def self_awareness_stack_organ_state_digest(organ: dict[str, Any]) -> str:
-    endpoint_probes = organ.get("endpoint_probes") if isinstance(organ.get("endpoint_probes"), list) else []
-    runtime = organ.get("runtime") if isinstance(organ.get("runtime"), dict) else {}
-    return stable_hash_json({
-        "service": organ.get("service"),
-        "machine_usage_status": organ.get("machine_usage_status"),
-        "usage_gap": organ.get("usage_gap"),
-        "runtime": {
-            "container": runtime.get("container"),
-            "pid": runtime.get("pid"),
-            "pid_alive": runtime.get("pid_alive"),
-            "running": runtime.get("running"),
-            "state": runtime.get("state"),
-            "health": runtime.get("health"),
-            "restart_count": runtime.get("restart_count"),
-        },
-        "endpoint_ok": organ.get("endpoint_ok"),
-        "endpoint_probes": [
-            {
-                "probe": probe.get("probe"),
-                "ok": probe.get("ok"),
-                "status_code": probe.get("status_code"),
-                "error": probe.get("error"),
-            }
-            for probe in endpoint_probes
-            if isinstance(probe, dict)
-        ],
-        "model_bridge": organ.get("model_bridge") if isinstance(organ.get("model_bridge"), dict) else {},
-        "deep_usage_proven": organ.get("deep_usage_proven"),
-    }, length=24)
+    return self_awareness_adapters.working_stack_organ_state_digest(organ)
 
 
 def self_awareness_stack_organ_movement_selection(
@@ -51964,71 +51792,12 @@ def self_awareness_stack_organ_movement_selection(
     current_state_digest: str,
     previous_row: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    service = str(organ.get("service") or "")
-    runtime = organ.get("runtime") if isinstance(organ.get("runtime"), dict) else {}
-    declared = organ.get("declared") if isinstance(organ.get("declared"), dict) else {}
-    status = str(organ.get("machine_usage_status") or "")
-    endpoint_probes = organ.get("endpoint_probes") if isinstance(organ.get("endpoint_probes"), list) else []
-    failed_probe_names = [str(probe.get("probe")) for probe in endpoint_probes if isinstance(probe, dict) and probe.get("ok") is not True and probe.get("probe")]
-    previous_digest = nested_get(previous_row or {}, ["stack_organ_use_packet", "current_state", "current_state_digest"])
-    categories = ["raw_signal"]
-    reasons: list[str] = ["organ observed in working-stack inventory"]
-    state_changed = bool(previous_digest and previous_digest != current_state_digest)
-    if previous_digest is None:
-        reasons.append("baseline movement packet")
-    elif state_changed:
-        categories.append("state_change")
-        reasons.append("state digest changed since previous activation-smoke")
-    degradation_reasons: list[str] = []
-    if organ.get("usage_gap"):
-        degradation_reasons.append("usage_gap")
-    runtime_expected = bool(
-        runtime
-        and declared.get("present") is True
-        and not status.startswith("policy_deferred_")
-        and status not in {"active_model_root_bridge", "recent_on_demand_tool_signal"}
+    return self_awareness_adapters.working_stack_organ_movement_selection(
+        organ,
+        current_state_digest=current_state_digest,
+        previous_row=previous_row,
+        schema_prefix=SCHEMA_PREFIX,
     )
-    if runtime_expected and runtime.get("running") is False:
-        degradation_reasons.append("runtime_not_running")
-    if failed_probe_names:
-        degradation_reasons.append("failed_endpoint_probe")
-    if status.endswith("_degraded"):
-        degradation_reasons.append("degraded_status")
-    if degradation_reasons:
-        categories.append("degradation")
-        reasons.extend(degradation_reasons)
-    if nested_get(organ, ["time_space_context_link", "link_id"]):
-        categories.append("correlation_candidate")
-    selected_for_episode = bool(state_changed or degradation_reasons)
-    if selected_for_episode:
-        categories.append("episode_candidate")
-    selected_for_resident = bool(degradation_reasons)
-    if selected_for_resident:
-        categories.append("needs_resident_reasoning")
-    elif not selected_for_episode and previous_digest is not None:
-        categories.append("ignore/noise")
-    return {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_stack_organ_movement_selection_v1",
-        "service": service,
-        "categories": list(dict.fromkeys(categories)),
-        "state_changed": state_changed,
-        "previous_state_digest": previous_digest,
-        "current_state_digest": current_state_digest,
-        "selected_for_timeline": True,
-        "selected_for_spatial_graph": True,
-        "selected_for_episode": selected_for_episode,
-        "selected_for_resident_reasoning": selected_for_resident,
-        "selected_reason": "; ".join(reasons) if selected_for_episode or selected_for_resident else None,
-        "not_selected_reason": None if selected_for_episode or selected_for_resident else "stable observation retained as raw signal and spatial context",
-        "degradation_reasons": degradation_reasons,
-        "failed_probe_names": failed_probe_names,
-        "policy": {
-            "read_only": True,
-            "host_layer_mutates_stack": False,
-            "executes_commands": False,
-            "automatic_remediation": False,
-        },
-    }
 
 
 def self_awareness_working_stack_organ_entry(
