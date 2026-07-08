@@ -248,6 +248,13 @@ read-only/no-mutation policy. Keep previous latest reads, concrete
 working-stack latest paths, and host identity binding at the CLI/live binding
 edge; do not run live `self-awareness collect` merely to prove event assembly.
 
+For self-awareness working-stack usage-gap episode adapter changes, public CI
+should rely on synthetic working-stack documents and synthetic working-stack
+events with supplied latest paths for episode identity, affected nodes,
+confidence, working_stack_gap packets, evidence refs, and non-mutating policy.
+Keep latest reads, event refresh, episode writes, and probe/cycle execution at
+the CLI/live binding edge.
+
 For self-awareness working-stack link-integrity adapter changes, public CI
 should rely on synthetic working-stack, events, timeline, spatial graph,
 context, episodes, and coverage-gap documents for matrix rows, match/freshness
