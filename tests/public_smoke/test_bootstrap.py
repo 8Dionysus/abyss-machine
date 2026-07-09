@@ -151,6 +151,13 @@ def test_bootstrap_render_dry_run_uses_render_actions() -> None:
     assert any(action["action"] == "render" for action in payload["actions"])
 
 
+def test_install_docs_refresh_code_examples_include_artifact_selector() -> None:
+    install_docs = (ROOT / "docs" / "install" / "README.md").read_text(encoding="utf-8")
+    assert "refresh-code --dry-run --skip-artifact-trust-gate --json" in install_docs
+    assert "refresh-code --apply --artifact-record-id <bootstrap-install-bundle-record-id> --json" in install_docs
+    assert "refresh-code --apply --artifact-subject-digest sha256:<bootstrap-install-bundle-subject> --json" in install_docs
+
+
 def test_bootstrap_install_derives_user_systemd_dir_from_explicit_home_under_root_env(tmp_path: Path) -> None:
     home = tmp_path / "home" / "agent"
     payload = run_bootstrap(
@@ -282,6 +289,34 @@ def test_bootstrap_refresh_code_rejects_trust_gate_skip_for_live_apply() -> None
     assert payload["artifact_admission"]["verdict"] == "skip_rejected"
     assert payload["artifact_admission"]["errors"] == ["artifact_trust_gate_skip_not_allowed_for_live_apply"]
     assert not any(action["action"] == "install_cli" for action in payload["actions"])
+
+
+def test_bootstrap_refresh_code_skip_checks_only_refresh_mutation_targets(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    libexec_dir = tmp_path / "libexec"
+
+    payload = run_bootstrap(
+        "refresh-code",
+        "--apply",
+        "--skip-artifact-trust-gate",
+        "--local-bin-dir",
+        str(bin_dir),
+        "--local-libexec-dir",
+        str(libexec_dir),
+    )
+
+    action_names = [action["action"] for action in payload["actions"]]
+    assert payload["command"] == "refresh-code"
+    assert payload["ok"] is True
+    assert payload["artifact_admission"]["verdict"] == "not_required"
+    assert payload["mutation_scope"] == "cli_package_and_public_seed_only"
+    assert "install_cli" in action_names
+    assert "install_public_seed" in action_names
+    assert "ensure_root" not in action_names
+    assert "render" not in action_names
+    assert (bin_dir / "abyss-machine").is_symlink()
+    assert (libexec_dir / "abyss-machine").is_file()
+    assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
 
 
 def test_bootstrap_install_allows_trust_gate_skip_for_tmp_projection_apply(tmp_path: Path) -> None:
