@@ -4878,8 +4878,8 @@ def working_stack_inventory_document(
             }],
         }
 
-    endpoint_probes.extend(container_tool_probes(runtime_by_service, include_endpoint_probes))
-    endpoint_probes.extend(tts_smoke_probes(include_endpoint_probes))
+    endpoint_probes.extend(container_tool_probes(runtime_by_service, enabled=include_endpoint_probes))
+    endpoint_probes.extend(tts_smoke_probes(enabled=include_endpoint_probes))
     probes_by_service = {}
     for probe in endpoint_probes:
         if isinstance(probe, Mapping) and probe.get("service"):
