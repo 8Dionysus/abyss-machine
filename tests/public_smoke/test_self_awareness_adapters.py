@@ -946,6 +946,17 @@ def test_working_stack_tts_smoke_probes_are_public_safe_and_disableable(tmp_path
     assert probes[0]["policy"]["host_layer_mutates_stack"] is False
 
 
+def test_working_stack_tts_smoke_cli_wrapper_skips_evidence_when_disabled(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    def forbidden_evidence_collection() -> dict[str, Any]:
+        raise AssertionError("disabled TTS smoke probes must not read stack evidence")
+
+    monkeypatch.setattr(cli, "self_awareness_working_stack_tts_smoke_evidence", forbidden_evidence_collection)
+
+    assert cli.self_awareness_working_stack_tts_smoke_probes(enabled=False) == []
+
+
 def test_env_and_meminfo_ports_are_fakeable() -> None:
     env = {"INT": "42", "FLOAT": "2.5", "EMPTY": "", "BAD": "nope"}
 
