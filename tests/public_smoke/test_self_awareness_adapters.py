@@ -3144,7 +3144,7 @@ def test_working_stack_inventory_document_assembles_readmodel_without_cli(tmp_pa
         pid_calls.append(pid)
         return pid == 4242
 
-    def fake_container_tool_probes(runtime_by_service: dict[str, dict[str, Any]], enabled: bool) -> list[dict[str, Any]]:
+    def fake_container_tool_probes(runtime_by_service: dict[str, dict[str, Any]], *, enabled: bool) -> list[dict[str, Any]]:
         tool_runtime_seen.update(runtime_by_service)
         assert enabled is True
         return [
@@ -3152,7 +3152,7 @@ def test_working_stack_inventory_document_assembles_readmodel_without_cli(tmp_pa
             {"service": "docs-api", "probe": "search:n8n-workflow", "ok": True, "container": "docs-api"},
         ]
 
-    def fake_tts_smoke_probes(enabled: bool) -> list[dict[str, Any]]:
+    def fake_tts_smoke_probes(*, enabled: bool) -> list[dict[str, Any]]:
         assert enabled is True
         return [
             {
