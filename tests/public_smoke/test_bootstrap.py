@@ -691,6 +691,31 @@ def test_bootstrap_install_bundle_archive_is_self_contained(tmp_path: Path) -> N
     assert payload["checks"]["contract_abi_exists"] is True
 
 
+def test_bootstrap_install_abi_surface_tracks_packaged_manifest_and_generated_roots() -> None:
+    policy = json.loads((ROOT / "manifests" / "artifact_signature_policy.manifest.json").read_text(encoding="utf-8"))
+    bootstrap_surface = next(
+        surface
+        for surface in policy["contract_surfaces"]
+        if surface["id"] == "bootstrap-install-seed"
+    )
+    assert "manifests" in bootstrap_surface["source_paths"]
+    assert "generated" in bootstrap_surface["source_paths"]
+    assert "manifests/bootstrap_profiles.manifest.json" not in bootstrap_surface["source_paths"]
+
+    abi = json.loads((ROOT / "generated" / "contract_abi_signatures.min.json").read_text(encoding="utf-8"))
+    generated_surface = next(
+        surface
+        for surface in abi["contract_surfaces"]
+        if surface["id"] == "bootstrap-install-seed"
+    )
+    source_files = {entry["path"] for entry in generated_surface["source_files"]}
+
+    assert "manifests/artifact_signature_policy.manifest.json" in source_files
+    assert "manifests/artifact_bundles/bootstrap_install_bundle.bundle.json" in source_files
+    assert "generated/scaffold_index.min.json" in source_files
+    assert "generated/contract_abi_signatures.min.json" not in source_files
+
+
 def test_typing_profile_is_opt_in() -> None:
     payload = run_bootstrap("enable-profile", "--profile", "typing-intake", "--dry-run")
     units = {action["unit"] for action in payload["actions"]}

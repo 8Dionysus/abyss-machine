@@ -33425,6 +33425,8 @@ def self_awareness_working_stack_tts_smoke_evidence(max_age_seconds: int = 24 * 
 
 
 def self_awareness_working_stack_tts_smoke_probes(enabled: bool = True) -> list[dict[str, Any]]:
+    if not enabled:
+        return []
     return self_awareness_adapters.working_stack_tts_smoke_probes(
         evidence=self_awareness_working_stack_tts_smoke_evidence(),
         enabled=enabled,

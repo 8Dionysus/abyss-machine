@@ -1046,7 +1046,8 @@
         "env/.env.example",
         "systemd",
         "schemas/bootstrap-report.schema.json",
-        "manifests/bootstrap_profiles.manifest.json"
+        "manifests",
+        "generated"
       ]
     },
     {

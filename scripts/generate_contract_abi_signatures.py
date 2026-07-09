@@ -12,6 +12,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = REPO_ROOT / "manifests" / "artifact_signature_policy.manifest.json"
 OUTPUT = REPO_ROOT / "generated" / "contract_abi_signatures.min.json"
+OUTPUT_REF = OUTPUT.relative_to(REPO_ROOT).as_posix()
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -37,13 +38,15 @@ def tracked_files() -> set[str]:
 def collect_source_files(source_paths: list[str], tracked: set[str]) -> list[str]:
     files: set[str] = set()
     for source in source_paths:
+        if source == OUTPUT_REF:
+            continue
         path = REPO_ROOT / source
         if path.is_file():
             files.add(source)
             continue
         if path.is_dir():
             prefix = source.rstrip("/") + "/"
-            files.update(item for item in tracked if item.startswith(prefix))
+            files.update(item for item in tracked if item.startswith(prefix) and item != OUTPUT_REF)
             continue
         raise FileNotFoundError(f"contract source path is missing: {source}")
     return sorted(files)
