@@ -224,6 +224,16 @@ inclusion booleans, history delta, and write-error count. Do not publish raw
 artifact maps, hashes, latest documents, local paths, stack payloads, or host
 evidence.
 
+For self-awareness completion contract-core changes, public CI should rely on
+synthetic readiness/path inputs for exact gate and blocker identities,
+autolink count-pair completeness, read-only owner-boundary predicates,
+deterministic action scores/ranks, fallback evidence refs, resource-gate
+projection, and no-execution policy. Existing host-contract tests must still
+prove body-watch and open-stack-potential semantics. Live closeout may compare
+only compact gate states, blocker IDs, top action identity/rank/score/class,
+route/entity/packet counts, owner-boundary booleans, and history delta; do not
+publish raw action drilldowns, entity maps, packet payloads, or host evidence.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact

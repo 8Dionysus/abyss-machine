@@ -94,8 +94,11 @@ Use these mechanic owners for the next extraction slices:
   concrete paths, live functions, contract builders, and write intent. Complete cycle
   preflight/probe/double-investigate-replay/artifact/proof/two-stage
   persistence orchestration also lives in `self_awareness_adapters`;
-  completion-audit and validation orchestration plus the stable export
-  stack-handoff contract builder remain bounded CLI debt.
+  `self_awareness_completion_contracts` owns completion readiness path/state
+  inputs, autolink/owner-boundary predicates, gate/blocker assembly, and
+  deterministic action priority/ranking. Completion drilldown/route/entity/
+  packet assembly and completion-audit orchestration, validation orchestration,
+  and the stable export stack-handoff contract builder remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
