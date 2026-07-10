@@ -370,6 +370,16 @@ degraded-source names, scheduler/service counts, and owner-boundary booleans.
 Do not publish assembled events, collector payloads, query responses, or local
 paths.
 
+For self-awareness collect-persistence adapter changes, public CI should prove
+the exact events-latest, event-history, collect-latest, collect-history, and
+index-latest attempt order through fake ports, including continued attempts and
+ordered error projection after partial failures. A temp-root test should also
+exercise the shared atomic JSON and locked JSONL concrete writer. Live-host
+closeout may report only before/after history counts, latest schemas, event
+count, and write-error count. History is append-only; recovery from a partial
+failure is a bounded retry that may duplicate records already appended, not a
+destructive rollback.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,

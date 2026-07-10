@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from . import self_awareness_contracts
+from . import typing_nervous_adapters
 
 try:
     import yaml
@@ -73,6 +74,7 @@ EventListTransformPort = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 CorrelationIndexPort = Callable[[list[dict[str, Any]]], dict[str, Any]]
 EventIssuesPort = Callable[[dict[str, Any]], list[str]]
 SignalFabricSummaryPort = Callable[[list[dict[str, Any]]], dict[str, Any]]
+JsonMutationPort = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,22 @@ class SelfAwarenessCollectAssemblyPort:
     event_issues: EventIssuesPort
     signal_fabric_summary: SignalFabricSummaryPort
     self_awareness_paths: NoArgDocumentPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessCollectPersistencePaths:
+    events_latest: Path
+    events_history_root: Path
+    collect_latest: Path
+    collect_history_root: Path
+    index_latest: Path
+
+
+@dataclass(frozen=True)
+class SelfAwarenessCollectPersistencePort:
+    atomic_write_json: JsonMutationPort
+    append_jsonl: JsonMutationPort
+    daily_jsonl_path: DailyJsonlPathPort
 
 
 SYSTEMD_ENABLED_STATES = {
@@ -1475,6 +1493,69 @@ def assemble_collect_documents(
         },
     }
     return {"collect": collect_doc, "events": events_doc, "index": index}
+
+
+def default_collect_persistence_port(
+    *,
+    group: str = typing_nervous_adapters.DEFAULT_STATE_GROUP,
+) -> SelfAwarenessCollectPersistencePort:
+    return SelfAwarenessCollectPersistencePort(
+        atomic_write_json=lambda path, document, mode: typing_nervous_adapters.safe_atomic_write_json(
+            path,
+            document,
+            mode,
+            group=group,
+        ),
+        append_jsonl=lambda path, document, mode: typing_nervous_adapters.safe_append_jsonl(
+            path,
+            document,
+            mode,
+            group=group,
+        ),
+        daily_jsonl_path=typing_nervous_adapters.daily_jsonl_path,
+    )
+
+
+def persist_collect_documents(
+    *,
+    collect_doc: dict[str, Any],
+    events_doc: dict[str, Any],
+    index_doc: dict[str, Any],
+    paths: SelfAwarenessCollectPersistencePaths,
+    port: SelfAwarenessCollectPersistencePort | None = None,
+    mode: int = 0o664,
+) -> dict[str, Any]:
+    persistence = port or default_collect_persistence_port()
+    errors: list[dict[str, Any]] = []
+
+    events_latest_error = persistence.atomic_write_json(paths.events_latest, events_doc, mode)
+    if events_latest_error:
+        errors.append(events_latest_error)
+    events_history_path = persistence.daily_jsonl_path(paths.events_history_root)
+    events = events_doc.get("events") if isinstance(events_doc.get("events"), list) else []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_error = persistence.append_jsonl(events_history_path, event, mode)
+        if event_error:
+            errors.append(event_error)
+
+    collect_latest_error = persistence.atomic_write_json(paths.collect_latest, collect_doc, mode)
+    if collect_latest_error:
+        errors.append(collect_latest_error)
+    collect_history_path = persistence.daily_jsonl_path(paths.collect_history_root)
+    collect_history_error = persistence.append_jsonl(collect_history_path, collect_doc, mode)
+    if collect_history_error:
+        errors.append(collect_history_error)
+
+    index_error = persistence.atomic_write_json(paths.index_latest, index_doc, mode)
+    if index_error:
+        errors.append(index_error)
+
+    if errors:
+        collect_doc["ok"] = False
+        collect_doc["write_errors"] = errors
+    return collect_doc
 
 
 def cycle_latest_specs(

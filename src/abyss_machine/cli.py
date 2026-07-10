@@ -37013,16 +37013,6 @@ def self_awareness_correlation_index(events: list[dict[str, Any]]) -> dict[str, 
     }
 
 
-def self_awareness_write_events(events_doc: dict[str, Any]) -> list[dict[str, Any]]:
-    errors = [error for error in [safe_atomic_write_json(SELF_AWARENESS_EVENTS_LATEST_PATH, events_doc, 0o664)] if error]
-    history_path = ai_daily_jsonl_path(SELF_AWARENESS_EVENTS_ROOT)
-    for event in events_doc.get("events", []) if isinstance(events_doc.get("events"), list) else []:
-        error = safe_append_jsonl(history_path, event, 0o664)
-        if error:
-            errors.append(error)
-    return errors
-
-
 def self_awareness_load_events(refresh: bool = True) -> list[dict[str, Any]]:
     latest = load_latest_json(SELF_AWARENESS_EVENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_events_v1")
     events = latest.get("events") if isinstance(latest.get("events"), list) else []
@@ -37401,15 +37391,18 @@ def self_awareness_collect(
     events_doc = assembled["events"]
     index = assembled["index"]
     if write_latest:
-        errors = []
-        errors.extend(self_awareness_write_events(events_doc))
-        errors.extend(write_latest_and_history(data, SELF_AWARENESS_COLLECT_LATEST_PATH, SELF_AWARENESS_COLLECT_ROOT))
-        index_error = safe_atomic_write_json(SELF_AWARENESS_INDEX_PATH, index, 0o664)
-        if index_error:
-            errors.append(index_error)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
+        self_awareness_adapters.persist_collect_documents(
+            collect_doc=data,
+            events_doc=events_doc,
+            index_doc=index,
+            paths=self_awareness_adapters.SelfAwarenessCollectPersistencePaths(
+                events_latest=SELF_AWARENESS_EVENTS_LATEST_PATH,
+                events_history_root=SELF_AWARENESS_EVENTS_ROOT,
+                collect_latest=SELF_AWARENESS_COLLECT_LATEST_PATH,
+                collect_history_root=SELF_AWARENESS_COLLECT_ROOT,
+                index_latest=SELF_AWARENESS_INDEX_PATH,
+            ),
+        )
     return data
 
 

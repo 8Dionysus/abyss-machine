@@ -257,6 +257,169 @@ def test_collect_assembly_requires_explicit_host_paths(tmp_path: Path) -> None:
         raise AssertionError("missing assembly path must fail closed")
 
 
+def _collect_persistence_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessCollectPersistencePaths:
+    return self_awareness_adapters.SelfAwarenessCollectPersistencePaths(
+        events_latest=tmp_path / "events" / "latest.json",
+        events_history_root=tmp_path / "events",
+        collect_latest=tmp_path / "collect" / "latest.json",
+        collect_history_root=tmp_path / "collect",
+        index_latest=tmp_path / "index.json",
+    )
+
+
+def test_collect_persistence_preserves_write_order_and_documents(tmp_path: Path) -> None:
+    calls: list[tuple[str, Path, str]] = []
+    paths = _collect_persistence_paths(tmp_path)
+    events_doc = {
+        "schema": "abyss_machine_self_awareness_events_v1",
+        "events": [{"event_id": "event-1"}, {"event_id": "event-2"}],
+    }
+    collect_doc = {"schema": "abyss_machine_self_awareness_collect_v1", "ok": True, "status": "ready"}
+    index_doc = {"schema": "abyss_machine_self_awareness_correlation_index_v1"}
+
+    def write_json(path: Path, document: dict[str, Any], _mode: int) -> None:
+        calls.append(("write", path, str(document.get("schema") or "")))
+
+    def append_jsonl(path: Path, document: dict[str, Any], _mode: int) -> None:
+        calls.append(("append", path, str(document.get("event_id") or document.get("schema") or "")))
+
+    result = self_awareness_adapters.persist_collect_documents(
+        collect_doc=collect_doc,
+        events_doc=events_doc,
+        index_doc=index_doc,
+        paths=paths,
+        port=self_awareness_adapters.SelfAwarenessCollectPersistencePort(
+            atomic_write_json=write_json,
+            append_jsonl=append_jsonl,
+            daily_jsonl_path=lambda root: calls.append(("daily", root, "")) or root / "2026" / "07" / "2026-07-09.jsonl",
+        ),
+    )
+
+    assert result is collect_doc
+    assert result == {"schema": "abyss_machine_self_awareness_collect_v1", "ok": True, "status": "ready"}
+    assert calls == [
+        ("write", paths.events_latest, "abyss_machine_self_awareness_events_v1"),
+        ("daily", paths.events_history_root, ""),
+        ("append", paths.events_history_root / "2026" / "07" / "2026-07-09.jsonl", "event-1"),
+        ("append", paths.events_history_root / "2026" / "07" / "2026-07-09.jsonl", "event-2"),
+        ("write", paths.collect_latest, "abyss_machine_self_awareness_collect_v1"),
+        ("daily", paths.collect_history_root, ""),
+        ("append", paths.collect_history_root / "2026" / "07" / "2026-07-09.jsonl", "abyss_machine_self_awareness_collect_v1"),
+        ("write", paths.index_latest, "abyss_machine_self_awareness_correlation_index_v1"),
+    ]
+
+
+def test_collect_persistence_attempts_every_write_and_projects_ordered_errors(tmp_path: Path) -> None:
+    paths = _collect_persistence_paths(tmp_path)
+    events_doc = {
+        "schema": "abyss_machine_self_awareness_events_v1",
+        "events": [{"event_id": "event-1"}, {"event_id": "event-2"}],
+    }
+    collect_doc = {"schema": "abyss_machine_self_awareness_collect_v1", "ok": True, "status": "ready"}
+    index_doc = {"schema": "abyss_machine_self_awareness_correlation_index_v1"}
+    attempts: list[str] = []
+
+    def write_json(path: Path, _document: dict[str, Any], _mode: int) -> dict[str, Any] | None:
+        name = "events_latest" if path == paths.events_latest else "collect_latest" if path == paths.collect_latest else "index_latest"
+        attempts.append(name)
+        if name in {"events_latest", "index_latest"}:
+            return {"path": str(path), "error": f"fixture {name} failure"}
+        return None
+
+    def append_jsonl(path: Path, document: dict[str, Any], _mode: int) -> dict[str, Any] | None:
+        name = str(document.get("event_id") or "collect_history")
+        attempts.append(name)
+        if name in {"event-2", "collect_history"}:
+            return {"path": str(path), "error": f"fixture {name} failure"}
+        return None
+
+    result = self_awareness_adapters.persist_collect_documents(
+        collect_doc=collect_doc,
+        events_doc=events_doc,
+        index_doc=index_doc,
+        paths=paths,
+        port=self_awareness_adapters.SelfAwarenessCollectPersistencePort(
+            atomic_write_json=write_json,
+            append_jsonl=append_jsonl,
+            daily_jsonl_path=lambda root: root / "2026-07-09.jsonl",
+        ),
+    )
+
+    assert attempts == ["events_latest", "event-1", "event-2", "collect_latest", "collect_history", "index_latest"]
+    assert result["ok"] is False
+    assert result["status"] == "ready"
+    assert [error["error"] for error in result["write_errors"]] == [
+        "fixture events_latest failure",
+        "fixture event-2 failure",
+        "fixture collect_history failure",
+        "fixture index_latest failure",
+    ]
+
+
+def test_collect_persistence_default_port_writes_private_state_shape_to_temp_root(tmp_path: Path) -> None:
+    paths = _collect_persistence_paths(tmp_path)
+    events_doc = {
+        "schema": "abyss_machine_self_awareness_events_v1",
+        "events": [{"event_id": "event-1"}, {"event_id": "event-2"}],
+    }
+    collect_doc = {"schema": "abyss_machine_self_awareness_collect_v1", "ok": True, "status": "ready"}
+    index_doc = {"schema": "abyss_machine_self_awareness_correlation_index_v1"}
+
+    result = self_awareness_adapters.persist_collect_documents(
+        collect_doc=collect_doc,
+        events_doc=events_doc,
+        index_doc=index_doc,
+        paths=paths,
+    )
+
+    events_history = sorted(paths.events_history_root.glob("*/*/*.jsonl"))
+    collect_history = sorted(paths.collect_history_root.glob("*/*/*.jsonl"))
+    assert result["ok"] is True
+    assert json.loads(paths.events_latest.read_text(encoding="utf-8"))["schema"] == events_doc["schema"]
+    assert json.loads(paths.collect_latest.read_text(encoding="utf-8"))["schema"] == collect_doc["schema"]
+    assert json.loads(paths.index_latest.read_text(encoding="utf-8"))["schema"] == index_doc["schema"]
+    assert [json.loads(line)["event_id"] for line in events_history[0].read_text(encoding="utf-8").splitlines()] == ["event-1", "event-2"]
+    assert len(collect_history[0].read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_collect_cli_keeps_write_opt_in_and_delegates_concrete_paths(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    collect_doc = {"schema": "abyss_machine_self_awareness_collect_v1", "ok": True}
+    events_doc = {"schema": "abyss_machine_self_awareness_events_v1", "events": []}
+    index_doc = {"schema": "abyss_machine_self_awareness_correlation_index_v1"}
+    persistence_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(self_awareness_adapters, "collect_inputs", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "assemble_collect_documents",
+        lambda **_kwargs: {"collect": collect_doc, "events": events_doc, "index": index_doc},
+    )
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "persist_collect_documents",
+        lambda **kwargs: persistence_calls.append(kwargs) or kwargs["collect_doc"],
+    )
+
+    assert cli.self_awareness_collect(write_latest=False) is collect_doc
+    assert persistence_calls == []
+
+    assert cli.self_awareness_collect(write_latest=True) is collect_doc
+    assert len(persistence_calls) == 1
+    call = persistence_calls[0]
+    assert call["collect_doc"] is collect_doc
+    assert call["events_doc"] is events_doc
+    assert call["index_doc"] is index_doc
+    assert call["paths"] == self_awareness_adapters.SelfAwarenessCollectPersistencePaths(
+        events_latest=cli.SELF_AWARENESS_EVENTS_LATEST_PATH,
+        events_history_root=cli.SELF_AWARENESS_EVENTS_ROOT,
+        collect_latest=cli.SELF_AWARENESS_COLLECT_LATEST_PATH,
+        collect_history_root=cli.SELF_AWARENESS_COLLECT_ROOT,
+        index_latest=cli.SELF_AWARENESS_INDEX_PATH,
+    )
+
+
 def test_scheduler_timer_events_use_fake_systemd_ports() -> None:
     commands: list[tuple[str, ...]] = []
 
