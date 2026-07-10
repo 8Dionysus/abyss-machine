@@ -356,6 +356,17 @@ installed documents locally by hash across present episode kinds, but may
 report only kind counts, lineage/completion booleans, and policy; never publish
 contract bodies, risks, runbooks, events, episodes, evidence refs, or paths.
 
+For self-awareness alert-pipeline changes, public CI should use synthetic
+events, context, episode classes, investigation/replay documents, response
+contracts, completion predicates, refresh callbacks, and latest/history
+writers. It must constrain ordinary alert, working-stack usage-gap, selected
+organ-movement, stack-handoff, and synthetic-probe-marker branches; deterministic
+dedupe; conditional context/episode refresh; response/body-trace depth; no-write
+and write-error behavior; owner gating; and CLI binding. Live-host closeout may
+compare the full source/installed alert document locally by hash, but may report
+only candidate/depth/body-trace counts and policy; never publish events,
+episodes, candidates, response bodies, evidence refs, or machine paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.
