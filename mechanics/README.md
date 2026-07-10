@@ -51,8 +51,9 @@ Use these mechanic owners for the next extraction slices:
   latest artifact-ref filesystem ports, artifact evidence-ref stat projection,
   freshness-gate readmodel assembly, complete capabilities stack/container/
   HTTP/AI/RAG/nervous/latest-read orchestration, capability and requirement
-  readmodel assembly, ordered requirements/capabilities persistence, read-only
-  systemd timer/service discovery,
+  readmodel assembly, ordered requirements/capabilities persistence, complete
+  status latest/body/open-potential/open-requirement readmodel orchestration,
+  read-only systemd timer/service discovery,
   state normalization, and observation-event orchestration through fakeable
   ports, ordered collect input acquisition across latest reads, subsystem
   refreshes, optional network queries, time windows, and scheduler/service
@@ -91,7 +92,7 @@ Use these mechanic owners for the next extraction slices:
   live functions, contract builders, and write intent. Complete cycle
   preflight/probe/double-investigate-replay/artifact/proof/two-stage
   persistence orchestration also lives in `self_awareness_adapters`;
-  completion/status/export/validation orchestration and concrete
+  completion/export/validation orchestration and concrete
   artifact/freshness binding remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
