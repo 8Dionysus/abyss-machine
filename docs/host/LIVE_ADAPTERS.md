@@ -1585,6 +1585,28 @@ all present episode kinds and reports only kind counts, lineage/completion
 booleans, and policy; contract bodies, risks, runbooks, evidence refs, events,
 episodes, and local paths remain private.
 
+## Extracted Self-Awareness Alert Pipeline
+
+`abyss_machine.self_awareness_alert_contracts` owns the complete owner-gated
+alert readmodel pipeline:
+
+- event/context/episode intake and conditional context, stack-handoff, and
+  working-stack-gap refresh decisions through explicit ports;
+- alert, working-stack usage-gap, selected organ-movement, and stack-handoff
+  candidate assembly with synthetic-probe marker separation and deterministic
+  dedupe;
+- response-contract/body-trace enrichment, depth accounting, no-execution
+  policy, and optional latest/history persistence;
+- twelve explicit host paths plus typed config, runtime, refresh, and contract
+  ports instead of CLI module-global orchestration.
+
+The CLI preserves `self_awareness_alerts(write_latest=...)` as a thin binder.
+Synthetic tests constrain all candidate branches, probe-only markers,
+conditional refresh, owner gating, persistence failure, and typed CLI binding.
+Live closeout compares the full source/installed alert document locally by hash
+and reports only candidate/depth/body-trace counts and policy; event, episode,
+candidate, response, evidence, and path bodies remain private.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1882,8 +1904,10 @@ machine evidence.
    `self_awareness_trace_context_contracts`; episode body-trace assembly and
    completion now live in `self_awareness_body_trace_contracts`; episode-
    specific response assembly and response/candidate/route depth predicates
-   now live in `self_awareness_response_contracts`. Before declaring this
-   family closed, extract the remaining causal readmodels plus
+   now live in `self_awareness_response_contracts`; owner-gated alert intake,
+   candidate assembly, response enrichment, and persistence now live in
+   `self_awareness_alert_contracts`. Before declaring this family closed,
+   extract the remaining brief/resident causal readmodels plus
    activation/lineage/
    coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-

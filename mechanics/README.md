@@ -144,9 +144,13 @@ Use these mechanic owners for the next extraction slices:
   explicit path, config, runtime, and contract ports;
   `self_awareness_response_contracts` owns common and episode-specific response
   assembly plus response/candidate/route depth predicates through explicit
-  host paths, latest-loader, and dependent-contract ports. Remaining causal
-  readmodels and activation/lineage/coverage centers must be extracted before
-  the final residual CLI-edge classification and family completion audit.
+  host paths, latest-loader, and dependent-contract ports;
+  `self_awareness_alert_contracts` owns conditional alert intake/refresh,
+  owner-gated candidate assembly, response/body-trace enrichment, depth
+  accounting, and optional persistence through explicit ports. Remaining
+  brief/resident causal readmodels and activation/lineage/coverage centers must
+  be extracted before the final residual CLI-edge classification and family
+  completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
