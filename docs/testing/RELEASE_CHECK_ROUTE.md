@@ -239,6 +239,16 @@ resource/preflight and no-execution booleans, entity/packet counts,
 owner-boundary booleans, and history delta; do not publish raw action
 drilldowns, entity maps, packet payloads, or host evidence.
 
+For self-awareness completion graph changes, public CI should use synthetic
+latest paths, completion actions, drilldowns, route maps, working-stack organs,
+autolinks, and cycle bridge rows. It must constrain action/body/bridge entity
+and event identities, document resolution, route bindings, autolink fallback,
+empty state, unresolved-document fail-closed behavior, and no-execution policy.
+Existing completion-audit host contracts must preserve exact action/body/
+bridge counts and top IDs. Live closeout may compare only compact map status,
+summary counts, route/body/bridge IDs, unmapped sets, automation booleans, and
+write-error count; do not publish paths, evidence refs, hashes, or raw map rows.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
