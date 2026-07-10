@@ -1473,6 +1473,29 @@ reuse, bounded packet assembly, nested persistence order, no-write behavior,
 and CLI binding. Live closeout compares only schema/ok/status/summary and never
 publishes events, contexts, graph rows, episodes, or local paths.
 
+## Extracted Self-Awareness Causal Overlay Contracts
+
+`abyss_machine.self_awareness_causal_overlay_contracts` owns the complete
+memory-space and stack-handoff time-space overlay assembly:
+
+- bounded retrieval-packet, route-atlas, event-context, semantic-backend, and
+  freshness-gate projection from supplied readmodels or explicit latest ports;
+- nervous semantic-maintenance status projection without bypassing the
+  resource gate or writing memory/KAG truth;
+- stack-handoff timeline markers and requirement, action, runbook, service,
+  and coverage-plane graph nodes/edges from a supplied requirement-probe
+  readmodel and action-map contract;
+- explicit runtime, refresh, contract, path, and config ports with no concrete
+  filesystem, network, subprocess, persistence, or stack mutation inside the
+  module.
+
+The CLI binds current machine paths, latest/refresh callbacks, clock, and
+stable contract callbacks. Synthetic tests constrain supplied-document reuse
+without hidden latest reads, bounded non-mutating projection, owner routing,
+and CLI binding. Live closeout compares only schema/ok/status/summary/policy;
+retrieval rows, event contexts, graph nodes/edges, evidence refs, and local
+paths remain private host evidence.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1761,10 +1784,11 @@ machine evidence.
    bounded context, and causal episode refresh/assembly/persistence pipelines
    now live in `self_awareness_causal_readmodel_contracts`; requirement-probes
    and stack-closure-dossier refresh/assembly/persistence now live in
-   `self_awareness_stack_closure_contracts`. Before declaring this family
-   closed, extract the remaining causal overlays/readmodels and activation/
-   lineage/coverage centers, then classify every remaining direct-IO CLI
-   helper as a concrete
+   `self_awareness_stack_closure_contracts`; memory-space and stack-handoff
+   time-space overlay assembly now lives in
+   `self_awareness_causal_overlay_contracts`. Before declaring this family
+   closed, extract the remaining causal readmodels plus activation/lineage/
+   coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
    unextracted reusable center.
 3. Further AI runtime adapters: only after a fresh inventory proves a concrete
