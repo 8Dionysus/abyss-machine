@@ -199,6 +199,16 @@ capability/available counts, required-missing IDs, matrix counts, coverage
 booleans, history delta, and write-error count. Do not publish raw capability
 documents, endpoint bodies, model inventories, or private latest paths.
 
+For self-awareness status orchestration changes, public CI should rely on
+synthetic latest-reader, body-closure, activation-gap-route, and paths ports for
+canonical load order, complete/watch/degraded transitions, missing-latest
+projection, open-potential/open-requirement counts, and public-safe latest
+summaries. Live closeout may compare compact source and installed status using
+only top-level/readmodel/body/stack-usage status, missing names,
+capability/requirement counts, open service/requirement IDs, and
+probe/cycle/validate booleans. The status adapter is read-only and requires no
+live refresh merely to prove document assembly.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact

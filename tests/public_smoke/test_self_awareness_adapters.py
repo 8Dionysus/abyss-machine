@@ -5896,3 +5896,150 @@ def test_capabilities_cli_only_binds_host_paths_urls_and_ports(monkeypatch) -> N
     assert call["input_port"].load_latest_json is cli.load_latest_json
     assert call["contract_port"].capability_item is cli.self_awareness_capability_item
     assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
+
+
+def _run_fake_status(
+    tmp_path: Path,
+    *,
+    body_complete: bool,
+    missing_name: str | None = None,
+) -> tuple[dict[str, Any], list[tuple[Path, str]], dict[str, Path]]:
+    names = [name for name, _suffix in self_awareness_adapters.READMODEL_SCHEMA_SUFFIXES]
+    names.append("completion_audit")
+    paths = {name: tmp_path / name.replace("_", "-") / "latest.json" for name in names}
+    specs = self_awareness_adapters.status_latest_specs(
+        schema_prefix="abyss_machine",
+        paths=paths,
+    )
+    documents = {
+        spec.name: {
+            "schema": spec.schema,
+            "ok": True,
+            "generated_at": "2026-07-10T03:00:00-06:00",
+            "summary": {},
+        }
+        for spec in specs
+    }
+    documents["validate"]["ok"] = True
+    documents["completion_audit"]["summary"] = {
+        "stack_usage_closure_complete": True,
+        "validator_green_but_stack_usage_incomplete": False,
+    }
+    documents["autolink"].update(
+        {
+            "organ_links": [],
+            "stack_requirement_links": [],
+            "summary": {
+                "open_stack_requirements": 0,
+                "service_ids": [],
+                "requirement_ids": [],
+            },
+        }
+    )
+    documents["stack_closure_dossier"].update(
+        {
+            "entries": [],
+            "working_stack_activation_dossier": {"entries": []},
+        }
+    )
+    documents["activation_smoke"]["rows"] = []
+    documents["requirements"]["requirements"] = []
+    if missing_name:
+        documents[missing_name] = {
+            "schema": next(spec.schema for spec in specs if spec.name == missing_name),
+            "ok": False,
+            "error": "fixture latest missing",
+        }
+    calls: list[tuple[Path, str]] = []
+
+    def load_latest(path: Path, schema: str) -> dict[str, Any]:
+        calls.append((path, schema))
+        name = next(name for name, candidate in paths.items() if candidate == path)
+        return json.loads(json.dumps(documents[name]))
+
+    body_closure = {
+        "schema": "abyss_machine_self_awareness_body_closure_status_v1",
+        "ok": True,
+        "status": "ready" if body_complete else "watch",
+        "complete": body_complete,
+        "summary": {"response_routes": 2, "watch_sources": 0 if body_complete else 1},
+    }
+    document = self_awareness_adapters.run_status(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T03:00:00-06:00",
+        latest_paths=paths,
+        port=self_awareness_adapters.SelfAwarenessStatusPort(
+            load_latest_json=load_latest,
+            body_closure_status=lambda: body_closure,
+            activation_gap_route=lambda *_args, **_kwargs: {"complete": True},
+            activation_gap_route_complete=lambda route: route.get("complete") is True,
+            paths_document=lambda: {"schema": "abyss_machine_self_awareness_paths_v1"},
+        ),
+    )
+    return document, calls, paths
+
+
+def test_status_orchestration_projects_complete_readmodel(tmp_path: Path) -> None:
+    document, calls, paths = _run_fake_status(tmp_path, body_complete=True)
+
+    assert document["ok"] is True
+    assert document["status"] == "complete"
+    assert document["summary"]["readmodel_status"] == "ready"
+    assert document["summary"]["stack_usage_status"] == "complete"
+    assert document["summary"]["body_status"] == "ready"
+    assert document["open_potential"]["services"] == 0
+    assert document["open_stack_requirements"]["requirements"] == 0
+    assert [path for path, _schema in calls] == [
+        spec.path
+        for spec in self_awareness_adapters.status_latest_specs(
+            schema_prefix="abyss_machine",
+            paths=paths,
+        )
+    ]
+
+
+def test_status_orchestration_projects_body_watch_without_degrading_readmodel(tmp_path: Path) -> None:
+    document, _calls, _paths = _run_fake_status(tmp_path, body_complete=False)
+
+    assert document["ok"] is True
+    assert document["status"] == "watch"
+    assert document["summary"]["readmodel_status"] == "ready"
+    assert document["summary"]["body_closure_complete"] is False
+    assert document["body_closure"]["status"] == "watch"
+
+
+def test_status_orchestration_projects_missing_latest_as_degraded(tmp_path: Path) -> None:
+    document, _calls, _paths = _run_fake_status(
+        tmp_path,
+        body_complete=True,
+        missing_name="events",
+    )
+
+    assert document["ok"] is False
+    assert document["status"] == "degraded"
+    assert document["summary"]["readmodel_status"] == "degraded"
+    assert document["summary"]["missing_or_invalid"] == ["events"]
+
+
+def test_status_cli_only_binds_latest_paths_clock_and_ports(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    sentinel = {"schema": "fixture_status_v1", "ok": True}
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "run_status",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+
+    assert cli.self_awareness_status() is sentinel
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["latest_paths"] == cli.self_awareness_latest_path_map()
+    assert isinstance(call["port"], self_awareness_adapters.SelfAwarenessStatusPort)
+    assert call["port"].load_latest_json is cli.load_latest_json
+    assert call["port"].body_closure_status is cli.self_awareness_body_closure_status
+    assert call["port"].activation_gap_route is cli.self_awareness_working_stack_activation_gap_route
+    assert call["port"].activation_gap_route_complete is cli.self_awareness_working_stack_activation_gap_route_complete
+    assert call["port"].paths_document is cli.self_awareness_paths
