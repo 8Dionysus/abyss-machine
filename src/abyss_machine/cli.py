@@ -47902,44 +47902,27 @@ def self_awareness_export_artifact_refs(exported: dict[str, Any], names: list[st
     return refs
 
 
+def self_awareness_export_runtime_port() -> self_awareness_adapters.SelfAwarenessExportRuntimePort:
+    return self_awareness_adapters.SelfAwarenessExportRuntimePort(
+        load_latest_json=load_latest_json,
+        daily_jsonl_path=ai_daily_jsonl_path,
+        path_exists=lambda path: path.exists(),
+        path_stat=lambda path: path.stat(),
+        path_sha256=sha256_path,
+    )
+
+
 def self_awareness_export_artifact_entry(name: str, path: Path, schema: str) -> dict[str, Any]:
-    data = load_latest_json(path, schema)
-    exists = path.exists()
-    schema_ok = data.get("schema") == schema
-    artifact_status = "missing" if not data.get("schema") else ("schema_mismatch" if not schema_ok else "present")
-    daily_path = ai_daily_jsonl_path(path.parent)
-    return {
-        "name": name,
-        "path": str(path),
-        "history_path": str(daily_path),
-        "exists": exists,
-        "history_exists": daily_path.exists(),
-        "expected_schema": schema,
-        "schema": data.get("schema"),
-        "schema_ok": schema_ok,
-        "ok": data.get("ok"),
-        "status": data.get("status"),
-        "generated_at": data.get("generated_at"),
-        "summary": data.get("summary"),
-        "artifact_status": artifact_status,
-        "size_bytes": path.stat().st_size if exists else None,
-        "sha256": sha256_path(path) if exists else None,
-        "evidence_ref": {"path": str(path), "schema": data.get("schema") or schema},
-    }
+    return self_awareness_adapters.export_artifact_entry(
+        name,
+        path,
+        schema,
+        runtime_port=self_awareness_export_runtime_port(),
+    )
 
 
 def self_awareness_export_artifact_status_lists(exported: dict[str, Any]) -> tuple[list[str], list[str]]:
-    missing = sorted(
-        str(name)
-        for name, artifact in exported.items()
-        if isinstance(artifact, dict) and artifact.get("artifact_status") == "missing"
-    )
-    malformed = sorted(
-        str(name)
-        for name, artifact in exported.items()
-        if isinstance(artifact, dict) and artifact.get("artifact_status") == "schema_mismatch"
-    )
-    return missing, malformed
+    return self_awareness_adapters.export_artifact_status_lists(exported)
 
 
 def self_awareness_refresh_exported_artifacts(
@@ -47947,18 +47930,12 @@ def self_awareness_refresh_exported_artifacts(
     artifact_specs: dict[str, tuple[Path, str]],
     names: list[str],
 ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-    for name in names:
-        spec = artifact_specs.get(name)
-        if not spec:
-            continue
-        path, schema = spec
-        exported[name] = self_awareness_export_artifact_entry(name, path, schema)
-    artifact_list = sorted(
-        [artifact for artifact in exported.values() if isinstance(artifact, dict)],
-        key=lambda item: str(item.get("name") or ""),
+    return self_awareness_adapters.refresh_exported_artifacts(
+        exported,
+        artifact_specs,
+        names,
+        runtime_port=self_awareness_export_runtime_port(),
     )
-    missing, malformed = self_awareness_export_artifact_status_lists(exported)
-    return artifact_list, missing, malformed
 
 
 def self_awareness_include_coverage_audit_artifact(artifacts: dict[str, tuple[Path, str]]) -> None:
@@ -49220,567 +49197,88 @@ def self_awareness_export_stack_handoff(
 
 
 def self_awareness_export(run_id: str | None = None, write_latest: bool = True, include_cycle: bool = True) -> dict[str, Any]:
-    generated_at = now_iso()
-    requirements_doc = load_latest_json(SELF_AWARENESS_REQUIREMENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirements_v1")
-    if requirements_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_requirements_v1":
-        requirements_doc = self_awareness_requirements(write_latest=True)
-    requirement_probes_doc = load_latest_json(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirement_probes_v1")
-    if (
-        requirement_probes_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_requirement_probes_v1"
-        or not self_awareness_requirement_probes_cover_requirements(requirements_doc, requirement_probes_doc)
-        or not self_awareness_requirement_probes_export_ready(requirements_doc, requirement_probes_doc)
-    ):
-        requirement_probes_doc = self_awareness_requirement_probes(write_latest=True, requirements_doc=requirements_doc)
-    working_stack_for_export = self_awareness_working_stack_inventory(write_latest=True)
-    stack_closure_dossier = self_awareness_stack_closure_dossier(
-        write_latest=True,
-        requirements_doc=requirements_doc,
-        requirement_probes_doc=requirement_probes_doc,
-        working_stack_doc=working_stack_for_export,
-    )
-    trace_context_for_export = load_latest_json(SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_trace_context_fallback_v1")
-    if not self_awareness_trace_context_fallback_complete(trace_context_for_export):
-        trace_context_for_export = self_awareness_trace_context_fallback(
-            write_latest=True,
-            requirement_probes_doc=requirement_probes_doc,
-        )
-    activation_entries_for_export = nested_get(stack_closure_dossier, ["working_stack_activation_dossier", "entries"])
-    activation_entries_for_export = activation_entries_for_export if isinstance(activation_entries_for_export, list) else []
-    working_stack_for_smoke_export = working_stack_for_export
-    expected_smoke_services_for_export = sorted(
-        str(organ.get("service"))
-        for organ in (working_stack_for_smoke_export.get("organs") if isinstance(working_stack_for_smoke_export.get("organs"), list) else [])
-        if isinstance(organ, dict) and organ.get("service")
-    )
-    coverage_for_export = load_latest_json(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_objective_coverage_audit_v1")
-    def coverage_matches_activation(doc: dict[str, Any]) -> bool:
-        coverage_rows = doc.get("working_stack_gap_rows") if isinstance(doc.get("working_stack_gap_rows"), list) else []
-        coverage_by_service = {
-            str(row.get("service")): row
-            for row in coverage_rows
-            if isinstance(row, dict) and row.get("service")
-        }
-        link_integrity = doc.get("working_stack_link_integrity") if isinstance(doc.get("working_stack_link_integrity"), dict) else {}
-        return (
-            len(coverage_rows) == len(activation_entries_for_export)
-            and safe_int(nested_get(doc, ["summary", "working_stack_activation_synthetic_proofs_complete"]), -1) == len(activation_entries_for_export)
-            and self_awareness_working_stack_link_integrity_matrix_complete(link_integrity)
-            and self_awareness_link_integrity_matches_working_stack(working_stack_for_export, link_integrity)
-            and all(
-                isinstance(coverage_by_service.get(str(entry.get("service"))), dict)
-                and coverage_by_service[str(entry.get("service"))].get("working_stack_link_id") == entry.get("working_stack_link_id")
-                and self_awareness_working_stack_activation_synthetic_proof_complete(coverage_by_service[str(entry.get("service"))].get("synthetic_proof"))
-                for entry in activation_entries_for_export
-                if isinstance(entry, dict) and entry.get("service")
-            )
-        )
-
-    if activation_entries_for_export:
-        if not coverage_matches_activation(coverage_for_export):
-            coverage_for_export = self_awareness_objective_coverage_audit(
-                write_latest=True,
-                working_stack_doc=working_stack_for_export,
-                stack_closure_dossier_doc=stack_closure_dossier,
-            )
-        if not coverage_matches_activation(coverage_for_export):
-            self_awareness_refresh_working_stack_dependent_readmodels(working_stack_doc=working_stack_for_export)
-            coverage_for_export = self_awareness_objective_coverage_audit(
-                write_latest=True,
-                working_stack_doc=working_stack_for_export,
-                stack_closure_dossier_doc=stack_closure_dossier,
-            )
-        activation_smoke_for_export = load_latest_json(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1")
-        if self_awareness_activation_smoke_needs_refresh(activation_smoke_for_export, activation_entries_for_export, expected_smoke_services_for_export):
-            activation_smoke_for_export = self_awareness_activation_smoke(
-                write_latest=True,
-                stack_closure_dossier_doc=stack_closure_dossier,
-                working_stack_doc=working_stack_for_export,
-            )
-    else:
-        activation_smoke_for_export = load_latest_json(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1")
-        if self_awareness_activation_smoke_needs_refresh(activation_smoke_for_export, activation_entries_for_export, expected_smoke_services_for_export):
-            activation_smoke_for_export = self_awareness_activation_smoke(
-                write_latest=True,
-                stack_closure_dossier_doc=stack_closure_dossier,
-                working_stack_doc=working_stack_for_export,
-            )
-    autolink_for_export = load_latest_json(SELF_AWARENESS_AUTOLINK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_autolink_v1")
-    if not self_awareness_autolink_complete(autolink_for_export):
-        autolink_for_export = self_awareness_autolink(
-            write_latest=True,
-            working_stack_doc=working_stack_for_export,
-            coverage_audit_doc=coverage_for_export,
-            stack_closure_dossier_doc=stack_closure_dossier,
-            activation_smoke_doc=activation_smoke_for_export,
-        )
-    completion_audit_for_export = load_latest_json(SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_completion_audit_v1")
-    working_stack_for_entity_map = load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1")
-    cycle_for_entity_map = load_latest_json(SELF_AWARENESS_CYCLE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_cycle_v1")
-    working_stack_organs_for_entity_map = [
-        organ for organ in (working_stack_for_entity_map.get("organs") if isinstance(working_stack_for_entity_map.get("organs"), list) else [])
-        if isinstance(organ, dict) and organ.get("service")
-    ]
-    expected_stack_organ_services_for_export = sorted(str(organ.get("service")) for organ in working_stack_organs_for_entity_map)
-    expected_stack_organs_for_entity_map = len(expected_stack_organ_services_for_export)
-    expected_machine_bridges_for_entity_map = len(nested_get(cycle_for_entity_map, ["bridge_proof", "rows"]) if isinstance(nested_get(cycle_for_entity_map, ["bridge_proof", "rows"]), list) else [])
-    entity_event_document_map_for_export = completion_audit_for_export.get("entity_event_document_map") if isinstance(completion_audit_for_export.get("entity_event_document_map"), dict) else {}
-    completion_route_packets_for_export = completion_audit_for_export.get("completion_route_packets") if isinstance(completion_audit_for_export.get("completion_route_packets"), dict) else {}
-    expected_completion_routes_for_packets = safe_int(nested_get(completion_audit_for_export, ["completion_route_map", "summary", "routes"]), -1)
-    expected_completion_routes_for_packets = expected_completion_routes_for_packets if expected_completion_routes_for_packets >= 0 else None
-    expected_completion_actions_for_packets = safe_int(nested_get(completion_audit_for_export, ["action_backlog", "summary", "actions"]), -1)
-    expected_completion_actions_for_packets = expected_completion_actions_for_packets if expected_completion_actions_for_packets >= 0 else None
-    completion_route_packet_export_issues = self_awareness_completion_route_packet_issues(
-        completion_route_packets_for_export,
-        expected_routes=expected_completion_routes_for_packets,
-        expected_actions=expected_completion_actions_for_packets,
-    )
-    if (
-        not self_awareness_entity_event_document_map_complete(
-            entity_event_document_map_for_export,
-            expected_stack_organs=expected_stack_organs_for_entity_map,
-            expected_machine_bridges=expected_machine_bridges_for_entity_map,
-        )
-        or completion_route_packet_export_issues
-    ):
-        completion_audit_for_export = self_awareness_completion_audit(write_latest=True)
-        entity_event_document_map_for_export = completion_audit_for_export.get("entity_event_document_map") if isinstance(completion_audit_for_export.get("entity_event_document_map"), dict) else {}
-        completion_route_packets_for_export = completion_audit_for_export.get("completion_route_packets") if isinstance(completion_audit_for_export.get("completion_route_packets"), dict) else {}
-        expected_completion_routes_for_packets = safe_int(nested_get(completion_audit_for_export, ["completion_route_map", "summary", "routes"]), -1)
-        expected_completion_routes_for_packets = expected_completion_routes_for_packets if expected_completion_routes_for_packets >= 0 else None
-        expected_completion_actions_for_packets = safe_int(nested_get(completion_audit_for_export, ["action_backlog", "summary", "actions"]), -1)
-        expected_completion_actions_for_packets = expected_completion_actions_for_packets if expected_completion_actions_for_packets >= 0 else None
-        completion_route_packet_export_issues = self_awareness_completion_route_packet_issues(
-            completion_route_packets_for_export,
-            expected_routes=expected_completion_routes_for_packets,
-            expected_actions=expected_completion_actions_for_packets,
-        )
-    entity_event_document_export_issues = self_awareness_entity_event_document_map_issues(
-        entity_event_document_map_for_export,
-        expected_stack_organs=expected_stack_organs_for_entity_map,
-        expected_machine_bridges=expected_machine_bridges_for_entity_map,
-    )
-    entity_event_document_export_ok = not entity_event_document_export_issues
-    completion_route_packet_export_ok = not completion_route_packet_export_issues
-    alerts_for_export = self_awareness_alerts(write_latest=True)
-    reactions_for_export = reaction_status(write_latest=True)
-    responses_for_export = response_status(write_latest=True, reactions=reactions_for_export, refresh_reactions=False)
-    artifacts = {
-        "capabilities": (SELF_AWARENESS_CAPABILITIES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_capabilities_v1"),
-        "requirements": (SELF_AWARENESS_REQUIREMENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirements_v1"),
-        "requirement_probes": (SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirement_probes_v1"),
-        "stack_closure_dossier": (SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_stack_closure_dossier_v1"),
-        "trace_context": (SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_trace_context_fallback_v1"),
-        "failure_matrix": (SELF_AWARENESS_FAILURE_MATRIX_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_failure_matrix_v1"),
-        "working_stack": (SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1"),
-        "activation_smoke": (SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1"),
-        "autolink": (SELF_AWARENESS_AUTOLINK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_autolink_v1"),
-        "events": (SELF_AWARENESS_EVENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_events_v1"),
-        "collect": (SELF_AWARENESS_COLLECT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_collect_v1"),
-        "query": (SELF_AWARENESS_QUERY_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_query_v1"),
-        "correlation": (SELF_AWARENESS_CORRELATION_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_correlation_v1"),
-        "timeline": (SELF_AWARENESS_TIMELINE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_timeline_v1"),
-        "spatial_graph": (SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_spatial_graph_v1"),
-        "context": (SELF_AWARENESS_CONTEXT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_context_v1"),
-        "episodes": (SELF_AWARENESS_EPISODES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_episodes_v1"),
-        "alerts": (SELF_AWARENESS_ALERTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_alerts_v1"),
-        "reactions": (REACTIONS_LATEST_PATH, f"{SCHEMA_PREFIX}_reactions_status_v1"),
-        "responses": (RESPONSES_LATEST_PATH, f"{SCHEMA_PREFIX}_responses_status_v1"),
-        "investigate": (SELF_AWARENESS_INVESTIGATE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_investigation_v1"),
-        "replay": (SELF_AWARENESS_REPLAY_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_replay_v1"),
-        "brief": (SELF_AWARENESS_BRIEF_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_brief_v1"),
-        "probe": (SELF_AWARENESS_PROBE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_probe_v1"),
-        "completion_audit": (SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_completion_audit_v1"),
-        "validate": (SELF_AWARENESS_VALIDATE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_validate_v1"),
-    }
-    if include_cycle:
-        artifacts["cycle"] = (SELF_AWARENESS_CYCLE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_cycle_v1")
-    if SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH.exists():
-        self_awareness_include_coverage_audit_artifact(artifacts)
-    exported: dict[str, Any] = {}
-    artifact_list: list[dict[str, Any]] = []
-    for name, (path, schema) in artifacts.items():
-        artifact = self_awareness_export_artifact_entry(name, path, schema)
-        exported[name] = artifact
-        artifact_list.append(artifact)
-    artifact_list = sorted(artifact_list, key=lambda item: str(item.get("name") or ""))
-    missing, malformed = self_awareness_export_artifact_status_lists(exported)
-    requirements_export, stack_handoff_export = self_awareness_export_stack_handoff(
-        requirements_doc,
-        requirement_probes_doc,
-        exported,
-        generated_at,
-        stack_closure_dossier=stack_closure_dossier,
-        coverage_audit_doc=coverage_for_export,
-        activation_smoke_doc=activation_smoke_for_export,
-    )
-    investigation_doc = load_latest_json(SELF_AWARENESS_INVESTIGATE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_investigation_v1")
-    if investigation_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_investigation_v1" or not self_awareness_resident_cognitive_packet_complete(investigation_doc.get("resident_cognitive_packet") if isinstance(investigation_doc.get("resident_cognitive_packet"), dict) else {}):
-        investigation_doc = self_awareness_investigate("latest", write_latest=True)
-    replay_doc = load_latest_json(SELF_AWARENESS_REPLAY_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_replay_v1")
-    resident_cognitive_replay = replay_doc.get("resident_cognitive_replay") if isinstance(replay_doc.get("resident_cognitive_replay"), dict) else {}
-    if replay_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_replay_v1" or not self_awareness_resident_cognitive_replay_complete(resident_cognitive_replay):
-        replay_doc = self_awareness_replay(thread_id=str(investigation_doc.get("thread_id") or ""), write_latest=True)
-        resident_cognitive_replay = replay_doc.get("resident_cognitive_replay") if isinstance(replay_doc.get("resident_cognitive_replay"), dict) else {}
-    context_export_doc = load_latest_json(SELF_AWARENESS_CONTEXT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_context_v1")
-    host_body_export_ok = nested_get(context_export_doc, ["context_packet", "sections", "host_body", "complete"]) is True
-    memory_space_freshness_handoff = self_awareness_memory_space_freshness_handoff(context_export_doc)
-    memory_space_freshness_export_ok = memory_space_freshness_handoff.get("complete") is True
-    response_export_doc = load_latest_json(RESPONSES_LATEST_PATH, f"{SCHEMA_PREFIX}_responses_status_v1")
-    response_routes_for_export = [
-        item for item in (response_export_doc.get("routes") if isinstance(response_export_doc.get("routes"), list) else [])
-        if isinstance(item, dict) and item.get("category") == "self-awareness"
-    ]
-    response_body_trace_export_ok = bool(response_routes_for_export) and all(
-        self_awareness_body_trace_complete(nested_get(item, ["response_contract", "body_trace"]))
-        for item in response_routes_for_export
-    )
-    response_entity_event_document_routes_for_export = [
-        item for item in response_routes_for_export
-        if self_awareness_response_entity_event_document_context_complete(nested_get(item, ["response_contract", "entity_event_document_context"]))
-    ]
-    response_entity_event_document_export_ok = len(response_entity_event_document_routes_for_export) == len(response_routes_for_export)
-    coverage_export_doc = coverage_for_export if isinstance(coverage_for_export, dict) else load_latest_json(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_objective_coverage_audit_v1")
-    working_stack_link_integrity = coverage_export_doc.get("working_stack_link_integrity") if isinstance(coverage_export_doc.get("working_stack_link_integrity"), dict) else {}
-    coverage_refreshed_after_handoff = False
-    if (
-        not self_awareness_working_stack_link_integrity_matrix_complete(working_stack_link_integrity)
-        or (activation_entries_for_export and not coverage_matches_activation(coverage_export_doc))
-    ):
-        coverage_export_doc = self_awareness_objective_coverage_audit(
-            write_latest=True,
-            working_stack_doc=working_stack_for_export,
-            stack_closure_dossier_doc=stack_closure_dossier,
-        )
-        coverage_refreshed_after_handoff = True
-        working_stack_link_integrity = coverage_export_doc.get("working_stack_link_integrity") if isinstance(coverage_export_doc.get("working_stack_link_integrity"), dict) else {}
-    if coverage_refreshed_after_handoff:
-        activation_smoke_for_export = load_latest_json(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1")
-        if self_awareness_activation_smoke_needs_refresh(activation_smoke_for_export, activation_entries_for_export, expected_smoke_services_for_export):
-            activation_smoke_for_export = self_awareness_activation_smoke(
-                write_latest=True,
-                stack_closure_dossier_doc=stack_closure_dossier,
-                working_stack_doc=working_stack_for_export,
-            )
-        self_awareness_include_coverage_audit_artifact(artifacts)
-        artifact_list, missing, malformed = self_awareness_refresh_exported_artifacts(
-            exported,
-            artifacts,
-            ["activation_smoke", "coverage_audit"],
-        )
-        requirements_export, stack_handoff_export = self_awareness_export_stack_handoff(
-            requirements_doc,
-            requirement_probes_doc,
-            exported,
-            generated_at,
-            stack_closure_dossier=stack_closure_dossier,
-            coverage_audit_doc=coverage_export_doc,
-            activation_smoke_doc=activation_smoke_for_export,
-        )
-    activation_smoke_export_ok = (
-        expected_stack_organs_for_entity_map > 0
-        and safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_smoke_rows"]), -1) == expected_stack_organs_for_entity_map
-        and safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_smoke_rows_complete"]), -1) == expected_stack_organs_for_entity_map
-        and safe_int(nested_get(stack_handoff_export, ["summary", "stack_organ_use_packets"]), -1) == expected_stack_organs_for_entity_map
-        and safe_int(nested_get(stack_handoff_export, ["summary", "stack_organ_use_packets_complete"]), -1) == expected_stack_organs_for_entity_map
-        and not nested_get(stack_handoff_export, ["summary", "working_stack_activation_smoke_failed_services"])
-        and not nested_get(stack_handoff_export, ["summary", "stack_organ_use_packet_failed_services"])
-    )
-    stack_organ_use_packet_export_ok = (
-        expected_stack_organs_for_entity_map > 0
-        and safe_int(nested_get(stack_handoff_export, ["summary", "stack_organ_use_packets"]), -1) == expected_stack_organs_for_entity_map
-        and safe_int(nested_get(stack_handoff_export, ["summary", "stack_organ_use_packets_complete"]), -1) == expected_stack_organs_for_entity_map
-        and not nested_get(stack_handoff_export, ["summary", "stack_organ_use_packet_failed_services"])
-    )
-    manifest = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_export_manifest_v1",
-        "run_id": run_id,
-        "generated_at": generated_at,
-        "artifact_count": len(artifact_list),
-        "missing": missing,
-        "malformed": malformed,
-        "artifact_names": [str(item.get("name")) for item in artifact_list],
-        "artifact_hashes": {str(item.get("name")): item.get("sha256") for item in artifact_list},
-        "portable_contract": {
-            "format": "latest-json-with-daily-jsonl-history",
-            "raw_secrets_included": False,
-            "stack_mutation_included": False,
-            "actions_executed": False,
-            "claims_require_evidence_refs": True,
-            "artifacts_are_machine_owned_readmodels": True,
-            "stack_handoff_included": True,
-            "open_stack_requirements_preserved": True,
-            "stack_owner_acceptance_verifiers_included": True,
-            "runbook_candidates_included": True,
-            "stack_closure_dossier_included": True,
-            "stack_requirement_closure_acceptance_included": safe_int(nested_get(stack_handoff_export, ["summary", "stack_requirement_closure_acceptance_packets_complete"]), 0) == safe_int(nested_get(stack_closure_dossier, ["summary", "probes"]), 0),
-            "working_stack_activation_dossier_included": True,
-            "working_stack_activation_synthetic_proofs_included": safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_synthetic_proofs"]), 0) > 0,
-            "working_stack_activation_closure_acceptance_included": safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_closure_acceptance_packets_complete"]), 0) == safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_entries"]), 0),
-            "working_stack_activation_smoke_included": activation_smoke_export_ok,
-            "stack_organ_use_packets_included": stack_organ_use_packet_export_ok,
-            "working_stack_link_integrity_included": self_awareness_working_stack_link_integrity_matrix_complete(working_stack_link_integrity),
-            "autolink_included": self_awareness_autolink_complete(autolink_for_export),
-            "resident_cognitive_replay_included": True,
-            "host_body_context_packet_included": host_body_export_ok,
-            "memory_space_freshness_included": memory_space_freshness_export_ok,
-            "response_body_trace_included": response_body_trace_export_ok,
-            "reactions_responses_included": bool(alerts_for_export.get("ok") and reactions_for_export.get("ok") and responses_for_export.get("ok")),
-            "entity_event_document_map_included": entity_event_document_export_ok,
-            "response_entity_event_document_context_included": response_entity_event_document_export_ok,
-            "completion_route_packets_included": completion_route_packet_export_ok,
-            "body_entity_event_document_map_included": entity_event_document_export_ok,
-            "stack_organ_entities_included": (
-                entity_event_document_export_ok
-                and safe_int(nested_get(entity_event_document_map_for_export, ["summary", "stack_organs"]), -1) == expected_stack_organs_for_entity_map
-            ),
-            "machine_bridge_entities_included": (
-                entity_event_document_export_ok
-                and safe_int(nested_get(entity_event_document_map_for_export, ["summary", "machine_bridges"]), -1) == expected_machine_bridges_for_entity_map
-            ),
-        },
-        "owner_boundary": {
-            "stack_owner": "abyss-stack",
-            "machine_role": "read_only_consumer_exporter",
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-        },
-    }
-    manifest["manifest_digest"] = stable_hash_json({
-        "run_id": run_id,
-        "artifact_hashes": manifest["artifact_hashes"],
-        "missing": missing,
-        "malformed": malformed,
-    }, length=32)
-    stack_requirement_closure_acceptance_export_ok = (
-        safe_int(nested_get(stack_handoff_export, ["summary", "stack_requirement_closure_acceptance_packets"]), -1)
-        == safe_int(nested_get(stack_closure_dossier, ["summary", "probes"]), -2)
-        and safe_int(nested_get(stack_handoff_export, ["summary", "stack_requirement_closure_acceptance_packets_complete"]), -1)
-        == safe_int(nested_get(stack_closure_dossier, ["summary", "probes"]), -2)
-        and safe_int(nested_get(stack_handoff_export, ["summary", "stack_requirement_compat_requirements"]), -1)
-        == safe_int(nested_get(stack_closure_dossier, ["summary", "probes"]), -2)
-    )
-    working_stack_link_integrity_export_ok = self_awareness_working_stack_link_integrity_matrix_complete(working_stack_link_integrity)
-    autolink_export_ok = self_awareness_autolink_complete(autolink_for_export)
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_export_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": not missing and not malformed and self_awareness_resident_cognitive_replay_complete(resident_cognitive_replay) and activation_smoke_export_ok and stack_requirement_closure_acceptance_export_ok and working_stack_link_integrity_export_ok and autolink_export_ok and host_body_export_ok and memory_space_freshness_export_ok and response_body_trace_export_ok and response_entity_event_document_export_ok and entity_event_document_export_ok and completion_route_packet_export_ok,
-        "run_id": run_id,
-        "summary": {
-            "artifacts": len(exported),
-            "missing": len(missing),
-            "malformed": len(malformed),
-            "manifest_digest": manifest.get("manifest_digest"),
-            "run_id": run_id,
-            "stack_handoff": nested_get(stack_handoff_export, ["summary", "stack_handoff"]),
-            "open_stack_requirements": nested_get(stack_handoff_export, ["summary", "open"]),
-            "runbook_candidates": nested_get(stack_handoff_export, ["summary", "runbook_candidates"]),
-            "acceptance_verifier_steps": nested_get(stack_handoff_export, ["summary", "acceptance_verifier_steps"]),
-            "stack_closure_dossier_entries": nested_get(stack_closure_dossier, ["summary", "probes"]),
-            "stack_requirement_closure_acceptance_packets": nested_get(stack_handoff_export, ["summary", "stack_requirement_closure_acceptance_packets"]),
-            "stack_requirement_closure_acceptance_packets_complete": nested_get(stack_handoff_export, ["summary", "stack_requirement_closure_acceptance_packets_complete"]),
-            "stack_requirement_compat_requirements": nested_get(stack_handoff_export, ["summary", "stack_requirement_compat_requirements"]),
-            "working_stack_activation_gaps": nested_get(stack_closure_dossier, ["summary", "open_working_stack_activation_gaps"]),
-            "working_stack_activation_entries": nested_get(stack_closure_dossier, ["summary", "working_stack_activation_entries"]),
-            "working_stack_activation_synthetic_scenarios": nested_get(stack_closure_dossier, ["summary", "working_stack_activation_synthetic_scenarios"]),
-            "working_stack_activation_synthetic_scenarios_complete": nested_get(stack_closure_dossier, ["summary", "working_stack_activation_synthetic_scenarios_complete"]),
-            "working_stack_activation_closure_acceptance_packets": nested_get(stack_closure_dossier, ["summary", "working_stack_activation_closure_acceptance_packets"]),
-            "working_stack_activation_closure_acceptance_packets_complete": nested_get(stack_closure_dossier, ["summary", "working_stack_activation_closure_acceptance_packets_complete"]),
-            "working_stack_activation_compat_requirements": nested_get(stack_closure_dossier, ["summary", "working_stack_activation_compat_requirements"]),
-            "working_stack_activation_synthetic_proofs": nested_get(stack_handoff_export, ["summary", "working_stack_activation_synthetic_proofs"]),
-            "working_stack_activation_synthetic_proofs_complete": nested_get(stack_handoff_export, ["summary", "working_stack_activation_synthetic_proofs_complete"]),
-            "working_stack_activation_smoke_rows": nested_get(stack_handoff_export, ["summary", "working_stack_activation_smoke_rows"]),
-            "working_stack_activation_smoke_rows_complete": nested_get(stack_handoff_export, ["summary", "working_stack_activation_smoke_rows_complete"]),
-            "working_stack_activation_smoke_failed_services": nested_get(stack_handoff_export, ["summary", "working_stack_activation_smoke_failed_services"]),
-            "stack_organ_use_packets": nested_get(stack_handoff_export, ["summary", "stack_organ_use_packets"]),
-            "stack_organ_use_packets_complete": nested_get(stack_handoff_export, ["summary", "stack_organ_use_packets_complete"]),
-            "stack_organ_use_packet_failed_services": nested_get(stack_handoff_export, ["summary", "stack_organ_use_packet_failed_services"]),
-            "stack_organ_use_packet_classifications": nested_get(stack_handoff_export, ["summary", "stack_organ_use_packet_classifications"]),
-            "working_stack_link_integrity_rows": nested_get(working_stack_link_integrity, ["summary", "rows"]),
-            "working_stack_link_integrity_rows_complete": nested_get(working_stack_link_integrity, ["summary", "complete_rows"]),
-            "working_stack_link_integrity_missing_rows": nested_get(working_stack_link_integrity, ["summary", "missing_rows"]),
-            "autolink_organ_links": nested_get(autolink_for_export, ["summary", "organ_links"]),
-            "autolink_organ_links_complete": nested_get(autolink_for_export, ["summary", "organ_links_complete"]),
-            "autolink_stack_requirement_links": nested_get(autolink_for_export, ["summary", "stack_requirement_links"]),
-            "autolink_synthetic_scenarios_complete": nested_get(autolink_for_export, ["summary", "synthetic_scenarios_complete"]),
-            "autolink_state_changed": nested_get(autolink_for_export, ["summary", "state_changed"]),
-            "resident_cognitive_replay_complete": resident_cognitive_replay.get("complete"),
-            "host_body_context_packet_included": host_body_export_ok,
-            "memory_space_freshness_included": memory_space_freshness_export_ok,
-            "memory_space_blocked_freshness_gates": nested_get(memory_space_freshness_handoff, ["summary", "blocked_gates"]),
-            "memory_space_resource_denial_gates": nested_get(memory_space_freshness_handoff, ["summary", "resource_denial_gates"]),
-            "self_awareness_response_routes": len(response_routes_for_export),
-            "self_awareness_response_body_trace_routes": sum(1 for item in response_routes_for_export if self_awareness_body_trace_complete(nested_get(item, ["response_contract", "body_trace"]))),
-            "response_body_trace_included": response_body_trace_export_ok,
-            "self_awareness_response_entity_event_document_routes": len(response_entity_event_document_routes_for_export),
-            "self_awareness_response_entity_event_document_missing": len(response_routes_for_export) - len(response_entity_event_document_routes_for_export),
-            "response_entity_event_document_context_included": response_entity_event_document_export_ok,
-            "entity_event_document_entities": nested_get(entity_event_document_map_for_export, ["summary", "entities"]),
-            "entity_event_document_events": nested_get(entity_event_document_map_for_export, ["summary", "events"]),
-            "entity_event_document_documents": nested_get(entity_event_document_map_for_export, ["summary", "documents"]),
-            "entity_event_document_stack_organs": nested_get(entity_event_document_map_for_export, ["summary", "stack_organs"]),
-            "entity_event_document_machine_bridges": nested_get(entity_event_document_map_for_export, ["summary", "machine_bridges"]),
-            "entity_event_document_body_surfaces": nested_get(entity_event_document_map_for_export, ["summary", "body_surfaces"]),
-            "entity_event_document_automation_ready": nested_get(entity_event_document_map_for_export, ["summary", "automation_ready"]),
-            "entity_event_document_export_issues": entity_event_document_export_issues,
-            "completion_route_packets": nested_get(completion_route_packets_for_export, ["summary", "packets"]),
-            "completion_route_packet_actions": nested_get(completion_route_packets_for_export, ["summary", "covered_actions"]),
-            "completion_route_packet_automation_ready": nested_get(completion_route_packets_for_export, ["summary", "automation_ready"]),
-            "completion_route_packet_export_issues": completion_route_packet_export_issues,
-            "resident_cognitive_read_only_tools": nested_get(resident_cognitive_replay, ["summary", "read_only_tools"]),
-            "resident_cognitive_hypothesis_tests": nested_get(resident_cognitive_replay, ["summary", "hypothesis_tests"]),
-            "resident_cognitive_contradiction_notes": nested_get(resident_cognitive_replay, ["summary", "contradiction_notes"]),
-        },
-        "artifacts": exported,
-        "artifact_list": artifact_list,
-        "manifest": manifest,
-        "requirements": requirements_export,
-        "stack_handoff": stack_handoff_export,
-        "stack_closure_dossier": stack_closure_dossier,
-        "working_stack_link_integrity": working_stack_link_integrity,
-        "autolink": autolink_for_export,
-        "entity_event_document_map": entity_event_document_map_for_export,
-        "completion_route_packets": completion_route_packets_for_export,
-        "completion_route_packet_handoff": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_export_completion_route_packet_handoff_v1",
-            "complete": completion_route_packet_export_ok,
-            "issues": completion_route_packet_export_issues,
-            "summary": completion_route_packets_for_export.get("summary") if isinstance(completion_route_packets_for_export, dict) else {},
-            "top_packet": completion_route_packets_for_export.get("top_packet") if isinstance(completion_route_packets_for_export, dict) else {},
-            "expected_routes": expected_completion_routes_for_packets,
-            "expected_actions": expected_completion_actions_for_packets,
-            "evidence_refs": [
-                {"path": str(SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH), "section": "completion_route_packets"},
-                {"path": str(SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH), "section": "completion_route_map"},
-                {"path": str(SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH), "section": "entity_event_document_map"},
-            ],
-            "policy": {
-                "read_only": True,
-                "host_layer_mutates_stack": False,
-                "writes_project_roots": False,
-                "executes_commands": False,
-                "actions_executed": False,
+    return self_awareness_adapters.run_export(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+        run_id=run_id,
+        write_latest=write_latest,
+        include_cycle=include_cycle,
+        paths=self_awareness_adapters.SelfAwarenessExportPaths(
+            artifacts={
+                "capabilities": SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
+                "requirements": SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+                "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+                "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+                "trace_context": SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH,
+                "failure_matrix": SELF_AWARENESS_FAILURE_MATRIX_LATEST_PATH,
+                "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+                "activation_smoke": SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
+                "autolink": SELF_AWARENESS_AUTOLINK_LATEST_PATH,
+                "events": SELF_AWARENESS_EVENTS_LATEST_PATH,
+                "collect": SELF_AWARENESS_COLLECT_LATEST_PATH,
+                "query": SELF_AWARENESS_QUERY_LATEST_PATH,
+                "correlation": SELF_AWARENESS_CORRELATION_LATEST_PATH,
+                "timeline": SELF_AWARENESS_TIMELINE_LATEST_PATH,
+                "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+                "context": SELF_AWARENESS_CONTEXT_LATEST_PATH,
+                "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
+                "alerts": SELF_AWARENESS_ALERTS_LATEST_PATH,
+                "reactions": REACTIONS_LATEST_PATH,
+                "responses": RESPONSES_LATEST_PATH,
+                "investigate": SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+                "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
+                "brief": SELF_AWARENESS_BRIEF_LATEST_PATH,
+                "probe": SELF_AWARENESS_PROBE_LATEST_PATH,
+                "completion_audit": SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH,
+                "validate": SELF_AWARENESS_VALIDATE_LATEST_PATH,
+                "cycle": SELF_AWARENESS_CYCLE_LATEST_PATH,
+                "coverage_audit": SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
             },
-        },
-        "entity_event_document_handoff": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_export_entity_event_document_handoff_v1",
-            "complete": entity_event_document_export_ok,
-            "issues": entity_event_document_export_issues,
-            "summary": entity_event_document_map_for_export.get("summary") if isinstance(entity_event_document_map_for_export, dict) else {},
-            "top_entity": entity_event_document_map_for_export.get("top_entity") if isinstance(entity_event_document_map_for_export, dict) else {},
-            "top_event": entity_event_document_map_for_export.get("top_event") if isinstance(entity_event_document_map_for_export, dict) else {},
-            "expected_stack_organs": expected_stack_organs_for_entity_map,
-            "expected_machine_bridges": expected_machine_bridges_for_entity_map,
-            "evidence_refs": [
-                {"path": str(SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH), "section": "entity_event_document_map"},
-                {"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH), "section": "organs"},
-                {"path": str(SELF_AWARENESS_CYCLE_LATEST_PATH), "section": "bridge_proof.rows"},
-            ],
-            "policy": {
-                "read_only": True,
-                "host_layer_mutates_stack": False,
-                "writes_project_roots": False,
-                "executes_commands": False,
-                "actions_executed": False,
-            },
-        },
-        "resident_cognitive_replay": resident_cognitive_replay,
-        "memory_space_freshness_handoff": memory_space_freshness_handoff,
-        "body_trace_handoff": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_export_body_trace_handoff_v1",
-            "host_body_context_packet_included": host_body_export_ok,
-            "resident_body_trace_replayable": nested_get(replay_doc, ["body_trace_replay", "replayable"]),
-            "response_body_trace_included": response_body_trace_export_ok,
-            "self_awareness_response_routes": len(response_routes_for_export),
-            "self_awareness_response_route_ids": [str(item.get("id")) for item in response_routes_for_export if item.get("id")],
-            "evidence_refs": [
-                {"path": str(SELF_AWARENESS_CONTEXT_LATEST_PATH), "section": "context_packet.host_body"},
-                {"path": str(SELF_AWARENESS_REPLAY_LATEST_PATH), "section": "body_trace_replay"},
-                {"path": str(RESPONSES_LATEST_PATH), "section": "routes.response_contract.body_trace"},
-            ],
-            "policy": {
-                "read_only": True,
-                "host_layer_mutates_stack": False,
-                "executes_commands": False,
-                "actions_executed": False,
-                "raw_private_content": False,
-            },
-        },
-        "response_entity_event_document_handoff": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_export_response_entity_event_document_handoff_v1",
-            "complete": response_entity_event_document_export_ok,
-            "self_awareness_response_routes": len(response_routes_for_export),
-            "entity_event_document_routes": len(response_entity_event_document_routes_for_export),
-            "entity_event_document_missing": len(response_routes_for_export) - len(response_entity_event_document_routes_for_export),
-            "route_ids": [str(item.get("id")) for item in response_entity_event_document_routes_for_export if item.get("id")],
-            "evidence_refs": [
-                {"path": str(RESPONSES_LATEST_PATH), "section": "routes.response_contract.entity_event_document_context"},
-                {"path": str(SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH), "section": "entity_event_document_map"},
-            ],
-            "policy": {
-                "read_only": True,
-                "host_layer_mutates_stack": False,
-                "executes_commands": False,
-                "actions_executed": False,
-            },
-        },
-        "missing": missing,
-        "malformed": malformed,
-        "portable_contract": {
-            "format": "latest-json-with-daily-jsonl-history",
-            "raw_secrets_included": False,
-            "stack_mutation_included": False,
-            "actions_executed": False,
-            "claims_require_evidence_refs": True,
-            "stack_handoff_included": True,
-            "open_stack_requirements_preserved": True,
-            "stack_owner_acceptance_verifiers_included": True,
-            "stack_closure_dossier_included": True,
-            "stack_requirement_closure_acceptance_included": safe_int(nested_get(stack_handoff_export, ["summary", "stack_requirement_closure_acceptance_packets_complete"]), 0) == safe_int(nested_get(stack_closure_dossier, ["summary", "probes"]), 0),
-            "working_stack_activation_dossier_included": True,
-            "working_stack_activation_synthetic_proofs_included": safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_synthetic_proofs"]), 0) > 0,
-            "working_stack_activation_closure_acceptance_included": safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_closure_acceptance_packets_complete"]), 0) == safe_int(nested_get(stack_handoff_export, ["summary", "working_stack_activation_entries"]), 0),
-            "working_stack_activation_smoke_included": activation_smoke_export_ok,
-            "stack_organ_use_packets_included": stack_organ_use_packet_export_ok,
-            "working_stack_link_integrity_included": self_awareness_working_stack_link_integrity_matrix_complete(working_stack_link_integrity),
-            "autolink_included": self_awareness_autolink_complete(autolink_for_export),
-            "resident_cognitive_replay_included": True,
-            "host_body_context_packet_included": host_body_export_ok,
-            "memory_space_freshness_included": memory_space_freshness_export_ok,
-            "response_body_trace_included": response_body_trace_export_ok,
-            "reactions_responses_included": bool(alerts_for_export.get("ok") and reactions_for_export.get("ok") and responses_for_export.get("ok")),
-            "entity_event_document_map_included": entity_event_document_export_ok,
-            "response_entity_event_document_context_included": response_entity_event_document_export_ok,
-            "completion_route_packets_included": completion_route_packet_export_ok,
-            "body_entity_event_document_map_included": entity_event_document_export_ok,
-            "stack_organ_entities_included": (
-                entity_event_document_export_ok
-                and safe_int(nested_get(entity_event_document_map_for_export, ["summary", "stack_organs"]), -1) == expected_stack_organs_for_entity_map
-            ),
-            "machine_bridge_entities_included": (
-                entity_event_document_export_ok
-                and safe_int(nested_get(entity_event_document_map_for_export, ["summary", "machine_bridges"]), -1) == expected_machine_bridges_for_entity_map
-            ),
-        },
-        "policy": {
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-            "exports_raw_private_content": False,
-            "actions_executed": False,
-            "portable_bundle_only": True,
-            "open_stack_requirements_are_blockers_not_host_failures": True,
-            "runbook_candidates_are_handoff_only": True,
-        },
-        "owner_boundary": manifest["owner_boundary"],
-        "evidence_refs": [{"path": str(path), "schema": schema} for path, schema in artifacts.values()],
-    }
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_EXPORT_LATEST_PATH, SELF_AWARENESS_EXPORT_ROOT)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
+            export_latest=SELF_AWARENESS_EXPORT_LATEST_PATH,
+            export_history_root=SELF_AWARENESS_EXPORT_ROOT,
+        ),
+        runtime_port=self_awareness_export_runtime_port(),
+        refresh_port=self_awareness_adapters.SelfAwarenessExportRefreshPort(
+            requirements=self_awareness_requirements,
+            requirement_probes=self_awareness_requirement_probes,
+            working_stack=self_awareness_working_stack_inventory,
+            stack_closure_dossier=self_awareness_stack_closure_dossier,
+            trace_context_fallback=self_awareness_trace_context_fallback,
+            coverage_audit=self_awareness_objective_coverage_audit,
+            activation_smoke=self_awareness_activation_smoke,
+            autolink=self_awareness_autolink,
+            completion_audit=self_awareness_completion_audit,
+            alerts=self_awareness_alerts,
+            reactions=reaction_status,
+            responses=response_status,
+            investigate=self_awareness_investigate,
+            replay=self_awareness_replay,
+            refresh_working_stack_dependents=self_awareness_refresh_working_stack_dependent_readmodels,
+        ),
+        contract_port=self_awareness_adapters.SelfAwarenessExportContractPort(
+            trace_context_fallback_complete=self_awareness_trace_context_fallback_complete,
+            requirement_probes_cover_requirements=self_awareness_requirement_probes_cover_requirements,
+            autolink_complete=self_awareness_autolink_complete,
+            activation_smoke_needs_refresh=self_awareness_activation_smoke_needs_refresh,
+            entity_event_document_map_issues=self_awareness_entity_event_document_map_issues,
+            entity_event_document_map_complete=self_awareness_entity_event_document_map_complete,
+            completion_route_packet_issues=self_awareness_completion_route_packet_issues,
+            export_stack_handoff=self_awareness_export_stack_handoff,
+            requirement_probes_export_ready=self_awareness_requirement_probes_export_ready,
+            resident_cognitive_packet_complete=self_awareness_resident_cognitive_packet_complete,
+            resident_cognitive_replay_complete=self_awareness_resident_cognitive_replay_complete,
+            body_trace_complete=self_awareness_body_trace_complete,
+            memory_space_freshness_handoff=self_awareness_memory_space_freshness_handoff,
+            response_entity_event_document_context_complete=self_awareness_response_entity_event_document_context_complete,
+            working_stack_link_integrity_complete=self_awareness_working_stack_link_integrity_matrix_complete,
+            link_integrity_matches_working_stack=self_awareness_link_integrity_matches_working_stack,
+            working_stack_activation_synthetic_proof_complete=self_awareness_working_stack_activation_synthetic_proof_complete,
+        ),
+        persistence_port=self_awareness_adapters.SelfAwarenessExportPersistencePort(
+            write_latest_and_history=write_latest_and_history,
+        ),
+    )
 
 
 def self_awareness_http_status_with_headers(url: str, headers: dict[str, str], timeout: float = 2.5, max_bytes: int = 65536) -> dict[str, Any]:
