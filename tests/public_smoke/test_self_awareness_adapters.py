@@ -21,6 +21,68 @@ def _fixed_event(signal: str, source: str, **kwargs: Any) -> dict[str, Any]:
     )
 
 
+def _fake_collect_input_port(
+    calls: list[str],
+    *,
+    stack: dict[str, Any] | None = None,
+    logql_windows: list[tuple[list[str], int, int]] | None = None,
+) -> self_awareness_adapters.SelfAwarenessCollectInputPort:
+    def document(name: str, value: dict[str, Any] | None = None):
+        def load() -> dict[str, Any]:
+            calls.append(name)
+            return dict(value or {"schema": name, "ok": True})
+
+        return load
+
+    def refresh_working_stack(stack_doc: dict[str, Any], container_doc: dict[str, Any]) -> dict[str, Any]:
+        calls.append("working_stack")
+        assert stack_doc.get("schema") == "stack"
+        assert container_doc.get("schema") == "containers"
+        return {"schema": "abyss_machine_self_awareness_working_stack_inventory_v1", "ok": True}
+
+    def prometheus_query(query: str) -> dict[str, Any]:
+        calls.append("prometheus")
+        return {"ok": True, "query": query, "results": []}
+
+    def http_json(url: str, timeout: float) -> dict[str, Any]:
+        calls.append("http_json")
+        return {"ok": True, "url": url, "timeout": timeout, "json": []}
+
+    def stack_exec_candidates(_container_health: dict[str, Any]) -> list[str]:
+        calls.append("stack_exec_candidates")
+        return ["fixture-container"]
+
+    def logql_query(_query: str, candidates: list[str], start_ns: int, end_ns: int) -> dict[str, Any]:
+        calls.append("logql")
+        if logql_windows is not None:
+            logql_windows.append((list(candidates), start_ns, end_ns))
+        return {"ok": True, "samples": []}
+
+    return self_awareness_adapters.SelfAwarenessCollectInputPort(
+        refresh_stack_observability=document("stack", stack or {"schema": "stack", "ok": True, "summary": {}}),
+        refresh_container_health=document("containers", {"schema": "containers", "ok": True}),
+        refresh_working_stack=refresh_working_stack,
+        read_ai_capabilities=document("ai_caps"),
+        refresh_ai_llm_registry=document("ai_llm"),
+        refresh_rag_validation=document("rag_validation"),
+        refresh_nervous_brief=document("nervous"),
+        refresh_memory_status=document("memory_status"),
+        refresh_memory_plan=document("memory_plan"),
+        refresh_resource_status=document("resource_status"),
+        refresh_mode_status=document("mode_status"),
+        read_observability_latest=document("observability_latest"),
+        probe_observability_manual_collect=document("observability_manual"),
+        refresh_ai_policy=document("ai_policy"),
+        prometheus_query=prometheus_query,
+        http_json=http_json,
+        stack_exec_candidates=stack_exec_candidates,
+        logql_query=logql_query,
+        scheduler_events=lambda _generated_at: calls.append("scheduler") or [{"source": "scheduler"}],
+        host_service_events=lambda _generated_at: calls.append("host_services") or [{"source": "host-service"}],
+        now_epoch=lambda: calls.append("now") or 1234.0,
+    )
+
+
 def test_scheduler_timer_events_use_fake_systemd_ports() -> None:
     commands: list[tuple[str, ...]] = []
 
@@ -161,6 +223,124 @@ def test_host_service_events_omit_inactive_optional_services() -> None:
     assert events == []
 
 
+def test_collect_inputs_preserve_live_and_latest_acquisition_order(tmp_path: Path) -> None:
+    calls: list[str] = []
+    logql_windows: list[tuple[list[str], int, int]] = []
+    paths = _collect_input_path_map(tmp_path)
+    names_by_path = {path: name for name, path in paths.items()}
+
+    def load_latest(path: Path, schema: str) -> dict[str, Any]:
+        name = names_by_path[path]
+        calls.append(f"latest:{name}")
+        return {"schema": schema, "ok": True, "name": name}
+
+    inputs = self_awareness_adapters.collect_inputs(
+        schema_prefix="abyss_machine",
+        generated_at="2026-07-09T12:00:00+00:00",
+        paths=paths,
+        working_stack_doc=None,
+        alertmanager_url="http://127.0.0.1:9093/",
+        load_latest_json=load_latest,
+        port=_fake_collect_input_port(calls, logql_windows=logql_windows),
+    )
+
+    assert calls == [
+        "stack",
+        "containers",
+        "working_stack",
+        "latest:heartbeats",
+        "latest:reactions",
+        "latest:responses",
+        "latest:typing",
+        "latest:graph",
+        "latest:maps",
+        "latest:rag",
+        "ai_caps",
+        "ai_llm",
+        "latest:ai_llm_validate_latest",
+        "latest:llm_resident_status",
+        "latest:llm_resident_monitor",
+        "latest:llm_resident_digest",
+        "latest:llm_resident_micro",
+        "latest:llm_resident_evals",
+        "latest:llm_resident_candidates",
+        "rag_validation",
+        "latest:rag_eval_latest",
+        "nervous",
+        "latest:nervous_semantic",
+        "memory_status",
+        "memory_plan",
+        "resource_status",
+        "latest:resource_orch",
+        "mode_status",
+        "observability_latest",
+        "observability_manual",
+        "latest:investigation_latest",
+        "latest:replay_latest",
+        "ai_policy",
+        "latest:ai_workload_latest",
+        "prometheus",
+        "http_json",
+        "stack_exec_candidates",
+        "now",
+        "logql",
+        "scheduler",
+        "host_services",
+    ]
+    assert inputs["working_stack"]["schema"] == "abyss_machine_self_awareness_working_stack_inventory_v1"
+    assert inputs["alertmanager"]["url"] == "http://127.0.0.1:9093/api/v2/alerts"
+    assert inputs["scheduler_events"] == [{"source": "scheduler"}]
+    assert logql_windows == [
+        (["fixture-container"], 1234000000000 - 15 * 60 * 1_000_000_000, 1234000000000),
+    ]
+
+
+def test_collect_inputs_reuse_supplied_working_stack_and_stack_candidates(tmp_path: Path) -> None:
+    calls: list[str] = []
+    paths = _collect_input_path_map(tmp_path)
+    supplied = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "ok": True,
+        "summary": {"organs": 2},
+    }
+    stack = {"schema": "stack", "ok": True, "summary": {"exec_candidates": ["from-stack"]}}
+
+    inputs = self_awareness_adapters.collect_inputs(
+        schema_prefix="abyss_machine",
+        generated_at="2026-07-09T12:00:00+00:00",
+        paths=paths,
+        working_stack_doc=supplied,
+        alertmanager_url="http://127.0.0.1:9093",
+        load_latest_json=lambda path, schema: {"path": str(path), "schema": schema, "ok": True},
+        port=_fake_collect_input_port(calls, stack=stack),
+    )
+
+    assert inputs["working_stack"] is supplied
+    assert inputs["exec_candidates"] == ["from-stack"]
+    assert "working_stack" not in calls
+    assert "stack_exec_candidates" not in calls
+
+
+def test_collect_input_specs_require_every_concrete_path(tmp_path: Path) -> None:
+    paths = _collect_input_path_map(tmp_path)
+    specs = self_awareness_adapters.collect_input_specs(
+        schema_prefix="abyss_machine",
+        paths=paths,
+    )
+
+    assert [spec.name for spec in specs] == [name for name, _suffix in self_awareness_adapters.COLLECT_INPUT_SCHEMA_SUFFIXES]
+    assert specs[0].schema == "abyss_machine_heartbeat_pulse_v1"
+    assert specs[-1].schema == "abyss_machine_ai_workload_status_v1"
+
+    paths.pop("heartbeats")
+    try:
+        self_awareness_adapters.collect_input_specs(schema_prefix="abyss_machine", paths=paths)
+    except KeyError as exc:
+        assert "heartbeats" in str(exc)
+    else:
+        raise AssertionError("missing collect input path must fail closed")
+
+
 def _path_map(tmp_path: Path) -> dict[str, Path]:
     paths = {
         name: tmp_path / name / "latest.json"
@@ -168,6 +348,13 @@ def _path_map(tmp_path: Path) -> dict[str, Path]:
     }
     paths["completion_audit"] = tmp_path / "completion-audit" / "latest.json"
     return paths
+
+
+def _collect_input_path_map(tmp_path: Path) -> dict[str, Path]:
+    return {
+        name: tmp_path / name / "latest.json"
+        for name, _suffix in self_awareness_adapters.COLLECT_INPUT_SCHEMA_SUFFIXES
+    }
 
 
 def test_readmodel_latest_specs_keep_public_order_and_cycle_switch(tmp_path: Path) -> None:

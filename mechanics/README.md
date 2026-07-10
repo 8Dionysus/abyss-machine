@@ -51,7 +51,9 @@ Use these mechanic owners for the next extraction slices:
   latest artifact-ref filesystem ports, artifact evidence-ref stat projection,
   freshness-gate readmodel assembly, read-only systemd timer/service discovery,
   state normalization, and observation-event orchestration through fakeable
-  ports, cycle latest-read/bridge-document dispatch,
+  ports, ordered collect input acquisition across latest reads, subsystem
+  refreshes, optional network queries, time windows, and scheduler/service
+  events, cycle latest-read/bridge-document dispatch,
   validation latest-spec selection, bounded status latest summaries,
   body-closure status document builders, status open-potential/open-requirement
   row builders, resource preflight guard decisions, bounded HTTP status probe
@@ -74,9 +76,9 @@ Use these mechanic owners for the next extraction slices:
   chain assembly through supplied completion predicates, cycle post-export chain
   updates, cycle stack-handoff summary document assembly, and cycle
   partial/building/final result document assembly live in
-  `self_awareness_adapters`; probe/cycle orchestration, broader runtime
-  refreshes, concrete stack path/latest file reads, and investigate/replay
-  execution remain bounded CLI debt.
+  `self_awareness_adapters`; collect event/fabric assembly and final writes,
+  probe/cycle orchestration, deeper runtime refresh, concrete artifact/freshness
+  binding, and investigate/replay execution remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

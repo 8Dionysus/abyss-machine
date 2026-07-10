@@ -37281,54 +37281,101 @@ def self_awareness_collect(
     working_stack_doc: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     generated_at = now_iso()
-    stack = stack_bridge_observability(write_latest=True)
-    container_health = process_container_health(write_latest=True)
-    working_stack = working_stack_doc if isinstance(working_stack_doc, dict) else {}
-    if working_stack.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1":
-        working_stack = self_awareness_working_stack_inventory(
-            write_latest=True,
-            stack_doc=stack,
-            container_health=container_health,
-        )
-    heartbeats = load_latest_json(HEARTBEATS_LATEST_PATH, f"{SCHEMA_PREFIX}_heartbeat_pulse_v1")
-    reactions = load_latest_json(REACTIONS_LATEST_PATH, f"{SCHEMA_PREFIX}_reactions_status_v1")
-    responses = load_latest_json(RESPONSES_LATEST_PATH, f"{SCHEMA_PREFIX}_responses_status_v1")
-    typing = load_latest_json(TYPING_EVENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_typing_event_v1")
-    graph = load_latest_json(GRAPH_LATEST_PATH, f"{SCHEMA_PREFIX}_graph_v1")
-    maps = load_latest_json(MAPS_LATEST_PATH, f"{SCHEMA_PREFIX}_maps_v1")
-    rag = load_latest_json(RAG_TRACE_LATEST_PATH, f"{SCHEMA_PREFIX}_rag_trace_v1")
-    ai_caps = ai_capabilities_latest()
-    ai_llm = ai_llm_registry(write_latest=True)
-    ai_llm_validate_latest = load_latest_json(AI_LLM_VALIDATE_LATEST_PATH, f"{SCHEMA_PREFIX}_ai_llm_validate_v1")
-    llm_resident_status = load_latest_json(AI_LLM_RESIDENT_ROOT / "status" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_status_v1")
-    llm_resident_monitor = load_latest_json(AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_monitor_v1")
-    llm_resident_digest = load_latest_json(AI_LLM_RESIDENT_ROOT / "digests" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_digest_v1")
-    llm_resident_micro = load_latest_json(AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_micro_tick_v1")
-    llm_resident_evals = load_latest_json(AI_LLM_RESIDENT_EVALS_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_spark_resident_heartbeat_evals_v1")
-    llm_resident_candidates = load_latest_json(AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_spark_resident_candidate_readmodel_v2")
-    rag_validation = rag_validate(strict=False, write_latest=True)
-    rag_eval_latest = load_latest_json(RAG_EVAL_LATEST_PATH, f"{SCHEMA_PREFIX}_rag_eval_v1")
-    nervous = nervous_brief(scope="now", limit=6, refresh=False, write_latest=True)
-    nervous_semantic = load_latest_json(NERVOUS_SEMANTIC_INDEX_LATEST_PATH, f"{SCHEMA_PREFIX}_nervous_semantic_index_v1")
-    memory_latest = memory_status(write_latest=True)
-    memory_plan_latest = memory_plan(write_latest=True)
-    resource_latest = resource_status(write_latest=True)
-    resource_orch = load_latest_json(RESOURCE_ORCHESTRATOR_LATEST_PATH, f"{SCHEMA_PREFIX}_resource_orchestrator_v2_v1")
-    mode_latest = mode_status(write_latest=True)
-    observability_latest_doc = observability_latest()
-    observability_manual_collect = observability_manual_collect_probe()
-    investigation_latest = load_latest_json(SELF_AWARENESS_INVESTIGATE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_investigation_v1")
-    replay_latest = load_latest_json(SELF_AWARENESS_REPLAY_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_replay_v1")
-    ai_policy_latest = ai_policy(write_latest=True)
-    ai_workload_latest = load_latest_json(AI_WORKLOAD_LATEST_PATH, f"{SCHEMA_PREFIX}_ai_workload_status_v1")
-    prom_alerts = stack_observability_prometheus_query('ALERTS{alertstate=~"firing|pending"}')
-    alertmanager = memory_orchestrate_http_json(f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip('/')}/api/v2/alerts", timeout=2.0)
-    exec_candidates = nested_get(stack, ["summary", "exec_candidates"]) or stack_observability_exec_candidates(container_health)
-    end_ns = int(time.time() * 1_000_000_000)
-    start_ns = end_ns - 15 * 60 * 1_000_000_000
-    context_logql = stack_observability_logql_query('{container="route-api"} |= "traceparent"', exec_candidates, start_ns, end_ns)
-    scheduler_events = self_awareness_scheduler_timer_events(generated_at)
-    host_service_events = self_awareness_host_service_events(generated_at)
+    inputs = self_awareness_adapters.collect_inputs(
+        schema_prefix=SCHEMA_PREFIX,
+        generated_at=generated_at,
+        paths={
+            "heartbeats": HEARTBEATS_LATEST_PATH,
+            "reactions": REACTIONS_LATEST_PATH,
+            "responses": RESPONSES_LATEST_PATH,
+            "typing": TYPING_EVENTS_LATEST_PATH,
+            "graph": GRAPH_LATEST_PATH,
+            "maps": MAPS_LATEST_PATH,
+            "rag": RAG_TRACE_LATEST_PATH,
+            "ai_llm_validate_latest": AI_LLM_VALIDATE_LATEST_PATH,
+            "llm_resident_status": AI_LLM_RESIDENT_ROOT / "status" / "latest.json",
+            "llm_resident_monitor": AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json",
+            "llm_resident_digest": AI_LLM_RESIDENT_ROOT / "digests" / "latest.json",
+            "llm_resident_micro": AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json",
+            "llm_resident_evals": AI_LLM_RESIDENT_EVALS_LATEST_PATH,
+            "llm_resident_candidates": AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH,
+            "rag_eval_latest": RAG_EVAL_LATEST_PATH,
+            "nervous_semantic": NERVOUS_SEMANTIC_INDEX_LATEST_PATH,
+            "resource_orch": RESOURCE_ORCHESTRATOR_LATEST_PATH,
+            "investigation_latest": SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+            "replay_latest": SELF_AWARENESS_REPLAY_LATEST_PATH,
+            "ai_workload_latest": AI_WORKLOAD_LATEST_PATH,
+        },
+        working_stack_doc=working_stack_doc,
+        alertmanager_url=SELF_AWARENESS_ALERTMANAGER_URL,
+        load_latest_json=load_latest_json,
+        port=self_awareness_adapters.SelfAwarenessCollectInputPort(
+            refresh_stack_observability=lambda: stack_bridge_observability(write_latest=True),
+            refresh_container_health=lambda: process_container_health(write_latest=True),
+            refresh_working_stack=lambda stack_doc, container_doc: self_awareness_working_stack_inventory(
+                write_latest=True,
+                stack_doc=stack_doc,
+                container_health=container_doc,
+            ),
+            read_ai_capabilities=ai_capabilities_latest,
+            refresh_ai_llm_registry=lambda: ai_llm_registry(write_latest=True),
+            refresh_rag_validation=lambda: rag_validate(strict=False, write_latest=True),
+            refresh_nervous_brief=lambda: nervous_brief(scope="now", limit=6, refresh=False, write_latest=True),
+            refresh_memory_status=lambda: memory_status(write_latest=True),
+            refresh_memory_plan=lambda: memory_plan(write_latest=True),
+            refresh_resource_status=lambda: resource_status(write_latest=True),
+            refresh_mode_status=lambda: mode_status(write_latest=True),
+            read_observability_latest=observability_latest,
+            probe_observability_manual_collect=observability_manual_collect_probe,
+            refresh_ai_policy=lambda: ai_policy(write_latest=True),
+            prometheus_query=stack_observability_prometheus_query,
+            http_json=lambda url, timeout: memory_orchestrate_http_json(url, timeout=timeout),
+            stack_exec_candidates=stack_observability_exec_candidates,
+            logql_query=stack_observability_logql_query,
+            scheduler_events=self_awareness_scheduler_timer_events,
+            host_service_events=self_awareness_host_service_events,
+            now_epoch=time.time,
+        ),
+    )
+    stack = inputs["stack"]
+    container_health = inputs["container_health"]
+    working_stack = inputs["working_stack"]
+    heartbeats = inputs["heartbeats"]
+    reactions = inputs["reactions"]
+    responses = inputs["responses"]
+    typing = inputs["typing"]
+    graph = inputs["graph"]
+    maps = inputs["maps"]
+    rag = inputs["rag"]
+    ai_caps = inputs["ai_caps"]
+    ai_llm = inputs["ai_llm"]
+    ai_llm_validate_latest = inputs["ai_llm_validate_latest"]
+    llm_resident_status = inputs["llm_resident_status"]
+    llm_resident_monitor = inputs["llm_resident_monitor"]
+    llm_resident_digest = inputs["llm_resident_digest"]
+    llm_resident_micro = inputs["llm_resident_micro"]
+    llm_resident_evals = inputs["llm_resident_evals"]
+    llm_resident_candidates = inputs["llm_resident_candidates"]
+    rag_validation = inputs["rag_validation"]
+    rag_eval_latest = inputs["rag_eval_latest"]
+    nervous = inputs["nervous"]
+    nervous_semantic = inputs["nervous_semantic"]
+    memory_latest = inputs["memory_latest"]
+    memory_plan_latest = inputs["memory_plan_latest"]
+    resource_latest = inputs["resource_latest"]
+    resource_orch = inputs["resource_orch"]
+    mode_latest = inputs["mode_latest"]
+    observability_latest_doc = inputs["observability_latest_doc"]
+    observability_manual_collect = inputs["observability_manual_collect"]
+    investigation_latest = inputs["investigation_latest"]
+    replay_latest = inputs["replay_latest"]
+    ai_policy_latest = inputs["ai_policy_latest"]
+    ai_workload_latest = inputs["ai_workload_latest"]
+    prom_alerts = inputs["prom_alerts"]
+    alertmanager = inputs["alertmanager"]
+    context_logql = inputs["context_logql"]
+    scheduler_events = inputs["scheduler_events"]
+    host_service_events = inputs["host_service_events"]
     events: list[dict[str, Any]] = []
     evidence_stack = {"path": str(STACK_OBSERVABILITY_LATEST_PATH), "schema": stack.get("schema"), "generated_at": stack.get("generated_at")}
 

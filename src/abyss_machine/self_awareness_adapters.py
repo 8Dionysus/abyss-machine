@@ -58,6 +58,13 @@ SystemdUnitPropertiesPort = Callable[[str, list[str], bool, float], dict[str, An
 ObservationEventBuilderPort = Callable[..., dict[str, Any]]
 HostNamePort = Callable[[], str]
 SystemdServiceCategoryPort = Callable[[str, str], str]
+NoArgDocumentPort = Callable[[], dict[str, Any]]
+WorkingStackRefreshPort = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+PrometheusQueryPort = Callable[[str], dict[str, Any]]
+BoundedHttpJsonPort = Callable[[str, float], dict[str, Any]]
+StackExecCandidatesPort = Callable[[dict[str, Any]], list[str]]
+LogqlQueryPort = Callable[[str, list[str], int, int], dict[str, Any]]
+GeneratedEventsPort = Callable[[str], list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -93,6 +100,31 @@ class WorkingStackTcpProbeSpec:
     host: str
     port: int
     timeout: float = 1.2
+
+
+@dataclass(frozen=True)
+class SelfAwarenessCollectInputPort:
+    refresh_stack_observability: NoArgDocumentPort
+    refresh_container_health: NoArgDocumentPort
+    refresh_working_stack: WorkingStackRefreshPort
+    read_ai_capabilities: NoArgDocumentPort
+    refresh_ai_llm_registry: NoArgDocumentPort
+    refresh_rag_validation: NoArgDocumentPort
+    refresh_nervous_brief: NoArgDocumentPort
+    refresh_memory_status: NoArgDocumentPort
+    refresh_memory_plan: NoArgDocumentPort
+    refresh_resource_status: NoArgDocumentPort
+    refresh_mode_status: NoArgDocumentPort
+    read_observability_latest: NoArgDocumentPort
+    probe_observability_manual_collect: NoArgDocumentPort
+    refresh_ai_policy: NoArgDocumentPort
+    prometheus_query: PrometheusQueryPort
+    http_json: BoundedHttpJsonPort
+    stack_exec_candidates: StackExecCandidatesPort
+    logql_query: LogqlQueryPort
+    scheduler_events: GeneratedEventsPort
+    host_service_events: GeneratedEventsPort
+    now_epoch: ClockPort
 
 
 SYSTEMD_ENABLED_STATES = {
@@ -580,6 +612,29 @@ READMODEL_SCHEMA_SUFFIXES: tuple[tuple[str, str], ...] = (
     ("validate", "self_awareness_validate_v1"),
 )
 
+COLLECT_INPUT_SCHEMA_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("heartbeats", "heartbeat_pulse_v1"),
+    ("reactions", "reactions_status_v1"),
+    ("responses", "responses_status_v1"),
+    ("typing", "typing_event_v1"),
+    ("graph", "graph_v1"),
+    ("maps", "maps_v1"),
+    ("rag", "rag_trace_v1"),
+    ("ai_llm_validate_latest", "ai_llm_validate_v1"),
+    ("llm_resident_status", "gemma4_spark_resident_status_v1"),
+    ("llm_resident_monitor", "gemma4_spark_resident_monitor_v1"),
+    ("llm_resident_digest", "gemma4_spark_resident_digest_v1"),
+    ("llm_resident_micro", "gemma4_spark_resident_micro_tick_v1"),
+    ("llm_resident_evals", "gemma4_spark_resident_heartbeat_evals_v1"),
+    ("llm_resident_candidates", "gemma4_spark_resident_candidate_readmodel_v2"),
+    ("rag_eval_latest", "rag_eval_v1"),
+    ("nervous_semantic", "nervous_semantic_index_v1"),
+    ("resource_orch", "resource_orchestrator_v2_v1"),
+    ("investigation_latest", "self_awareness_investigation_v1"),
+    ("replay_latest", "self_awareness_replay_v1"),
+    ("ai_workload_latest", "ai_workload_status_v1"),
+)
+
 CYCLE_LATEST_READ_NAMES: tuple[str, ...] = (
     "capabilities",
     "requirements",
@@ -707,6 +762,130 @@ def load_latest_documents(
     load_latest_json: LatestJsonReaderPort,
 ) -> dict[str, dict[str, Any]]:
     return {spec.name: load_latest_json(spec.path, spec.schema) for spec in specs}
+
+
+def collect_input_specs(
+    *,
+    schema_prefix: str,
+    paths: Mapping[str, Path],
+) -> tuple[SelfAwarenessLatestSpec, ...]:
+    return tuple(
+        _spec(schema_prefix, paths, name, suffix)
+        for name, suffix in COLLECT_INPUT_SCHEMA_SUFFIXES
+    )
+
+
+def collect_inputs(
+    *,
+    schema_prefix: str,
+    generated_at: str,
+    paths: Mapping[str, Path],
+    working_stack_doc: dict[str, Any] | None,
+    alertmanager_url: str,
+    load_latest_json: LatestJsonReaderPort,
+    port: SelfAwarenessCollectInputPort,
+) -> dict[str, Any]:
+    specs = {
+        spec.name: spec
+        for spec in collect_input_specs(schema_prefix=schema_prefix, paths=paths)
+    }
+
+    def read_latest(name: str) -> dict[str, Any]:
+        spec = specs[name]
+        return load_latest_json(spec.path, spec.schema)
+
+    stack = port.refresh_stack_observability()
+    container_health = port.refresh_container_health()
+    working_stack = working_stack_doc if isinstance(working_stack_doc, dict) else {}
+    if working_stack.get("schema") != f"{schema_prefix}_self_awareness_working_stack_inventory_v1":
+        working_stack = port.refresh_working_stack(stack, container_health)
+
+    heartbeats = read_latest("heartbeats")
+    reactions = read_latest("reactions")
+    responses = read_latest("responses")
+    typing = read_latest("typing")
+    graph = read_latest("graph")
+    maps = read_latest("maps")
+    rag = read_latest("rag")
+    ai_caps = port.read_ai_capabilities()
+    ai_llm = port.refresh_ai_llm_registry()
+    ai_llm_validate_latest = read_latest("ai_llm_validate_latest")
+    llm_resident_status = read_latest("llm_resident_status")
+    llm_resident_monitor = read_latest("llm_resident_monitor")
+    llm_resident_digest = read_latest("llm_resident_digest")
+    llm_resident_micro = read_latest("llm_resident_micro")
+    llm_resident_evals = read_latest("llm_resident_evals")
+    llm_resident_candidates = read_latest("llm_resident_candidates")
+    rag_validation = port.refresh_rag_validation()
+    rag_eval_latest = read_latest("rag_eval_latest")
+    nervous = port.refresh_nervous_brief()
+    nervous_semantic = read_latest("nervous_semantic")
+    memory_latest = port.refresh_memory_status()
+    memory_plan_latest = port.refresh_memory_plan()
+    resource_latest = port.refresh_resource_status()
+    resource_orch = read_latest("resource_orch")
+    mode_latest = port.refresh_mode_status()
+    observability_latest_doc = port.read_observability_latest()
+    observability_manual_collect = port.probe_observability_manual_collect()
+    investigation_latest = read_latest("investigation_latest")
+    replay_latest = read_latest("replay_latest")
+    ai_policy_latest = port.refresh_ai_policy()
+    ai_workload_latest = read_latest("ai_workload_latest")
+    prom_alerts = port.prometheus_query('ALERTS{alertstate=~"firing|pending"}')
+    alertmanager = port.http_json(f"{alertmanager_url.rstrip('/')}/api/v2/alerts", 2.0)
+    exec_candidates = _nested_get(stack, ["summary", "exec_candidates"]) or port.stack_exec_candidates(container_health)
+    end_ns = int(port.now_epoch() * 1_000_000_000)
+    start_ns = end_ns - 15 * 60 * 1_000_000_000
+    context_logql = port.logql_query(
+        '{container="route-api"} |= "traceparent"',
+        list(exec_candidates),
+        start_ns,
+        end_ns,
+    )
+    scheduler_events = port.scheduler_events(generated_at)
+    host_service_events = port.host_service_events(generated_at)
+    return {
+        "stack": stack,
+        "container_health": container_health,
+        "working_stack": working_stack,
+        "heartbeats": heartbeats,
+        "reactions": reactions,
+        "responses": responses,
+        "typing": typing,
+        "graph": graph,
+        "maps": maps,
+        "rag": rag,
+        "ai_caps": ai_caps,
+        "ai_llm": ai_llm,
+        "ai_llm_validate_latest": ai_llm_validate_latest,
+        "llm_resident_status": llm_resident_status,
+        "llm_resident_monitor": llm_resident_monitor,
+        "llm_resident_digest": llm_resident_digest,
+        "llm_resident_micro": llm_resident_micro,
+        "llm_resident_evals": llm_resident_evals,
+        "llm_resident_candidates": llm_resident_candidates,
+        "rag_validation": rag_validation,
+        "rag_eval_latest": rag_eval_latest,
+        "nervous": nervous,
+        "nervous_semantic": nervous_semantic,
+        "memory_latest": memory_latest,
+        "memory_plan_latest": memory_plan_latest,
+        "resource_latest": resource_latest,
+        "resource_orch": resource_orch,
+        "mode_latest": mode_latest,
+        "observability_latest_doc": observability_latest_doc,
+        "observability_manual_collect": observability_manual_collect,
+        "investigation_latest": investigation_latest,
+        "replay_latest": replay_latest,
+        "ai_policy_latest": ai_policy_latest,
+        "ai_workload_latest": ai_workload_latest,
+        "prom_alerts": prom_alerts,
+        "alertmanager": alertmanager,
+        "exec_candidates": list(exec_candidates),
+        "context_logql": context_logql,
+        "scheduler_events": scheduler_events,
+        "host_service_events": host_service_events,
+    }
 
 
 def cycle_latest_specs(
