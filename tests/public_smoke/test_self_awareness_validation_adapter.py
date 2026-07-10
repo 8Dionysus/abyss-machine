@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from abyss_machine import cli
 from abyss_machine import self_awareness_adapters as adapters
+from abyss_machine import self_awareness_validation_contracts as validation_contracts
 
 
 def _latest_paths(root: Path) -> dict[str, Path]:
@@ -231,3 +233,59 @@ def test_validation_persistence_is_optional_and_fails_closed(tmp_path: Path) -> 
     assert writes == [(paths.validate_latest, paths.validate_history_root)]
     assert written["ok"] is False
     assert written["write_errors"] == [{"stage": "latest", "error": "fixture write failure"}]
+
+
+def test_cli_validation_binds_intake_contract_and_persistence_ports(monkeypatch) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_intake(**kwargs: Any) -> adapters.SelfAwarenessValidationIntake:
+        calls["intake"] = kwargs
+        return adapters.SelfAwarenessValidationIntake(
+            checks=[{"key": "fixture", "status": "ok"}],
+            documents={"fixture": {"schema": "fixture_latest_v1"}},
+            refresh_steps=("fixture",),
+        )
+
+    def fake_build(**kwargs: Any) -> dict[str, Any]:
+        calls["build"] = kwargs
+        return {
+            "schema": "abyss_machine_self_awareness_validate_v1",
+            "ok": True,
+            "summary": {"status": "ok", "checks": 1, "fails": 0, "warnings": 0},
+        }
+
+    def fake_persist(document: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        calls["persist"] = {"document": document, **kwargs}
+        return document
+
+    monkeypatch.setattr(adapters, "run_validation_intake", fake_intake)
+    monkeypatch.setattr(validation_contracts, "build_validation_document", fake_build)
+    monkeypatch.setattr(adapters, "persist_validation_document", fake_persist)
+
+    result = cli.self_awareness_validate(
+        strict=True,
+        write_latest=False,
+        refresh=True,
+        require_cycle=False,
+        allow_probe_refresh=True,
+    )
+
+    assert result["schema"] == "abyss_machine_self_awareness_validate_v1"
+    assert calls["intake"]["refresh"] is True
+    assert calls["intake"]["require_cycle"] is False
+    assert calls["intake"]["runtime_port"].validate_json_file is cli.topology_validate_json_file
+    build = calls["build"]
+    assert build["strict"] is True
+    assert build["allow_probe_refresh"] is True
+    assert build["checks"] == [{"key": "fixture", "status": "ok"}]
+    assert build["loaded"] == {"fixture": {"schema": "fixture_latest_v1"}}
+    assert build["constants"].stack_user_source_root == cli.ABYSS_STACK_USER_SOURCE_ROOT
+    assert build["constants"].requirement_probes_latest == cli.SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH
+    assert build["repair_port"].requirement_probes is cli.self_awareness_requirement_probes
+    assert build["repair_port"].objective_coverage_audit is cli.self_awareness_objective_coverage_audit
+    assert build["repair_port"].probe is cli.self_awareness_probe
+    assert build["contract_port"].add_check is cli.topology_validation_add
+    assert build["contract_port"].coverage_audit_blocker_linkage_issues is cli.self_awareness_coverage_audit_blocker_linkage_issues
+    assert build["contract_port"].validate_document_from_checks is cli.self_awareness_validate_document_from_checks
+    assert calls["persist"]["write_latest"] is False
+    assert calls["persist"]["persistence_port"].write_latest_and_history is cli.write_latest_and_history

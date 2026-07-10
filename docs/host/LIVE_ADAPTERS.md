@@ -1428,6 +1428,27 @@ cycle exclusion, latest/history order, no-write behavior, and partial-write
 failure projection. Live closeout reports only schema/status, check/fail/warning
 counts, bounded refresh state, and write-error count.
 
+## Extracted Self-Awareness Validation Contract Center
+
+`abyss_machine.self_awareness_validation_contracts` owns the complete stable
+decision and check-assembly center for `self-awareness validate`:
+
+- conditional freshness-repair decisions across requirements, closure,
+  coverage, autolink, activation, trace, timeline, context, episodes, probe,
+  capabilities, investigation/replay, alerts, completion, and export surfaces;
+- the full cross-document invariant/check matrix and final validate document
+  assembly;
+- explicit host constants, repair callbacks, and contract callbacks through
+  named ports rather than module-global CLI coupling;
+- no concrete filesystem, systemd, network, subprocess, or persistence IO.
+
+The CLI binds machine paths/constants and current repair/contract functions.
+`self_awareness_adapters` still owns initial refresh/path/latest/history intake
+and final latest/history persistence. Public tests prove CLI port binding and
+the existing full non-live host-contract suite constrains the complete
+validation envelope. Live closeout compares only schema/status/check/fail/
+warning counts and write-error count.
+
 ## Extracted Self-Awareness Systemd Observation Seam
 
 `abyss_machine.self_awareness_adapters` owns the read-only systemd observation
@@ -1645,10 +1666,13 @@ machine evidence.
    `self_awareness_completion_document_contracts`; complete completion-audit
    live input/contract/persistence orchestration now lives in
    `self_awareness_adapters`. Validation optional-refresh order, path/latest/
-   history intake, and final persistence now also live there. Split the
-   remaining conditional validation refresh/check assembly in evidence-led
-   contract slices. Stable export stack-handoff assembly now lives in
-   `self_awareness_export_handoff_contracts`.
+   history intake, and final persistence now also live there. Conditional
+   validation repair decisions and complete check/document assembly now live in
+   `self_awareness_validation_contracts`. Stable export stack-handoff assembly
+   lives in `self_awareness_export_handoff_contracts`. Before declaring this
+   family closed, classify every remaining self-awareness direct-IO CLI helper
+   as a concrete adapter binder, a package-owned compatibility wrapper, or a
+   still-unextracted reusable center.
 3. Further AI runtime adapters: only after a fresh inventory proves a concrete
    reusable center still sits in `cli.py`.
    Runtime/model discovery, bounded OpenVINO benchmark/eval runners,

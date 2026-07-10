@@ -110,12 +110,15 @@ Use these mechanic owners for the next extraction slices:
   preflight/artifact-ref input acquisition, contract assembly, and optional
   latest/history persistence through explicit ports. It also owns validation
   optional-refresh order, document/root/latest/history intake, and final
-  latest/history persistence. Conditional validation freshness repair and
-  stable check assembly remain bounded CLI debt;
+  latest/history persistence;
+  `self_awareness_validation_contracts` owns conditional validation repair
+  decisions, the full cross-document check matrix, and final validate document
+  assembly through explicit repair/contract ports without concrete live IO;
   `self_awareness_export_handoff_contracts` owns public artifact-ref projection
   plus deterministic requirements, closure-order, dependency, coverage,
   verifier, activation, and stack-owner handoff assembly without live IO or
-  stack mutation.
+  stack mutation. A fresh residual CLI-edge classification remains required
+  before the self-awareness family is declared complete.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
