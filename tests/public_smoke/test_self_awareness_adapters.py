@@ -83,6 +83,180 @@ def _fake_collect_input_port(
     )
 
 
+def _collect_assembly_input_docs() -> dict[str, Any]:
+    docs = {
+        key: {"schema": f"fixture_{key}_v1", "ok": True}
+        for key in self_awareness_adapters.COLLECT_ASSEMBLY_INPUT_KEYS
+    }
+    docs.update({
+        "stack": {
+            "schema": "abyss_machine_stack_observability_v1",
+            "generated_at": "2026-07-09T11:59:00+00:00",
+            "ok": True,
+            "summary": {"promql_jobs_up": 1, "logql_entries_seen": 1},
+            "prometheus": {"jobs": {"prometheus": "1"}},
+            "grafana": {"ok": True, "url": "http://grafana.test/api/health"},
+            "loki": {
+                "labels": {"ok": True, "labels": ["container"], "label_count": 1},
+                "logql": [{
+                    "query": "{container=~\".+\"}",
+                    "samples": [{"labels": {"container": "prometheus"}, "line_preview": "request_id=req-1", "line_hash": "line-1"}],
+                }],
+            },
+            "alloy": {"prometheus_value": "1", "evidence": {"logs_seen": True}},
+        },
+        "container_health": {
+            "schema": "abyss_machine_process_container_health_v1",
+            "generated_at": "2026-07-09T11:59:00+00:00",
+            "ok": True,
+            "containers": [{"names": ["prometheus"], "pid": 4321, "status": "Up", "health": "healthy", "running": True}],
+        },
+        "working_stack": {
+            "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+            "ok": True,
+            "summary": {"organs": 1, "usage_gaps": 0},
+            "runtime_services": [{"service": "prometheus"}],
+        },
+        "prom_alerts": {
+            "ok": True,
+            "results": [{"metric": {"alertname": "FixtureAlert", "job": "prometheus"}, "value": [1, "1"]}],
+        },
+        "alertmanager": {"ok": False, "status_code": None, "error": "fixture unavailable", "json": []},
+        "context_logql": {"ok": False, "entry_count": 0, "samples": []},
+        "scheduler_events": [
+            _fixed_event(
+                "scheduler",
+                "systemd",
+                resource={"timer_active": True, "timer_enabled": True, "timer_category": "self-awareness", "write": False},
+            )
+        ],
+        "host_service_events": [
+            _fixed_event(
+                "host_service",
+                "systemd",
+                resource={"host_service_category": "typing", "host_service_unit": "abyss-machine-typing.service", "write": False},
+            )
+        ],
+        "ai_caps": {"schema": "abyss_machine_ai_capabilities_v1", "ok": True, "capabilities": {"stt": {}}},
+        "llm_resident_status": {"schema": "abyss_machine_ai_llm_resident_status_v1", "ok": True, "status": "running"},
+        "rag_validation": {"schema": "abyss_machine_rag_validation_v1", "ok": True},
+        "nervous": {"schema": "abyss_machine_nervous_brief_v1", "ok": True, "readiness": {"status": "ready", "index_fresh": True}},
+        "observability_latest_doc": {
+            "schema": "abyss_machine_observability_latest_v1",
+            "sample": {"thermal": {"sensors": {"temperature_c_max": 48.0}}, "power": {"battery": {"capacity_percent": 75}}},
+        },
+        "observability_manual_collect": {"status": "ready", "missing_or_unwritable": []},
+    })
+    return docs
+
+
+def _collect_assembly_paths(tmp_path: Path) -> dict[str, Path]:
+    return {
+        key: tmp_path / key / "latest.json"
+        for key in self_awareness_adapters.COLLECT_ASSEMBLY_PATH_KEYS
+    }
+
+
+def _fake_collect_assembly_port() -> self_awareness_adapters.SelfAwarenessCollectAssemblyPort:
+    def dedupe(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        result: list[dict[str, Any]] = []
+        for event in events:
+            event_id = str(event.get("event_id") or "")
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            result.append(event)
+        return result
+
+    return self_awareness_adapters.SelfAwarenessCollectAssemblyPort(
+        make_event=_fixed_event,
+        context_from_text=self_awareness_contracts.context_from_text,
+        service_from_container=lambda item: str((item.get("names") or [item.get("name") or ""])[0]),
+        working_stack_events=lambda _inventory, _generated_at: [
+            _fixed_event("working_stack", "working-stack", resource={"service": "prometheus", "write": False})
+        ],
+        checkpoint_observation_events=lambda _investigation, _replay, _generated_at: [],
+        dedupe_events=dedupe,
+        correlation_index=lambda events: {
+            "schema": "abyss_machine_self_awareness_correlation_index_v1",
+            "summary": {"events": len(events)},
+        },
+        event_issues=lambda _event: [],
+        signal_fabric_summary=self_awareness_contracts.signal_fabric_summary,
+        self_awareness_paths=lambda: {"policy": {"private_state_local": True}},
+    )
+
+
+def test_collect_assembly_builds_portable_documents_without_persistence(tmp_path: Path) -> None:
+    duplicate = _fixed_event("synthetic", "fixture", resource={"service": "fixture", "write": False})
+    assembled = self_awareness_adapters.assemble_collect_documents(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        host="fixture-host",
+        inputs=_collect_assembly_input_docs(),
+        synthetic_events=[duplicate, dict(duplicate)],
+        paths=_collect_assembly_paths(tmp_path),
+        grafana_url="http://grafana.test",
+        alertmanager_url="http://alertmanager.test",
+        unbounded_labels={"filename"},
+        port=_fake_collect_assembly_port(),
+    )
+
+    collect = assembled["collect"]
+    events_doc = assembled["events"]
+    assert collect["schema"] == "abyss_machine_self_awareness_collect_v1"
+    assert events_doc["schema"] == "abyss_machine_self_awareness_events_v1"
+    assert collect["status"] == "ready"
+    assert collect["quality"]["degraded_sources"] == []
+    assert collect["quality"]["optional_degraded_sources"] == ["alertmanager", "context_logql"]
+    assert collect["owner_boundary"] == {
+        "stack_owner": "abyss-stack",
+        "machine_role": "read_only_consumer",
+        "host_layer_mutates_stack": False,
+        "writes_project_roots": False,
+        "automatic_remediation": False,
+    }
+    assert sum(1 for event in collect["events"] if event.get("event_id") == duplicate["event_id"]) == 1
+    assert collect["collectors"]["scheduler"]["active_timers"] == 1
+    assert collect["collectors"]["host_service"]["categories"] == {"typing": 1}
+    assert assembled["index"] is collect["correlation_index"]
+
+
+def test_collect_assembly_only_blocks_on_required_collectors(tmp_path: Path) -> None:
+    inputs = _collect_assembly_input_docs()
+    inputs["stack"] = {**inputs["stack"], "ok": False}
+    assembled = self_awareness_adapters.assemble_collect_documents(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        host="fixture-host",
+        inputs=inputs,
+        synthetic_events=None,
+        paths=_collect_assembly_paths(tmp_path),
+        grafana_url="http://grafana.test",
+        alertmanager_url="http://alertmanager.test",
+        unbounded_labels=set(),
+        port=_fake_collect_assembly_port(),
+    )
+
+    assert assembled["collect"]["ok"] is False
+    assert assembled["collect"]["status"] == "degraded"
+    assert assembled["collect"]["quality"]["degraded_sources"] == ["stack_observability"]
+
+
+def test_collect_assembly_requires_explicit_host_paths(tmp_path: Path) -> None:
+    paths = _collect_assembly_paths(tmp_path)
+    paths.pop("stack_observability")
+    try:
+        self_awareness_adapters.collect_assembly_paths(paths)
+    except KeyError as exc:
+        assert "stack_observability" in str(exc)
+    else:
+        raise AssertionError("missing assembly path must fail closed")
+
+
 def test_scheduler_timer_events_use_fake_systemd_ports() -> None:
     commands: list[tuple[str, ...]] = []
 

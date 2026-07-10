@@ -37337,445 +37337,69 @@ def self_awareness_collect(
             now_epoch=time.time,
         ),
     )
-    stack = inputs["stack"]
-    container_health = inputs["container_health"]
-    working_stack = inputs["working_stack"]
-    heartbeats = inputs["heartbeats"]
-    reactions = inputs["reactions"]
-    responses = inputs["responses"]
-    typing = inputs["typing"]
-    graph = inputs["graph"]
-    maps = inputs["maps"]
-    rag = inputs["rag"]
-    ai_caps = inputs["ai_caps"]
-    ai_llm = inputs["ai_llm"]
-    ai_llm_validate_latest = inputs["ai_llm_validate_latest"]
-    llm_resident_status = inputs["llm_resident_status"]
-    llm_resident_monitor = inputs["llm_resident_monitor"]
-    llm_resident_digest = inputs["llm_resident_digest"]
-    llm_resident_micro = inputs["llm_resident_micro"]
-    llm_resident_evals = inputs["llm_resident_evals"]
-    llm_resident_candidates = inputs["llm_resident_candidates"]
-    rag_validation = inputs["rag_validation"]
-    rag_eval_latest = inputs["rag_eval_latest"]
-    nervous = inputs["nervous"]
-    nervous_semantic = inputs["nervous_semantic"]
-    memory_latest = inputs["memory_latest"]
-    memory_plan_latest = inputs["memory_plan_latest"]
-    resource_latest = inputs["resource_latest"]
-    resource_orch = inputs["resource_orch"]
-    mode_latest = inputs["mode_latest"]
-    observability_latest_doc = inputs["observability_latest_doc"]
-    observability_manual_collect = inputs["observability_manual_collect"]
-    investigation_latest = inputs["investigation_latest"]
-    replay_latest = inputs["replay_latest"]
-    ai_policy_latest = inputs["ai_policy_latest"]
-    ai_workload_latest = inputs["ai_workload_latest"]
-    prom_alerts = inputs["prom_alerts"]
-    alertmanager = inputs["alertmanager"]
-    context_logql = inputs["context_logql"]
-    scheduler_events = inputs["scheduler_events"]
-    host_service_events = inputs["host_service_events"]
-    events: list[dict[str, Any]] = []
-    evidence_stack = {"path": str(STACK_OBSERVABILITY_LATEST_PATH), "schema": stack.get("schema"), "generated_at": stack.get("generated_at")}
-
-    def append_latest_artifact_event(
-        signal: str,
-        source_name: str,
-        data: dict[str, Any],
-        path: Path,
-        *,
-        service: str | None = None,
-        owner_surface: str = "abyss-machine",
-        severity: str | None = None,
-        truth_level: str | None = None,
-        detail: dict[str, Any] | None = None,
-    ) -> None:
-        summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
-        status_value = data.get("status") or summary.get("status") or data.get("class")
-        ok_value = bool(data.get("ok")) if "ok" in data else not bool(data.get("error"))
-        event_time_value = (
-            data.get("generated_at")
-            or data.get("updated_at")
-            or nested_get(data, ["sample", "generated_at"])
-            or generated_at
-        )
-        event_severity = severity or ("info" if ok_value else "warning")
-        body = {
-            "schema": data.get("schema"),
-            "ok": data.get("ok"),
-            "status": status_value,
-            "summary": summary,
-            "generated_at": event_time_value,
-        }
-        if detail:
-            body["detail"] = detail
-        context = self_awareness_context_from_text(body)
-        if isinstance(detail, dict) and detail.get("manual_collect_status"):
-            context["manual_collect_status"] = detail.get("manual_collect_status")
-            context["manual_collect_missing_or_unwritable"] = detail.get("manual_collect_missing_or_unwritable") or []
-        events.append(self_awareness_make_event(
-            signal,
-            source_name,
-            event_time=event_time_value,
-            source_query=str(path),
-            resource={"service": service or source_name, "owner_surface": owner_surface, "path": str(path), "write": False},
-            context=context,
-            space={"host": platform.node(), "owner_surface": owner_surface, "path": str(path)},
-            severity=event_severity,
-            confidence={"score": 0.78 if data.get("schema") else 0.45, "reason": "Existing abyss-machine readmodel latest file"},
-            body=body,
-            evidence_refs=[{"path": str(path), "schema": data.get("schema"), "generated_at": event_time_value, "ok": data.get("ok")}],
-            truth_level=truth_level or ("raw" if data.get("schema") else "candidate"),
-        ))
-
-    for job, value in (nested_get(stack, ["prometheus", "jobs"]) or {}).items():
-        severity = "info" if str(value) in {"1", "1.0"} else "warning"
-        events.append(self_awareness_make_event(
-            "metric",
-            "prometheus",
-            event_time=stack.get("generated_at") or generated_at,
-            source_query='up{job=~"loki|alloy|grafana|prometheus"}',
-            resource={"service": str(job), "job": str(job), "owner_surface": "abyss-stack", "write": False},
-            space={"host": platform.node(), "owner_surface": "abyss-stack", "layer": "stack-observability"},
-            severity=severity,
-            confidence={"score": 0.95, "reason": "Prometheus instant query result from stack observability bridge"},
-            body={"job": job, "value": value},
-            evidence_refs=[evidence_stack, {"query": "promql", "expression": 'up{job=~"loki|alloy|grafana|prometheus"}'}],
-            truth_level="raw",
-        ))
-
-    grafana = stack.get("grafana") if isinstance(stack.get("grafana"), dict) else {}
-    events.append(self_awareness_make_event(
-        "validation",
-        "grafana",
-        event_time=stack.get("generated_at") or generated_at,
-        source_query=str(grafana.get("url") or f"{STACK_OBSERVABILITY_GRAFANA_URL.rstrip('/')}/api/health"),
-        resource={"service": "grafana", "owner_surface": "abyss-stack", "write": False},
-        space={"host": platform.node(), "owner_surface": "abyss-stack", "endpoint": "/api/health"},
-        severity="info" if grafana.get("ok") else "warning",
-        confidence={"score": 0.9, "reason": "Grafana unauthenticated health endpoint"},
-        body=grafana,
-        evidence_refs=[evidence_stack],
-        truth_level="raw",
-    ))
-
-    loki = stack.get("loki") if isinstance(stack.get("loki"), dict) else {}
-    loki_labels = nested_get(loki, ["labels", "labels"]) or []
-    events.append(self_awareness_make_event(
-        "validation",
-        "loki",
-        event_time=stack.get("generated_at") or generated_at,
-        source_query="/loki/api/v1/labels",
-        resource={"service": "loki", "labels": {str(label): "present" for label in loki_labels if str(label).lower() not in SELF_AWARENESS_UNBOUNDED_LABELS}, "owner_surface": "abyss-stack", "write": False},
-        space={"host": platform.node(), "owner_surface": "abyss-stack", "endpoint": "/loki/api/v1/labels"},
-        severity="info" if nested_get(loki, ["labels", "ok"]) else "warning",
-        confidence={"score": 0.88, "reason": "Loki labels API through stack container network"},
-        body={"ready": loki.get("ready"), "labels": nested_get(loki, ["labels", "labels"]), "label_count": nested_get(loki, ["labels", "label_count"])},
-        evidence_refs=[evidence_stack, {"path": str(STACK_OBSERVABILITY_LATEST_PATH), "locator": "loki.labels"}],
-        truth_level="raw",
-    ))
-
-    for logql in list(nested_get(loki, ["logql"]) or []) + [context_logql]:
-        if not isinstance(logql, dict):
-            continue
-        for sample in logql.get("samples", []) if isinstance(logql.get("samples"), list) else []:
-            if not isinstance(sample, dict):
-                continue
-            context = self_awareness_context_from_text(sample.get("line_preview"))
-            events.append(self_awareness_make_event(
-                "log",
-                "loki",
-                event_time=generated_at,
-                source_query=str(logql.get("query") or ""),
-                resource={"service": (sample.get("labels") or {}).get("container") or (sample.get("labels") or {}).get("job"), "container": (sample.get("labels") or {}).get("container"), "owner_surface": "abyss-stack", "write": False},
-                context=context,
-                space={"host": platform.node(), "owner_surface": "abyss-stack", "source": "loki"},
-                severity="info",
-                confidence={"score": 0.72 if context else 0.55, "reason": "Bounded LogQL sample; confidence increases when trace context is present"},
-                body=sample,
-                evidence_refs=[evidence_stack, {"query": "logql", "expression": logql.get("query"), "line_hash": sample.get("line_hash")}],
-                truth_level="raw",
-            ))
-
-    alloy_value = nested_get(stack, ["alloy", "prometheus_value"])
-    events.append(self_awareness_make_event(
-        "metric",
-        "alloy",
-        event_time=stack.get("generated_at") or generated_at,
-        source_query='up{job="alloy"}',
-        resource={"service": "alloy", "job": "alloy", "owner_surface": "abyss-stack", "write": False},
-        space={"host": platform.node(), "owner_surface": "abyss-stack"},
-        severity="info" if str(alloy_value) in {"1", "1.0"} else "warning",
-        confidence={"score": 0.88, "reason": "Prometheus target state plus Loki ingestion evidence"},
-        body={"prometheus_value": alloy_value, "evidence": nested_get(stack, ["alloy", "evidence"])},
-        evidence_refs=[evidence_stack],
-        truth_level="raw",
-    ))
-
-    containers = container_health.get("containers") if isinstance(container_health.get("containers"), list) else []
-    working_stack_runtime_services = {
-        str(row.get("service"))
-        for row in working_stack.get("runtime_services", [])
-        if isinstance(row, dict) and row.get("service")
-    }
-    for item in containers:
-        if not isinstance(item, dict):
-            continue
-        names = item.get("names") if isinstance(item.get("names"), list) else [item.get("name")]
-        joined = " ".join(str(name or "") for name in names)
-        service = self_awareness_service_from_container(item)
-        if service not in working_stack_runtime_services and not re.search(r"prometheus|grafana|loki|alloy|alertmanager|route-api|rag-api|langchain|postgres|neo4j", joined):
-            continue
-        name = str(names[0] if names else item.get("name") or "unknown")
-        events.append(self_awareness_make_event(
-            "container",
-            "podman",
-            event_time=container_health.get("generated_at") or generated_at,
-            source_query="abyss-machine processes containers --json",
-            resource={"container": name, "service": service or name, "pid": item.get("pid"), "owner_surface": "abyss-stack", "write": False},
-            space={"host": platform.node(), "owner_surface": "abyss-stack", "container": name, "service": service or name, "pid": item.get("pid")},
-            severity="info" if item.get("running") else "warning",
-            confidence={"score": 0.92, "reason": "Rootless Podman health readmodel"},
-            body={"name": name, "pid": item.get("pid"), "status": item.get("status"), "health": item.get("health"), "running": item.get("running")},
-            evidence_refs=[{"path": str(PROCESS_CONTAINER_LATEST_PATH), "schema": container_health.get("schema"), "generated_at": container_health.get("generated_at")}],
-            truth_level="raw",
-        ))
-
-    events.extend(self_awareness_working_stack_events(working_stack, generated_at))
-    events.extend(scheduler_events)
-    events.extend(host_service_events)
-
-    for item in prom_alerts.get("results", []) if isinstance(prom_alerts.get("results"), list) else []:
-        metric = item.get("metric") if isinstance(item, dict) and isinstance(item.get("metric"), dict) else {}
-        alertname = metric.get("alertname") or "prometheus-alert"
-        fingerprint = stable_hash_json(metric, length=20)
-        events.append(self_awareness_make_event(
-            "alert",
-            "prometheus",
-            event_time=generated_at,
-            source_query='ALERTS{alertstate=~"firing|pending"}',
-            resource={"alertname": alertname, "alert_fingerprint": fingerprint, "service": metric.get("job"), "owner_surface": "abyss-stack", "write": False},
-            context={"alert_fingerprint": fingerprint},
-            space={"host": platform.node(), "owner_surface": "abyss-stack"},
-            severity="warning",
-            confidence={"score": 0.84, "reason": "Prometheus ALERTS series"},
-            body={"metric": metric, "value": item.get("value")},
-            evidence_refs=[{"query": "promql", "expression": 'ALERTS{alertstate=~"firing|pending"}', "result": metric}],
-            truth_level="raw",
-        ))
-
-    am_alerts = nested_get(alertmanager, ["json"])
-    if isinstance(am_alerts, list):
-        for item in am_alerts[:32]:
-            if not isinstance(item, dict):
-                continue
-            labels = item.get("labels") if isinstance(item.get("labels"), dict) else {}
-            fingerprint = str(item.get("fingerprint") or stable_hash_json(labels, length=20))
-            events.append(self_awareness_make_event(
-                "alert",
-                "alertmanager",
-                event_time=str(item.get("startsAt") or generated_at),
-                source_query=f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip('/')}/api/v2/alerts",
-                resource={"alertname": labels.get("alertname"), "alert_fingerprint": fingerprint, "service": labels.get("job"), "owner_surface": "abyss-stack", "write": False},
-                context={"alert_fingerprint": fingerprint},
-                space={"host": platform.node(), "owner_surface": "abyss-stack"},
-                severity="warning" if str(item.get("status", {}).get("state") or "") == "active" else "notice",
-                confidence={"score": 0.9, "reason": "Alertmanager alert lifecycle API"},
-                body={"labels": labels, "status": item.get("status"), "startsAt": item.get("startsAt"), "endsAt": item.get("endsAt")},
-                evidence_refs=[{"source": "alertmanager", "url": f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip('/')}/api/v2/alerts", "fingerprint": fingerprint}],
-                truth_level="raw",
-            ))
-
-    for source_name, signal, data, path, service, owner_surface, truth_level, detail in [
-        ("heartbeats", "heartbeat", heartbeats, HEARTBEATS_LATEST_PATH, "heartbeats", "abyss-machine", "raw", None),
-        ("reactions", "reaction", reactions, REACTIONS_LATEST_PATH, "reactions", "abyss-machine", "candidate", None),
-        ("responses", "response", responses, RESPONSES_LATEST_PATH, "responses", "abyss-machine", "candidate", None),
-        ("typing", "typing", typing, TYPING_EVENTS_LATEST_PATH, "typing", "abyss-machine", "raw", None),
-        ("graph", "validation", graph, GRAPH_LATEST_PATH, "machine-graph", "abyss-machine", "raw", None),
-        ("maps", "validation", maps, MAPS_LATEST_PATH, "machine-maps", "abyss-machine", "raw", None),
-        ("rag", "rag", rag, RAG_TRACE_LATEST_PATH, "machine-rag-trace", "abyss-machine", "raw", None),
-        ("rag", "rag", rag_validation, RAG_VALIDATE_LATEST_PATH, "machine-rag-validate", "abyss-machine", "raw", None),
-        ("rag", "rag", rag_eval_latest, RAG_EVAL_LATEST_PATH, "machine-rag-eval", "abyss-machine", "raw", None),
-        ("ai", "capability", ai_caps, AI_CAPABILITIES_LATEST_PATH, "ai-capabilities", "abyss-machine", "raw", {"capability_keys": sorted((ai_caps.get("capabilities") or {}).keys()) if isinstance(ai_caps.get("capabilities"), dict) else []}),
-        ("llm", "model", ai_llm, AI_LLM_REGISTRY_LATEST_PATH, "llm-registry", "abyss-machine", "raw", {"ready_profiles": nested_get(ai_llm, ["summary", "ready_profiles"])}),
-        ("llm", "validation", ai_llm_validate_latest, AI_LLM_VALIDATE_LATEST_PATH, "llm-validate", "abyss-machine", "raw", None),
-        ("llm", "model", llm_resident_status, AI_LLM_RESIDENT_ROOT / "status" / "latest.json", "warm-e2b-gemma4.spark", "abyss-machine", "raw", {"resident_status": llm_resident_status.get("status"), "model": llm_resident_status.get("model") if isinstance(llm_resident_status.get("model"), dict) else None}),
-        ("llm", "model", llm_resident_monitor, AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json", "warm-e2b-monitor", "abyss-machine", "raw", None),
-        ("llm", "model", llm_resident_digest, AI_LLM_RESIDENT_ROOT / "digests" / "latest.json", "warm-e2b-digest", "abyss-machine", "candidate", None),
-        ("llm", "model", llm_resident_micro, AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json", "warm-e2b-micro", "abyss-machine", "candidate", None),
-        ("llm", "model", llm_resident_candidates, AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH, "warm-e2b-candidates", "abyss-machine", "candidate", None),
-        ("llm", "validation", llm_resident_evals, AI_LLM_RESIDENT_EVALS_LATEST_PATH, "warm-e2b-evals", "abyss-machine", "raw", None),
-        ("ai", "resource", ai_policy_latest, AI_POLICY_LATEST_PATH, "ai-policy", "abyss-machine", "raw", None),
-        ("ai", "resource", ai_workload_latest, AI_WORKLOAD_LATEST_PATH, "ai-workload-routing", "abyss-machine", "raw", None),
-        ("nervous", "nervous", nervous, NERVOUS_BRIEF_LATEST_PATH, "nervous-brief", "abyss-machine", "raw", {"readiness": nervous.get("readiness") if isinstance(nervous.get("readiness"), dict) else None}),
-        ("nervous", "nervous", nervous_semantic, NERVOUS_SEMANTIC_INDEX_LATEST_PATH, "nervous-semantic-index", "abyss-machine", "raw", None),
-        ("memory", "memory", memory_latest, MEMORY_LATEST_PATH, "memory-status", "abyss-machine", "raw", None),
-        ("memory", "memory", memory_plan_latest, MEMORY_PLAN_LATEST_PATH, "memory-plan", "abyss-machine", "raw", None),
-        ("resource", "resource", resource_latest, RESOURCE_LATEST_PATH, "resource-status", "abyss-machine", "raw", None),
-        ("resource", "resource", resource_orch, RESOURCE_ORCHESTRATOR_LATEST_PATH, "resource-orchestrator", "abyss-machine", "raw", None),
-        ("mode", "mode", mode_latest, MODE_LATEST_PATH, "mode-status", "abyss-machine", "raw", None),
-        ("observability", "metric", observability_latest_doc, OBSERVABILITY_ROOT / "thermal-battery" / "latest.json", "observability-thermal-battery", "abyss-machine", "raw", {
-            "thermal_class": nested_get(observability_latest_doc, ["sample", "class", "thermal"]),
-            "battery_class": nested_get(observability_latest_doc, ["sample", "class", "battery"]),
-            "temperature_c_max": nested_get(observability_latest_doc, ["sample", "thermal", "sensors", "temperature_c_max"]),
-            "battery_capacity_percent": nested_get(observability_latest_doc, ["sample", "power", "battery", "capacity_percent"]),
-            "ac_online": nested_get(observability_latest_doc, ["sample", "power", "battery", "ac_online"]),
-            "summary_path": observability_latest_doc.get("summary_path"),
-            "manual_collect_status": observability_manual_collect.get("status"),
-            "manual_collect_missing_or_unwritable": observability_manual_collect.get("missing_or_unwritable"),
-        }),
-    ]:
-        append_latest_artifact_event(
-            signal,
-            source_name,
-            data if isinstance(data, dict) else {},
-            path,
-            service=service,
-            owner_surface=owner_surface,
-            truth_level=truth_level,
-            detail=detail,
-        )
-
-    events.extend(self_awareness_checkpoint_observation_events(investigation_latest, replay_latest, generated_at))
-
-    for event in synthetic_events or []:
-        if isinstance(event, dict):
-            events.append(event)
-
-    events = self_awareness_dedupe_events(events)
-    index = self_awareness_correlation_index(events)
-    invalid = [{"event_id": event.get("event_id"), "issues": self_awareness_event_issues(event)} for event in events if self_awareness_event_issues(event)]
-    fabric_summary = self_awareness_signal_fabric_summary(events)
-    degraded_sources = [
-        name for name, ok in {
-            "stack_observability": stack.get("ok"),
-            "prometheus_alerts": prom_alerts.get("ok"),
-            "working_stack": working_stack.get("ok"),
-            "alertmanager_optional": alertmanager.get("ok"),
-            "context_logql_optional": context_logql.get("ok"),
-        }.items()
-        if not ok and not name.endswith("_optional")
-    ]
-    events_doc = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_events_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": not invalid,
-        "summary": {
-            "events": len(events),
-            "invalid_events": len(invalid),
-            "signals": dict(collections.Counter(str(event.get("signal")) for event in events)),
-            "sources": dict(collections.Counter(str(event.get("source")) for event in events)),
-            "signal_fabric": fabric_summary,
+    assembled = self_awareness_adapters.assemble_collect_documents(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=generated_at,
+        host=platform.node(),
+        inputs=inputs,
+        synthetic_events=synthetic_events,
+        paths={
+            "stack_observability": STACK_OBSERVABILITY_LATEST_PATH,
+            "process_container": PROCESS_CONTAINER_LATEST_PATH,
+            "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+            "heartbeats": HEARTBEATS_LATEST_PATH,
+            "reactions": REACTIONS_LATEST_PATH,
+            "responses": RESPONSES_LATEST_PATH,
+            "typing": TYPING_EVENTS_LATEST_PATH,
+            "graph": GRAPH_LATEST_PATH,
+            "maps": MAPS_LATEST_PATH,
+            "rag_trace": RAG_TRACE_LATEST_PATH,
+            "rag_validate": RAG_VALIDATE_LATEST_PATH,
+            "rag_eval": RAG_EVAL_LATEST_PATH,
+            "ai_capabilities": AI_CAPABILITIES_LATEST_PATH,
+            "ai_llm_registry": AI_LLM_REGISTRY_LATEST_PATH,
+            "ai_llm_validate_latest": AI_LLM_VALIDATE_LATEST_PATH,
+            "llm_resident_status": AI_LLM_RESIDENT_ROOT / "status" / "latest.json",
+            "llm_resident_monitor": AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json",
+            "llm_resident_digest": AI_LLM_RESIDENT_ROOT / "digests" / "latest.json",
+            "llm_resident_micro": AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json",
+            "llm_resident_evals": AI_LLM_RESIDENT_EVALS_LATEST_PATH,
+            "llm_resident_candidates": AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH,
+            "ai_policy": AI_POLICY_LATEST_PATH,
+            "ai_workload": AI_WORKLOAD_LATEST_PATH,
+            "nervous_brief": NERVOUS_BRIEF_LATEST_PATH,
+            "nervous_semantic": NERVOUS_SEMANTIC_INDEX_LATEST_PATH,
+            "memory": MEMORY_LATEST_PATH,
+            "memory_plan": MEMORY_PLAN_LATEST_PATH,
+            "resource": RESOURCE_LATEST_PATH,
+            "resource_orch": RESOURCE_ORCHESTRATOR_LATEST_PATH,
+            "mode": MODE_LATEST_PATH,
+            "observability": OBSERVABILITY_ROOT / "thermal-battery" / "latest.json",
+            "investigation": SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+            "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
+            "events_latest": SELF_AWARENESS_EVENTS_LATEST_PATH,
+            "index_latest": SELF_AWARENESS_INDEX_PATH,
         },
-        "events": events,
-        "invalid": invalid,
-        "correlation_index": index,
-        "policy": self_awareness_paths().get("policy"),
-        "tests": {"schema": "validated by abyss-machine self-awareness validate --json"},
-    }
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_collect_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": not invalid and not degraded_sources,
-        "status": "ready" if not invalid and not degraded_sources else "degraded",
-        "summary": {
-            "status": "ready" if not invalid and not degraded_sources else "degraded",
-            "events": len(events),
-            "invalid_events": len(invalid),
-            "signal_fabric": fabric_summary,
-            "degraded_sources": degraded_sources,
-            "promql_jobs_up": nested_get(stack, ["summary", "promql_jobs_up"]),
-            "logql_entries_seen": nested_get(stack, ["summary", "logql_entries_seen"]),
-            "alert_events": sum(1 for event in events if event.get("signal") == "alert"),
-            "working_stack_organs": nested_get(working_stack, ["summary", "organs"]),
-            "working_stack_usage_gaps": nested_get(working_stack, ["summary", "usage_gaps"]),
-            "working_stack_events": sum(1 for event in events if event.get("source") == "working-stack"),
-            "ai_capabilities": len(ai_caps.get("capabilities") if isinstance(ai_caps.get("capabilities"), dict) else {}),
-            "warm_e2b_status": llm_resident_status.get("status"),
-            "rag_validate_ok": rag_validation.get("ok"),
-            "nervous_readiness": nested_get(nervous, ["readiness", "status"]),
-            "observability_temperature_c_max": nested_get(observability_latest_doc, ["sample", "thermal", "sensors", "temperature_c_max"]),
-            "observability_battery_capacity_percent": nested_get(observability_latest_doc, ["sample", "power", "battery", "capacity_percent"]),
-            "scheduler_timers": len(scheduler_events),
-            "scheduler_active_timers": sum(1 for event in scheduler_events if nested_get(event, ["resource", "timer_active"]) is True),
-            "scheduler_enabled_timers": sum(1 for event in scheduler_events if nested_get(event, ["resource", "timer_enabled"]) is True),
-            "host_services": len(host_service_events),
-            "host_service_categories": dict(collections.Counter(str(nested_get(event, ["resource", "host_service_category"]) or "unknown") for event in host_service_events)),
-        },
-        "paths": self_awareness_paths(),
-        "events_latest": str(SELF_AWARENESS_EVENTS_LATEST_PATH),
-        "index_latest": str(SELF_AWARENESS_INDEX_PATH),
-        "events": events,
-        "correlation_index": index,
-        "collectors": {
-            "stack_observability": {"ok": stack.get("ok"), "summary": stack.get("summary"), "path": str(STACK_OBSERVABILITY_LATEST_PATH)},
-            "containers": {"ok": container_health.get("ok"), "summary": container_health.get("summary"), "path": str(PROCESS_CONTAINER_LATEST_PATH)},
-            "working_stack": {"ok": working_stack.get("ok"), "summary": working_stack.get("summary"), "path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH)},
-            "prometheus_alerts": {"ok": prom_alerts.get("ok"), "result_count": prom_alerts.get("result_count")},
-            "alertmanager": {"ok": alertmanager.get("ok"), "status_code": alertmanager.get("status_code"), "optional": True, "error": alertmanager.get("error")},
-            "context_logql": {"ok": context_logql.get("ok"), "entry_count": context_logql.get("entry_count"), "optional": True},
-            "ai_capabilities": {"ok": ai_caps.get("ok"), "path": str(AI_CAPABILITIES_LATEST_PATH), "capabilities": sorted((ai_caps.get("capabilities") or {}).keys()) if isinstance(ai_caps.get("capabilities"), dict) else []},
-            "llm_registry": {"ok": ai_llm.get("ok"), "summary": ai_llm.get("summary"), "path": str(AI_LLM_REGISTRY_LATEST_PATH)},
-            "warm_e2b": {"ok": llm_resident_status.get("ok"), "status": llm_resident_status.get("status"), "path": str(AI_LLM_RESIDENT_ROOT / "status" / "latest.json")},
-            "rag_validate": {"ok": rag_validation.get("ok"), "summary": rag_validation.get("summary"), "path": str(RAG_VALIDATE_LATEST_PATH)},
-            "nervous_brief": {"ok": nervous.get("ok"), "readiness": nervous.get("readiness"), "path": str(NERVOUS_BRIEF_LATEST_PATH)},
-            "resource": {"ok": resource_latest.get("ok"), "summary": resource_latest.get("summary"), "path": str(RESOURCE_LATEST_PATH)},
-            "mode": {"ok": mode_latest.get("ok"), "summary": mode_latest.get("summary"), "path": str(MODE_LATEST_PATH)},
-            "memory": {"ok": memory_latest.get("ok"), "summary": memory_latest.get("summary"), "path": str(MEMORY_LATEST_PATH)},
-            "observability": {
-                "ok": not bool(observability_latest_doc.get("error")) and bool(observability_latest_doc.get("schema")),
-                "updated_at": observability_latest_doc.get("updated_at"),
-                "path": str(OBSERVABILITY_ROOT / "thermal-battery" / "latest.json"),
-                "temperature_c_max": nested_get(observability_latest_doc, ["sample", "thermal", "sensors", "temperature_c_max"]),
-                "battery_capacity_percent": nested_get(observability_latest_doc, ["sample", "power", "battery", "capacity_percent"]),
-                "manual_collect": observability_manual_collect,
-            },
-            "scheduler": {
-                "ok": bool(scheduler_events),
-                "timers": len(scheduler_events),
-                "active_timers": sum(1 for event in scheduler_events if nested_get(event, ["resource", "timer_active"]) is True),
-                "enabled_timers": sum(1 for event in scheduler_events if nested_get(event, ["resource", "timer_enabled"]) is True),
-                "categories": dict(collections.Counter(str(nested_get(event, ["resource", "timer_category"]) or "unknown") for event in scheduler_events)),
-                "source": "bounded systemctl list-timers/show for abyss-* and aoa-* units",
-            },
-            "host_service": {
-                "ok": bool(host_service_events),
-                "services": len(host_service_events),
-                "categories": dict(collections.Counter(str(nested_get(event, ["resource", "host_service_category"]) or "unknown") for event in host_service_events)),
-                "units": sorted(str(nested_get(event, ["resource", "host_service_unit"]) or nested_get(event, ["resource", "service"]) or "") for event in host_service_events),
-                "source": "bounded systemctl list-units/show for active abyss/aoa/ydotoold services",
-            },
-        },
-        "quality": {
-            "degraded_sources": degraded_sources,
-            "optional_degraded_sources": [
-                name for name, ok in {"alertmanager": alertmanager.get("ok"), "context_logql": context_logql.get("ok")}.items() if not ok
-            ],
-            "invalid_events": invalid,
-            "freshness_gates": {
-                "nervous_index_fresh": nested_get(nervous, ["readiness", "index_fresh"]),
-                "nervous_semantic_stale": nested_get(nervous, ["readiness", "semantic_stale"]),
-                "semantic_maintenance_needed": nested_get(nervous, ["readiness", "semantic_maintenance_needed"]),
-                "warm_e2b_running": llm_resident_status.get("status") == "running",
-                "resource_route_known": bool(resource_latest.get("schema")),
-                "mode_known": bool(mode_latest.get("schema")),
-            },
-        },
-        "owner_boundary": {
-            "stack_owner": "abyss-stack",
-            "machine_role": "read_only_consumer",
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-            "automatic_remediation": False,
-        },
-        "tests": {
-            "fixture_schema": "covered by self-awareness validate self_tests",
-            "live_smoke": "Prometheus/Loki/Grafana/Alloy evidence from stack-bridge observability",
-        },
-    }
+        grafana_url=STACK_OBSERVABILITY_GRAFANA_URL,
+        alertmanager_url=SELF_AWARENESS_ALERTMANAGER_URL,
+        unbounded_labels=SELF_AWARENESS_UNBOUNDED_LABELS,
+        port=self_awareness_adapters.SelfAwarenessCollectAssemblyPort(
+            make_event=self_awareness_make_event,
+            context_from_text=self_awareness_context_from_text,
+            service_from_container=self_awareness_service_from_container,
+            working_stack_events=self_awareness_working_stack_events,
+            checkpoint_observation_events=self_awareness_checkpoint_observation_events,
+            dedupe_events=self_awareness_dedupe_events,
+            correlation_index=self_awareness_correlation_index,
+            event_issues=self_awareness_event_issues,
+            signal_fabric_summary=self_awareness_signal_fabric_summary,
+            self_awareness_paths=self_awareness_paths,
+        ),
+    )
+    data = assembled["collect"]
+    events_doc = assembled["events"]
+    index = assembled["index"]
     if write_latest:
         errors = []
         errors.extend(self_awareness_write_events(events_doc))
