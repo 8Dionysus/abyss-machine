@@ -135,7 +135,10 @@ Use these mechanic owners for the next extraction slices:
   path, and config ports without host IO or stack mutation;
   `self_awareness_query_correlation_contracts` owns bounded query scoring and
   current-window correlation joins/SLO/baseline/provenance assembly through
-  explicit runtime, refresh, contract, persistence, path, and config ports.
+  explicit runtime, refresh, contract, persistence, path, and config ports;
+  `self_awareness_trace_context_contracts` owns bounded trace-link extraction,
+  trace-backend fallback/readiness, ordered next-requirement routing,
+  completion, and optional persistence through the same explicit port style.
   Remaining causal readmodels and activation/lineage/coverage centers must be
   extracted before the final residual CLI-edge classification and family
   completion audit.

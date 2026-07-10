@@ -325,6 +325,17 @@ write behavior, and CLI binding. Live-host closeout must compare source and
 installed schema/ok/summary/policy only; never publish result rows, joins,
 provenance bodies, evidence refs, queries, or machine paths.
 
+For self-awareness trace-context fallback changes, public CI should use
+supplied stack-observability, requirement-probes, probe, context, timeline,
+episodes, and capabilities documents plus synthetic runtime, refresh,
+contract, persistence, path, and config ports. It must constrain bounded link
+projection, no raw-log copying, no false stack closure, capabilities-only
+fallback, next-open requirement routing, write/no-write behavior, completion,
+and CLI binding. Live-host closeout may compare full source/installed documents
+locally by hash, but may report only schema/ok/status, readiness booleans and
+counts, and policy; never publish checks, links, samples, endpoints, evidence
+refs, or machine paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.

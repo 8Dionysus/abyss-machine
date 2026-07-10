@@ -1518,6 +1518,29 @@ write routing, and CLI binding. Live closeout compares only schema/ok/summary/
 policy; result rows, joins, provenance bodies, evidence refs, and local paths
 remain private host evidence.
 
+## Extracted Self-Awareness Trace-Context Fallback Pipeline
+
+`abyss_machine.self_awareness_trace_context_contracts` owns the complete
+bounded trace-context fallback surface:
+
+- recursive bounded trace-context link extraction with deduplication and no
+  unrelated payload projection;
+- explicit stack-observability and requirement-probes refresh plus probe,
+  context, timeline, episodes, and capabilities latest intake;
+- trace-backend current-state fallback, pipeline/search/join readiness,
+  coverage impact, and ordered next-open stack-owner action assembly;
+- completion policy and optional trace-context latest/history persistence
+  through explicit runtime, refresh, contract, persistence, path, and config
+  ports without stack mutation or backend ownership.
+
+The CLI binds current paths and callbacks and preserves all three established
+helper signatures. Synthetic tests constrain supplied-document reuse without
+hidden IO, capabilities-only fallback, bounded redaction, no false stack
+closure, write routing, and CLI binding. Live closeout compares full documents
+locally by hash, but reports only schema/ok/status, readiness booleans and
+counts, and policy; checks, trace links, samples, endpoint details, evidence
+refs, and local paths remain private host evidence.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1810,7 +1833,9 @@ machine evidence.
    time-space overlay assembly now lives in
    `self_awareness_causal_overlay_contracts`; bounded query and correlation
    readmodel assembly now lives in
-   `self_awareness_query_correlation_contracts`. Before declaring this family
+   `self_awareness_query_correlation_contracts`; bounded trace-context fallback
+   extraction/readmodel/persistence now lives in
+   `self_awareness_trace_context_contracts`. Before declaring this family
    closed, extract the remaining causal readmodels plus activation/lineage/
    coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
