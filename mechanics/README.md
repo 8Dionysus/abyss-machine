@@ -108,8 +108,11 @@ Use these mechanic owners for the next extraction slices:
   incomplete/watch/complete status transitions;
   `self_awareness_adapters` owns ordered completion-audit status/latest/
   preflight/artifact-ref input acquisition, contract assembly, and optional
-  latest/history persistence through explicit ports. Validation orchestration
-  and the stable export stack-handoff contract builder remain bounded CLI debt.
+  latest/history persistence through explicit ports. It also owns validation
+  optional-refresh order, document/root/latest/history intake, and final
+  latest/history persistence. Conditional validation freshness repair and
+  stable check assembly plus the export stack-handoff contract builder remain
+  bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

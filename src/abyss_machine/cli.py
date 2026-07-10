@@ -49963,85 +49963,83 @@ def self_awareness_validate(
     require_cycle: bool = True,
     allow_probe_refresh: bool = False,
 ) -> dict[str, Any]:
-    if refresh:
-        self_awareness_capabilities(write_latest=True)
-        self_awareness_requirement_probes(write_latest=True)
-        self_awareness_failure_matrix(write_latest=True)
-        self_awareness_working_stack_inventory(write_latest=True)
-        self_awareness_collect(write_latest=True)
-        self_awareness_query("latest", write_latest=True)
-        self_awareness_correlation(write_latest=True)
-        self_awareness_timeline(write_latest=True)
-        self_awareness_spatial_graph(write_latest=True)
-        self_awareness_context(write_latest=True)
-        self_awareness_episodes(write_latest=True)
-        self_awareness_trace_context_fallback(write_latest=True)
-        self_awareness_alerts(write_latest=True)
-        self_awareness_investigate("latest", write_latest=True)
-        self_awareness_replay(write_latest=True)
-        self_awareness_brief(write_latest=True)
-        self_awareness_stack_closure_dossier(write_latest=True)
-        self_awareness_activation_smoke(write_latest=True)
-        self_awareness_autolink(write_latest=True)
-        self_awareness_completion_audit(write_latest=True)
-        self_awareness_export(write_latest=True)
-        self_awareness_cycle(write_latest=True)
-        self_awareness_objective_coverage_audit(write_latest=True)
-    checks: list[dict[str, Any]] = []
-    validation_add_path_exists(checks, "doc:self_awareness", SELF_AWARENESS_DOC_PATH, "file", required=True)
-    validation_add_path_exists(checks, "agent_card", SELF_AWARENESS_AGENTS_PATH, "file", required=True)
-    dirs = {
-        "root": SELF_AWARENESS_ROOT,
-        "events": SELF_AWARENESS_EVENTS_ROOT,
-        "collect": SELF_AWARENESS_COLLECT_ROOT,
-        "timeline": SELF_AWARENESS_TIMELINE_ROOT,
-        "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_ROOT,
-        "context": SELF_AWARENESS_CONTEXT_ROOT,
-        "episodes": SELF_AWARENESS_EPISODES_ROOT,
-        "alerts": SELF_AWARENESS_ALERTS_ROOT,
-        "brief": SELF_AWARENESS_BRIEF_ROOT,
-        "capabilities": SELF_AWARENESS_CAPABILITIES_ROOT,
-        "requirements": SELF_AWARENESS_REQUIREMENTS_ROOT,
-        "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_ROOT,
-        "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_ROOT,
-        "trace_context": SELF_AWARENESS_TRACE_CONTEXT_ROOT,
-        "failure_matrix": SELF_AWARENESS_FAILURE_MATRIX_ROOT,
-        "working_stack": SELF_AWARENESS_WORKING_STACK_ROOT,
-        "coverage_audit": SELF_AWARENESS_COVERAGE_AUDIT_ROOT,
-        "activation_smoke": SELF_AWARENESS_ACTIVATION_SMOKE_ROOT,
-        "autolink": SELF_AWARENESS_AUTOLINK_ROOT,
-        "query": SELF_AWARENESS_QUERY_ROOT,
-        "correlation": SELF_AWARENESS_CORRELATION_ROOT,
-        "investigate": SELF_AWARENESS_INVESTIGATE_ROOT,
-        "replay": SELF_AWARENESS_REPLAY_ROOT,
-        "export": SELF_AWARENESS_EXPORT_ROOT,
-        "completion_audit": SELF_AWARENESS_COMPLETION_AUDIT_ROOT,
-        "probe": SELF_AWARENESS_PROBE_ROOT,
-        "validate": SELF_AWARENESS_VALIDATE_ROOT,
-    }
-    if require_cycle:
-        dirs["cycle"] = SELF_AWARENESS_CYCLE_ROOT
-    for key, path in dirs.items():
-        validation_add_path_exists(checks, f"dir:{key}", path, "dir", required=True)
-    latest_specs = self_awareness_adapters.validation_latest_specs(
-        schema_prefix=SCHEMA_PREFIX,
-        paths=self_awareness_latest_path_map(),
-        require_cycle=require_cycle,
+    validation_paths = self_awareness_adapters.SelfAwarenessValidationPaths(
+        document=SELF_AWARENESS_DOC_PATH,
+        agent_card=SELF_AWARENESS_AGENTS_PATH,
+        roots={
+            "root": SELF_AWARENESS_ROOT,
+            "events": SELF_AWARENESS_EVENTS_ROOT,
+            "collect": SELF_AWARENESS_COLLECT_ROOT,
+            "timeline": SELF_AWARENESS_TIMELINE_ROOT,
+            "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_ROOT,
+            "context": SELF_AWARENESS_CONTEXT_ROOT,
+            "episodes": SELF_AWARENESS_EPISODES_ROOT,
+            "alerts": SELF_AWARENESS_ALERTS_ROOT,
+            "brief": SELF_AWARENESS_BRIEF_ROOT,
+            "capabilities": SELF_AWARENESS_CAPABILITIES_ROOT,
+            "requirements": SELF_AWARENESS_REQUIREMENTS_ROOT,
+            "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_ROOT,
+            "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_ROOT,
+            "trace_context": SELF_AWARENESS_TRACE_CONTEXT_ROOT,
+            "failure_matrix": SELF_AWARENESS_FAILURE_MATRIX_ROOT,
+            "working_stack": SELF_AWARENESS_WORKING_STACK_ROOT,
+            "coverage_audit": SELF_AWARENESS_COVERAGE_AUDIT_ROOT,
+            "activation_smoke": SELF_AWARENESS_ACTIVATION_SMOKE_ROOT,
+            "autolink": SELF_AWARENESS_AUTOLINK_ROOT,
+            "query": SELF_AWARENESS_QUERY_ROOT,
+            "correlation": SELF_AWARENESS_CORRELATION_ROOT,
+            "investigate": SELF_AWARENESS_INVESTIGATE_ROOT,
+            "replay": SELF_AWARENESS_REPLAY_ROOT,
+            "export": SELF_AWARENESS_EXPORT_ROOT,
+            "completion_audit": SELF_AWARENESS_COMPLETION_AUDIT_ROOT,
+            "probe": SELF_AWARENESS_PROBE_ROOT,
+            "validate": SELF_AWARENESS_VALIDATE_ROOT,
+            "cycle": SELF_AWARENESS_CYCLE_ROOT,
+        },
+        latest=self_awareness_latest_path_map(),
+        validate_latest=SELF_AWARENESS_VALIDATE_LATEST_PATH,
+        validate_history_root=SELF_AWARENESS_VALIDATE_ROOT,
     )
-    loaded: dict[str, dict[str, Any]] = {}
-    for spec in latest_specs:
-        key = spec.name
-        path = spec.path
-        schema = spec.schema
-        loaded[key] = topology_validate_json_file(checks, f"json:{key}", path, schema, required=True) or {}
-        history_status = topology_jsonl_status(ai_daily_jsonl_path(path.parent))
-        topology_validation_add(
-            checks,
-            "ok" if history_status.get("exists") and not history_status.get("invalid") and safe_int(history_status.get("checked"), 0) > 0 else "fail",
-            f"history:{key}",
-            f"{key} history JSONL exists and is valid",
-            {"path": str(ai_daily_jsonl_path(path.parent)), **history_status},
-        )
+    intake = self_awareness_adapters.run_validation_intake(
+        schema_prefix=SCHEMA_PREFIX,
+        refresh=refresh,
+        require_cycle=require_cycle,
+        paths=validation_paths,
+        refresh_port=self_awareness_adapters.SelfAwarenessValidationRefreshPort(
+            capabilities=lambda: self_awareness_capabilities(write_latest=True),
+            requirement_probes=lambda: self_awareness_requirement_probes(write_latest=True),
+            failure_matrix=lambda: self_awareness_failure_matrix(write_latest=True),
+            working_stack=lambda: self_awareness_working_stack_inventory(write_latest=True),
+            collect=lambda: self_awareness_collect(write_latest=True),
+            query_latest=lambda: self_awareness_query("latest", write_latest=True),
+            correlation=lambda: self_awareness_correlation(write_latest=True),
+            timeline=lambda: self_awareness_timeline(write_latest=True),
+            spatial_graph=lambda: self_awareness_spatial_graph(write_latest=True),
+            context=lambda: self_awareness_context(write_latest=True),
+            episodes=lambda: self_awareness_episodes(write_latest=True),
+            trace_context=lambda: self_awareness_trace_context_fallback(write_latest=True),
+            alerts=lambda: self_awareness_alerts(write_latest=True),
+            investigate_latest=lambda: self_awareness_investigate("latest", write_latest=True),
+            replay=lambda: self_awareness_replay(write_latest=True),
+            brief=lambda: self_awareness_brief(write_latest=True),
+            stack_closure_dossier=lambda: self_awareness_stack_closure_dossier(write_latest=True),
+            activation_smoke=lambda: self_awareness_activation_smoke(write_latest=True),
+            autolink=lambda: self_awareness_autolink(write_latest=True),
+            completion_audit=lambda: self_awareness_completion_audit(write_latest=True),
+            export=lambda: self_awareness_export(write_latest=True),
+            cycle=lambda: self_awareness_cycle(write_latest=True),
+            coverage_audit=lambda: self_awareness_objective_coverage_audit(write_latest=True),
+        ),
+        runtime_port=self_awareness_adapters.SelfAwarenessValidationRuntimePort(
+            add_path_exists=validation_add_path_exists,
+            validate_json_file=topology_validate_json_file,
+            history_status=topology_jsonl_status,
+            daily_jsonl_path=ai_daily_jsonl_path,
+            add_check=topology_validation_add,
+        ),
+    )
+    checks = intake.checks
+    loaded = intake.documents
     requirements_doc = loaded.get("requirements", {})
     requirement_probes_doc = loaded.get("requirement_probes", {})
     if (
@@ -53446,12 +53444,14 @@ def self_awareness_validate(
             "probe_run_id": probe.get("run_id"),
         },
     )
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_VALIDATE_LATEST_PATH, SELF_AWARENESS_VALIDATE_ROOT)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
+    return self_awareness_adapters.persist_validation_document(
+        data,
+        write_latest=write_latest,
+        paths=validation_paths,
+        persistence_port=self_awareness_adapters.SelfAwarenessValidationPersistencePort(
+            write_latest_and_history=write_latest_and_history,
+        ),
+    )
 
 
 def print_self_awareness_text(data: dict[str, Any]) -> None:

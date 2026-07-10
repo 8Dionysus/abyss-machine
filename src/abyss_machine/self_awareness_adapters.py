@@ -93,6 +93,10 @@ CheckpointPort = Callable[[str, str, dict[str, Any], str | None], dict[str, Any]
 ProcessIdPort = Callable[[], int]
 ResourcePreflightPort = Callable[[str], dict[str, Any]]
 HttpStatusHeadersPort = Callable[[str, Mapping[str, str]], dict[str, Any]]
+ValidationPathCheckPort = Callable[..., None]
+ValidationJsonFilePort = Callable[..., dict[str, Any] | None]
+ValidationHistoryStatusPort = Callable[[Path], dict[str, Any]]
+ValidationCheckAddPort = Callable[..., None]
 
 
 @dataclass(frozen=True)
@@ -277,6 +281,64 @@ class SelfAwarenessCompletionContractPort:
 @dataclass(frozen=True)
 class SelfAwarenessCompletionPersistencePort:
     write_latest_and_history: WriteLatestHistoryPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessValidationPaths:
+    document: Path
+    agent_card: Path
+    roots: Mapping[str, Path]
+    latest: Mapping[str, Path]
+    validate_latest: Path
+    validate_history_root: Path
+
+
+@dataclass(frozen=True)
+class SelfAwarenessValidationRefreshPort:
+    capabilities: NoArgDocumentPort
+    requirement_probes: NoArgDocumentPort
+    failure_matrix: NoArgDocumentPort
+    working_stack: NoArgDocumentPort
+    collect: NoArgDocumentPort
+    query_latest: NoArgDocumentPort
+    correlation: NoArgDocumentPort
+    timeline: NoArgDocumentPort
+    spatial_graph: NoArgDocumentPort
+    context: NoArgDocumentPort
+    episodes: NoArgDocumentPort
+    trace_context: NoArgDocumentPort
+    alerts: NoArgDocumentPort
+    investigate_latest: NoArgDocumentPort
+    replay: NoArgDocumentPort
+    brief: NoArgDocumentPort
+    stack_closure_dossier: NoArgDocumentPort
+    activation_smoke: NoArgDocumentPort
+    autolink: NoArgDocumentPort
+    completion_audit: NoArgDocumentPort
+    export: NoArgDocumentPort
+    cycle: NoArgDocumentPort
+    coverage_audit: NoArgDocumentPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessValidationRuntimePort:
+    add_path_exists: ValidationPathCheckPort
+    validate_json_file: ValidationJsonFilePort
+    history_status: ValidationHistoryStatusPort
+    daily_jsonl_path: DailyJsonlPathPort
+    add_check: ValidationCheckAddPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessValidationPersistencePort:
+    write_latest_and_history: WriteLatestHistoryPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessValidationIntake:
+    checks: list[dict[str, Any]]
+    documents: dict[str, dict[str, Any]]
+    refresh_steps: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -1320,6 +1382,134 @@ def validation_latest_specs(
     if require_cycle:
         specs.append(_spec(schema_prefix, paths, "cycle", "self_awareness_cycle_v1"))
     return tuple(specs)
+
+
+def validation_refresh_steps(
+    refresh_port: SelfAwarenessValidationRefreshPort,
+) -> tuple[tuple[str, NoArgDocumentPort], ...]:
+    return (
+        ("capabilities", refresh_port.capabilities),
+        ("requirement_probes", refresh_port.requirement_probes),
+        ("failure_matrix", refresh_port.failure_matrix),
+        ("working_stack", refresh_port.working_stack),
+        ("collect", refresh_port.collect),
+        ("query", refresh_port.query_latest),
+        ("correlation", refresh_port.correlation),
+        ("timeline", refresh_port.timeline),
+        ("spatial_graph", refresh_port.spatial_graph),
+        ("context", refresh_port.context),
+        ("episodes", refresh_port.episodes),
+        ("trace_context", refresh_port.trace_context),
+        ("alerts", refresh_port.alerts),
+        ("investigate", refresh_port.investigate_latest),
+        ("replay", refresh_port.replay),
+        ("brief", refresh_port.brief),
+        ("stack_closure_dossier", refresh_port.stack_closure_dossier),
+        ("activation_smoke", refresh_port.activation_smoke),
+        ("autolink", refresh_port.autolink),
+        ("completion_audit", refresh_port.completion_audit),
+        ("export", refresh_port.export),
+        ("cycle", refresh_port.cycle),
+        ("coverage_audit", refresh_port.coverage_audit),
+    )
+
+
+def run_validation_intake(
+    *,
+    schema_prefix: str,
+    refresh: bool,
+    require_cycle: bool,
+    paths: SelfAwarenessValidationPaths,
+    refresh_port: SelfAwarenessValidationRefreshPort,
+    runtime_port: SelfAwarenessValidationRuntimePort,
+) -> SelfAwarenessValidationIntake:
+    refreshed: list[str] = []
+    if refresh:
+        for name, refresh_document in validation_refresh_steps(refresh_port):
+            refresh_document()
+            refreshed.append(name)
+
+    checks: list[dict[str, Any]] = []
+    runtime_port.add_path_exists(
+        checks,
+        "doc:self_awareness",
+        paths.document,
+        "file",
+        required=True,
+    )
+    runtime_port.add_path_exists(
+        checks,
+        "agent_card",
+        paths.agent_card,
+        "file",
+        required=True,
+    )
+    for name, path in paths.roots.items():
+        if name == "cycle" and not require_cycle:
+            continue
+        runtime_port.add_path_exists(
+            checks,
+            f"dir:{name}",
+            path,
+            "dir",
+            required=True,
+        )
+
+    documents: dict[str, dict[str, Any]] = {}
+    specs = validation_latest_specs(
+        schema_prefix=schema_prefix,
+        paths=paths.latest,
+        require_cycle=require_cycle,
+    )
+    for spec in specs:
+        documents[spec.name] = runtime_port.validate_json_file(
+            checks,
+            f"json:{spec.name}",
+            spec.path,
+            spec.schema,
+            required=True,
+        ) or {}
+        history_path = runtime_port.daily_jsonl_path(spec.path.parent)
+        history_status = runtime_port.history_status(history_path)
+        runtime_port.add_check(
+            checks,
+            (
+                "ok"
+                if history_status.get("exists")
+                and not history_status.get("invalid")
+                and _safe_int(history_status.get("checked"), 0) > 0
+                else "fail"
+            ),
+            f"history:{spec.name}",
+            f"{spec.name} history JSONL exists and is valid",
+            {"path": str(history_path), **history_status},
+        )
+
+    return SelfAwarenessValidationIntake(
+        checks=checks,
+        documents=documents,
+        refresh_steps=tuple(refreshed),
+    )
+
+
+def persist_validation_document(
+    document: dict[str, Any],
+    *,
+    write_latest: bool,
+    paths: SelfAwarenessValidationPaths,
+    persistence_port: SelfAwarenessValidationPersistencePort,
+) -> dict[str, Any]:
+    if not write_latest:
+        return document
+    errors = persistence_port.write_latest_and_history(
+        document,
+        paths.validate_latest,
+        paths.validate_history_root,
+    )
+    if errors:
+        document["ok"] = False
+        document["write_errors"] = errors
+    return document
 
 
 def load_latest_documents(

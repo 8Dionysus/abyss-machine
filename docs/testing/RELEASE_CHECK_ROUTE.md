@@ -271,6 +271,15 @@ nested contract. Live closeout may compare only compact final/core/graph
 summaries, coverage row count/key whitelist, policy booleans, and write-error
 count.
 
+For self-awareness validation-intake adapter changes, public CI should use
+synthetic refresh/path/latest/history/writer ports to prove the exact optional
+refresh order, cycle-aware root and latest selection, JSON/history check order,
+write opt-in, and fail-closed write-error projection. Existing host-contract
+fixtures should continue to exercise the complete validation rules. Live-host
+closeout may report only schema/status, check/fail/warning counts, whether a
+refresh was requested, and write-error count; never publish loaded documents,
+history rows, checks with private data, or generated host paths.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
