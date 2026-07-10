@@ -120,10 +120,13 @@ Use these mechanic owners for the next extraction slices:
   stack mutation; `self_awareness_causal_readmodel_contracts` owns timeline,
   spatial-graph, bounded-context, and causal-episode refresh/assembly/
   persistence pipelines through explicit runtime, refresh, contract, and
-  latest/history ports. Remaining causal overlays/readmodels, stack capability/
-  requirement/closure, and activation/lineage/coverage centers must be
-  extracted before the final residual CLI-edge classification and family
-  completion audit.
+  latest/history ports; `self_awareness_stack_closure_contracts` owns
+  requirement-probes and stack-closure-dossier refresh/assembly/persistence,
+  dependency and acceptance matrices, ordered artifact refs, and stack-owner
+  handoff through explicit ports. Remaining causal overlays/readmodels, live
+  stack capability/evidence probes, failure matrix, and activation/lineage/
+  coverage centers must be extracted before the final residual CLI-edge
+  classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

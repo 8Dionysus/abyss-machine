@@ -307,6 +307,15 @@ closeout must compare source and installed schema/ok/status/summary only; never
 publish event rows, graph nodes or edges, context bodies, episodes, local
 indexes, or machine paths.
 
+For self-awareness stack-closure pipeline changes, public CI should use
+synthetic capabilities/requirements/probes/activation refresh callbacks,
+contract builders, ordered artifact-ref callbacks, and latest/history writers.
+It must constrain probe and enriched-requirements write order, explicit-input
+behavior, dossier dependency and acceptance assembly, nine artifact-ref order,
+no-write behavior, and CLI binding. Live closeout may compare only schema/ok/
+status/summary for requirement-probes and stack-closure-dossier; never publish
+current-state bodies, checks, artifact refs, runbooks, or host paths.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
