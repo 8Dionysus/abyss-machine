@@ -262,6 +262,15 @@ summary and nested backlog/map/packet surfaces. Live closeout may compare only
 final status, compact summary/backlog values, coverage row count/key whitelist,
 policy booleans, and write-error count.
 
+For self-awareness completion-audit orchestration changes, public CI should use
+fake status/body/latest/preflight/artifact-ref/contract/persistence ports. It
+must constrain exact input, artifact, and contract order, body-closure fallback,
+write/no-write behavior, partial-write failure projection, and no heavy command
+execution. Existing completion-audit host contracts must preserve the full
+nested contract. Live closeout may compare only compact final/core/graph
+summaries, coverage row count/key whitelist, policy booleans, and write-error
+count.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact

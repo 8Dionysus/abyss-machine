@@ -34212,252 +34212,86 @@ def self_awareness_status() -> dict[str, Any]:
 
 def self_awareness_completion_audit(write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
-    status_doc = self_awareness_status()
-    status_summary = status_doc.get("summary") if isinstance(status_doc.get("summary"), dict) else {}
-    body_closure = status_doc.get("body_closure") if isinstance(status_doc.get("body_closure"), dict) else self_awareness_body_closure_status()
-    body_closure_summary = body_closure.get("summary") if isinstance(body_closure.get("summary"), dict) else {}
-    open_requirement_doc = status_doc.get("open_stack_requirements") if isinstance(status_doc.get("open_stack_requirements"), dict) else {}
-    open_potential_doc = status_doc.get("open_potential") if isinstance(status_doc.get("open_potential"), dict) else {}
-    open_requirement_rows = open_requirement_doc.get("rows") if isinstance(open_requirement_doc.get("rows"), list) else []
-    open_potential_rows = open_potential_doc.get("rows") if isinstance(open_potential_doc.get("rows"), list) else []
-    coverage_audit = load_latest_json(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_objective_coverage_audit_v1")
-    activation_smoke = load_latest_json(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1")
-    autolink = load_latest_json(SELF_AWARENESS_AUTOLINK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_autolink_v1")
-    working_stack = load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1")
-    requirements_doc = load_latest_json(SELF_AWARENESS_REQUIREMENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirements_v1")
-    requirement_probes_doc = load_latest_json(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirement_probes_v1")
-    stack_closure_dossier = load_latest_json(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_stack_closure_dossier_v1")
-    validate_doc = load_latest_json(SELF_AWARENESS_VALIDATE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_validate_v1")
-    cycle_doc = load_latest_json(SELF_AWARENESS_CYCLE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_cycle_v1")
-    resource_preflight = self_awareness_resource_preflight("self-awareness-completion-audit")
-    artifact_specs: dict[str, tuple[Path, str]] = {
-        "working_stack": (SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1"),
-        "requirements": (SELF_AWARENESS_REQUIREMENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirements_v1"),
-        "requirement_probes": (SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirement_probes_v1"),
-        "stack_closure_dossier": (SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_stack_closure_dossier_v1"),
-        "activation_smoke": (SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1"),
-        "autolink": (SELF_AWARENESS_AUTOLINK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_autolink_v1"),
-        "coverage_audit": (SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_objective_coverage_audit_v1"),
-        "probe": (SELF_AWARENESS_PROBE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_probe_v1"),
-        "cycle": (SELF_AWARENESS_CYCLE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_cycle_v1"),
-        "export": (SELF_AWARENESS_EXPORT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_export_v1"),
-        "validate": (SELF_AWARENESS_VALIDATE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_validate_v1"),
-    }
-    artifact_refs = {
-        name: self_awareness_latest_artifact_ref(name, path, schema)
-        for name, (path, schema) in artifact_specs.items()
-    }
-    missing_artifacts = [
-        name
-        for name, ref in artifact_refs.items()
-        if ref.get("exists") is not True or ref.get("schema_ok") is not True or not ref.get("sha256")
-    ]
-    coverage_summary = coverage_audit.get("summary") if isinstance(coverage_audit.get("summary"), dict) else {}
-    autolink_summary = autolink.get("summary") if isinstance(autolink.get("summary"), dict) else {}
-    activation_summary = activation_smoke.get("summary") if isinstance(activation_smoke.get("summary"), dict) else {}
-    working_summary = working_stack.get("summary") if isinstance(working_stack.get("summary"), dict) else {}
-    validation_summary = validate_doc.get("summary") if isinstance(validate_doc.get("summary"), dict) else {}
-    validate_green = bool(validate_doc.get("ok")) and safe_int(validation_summary.get("fails"), 0) == 0
-    cycle_green = bool(cycle_doc.get("ok")) and cycle_doc.get("status") != "resource_denied"
-    coverage_green = bool(coverage_audit.get("ok")) and safe_int(coverage_summary.get("incomplete"), 0) == 0
-    coverage_blocked_stack_owned = safe_int(coverage_summary.get("blocked_stack_owned"), 0)
-    coverage_incomplete = safe_int(coverage_summary.get("incomplete"), 0)
-    requirement_probes_open = safe_int(status_summary.get("requirement_probes_open"), 0)
-    status_open_stack_requirements = safe_int(status_summary.get("open_stack_requirements"), len(open_requirement_rows))
-    working_stack_usage_gaps = safe_int(status_summary.get("working_stack_usage_gaps"), len(open_potential_rows))
-    activation_open_gaps = safe_int(activation_summary.get("open_activation_gaps"), 0)
-
-    completion_paths = self_awareness_completion_contracts.CompletionAuditPaths(
-        completion_audit=SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH,
-        coverage_audit=SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
-        autolink=SELF_AWARENESS_AUTOLINK_LATEST_PATH,
-        validate=SELF_AWARENESS_VALIDATE_LATEST_PATH,
-        cycle=SELF_AWARENESS_CYCLE_LATEST_PATH,
-        requirement_probes=SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
-        stack_closure_dossier=SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
-        working_stack=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
-        activation_smoke=SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
+    paths = self_awareness_adapters.SelfAwarenessCompletionPaths(
+        coverage_audit_latest=SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
+        activation_smoke_latest=SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
+        autolink_latest=SELF_AWARENESS_AUTOLINK_LATEST_PATH,
+        working_stack_latest=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        requirements_latest=SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+        requirement_probes_latest=SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+        stack_closure_dossier_latest=SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+        validate_latest=SELF_AWARENESS_VALIDATE_LATEST_PATH,
+        cycle_latest=SELF_AWARENESS_CYCLE_LATEST_PATH,
+        probe_latest=SELF_AWARENESS_PROBE_LATEST_PATH,
+        export_latest=SELF_AWARENESS_EXPORT_LATEST_PATH,
+        completion_audit_latest=SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH,
+        completion_audit_root=SELF_AWARENESS_COMPLETION_AUDIT_ROOT,
+        collect_latest=SELF_AWARENESS_COLLECT_LATEST_PATH,
+        events_latest=SELF_AWARENESS_EVENTS_LATEST_PATH,
+        timeline_latest=SELF_AWARENESS_TIMELINE_LATEST_PATH,
+        spatial_graph_latest=SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+        context_latest=SELF_AWARENESS_CONTEXT_LATEST_PATH,
     )
-    autolink_complete = self_awareness_completion_contracts.completion_autolink_ready(autolink)
-    owner_boundary_ok = self_awareness_completion_contracts.completion_owner_boundary_readonly(
-        open_requirement_doc,
-        open_potential_doc,
-        coverage_audit,
+    input_port = self_awareness_adapters.SelfAwarenessCompletionInputPort(
+        status=self_awareness_status,
+        body_closure_status=self_awareness_body_closure_status,
+        load_latest_json=load_latest_json,
+        resource_preflight=self_awareness_resource_preflight,
+        latest_artifact_ref=self_awareness_latest_artifact_ref,
     )
-    completion_readiness = self_awareness_completion_contracts.CompletionAuditReadiness(
-        artifact_refs=artifact_refs,
-        missing_artifacts=missing_artifacts,
-        validation_summary=validation_summary,
-        validate_green=validate_green,
-        cycle=cycle_doc,
-        cycle_green=cycle_green,
-        coverage_audit=coverage_audit,
-        coverage_summary=coverage_summary,
-        coverage_green=coverage_green,
-        coverage_incomplete=coverage_incomplete,
-        open_requirement_rows=open_requirement_rows,
-        status_open_stack_requirements=status_open_stack_requirements,
-        requirement_probes_open=requirement_probes_open,
-        coverage_blocked_stack_owned=coverage_blocked_stack_owned,
-        open_potential_rows=open_potential_rows,
-        working_stack_usage_gaps=working_stack_usage_gaps,
-        activation_open_gaps=activation_open_gaps,
-        autolink_summary=autolink_summary,
-        autolink_complete=autolink_complete,
-        resource_preflight=resource_preflight,
-        owner_boundary_ok=owner_boundary_ok,
+    contract_port = self_awareness_adapters.SelfAwarenessCompletionContractPort(
+        completion_paths=self_awareness_completion_contracts.CompletionAuditPaths,
+        entity_document_paths=(
+            self_awareness_completion_graph_contracts.CompletionEntityDocumentPaths
+        ),
+        autolink_ready=self_awareness_completion_contracts.completion_autolink_ready,
+        owner_boundary_readonly=(
+            self_awareness_completion_contracts.completion_owner_boundary_readonly
+        ),
+        completion_readiness=(
+            self_awareness_completion_contracts.CompletionAuditReadiness
+        ),
+        completion_gates=self_awareness_completion_contracts.completion_gates,
+        completion_blockers=self_awareness_completion_contracts.completion_blockers,
+        completion_actions=self_awareness_completion_contracts.completion_actions,
+        drilldown_context=(
+            self_awareness_completion_contracts.CompletionDrilldownContext
+        ),
+        action_drilldown=(
+            self_awareness_completion_contracts.completion_action_drilldown
+        ),
+        completion_route_map=(
+            self_awareness_completion_contracts.completion_route_map
+        ),
+        entity_event_document_map=(
+            self_awareness_completion_graph_contracts.completion_entity_event_document_map
+        ),
+        completion_route_packet_index=(
+            self_awareness_completion_graph_contracts.completion_route_packet_index
+        ),
+        completion_action_backlog=(
+            self_awareness_completion_document_contracts.completion_action_backlog
+        ),
+        audit_document_context=(
+            self_awareness_completion_document_contracts.CompletionAuditDocumentContext
+        ),
+        completion_audit_document=(
+            self_awareness_completion_document_contracts.completion_audit_document
+        ),
     )
-    completion_gates = self_awareness_completion_contracts.completion_gates(
-        schema_prefix=SCHEMA_PREFIX,
-        readiness=completion_readiness,
-        paths=completion_paths,
+    persistence_port = self_awareness_adapters.SelfAwarenessCompletionPersistencePort(
+        write_latest_and_history=write_latest_and_history,
     )
-
-    blockers = self_awareness_completion_contracts.completion_blockers(
-        schema_prefix=SCHEMA_PREFIX,
-        readiness=completion_readiness,
-        paths=completion_paths,
-    )
-    completion_actions = self_awareness_completion_contracts.completion_actions(
-        schema_prefix=SCHEMA_PREFIX,
-        open_requirement_rows=open_requirement_rows,
-        open_potential_rows=open_potential_rows,
-        resource_guard_ok=bool(resource_preflight.get("ok")),
-        paths=completion_paths,
-    )
-    coverage_rows = coverage_audit.get("rows") if isinstance(coverage_audit.get("rows"), list) else []
-    completion_drilldown_context = self_awareness_completion_contracts.CompletionDrilldownContext(
-        resource_preflight=resource_preflight,
-        requirements=requirements_doc,
-        requirement_probes=requirement_probes_doc,
-        stack_closure_dossier=stack_closure_dossier,
-        coverage_rows=coverage_rows,
-        open_potential_rows=open_potential_rows,
-        activation_smoke=activation_smoke,
-        paths=completion_paths,
-    )
-    completion_drilldowns = [
-        self_awareness_completion_contracts.completion_action_drilldown(
-            action,
-            schema_prefix=SCHEMA_PREFIX,
-            context=completion_drilldown_context,
-        )
-        for action in completion_actions
-    ]
-    completion_drilldowns_by_action = {
-        str(drilldown.get("action_id")): drilldown
-        for drilldown in completion_drilldowns
-        if isinstance(drilldown, dict) and drilldown.get("action_id")
-    }
-    route_map = self_awareness_completion_contracts.completion_route_map(
+    return self_awareness_adapters.run_completion_audit(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=generated_at,
-        completion_actions=completion_actions,
-        drilldowns_by_action=completion_drilldowns_by_action,
-        resource_preflight=resource_preflight,
+        write_latest=write_latest,
+        paths=paths,
+        input_port=input_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
     )
-
-    entity_document_paths = self_awareness_completion_graph_contracts.CompletionEntityDocumentPaths(
-        requirements=SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
-        requirement_probes=SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
-        stack_closure_dossier=SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
-        working_stack=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
-        activation_smoke=SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
-        collect=SELF_AWARENESS_COLLECT_LATEST_PATH,
-        events=SELF_AWARENESS_EVENTS_LATEST_PATH,
-        timeline=SELF_AWARENESS_TIMELINE_LATEST_PATH,
-        spatial_graph=SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
-        context=SELF_AWARENESS_CONTEXT_LATEST_PATH,
-        coverage_audit=SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
-        autolink=SELF_AWARENESS_AUTOLINK_LATEST_PATH,
-        completion_audit=SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH,
-        cycle=SELF_AWARENESS_CYCLE_LATEST_PATH,
-    )
-    entity_event_document_map = (
-        self_awareness_completion_graph_contracts.completion_entity_event_document_map(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=generated_at,
-            paths=entity_document_paths,
-            completion_actions=completion_actions,
-            drilldowns_by_action=completion_drilldowns_by_action,
-            route_map=route_map,
-            working_stack=working_stack,
-            autolink=autolink,
-            cycle=cycle_doc,
-        )
-    )
-
-    completion_route_packets = (
-        self_awareness_completion_graph_contracts.completion_route_packet_index(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=generated_at,
-            paths=entity_document_paths,
-            completion_actions=completion_actions,
-            drilldowns_by_action=completion_drilldowns_by_action,
-            route_map=route_map,
-            entity_event_document_map=entity_event_document_map,
-            resource_preflight=resource_preflight,
-        )
-    )
-    completion_action_backlog = (
-        self_awareness_completion_document_contracts.completion_action_backlog(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=generated_at,
-            completion_actions=completion_actions,
-            completion_drilldowns=completion_drilldowns,
-            drilldowns_by_action=completion_drilldowns_by_action,
-            route_map=route_map,
-            route_packets=completion_route_packets,
-            entity_event_document_map=entity_event_document_map,
-        )
-    )
-    completion_document_context = (
-        self_awareness_completion_document_contracts.CompletionAuditDocumentContext(
-            status_doc=status_doc,
-            body_closure=body_closure,
-            open_requirement_doc=open_requirement_doc,
-            open_potential_doc=open_potential_doc,
-            coverage_audit=coverage_audit,
-            validate_green=validate_green,
-            cycle_green=cycle_green,
-            coverage_green=coverage_green,
-            completion_gates=completion_gates,
-            blockers=blockers,
-            action_backlog=completion_action_backlog,
-            route_map=route_map,
-            route_packets=completion_route_packets,
-            entity_event_document_map=entity_event_document_map,
-            status_open_stack_requirements=status_open_stack_requirements,
-            requirement_probes_open=requirement_probes_open,
-            coverage_blocked_stack_owned=coverage_blocked_stack_owned,
-            working_stack_usage_gaps=working_stack_usage_gaps,
-            activation_open_gaps=activation_open_gaps,
-            autolink_complete=autolink_complete,
-            resource_preflight=resource_preflight,
-            owner_boundary_ok=owner_boundary_ok,
-            missing_artifacts=missing_artifacts,
-            artifact_refs=artifact_refs,
-        )
-    )
-    data = self_awareness_completion_document_contracts.completion_audit_document(
-        schema_prefix=SCHEMA_PREFIX,
-        version=VERSION,
-        generated_at=generated_at,
-        context=completion_document_context,
-    )
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH, SELF_AWARENESS_COMPLETION_AUDIT_ROOT)
-        if errors:
-            data["ok"] = False
-            data["status"] = "write_failed"
-            data["write_errors"] = errors
-            if isinstance(data.get("summary"), dict):
-                data["summary"]["audit_ok"] = False
-    return data
 
 
 def self_awareness_redact_text(value: Any, limit: int = 500) -> str:

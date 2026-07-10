@@ -105,9 +105,11 @@ Use these mechanic owners for the next extraction slices:
   no-execution handoff envelopes;
   `self_awareness_completion_document_contracts` owns completion backlog and
   final audit document assembly, compact coverage projection, and degraded/
-  incomplete/watch/complete status transitions. Completion-audit live input/
-  persistence orchestration, validation orchestration, and the stable export
-  stack-handoff contract builder remain bounded CLI debt.
+  incomplete/watch/complete status transitions;
+  `self_awareness_adapters` owns ordered completion-audit status/latest/
+  preflight/artifact-ref input acquisition, contract assembly, and optional
+  latest/history persistence through explicit ports. Validation orchestration
+  and the stable export stack-handoff contract builder remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
