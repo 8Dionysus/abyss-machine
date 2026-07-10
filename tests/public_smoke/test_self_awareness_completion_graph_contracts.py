@@ -317,3 +317,189 @@ def test_entity_event_document_map_fails_closed_for_unresolved_bridge_document(t
     assert graph["machine_bridge_entities"][0]["entity_id"] == "machine.bridge.heartbeats"
     assert graph["automation"]["validation_contract"]["document_refs_resolve"] is False
     assert graph["policy"]["host_layer_mutates_stack"] is False
+
+
+def test_route_packet_index_joins_actions_graph_and_verifiers(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    actions = [
+        {
+            "id": "stack-requirement:stack.trace-backend",
+            "category": "stack_requirement",
+            "requirement_id": "stack.trace-backend",
+            "owner_route": "abyss-stack",
+            "priority_rank": 1,
+            "priority_class": "critical_trace_join",
+            "closure_blocker_keys": ["trace_ready"],
+            "safe_next_action": {"kind": "stack_handoff"},
+            "verifier_commands": ["action-check", "shared-check"],
+            "evidence_refs": [{"path": "/fixture/requirements.json"}],
+            "policy": {"executes_commands": False, "host_layer_mutates_stack": False},
+        }
+    ]
+    drilldowns = {
+        "stack-requirement:stack.trace-backend": {
+            "id": "drilldown-trace",
+            "coverage": {"planes": ["trace_join"]},
+            "acceptance": {"verifier_commands": ["validate-trace", "shared-check"]},
+        }
+    }
+    route_map = completion_contracts.completion_route_map(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        completion_actions=actions,
+        drilldowns_by_action=drilldowns,
+        resource_preflight={"ok": True},
+    )
+    graph = graph_contracts.completion_entity_event_document_map(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        paths=paths,
+        completion_actions=actions,
+        drilldowns_by_action=drilldowns,
+        route_map=route_map,
+        working_stack={},
+        autolink={},
+        cycle={},
+    )
+
+    index = graph_contracts.completion_route_packet_index(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        paths=paths,
+        completion_actions=actions,
+        drilldowns_by_action=drilldowns,
+        route_map=route_map,
+        entity_event_document_map=graph,
+        resource_preflight={"ok": True},
+    )
+
+    assert index["ok"] is True
+    assert index["status"] == "ready"
+    assert index["summary"]["routes"] == 1
+    assert index["summary"]["packets"] == 1
+    assert index["summary"]["packets_complete"] == 1
+    assert index["summary"]["covered_actions"] == 1
+    assert index["summary"]["unmapped_actions"] == []
+    packet = index["top_packet"]
+    assert packet["packet_id"].startswith("sacompletionroute-")
+    assert packet["route_id"] == "observability.trace_join_backbone"
+    assert packet["action_ids"] == ["stack-requirement:stack.trace-backend"]
+    assert packet["entity_ids"] == ["stack.requirement.stack.trace-backend"]
+    assert len(packet["event_ids"]) == 1
+    assert "self-awareness.requirements.latest" in packet["document_ids"]
+    assert packet["verifier_commands"] == ["validate-trace", "shared-check", "action-check"]
+    assert packet["safe_next_actions"] == [{"kind": "stack_handoff"}]
+    assert packet["complete"] is True
+    assert packet["automation"]["resource_preflight_ok"] is True
+    assert packet["automation"]["executes_verifiers"] is False
+    assert packet["policy"]["executes_commands"] is False
+    assert packet["policy"]["host_layer_mutates_stack"] is False
+    assert index["automation"]["validation_contract"]["every_completion_route_has_packet"] is True
+    assert index["automation"]["validation_contract"]["every_completion_action_has_route_packet"] is True
+
+
+def test_route_packet_index_fails_closed_without_graph_bindings(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    actions = [
+        {
+            "id": "stack-requirement:stack.trace-backend",
+            "category": "stack_requirement",
+            "requirement_id": "stack.trace-backend",
+            "owner_route": "abyss-stack",
+            "priority_rank": 1,
+            "priority_class": "critical_trace_join",
+        }
+    ]
+    drilldowns = {
+        "stack-requirement:stack.trace-backend": {
+            "id": "drilldown-trace",
+            "acceptance": {"verifier_commands": ["validate-trace"]},
+        }
+    }
+    route_map = completion_contracts.completion_route_map(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        completion_actions=actions,
+        drilldowns_by_action=drilldowns,
+        resource_preflight={"ok": True},
+    )
+    route_id = route_map["routes"][0]["route_id"]
+
+    index = graph_contracts.completion_route_packet_index(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        paths=paths,
+        completion_actions=actions,
+        drilldowns_by_action=drilldowns,
+        route_map=route_map,
+        entity_event_document_map={
+            "routes": [
+                {
+                    "route_id": route_id,
+                    "entity_ids": [],
+                    "event_ids": [],
+                    "document_ids": [],
+                }
+            ],
+            "documents": [],
+        },
+        resource_preflight={"ok": True},
+    )
+
+    assert index["ok"] is False
+    assert index["status"] == "incomplete"
+    assert index["summary"]["packets"] == 1
+    assert index["summary"]["packets_complete"] == 0
+    assert index["top_packet"]["complete"] is False
+    assert index["automation"]["validation_contract"]["every_packet_has_entities_events_documents"] is False
+    assert index["policy"]["host_layer_mutates_stack"] is False
+
+
+def test_route_packet_index_preserves_empty_state(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    route_map = completion_contracts.completion_route_map(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        completion_actions=[],
+        drilldowns_by_action={},
+        resource_preflight={"ok": False},
+    )
+    graph = graph_contracts.completion_entity_event_document_map(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        paths=paths,
+        completion_actions=[],
+        drilldowns_by_action={},
+        route_map=route_map,
+        working_stack={},
+        autolink={},
+        cycle={},
+    )
+
+    index = graph_contracts.completion_route_packet_index(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T06:00:00-06:00",
+        paths=paths,
+        completion_actions=[],
+        drilldowns_by_action={},
+        route_map=route_map,
+        entity_event_document_map=graph,
+        resource_preflight={"ok": False},
+    )
+
+    assert index["ok"] is True
+    assert index["status"] == "ready"
+    assert index["summary"]["routes"] == 0
+    assert index["summary"]["packets"] == 0
+    assert index["top_packet"] == {}
+    assert index["packets"] == []
+    assert index["automation"]["runs_cycle"] is False
+    assert index["policy"]["host_layer_mutates_stack"] is False
