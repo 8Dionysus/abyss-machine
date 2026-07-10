@@ -6043,3 +6043,376 @@ def test_status_cli_only_binds_latest_paths_clock_and_ports(monkeypatch) -> None
     assert call["port"].activation_gap_route is cli.self_awareness_working_stack_activation_gap_route
     assert call["port"].activation_gap_route_complete is cli.self_awareness_working_stack_activation_gap_route_complete
     assert call["port"].paths_document is cli.self_awareness_paths
+
+
+def test_export_artifact_entry_projects_latest_history_stat_and_hash_through_ports(tmp_path: Path) -> None:
+    latest = tmp_path / "events" / "latest.json"
+    history = tmp_path / "events" / "2026" / "07" / "2026-07-10.jsonl"
+    schema = "abyss_machine_self_awareness_events_v1"
+    calls: list[str] = []
+    stat = type("Stat", (), {"st_size": 42})()
+    runtime_port = self_awareness_adapters.SelfAwarenessExportRuntimePort(
+        load_latest_json=lambda path, expected: calls.append(f"load:{path.name}:{expected}") or {
+            "schema": schema,
+            "ok": True,
+            "status": "ready",
+            "generated_at": "2026-07-10T04:00:00-06:00",
+            "summary": {"events": 3},
+        },
+        daily_jsonl_path=lambda root: calls.append(f"history:{root.name}") or history,
+        path_exists=lambda path: calls.append(f"exists:{path.name}") or path in {latest, history},
+        path_stat=lambda path: calls.append(f"stat:{path.name}") or stat,
+        path_sha256=lambda path: calls.append(f"sha256:{path.name}") or "sha256:fixture",
+    )
+
+    artifact = self_awareness_adapters.export_artifact_entry(
+        "events",
+        latest,
+        schema,
+        runtime_port=runtime_port,
+    )
+
+    assert artifact == {
+        "name": "events",
+        "path": str(latest),
+        "history_path": str(history),
+        "exists": True,
+        "history_exists": True,
+        "expected_schema": schema,
+        "schema": schema,
+        "schema_ok": True,
+        "ok": True,
+        "status": "ready",
+        "generated_at": "2026-07-10T04:00:00-06:00",
+        "summary": {"events": 3},
+        "artifact_status": "present",
+        "size_bytes": 42,
+        "sha256": "sha256:fixture",
+        "evidence_ref": {"path": str(latest), "schema": schema},
+    }
+    assert calls == [
+        f"load:latest.json:{schema}",
+        "exists:latest.json",
+        "history:events",
+        "exists:2026-07-10.jsonl",
+        "stat:latest.json",
+        "sha256:latest.json",
+    ]
+
+
+def test_export_artifact_refresh_replaces_selected_rows_and_reports_schema_mismatch(tmp_path: Path) -> None:
+    paths = {
+        "events": tmp_path / "events/latest.json",
+        "context": tmp_path / "context/latest.json",
+    }
+    schemas = {
+        "events": "abyss_machine_self_awareness_events_v1",
+        "context": "abyss_machine_self_awareness_context_v1",
+    }
+    runtime_port = self_awareness_adapters.SelfAwarenessExportRuntimePort(
+        load_latest_json=lambda path, expected: {
+            "schema": expected if path == paths["events"] else "fixture_wrong_schema_v1",
+            "ok": True,
+        },
+        daily_jsonl_path=lambda root: root / "history.jsonl",
+        path_exists=lambda _path: True,
+        path_stat=lambda _path: type("Stat", (), {"st_size": 9})(),
+        path_sha256=lambda path: f"sha256:{path.parent.name}",
+    )
+    exported = {
+        "events": {"name": "events", "artifact_status": "stale"},
+        "untouched": {"name": "untouched", "artifact_status": "present"},
+    }
+
+    artifact_list, missing, malformed = self_awareness_adapters.refresh_exported_artifacts(
+        exported,
+        {name: (paths[name], schemas[name]) for name in paths},
+        ["events", "context"],
+        runtime_port=runtime_port,
+    )
+
+    assert [row["name"] for row in artifact_list] == ["context", "events", "untouched"]
+    assert exported["events"]["artifact_status"] == "present"
+    assert exported["context"]["artifact_status"] == "schema_mismatch"
+    assert missing == []
+    assert malformed == ["context"]
+
+
+def test_export_cli_only_binds_paths_runtime_refresh_contract_and_persistence_ports(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    sentinel = {"schema": "fixture_export_v1", "ok": True}
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "run_export",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+
+    assert cli.self_awareness_export(run_id="run-fixture", write_latest=False, include_cycle=False) is sentinel
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["run_id"] == "run-fixture"
+    assert call["write_latest"] is False
+    assert call["include_cycle"] is False
+    assert call["paths"].artifacts["events"] == cli.SELF_AWARENESS_EVENTS_LATEST_PATH
+    assert call["paths"].artifacts["completion_audit"] == cli.SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH
+    assert call["paths"].export_latest == cli.SELF_AWARENESS_EXPORT_LATEST_PATH
+    assert call["paths"].export_history_root == cli.SELF_AWARENESS_EXPORT_ROOT
+    assert isinstance(call["runtime_port"], self_awareness_adapters.SelfAwarenessExportRuntimePort)
+    assert isinstance(call["refresh_port"], self_awareness_adapters.SelfAwarenessExportRefreshPort)
+    assert isinstance(call["contract_port"], self_awareness_adapters.SelfAwarenessExportContractPort)
+    assert isinstance(call["persistence_port"], self_awareness_adapters.SelfAwarenessExportPersistencePort)
+    assert call["runtime_port"].load_latest_json is cli.load_latest_json
+    assert call["refresh_port"].requirements is cli.self_awareness_requirements
+    assert call["refresh_port"].completion_audit is cli.self_awareness_completion_audit
+    assert call["contract_port"].export_stack_handoff is cli.self_awareness_export_stack_handoff
+    assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
+
+
+def test_export_orchestration_routes_refresh_and_final_persistence_independently(tmp_path: Path) -> None:
+    artifact_names = (
+        "capabilities", "requirements", "requirement_probes", "stack_closure_dossier",
+        "trace_context", "failure_matrix", "working_stack", "activation_smoke",
+        "autolink", "events", "collect", "query", "correlation", "timeline",
+        "spatial_graph", "context", "episodes", "alerts", "reactions", "responses",
+        "investigate", "replay", "brief", "probe", "completion_audit", "validate",
+        "cycle", "coverage_audit",
+    )
+    paths = self_awareness_adapters.SelfAwarenessExportPaths(
+        artifacts={name: tmp_path / name.replace("_", "-") / "latest.json" for name in artifact_names},
+        export_latest=tmp_path / "export/latest.json",
+        export_history_root=tmp_path / "export",
+    )
+    calls: list[str] = []
+    refresh_write_intents: list[tuple[str, Any]] = []
+
+    def load_latest(path: Path, schema: str) -> dict[str, Any]:
+        document: dict[str, Any] = {
+            "schema": schema,
+            "ok": True,
+            "generated_at": "2026-07-10T04:00:00-06:00",
+            "summary": {},
+        }
+        if path == paths.artifacts["working_stack"]:
+            document["organs"] = [{"service": "fixture.service"}]
+        elif path == paths.artifacts["coverage_audit"]:
+            document.update(
+                {
+                    "working_stack_gap_rows": [
+                        {
+                            "service": "fixture.service",
+                            "working_stack_link_id": "link-fixture",
+                            "synthetic_proof": {"complete": True},
+                        }
+                    ],
+                    "working_stack_link_integrity": {"complete": True},
+                    "summary": {"working_stack_activation_synthetic_proofs_complete": 1},
+                }
+            )
+        elif path == paths.artifacts["context"]:
+            document["context_packet"] = {"sections": {"host_body": {"complete": True}}}
+        elif path == paths.artifacts["responses"]:
+            document["routes"] = [
+                {
+                    "id": "response-fixture",
+                    "category": "self-awareness",
+                    "response_contract": {
+                        "body_trace": {"complete": True},
+                        "entity_event_document_context": {"complete": True},
+                    },
+                }
+            ]
+        elif path == paths.artifacts["replay"]:
+            document.update(
+                {
+                    "resident_cognitive_replay": {"complete": True, "summary": {}},
+                    "body_trace_replay": {"replayable": True},
+                }
+            )
+        return document
+
+    runtime_port = self_awareness_adapters.SelfAwarenessExportRuntimePort(
+        load_latest_json=load_latest,
+        daily_jsonl_path=lambda root: root / "history.jsonl",
+        path_exists=lambda _path: True,
+        path_stat=lambda _path: type("Stat", (), {"st_size": 7})(),
+        path_sha256=lambda path: f"sha256:{path.parent.name}",
+    )
+
+    def refresh(name: str, document: dict[str, Any]):
+        def run(*_args: Any, **kwargs: Any) -> dict[str, Any]:
+            calls.append(f"refresh:{name}")
+            refresh_write_intents.append((name, kwargs.get("write_latest")))
+            return json.loads(json.dumps(document))
+
+        return run
+
+    requirements = {"schema": "abyss_machine_self_awareness_requirements_v1", "ok": True, "requirements": [], "summary": {}}
+    probes = {"schema": "abyss_machine_self_awareness_requirement_probes_v1", "ok": True, "probes": [], "summary": {}}
+    working_stack = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "ok": True,
+        "organs": [{"service": "fixture.service"}],
+        "summary": {"organs": 1},
+    }
+    dossier = {
+        "schema": "abyss_machine_self_awareness_stack_closure_dossier_v1",
+        "ok": True,
+        "entries": [],
+        "summary": {"probes": 1},
+        "working_stack_activation_dossier": {
+            "entries": [
+                {
+                    "service": "fixture.service",
+                    "working_stack_link_id": "link-fixture",
+                }
+            ],
+            "summary": {"entries": 1},
+        },
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+    }
+    completion = {
+        "schema": "abyss_machine_self_awareness_completion_audit_v1",
+        "ok": True,
+        "entity_event_document_map": {"summary": {}},
+        "completion_route_packets": {"summary": {}},
+        "summary": {},
+    }
+    refresh_port = self_awareness_adapters.SelfAwarenessExportRefreshPort(
+        requirements=refresh("requirements", requirements),
+        requirement_probes=refresh("requirement_probes", probes),
+        working_stack=refresh("working_stack", working_stack),
+        stack_closure_dossier=refresh("stack_closure_dossier", dossier),
+        trace_context_fallback=refresh("trace_context", {"complete": True}),
+        coverage_audit=refresh(
+            "coverage_audit",
+            {
+                "schema": "abyss_machine_self_awareness_objective_coverage_audit_v1",
+                "ok": True,
+                "working_stack_gap_rows": [
+                    {
+                        "service": "fixture.service",
+                        "working_stack_link_id": "link-fixture",
+                        "synthetic_proof": {"complete": True},
+                    }
+                ],
+                "working_stack_link_integrity": {"complete": True},
+                "summary": {"working_stack_activation_synthetic_proofs_complete": 1},
+            },
+        ),
+        activation_smoke=refresh("activation_smoke", {"schema": "abyss_machine_self_awareness_working_stack_activation_smoke_v1", "ok": True, "rows": [], "summary": {}}),
+        autolink=refresh("autolink", {"schema": "abyss_machine_self_awareness_autolink_v1", "ok": True, "summary": {}}),
+        completion_audit=refresh("completion_audit", completion),
+        alerts=refresh("alerts", {"schema": "abyss_machine_self_awareness_alerts_v1", "ok": True}),
+        reactions=refresh("reactions", {"schema": "abyss_machine_reactions_status_v1", "ok": True}),
+        responses=refresh("responses", {"schema": "abyss_machine_responses_status_v1", "ok": True, "summary": {}}),
+        investigate=refresh("investigate", {"schema": "abyss_machine_self_awareness_investigation_v1", "ok": True}),
+        replay=refresh("replay", {"schema": "abyss_machine_self_awareness_replay_v1", "ok": True}),
+        refresh_working_stack_dependents=refresh("working_stack_dependents", {}),
+    )
+    contract_port = self_awareness_adapters.SelfAwarenessExportContractPort(
+        trace_context_fallback_complete=lambda _doc: True,
+        requirement_probes_cover_requirements=lambda *_args: True,
+        autolink_complete=lambda _doc: True,
+        activation_smoke_needs_refresh=lambda *_args: False,
+        entity_event_document_map_issues=lambda *_args, **_kwargs: [],
+        entity_event_document_map_complete=lambda *_args, **_kwargs: True,
+        completion_route_packet_issues=lambda *_args, **_kwargs: [],
+        export_stack_handoff=lambda *_args, **_kwargs: (
+            {
+                "schema": "abyss_machine_self_awareness_export_requirements_summary_v1",
+                "summary": {},
+                "open_stack_ids": [],
+                "open_stack_requirement_ids": [],
+                "policy": {"host_layer_mutates_stack": False},
+            },
+            {
+                "schema": "abyss_machine_self_awareness_export_stack_handoff_v1",
+                "summary": {
+                    "stack_requirement_closure_acceptance_packets": 1,
+                    "stack_requirement_closure_acceptance_packets_complete": 1,
+                    "stack_requirement_compat_requirements": 1,
+                    "working_stack_activation_entries": 1,
+                    "working_stack_activation_synthetic_proofs": 1,
+                    "working_stack_activation_synthetic_proofs_complete": 1,
+                    "working_stack_activation_smoke_rows": 1,
+                    "working_stack_activation_smoke_rows_complete": 1,
+                    "working_stack_activation_smoke_failed_services": [],
+                    "stack_organ_use_packets": 1,
+                    "stack_organ_use_packets_complete": 1,
+                    "stack_organ_use_packet_failed_services": [],
+                },
+                "open_requirements": [],
+                "policy": {"host_layer_mutates_stack": False},
+            },
+        ),
+        requirement_probes_export_ready=lambda *_args: True,
+        resident_cognitive_packet_complete=lambda _doc: True,
+        resident_cognitive_replay_complete=lambda _doc: True,
+        body_trace_complete=lambda _doc: True,
+        memory_space_freshness_handoff=lambda _doc: {"complete": True, "summary": {}, "policy": {"host_layer_mutates_stack": False}},
+        response_entity_event_document_context_complete=lambda _doc: True,
+        working_stack_link_integrity_complete=lambda _doc: True,
+        link_integrity_matches_working_stack=lambda *_args: True,
+        working_stack_activation_synthetic_proof_complete=lambda _doc: True,
+    )
+    writes: list[tuple[dict[str, Any], Path, Path]] = []
+    persistence_errors: list[dict[str, Any]] = []
+    persistence_port = self_awareness_adapters.SelfAwarenessExportPersistencePort(
+        write_latest_and_history=lambda document, latest, root: (
+            writes.append((document, latest, root)) or list(persistence_errors)
+        ),
+    )
+
+    document = self_awareness_adapters.run_export(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T04:00:00-06:00",
+        run_id="run-fixture",
+        write_latest=False,
+        include_cycle=False,
+        paths=paths,
+        runtime_port=runtime_port,
+        refresh_port=refresh_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+    )
+
+    assert document["schema"] == "abyss_machine_self_awareness_export_v1"
+    assert document["ok"] is True
+    assert document["summary"]["artifacts"] == 27
+    assert document["summary"]["missing"] == 0
+    assert document["summary"]["malformed"] == 0
+    assert document["summary"]["run_id"] == "run-fixture"
+    assert document["portable_contract"]["actions_executed"] is False
+    assert document["policy"]["host_layer_mutates_stack"] is False
+    assert "refresh:working_stack" in calls
+    assert calls[-3:] == ["refresh:alerts", "refresh:reactions", "refresh:responses"]
+    assert ("working_stack", True) in refresh_write_intents
+    assert ("stack_closure_dossier", True) in refresh_write_intents
+    assert ("alerts", True) in refresh_write_intents
+    assert ("reactions", True) in refresh_write_intents
+    assert ("responses", True) in refresh_write_intents
+    assert writes == []
+
+    persistence_errors.append({"operation": "append", "error": "fixture write failure"})
+    failed_write = self_awareness_adapters.run_export(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T04:00:00-06:00",
+        run_id="run-write-fixture",
+        write_latest=True,
+        include_cycle=False,
+        paths=paths,
+        runtime_port=runtime_port,
+        refresh_port=refresh_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+    )
+
+    assert failed_write["ok"] is False
+    assert failed_write["write_errors"] == persistence_errors
+    assert len(writes) == 1
+    assert writes[0][0] is failed_write
+    assert writes[0][1:] == (paths.export_latest, paths.export_history_root)

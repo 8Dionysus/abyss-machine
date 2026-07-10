@@ -209,6 +209,21 @@ capability/requirement counts, open service/requirement IDs, and
 probe/cycle/validate booleans. The status adapter is read-only and requires no
 live refresh merely to prove document assembly.
 
+For self-awareness export orchestration changes, public CI should rely on
+synthetic runtime, refresh, contract, and persistence ports for canonical
+refresh/read order, artifact existence/schema/stat/hash/history projection,
+selective artifact reload, portable manifest/handoff assembly, final-export
+persistence disablement, dependency-refresh write intent, persistence routing,
+and write-error projection. A complete
+synthetic export must cover stack activation, resident replay, host-body,
+memory-space, response trace, entity-event-document, completion-route, and
+link-integrity gates without reading or writing live host state. Live closeout
+may compare source and installed export summaries using only top-level `ok`,
+artifact/missing/malformed counts, handoff/open requirement counts, portable
+inclusion booleans, history delta, and write-error count. Do not publish raw
+artifact maps, hashes, latest documents, local paths, stack payloads, or host
+evidence.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact

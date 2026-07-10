@@ -88,12 +88,14 @@ Use these mechanic owners for the next extraction slices:
   two-stage persistence orchestration, complete investigation
   input/refresh ordering, episode selection, checkpoint-graph/evidence/
   conclusion assembly and latest/history persistence, and complete replay
-  orchestration live in `self_awareness_adapters`; CLI binds concrete paths,
-  live functions, contract builders, and write intent. Complete cycle
+  orchestration, plus complete export latest-read/refresh/artifact-manifest/
+  handoff/persistence orchestration through fakeable runtime, refresh,
+  contract, and persistence ports live in `self_awareness_adapters`; CLI binds
+  concrete paths, live functions, contract builders, and write intent. Complete cycle
   preflight/probe/double-investigate-replay/artifact/proof/two-stage
   persistence orchestration also lives in `self_awareness_adapters`;
-  completion/export/validation orchestration and concrete
-  artifact/freshness binding remain bounded CLI debt.
+  completion-audit and validation orchestration plus the stable export
+  stack-handoff contract builder remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
