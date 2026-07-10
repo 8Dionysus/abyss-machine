@@ -851,6 +851,336 @@ def test_investigation_cli_only_binds_host_paths_and_ports(monkeypatch) -> None:
     assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
 
 
+def _probe_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessProbePaths:
+    names = [
+        "capabilities",
+        "requirements",
+        "requirement_probes",
+        "stack_closure_dossier",
+        "failure_matrix",
+        "working_stack",
+        "events",
+        "collect",
+        "query",
+        "correlation",
+        "timeline",
+        "spatial_graph",
+        "context",
+        "episodes",
+        "trace_context",
+        "alerts",
+        "investigate",
+        "replay",
+        "reactions",
+        "responses",
+        "brief",
+        "autolink",
+        "completion_audit",
+        "export",
+        "validate",
+    ]
+    values = {f"{name}_latest": tmp_path / name.replace("_", "-") / "latest.json" for name in names}
+    return self_awareness_adapters.SelfAwarenessProbePaths(
+        probe_latest=tmp_path / "probe/latest.json",
+        probe_history_root=tmp_path / "probe",
+        **values,
+    )
+
+
+def _fake_probe_ports(
+    paths: self_awareness_adapters.SelfAwarenessProbePaths,
+    calls: list[str],
+    *,
+    resource_ok: bool = True,
+    write_results: list[list[dict[str, Any]]] | None = None,
+) -> tuple[
+    self_awareness_adapters.SelfAwarenessProbeRuntimePort,
+    self_awareness_adapters.SelfAwarenessProbeRefreshPort,
+    self_awareness_adapters.SelfAwarenessProbeContractPort,
+    self_awareness_adapters.SelfAwarenessProbePersistencePort,
+    list[dict[str, Any]],
+]:
+    events_by_signal: dict[str, dict[str, Any]] = {}
+    writes: list[dict[str, Any]] = []
+    working_stack = {
+        "schema": "abyss_machine_self_awareness_working_stack_inventory_v1",
+        "ok": True,
+        "summary": {"organs": 1, "time_space_context_links": 1},
+        "organs": [{
+            "service": "grafana",
+            "machine_usage_status": "running",
+            "runtime": {"container": "grafana", "pid": 4321, "pid_alive": True},
+            "time_space_context_link": {"link_id": "link-grafana"},
+            "evidence_refs": [{"path": str(paths.working_stack_latest)}],
+        }],
+    }
+
+    def make_event(signal: str, source: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(f"event:{signal}")
+        event = {
+            "event_id": f"event-{signal}",
+            "signal": signal,
+            "source": source,
+            "context": dict(kwargs.get("context") or {}),
+            "resource": dict(kwargs.get("resource") or {}),
+            "evidence_refs": list(kwargs.get("evidence_refs") or []),
+            "body": dict(kwargs.get("body") or {}),
+        }
+        events_by_signal[signal] = event
+        return event
+
+    runtime_port = self_awareness_adapters.SelfAwarenessProbeRuntimePort(
+        hostname=lambda: calls.append("runtime:hostname") or "fixture-host",
+        process_id=lambda: calls.append("runtime:pid") or 1234,
+        resource_preflight=lambda operation: calls.append(f"runtime:preflight:{operation}") or {
+            "schema": "abyss_machine_self_awareness_resource_preflight_v1",
+            "ok": resource_ok,
+            "status": "ok" if resource_ok else "resource_denied",
+            "denial_reasons": [] if resource_ok else ["fixture pressure"],
+        },
+        http_status_with_headers=lambda url, headers: calls.append("runtime:http") or {
+            "ok": True,
+            "url": url,
+            "status_code": 200,
+            "headers_seen": sorted(headers),
+        },
+        make_event=make_event,
+    )
+
+    def record(name: str, document: dict[str, Any]):
+        def refresh(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            calls.append(f"refresh:{name}")
+            return document
+
+        return refresh
+
+    def collect(*, write_latest: bool, synthetic_events: list[dict[str, Any]], working_stack_doc: dict[str, Any]) -> dict[str, Any]:
+        calls.append("refresh:collect")
+        assert write_latest is True
+        assert working_stack_doc is working_stack
+        run_id = synthetic_events[0]["context"]["synthetic_run_id"]
+        return {
+            "ok": True,
+            "events": synthetic_events + [
+                {"event_id": "event-metric", "signal": "metric", "source": "prometheus", "context": {"synthetic_run_id": run_id}},
+                {"event_id": "event-log", "signal": "log", "source": "loki", "context": {"synthetic_run_id": run_id}},
+                {"event_id": "event-warm", "signal": "runtime", "source": "ai", "resource": {"service": "warm-e2b-gemma4.spark"}},
+                {"event_id": "event-rag", "signal": "memory", "source": "rag"},
+                {"event_id": "event-nervous", "signal": "freshness", "source": "nervous"},
+            ],
+        }
+
+    def episodes(*, write_latest: bool, working_stack_doc: dict[str, Any]) -> dict[str, Any]:
+        calls.append("refresh:episodes")
+        movement = events_by_signal["organ_movement"]
+        run_id = movement["context"]["synthetic_run_id"]
+        return {
+            "ok": True,
+            "episodes": [{
+                "episode_id": "episode-movement",
+                "episode_kind": "working_stack_movement",
+                "event_ids": [movement["event_id"]],
+                "synthetic_run_id": run_id,
+            }],
+        }
+
+    investigation = {"ok": True, "thread_id": "thread-probe", "checkpoints": [{"checkpoint_id": "checkpoint-probe"}]}
+    replay = {
+        "ok": True,
+        "thread_id": "thread-probe",
+        "resident_cognitive_replay": {"complete": True},
+        "body_trace_replay": {"replayable": True},
+    }
+    reactions = {"ok": True, "candidates": [{"episode_id": "episode-movement"}]}
+    responses = {
+        "ok": True,
+        "routes": [{"validated_episode": {"episode_id": "episode-movement"}}],
+        "summary": {
+            "self_awareness_body_trace_routes": 1,
+            "self_awareness_body_trace_missing": 0,
+            "self_awareness_entity_event_document_routes": 1,
+            "self_awareness_entity_event_document_missing": 0,
+        },
+    }
+    export = {
+        "ok": True,
+        "resident_cognitive_replay": {"complete": True},
+        "body_trace_handoff": {
+            "host_body_context_packet_included": True,
+            "resident_body_trace_replayable": True,
+            "response_body_trace_included": True,
+        },
+        "portable_contract": {"response_entity_event_document_context_included": True},
+        "response_entity_event_document_handoff": {"complete": True},
+    }
+    refresh_port = self_awareness_adapters.SelfAwarenessProbeRefreshPort(
+        capabilities=record("capabilities", {"ok": True}),
+        requirement_probes=record("requirement_probes", {"ok": True}),
+        working_stack=record("working_stack", working_stack),
+        stack_closure_dossier=record("stack_closure_dossier", {"ok": True}),
+        failure_matrix=record("failure_matrix", {"ok": True}),
+        collect=collect,
+        query=record("query", {"ok": True}),
+        correlation=record("correlation", {"ok": True}),
+        timeline=record("timeline", {"ok": True}),
+        spatial_graph=record("spatial_graph", {"ok": True}),
+        context=record("context", {"ok": True, "context_packet": {"sections": {"host_body": {"complete": True}}}}),
+        episodes=episodes,
+        investigate=record("investigate", investigation),
+        replay=record("replay", replay),
+        trace_context_fallback=record("trace_context_fallback", {"complete": True}),
+        alerts=record("alerts", {"ok": True, "summary": {"reaction_candidates": 1}}),
+        reactions=record("reactions", reactions),
+        responses=record("responses", responses),
+        brief=record("brief", {"ok": True}),
+        autolink=record("autolink", {"ok": True, "summary": {"organ_links": 1, "organ_links_complete": 1, "stack_requirement_links": 0, "synthetic_scenarios_complete": 1}}),
+        export=record("export", export),
+        validate=record("validate", {"ok": True, "summary": {"status": "ok", "fails": 0, "checks": 1}}),
+    )
+    contract_port = self_awareness_adapters.SelfAwarenessProbeContractPort(
+        stack_organ_signal_route=lambda service, _organ: {"signal": "runtime", "source": service},
+        stack_organ_state_digest=lambda _organ: "state-digest",
+        trace_context_fallback_complete=lambda document: document.get("complete") is True,
+        resident_cognitive_replay_complete=lambda document: document.get("complete") is True,
+        autolink_complete=lambda document: document.get("ok") is True,
+        e2e_lineage_proof=lambda **_kwargs: {"ok": True, "summary": {"rows": 22, "missing_rows": []}},
+        top_level_lineage_packet=lambda **_kwargs: {"complete": True, "summary": {"artifacts": 25, "synthetic_event_ids": 4}},
+    )
+    queued_results = list(write_results or [])
+
+    def write(document: dict[str, Any], latest: Path, root: Path) -> list[dict[str, Any]]:
+        calls.append("persistence:write")
+        assert latest == paths.probe_latest
+        assert root == paths.probe_history_root
+        writes.append(json.loads(json.dumps(document)))
+        return queued_results.pop(0) if queued_results else []
+
+    persistence_port = self_awareness_adapters.SelfAwarenessProbePersistencePort(
+        write_latest_and_history=write,
+    )
+    return runtime_port, refresh_port, contract_port, persistence_port, writes
+
+
+def _run_fake_probe(
+    paths: self_awareness_adapters.SelfAwarenessProbePaths,
+    ports: tuple[Any, Any, Any, Any, Any],
+    *,
+    write_latest: bool,
+) -> dict[str, Any]:
+    runtime_port, refresh_port, contract_port, persistence_port, _writes = ports
+    return self_awareness_adapters.run_probe(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T00:30:00-06:00",
+        grafana_url="http://grafana.fixture",
+        paths=paths,
+        write_latest=write_latest,
+        runtime_port=runtime_port,
+        refresh_port=refresh_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+    )
+
+
+def test_probe_orchestration_fails_closed_before_http_and_refresh(tmp_path: Path) -> None:
+    paths = _probe_paths(tmp_path)
+    calls: list[str] = []
+    ports = _fake_probe_ports(paths, calls, resource_ok=False)
+
+    probe = _run_fake_probe(paths, ports, write_latest=True)
+
+    assert probe["ok"] is False
+    assert probe["status"] == "resource_denied"
+    assert probe["summary"]["resource_guard_reasons"] == ["fixture pressure"]
+    assert "runtime:http" not in calls
+    assert not any(call.startswith("refresh:") for call in calls)
+    assert calls[-1] == "persistence:write"
+    assert len(ports[-1]) == 1
+
+
+def test_probe_orchestration_runs_complete_chain_and_two_stage_persistence(tmp_path: Path) -> None:
+    paths = _probe_paths(tmp_path)
+    calls: list[str] = []
+    ports = _fake_probe_ports(paths, calls)
+
+    probe = _run_fake_probe(paths, ports, write_latest=True)
+
+    assert probe["ok"] is True
+    assert probe["summary"]["chain_passed"] == probe["summary"]["chain_total"] == 35
+    assert probe["summary"]["movement_smoke_complete"] is True
+    assert probe["summary"]["validation_ok"] is True
+    assert all(probe["chain"].values())
+    assert probe["policy"]["writes_project_roots"] is False
+    assert calls.count("persistence:write") == 2
+    first_write = calls.index("persistence:write")
+    validate = calls.index("refresh:validate")
+    second_write = len(calls) - 1 - calls[::-1].index("persistence:write")
+    assert first_write < validate < second_write
+    assert "validation" not in ports[-1][0]
+    assert ports[-1][1]["validation"]["ok"] is True
+
+
+def test_probe_orchestration_no_write_still_validates(tmp_path: Path) -> None:
+    paths = _probe_paths(tmp_path)
+    calls: list[str] = []
+    ports = _fake_probe_ports(paths, calls)
+
+    probe = _run_fake_probe(paths, ports, write_latest=False)
+
+    assert probe["ok"] is True
+    assert probe["validation"]["ok"] is True
+    assert "refresh:validate" in calls
+    assert "persistence:write" not in calls
+    assert ports[-1] == []
+
+
+def test_probe_orchestration_projects_second_stage_write_failure(tmp_path: Path) -> None:
+    paths = _probe_paths(tmp_path)
+    calls: list[str] = []
+    first_error = {"path": str(paths.probe_latest), "error": "fixture first write failure"}
+    second_error = {"path": str(paths.probe_latest), "error": "fixture second write failure"}
+    ports = _fake_probe_ports(paths, calls, write_results=[[first_error], [second_error]])
+
+    probe = _run_fake_probe(paths, ports, write_latest=True)
+
+    assert probe["ok"] is False
+    assert probe["validation"]["ok"] is True
+    assert probe["write_errors"] == [second_error]
+    assert calls.count("persistence:write") == 2
+
+
+def test_probe_cli_only_binds_host_paths_and_ports(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    sentinel = {"schema": "fixture_probe_v1", "ok": True}
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "run_probe",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+
+    assert cli.self_awareness_probe(write_latest=False) is sentinel
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["write_latest"] is False
+    assert call["grafana_url"] == cli.STACK_OBSERVABILITY_GRAFANA_URL
+    assert call["paths"].probe_latest == cli.SELF_AWARENESS_PROBE_LATEST_PATH
+    assert call["paths"].probe_history_root == cli.SELF_AWARENESS_PROBE_ROOT
+    assert call["paths"].investigate_latest == cli.SELF_AWARENESS_INVESTIGATE_LATEST_PATH
+    assert call["paths"].replay_latest == cli.SELF_AWARENESS_REPLAY_LATEST_PATH
+    assert call["paths"].validate_latest == cli.SELF_AWARENESS_VALIDATE_LATEST_PATH
+    assert isinstance(call["runtime_port"], self_awareness_adapters.SelfAwarenessProbeRuntimePort)
+    assert isinstance(call["refresh_port"], self_awareness_adapters.SelfAwarenessProbeRefreshPort)
+    assert isinstance(call["contract_port"], self_awareness_adapters.SelfAwarenessProbeContractPort)
+    assert isinstance(call["persistence_port"], self_awareness_adapters.SelfAwarenessProbePersistencePort)
+    assert call["runtime_port"].resource_preflight is cli.self_awareness_resource_preflight
+    assert call["refresh_port"].investigate is cli.self_awareness_investigate
+    assert call["refresh_port"].replay is cli.self_awareness_replay
+    assert call["refresh_port"].validate is cli.self_awareness_validate
+    assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
+
+
 def _replay_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessReplayPaths:
     return self_awareness_adapters.SelfAwarenessReplayPaths(
         investigation_latest=tmp_path / "investigate" / "latest.json",

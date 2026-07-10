@@ -207,7 +207,8 @@ changes, public CI should rely on synthetic autolink rows, activation dossier
 rows, activation-smoke rows, requirements, and stack-closure rows for row
 classification, handoff policy, activation-gap route callback binding, and
 stack-owner requirement projection. Keep latest reads, status document assembly,
-and live probe/cycle orchestration at the CLI/live binding edge.
+and live cycle orchestration at the CLI/live binding edge. The probe engine is
+adapter-owned; callers still bind its concrete host ports.
 
 For self-awareness latest artifact-ref adapter changes, public CI should rely on
 fake latest-loader, path-exists, path-hash, and history-path ports for schema
@@ -243,9 +244,10 @@ path constants and live latest document loading at the CLI edge; do not run live
 For self-awareness probe/cycle document-builder adapter changes, public CI
 should rely on synthetic shape tests for resource-denied documents, probe result
 documents, movement-smoke summaries, cycle partial/building snapshots, and
-cycle stack-handoff/final result snapshots. Keep latest/history writes,
-concrete stack paths, and probe/cycle orchestration in separate live-host checks
-unless the slice intentionally moves those ports.
+cycle stack-handoff/final result snapshots. Probe orchestration and its
+latest/history writes belong to the probe adapter; keep concrete probe host/path
+binding and cycle orchestration in separate live-host checks unless the slice
+intentionally moves those ports.
 
 For self-awareness cycle readmodel guard changes, public CI should rely on
 synthetic tests for open requirement-row classification, issue/guard input
@@ -283,8 +285,8 @@ For self-awareness working-stack usage-gap episode adapter changes, public CI
 should rely on synthetic working-stack documents and synthetic working-stack
 events with supplied latest paths for episode identity, affected nodes,
 confidence, working_stack_gap packets, evidence refs, and non-mutating policy.
-Keep latest reads, event refresh, episode writes, and probe/cycle execution at
-the CLI/live binding edge.
+Keep latest reads, event refresh, episode writes, probe caller binding, and
+cycle execution at the CLI/live binding edge.
 
 For self-awareness working-stack link-integrity adapter changes, public CI
 should rely on synthetic working-stack, events, timeline, spatial graph,
@@ -319,8 +321,8 @@ and replay engines belong to their orchestration adapters.
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate
-coverage. Keep working-stack latest reads, dossier refresh, probe/cycle
-execution, and all stack mutations at the CLI/live binding edge.
+coverage. Keep working-stack latest reads, dossier refresh, probe caller
+binding, cycle execution, and all stack mutations at the CLI/live binding edge.
 
 For self-awareness activation-dossier document-builder adapter changes, public
 CI should rely on synthetic working-stack documents, supplied latest paths, and
@@ -384,6 +386,21 @@ closeout may report only before/after history counts, latest schemas, event
 count, and write-error count. History is append-only; recovery from a partial
 failure is a bounded retry that may duplicate records already appended, not a
 destructive rollback.
+
+For self-awareness probe-orchestration adapter changes, public CI should use
+synthetic runtime, refresh, contract, and persistence ports to prove resource
+preflight fails closed before HTTP/refresh work, traced request headers,
+synthetic request/context/alert/movement event order, controlled movement
+episode selection, the complete 35-step chain, investigation/replay handoff,
+validation after the first persistence stage, the second validation-enriched
+persistence stage, no-write behavior, and write-error projection. Existing
+host-contract fixtures should remain green for probe/cycle integration. Live
+closeout may report only status, passed/total and failed chain keys,
+movement-smoke and lineage counts, validation counts, non-mutating policy,
+history-count delta, and write-error count; never publish responses, event
+bodies, readmodels, checkpoint states, or private paths. A write-enabled probe
+intentionally appends twice, once before validation and once after validation;
+partial retry can append duplicates and is not destructively rolled back.
 
 For self-awareness investigation-orchestration adapter changes, public CI
 should use synthetic input, contract, checkpoint, module-availability, and
