@@ -10,6 +10,157 @@ from abyss_machine import self_awareness_adapters
 from abyss_machine import self_awareness_contracts
 
 
+def _fixed_event(signal: str, source: str, **kwargs: Any) -> dict[str, Any]:
+    return self_awareness_contracts.make_event(
+        signal,
+        source,
+        observed_at="2026-07-09T12:00:00+00:00",
+        schema_prefix="abyss_machine",
+        host="fixture-host",
+        **kwargs,
+    )
+
+
+def test_scheduler_timer_events_use_fake_systemd_ports() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def run_command(command: list[str], _timeout: float) -> dict[str, Any]:
+        commands.append(tuple(command))
+        if "list-timers" in command and "--user" in command:
+            return {
+                "ok": True,
+                "stdout": "abyss-heartbeat.timer abyss-heartbeat.service\nabyss-extra.timer abyss-extra.service\n",
+            }
+        return {"ok": True, "stdout": ""}
+
+    def unit_properties(unit: str, _properties: list[str], is_user: bool, timeout: float) -> dict[str, Any]:
+        assert is_user is True
+        assert timeout == 2.0
+        return {
+            "ok": True,
+            "properties": {
+                "LoadState": "loaded",
+                "ActiveState": "active",
+                "SubState": "waiting",
+                "UnitFileState": "enabled",
+                "FragmentPath": f"/fixture/systemd/user/{unit}",
+                "Triggers": unit.removesuffix(".timer") + ".service",
+                "LastTriggerUSec": "2026-07-09T11:45:00Z",
+                "NextElapseUSecMonotonic": "15min",
+                "Result": "success",
+            },
+        }
+
+    events = self_awareness_adapters.scheduler_timer_events(
+        "2026-07-09T12:00:00+00:00",
+        schema_prefix="abyss_machine",
+        static_specs=[
+            {"scope": "user", "unit": "abyss-heartbeat.timer", "category": "heartbeat", "required": True},
+        ],
+        run_command=run_command,
+        unit_state=lambda _unit, _is_user: {"active": "active", "enabled": "enabled"},
+        unit_properties=unit_properties,
+        make_event=_fixed_event,
+        host_name=lambda: "fixture-host",
+    )
+
+    by_unit = {event["resource"]["timer_unit"]: event for event in events}
+    assert list(by_unit) == ["abyss-heartbeat.timer", "abyss-extra.timer"]
+    assert by_unit["abyss-heartbeat.timer"]["severity"] == "info"
+    assert by_unit["abyss-extra.timer"]["resource"]["timer_discovered"] is True
+    assert by_unit["abyss-extra.timer"]["space"]["host"] == "fixture-host"
+    assert by_unit["abyss-extra.timer"]["evidence_refs"][0]["path"] == "/fixture/systemd/user/abyss-extra.timer"
+    assert commands == [
+        ("systemctl", "--user", "list-timers", "abyss-*", "aoa-*", "--all", "--no-pager"),
+        ("systemctl", "list-timers", "abyss-*", "aoa-*", "--all", "--no-pager"),
+    ]
+
+
+def test_scheduler_required_timer_state_reports_inactive_without_live_io() -> None:
+    state = self_awareness_adapters.scheduler_timer_state(
+        {"scope": "system", "unit": "abyss-required.timer", "category": "fixture", "required": True},
+        schema_prefix="abyss_machine",
+        unit_state=lambda _unit, _is_user: {"active": "inactive", "enabled": "disabled"},
+        unit_properties=lambda _unit, _properties, is_user, timeout: {
+            "ok": True,
+            "properties": {"ActiveState": "inactive", "UnitFileState": "disabled"},
+            "is_user": is_user,
+            "timeout": timeout,
+        },
+    )
+
+    assert state["schema"] == "abyss_machine_systemd_timer_state_v1"
+    assert state["scope"] == "system"
+    assert state["is_active"] is False
+    assert state["is_enabled"] is False
+    assert state["ok"] is False
+
+
+def test_host_service_events_discover_and_project_active_services() -> None:
+    def run_command(command: list[str], _timeout: float) -> dict[str, Any]:
+        if "list-units" in command and "--user" in command:
+            return {"ok": True, "stdout": "abyss-machine-typing-listener.service loaded active running\n"}
+        return {"ok": True, "stdout": ""}
+
+    def unit_properties(unit: str, _properties: list[str], is_user: bool, _timeout: float) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "properties": {
+                "LoadState": "loaded",
+                "ActiveState": "active",
+                "SubState": "running",
+                "UnitFileState": "enabled",
+                "FragmentPath": f"/fixture/systemd/{'user' if is_user else 'system'}/{unit}",
+                "Description": "Fixture host service",
+                "MainPID": "4321",
+                "ExecMainStatus": "0",
+                "Result": "success",
+            },
+        }
+
+    events = self_awareness_adapters.host_service_events(
+        "2026-07-09T12:00:00+00:00",
+        schema_prefix="abyss_machine",
+        static_specs=[
+            {"scope": "user", "unit": "abyss-dictation-server.service", "category": "dictation", "required": False},
+        ],
+        run_command=run_command,
+        unit_state=lambda _unit, _is_user: {"active": "active", "enabled": "enabled"},
+        unit_properties=unit_properties,
+        make_event=_fixed_event,
+        host_name=lambda: "fixture-host",
+    )
+
+    by_unit = {event["resource"]["host_service_unit"]: event for event in events}
+    assert set(by_unit) == {"abyss-dictation-server.service", "abyss-machine-typing-listener.service"}
+    assert by_unit["abyss-dictation-server.service"]["resource"]["host_service_category"] == "dictation"
+    typing = by_unit["abyss-machine-typing-listener.service"]
+    assert typing["resource"]["host_service_category"] == "typing"
+    assert typing["resource"]["host_service_discovered"] is True
+    assert typing["resource"]["main_pid"] == 4321
+    assert typing["truth_level"] == "host_service_state"
+
+
+def test_host_service_events_omit_inactive_optional_services() -> None:
+    events = self_awareness_adapters.host_service_events(
+        "2026-07-09T12:00:00+00:00",
+        schema_prefix="abyss_machine",
+        static_specs=[
+            {"scope": "user", "unit": "abyss-dictation-server.service", "category": "dictation", "required": False},
+        ],
+        run_command=lambda _command, _timeout: {"ok": True, "stdout": ""},
+        unit_state=lambda _unit, _is_user: {"active": "inactive", "enabled": "enabled"},
+        unit_properties=lambda _unit, _properties, _is_user, _timeout: {
+            "ok": True,
+            "properties": {"ActiveState": "inactive", "UnitFileState": "enabled"},
+        },
+        make_event=_fixed_event,
+        host_name=lambda: "fixture-host",
+    )
+
+    assert events == []
+
+
 def _path_map(tmp_path: Path) -> dict[str, Path]:
     paths = {
         name: tmp_path / name / "latest.json"

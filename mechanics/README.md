@@ -49,7 +49,9 @@ Use these mechanic owners for the next extraction slices:
   prove the host layer is healthy without publishing private state.
 - `self-awareness`: latest surface specs, fakeable latest load dispatch,
   latest artifact-ref filesystem ports, artifact evidence-ref stat projection,
-  freshness-gate readmodel assembly, cycle latest-read/bridge-document dispatch,
+  freshness-gate readmodel assembly, read-only systemd timer/service discovery,
+  state normalization, and observation-event orchestration through fakeable
+  ports, cycle latest-read/bridge-document dispatch,
   validation latest-spec selection, bounded status latest summaries,
   body-closure status document builders, status open-potential/open-requirement
   row builders, resource preflight guard decisions, bounded HTTP status probe
