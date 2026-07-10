@@ -108,6 +108,7 @@ try:
     from . import runtime_evidence_contracts
     from . import self_awareness_adapters
     from . import self_awareness_completion_contracts
+    from . import self_awareness_completion_document_contracts
     from . import self_awareness_completion_graph_contracts
     from . import self_awareness_contracts
     from . import stack_bridge_contracts
@@ -275,6 +276,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import self_awareness_adapters
     from abyss_machine import self_awareness_completion_contracts
+    from abyss_machine import self_awareness_completion_document_contracts
     from abyss_machine import self_awareness_completion_graph_contracts
     from abyss_machine import self_awareness_contracts
     from abyss_machine import stack_bridge_contracts
@@ -34400,186 +34402,53 @@ def self_awareness_completion_audit(write_latest: bool = True) -> dict[str, Any]
             resource_preflight=resource_preflight,
         )
     )
-    completion_action_backlog = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_action_backlog_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": (
-            all(nested_get(action, ["policy", "host_layer_mutates_stack"]) is False and nested_get(action, ["policy", "executes_commands"]) is False for action in completion_actions)
-            and all(nested_get(drilldown, ["policy", "host_layer_mutates_stack"]) is False and nested_get(drilldown, ["policy", "executes_commands"]) is False for drilldown in completion_drilldowns)
-            and (not completion_drilldowns or completion_drilldowns[0].get("complete") is True)
-            and route_map.get("ok") is True
-            and entity_event_document_map.get("ok") is True
-            and completion_route_packets.get("ok") is True
-        ),
-        "status": "open" if completion_actions else "empty",
-        "summary": {
-            "actions": len(completion_actions),
-            "drilldowns": len(completion_drilldowns),
-            "drilldowns_complete": sum(1 for drilldown in completion_drilldowns if drilldown.get("complete") is True),
-            "stack_requirement_actions": sum(1 for action in completion_actions if action.get("category") == "stack_requirement"),
-            "working_stack_usage_gap_actions": sum(1 for action in completion_actions if action.get("category") == "working_stack_usage_gap"),
-            "requires_human_approval": sum(1 for action in completion_actions if nested_get(action, ["policy", "requires_human_approval"]) is True),
-            "executable_now": 0,
-            "top_action_id": completion_actions[0].get("id") if completion_actions else None,
-            "top_action_drilldown_id": completion_drilldowns[0].get("id") if completion_drilldowns else None,
-            "top_action_drilldown_complete": completion_drilldowns[0].get("complete") if completion_drilldowns else None,
-            "top_priority_class": completion_actions[0].get("priority_class") if completion_actions else None,
-            "top_owner_route": completion_actions[0].get("owner_route") if completion_actions else None,
-            "route_packets": nested_get(completion_route_packets, ["summary", "packets"]),
-            "route_packets_complete": nested_get(completion_route_packets, ["summary", "packets_complete"]),
-            "route_packet_actions": nested_get(completion_route_packets, ["summary", "covered_actions"]),
-            "route_packet_automation_ready": nested_get(completion_route_packets, ["summary", "automation_ready"]),
-            "top_route_packet_id": nested_get(completion_route_packets, ["summary", "top_packet_id"]),
-        },
-        "top_action": completion_actions[0] if completion_actions else {},
-        "top_action_drilldown": completion_drilldowns[0] if completion_drilldowns else {},
-        "actions": completion_actions,
-        "drilldowns": completion_drilldowns,
-        "drilldowns_by_action": completion_drilldowns_by_action,
-        "completion_route_map": route_map,
-        "completion_route_packets": completion_route_packets,
-        "entity_event_document_map": entity_event_document_map,
-        "source_commands": [
-            "abyss-machine self-awareness completion-audit --json",
-            "abyss-machine self-awareness export --json",
-            "abyss-machine self-awareness requirement-probes --json",
-            "abyss-machine self-awareness working-stack --json",
-            "abyss-machine self-awareness activation-smoke --json",
-        ],
-        "policy": {
-            "handoff_only": True,
-            "automatic": False,
-            "requires_human_approval": True,
-            "executes_commands": False,
-            "host_layer_mutates_stack": False,
-            "actions_executed": False,
-        },
-    }
-
-    compact_coverage_rows = [
-        {
-            "id": row.get("id"),
-            "status": row.get("status"),
-            "objective_area": row.get("objective_area"),
-            "open_stack_requirement_ids": row.get("open_stack_requirement_ids") if isinstance(row.get("open_stack_requirement_ids"), list) else [],
-            "missing_artifacts": row.get("missing_artifacts") if isinstance(row.get("missing_artifacts"), list) else [],
-            "missing_chain_keys": row.get("missing_chain_keys") if isinstance(row.get("missing_chain_keys"), list) else [],
-            "coverage_planes": row.get("coverage_planes") if isinstance(row.get("coverage_planes"), list) else [],
-        }
-        for row in coverage_rows
-        if isinstance(row, dict)
-    ]
-    audit_ok = status_doc.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_status_v1" and not missing_artifacts
-    stack_usage_closure_complete = audit_ok and all(bool(row.get("ok")) for row in completion_gates)
-    body_closure_complete = body_closure.get("complete") is True
-    body_status = str(body_closure.get("status") or status_summary.get("body_status") or "unknown")
-    body_open_routes = safe_int(body_closure_summary.get("response_routes"), safe_int(status_summary.get("body_open_routes"), 0))
-    body_watch_sources = safe_int(body_closure_summary.get("watch_sources"), safe_int(status_summary.get("body_watch_sources"), 0))
-    stack_usage_status = "complete" if stack_usage_closure_complete else ("incomplete" if audit_ok else "unknown")
-    if not audit_ok:
-        audit_status = "degraded"
-    elif not stack_usage_closure_complete:
-        audit_status = "incomplete"
-    elif body_closure_complete:
-        audit_status = "complete"
-    else:
-        audit_status = "watch"
-    validator_green_but_stack_usage_incomplete = validate_green and cycle_green and coverage_green and not stack_usage_closure_complete
-    stack_usage_complete_but_body_watch = stack_usage_closure_complete and not body_closure_complete
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_audit_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": stack_usage_closure_complete,
-        "status": audit_status,
-        "summary": {
-            "audit_ok": audit_ok,
-            "stack_usage_status": stack_usage_status,
-            "stack_usage_closure_complete": stack_usage_closure_complete,
-            "body_status": body_status,
-            "body_closure_complete": body_closure_complete,
-            "body_open_routes": body_open_routes,
-            "body_watch_sources": body_watch_sources,
-            "stack_usage_complete_but_body_watch": stack_usage_complete_but_body_watch,
-            "validator_green": validate_green,
-            "cycle_green": cycle_green,
-            "coverage_green": coverage_green,
-            "validator_green_but_stack_usage_incomplete": validator_green_but_stack_usage_incomplete,
-            "gates": len(completion_gates),
-            "gates_ok": sum(1 for row in completion_gates if row.get("ok")),
-            "blockers": len(blockers),
-            "completion_actions": len(completion_actions),
-            "completion_routes": nested_get(route_map, ["summary", "routes"]),
-            "next_completion_route_id": nested_get(route_map, ["summary", "next_route_id"]),
-            "next_completion_route_path": nested_get(route_map, ["summary", "next_route_path"]),
-            "completion_route_packets": nested_get(completion_route_packets, ["summary", "packets"]),
-            "completion_route_packets_complete": nested_get(completion_route_packets, ["summary", "packets_complete"]),
-            "completion_route_packet_actions": nested_get(completion_route_packets, ["summary", "covered_actions"]),
-            "completion_route_packet_automation_ready": nested_get(completion_route_packets, ["summary", "automation_ready"]),
-            "top_completion_route_packet_id": nested_get(completion_route_packets, ["summary", "top_packet_id"]),
-            "entity_event_document_entities": nested_get(entity_event_document_map, ["summary", "entities"]),
-            "entity_event_document_events": nested_get(entity_event_document_map, ["summary", "events"]),
-            "entity_event_document_documents": nested_get(entity_event_document_map, ["summary", "documents"]),
-            "entity_event_document_stack_organs": nested_get(entity_event_document_map, ["summary", "stack_organs"]),
-            "entity_event_document_machine_bridges": nested_get(entity_event_document_map, ["summary", "machine_bridges"]),
-            "entity_event_document_body_surfaces": nested_get(entity_event_document_map, ["summary", "body_surfaces"]),
-            "entity_event_document_automation_ready": nested_get(entity_event_document_map, ["summary", "automation_ready"]),
-            "top_completion_action_id": completion_action_backlog["summary"]["top_action_id"],
-            "top_completion_priority_class": completion_action_backlog["summary"]["top_priority_class"],
-            "open_stack_requirements": max(len(open_requirement_rows), status_open_stack_requirements, requirement_probes_open, coverage_blocked_stack_owned),
-            "working_stack_usage_gaps": max(len(open_potential_rows), working_stack_usage_gaps, activation_open_gaps),
-            "automatic_time_space_context_links_complete": autolink_complete,
-            "resource_guard_ok": bool(resource_preflight.get("ok")),
-            "owner_boundary_readonly": owner_boundary_ok,
-            "missing_artifacts": missing_artifacts,
-        },
-        "completion_gates": completion_gates,
-        "blockers": blockers,
-        "action_backlog": completion_action_backlog,
-        "completion_route_map": route_map,
-        "completion_route_packets": completion_route_packets,
-        "entity_event_document_map": entity_event_document_map,
-        "body_closure": body_closure,
-        "open_stack_requirements": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_open_stack_requirements_v1",
-            "rows": open_requirement_rows,
-            "policy": open_requirement_doc.get("policy") if isinstance(open_requirement_doc.get("policy"), dict) else {},
-        },
-        "open_potential": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_open_potential_v1",
-            "rows": open_potential_rows,
-            "policy": open_potential_doc.get("policy") if isinstance(open_potential_doc.get("policy"), dict) else {},
-        },
-        "coverage_matrix": {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_coverage_matrix_v1",
-            "summary": coverage_summary,
-            "rows": compact_coverage_rows,
-        },
-        "resource_preflight": resource_preflight,
-        "artifact_refs": artifact_refs,
-        "source_commands": {
-            "status": "abyss-machine self-awareness status --json",
-            "completion_audit": "abyss-machine self-awareness completion-audit --json",
-            "latest_only": True,
-            "runs_probe": False,
-            "runs_cycle": False,
-            "runs_stack_http_probes": False,
-            "runs_indexing": False,
-            "next_heavy_proof_when_safe": "abyss-machine self-awareness cycle --json",
-        },
-        "policy": {
-            "read_only_stack_consumer": True,
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-            "automatic_remediation": False,
-            "raw_evidence_is_not_truth": True,
-            "validator_green_is_not_stack_usage_closure": True,
-            "stack_usage_completion_is_not_body_closure": True,
-            "open_stack_requirements_are_blockers_not_host_failures": True,
-            "working_stack_usage_gaps_are_open_potential_not_host_failures": True,
-        },
-    }
+    completion_action_backlog = (
+        self_awareness_completion_document_contracts.completion_action_backlog(
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+            generated_at=generated_at,
+            completion_actions=completion_actions,
+            completion_drilldowns=completion_drilldowns,
+            drilldowns_by_action=completion_drilldowns_by_action,
+            route_map=route_map,
+            route_packets=completion_route_packets,
+            entity_event_document_map=entity_event_document_map,
+        )
+    )
+    completion_document_context = (
+        self_awareness_completion_document_contracts.CompletionAuditDocumentContext(
+            status_doc=status_doc,
+            body_closure=body_closure,
+            open_requirement_doc=open_requirement_doc,
+            open_potential_doc=open_potential_doc,
+            coverage_audit=coverage_audit,
+            validate_green=validate_green,
+            cycle_green=cycle_green,
+            coverage_green=coverage_green,
+            completion_gates=completion_gates,
+            blockers=blockers,
+            action_backlog=completion_action_backlog,
+            route_map=route_map,
+            route_packets=completion_route_packets,
+            entity_event_document_map=entity_event_document_map,
+            status_open_stack_requirements=status_open_stack_requirements,
+            requirement_probes_open=requirement_probes_open,
+            coverage_blocked_stack_owned=coverage_blocked_stack_owned,
+            working_stack_usage_gaps=working_stack_usage_gaps,
+            activation_open_gaps=activation_open_gaps,
+            autolink_complete=autolink_complete,
+            resource_preflight=resource_preflight,
+            owner_boundary_ok=owner_boundary_ok,
+            missing_artifacts=missing_artifacts,
+            artifact_refs=artifact_refs,
+        )
+    )
+    data = self_awareness_completion_document_contracts.completion_audit_document(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=generated_at,
+        context=completion_document_context,
+    )
     if write_latest:
         errors = write_latest_and_history(data, SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH, SELF_AWARENESS_COMPLETION_AUDIT_ROOT)
         if errors:

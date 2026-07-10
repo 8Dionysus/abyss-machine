@@ -252,6 +252,16 @@ unmapped sets, top-packet cardinalities, automation booleans, and write-error
 count; do not publish paths, commands, evidence refs, hashes, or raw map/packet
 rows.
 
+For self-awareness completion document changes, public CI should use synthetic
+core/graph products and already-loaded status, body-closure, coverage,
+resource, artifact, and open-row inputs. It must constrain backlog aggregation,
+degraded/incomplete/watch/complete transitions, stack-usage versus body-closure
+semantics, compact coverage whitelisting, stable field names, and no-execution
+policy. Existing completion-audit host contracts must preserve the complete
+summary and nested backlog/map/packet surfaces. Live closeout may compare only
+final status, compact summary/backlog values, coverage row count/key whitelist,
+policy booleans, and write-error count.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
