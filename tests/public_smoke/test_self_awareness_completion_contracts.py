@@ -365,3 +365,111 @@ def test_working_stack_drilldown_builds_complete_usage_gap_packet(tmp_path: Path
     ]
     assert drilldown["next_step_packet"]["audit_executes_verifiers"] is False
     assert drilldown["policy"]["host_layer_mutates_stack"] is False
+
+
+def test_completion_route_map_groups_actions_without_executing_verifiers() -> None:
+    actions = [
+        {
+            "id": "stack-requirement:stack.trace-backend",
+            "category": "stack_requirement",
+            "owner_route": "abyss-stack",
+            "priority_rank": 1,
+            "priority_class": "critical_trace_join",
+            "closure_blocker_keys": ["trace_ready"],
+        },
+        {
+            "id": "stack-requirement:stack.database-graph.read-route",
+            "category": "stack_requirement",
+            "owner_route": "abyss-stack",
+            "priority_rank": 2,
+            "priority_class": "critical_memory_space_inventory",
+            "closure_blocker_keys": ["postgres", "neo4j"],
+        },
+        {
+            "id": "working-stack:aoa-browser",
+            "category": "working_stack_usage_gap",
+            "owner_route": "abyss-stack",
+            "priority_rank": 3,
+            "priority_class": "browser_tool_runtime",
+            "closure_blocker_keys": ["browser_tool_probe"],
+        },
+        {
+            "id": "working-stack:custom-fixture",
+            "category": "working_stack_usage_gap",
+            "owner_route": "abyss-stack",
+            "priority_rank": 4,
+            "priority_class": "custom_fixture",
+            "closure_blocker_keys": ["custom_probe"],
+        },
+    ]
+    drilldowns = {
+        "stack-requirement:stack.trace-backend": {
+            "acceptance": {"verifier_commands": ["validate", "validate"]},
+            "coverage": {"planes": ["trace_join"]},
+            "dependency_edges": {"unblocks_requirement_ids": ["stack.langchain-api.graph-observability"]},
+        },
+        "stack-requirement:stack.database-graph.read-route": {
+            "acceptance": {"verifier_commands": ["database-read"]},
+            "coverage": {"planes": ["memory_space"]},
+            "dependency_edges": {"unblocks_requirement_ids": []},
+        },
+        "working-stack:aoa-browser": {
+            "next_step_packet": {"verifier_commands": ["browser-smoke"]},
+        },
+        "working-stack:custom-fixture": {
+            "next_step_packet": {"verifier_commands": ["custom-smoke"]},
+        },
+    }
+
+    route_map = completion_contracts.completion_route_map(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T05:00:00-06:00",
+        completion_actions=actions,
+        drilldowns_by_action=drilldowns,
+        resource_preflight={"ok": True},
+    )
+
+    assert route_map["ok"] is True
+    assert [route["route_id"] for route in route_map["routes"]] == [
+        "observability.trace_join_backbone",
+        "observability.stack_read_routes",
+        "runtime.tools.browser_smoke",
+        "completion.unassigned_open_actions",
+    ]
+    assert route_map["summary"] == {
+        "routes": 4,
+        "actions": 4,
+        "covered_actions": 3,
+        "unassigned_actions": 1,
+        "next_route_id": "observability.trace_join_backbone",
+        "next_route_path": "observability/trace/join-backbone",
+        "next_route_action_ids": ["stack-requirement:stack.trace-backend"],
+        "next_route_owner_routes": ["abyss-stack"],
+    }
+    trace_route = route_map["routes"][0]
+    assert trace_route["verifier_commands"] == ["validate"]
+    assert trace_route["coverage_planes"] == ["trace_join"]
+    assert trace_route["unblocks_requirement_ids"] == ["stack.langchain-api.graph-observability"]
+    assert trace_route["resource_gate"]["resource_preflight_ok"] is True
+    assert all(route["policy"]["executes_commands"] is False for route in route_map["routes"])
+    assert all(route["policy"]["host_layer_mutates_stack"] is False for route in route_map["routes"])
+
+
+def test_completion_route_map_preserves_empty_state() -> None:
+    route_map = completion_contracts.completion_route_map(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T05:00:00-06:00",
+        completion_actions=[],
+        drilldowns_by_action={},
+        resource_preflight={"ok": False},
+    )
+
+    assert route_map["ok"] is True
+    assert route_map["status"] == "empty"
+    assert route_map["summary"]["routes"] == 0
+    assert route_map["summary"]["actions"] == 0
+    assert route_map["next_route"] == {}
+    assert route_map["routes"] == []
+    assert route_map["policy"]["actions_executed"] is False

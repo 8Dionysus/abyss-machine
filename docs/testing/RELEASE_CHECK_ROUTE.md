@@ -229,12 +229,15 @@ synthetic readiness/path inputs for exact gate and blocker identities,
 autolink count-pair completeness, read-only owner-boundary predicates,
 deterministic action scores/ranks, fallback evidence refs, resource-gate
 projection, stack-requirement and working-stack drilldown completeness,
-deduplicated verifier plans, and no-execution policy. Existing host-contract
-tests must still prove body-watch and open-stack-potential semantics. Live
-closeout may compare only compact gate states, blocker IDs, top action and top
-drilldown identity/rank/score/class, missing/fulfilled/verifier counts,
-route/entity/packet counts, owner-boundary booleans, and history delta; do not
-publish raw action drilldowns, entity maps, packet payloads, or host evidence.
+deduplicated verifier plans, deterministic route order, explicit unassigned
+fallback, route coverage/dependency projections, empty-state behavior, and
+no-execution policy. Existing host-contract tests must still prove body-watch
+and open-stack-potential semantics. Live closeout may compare only compact gate
+states, blocker IDs, top action and top drilldown identity/rank/score/class,
+missing/fulfilled/verifier counts, route IDs/action/verifier counts,
+resource/preflight and no-execution booleans, entity/packet counts,
+owner-boundary booleans, and history delta; do not publish raw action
+drilldowns, entity maps, packet payloads, or host evidence.
 
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document

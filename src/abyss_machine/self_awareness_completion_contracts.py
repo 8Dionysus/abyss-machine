@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from . import self_awareness_contracts
 
@@ -855,6 +855,251 @@ def completion_action_drilldown(
     else:
         payload["complete"] = False
     return payload
+
+
+def completion_route_map(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    completion_actions: list[dict[str, Any]],
+    drilldowns_by_action: Mapping[str, dict[str, Any]],
+    resource_preflight: Mapping[str, Any],
+) -> dict[str, Any]:
+    nested_get = self_awareness_contracts.nested_get
+
+    def action_ids_for(predicate: Callable[[dict[str, Any]], bool]) -> list[str]:
+        return [
+            str(action.get("id"))
+            for action in completion_actions
+            if isinstance(action, dict) and action.get("id") and predicate(action)
+        ]
+
+    def route(
+        route_id: str,
+        route_path: str,
+        title: str,
+        action_ids: list[str],
+        *,
+        rationale: list[str],
+    ) -> dict[str, Any]:
+        selected_actions = [
+            action
+            for action in completion_actions
+            if str(action.get("id") or "") in set(action_ids)
+        ]
+        selected_drilldowns = [
+            drilldowns_by_action.get(str(action.get("id") or ""), {})
+            for action in selected_actions
+        ]
+        verifier_commands = list(dict.fromkeys(
+            command
+            for drilldown in selected_drilldowns
+            for command in (
+                nested_get(drilldown, ["acceptance", "verifier_commands"])
+                if isinstance(nested_get(drilldown, ["acceptance", "verifier_commands"]), list)
+                else nested_get(drilldown, ["next_step_packet", "verifier_commands"])
+                if isinstance(nested_get(drilldown, ["next_step_packet", "verifier_commands"]), list)
+                else []
+            )
+            if command
+        ))
+        coverage_planes = sorted({
+            str(plane)
+            for drilldown in selected_drilldowns
+            for plane in (
+                nested_get(drilldown, ["coverage", "planes"])
+                if isinstance(nested_get(drilldown, ["coverage", "planes"]), list)
+                else []
+            )
+            if plane
+        })
+        unblocks_requirement_ids = sorted({
+            str(requirement_id)
+            for drilldown in selected_drilldowns
+            for requirement_id in (
+                nested_get(drilldown, ["dependency_edges", "unblocks_requirement_ids"])
+                if isinstance(
+                    nested_get(drilldown, ["dependency_edges", "unblocks_requirement_ids"]),
+                    list,
+                )
+                else []
+            )
+            if requirement_id
+        })
+        missing_keys = [
+            str(key)
+            for action in selected_actions
+            for key in (
+                action.get("closure_blocker_keys")
+                if isinstance(action.get("closure_blocker_keys"), list)
+                else []
+            )
+            if key
+        ]
+        return {
+            "schema": f"{schema_prefix}_self_awareness_completion_route_v1",
+            "route_id": route_id,
+            "route_path": route_path,
+            "route_parts": [part for part in route_path.split("/") if part],
+            "title": title,
+            "status": (
+                "blocked_by_stack_owner"
+                if any(action.get("owner_route") == "abyss-stack" for action in selected_actions)
+                else "open"
+            ),
+            "actions": action_ids,
+            "action_count": len(action_ids),
+            "owner_routes": sorted({
+                str(action.get("owner_route") or "unknown")
+                for action in selected_actions
+            }),
+            "priority_ranks": [action.get("priority_rank") for action in selected_actions],
+            "priority_classes": sorted({
+                str(action.get("priority_class"))
+                for action in selected_actions
+                if action.get("priority_class")
+            }),
+            "closure_blocker_keys": list(dict.fromkeys(missing_keys)),
+            "coverage_planes": coverage_planes,
+            "unblocks_requirement_ids": unblocks_requirement_ids,
+            "verifier_commands": verifier_commands,
+            "resource_gate": {
+                "latest_only_readmodel": True,
+                "route_map_runs_probe": False,
+                "route_map_runs_cycle": False,
+                "route_map_runs_indexing": False,
+                "heavy_verifiers_require_resource_guard": True,
+                "resource_preflight_ok": bool(resource_preflight.get("ok")),
+            },
+            "rationale": rationale,
+            "policy": {
+                "handoff_only": True,
+                "requires_human_approval": True,
+                "executes_commands": False,
+                "host_layer_mutates_stack": False,
+                "automatic_remediation": False,
+                "actions_executed": False,
+            },
+        }
+
+    route_specs = [
+        (
+            "observability.trace_join_backbone",
+            "observability/trace/join-backbone",
+            "Close the trace join backbone before LangGraph replay coupling.",
+            action_ids_for(lambda action: action.get("id") == "stack-requirement:stack.trace-backend"),
+            [
+                "trace backend is the dependency root for span/log/metric joins",
+                "LangGraph graph observability depends on trace coupling",
+            ],
+        ),
+        (
+            "observability.stack_read_routes",
+            "observability/stack/read-routes",
+            "Close remaining stack-owned read routes and graph observability.",
+            action_ids_for(
+                lambda action: action.get("category") == "stack_requirement"
+                and action.get("id") != "stack-requirement:stack.trace-backend"
+            ),
+            ["stack-owned requirements must close before machine stack usage can be treated as closed"],
+        ),
+        (
+            "runtime.tools.browser_smoke",
+            "runtime/tools/browser-smoke",
+            "Resolve running tool runtimes whose functional smoke fails.",
+            action_ids_for(
+                lambda action: action.get("priority_class") == "browser_tool_runtime"
+                or action.get("priority_class") == "functional_smoke_failed_runtime"
+            ),
+            ["running tools are body surfaces only when functional smoke proves usable interaction"],
+        ),
+        (
+            "models.llm.gateway_routes",
+            "models/llm/gateway-routes",
+            "Activate LLM/model gateway routes that are declared but not running.",
+            action_ids_for(lambda action: action.get("priority_class") == "llm_route_activation"),
+            [
+                "reasoning body needs model gateway routes to be proven by runtime evidence, not only declared model roots"
+            ],
+        ),
+        (
+            "models.voice.routes",
+            "models/voice/routes",
+            "Activate voice/TTS stack organs with bounded machine usage proof.",
+            action_ids_for(lambda action: action.get("priority_class") == "voice_runtime_activation"),
+            ["voice organs are part of the AI-OS body only after runtime and smoke evidence close the usage gap"],
+        ),
+        (
+            "runtime.graph_workflow.routes",
+            "runtime/graph-workflow/routes",
+            "Activate graph and workflow organs and prove their machine usage route.",
+            action_ids_for(
+                lambda action: action.get("priority_class")
+                in {"graph_runtime_activation", "workflow_runtime_activation"}
+            ),
+            [
+                "graph/workflow services stay open potential until runtime, endpoint, and response-route evidence prove body integration"
+            ],
+        ),
+    ]
+    routes = [
+        route(route_id, route_path, title, action_ids, rationale=rationale)
+        for route_id, route_path, title, action_ids, rationale in route_specs
+        if action_ids
+    ]
+    covered_action_ids = {
+        action_id
+        for row in routes
+        for action_id in (row.get("actions") if isinstance(row.get("actions"), list) else [])
+    }
+    unassigned_actions = [
+        str(action.get("id"))
+        for action in completion_actions
+        if action.get("id") and str(action.get("id")) not in covered_action_ids
+    ]
+    if unassigned_actions:
+        routes.append(route(
+            "completion.unassigned_open_actions",
+            "completion/unassigned-open-actions",
+            "Review open completion actions that did not match a known completion route.",
+            unassigned_actions,
+            rationale=["unassigned action classes must not disappear from the completion plan"],
+        ))
+    return {
+        "schema": f"{schema_prefix}_self_awareness_completion_route_map_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": (
+            len(covered_action_ids) + len(unassigned_actions) == len(completion_actions)
+            and all(
+                nested_get(row, ["policy", "executes_commands"]) is False
+                and nested_get(row, ["policy", "host_layer_mutates_stack"]) is False
+                for row in routes
+            )
+        ),
+        "status": "open" if routes else "empty",
+        "summary": {
+            "routes": len(routes),
+            "actions": len(completion_actions),
+            "covered_actions": len(covered_action_ids),
+            "unassigned_actions": len(unassigned_actions),
+            "next_route_id": routes[0].get("route_id") if routes else None,
+            "next_route_path": routes[0].get("route_path") if routes else None,
+            "next_route_action_ids": routes[0].get("actions") if routes else [],
+            "next_route_owner_routes": routes[0].get("owner_routes") if routes else [],
+        },
+        "next_route": routes[0] if routes else {},
+        "routes": routes,
+        "policy": {
+            "handoff_only": True,
+            "requires_human_approval": True,
+            "executes_commands": False,
+            "host_layer_mutates_stack": False,
+            "automatic_remediation": False,
+            "actions_executed": False,
+        },
+    }
 
 
 def completion_actions(

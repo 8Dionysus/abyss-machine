@@ -96,9 +96,10 @@ Use these mechanic owners for the next extraction slices:
   persistence orchestration also lives in `self_awareness_adapters`;
   `self_awareness_completion_contracts` owns completion readiness path/state
   inputs, autolink/owner-boundary predicates, gate/blocker assembly, and
-  deterministic action priority/ranking plus stack-requirement and
-  working-stack usage-gap drilldown packets. Completion route/entity/packet
-  graph assembly and completion-audit orchestration, validation orchestration,
+  deterministic action priority/ranking, stack-requirement and working-stack
+  usage-gap drilldown packets, and deterministic completion route-map
+  assembly. Completion entity/packet graph assembly and completion-audit
+  orchestration, validation orchestration,
   and the stable export stack-handoff contract builder remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
