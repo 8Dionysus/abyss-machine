@@ -1562,6 +1562,29 @@ CLI binding. Live closeout compares full documents locally by hash and reports
 only completeness, temporal/spatial/context counts, and policy; context values,
 event/episode bodies, evidence refs, and local paths remain private.
 
+## Extracted Self-Awareness Episode Response Contracts
+
+`abyss_machine.self_awareness_response_contracts` owns complete response
+contract assembly and depth predicates:
+
+- common validated-episode, investigation/replay, body-trace, entity/event/
+  document context, response-lineage, risk, blast-radius, rollback, runbook,
+  approval, evidence, and no-execution policy assembly;
+- episode-specific synthetic-probe lineage, working-stack activation-gap,
+  stack-handoff closure-dossier, and working-stack movement evidence branches;
+- exact response-contract, reaction-candidate-depth, and governed-response-route
+  completion predicates;
+- sixteen explicit host paths, one latest-loader port, and nine supplied
+  contract callbacks instead of CLI module-global coupling.
+
+The CLI preserves all four established helper signatures and only binds current
+paths and contracts. Synthetic tests constrain each episode-specific latest-read
+route, the no-read movement branch, exact candidate/route projection, policy,
+and CLI binding. Live closeout compares full documents locally by hash across
+all present episode kinds and reports only kind counts, lineage/completion
+booleans, and policy; contract bodies, risks, runbooks, evidence refs, events,
+episodes, and local paths remain private.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1857,8 +1880,10 @@ machine evidence.
    `self_awareness_query_correlation_contracts`; bounded trace-context fallback
    extraction/readmodel/persistence now lives in
    `self_awareness_trace_context_contracts`; episode body-trace assembly and
-   completion now live in `self_awareness_body_trace_contracts`. Before
-   declaring this family closed, extract the remaining causal readmodels plus
+   completion now live in `self_awareness_body_trace_contracts`; episode-
+   specific response assembly and response/candidate/route depth predicates
+   now live in `self_awareness_response_contracts`. Before declaring this
+   family closed, extract the remaining causal readmodels plus
    activation/lineage/
    coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-

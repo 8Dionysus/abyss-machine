@@ -141,7 +141,10 @@ Use these mechanic owners for the next extraction slices:
   completion, and optional persistence through the same explicit port style;
   `self_awareness_body_trace_contracts` owns episode temporal/spatial/context/
   host-body projection, deterministic bounded lineage, and completion through
-  explicit path, config, runtime, and contract ports. Remaining causal
+  explicit path, config, runtime, and contract ports;
+  `self_awareness_response_contracts` owns common and episode-specific response
+  assembly plus response/candidate/route depth predicates through explicit
+  host paths, latest-loader, and dependent-contract ports. Remaining causal
   readmodels and activation/lineage/coverage centers must be extracted before
   the final residual CLI-edge classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
