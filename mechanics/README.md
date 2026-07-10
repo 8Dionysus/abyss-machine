@@ -132,9 +132,13 @@ Use these mechanic owners for the next extraction slices:
   persistence through fakeable ports;
   `self_awareness_causal_overlay_contracts` owns memory-space and stack-handoff
   time-space overlay assembly through explicit runtime, refresh, contract,
-  path, and config ports without host IO or stack mutation. Remaining causal
-  readmodels and activation/lineage/coverage centers must be extracted before
-  the final residual CLI-edge classification and family completion audit.
+  path, and config ports without host IO or stack mutation;
+  `self_awareness_query_correlation_contracts` owns bounded query scoring and
+  current-window correlation joins/SLO/baseline/provenance assembly through
+  explicit runtime, refresh, contract, persistence, path, and config ports.
+  Remaining causal readmodels and activation/lineage/coverage centers must be
+  extracted before the final residual CLI-edge classification and family
+  completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

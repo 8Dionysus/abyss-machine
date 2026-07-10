@@ -316,6 +316,15 @@ concrete binding. Live-host closeout must compare source and installed schema/
 ok/status/summary/policy only; never publish retrieval rows, event contexts,
 graph nodes or edges, evidence refs, or machine paths.
 
+For self-awareness query/correlation changes, public CI should use supplied
+events, episodes, graph, memory-space, capabilities, stack, and index documents
+plus synthetic runtime, refresh, contract, persistence, path, and config ports.
+It must constrain no-hidden-read behavior, bounded scoring, query write routing,
+context/service joins, SLO and baseline projection, capability fallback, no-
+write behavior, and CLI binding. Live-host closeout must compare source and
+installed schema/ok/summary/policy only; never publish result rows, joins,
+provenance bodies, evidence refs, queries, or machine paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.
