@@ -307,6 +307,15 @@ closeout must compare source and installed schema/ok/status/summary only; never
 publish event rows, graph nodes or edges, context bodies, episodes, local
 indexes, or machine paths.
 
+For self-awareness causal-overlay changes, public CI should use synthetic
+runtime, refresh, contract, path, and config ports for memory-space and
+stack-handoff time-space projection. It must constrain supplied-document reuse
+without hidden latest reads, bounded retrieval/freshness projection,
+non-mutating stack-handoff timeline/graph assembly, owner routing, and CLI
+concrete binding. Live-host closeout must compare source and installed schema/
+ok/status/summary/policy only; never publish retrieval rows, event contexts,
+graph nodes or edges, evidence refs, or machine paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.

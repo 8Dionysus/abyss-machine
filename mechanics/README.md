@@ -129,9 +129,12 @@ Use these mechanic owners for the next extraction slices:
   intake through fakeable runtime ports;
   `self_awareness_failure_matrix_contracts` owns ordered bounded latest intake,
   negative-path/requirement guard assembly, completeness checks, and optional
-  persistence through fakeable ports. Remaining causal overlays/readmodels and
-  activation/lineage/coverage centers must be extracted before the final
-  residual CLI-edge classification and family completion audit.
+  persistence through fakeable ports;
+  `self_awareness_causal_overlay_contracts` owns memory-space and stack-handoff
+  time-space overlay assembly through explicit runtime, refresh, contract,
+  path, and config ports without host IO or stack mutation. Remaining causal
+  readmodels and activation/lineage/coverage centers must be extracted before
+  the final residual CLI-edge classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
