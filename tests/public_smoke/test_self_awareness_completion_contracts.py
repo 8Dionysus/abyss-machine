@@ -201,3 +201,167 @@ def test_completion_actions_rank_stable_core_routes_without_executing_them(tmp_p
     assert all(action["resource_gate"]["current_audit_resource_guard_ok"] is True for action in actions)
     assert all(action["policy"]["executes_commands"] is False for action in actions)
     assert all(action["policy"]["actions_executed"] is False for action in actions)
+
+
+def test_stack_requirement_drilldown_builds_complete_readonly_closure_packet(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    requirement_id = "stack.trace-backend"
+    context = completion_contracts.CompletionDrilldownContext(
+        resource_preflight={"ok": True},
+        requirements={
+            "requirements": [{"id": requirement_id, "title": "Trace backend"}],
+            "stack_handoff": [{"requirement_id": requirement_id, "title": "Trace backend handoff"}],
+        },
+        requirement_probes={
+            "probes": [
+                {
+                    "requirement_id": requirement_id,
+                    "current_state": {"status": "open"},
+                    "checks": [
+                        {"key": "reachable", "ok": True, "level": "info", "message": "reachable"},
+                        {"key": "joined", "ok": False, "level": "error", "message": "not joined"},
+                    ],
+                }
+            ]
+        },
+        stack_closure_dossier={
+            "entries": [
+                {
+                    "requirement_id": requirement_id,
+                    "current_state_digest": "state-fixture",
+                    "closure_readiness": {
+                        "fulfilled_checks": [{"key": "reachable"}],
+                        "missing_checks": [{"key": "joined"}],
+                    },
+                    "coverage_impact": {"coverage_planes": ["trace_join"]},
+                    "closure_acceptance": {
+                        "schema": "abyss_machine_self_awareness_stack_requirement_closure_acceptance_v1",
+                        "acceptance_id": "acceptance-fixture",
+                        "complete": True,
+                        "status": "ready",
+                        "pre_close_identity": {"current_state_digest": "state-fixture"},
+                        "stack_compat_requirement": {
+                            "minimum_response_contract": {
+                                "required_fields": ["trace_id"],
+                                "success_predicates": ["trace_joined"],
+                            },
+                            "operator_boundary": {
+                                "host_layer_mutates_stack": False,
+                                "abyss_machine_executes_stack_change": False,
+                            },
+                            "redaction_contract": {"raw_payloads": False},
+                        },
+                        "post_close_verifier_chain": [
+                            {"command": "abyss-machine self-awareness validate --json"},
+                            {"command": "abyss-machine self-awareness validate --json"},
+                        ],
+                        "negative_controls": ["no automatic remediation"],
+                    },
+                }
+            ]
+        },
+        coverage_rows=[
+            {
+                "id": "coverage-fixture",
+                "status": "blocked",
+                "objective_area": "trace_join",
+                "coverage_planes": ["trace_join"],
+                "open_stack_requirement_ids": [requirement_id],
+            }
+        ],
+        open_potential_rows=[],
+        activation_smoke={"rows": []},
+        paths=paths,
+    )
+    action = {
+        "id": f"stack-requirement:{requirement_id}",
+        "category": "stack_requirement",
+        "owner_route": "abyss-stack",
+        "requirement_id": requirement_id,
+        "priority_rank": 1,
+        "priority_score": 140,
+        "priority_class": "critical_trace_join",
+        "priority_reasons": ["open_stack_owned_requirement"],
+        "closure_blocker_keys": ["joined"],
+        "coverage_planes": ["trace_join"],
+        "verifier_commands": ["abyss-machine self-awareness validate --json"],
+        "resource_gate": {"heavy_verifier_requires_resource_guard": True},
+        "safe_next_action": {"executes_commands": False, "host_layer_mutates_stack": False},
+    }
+
+    drilldown = completion_contracts.completion_action_drilldown(
+        action,
+        schema_prefix="abyss_machine",
+        context=context,
+    )
+
+    assert drilldown["schema"] == "abyss_machine_self_awareness_completion_action_drilldown_v1"
+    assert drilldown["complete"] is True
+    assert drilldown["checks"]["missing"] == [{"key": "joined"}]
+    assert drilldown["checks"]["fulfilled"] == [{"key": "reachable"}]
+    assert drilldown["coverage"]["planes"] == ["trace_join"]
+    assert drilldown["acceptance"]["verifier_commands"] == [
+        "abyss-machine self-awareness validate --json"
+    ]
+    assert drilldown["acceptance"]["operator_boundary"]["host_layer_mutates_stack"] is False
+    assert drilldown["next_step_packet"]["audit_executes_verifiers"] is False
+    assert drilldown["policy"]["actions_executed"] is False
+
+
+def test_working_stack_drilldown_builds_complete_usage_gap_packet(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    service = "aoa-browser"
+    activation_route = {"current_state": {"status": "running"}, "complete": True}
+    context = completion_contracts.CompletionDrilldownContext(
+        resource_preflight={"ok": True},
+        requirements={},
+        requirement_probes={},
+        stack_closure_dossier={},
+        coverage_rows=[],
+        open_potential_rows=[{"service": service, "activation_gap_route": activation_route}],
+        activation_smoke={
+            "rows": [
+                {
+                    "service": service,
+                    "complete": True,
+                    "replay": {"working_stack_gap_replayable": True},
+                }
+            ]
+        },
+        paths=paths,
+    )
+    action = {
+        "id": f"working-stack:{service}",
+        "category": "working_stack_usage_gap",
+        "owner_route": "abyss-stack",
+        "service": service,
+        "priority_rank": 1,
+        "priority_score": 100,
+        "priority_class": "browser_tool_runtime",
+        "priority_reasons": ["open_working_stack_usage_gap"],
+        "activation_gap_classification": "running_functional_smoke_failed",
+        "machine_usage_status": "open_potential",
+        "usage_gap": "browser tool roundtrip missing",
+        "missing_checks": ["tool_roundtrip"],
+        "closure_blocker_keys": ["browser_tool_probe"],
+        "verifier_commands": ["abyss-machine self-awareness activation-smoke --json"],
+        "activation_gap_route": activation_route,
+        "resource_gate": {"heavy_verifier_requires_resource_guard": True},
+        "safe_next_action": {"executes_commands": False, "host_layer_mutates_stack": False},
+    }
+
+    drilldown = completion_contracts.completion_action_drilldown(
+        action,
+        schema_prefix="abyss_machine",
+        context=context,
+    )
+
+    assert drilldown["complete"] is True
+    assert drilldown["service"] == service
+    assert drilldown["activation_smoke"]["row_complete"] is True
+    assert drilldown["activation_smoke"]["working_stack_gap_replayable"] is True
+    assert drilldown["acceptance"]["verifier_commands"] == [
+        "abyss-machine self-awareness activation-smoke --json"
+    ]
+    assert drilldown["next_step_packet"]["audit_executes_verifiers"] is False
+    assert drilldown["policy"]["host_layer_mutates_stack"] is False

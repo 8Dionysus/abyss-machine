@@ -228,9 +228,11 @@ For self-awareness completion contract-core changes, public CI should rely on
 synthetic readiness/path inputs for exact gate and blocker identities,
 autolink count-pair completeness, read-only owner-boundary predicates,
 deterministic action scores/ranks, fallback evidence refs, resource-gate
-projection, and no-execution policy. Existing host-contract tests must still
-prove body-watch and open-stack-potential semantics. Live closeout may compare
-only compact gate states, blocker IDs, top action identity/rank/score/class,
+projection, stack-requirement and working-stack drilldown completeness,
+deduplicated verifier plans, and no-execution policy. Existing host-contract
+tests must still prove body-watch and open-stack-potential semantics. Live
+closeout may compare only compact gate states, blocker IDs, top action and top
+drilldown identity/rank/score/class, missing/fulfilled/verifier counts,
 route/entity/packet counts, owner-boundary booleans, and history delta; do not
 publish raw action drilldowns, entity maps, packet payloads, or host evidence.
 
