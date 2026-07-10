@@ -1627,6 +1627,19 @@ binding. Live closeout captures one live input snapshot before comparing full
 source/installed documents locally by hash, because container/network/freshness
 inputs can change between calls; reports include only summary counts and policy.
 
+## Extracted Self-Awareness Resident Worker Contract
+
+`abyss_machine.self_awareness_resident_worker_contracts` owns the bounded
+resident-worker health, serving, monitor, resource, candidate, eval, policy,
+and cognitive-contract projection plus its completion predicate. It consumes
+six supplied resident readmodels and performs no filesystem, network, model, or
+stack mutation. The CLI preserves both helper signatures and only binds the
+schema config. Public tests constrain complete and action-execution-denied
+states plus CLI binding. Live closeout compares one fixed six-document snapshot
+between source and installed implementations and reports only ok/completion/
+status and policy; model paths, endpoints, metrics, candidates, and eval bodies
+remain private.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1928,7 +1941,8 @@ machine evidence.
    candidate assembly, response enrichment, and persistence now live in
    `self_awareness_alert_contracts`; referenced brief and stack-handoff action-
    map assembly now live in `self_awareness_brief_contracts`. Before declaring
-   this family closed, extract the remaining resident causal readmodels plus
+   this family closed, extract the remaining resident cognitive context/replay
+   readmodels plus
    activation/lineage/
    coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-

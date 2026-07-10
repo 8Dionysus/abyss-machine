@@ -379,6 +379,15 @@ network errors, and freshness timestamps may change between calls; report only
 brief/action-map summary counts and policy, never claims, blockers, runbooks,
 evidence refs, endpoints, or paths.
 
+For self-awareness resident-worker contract changes, public CI should use six
+synthetic status/monitor/digest/micro/eval/candidate documents. It must
+constrain stack-owned serving projection, monitor timers, bounded model/thermal
+metadata, candidate/eval summaries, completion, action-execution denial,
+non-authoritative output policy, and CLI binding. Live closeout must compare a
+single fixed six-document source/installed snapshot and may report only
+ok/completion/status and policy; never publish model paths, endpoints, metrics,
+candidates, or eval bodies.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.
