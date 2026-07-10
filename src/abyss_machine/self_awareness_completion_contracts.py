@@ -45,6 +45,18 @@ class CompletionAuditReadiness:
     owner_boundary_ok: bool
 
 
+@dataclass(frozen=True)
+class CompletionDrilldownContext:
+    resource_preflight: Mapping[str, Any]
+    requirements: Mapping[str, Any]
+    requirement_probes: Mapping[str, Any]
+    stack_closure_dossier: Mapping[str, Any]
+    coverage_rows: list[dict[str, Any]]
+    open_potential_rows: list[dict[str, Any]]
+    activation_smoke: Mapping[str, Any]
+    paths: CompletionAuditPaths
+
+
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -390,6 +402,459 @@ def working_stack_priority(row: Mapping[str, Any]) -> tuple[int, str, list[str]]
         score += delta
         reasons.append(reason)
     return score, priority_class, reasons
+
+
+def first_matching_row(rows: Any, *pairs: tuple[str, str]) -> dict[str, Any]:
+    if not isinstance(rows, list):
+        return {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if all(str(row.get(key) or "") == value for key, value in pairs):
+            return row
+    return {}
+
+
+def _checks_from_probe(probe: Mapping[str, Any], ok: bool) -> list[dict[str, Any]]:
+    checks = probe.get("checks") if isinstance(probe.get("checks"), list) else []
+    return [
+        {
+            "key": check.get("key"),
+            "level": check.get("level"),
+            "message": check.get("message"),
+            "evidence_hint": check.get("data") if isinstance(check.get("data"), dict) else {},
+        }
+        for check in checks
+        if isinstance(check, dict) and (check.get("ok") is True) is ok
+    ]
+
+
+def _verifier_commands_from_chain(chain: Any) -> list[str]:
+    commands: list[str] = []
+    if isinstance(chain, list):
+        for item in chain:
+            if isinstance(item, dict) and item.get("command"):
+                commands.append(str(item.get("command")))
+            elif isinstance(item, str) and item:
+                commands.append(item)
+    return list(dict.fromkeys(commands))
+
+
+def completion_action_drilldown(
+    action: dict[str, Any],
+    *,
+    schema_prefix: str,
+    context: CompletionDrilldownContext,
+) -> dict[str, Any]:
+    nested_get = self_awareness_contracts.nested_get
+    action_id = str(action.get("id") or "")
+    category = str(action.get("category") or "")
+    drilldown_id = "sacompletiondrill-" + self_awareness_contracts.stable_hash_json(
+        {"action_id": action_id, "category": category},
+        length=24,
+    )
+    action_resource_gate = action.get("resource_gate") if isinstance(action.get("resource_gate"), dict) else {}
+    safe_next = action.get("safe_next_action") if isinstance(action.get("safe_next_action"), dict) else {}
+    common_policy = {
+        "handoff_only": True,
+        "read_only": True,
+        "requires_human_approval": True,
+        "executes_commands": False,
+        "host_layer_mutates_stack": False,
+        "writes_project_roots": False,
+        "automatic_remediation": False,
+        "actions_executed": False,
+        "completion_audit_runs_probe": False,
+        "completion_audit_runs_cycle": False,
+        "completion_audit_runs_indexing": False,
+    }
+    source_artifacts = [
+        {"name": "completion_audit", "path": str(context.paths.completion_audit)},
+        {"name": "coverage_audit", "path": str(context.paths.coverage_audit)},
+        {"name": "autolink", "path": str(context.paths.autolink)},
+    ]
+    payload: dict[str, Any] = {
+        "schema": f"{schema_prefix}_self_awareness_completion_action_drilldown_v1",
+        "id": drilldown_id,
+        "action_id": action_id,
+        "category": category,
+        "owner_route": action.get("owner_route"),
+        "priority": {
+            "rank": action.get("priority_rank"),
+            "score": action.get("priority_score"),
+            "class": action.get("priority_class"),
+            "reasons": action.get("priority_reasons") if isinstance(action.get("priority_reasons"), list) else [],
+        },
+        "resource_gate": {
+            **action_resource_gate,
+            "latest_only_readmodel": True,
+            "heavy_verifier_requires_resource_guard": True,
+            "resource_preflight_ok": bool(context.resource_preflight.get("ok")),
+        },
+        "safe_next_action": safe_next,
+        "source_artifacts": source_artifacts,
+        "policy": common_policy,
+    }
+    if category == "stack_requirement":
+        requirement_id = str(action.get("requirement_id") or "")
+        requirement = first_matching_row(context.requirements.get("requirements"), ("id", requirement_id))
+        handoff = first_matching_row(context.requirements.get("stack_handoff"), ("requirement_id", requirement_id))
+        probe = first_matching_row(context.requirement_probes.get("probes"), ("requirement_id", requirement_id))
+        if not probe:
+            probe = first_matching_row(context.requirement_probes.get("probes"), ("id", requirement_id))
+        dossier_entry = first_matching_row(
+            context.stack_closure_dossier.get("entries"),
+            ("requirement_id", requirement_id),
+        )
+        closure_readiness = (
+            dossier_entry.get("closure_readiness")
+            if isinstance(dossier_entry.get("closure_readiness"), dict)
+            else {}
+        )
+        if not closure_readiness and isinstance(probe.get("closure_readiness"), dict):
+            closure_readiness = probe["closure_readiness"]
+        closure_acceptance = (
+            dossier_entry.get("closure_acceptance")
+            if isinstance(dossier_entry.get("closure_acceptance"), dict)
+            else {}
+        )
+        pre_close_identity = (
+            closure_acceptance.get("pre_close_identity")
+            if isinstance(closure_acceptance.get("pre_close_identity"), dict)
+            else {}
+        )
+        stack_compat_requirement = (
+            closure_acceptance.get("stack_compat_requirement")
+            if isinstance(closure_acceptance.get("stack_compat_requirement"), dict)
+            else {}
+        )
+        closure_diff_contract = (
+            closure_acceptance.get("closure_diff_contract")
+            if isinstance(closure_acceptance.get("closure_diff_contract"), dict)
+            else {}
+        )
+        coverage_rows_for_requirement = [
+            {
+                "id": row.get("id"),
+                "status": row.get("status"),
+                "objective_area": row.get("objective_area"),
+                "coverage_planes": row.get("coverage_planes") if isinstance(row.get("coverage_planes"), list) else [],
+                "open_stack_requirement_ids": (
+                    row.get("open_stack_requirement_ids")
+                    if isinstance(row.get("open_stack_requirement_ids"), list)
+                    else []
+                ),
+                "missing_chain_keys": row.get("missing_chain_keys") if isinstance(row.get("missing_chain_keys"), list) else [],
+                "chain_keys": row.get("chain_keys") if isinstance(row.get("chain_keys"), list) else [],
+            }
+            for row in context.coverage_rows
+            if isinstance(row, dict)
+            and requirement_id
+            in {
+                str(item)
+                for item in (
+                    row.get("open_stack_requirement_ids")
+                    if isinstance(row.get("open_stack_requirement_ids"), list)
+                    else []
+                )
+            }
+        ]
+        fulfilled_checks = (
+            closure_readiness.get("fulfilled_checks")
+            if isinstance(closure_readiness.get("fulfilled_checks"), list)
+            else _checks_from_probe(probe, True)
+        )
+        missing_checks = (
+            closure_readiness.get("missing_checks")
+            if isinstance(closure_readiness.get("missing_checks"), list)
+            else action.get("missing_checks")
+            if isinstance(action.get("missing_checks"), list)
+            else _checks_from_probe(probe, False)
+        )
+        post_close_verifier_chain = (
+            closure_acceptance.get("post_close_verifier_chain")
+            if isinstance(closure_acceptance.get("post_close_verifier_chain"), list)
+            else []
+        )
+        negative_controls = (
+            closure_acceptance.get("negative_controls")
+            if isinstance(closure_acceptance.get("negative_controls"), list)
+            else []
+        )
+        verifier_commands = list(dict.fromkeys(
+            _verifier_commands_from_chain(post_close_verifier_chain)
+            + [
+                str(item)
+                for item in (
+                    action.get("verifier_commands")
+                    if isinstance(action.get("verifier_commands"), list)
+                    else []
+                )
+                if item
+            ]
+        ))
+        coverage_impact = (
+            dossier_entry.get("coverage_impact")
+            if isinstance(dossier_entry.get("coverage_impact"), dict)
+            else stack_compat_requirement.get("coverage_contract")
+            if isinstance(stack_compat_requirement.get("coverage_contract"), dict)
+            else {}
+        )
+        dependency_contract = (
+            stack_compat_requirement.get("dependency_contract")
+            if isinstance(stack_compat_requirement.get("dependency_contract"), dict)
+            else {}
+        )
+        payload.update({
+            "requirement_id": requirement_id,
+            "title": action.get("title") or requirement.get("title") or handoff.get("title"),
+            "current_state": (
+                probe.get("current_state")
+                if isinstance(probe.get("current_state"), dict)
+                else dossier_entry.get("current_state")
+                if isinstance(dossier_entry.get("current_state"), dict)
+                else {}
+            ),
+            "current_state_identity": {
+                "digest": pre_close_identity.get("current_state_digest") or dossier_entry.get("current_state_digest"),
+                "keys": (
+                    pre_close_identity.get("current_state_keys")
+                    if isinstance(pre_close_identity.get("current_state_keys"), list)
+                    else nested_get(closure_readiness, ["current_state_digest", "keys"]) or []
+                ),
+                "closed_by_current_probe": bool(
+                    probe.get("closed_by_current_probe") or dossier_entry.get("closed_by_current_probe")
+                ),
+                "readiness_score": closure_readiness.get("readiness_score") or dossier_entry.get("readiness_score"),
+            },
+            "checks": {
+                "missing": missing_checks,
+                "fulfilled": fulfilled_checks,
+                "blocking_check_keys": (
+                    action.get("closure_blocker_keys")
+                    if isinstance(action.get("closure_blocker_keys"), list)
+                    else closure_readiness.get("blocking_check_keys")
+                    if isinstance(closure_readiness.get("blocking_check_keys"), list)
+                    else []
+                ),
+                "open_blocker_count": len(missing_checks),
+                "fulfilled_check_count": len(fulfilled_checks) if isinstance(fulfilled_checks, list) else 0,
+            },
+            "coverage": {
+                "planes": (
+                    action.get("coverage_planes")
+                    if isinstance(action.get("coverage_planes"), list)
+                    else coverage_impact.get("coverage_planes")
+                    if isinstance(coverage_impact.get("coverage_planes"), list)
+                    else []
+                ),
+                "impact": coverage_impact,
+                "rows": coverage_rows_for_requirement,
+                "blocked_stack_usage_requirements": (
+                    coverage_impact.get("blocks_stack_usage_requirements")
+                    if isinstance(coverage_impact.get("blocks_stack_usage_requirements"), list)
+                    else []
+                ),
+            },
+            "dependency_edges": {
+                "depends_on_requirement_ids": (
+                    dossier_entry.get("depends_on_requirement_ids")
+                    if isinstance(dossier_entry.get("depends_on_requirement_ids"), list)
+                    else dependency_contract.get("depends_on_requirement_ids")
+                    if isinstance(dependency_contract.get("depends_on_requirement_ids"), list)
+                    else []
+                ),
+                "unblocks_requirement_ids": (
+                    dossier_entry.get("unblocks_requirement_ids")
+                    if isinstance(dossier_entry.get("unblocks_requirement_ids"), list)
+                    else dependency_contract.get("unblocks_requirement_ids")
+                    if isinstance(dependency_contract.get("unblocks_requirement_ids"), list)
+                    else []
+                ),
+                "blocked_by_dependency_edges": (
+                    dossier_entry.get("blocked_by_dependency_edges")
+                    if isinstance(dossier_entry.get("blocked_by_dependency_edges"), list)
+                    else []
+                ),
+                "unblocks_dependency_edges": (
+                    dossier_entry.get("unblocks_dependency_edges")
+                    if isinstance(dossier_entry.get("unblocks_dependency_edges"), list)
+                    else []
+                ),
+                "closure_impact": (
+                    dossier_entry.get("closure_impact")
+                    if isinstance(dossier_entry.get("closure_impact"), dict)
+                    else {}
+                ),
+            },
+            "closure_acceptance": {
+                "schema": closure_acceptance.get("schema"),
+                "acceptance_id": closure_acceptance.get("acceptance_id"),
+                "complete": bool(closure_acceptance.get("complete")),
+                "status": closure_acceptance.get("status"),
+                "surface_kind": closure_acceptance.get("surface_kind"),
+                "pre_close_identity": pre_close_identity,
+                "stack_compat_requirement": stack_compat_requirement,
+                "closure_diff_contract": closure_diff_contract,
+                "post_close_success_predicates": (
+                    closure_acceptance.get("post_close_success_predicates")
+                    if isinstance(closure_acceptance.get("post_close_success_predicates"), list)
+                    else []
+                ),
+                "post_close_verifier_chain": post_close_verifier_chain,
+                "negative_controls": negative_controls,
+                "safe_next_action": (
+                    closure_acceptance.get("safe_next_action")
+                    if isinstance(closure_acceptance.get("safe_next_action"), dict)
+                    else safe_next
+                ),
+                "no_partial_credit_conditions": (
+                    closure_diff_contract.get("no_partial_credit_conditions")
+                    if isinstance(closure_diff_contract.get("no_partial_credit_conditions"), list)
+                    else []
+                ),
+            },
+            "acceptance": {
+                "required_fields": (
+                    nested_get(stack_compat_requirement, ["minimum_response_contract", "required_fields"])
+                    or closure_readiness.get("required_fields")
+                    or []
+                ),
+                "success_predicates": (
+                    nested_get(stack_compat_requirement, ["minimum_response_contract", "success_predicates"])
+                    or closure_readiness.get("success_predicates")
+                    or []
+                ),
+                "verifier_commands": verifier_commands,
+                "post_close_verifier_chain": post_close_verifier_chain,
+                "negative_controls": negative_controls,
+                "redaction_contract": (
+                    stack_compat_requirement.get("redaction_contract")
+                    if isinstance(stack_compat_requirement.get("redaction_contract"), dict)
+                    else {}
+                ),
+                "operator_boundary": (
+                    stack_compat_requirement.get("operator_boundary")
+                    if isinstance(stack_compat_requirement.get("operator_boundary"), dict)
+                    else {}
+                ),
+            },
+            "evidence_refs": (
+                action.get("evidence_refs")
+                if isinstance(action.get("evidence_refs"), list)
+                else closure_acceptance.get("evidence_refs")
+                if isinstance(closure_acceptance.get("evidence_refs"), list)
+                else []
+            ),
+            "next_step_packet": {
+                "kind": "stack_owner_requirement_closure_packet",
+                "owner_route": "abyss-stack",
+                "read_command": "abyss-machine self-awareness completion-audit --json",
+                "probe_command": "abyss-machine self-awareness requirement-probes --json",
+                "dossier_command": "abyss-machine self-awareness stack-closure-dossier --json",
+                "closure_requires_stack_owned_change": True,
+                "closure_requires_current_probe_success": True,
+                "audit_executes_verifiers": False,
+                "heavy_verifiers_require_resource_guard": True,
+                "verifier_commands": verifier_commands,
+            },
+        })
+        stack_complete = (
+            bool(requirement_id)
+            and bool(payload["checks"]["missing"])
+            and bool(payload["checks"]["fulfilled"])
+            and bool(payload["coverage"]["planes"])
+            and bool(payload["closure_acceptance"]["complete"])
+            and bool(payload["acceptance"]["required_fields"])
+            and bool(payload["acceptance"]["success_predicates"])
+            and bool(payload["acceptance"]["verifier_commands"])
+            and nested_get(payload, ["acceptance", "operator_boundary", "host_layer_mutates_stack"]) is False
+            and nested_get(payload, ["acceptance", "operator_boundary", "abyss_machine_executes_stack_change"])
+            is False
+        )
+        payload["complete"] = bool(
+            stack_complete
+            and safe_next.get("executes_commands") is False
+            and safe_next.get("host_layer_mutates_stack") is False
+        )
+    elif category == "working_stack_usage_gap":
+        service = str(action.get("service") or "")
+        potential_row = first_matching_row(context.open_potential_rows, ("service", service))
+        activation_rows = (
+            context.activation_smoke.get("rows")
+            if isinstance(context.activation_smoke.get("rows"), list)
+            else []
+        )
+        activation_row = first_matching_row(activation_rows, ("service", service))
+        activation_route = (
+            action.get("activation_gap_route")
+            if isinstance(action.get("activation_gap_route"), dict)
+            else potential_row.get("activation_gap_route")
+            if isinstance(potential_row.get("activation_gap_route"), dict)
+            else {}
+        )
+        verifier_commands = [
+            str(item)
+            for item in (
+                action.get("verifier_commands")
+                if isinstance(action.get("verifier_commands"), list)
+                else []
+            )
+            if item
+        ]
+        payload.update({
+            "service": service,
+            "activation_gap_classification": action.get("activation_gap_classification"),
+            "machine_usage_status": action.get("machine_usage_status"),
+            "usage_gap": action.get("usage_gap"),
+            "current_state": (
+                activation_route.get("current_state")
+                if isinstance(activation_route.get("current_state"), dict)
+                else {}
+            ),
+            "checks": {
+                "missing": action.get("missing_checks") if isinstance(action.get("missing_checks"), list) else [],
+                "closure_blocker_keys": (
+                    action.get("closure_blocker_keys")
+                    if isinstance(action.get("closure_blocker_keys"), list)
+                    else []
+                ),
+            },
+            "activation_smoke": {
+                "row": activation_row,
+                "row_complete": activation_row.get("complete") is True,
+                "working_stack_gap_replayable": (
+                    nested_get(activation_row, ["replay", "working_stack_gap_replayable"]) is True
+                ),
+            },
+            "activation_gap_route": activation_route,
+            "acceptance": {
+                "verifier_commands": verifier_commands,
+                "requires_functional_smoke_or_runtime_state_evidence": True,
+            },
+            "next_step_packet": {
+                "kind": "stack_owner_working_stack_usage_gap_packet",
+                "owner_route": "abyss-stack",
+                "read_command": "abyss-machine self-awareness completion-audit --json",
+                "working_stack_command": "abyss-machine self-awareness working-stack --json",
+                "activation_smoke_command": "abyss-machine self-awareness activation-smoke --json",
+                "audit_executes_verifiers": False,
+                "heavy_verifiers_require_resource_guard": True,
+                "verifier_commands": verifier_commands,
+            },
+            "evidence_refs": action.get("evidence_refs") if isinstance(action.get("evidence_refs"), list) else [],
+        })
+        payload["complete"] = bool(
+            service
+            and payload["checks"]["missing"]
+            and payload["checks"]["closure_blocker_keys"]
+            and verifier_commands
+            and safe_next.get("executes_commands") is False
+            and safe_next.get("host_layer_mutates_stack") is False
+        )
+    else:
+        payload["complete"] = False
+    return payload
 
 
 def completion_actions(
