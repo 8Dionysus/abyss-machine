@@ -53,7 +53,8 @@ Use these mechanic owners for the next extraction slices:
   state normalization, and observation-event orchestration through fakeable
   ports, ordered collect input acquisition across latest reads, subsystem
   refreshes, optional network queries, time windows, and scheduler/service
-  events, cycle latest-read/bridge-document dispatch,
+  events, collect event/fabric/readmodel assembly through supplied contract
+  ports and explicit host-path binding, cycle latest-read/bridge-document dispatch,
   validation latest-spec selection, bounded status latest summaries,
   body-closure status document builders, status open-potential/open-requirement
   row builders, resource preflight guard decisions, bounded HTTP status probe
@@ -76,7 +77,7 @@ Use these mechanic owners for the next extraction slices:
   chain assembly through supplied completion predicates, cycle post-export chain
   updates, cycle stack-handoff summary document assembly, and cycle
   partial/building/final result document assembly live in
-  `self_awareness_adapters`; collect event/fabric assembly and final writes,
+  `self_awareness_adapters`; final collect latest/history/index writes,
   probe/cycle orchestration, deeper runtime refresh, concrete artifact/freshness
   binding, and investigate/replay execution remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized

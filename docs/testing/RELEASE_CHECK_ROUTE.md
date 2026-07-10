@@ -360,6 +360,16 @@ and report only schema/status, event and invalid counts, degraded-source names,
 scheduler/service counts, and owner-boundary booleans. Do not publish latest
 documents, query responses, event bodies, runtime inventories, or private paths.
 
+For self-awareness collect-assembly adapter changes, public CI should use
+synthetic input documents and supplied contract ports to prove required path
+binding, event/fabric document assembly, duplicate handling, correlation-index
+handoff, required-versus-optional degradation, collector summaries, and the
+read-only owner boundary without writing latest/history/index state. Live-host
+closeout may report only schema/status, event and invalid counts,
+degraded-source names, scheduler/service counts, and owner-boundary booleans.
+Do not publish assembled events, collector payloads, query responses, or local
+paths.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
