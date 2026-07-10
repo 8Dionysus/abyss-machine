@@ -107,6 +107,7 @@ try:
     from . import resource_planning
     from . import runtime_evidence_contracts
     from . import self_awareness_adapters
+    from . import self_awareness_completion_contracts
     from . import self_awareness_contracts
     from . import stack_bridge_contracts
     from . import storage_adapters
@@ -272,6 +273,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import resource_planning
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import self_awareness_adapters
+    from abyss_machine import self_awareness_completion_contracts
     from abyss_machine import self_awareness_contracts
     from abyss_machine import stack_bridge_contracts
     from abyss_machine import storage_adapters
@@ -34261,189 +34263,57 @@ def self_awareness_completion_audit(write_latest: bool = True) -> dict[str, Any]
     working_stack_usage_gaps = safe_int(status_summary.get("working_stack_usage_gaps"), len(open_potential_rows))
     activation_open_gaps = safe_int(activation_summary.get("open_activation_gaps"), 0)
 
-    def counts_match(total_key: str, complete_key: str) -> bool:
-        total = autolink_summary.get(total_key)
-        complete = autolink_summary.get(complete_key)
-        if total is None or complete is None:
-            return False
-        return safe_int(total, -1) == safe_int(complete, -2)
-
-    autolink_complete = (
-        bool(autolink.get("ok"))
-        and counts_match("organ_links", "organ_links_complete")
-        and counts_match("stack_requirement_links", "stack_requirement_links_complete")
-        and counts_match("synthetic_scenarios", "synthetic_scenarios_complete")
-        and bool(autolink.get("state_digest"))
+    completion_paths = self_awareness_completion_contracts.CompletionAuditPaths(
+        completion_audit=SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH,
+        coverage_audit=SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
+        autolink=SELF_AWARENESS_AUTOLINK_LATEST_PATH,
+        validate=SELF_AWARENESS_VALIDATE_LATEST_PATH,
+        cycle=SELF_AWARENESS_CYCLE_LATEST_PATH,
+        requirement_probes=SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+        stack_closure_dossier=SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+        working_stack=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        activation_smoke=SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
     )
-    owner_boundary_ok = (
-        nested_get(open_requirement_doc, ["policy", "host_layer_mutates_stack"]) is False
-        and nested_get(open_potential_doc, ["policy", "host_layer_mutates_stack"]) is False
-        and nested_get(coverage_audit, ["policy", "host_layer_mutates_stack"]) is False
+    autolink_complete = self_awareness_completion_contracts.completion_autolink_ready(autolink)
+    owner_boundary_ok = self_awareness_completion_contracts.completion_owner_boundary_readonly(
+        open_requirement_doc,
+        open_potential_doc,
+        coverage_audit,
+    )
+    completion_readiness = self_awareness_completion_contracts.CompletionAuditReadiness(
+        artifact_refs=artifact_refs,
+        missing_artifacts=missing_artifacts,
+        validation_summary=validation_summary,
+        validate_green=validate_green,
+        cycle=cycle_doc,
+        cycle_green=cycle_green,
+        coverage_audit=coverage_audit,
+        coverage_summary=coverage_summary,
+        coverage_green=coverage_green,
+        coverage_incomplete=coverage_incomplete,
+        open_requirement_rows=open_requirement_rows,
+        status_open_stack_requirements=status_open_stack_requirements,
+        requirement_probes_open=requirement_probes_open,
+        coverage_blocked_stack_owned=coverage_blocked_stack_owned,
+        open_potential_rows=open_potential_rows,
+        working_stack_usage_gaps=working_stack_usage_gaps,
+        activation_open_gaps=activation_open_gaps,
+        autolink_summary=autolink_summary,
+        autolink_complete=autolink_complete,
+        resource_preflight=resource_preflight,
+        owner_boundary_ok=owner_boundary_ok,
+    )
+    completion_gates = self_awareness_completion_contracts.completion_gates(
+        schema_prefix=SCHEMA_PREFIX,
+        readiness=completion_readiness,
+        paths=completion_paths,
     )
 
-    def gate(gate_id: str, ok: bool, title: str, evidence_refs: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_gate_v1",
-            "id": gate_id,
-            "ok": bool(ok),
-            "title": title,
-            "evidence_refs": evidence_refs,
-        }
-
-    completion_gates = [
-        gate("latest_artifacts_available", not missing_artifacts, "all required latest readmodels exist with expected schemas and digests", list(artifact_refs.values())),
-        gate("validator_green", validate_green, "self-awareness validate has no failures", [{"path": str(SELF_AWARENESS_VALIDATE_LATEST_PATH), "summary": validation_summary}]),
-        gate("cycle_green", cycle_green, "latest e2e cycle is present and not resource-denied", [{"path": str(SELF_AWARENESS_CYCLE_LATEST_PATH), "status": cycle_doc.get("status"), "summary": cycle_doc.get("summary")}]),
-        gate("coverage_green", coverage_green, "objective coverage has no incomplete rows", [{"path": str(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH), "summary": coverage_summary}]),
-        gate("no_open_stack_requirements", not open_requirement_rows and status_open_stack_requirements == 0 and requirement_probes_open == 0 and coverage_blocked_stack_owned == 0, "no abyss-stack-owned requirement blockers remain open", [{"path": str(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH)}, {"path": str(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH)}, {"path": str(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH)}]),
-        gate("no_working_stack_usage_gaps", not open_potential_rows and working_stack_usage_gaps == 0 and activation_open_gaps == 0, "all working stack organs are linked into machine usage or deliberately closed by evidence", [{"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH)}, {"path": str(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH)}]),
-        gate("automatic_time_space_context_links_complete", autolink_complete, "automatic temporal, spatial, and contextual links are complete", [{"path": str(SELF_AWARENESS_AUTOLINK_LATEST_PATH), "summary": autolink_summary}]),
-        gate("resource_guard_safe", bool(resource_preflight.get("ok")), "the machine has enough free memory, swap, and load headroom for the next proof step", [{"source": "/proc/meminfo"}, {"source": "os.getloadavg"}]),
-        gate("owner_boundary_readonly", owner_boundary_ok, "host layer remains a read-only stack consumer with no automatic remediation", [{"path": str(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH)}, {"path": str(SELF_AWARENESS_AUTOLINK_LATEST_PATH)}]),
-    ]
-
-    blockers: list[dict[str, Any]] = []
-
-    def add_blocker(
-        blocker_id: str,
-        category: str,
-        title: str,
-        *,
-        count: int = 0,
-        items: list[Any] | None = None,
-        evidence_refs: list[dict[str, Any]] | None = None,
-        owner_route: str = "abyss-machine",
-    ) -> None:
-        blockers.append({
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_blocker_v1",
-            "id": blocker_id,
-            "category": category,
-            "title": title,
-            "owner_route": owner_route,
-            "count": count,
-            "items": items or [],
-            "evidence_refs": evidence_refs or [],
-            "policy": {
-                "host_layer_mutates_stack": False,
-                "executes_commands": False,
-                "automatic_remediation": False,
-            },
-        })
-
-    if missing_artifacts:
-        add_blocker(
-            "self-awareness.latest-artifacts.missing",
-            "artifact",
-            "required self-awareness latest artifacts are missing or malformed",
-            count=len(missing_artifacts),
-            items=missing_artifacts,
-            evidence_refs=list(artifact_refs.values()),
-        )
-    if not validate_green:
-        add_blocker("self-awareness.validate.not-green", "validator", "latest self-awareness validate is not green", evidence_refs=[{"path": str(SELF_AWARENESS_VALIDATE_LATEST_PATH), "summary": validation_summary}])
-    if not cycle_green:
-        add_blocker("self-awareness.cycle.not-green", "e2e", "latest self-awareness cycle is not green or was resource-denied", evidence_refs=[{"path": str(SELF_AWARENESS_CYCLE_LATEST_PATH), "status": cycle_doc.get("status"), "summary": cycle_doc.get("summary")}])
-    if coverage_incomplete:
-        add_blocker(
-            "self-awareness.coverage.incomplete",
-            "coverage",
-            "objective coverage has incomplete rows",
-            count=coverage_incomplete,
-            items=coverage_audit.get("incomplete_rows") if isinstance(coverage_audit.get("incomplete_rows"), list) else [],
-            evidence_refs=[{"path": str(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH), "summary": coverage_summary}],
-        )
-    if open_requirement_rows or status_open_stack_requirements or requirement_probes_open or coverage_blocked_stack_owned:
-        add_blocker(
-            "abyss-stack.requirements.open",
-            "stack_requirement",
-            "abyss-stack-owned requirements still block full self-awareness coverage",
-            count=max(len(open_requirement_rows), status_open_stack_requirements, requirement_probes_open, coverage_blocked_stack_owned),
-            items=open_requirement_rows,
-            evidence_refs=[{"path": str(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH)}, {"path": str(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH)}, {"path": str(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH)}],
-            owner_route="abyss-stack",
-        )
-    if open_potential_rows or working_stack_usage_gaps or activation_open_gaps:
-        add_blocker(
-            "abyss-stack.working-potential.open",
-            "working_stack_usage_gap",
-            "working stack services are present but not fully used by abyss-machine",
-            count=max(len(open_potential_rows), working_stack_usage_gaps, activation_open_gaps),
-            items=open_potential_rows,
-            evidence_refs=[{"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH)}, {"path": str(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH)}, {"path": str(SELF_AWARENESS_AUTOLINK_LATEST_PATH)}],
-            owner_route="abyss-stack",
-        )
-    if not autolink_complete:
-        add_blocker("self-awareness.autolink.incomplete", "autolink", "automatic temporal, spatial, and contextual link state is not complete", evidence_refs=[{"path": str(SELF_AWARENESS_AUTOLINK_LATEST_PATH), "summary": autolink_summary}])
-    if not resource_preflight.get("ok"):
-        add_blocker("self-awareness.resource-guard.not-safe", "resource", "resource preflight denies further live proof work", evidence_refs=[{"source": "/proc/meminfo"}, {"source": "os.getloadavg"}])
-    if not owner_boundary_ok:
-        add_blocker("self-awareness.owner-boundary.not-readonly", "owner_boundary", "one or more completion sources claim stack mutation or automatic remediation", evidence_refs=[{"path": str(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH)}, {"path": str(SELF_AWARENESS_AUTOLINK_LATEST_PATH)}])
-
-    def stack_requirement_priority(row: dict[str, Any]) -> tuple[int, str, list[str]]:
-        requirement_id = str(row.get("requirement_id") or row.get("id") or "")
-        blockers_for_row = row.get("blocking_check_keys") if isinstance(row.get("blocking_check_keys"), list) else []
-        score = 50 + (len(blockers_for_row) * 8)
-        priority_class = "stack_handoff"
-        reasons = ["open_stack_owned_requirement"]
-        if requirement_id == "stack.trace-backend":
-            score += 50
-            priority_class = "critical_trace_join"
-            reasons.append("unlocks_span_log_metric_join_and_langgraph_trace_coupling")
-        elif requirement_id == "stack.langchain-api.graph-observability":
-            score += 42
-            priority_class = "critical_langgraph_checkpoint_inventory"
-            reasons.append("unlocks_thread_checkpoint_trace_replay_inventory")
-        elif requirement_id == "stack.database-graph.read-route":
-            score += 34
-            priority_class = "critical_memory_space_inventory"
-            reasons.append("unlocks_postgres_neo4j_spatial_memory_inventory")
-        elif requirement_id == "stack.grafana.datasource-read":
-            score += 24
-            priority_class = "dashboard_source_inventory"
-            reasons.append("unlocks_authoritative_dashboard_datasource_identity")
-        if "langchain_trace_backend_coupled" in {str(item) for item in blockers_for_row}:
-            score += 10
-            reasons.append("depends_on_trace_backend_coupling")
-        return score, priority_class, reasons
-
-    def working_stack_priority(row: dict[str, Any]) -> tuple[int, str, list[str]]:
-        service = str(row.get("service") or "")
-        classification = str(row.get("activation_gap_classification") or "")
-        blocker_keys = row.get("closure_blocker_keys") if isinstance(row.get("closure_blocker_keys"), list) else []
-        missing_checks = row.get("missing_checks") if isinstance(row.get("missing_checks"), list) else []
-        score = 36 + (len(blocker_keys) * 4) + (len(missing_checks) * 2)
-        priority_class = "working_stack_activation"
-        reasons = ["open_working_stack_usage_gap"]
-        if classification == "running_functional_smoke_failed":
-            score += 42
-            priority_class = "functional_smoke_failed_runtime"
-            reasons.append("runtime_present_but_functional_smoke_failed")
-        elif classification == "exited_stack_managed_container":
-            score += 32
-            priority_class = "exited_stack_managed_runtime"
-            reasons.append("stack_managed_container_exited")
-        elif classification == "declared_without_running_runtime":
-            score += 20
-            priority_class = "declared_runtime_not_running"
-            reasons.append("declared_service_not_running")
-        service_classes = {
-            "aoa-browser": ("browser_tool_runtime", 16, "browser_tool_is_direct_agent_body_surface"),
-            "langchain-api-llamacpp": ("llm_route_activation", 14, "langchain_llamacpp_route_part_of_reasoning_body"),
-            "litellm": ("llm_route_activation", 12, "litellm_route_part_of_model_gateway_body"),
-            "ollama": ("llm_route_activation", 12, "ollama_route_part_of_model_gateway_body"),
-            "tts-router": ("voice_runtime_activation", 10, "tts_router_part_of_voice_body"),
-            "qwen-tts": ("voice_runtime_activation", 10, "qwen_tts_part_of_voice_body"),
-            "babelvox-tts": ("voice_runtime_activation", 8, "babelvox_tts_part_of_voice_body"),
-            "tos-graph": ("graph_runtime_activation", 8, "tree_of_sophia_graph_runtime_surface"),
-            "n8n": ("workflow_runtime_activation", 6, "workflow_runtime_surface"),
-            "n8n-task-runners": ("workflow_runtime_activation", 6, "workflow_task_runner_surface"),
-        }
-        if service in service_classes:
-            mapped_class, delta, reason = service_classes[service]
-            priority_class = mapped_class
-            score += delta
-            reasons.append(reason)
-        return score, priority_class, reasons
+    blockers = self_awareness_completion_contracts.completion_blockers(
+        schema_prefix=SCHEMA_PREFIX,
+        readiness=completion_readiness,
+        paths=completion_paths,
+    )
 
     def first_row(rows: Any, *pairs: tuple[str, str]) -> dict[str, Any]:
         if not isinstance(rows, list):
@@ -34714,89 +34584,13 @@ def self_awareness_completion_audit(write_latest: bool = True) -> dict[str, Any]
             payload["complete"] = False
         return payload
 
-    completion_actions: list[dict[str, Any]] = []
-    for row in open_requirement_rows:
-        if not isinstance(row, dict):
-            continue
-        requirement_id = str(row.get("requirement_id") or row.get("id") or "unknown")
-        score, priority_class, priority_reasons = stack_requirement_priority(row)
-        safe_next = row.get("safe_next_action") if isinstance(row.get("safe_next_action"), dict) else {}
-        completion_actions.append({
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_action_v1",
-            "id": f"stack-requirement:{requirement_id}",
-            "category": "stack_requirement",
-            "owner_route": row.get("owner") or "abyss-stack",
-            "requirement_id": requirement_id,
-            "title": row.get("title"),
-            "priority_score": score,
-            "priority_class": priority_class,
-            "priority_reasons": priority_reasons,
-            "closure_blocker_keys": row.get("blocking_check_keys") if isinstance(row.get("blocking_check_keys"), list) else [],
-            "missing_checks": row.get("missing_checks") if isinstance(row.get("missing_checks"), list) else [],
-            "coverage_planes": row.get("coverage_planes") if isinstance(row.get("coverage_planes"), list) else [],
-            "verifier_commands": row.get("verifier_commands") if isinstance(row.get("verifier_commands"), list) else [],
-            "safe_next_action": safe_next,
-            "resource_gate": {
-                "current_audit_resource_guard_ok": bool(resource_preflight.get("ok")),
-                "completion_audit_runs_probe": False,
-                "completion_audit_runs_cycle": False,
-                "completion_audit_runs_indexing": False,
-                "heavy_verifier_requires_resource_guard": True,
-            },
-            "evidence_refs": row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else [{"path": str(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH), "requirement_id": requirement_id}],
-            "policy": {
-                "handoff_only": True,
-                "requires_human_approval": True,
-                "executes_commands": False,
-                "host_layer_mutates_stack": False,
-                "automatic_remediation": False,
-                "actions_executed": False,
-            },
-        })
-    for row in open_potential_rows:
-        if not isinstance(row, dict):
-            continue
-        service = str(row.get("service") or "unknown")
-        score, priority_class, priority_reasons = working_stack_priority(row)
-        safe_next = row.get("safe_next_action") if isinstance(row.get("safe_next_action"), dict) else {}
-        completion_actions.append({
-            "schema": f"{SCHEMA_PREFIX}_self_awareness_completion_action_v1",
-            "id": f"working-stack:{service}",
-            "category": "working_stack_usage_gap",
-            "owner_route": row.get("owner") or "abyss-stack",
-            "service": service,
-            "machine_usage_status": row.get("machine_usage_status"),
-            "usage_gap": row.get("usage_gap"),
-            "activation_gap_classification": row.get("activation_gap_classification"),
-            "priority_score": score,
-            "priority_class": priority_class,
-            "priority_reasons": priority_reasons,
-            "closure_blocker_keys": row.get("closure_blocker_keys") if isinstance(row.get("closure_blocker_keys"), list) else [],
-            "missing_checks": row.get("missing_checks") if isinstance(row.get("missing_checks"), list) else [],
-            "verifier_commands": row.get("verifier_commands") if isinstance(row.get("verifier_commands"), list) else [],
-            "safe_next_action": safe_next,
-            "activation_gap_route": row.get("activation_gap_route") if isinstance(row.get("activation_gap_route"), dict) else {},
-            "resource_gate": {
-                "current_audit_resource_guard_ok": bool(resource_preflight.get("ok")),
-                "completion_audit_runs_probe": False,
-                "completion_audit_runs_cycle": False,
-                "completion_audit_runs_indexing": False,
-                "heavy_verifier_requires_resource_guard": True,
-            },
-            "evidence_refs": row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else [{"path": str(SELF_AWARENESS_WORKING_STACK_LATEST_PATH), "service": service}],
-            "policy": {
-                "handoff_only": True,
-                "requires_human_approval": True,
-                "executes_commands": False,
-                "host_layer_mutates_stack": False,
-                "automatic_remediation": False,
-                "actions_executed": False,
-            },
-        })
-    completion_actions.sort(key=lambda item: (-safe_int(item.get("priority_score"), 0), str(item.get("id") or "")))
-    for rank, action in enumerate(completion_actions, start=1):
-        action["priority_rank"] = rank
-        action["drilldown_id"] = "sacompletiondrill-" + stable_hash_json({"action_id": action.get("id"), "category": action.get("category")}, length=24)
+    completion_actions = self_awareness_completion_contracts.completion_actions(
+        schema_prefix=SCHEMA_PREFIX,
+        open_requirement_rows=open_requirement_rows,
+        open_potential_rows=open_potential_rows,
+        resource_guard_ok=bool(resource_preflight.get("ok")),
+        paths=completion_paths,
+    )
     coverage_rows = coverage_audit.get("rows") if isinstance(coverage_audit.get("rows"), list) else []
     completion_drilldowns = [completion_action_drilldown(action) for action in completion_actions]
     completion_drilldowns_by_action = {
