@@ -147,10 +147,12 @@ Use these mechanic owners for the next extraction slices:
   host paths, latest-loader, and dependent-contract ports;
   `self_awareness_alert_contracts` owns conditional alert intake/refresh,
   owner-gated candidate assembly, response/body-trace enrichment, depth
-  accounting, and optional persistence through explicit ports. Remaining
-  brief/resident causal readmodels and activation/lineage/coverage centers must
-  be extracted before the final residual CLI-edge classification and family
-  completion audit.
+  accounting, and optional persistence through explicit ports;
+  `self_awareness_brief_contracts` owns ordered brief intake, stack-handoff
+  priority/action maps, referenced claims, health/degradation summaries, and
+  optional persistence through explicit ports. Remaining resident causal
+  readmodels and activation/lineage/coverage centers must be extracted before
+  the final residual CLI-edge classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

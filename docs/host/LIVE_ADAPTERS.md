@@ -1607,6 +1607,26 @@ Live closeout compares the full source/installed alert document locally by hash
 and reports only candidate/depth/body-trace counts and policy; event, episode,
 candidate, response, evidence, and path bodies remain private.
 
+## Extracted Self-Awareness Brief Pipeline
+
+`abyss_machine.self_awareness_brief_contracts` owns the complete operator brief
+and stack-handoff action-map pipeline:
+
+- ordered timeline, spatial graph, context, episodes, alerts, capabilities, and
+  requirement-probe refresh plus bounded latest-document intake;
+- deterministic stack-owned requirement priority, closure blocker, coverage
+  impact, acceptance verifier, safe-next-action, and no-mutation handoff maps;
+- referenced claim, health/degradation, memory-space freshness, next-check, and
+  runbook-candidate brief assembly with optional latest/history persistence;
+- seventeen explicit paths plus typed runtime, refresh, and contract ports.
+
+The CLI preserves both established brief helper signatures and only binds
+current paths and ports. Synthetic tests constrain priority and closed-row
+filtering, refresh order, claims and refs, persistence failure, policy, and CLI
+binding. Live closeout captures one live input snapshot before comparing full
+source/installed documents locally by hash, because container/network/freshness
+inputs can change between calls; reports include only summary counts and policy.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1906,8 +1926,9 @@ machine evidence.
    specific response assembly and response/candidate/route depth predicates
    now live in `self_awareness_response_contracts`; owner-gated alert intake,
    candidate assembly, response enrichment, and persistence now live in
-   `self_awareness_alert_contracts`. Before declaring this family closed,
-   extract the remaining brief/resident causal readmodels plus
+   `self_awareness_alert_contracts`; referenced brief and stack-handoff action-
+   map assembly now live in `self_awareness_brief_contracts`. Before declaring
+   this family closed, extract the remaining resident causal readmodels plus
    activation/lineage/
    coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
