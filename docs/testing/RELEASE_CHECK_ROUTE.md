@@ -325,6 +325,14 @@ binding. Live closeout may compare capability IDs/ok/status and aggregate
 summary plus external-evidence status/summary only; never publish HTTP bodies,
 datasource rows, database or graph data, external evidence rows, or host paths.
 
+For self-awareness failure-matrix changes, public CI should use fake ordered
+latest reads, capabilities refresh, clock, and latest/history writer ports. It
+must constrain read order, missing-capabilities fallback, current/absent/closed
+requirement rows, required-row completeness, malformed detection, write opt-in,
+no automatic remediation, and CLI binding. Live closeout may compare schema/
+ok/status/summary/policy only; never publish failure rows, current-state bodies,
+evidence refs, or host paths.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
