@@ -111,8 +111,11 @@ Use these mechanic owners for the next extraction slices:
   latest/history persistence through explicit ports. It also owns validation
   optional-refresh order, document/root/latest/history intake, and final
   latest/history persistence. Conditional validation freshness repair and
-  stable check assembly plus the export stack-handoff contract builder remain
-  bounded CLI debt.
+  stable check assembly remain bounded CLI debt;
+  `self_awareness_export_handoff_contracts` owns public artifact-ref projection
+  plus deterministic requirements, closure-order, dependency, coverage,
+  verifier, activation, and stack-owner handoff assembly without live IO or
+  stack mutation.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

@@ -224,6 +224,16 @@ inclusion booleans, history delta, and write-error count. Do not publish raw
 artifact maps, hashes, latest documents, local paths, stack payloads, or host
 evidence.
 
+For self-awareness export stack-handoff contract changes, public CI should use
+already-loaded synthetic requirements, requirement-probe, closure-dossier,
+coverage, activation-smoke, and exported-artifact documents plus fake contract
+callbacks. It must prove empty satisfied state, open/closed requirement
+classification, closure order and dependency projection, coverage impacts,
+verifier matrices, current-state digest redaction, activation/use-packet
+summaries, artifact-ref whitelisting, and no-execution/no-mutation policy. Live
+closeout may compare only schema/status, open/closed/closure/activation/artifact
+counts, open requirement IDs, policy booleans, and write-error count.
+
 For self-awareness completion contract-core changes, public CI should rely on
 synthetic readiness/path inputs for exact gate and blocker identities,
 autolink count-pair completeness, read-only owner-boundary predicates,

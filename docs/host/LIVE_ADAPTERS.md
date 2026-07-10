@@ -1277,6 +1277,29 @@ a partial write is a bounded export retry: latest is replaceable, while
 append-only history may retain a duplicate and is not destructively rolled
 back.
 
+## Extracted Self-Awareness Export Stack-Handoff Contract
+
+`abyss_machine.self_awareness_export_handoff_contracts` owns the stable,
+stack-nonmutating handoff builder used by `self-awareness export`:
+
+- public artifact-ref field projection from an already-built export manifest;
+- requirements summary, open/closed stack requirement entries, compact current
+  state digests, closure order, dependency graph, and closure-readiness packets;
+- coverage impacts, blocked planes, verifier matrices, runbook handoff, and
+  stack-owner indexes;
+- working-stack activation dossier, synthetic proof, activation-smoke, and
+  stack-organ-use packet summaries and indexes;
+- deterministic portable handoff policy with no command execution, project
+  writes, automatic remediation, or stack mutation.
+
+The CLI compatibility wrapper binds optional coverage/activation latest reads,
+schema/version, and existing completeness/build callbacks. The contract module
+accepts already-loaded documents and performs no filesystem, systemd, network,
+subprocess, or persistence IO. Public tests constrain empty satisfied state,
+open requirement coverage/verifier projection, current-state redaction, and
+artifact-ref whitelisting. Live closeout compares only compact counts, open IDs,
+schema/status, non-mutation policy, and write-error count.
+
 ## Extracted Self-Awareness Completion Contract Core
 
 `abyss_machine.self_awareness_completion_contracts` owns the first stable
@@ -1623,8 +1646,9 @@ machine evidence.
    live input/contract/persistence orchestration now lives in
    `self_awareness_adapters`. Validation optional-refresh order, path/latest/
    history intake, and final persistence now also live there. Split the
-   remaining conditional validation refresh/check assembly plus the stable
-   export stack-handoff contract builder in evidence-led contract slices.
+   remaining conditional validation refresh/check assembly in evidence-led
+   contract slices. Stable export stack-handoff assembly now lives in
+   `self_awareness_export_handoff_contracts`.
 3. Further AI runtime adapters: only after a fresh inventory proves a concrete
    reusable center still sits in `cli.py`.
    Runtime/model discovery, bounded OpenVINO benchmark/eval runners,
