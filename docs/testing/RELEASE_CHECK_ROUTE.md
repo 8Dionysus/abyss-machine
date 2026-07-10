@@ -298,6 +298,15 @@ the contract module itself must not perform concrete filesystem, systemd,
 network, subprocess, or persistence IO. Live closeout may report only schema,
 status, check/fail/warning counts, and write-error count.
 
+For self-awareness causal readmodel pipeline changes, public CI should use
+synthetic runtime, refresh, contract, and latest/history ports for timeline,
+spatial graph, context, and episodes. It must constrain event deduplication,
+invalid-latest fallback, supplied-readmodel reuse, bounded context assembly,
+nested write order, no-write behavior, and CLI concrete binding. Live-host
+closeout must compare source and installed schema/ok/status/summary only; never
+publish event rows, graph nodes or edges, context bodies, episodes, local
+indexes, or machine paths.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
