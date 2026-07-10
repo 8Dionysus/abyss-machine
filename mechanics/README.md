@@ -100,10 +100,11 @@ Use these mechanic owners for the next extraction slices:
   usage-gap drilldown packets, and deterministic completion route-map
   assembly; `self_awareness_completion_graph_contracts` owns explicit latest
   document paths plus action, stack-organ, machine-bridge, event, document,
-  and route-binding map assembly with fail-closed mapping readiness.
-  Completion route-packet/final-audit assembly and completion-audit
-  orchestration, validation orchestration, and the stable export stack-handoff
-  contract builder remain bounded CLI debt.
+  and route-binding map assembly with fail-closed mapping readiness, plus
+  deterministic completion route-packet indexing with graph joins and
+  no-execution handoff envelopes. Completion backlog/final-audit assembly and
+  completion-audit orchestration, validation orchestration, and the stable
+  export stack-handoff contract builder remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
