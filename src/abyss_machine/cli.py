@@ -52649,310 +52649,94 @@ def self_awareness_objective_coverage_audit(
 
 
 def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
-    generated_at = now_iso()
-    seed = {"at": generated_at, "host": platform.node(), "pid": os.getpid(), "kind": "self-awareness-cycle"}
-    cycle_id = "sacycle-" + stable_hash_json(seed, length=16)
-    resource_preflight = self_awareness_resource_preflight("self-awareness-cycle")
-    if not resource_preflight.get("ok"):
-        data = self_awareness_adapters.cycle_resource_denied_document(
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=generated_at,
-            cycle_id=cycle_id,
-            resource_preflight=resource_preflight,
-        )
-        if write_latest:
-            errors = write_latest_and_history(data, SELF_AWARENESS_CYCLE_LATEST_PATH, SELF_AWARENESS_CYCLE_ROOT)
-            if errors:
-                data["write_errors"] = errors
-        return data
-    probe = self_awareness_probe(write_latest=True)
-    probe_run_id = str(probe.get("run_id") or cycle_id)
-    investigation = self_awareness_investigate(query=probe_run_id, write_latest=True)
-    replay = self_awareness_replay(thread_id=str(investigation.get("thread_id") or ""), write_latest=True)
-    requirement_probes = self_awareness_requirement_probes(write_latest=True)
-    stack_closure_dossier = self_awareness_stack_closure_dossier(write_latest=True, requirement_probes_doc=requirement_probes)
-    trace_context_fallback = self_awareness_trace_context_fallback(
-        write_latest=True,
-        requirement_probes_doc=requirement_probes,
-        probe_doc=probe,
-    )
-    activation_smoke = self_awareness_activation_smoke(write_latest=True, stack_closure_dossier_doc=stack_closure_dossier)
-    investigation = self_awareness_investigate(query=probe_run_id, write_latest=True)
-    replay = self_awareness_replay(thread_id=str(investigation.get("thread_id") or ""), write_latest=True)
-    failure_matrix = self_awareness_failure_matrix(write_latest=True)
-    reactions = reaction_status(write_latest=True)
-    responses = response_status(write_latest=True, reactions=reactions, refresh_reactions=False)
-    brief = self_awareness_brief(write_latest=True)
-
-    probe_chain = probe.get("chain") if isinstance(probe.get("chain"), dict) else {}
-    cycle_chain = self_awareness_adapters.cycle_initial_chain(
-        probe_chain=probe_chain,
-        requirement_probes=requirement_probes,
-        stack_closure_dossier=stack_closure_dossier,
-        failure_matrix=failure_matrix,
-        investigation=investigation,
-        replay=replay,
-        activation_smoke=activation_smoke,
-        trace_context_fallback=trace_context_fallback,
-        brief=brief,
-        reactions=reactions,
-        responses=responses,
-        resident_cognitive_replay_complete=self_awareness_resident_cognitive_replay_complete,
-        working_stack_activation_smoke_complete=self_awareness_working_stack_activation_smoke_complete,
-        trace_context_fallback_complete=self_awareness_trace_context_fallback_complete,
-    )
-    bridge_proof = self_awareness_cycle_bridge_proof(
-        generated_at=generated_at,
-        cycle_id=cycle_id,
-        probe_run_id=probe_run_id,
-    )
-    cycle_chain["machine_bridges"] = self_awareness_cycle_bridge_proof_complete(bridge_proof)
-    cycle_issue_inputs = self_awareness_adapters.cycle_issue_inputs(
-        failure_matrix=failure_matrix,
-        replay=replay,
-        stack_closure_dossier=stack_closure_dossier,
-        responses=responses,
-    )
-    open_requirement_rows = cycle_issue_inputs["open_requirement_rows"]
-    automatic_response_count = cycle_issue_inputs["automatic_response_count"]
-    mutating_response_routes = cycle_issue_inputs["mutating_response_routes"]
-    mutation_claims = cycle_issue_inputs["mutation_claims"]
-    stack_handoff_closure_readiness = cycle_issue_inputs["stack_handoff_closure_readiness"]
-    working_stack_activation_summary = cycle_issue_inputs["working_stack_activation_summary"]
-    open_working_stack_activation_gaps = cycle_issue_inputs["open_working_stack_activation_gaps"]
-    stack_handoff_summary = self_awareness_adapters.cycle_stack_handoff_summary_document(
-        schema_prefix=SCHEMA_PREFIX,
-        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
-        replay=replay,
-        requirement_probes=requirement_probes,
-        stack_closure_dossier=stack_closure_dossier,
-        working_stack_activation_summary=working_stack_activation_summary,
-        activation_smoke=activation_smoke,
-        open_requirement_rows=open_requirement_rows,
-        paths={
-            "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
-            "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
-            "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
-            "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
-        },
-    )
-    latest_docs = self_awareness_adapters.load_cycle_latest_documents(
-        schema_prefix=SCHEMA_PREFIX,
-        paths={
-            "capabilities": SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
-            "requirements": SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
-            "trace_context": SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH,
-            "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
-            "collect": SELF_AWARENESS_COLLECT_LATEST_PATH,
-            "events": SELF_AWARENESS_EVENTS_LATEST_PATH,
-            "query": SELF_AWARENESS_QUERY_LATEST_PATH,
-            "correlation": SELF_AWARENESS_CORRELATION_LATEST_PATH,
-            "timeline": SELF_AWARENESS_TIMELINE_LATEST_PATH,
-            "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
-            "context": SELF_AWARENESS_CONTEXT_LATEST_PATH,
-            "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
-            "alerts": SELF_AWARENESS_ALERTS_LATEST_PATH,
-        },
-        load_latest_json=load_latest_json,
-    )
-    bridge_docs = self_awareness_adapters.load_cycle_bridge_documents(
-        self_awareness_cycle_bridge_surfaces(),
-        load_latest_json=load_latest_json,
-    )
-    cycle_artifact_paths = {
-        "probe": SELF_AWARENESS_PROBE_LATEST_PATH,
-        "capabilities": SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
-        "requirements": SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
-        "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
-        "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
-        "trace_context": SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH,
-        "activation_smoke": SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
-        "failure_matrix": SELF_AWARENESS_FAILURE_MATRIX_LATEST_PATH,
-        "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
-        "collect": SELF_AWARENESS_COLLECT_LATEST_PATH,
-        "events": SELF_AWARENESS_EVENTS_LATEST_PATH,
-        "query": SELF_AWARENESS_QUERY_LATEST_PATH,
-        "correlation": SELF_AWARENESS_CORRELATION_LATEST_PATH,
-        "timeline": SELF_AWARENESS_TIMELINE_LATEST_PATH,
-        "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
-        "context": SELF_AWARENESS_CONTEXT_LATEST_PATH,
-        "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
-        "alerts": SELF_AWARENESS_ALERTS_LATEST_PATH,
-        "heartbeats": HEARTBEATS_LATEST_PATH,
-        "memory": MEMORY_LATEST_PATH,
-        "mode": MODE_LATEST_PATH,
-        "resource": RESOURCE_LATEST_PATH,
-        "processes": PROCESS_LATEST_PATH,
-        "process_containers": PROCESS_CONTAINER_LATEST_PATH,
-        "process_thermal_plan": PROCESS_THERMAL_PLAN_LATEST_PATH,
-        "cooling": COOLING_LATEST_PATH,
-        "typing_events": TYPING_EVENTS_LATEST_PATH,
-        "typing_validate": TYPING_VALIDATE_LATEST_PATH,
-        "nervous_brief": NERVOUS_BRIEF_LATEST_PATH,
-        "investigate": SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
-        "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
-        "brief": SELF_AWARENESS_BRIEF_LATEST_PATH,
-        "reactions": REACTIONS_LATEST_PATH,
-        "responses": RESPONSES_LATEST_PATH,
-        "autolink": SELF_AWARENESS_AUTOLINK_LATEST_PATH,
-        "export": SELF_AWARENESS_EXPORT_LATEST_PATH,
-    }
-    cycle_direct_docs = {
-        "probe": probe,
-        "requirement_probes": requirement_probes,
-        "stack_closure_dossier": stack_closure_dossier,
-        "activation_smoke": activation_smoke,
-        "failure_matrix": failure_matrix,
-        "investigation": investigation,
-        "replay": replay,
-        "brief": brief,
-        "reactions": reactions,
-        "responses": responses,
-    }
-    steps = self_awareness_adapters.cycle_artifact_steps(
-        specs=self_awareness_adapters.CYCLE_INITIAL_ARTIFACT_STEP_SPECS,
-        paths=cycle_artifact_paths,
-        direct_documents=cycle_direct_docs,
-        latest_documents=latest_docs,
-        bridge_documents=bridge_docs,
-        path_exists=lambda path: path.exists(),
-        path_stat=lambda path: path.stat(),
-        path_sha256=sha256_path,
-        evidence_extra_by_step={
-            "probe": {"run_id": probe_run_id, "chain": probe_chain},
-            "investigate": {"thread_id": investigation.get("thread_id")},
-            "replay": {"thread_id": replay.get("thread_id")},
-        },
-    )
-    partial_data = self_awareness_adapters.cycle_partial_document(
+    return self_awareness_adapters.run_cycle(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
-        generated_at=generated_at,
-        cycle_id=cycle_id,
-        probe_run_id=probe_run_id,
-        steps=steps,
-        resource_preflight=resource_preflight,
-        cycle_chain=cycle_chain,
-        bridge_proof=bridge_proof,
-        stack_handoff_summary=stack_handoff_summary,
-        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
-        automatic_response_count=automatic_response_count,
-        mutating_response_routes=mutating_response_routes,
-    )
-    if write_latest:
-        errors = write_latest_and_history(partial_data, SELF_AWARENESS_CYCLE_LATEST_PATH, SELF_AWARENESS_CYCLE_ROOT)
-        if errors:
-            partial_data["write_errors"] = errors
-
-    autolink = self_awareness_autolink(
-        write_latest=True,
-        cycle_id=cycle_id,
-        probe_run_id=probe_run_id,
-        stack_closure_dossier_doc=stack_closure_dossier,
-        activation_smoke_doc=activation_smoke,
-    )
-    export = self_awareness_export(run_id=probe_run_id, write_latest=True, include_cycle=True)
-    steps.extend(
-        self_awareness_adapters.cycle_artifact_steps(
-            specs=self_awareness_adapters.CYCLE_FINAL_ARTIFACT_STEP_SPECS,
-            paths=cycle_artifact_paths,
-            direct_documents={"autolink": autolink, "export": export},
+        generated_at=now_iso(),
+        paths=self_awareness_adapters.SelfAwarenessCyclePaths(
+            cycle_latest=SELF_AWARENESS_CYCLE_LATEST_PATH,
+            cycle_history_root=SELF_AWARENESS_CYCLE_ROOT,
+            artifacts={
+                "probe": SELF_AWARENESS_PROBE_LATEST_PATH,
+                "capabilities": SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
+                "requirements": SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+                "requirement_probes": SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+                "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+                "trace_context": SELF_AWARENESS_TRACE_CONTEXT_LATEST_PATH,
+                "activation_smoke": SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
+                "failure_matrix": SELF_AWARENESS_FAILURE_MATRIX_LATEST_PATH,
+                "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+                "collect": SELF_AWARENESS_COLLECT_LATEST_PATH,
+                "events": SELF_AWARENESS_EVENTS_LATEST_PATH,
+                "query": SELF_AWARENESS_QUERY_LATEST_PATH,
+                "correlation": SELF_AWARENESS_CORRELATION_LATEST_PATH,
+                "timeline": SELF_AWARENESS_TIMELINE_LATEST_PATH,
+                "spatial_graph": SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+                "context": SELF_AWARENESS_CONTEXT_LATEST_PATH,
+                "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
+                "alerts": SELF_AWARENESS_ALERTS_LATEST_PATH,
+                "heartbeats": HEARTBEATS_LATEST_PATH,
+                "memory": MEMORY_LATEST_PATH,
+                "mode": MODE_LATEST_PATH,
+                "resource": RESOURCE_LATEST_PATH,
+                "processes": PROCESS_LATEST_PATH,
+                "process_containers": PROCESS_CONTAINER_LATEST_PATH,
+                "process_thermal_plan": PROCESS_THERMAL_PLAN_LATEST_PATH,
+                "cooling": COOLING_LATEST_PATH,
+                "typing_events": TYPING_EVENTS_LATEST_PATH,
+                "typing_validate": TYPING_VALIDATE_LATEST_PATH,
+                "nervous_brief": NERVOUS_BRIEF_LATEST_PATH,
+                "investigate": SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+                "replay": SELF_AWARENESS_REPLAY_LATEST_PATH,
+                "brief": SELF_AWARENESS_BRIEF_LATEST_PATH,
+                "reactions": REACTIONS_LATEST_PATH,
+                "responses": RESPONSES_LATEST_PATH,
+                "autolink": SELF_AWARENESS_AUTOLINK_LATEST_PATH,
+                "export": SELF_AWARENESS_EXPORT_LATEST_PATH,
+            },
+        ),
+        write_latest=write_latest,
+        runtime_port=self_awareness_adapters.SelfAwarenessCycleRuntimePort(
+            hostname=platform.node,
+            process_id=os.getpid,
+            resource_preflight=self_awareness_resource_preflight,
+            load_latest_json=load_latest_json,
             path_exists=lambda path: path.exists(),
             path_stat=lambda path: path.stat(),
             path_sha256=sha256_path,
-        )
-    )
-    cycle_chain.update(
-        self_awareness_adapters.cycle_export_chain_updates(
-            probe_chain=probe_chain,
-            replay=replay,
-            responses=responses,
-            export=export,
-            autolink=autolink,
-            autolink_complete=self_awareness_autolink_complete,
+        ),
+        refresh_port=self_awareness_adapters.SelfAwarenessCycleRefreshPort(
+            probe=self_awareness_probe,
+            investigate=self_awareness_investigate,
+            replay=self_awareness_replay,
+            requirement_probes=self_awareness_requirement_probes,
+            stack_closure_dossier=self_awareness_stack_closure_dossier,
+            trace_context_fallback=self_awareness_trace_context_fallback,
+            activation_smoke=self_awareness_activation_smoke,
+            failure_matrix=self_awareness_failure_matrix,
+            reactions=reaction_status,
+            responses=response_status,
+            brief=self_awareness_brief,
+            autolink=self_awareness_autolink,
+            export=self_awareness_export,
+        ),
+        contract_port=self_awareness_adapters.SelfAwarenessCycleContractPort(
             resident_cognitive_replay_complete=self_awareness_resident_cognitive_replay_complete,
+            working_stack_activation_smoke_complete=self_awareness_working_stack_activation_smoke_complete,
+            trace_context_fallback_complete=self_awareness_trace_context_fallback_complete,
+            cycle_bridge_proof=self_awareness_cycle_bridge_proof,
+            cycle_bridge_proof_complete=self_awareness_cycle_bridge_proof_complete,
+            cycle_bridge_surfaces=self_awareness_cycle_bridge_surfaces,
+            autolink_complete=self_awareness_autolink_complete,
             working_stack_link_integrity_complete=self_awareness_working_stack_link_integrity_matrix_complete,
-        )
+            cycle_from_zero_proof=self_awareness_cycle_from_zero_proof,
+            e2e_lineage_proof=self_awareness_e2e_lineage_proof,
+            top_level_lineage_packet=self_awareness_top_level_lineage_packet,
+        ),
+        persistence_port=self_awareness_adapters.SelfAwarenessCyclePersistencePort(
+            write_latest_and_history=write_latest_and_history,
+        ),
     )
-    failed_steps = [step["id"] for step in steps if not step.get("ok")]
-    missing_chain = [key for key, value in cycle_chain.items() if not value]
-    from_zero_proof = self_awareness_cycle_from_zero_proof(
-        generated_at=generated_at,
-        cycle_id=cycle_id,
-        probe_run_id=probe_run_id,
-        cycle_chain=cycle_chain,
-        steps=steps,
-        failed_steps=failed_steps,
-        missing_chain=missing_chain,
-    )
-    probe_synthetic_events = [
-        event for event in (probe.get("synthetic_events") if isinstance(probe.get("synthetic_events"), list) else [])
-        if isinstance(event, dict)
-    ]
-    e2e_lineage_proof = self_awareness_e2e_lineage_proof(
-        generated_at=generated_at,
-        cycle_id=cycle_id,
-        run_id=probe_run_id,
-        traceparent=str(probe.get("traceparent") or ""),
-        chain=cycle_chain,
-        synthetic_events=probe_synthetic_events,
-        include_probe=True,
-        include_cycle=False,
-    )
-    lineage = self_awareness_top_level_lineage_packet(
-        generated_at=generated_at,
-        source="cycle",
-        cycle_id=cycle_id,
-        run_id=probe_run_id,
-        traceparent=str(probe.get("traceparent") or ""),
-        chain=cycle_chain,
-        steps=steps,
-        e2e_lineage_proof=e2e_lineage_proof,
-        from_zero_proof=from_zero_proof,
-        investigation=investigation,
-        replay=replay,
-        reactions=reactions,
-        responses=responses,
-        export=export,
-        synthetic_events=probe_synthetic_events,
-    )
-    data = self_awareness_adapters.cycle_result_document(
-        schema_prefix=SCHEMA_PREFIX,
-        version=VERSION,
-        generated_at=generated_at,
-        cycle_id=cycle_id,
-        probe_run_id=probe_run_id,
-        steps=steps,
-        resource_preflight=resource_preflight,
-        cycle_chain=cycle_chain,
-        bridge_proof=bridge_proof,
-        activation_smoke=activation_smoke,
-        autolink=autolink,
-        stack_handoff_summary=stack_handoff_summary,
-        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
-        stack_closure_dossier=stack_closure_dossier,
-        replay=replay,
-        responses=responses,
-        export=export,
-        from_zero_proof=from_zero_proof,
-        e2e_lineage_proof=e2e_lineage_proof,
-        lineage=lineage,
-        open_requirement_rows=open_requirement_rows,
-        open_working_stack_activation_gaps=open_working_stack_activation_gaps,
-        working_stack_activation_summary=working_stack_activation_summary,
-        failed_steps=failed_steps,
-        missing_chain=missing_chain,
-        mutation_claims=mutation_claims,
-        automatic_response_count=automatic_response_count,
-        mutating_response_routes=mutating_response_routes,
-    )
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_CYCLE_LATEST_PATH, SELF_AWARENESS_CYCLE_ROOT)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
 
 
 def self_awareness_self_tests() -> list[dict[str, Any]]:

@@ -207,8 +207,8 @@ changes, public CI should rely on synthetic autolink rows, activation dossier
 rows, activation-smoke rows, requirements, and stack-closure rows for row
 classification, handoff policy, activation-gap route callback binding, and
 stack-owner requirement projection. Keep latest reads, status document assembly,
-and live cycle orchestration at the CLI/live binding edge. The probe engine is
-adapter-owned; callers still bind its concrete host ports.
+and concrete host/path binding at the CLI/live binding edge. Probe and cycle
+engines are adapter-owned.
 
 For self-awareness latest artifact-ref adapter changes, public CI should rely on
 fake latest-loader, path-exists, path-hash, and history-path ports for schema
@@ -244,17 +244,18 @@ path constants and live latest document loading at the CLI edge; do not run live
 For self-awareness probe/cycle document-builder adapter changes, public CI
 should rely on synthetic shape tests for resource-denied documents, probe result
 documents, movement-smoke summaries, cycle partial/building snapshots, and
-cycle stack-handoff/final result snapshots. Probe orchestration and its
-latest/history writes belong to the probe adapter; keep concrete probe host/path
-binding and cycle orchestration in separate live-host checks unless the slice
-intentionally moves those ports.
+cycle stack-handoff/final result snapshots. Probe and cycle orchestration plus
+their latest/history writes belong to their adapters; keep concrete host/path
+binding in separate live-host checks unless the slice intentionally moves those
+ports.
 
 For self-awareness cycle readmodel guard changes, public CI should rely on
 synthetic tests for open requirement-row classification, issue/guard input
 projection, initial chain assembly through supplied completion predicates, and
 post-export chain updates. Do not run live `self-awareness cycle` merely to
 prove this adapter class; the adapter must be constrained by fake documents and
-existing completion predicates while CLI remains responsible for orchestration.
+existing completion predicates. The cycle orchestration adapter binds these
+builders through explicit runtime, refresh, contract, and persistence ports.
 
 For self-awareness working-stack source-inventory adapter changes, public CI
 should rely on fake-root/fake-port tests for stack service-name normalization,
@@ -286,7 +287,7 @@ should rely on synthetic working-stack documents and synthetic working-stack
 events with supplied latest paths for episode identity, affected nodes,
 confidence, working_stack_gap packets, evidence refs, and non-mutating policy.
 Keep latest reads, event refresh, episode writes, probe caller binding, and
-cycle execution at the CLI/live binding edge.
+cycle caller binding at the CLI/live binding edge.
 
 For self-awareness working-stack link-integrity adapter changes, public CI
 should rely on synthetic working-stack, events, timeline, spatial graph,
@@ -322,7 +323,8 @@ For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate
 coverage. Keep working-stack latest reads, dossier refresh, probe caller
-binding, cycle execution, and all stack mutations at the CLI/live binding edge.
+binding, cycle caller binding, and all stack mutations at the CLI/live binding
+edge.
 
 For self-awareness activation-dossier document-builder adapter changes, public
 CI should rely on synthetic working-stack documents, supplied latest paths, and
@@ -401,6 +403,22 @@ history-count delta, and write-error count; never publish responses, event
 bodies, readmodels, checkpoint states, or private paths. A write-enabled probe
 intentionally appends twice, once before validation and once after validation;
 partial retry can append duplicates and is not destructively rolled back.
+
+For self-awareness cycle-orchestration adapter changes, public CI should use
+synthetic runtime, refresh, contract, filesystem, latest-reader, and
+persistence ports to prove resource denial before probe, one probe invocation,
+the intentional two investigate/replay passes around activation smoke, initial
+chain/bridge/issue assembly, latest and bridge load dispatch, 34 initial plus
+two final artifact steps, the pre-export `building` write, autolink/export
+ordering, from-zero/e2e/lineage proofs, final write, no-write behavior, and
+write-error projection. Existing host-contract probe/cycle fixtures should
+remain green. Live closeout may report only cycle status, step/chain/proof
+counts, failed step and missing-chain keys, replay/body/lineage booleans,
+automatic/mutating route counts, history delta, and write-error count; never
+publish artifact digests, readmodels, probe payloads, checkpoint states, or
+private paths. A write-enabled cycle intentionally appends a `building` row and
+a final row; retry after partial failure may duplicate rows and is not
+destructively rolled back.
 
 For self-awareness investigation-orchestration adapter changes, public CI
 should use synthetic input, contract, checkpoint, module-availability, and

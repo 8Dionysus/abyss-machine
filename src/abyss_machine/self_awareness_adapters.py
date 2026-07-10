@@ -347,6 +347,61 @@ class SelfAwarenessProbePersistencePort:
     write_latest_and_history: WriteLatestHistoryPort
 
 
+@dataclass(frozen=True)
+class SelfAwarenessCyclePaths:
+    cycle_latest: Path
+    cycle_history_root: Path
+    artifacts: Mapping[str, Path]
+
+
+@dataclass(frozen=True)
+class SelfAwarenessCycleRuntimePort:
+    hostname: HostNamePort
+    process_id: ProcessIdPort
+    resource_preflight: ResourcePreflightPort
+    load_latest_json: LatestJsonReaderPort
+    path_exists: PathExistsPort
+    path_stat: PathStatPort
+    path_sha256: PathSha256Port
+
+
+@dataclass(frozen=True)
+class SelfAwarenessCycleRefreshPort:
+    probe: RefreshDocumentPort
+    investigate: RefreshDocumentPort
+    replay: RefreshDocumentPort
+    requirement_probes: RefreshDocumentPort
+    stack_closure_dossier: RefreshDocumentPort
+    trace_context_fallback: RefreshDocumentPort
+    activation_smoke: RefreshDocumentPort
+    failure_matrix: RefreshDocumentPort
+    reactions: RefreshDocumentPort
+    responses: RefreshDocumentPort
+    brief: RefreshDocumentPort
+    autolink: RefreshDocumentPort
+    export: RefreshDocumentPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessCycleContractPort:
+    resident_cognitive_replay_complete: DocumentCompletePort
+    working_stack_activation_smoke_complete: DocumentCompletePort
+    trace_context_fallback_complete: DocumentCompletePort
+    cycle_bridge_proof: DocumentBuilderPort
+    cycle_bridge_proof_complete: DocumentCompletePort
+    cycle_bridge_surfaces: Callable[[], list[dict[str, Any]]]
+    autolink_complete: DocumentCompletePort
+    working_stack_link_integrity_complete: DocumentCompletePort
+    cycle_from_zero_proof: DocumentBuilderPort
+    e2e_lineage_proof: DocumentBuilderPort
+    top_level_lineage_packet: DocumentBuilderPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessCyclePersistencePort:
+    write_latest_and_history: WriteLatestHistoryPort
+
+
 SYSTEMD_ENABLED_STATES = {
     "enabled",
     "enabled-runtime",
@@ -2977,6 +3032,311 @@ def run_probe(
             data,
             paths.probe_latest,
             paths.probe_history_root,
+        )
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    return data
+
+
+def run_cycle(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    paths: SelfAwarenessCyclePaths,
+    write_latest: bool,
+    runtime_port: SelfAwarenessCycleRuntimePort,
+    refresh_port: SelfAwarenessCycleRefreshPort,
+    contract_port: SelfAwarenessCycleContractPort,
+    persistence_port: SelfAwarenessCyclePersistencePort,
+) -> dict[str, Any]:
+    seed = {
+        "at": generated_at,
+        "host": runtime_port.hostname(),
+        "pid": runtime_port.process_id(),
+        "kind": "self-awareness-cycle",
+    }
+    cycle_id = "sacycle-" + self_awareness_contracts.stable_hash_json(seed, length=16)
+    resource_preflight = runtime_port.resource_preflight("self-awareness-cycle")
+    if not resource_preflight.get("ok"):
+        data = cycle_resource_denied_document(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+            cycle_id=cycle_id,
+            resource_preflight=resource_preflight,
+        )
+        if write_latest:
+            errors = persistence_port.write_latest_and_history(
+                data,
+                paths.cycle_latest,
+                paths.cycle_history_root,
+            )
+            if errors:
+                data["write_errors"] = errors
+        return data
+
+    probe = refresh_port.probe(write_latest=True)
+    probe_run_id = str(probe.get("run_id") or cycle_id)
+    investigation = refresh_port.investigate(query=probe_run_id, write_latest=True)
+    replay = refresh_port.replay(
+        thread_id=str(investigation.get("thread_id") or ""),
+        write_latest=True,
+    )
+    requirement_probes = refresh_port.requirement_probes(write_latest=True)
+    stack_closure_dossier = refresh_port.stack_closure_dossier(
+        write_latest=True,
+        requirement_probes_doc=requirement_probes,
+    )
+    trace_context_fallback = refresh_port.trace_context_fallback(
+        write_latest=True,
+        requirement_probes_doc=requirement_probes,
+        probe_doc=probe,
+    )
+    activation_smoke = refresh_port.activation_smoke(
+        write_latest=True,
+        stack_closure_dossier_doc=stack_closure_dossier,
+    )
+    investigation = refresh_port.investigate(query=probe_run_id, write_latest=True)
+    replay = refresh_port.replay(
+        thread_id=str(investigation.get("thread_id") or ""),
+        write_latest=True,
+    )
+    failure_matrix = refresh_port.failure_matrix(write_latest=True)
+    reactions = refresh_port.reactions(write_latest=True)
+    responses = refresh_port.responses(
+        write_latest=True,
+        reactions=reactions,
+        refresh_reactions=False,
+    )
+    brief = refresh_port.brief(write_latest=True)
+
+    probe_chain = probe.get("chain") if isinstance(probe.get("chain"), dict) else {}
+    cycle_chain = cycle_initial_chain(
+        probe_chain=probe_chain,
+        requirement_probes=requirement_probes,
+        stack_closure_dossier=stack_closure_dossier,
+        failure_matrix=failure_matrix,
+        investigation=investigation,
+        replay=replay,
+        activation_smoke=activation_smoke,
+        trace_context_fallback=trace_context_fallback,
+        brief=brief,
+        reactions=reactions,
+        responses=responses,
+        resident_cognitive_replay_complete=contract_port.resident_cognitive_replay_complete,
+        working_stack_activation_smoke_complete=contract_port.working_stack_activation_smoke_complete,
+        trace_context_fallback_complete=contract_port.trace_context_fallback_complete,
+    )
+    bridge_proof = contract_port.cycle_bridge_proof(
+        generated_at=generated_at,
+        cycle_id=cycle_id,
+        probe_run_id=probe_run_id,
+    )
+    cycle_chain["machine_bridges"] = contract_port.cycle_bridge_proof_complete(bridge_proof)
+    cycle_inputs = cycle_issue_inputs(
+        failure_matrix=failure_matrix,
+        replay=replay,
+        stack_closure_dossier=stack_closure_dossier,
+        responses=responses,
+    )
+    open_requirement_rows = cycle_inputs["open_requirement_rows"]
+    automatic_response_count = cycle_inputs["automatic_response_count"]
+    mutating_response_routes = cycle_inputs["mutating_response_routes"]
+    mutation_claims = cycle_inputs["mutation_claims"]
+    stack_handoff_closure_readiness = cycle_inputs["stack_handoff_closure_readiness"]
+    working_stack_activation_summary = cycle_inputs["working_stack_activation_summary"]
+    open_working_stack_activation_gaps = cycle_inputs["open_working_stack_activation_gaps"]
+    artifact_paths = dict(paths.artifacts)
+    stack_handoff_summary = cycle_stack_handoff_summary_document(
+        schema_prefix=schema_prefix,
+        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
+        replay=replay,
+        requirement_probes=requirement_probes,
+        stack_closure_dossier=stack_closure_dossier,
+        working_stack_activation_summary=working_stack_activation_summary,
+        activation_smoke=activation_smoke,
+        open_requirement_rows=open_requirement_rows,
+        paths={
+            "requirement_probes": artifact_paths["requirement_probes"],
+            "stack_closure_dossier": artifact_paths["stack_closure_dossier"],
+            "working_stack": artifact_paths["working_stack"],
+            "replay": artifact_paths["replay"],
+        },
+    )
+    latest_docs = load_cycle_latest_documents(
+        schema_prefix=schema_prefix,
+        paths=artifact_paths,
+        load_latest_json=runtime_port.load_latest_json,
+    )
+    bridge_docs = load_cycle_bridge_documents(
+        contract_port.cycle_bridge_surfaces(),
+        load_latest_json=runtime_port.load_latest_json,
+    )
+    direct_docs = {
+        "probe": probe,
+        "requirement_probes": requirement_probes,
+        "stack_closure_dossier": stack_closure_dossier,
+        "activation_smoke": activation_smoke,
+        "failure_matrix": failure_matrix,
+        "investigation": investigation,
+        "replay": replay,
+        "brief": brief,
+        "reactions": reactions,
+        "responses": responses,
+    }
+    steps = cycle_artifact_steps(
+        specs=CYCLE_INITIAL_ARTIFACT_STEP_SPECS,
+        paths=artifact_paths,
+        direct_documents=direct_docs,
+        latest_documents=latest_docs,
+        bridge_documents=bridge_docs,
+        path_exists=runtime_port.path_exists,
+        path_stat=runtime_port.path_stat,
+        path_sha256=runtime_port.path_sha256,
+        evidence_extra_by_step={
+            "probe": {"run_id": probe_run_id, "chain": probe_chain},
+            "investigate": {"thread_id": investigation.get("thread_id")},
+            "replay": {"thread_id": replay.get("thread_id")},
+        },
+    )
+    partial_data = cycle_partial_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        cycle_id=cycle_id,
+        probe_run_id=probe_run_id,
+        steps=steps,
+        resource_preflight=resource_preflight,
+        cycle_chain=cycle_chain,
+        bridge_proof=bridge_proof,
+        stack_handoff_summary=stack_handoff_summary,
+        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
+        automatic_response_count=automatic_response_count,
+        mutating_response_routes=mutating_response_routes,
+    )
+    if write_latest:
+        errors = persistence_port.write_latest_and_history(
+            partial_data,
+            paths.cycle_latest,
+            paths.cycle_history_root,
+        )
+        if errors:
+            partial_data["write_errors"] = errors
+
+    autolink = refresh_port.autolink(
+        write_latest=True,
+        cycle_id=cycle_id,
+        probe_run_id=probe_run_id,
+        stack_closure_dossier_doc=stack_closure_dossier,
+        activation_smoke_doc=activation_smoke,
+    )
+    export = refresh_port.export(
+        run_id=probe_run_id,
+        write_latest=True,
+        include_cycle=True,
+    )
+    steps.extend(
+        cycle_artifact_steps(
+            specs=CYCLE_FINAL_ARTIFACT_STEP_SPECS,
+            paths=artifact_paths,
+            direct_documents={"autolink": autolink, "export": export},
+            path_exists=runtime_port.path_exists,
+            path_stat=runtime_port.path_stat,
+            path_sha256=runtime_port.path_sha256,
+        )
+    )
+    cycle_chain.update(
+        cycle_export_chain_updates(
+            probe_chain=probe_chain,
+            replay=replay,
+            responses=responses,
+            export=export,
+            autolink=autolink,
+            autolink_complete=contract_port.autolink_complete,
+            resident_cognitive_replay_complete=contract_port.resident_cognitive_replay_complete,
+            working_stack_link_integrity_complete=contract_port.working_stack_link_integrity_complete,
+        )
+    )
+    failed_steps = [step["id"] for step in steps if not step.get("ok")]
+    missing_chain = [key for key, value in cycle_chain.items() if not value]
+    from_zero_proof = contract_port.cycle_from_zero_proof(
+        generated_at=generated_at,
+        cycle_id=cycle_id,
+        probe_run_id=probe_run_id,
+        cycle_chain=cycle_chain,
+        steps=steps,
+        failed_steps=failed_steps,
+        missing_chain=missing_chain,
+    )
+    probe_synthetic_events = [
+        event
+        for event in (probe.get("synthetic_events") if isinstance(probe.get("synthetic_events"), list) else [])
+        if isinstance(event, dict)
+    ]
+    e2e_lineage_proof = contract_port.e2e_lineage_proof(
+        generated_at=generated_at,
+        cycle_id=cycle_id,
+        run_id=probe_run_id,
+        traceparent=str(probe.get("traceparent") or ""),
+        chain=cycle_chain,
+        synthetic_events=probe_synthetic_events,
+        include_probe=True,
+        include_cycle=False,
+    )
+    lineage = contract_port.top_level_lineage_packet(
+        generated_at=generated_at,
+        source="cycle",
+        cycle_id=cycle_id,
+        run_id=probe_run_id,
+        traceparent=str(probe.get("traceparent") or ""),
+        chain=cycle_chain,
+        steps=steps,
+        e2e_lineage_proof=e2e_lineage_proof,
+        from_zero_proof=from_zero_proof,
+        investigation=investigation,
+        replay=replay,
+        reactions=reactions,
+        responses=responses,
+        export=export,
+        synthetic_events=probe_synthetic_events,
+    )
+    data = cycle_result_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        cycle_id=cycle_id,
+        probe_run_id=probe_run_id,
+        steps=steps,
+        resource_preflight=resource_preflight,
+        cycle_chain=cycle_chain,
+        bridge_proof=bridge_proof,
+        activation_smoke=activation_smoke,
+        autolink=autolink,
+        stack_handoff_summary=stack_handoff_summary,
+        stack_handoff_closure_readiness=stack_handoff_closure_readiness,
+        stack_closure_dossier=stack_closure_dossier,
+        replay=replay,
+        responses=responses,
+        export=export,
+        from_zero_proof=from_zero_proof,
+        e2e_lineage_proof=e2e_lineage_proof,
+        lineage=lineage,
+        open_requirement_rows=open_requirement_rows,
+        open_working_stack_activation_gaps=open_working_stack_activation_gaps,
+        working_stack_activation_summary=working_stack_activation_summary,
+        failed_steps=failed_steps,
+        missing_chain=missing_chain,
+        mutation_claims=mutation_claims,
+        automatic_response_count=automatic_response_count,
+        mutating_response_routes=mutating_response_routes,
+    )
+    if write_latest:
+        errors = persistence_port.write_latest_and_history(
+            data,
+            paths.cycle_latest,
+            paths.cycle_history_root,
         )
         if errors:
             data["ok"] = False
