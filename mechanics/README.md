@@ -117,8 +117,13 @@ Use these mechanic owners for the next extraction slices:
   `self_awareness_export_handoff_contracts` owns public artifact-ref projection
   plus deterministic requirements, closure-order, dependency, coverage,
   verifier, activation, and stack-owner handoff assembly without live IO or
-  stack mutation. A fresh residual CLI-edge classification remains required
-  before the self-awareness family is declared complete.
+  stack mutation; `self_awareness_causal_readmodel_contracts` owns timeline,
+  spatial-graph, bounded-context, and causal-episode refresh/assembly/
+  persistence pipelines through explicit runtime, refresh, contract, and
+  latest/history ports. Remaining causal overlays/readmodels, stack capability/
+  requirement/closure, and activation/lineage/coverage centers must be
+  extracted before the final residual CLI-edge classification and family
+  completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
