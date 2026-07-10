@@ -290,6 +290,14 @@ closeout may report only schema/status, check/fail/warning counts, whether a
 refresh was requested, and write-error count; never publish loaded documents,
 history rows, checks with private data, or generated host paths.
 
+For self-awareness validation-contract changes, public CI should prove CLI
+binding of named repair/contract ports, preserve the complete non-live
+self-awareness host-contract suite, and compare a compact source/installed
+validate envelope. Conditional repairs may refresh machine-owned readmodels;
+the contract module itself must not perform concrete filesystem, systemd,
+network, subprocess, or persistence IO. Live closeout may report only schema,
+status, check/fail/warning counts, and write-error count.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
