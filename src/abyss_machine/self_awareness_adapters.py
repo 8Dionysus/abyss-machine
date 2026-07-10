@@ -81,6 +81,14 @@ ResidentCognitiveReplayPort = Callable[[dict[str, Any], dict[str, Any]], dict[st
 DocumentPredicatePort = Callable[[dict[str, Any]], bool]
 FailureRecoveryPort = Callable[[str, str | None], dict[str, Any]]
 WriteLatestHistoryPort = Callable[[dict[str, Any], Path, Path], list[dict[str, Any]]]
+RefreshDocumentPort = Callable[..., dict[str, Any]]
+RefreshQueryPort = Callable[..., dict[str, Any]]
+ModuleAvailablePort = Callable[[str], bool]
+RedactTextPort = Callable[[Any, int], str]
+ResidentWorkerDetailPort = Callable[..., dict[str, Any]]
+DocumentBuilderPort = Callable[..., dict[str, Any]]
+DocumentCompletePort = Callable[[Any], bool]
+CheckpointPort = Callable[[str, str, dict[str, Any], str | None], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -189,6 +197,68 @@ class SelfAwarenessReplayPort:
     body_trace_complete: DocumentPredicatePort
     resident_cognitive_replay_complete: DocumentPredicatePort
     failure_recovery: FailureRecoveryPort
+    write_latest_and_history: WriteLatestHistoryPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessInvestigationPaths:
+    capabilities_latest: Path
+    correlation_latest: Path
+    query_latest: Path
+    episodes_latest: Path
+    resident_status_latest: Path
+    resident_monitor_latest: Path
+    resident_digest_latest: Path
+    resident_micro_latest: Path
+    resident_candidates_latest: Path
+    resident_evals_latest: Path
+    rag_validate_latest: Path
+    nervous_brief_latest: Path
+    context_latest: Path
+    completion_audit_latest: Path
+    working_stack_latest: Path
+    requirement_probes_latest: Path
+    brief_latest: Path
+    requirements_latest: Path
+    spatial_graph_latest: Path
+    investigation_latest: Path
+    investigation_history_root: Path
+
+
+@dataclass(frozen=True)
+class SelfAwarenessInvestigationInputPort:
+    refresh_capabilities: RefreshDocumentPort
+    refresh_correlation: RefreshDocumentPort
+    refresh_query: RefreshQueryPort
+    load_latest_json: LatestJsonReaderPort
+    refresh_context: RefreshDocumentPort
+    refresh_completion_audit: RefreshDocumentPort
+    refresh_requirement_probes: RefreshDocumentPort
+    module_available: ModuleAvailablePort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessInvestigationContractPort:
+    redact_text: RedactTextPort
+    resident_worker_detail: ResidentWorkerDetailPort
+    resident_worker_detail_complete: DocumentCompletePort
+    working_stack_gap: DocumentBuilderPort
+    working_stack_gap_complete: DocumentCompletePort
+    resident_completion_route_context: DocumentBuilderPort
+    resident_completion_route_context_complete: DocumentCompletePort
+    resident_cognitive_packet: DocumentBuilderPort
+    resident_cognitive_packet_complete: DocumentCompletePort
+    body_trace_complete: DocumentCompletePort
+    stack_handoff_action_map: DocumentBuilderPort
+    stack_handoff_closure_readiness: DocumentBuilderPort
+    stack_coverage_impact_complete: DocumentCompletePort
+    failure_recovery: FailureRecoveryPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessInvestigationPersistencePort:
+    checkpoint: CheckpointPort
+    daily_jsonl_path: DailyJsonlPathPort
     write_latest_and_history: WriteLatestHistoryPort
 
 
@@ -1581,6 +1651,767 @@ def persist_collect_documents(
         collect_doc["ok"] = False
         collect_doc["write_errors"] = errors
     return collect_doc
+
+
+def run_investigation(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    query: str,
+    episode_id: str | None,
+    expected_node_order: Iterable[str],
+    paths: SelfAwarenessInvestigationPaths,
+    write_latest: bool,
+    input_port: SelfAwarenessInvestigationInputPort,
+    contract_port: SelfAwarenessInvestigationContractPort,
+    persistence_port: SelfAwarenessInvestigationPersistencePort,
+    semantic_maintain_review_command: str,
+    semantic_maintain_retry_command: str,
+) -> dict[str, Any]:
+    expected_nodes = [str(node) for node in expected_node_order]
+    query_text = contract_port.redact_text(query or "latest self-awareness episode", 240)
+    capabilities = input_port.refresh_capabilities(write_latest=True)
+    correlation = input_port.refresh_correlation(write_latest=True)
+    query_doc = input_port.refresh_query(query_text, limit=30, write_latest=True)
+    llm_resident_status = input_port.load_latest_json(
+        paths.resident_status_latest,
+        f"{schema_prefix}_gemma4_spark_resident_status_v1",
+    )
+    llm_resident_monitor = input_port.load_latest_json(
+        paths.resident_monitor_latest,
+        f"{schema_prefix}_gemma4_spark_resident_monitor_v1",
+    )
+    llm_resident_digest = input_port.load_latest_json(
+        paths.resident_digest_latest,
+        f"{schema_prefix}_gemma4_spark_resident_digest_v1",
+    )
+    llm_resident_micro = input_port.load_latest_json(
+        paths.resident_micro_latest,
+        f"{schema_prefix}_gemma4_spark_resident_micro_tick_v1",
+    )
+    llm_resident_evals = input_port.load_latest_json(
+        paths.resident_evals_latest,
+        f"{schema_prefix}_gemma4_spark_resident_heartbeat_evals_v1",
+    )
+    llm_resident_candidates = input_port.load_latest_json(
+        paths.resident_candidates_latest,
+        f"{schema_prefix}_gemma4_spark_resident_candidate_readmodel_v2",
+    )
+    resident_detail = contract_port.resident_worker_detail(
+        llm_resident_status,
+        llm_resident_monitor,
+        llm_resident_digest,
+        llm_resident_micro,
+        llm_resident_evals,
+        llm_resident_candidates,
+    )
+    capability_items = capabilities.get("capabilities") if isinstance(capabilities.get("capabilities"), list) else []
+    capability_by_id = {
+        str(item.get("id")): item
+        for item in capability_items
+        if isinstance(item, dict) and item.get("id")
+    }
+    llm_escalation_detail = capability_by_id.get("llm.escalation.routes", {}).get("detail")
+    llm_escalation_detail = llm_escalation_detail if isinstance(llm_escalation_detail, dict) else {}
+    rag_validation = input_port.load_latest_json(paths.rag_validate_latest, f"{schema_prefix}_rag_validate_v1")
+    nervous = input_port.load_latest_json(paths.nervous_brief_latest, f"{schema_prefix}_nervous_brief_v1")
+    context_doc = input_port.load_latest_json(paths.context_latest, f"{schema_prefix}_self_awareness_context_v1")
+    if not isinstance(context_doc.get("memory_space"), dict):
+        context_doc = input_port.refresh_context(write_latest=True)
+    memory_space = context_doc.get("memory_space") if isinstance(context_doc.get("memory_space"), dict) else {}
+    episodes_doc = input_port.load_latest_json(paths.episodes_latest, f"{schema_prefix}_self_awareness_episodes_v1")
+    episodes = [
+        item
+        for item in (episodes_doc.get("episodes") if isinstance(episodes_doc.get("episodes"), list) else [])
+        if isinstance(item, dict)
+    ]
+    selected = None
+    if episode_id:
+        selected = next((item for item in episodes if item.get("episode_id") == episode_id), None)
+    query_results = query_doc.get("results") if isinstance(query_doc.get("results"), dict) else {}
+    query_episodes = query_results.get("episodes") if isinstance(query_results.get("episodes"), list) else []
+    if selected is None and query_episodes:
+        selected = query_episodes[0]
+    if selected is None and episodes:
+        selected = episodes[0]
+    selected = selected or {}
+    working_stack_gap_packet = contract_port.working_stack_gap(selected)
+    completion_audit_doc = input_port.load_latest_json(
+        paths.completion_audit_latest,
+        f"{schema_prefix}_self_awareness_completion_audit_v1",
+    )
+    completion_route_context_for_investigation = contract_port.resident_completion_route_context(completion_audit_doc)
+    if not contract_port.resident_completion_route_context_complete(completion_route_context_for_investigation):
+        completion_audit_doc = input_port.refresh_completion_audit(write_latest=True)
+        completion_route_context_for_investigation = contract_port.resident_completion_route_context(completion_audit_doc)
+    thread_id = "sainv-" + self_awareness_contracts.stable_hash_json(
+        {"query": query_text, "episode": selected.get("episode_id"), "at": generated_at},
+        length=16,
+    )
+    artifact_refs = [
+        {"path": str(paths.capabilities_latest), "schema": capabilities.get("schema")},
+        {"path": str(paths.correlation_latest), "schema": correlation.get("schema")},
+        {"path": str(paths.query_latest), "schema": query_doc.get("schema")},
+        {"path": str(paths.episodes_latest), "episode_id": selected.get("episode_id")},
+        {"path": str(paths.resident_status_latest), "schema": llm_resident_status.get("schema"), "status": llm_resident_status.get("status")},
+        {"path": str(paths.resident_monitor_latest), "schema": llm_resident_monitor.get("schema")},
+        {"path": str(paths.resident_digest_latest), "schema": llm_resident_digest.get("schema")},
+        {"path": str(paths.resident_micro_latest), "schema": llm_resident_micro.get("schema")},
+        {"path": str(paths.resident_candidates_latest), "schema": llm_resident_candidates.get("schema")},
+        {"path": str(paths.resident_evals_latest), "schema": llm_resident_evals.get("schema")},
+        {"path": str(paths.rag_validate_latest), "schema": rag_validation.get("schema"), "ok": rag_validation.get("ok")},
+        {"path": str(paths.nervous_brief_latest), "schema": nervous.get("schema"), "readiness": nervous.get("readiness")},
+        {"path": str(paths.context_latest), "schema": context_doc.get("schema"), "memory_space_summary": memory_space.get("summary")},
+        {
+            "path": str(paths.completion_audit_latest),
+            "schema": completion_audit_doc.get("schema"),
+            "section": "completion_route_packets",
+            "summary": completion_route_context_for_investigation.get("summary"),
+        },
+    ]
+    if working_stack_gap_packet:
+        artifact_refs.append({
+            "path": str(paths.working_stack_latest),
+            "service": working_stack_gap_packet.get("service"),
+            "working_stack_link_id": working_stack_gap_packet.get("working_stack_link_id"),
+            "section": "working_stack_gap",
+        })
+    resident_cognitive_packet = contract_port.resident_cognitive_packet(
+        query_text=query_text,
+        selected_episode=selected,
+        resident_detail=resident_detail,
+        query_doc=query_doc,
+        correlation=correlation,
+        memory_space=memory_space,
+        llm_escalation_detail=llm_escalation_detail,
+        rag_validation=rag_validation,
+        nervous=nervous,
+        artifact_refs=artifact_refs,
+        context_doc=context_doc,
+        completion_audit_doc=completion_audit_doc,
+    )
+    body_trace = resident_cognitive_packet.get("body_trace") if isinstance(resident_cognitive_packet.get("body_trace"), dict) else {}
+    completion_route_context = resident_cognitive_packet.get("completion_route_context") if isinstance(resident_cognitive_packet.get("completion_route_context"), dict) else {}
+    top_completion_route_packet = completion_route_context.get("top_packet") if isinstance(completion_route_context.get("top_packet"), dict) else {}
+    requirement_probes = input_port.refresh_requirement_probes(
+        write_latest=write_latest,
+        capabilities=capabilities,
+    )
+    stack_handoff_action_map = contract_port.stack_handoff_action_map(requirement_probes)
+    stack_handoff_actions = stack_handoff_action_map.get("actions") if isinstance(stack_handoff_action_map.get("actions"), list) else []
+    stack_handoff_safe_next = stack_handoff_action_map.get("safe_next_action") if isinstance(stack_handoff_action_map.get("safe_next_action"), dict) else {}
+    stack_handoff_closure_readiness = contract_port.stack_handoff_closure_readiness(stack_handoff_action_map)
+    artifact_refs.extend([
+        {"path": str(paths.requirement_probes_latest), "schema": requirement_probes.get("schema"), "summary": requirement_probes.get("summary")},
+        {"path": str(paths.brief_latest), "section": "stack_handoff_action_map", "schema": f"{schema_prefix}_self_awareness_brief_v1"},
+    ])
+    open_requirements = capabilities.get("requirements") if isinstance(capabilities.get("requirements"), list) else []
+    more_evidence_requests: list[dict[str, Any]] = []
+    if working_stack_gap_packet:
+        gap_request = working_stack_gap_packet.get("request") if isinstance(working_stack_gap_packet.get("request"), dict) else {}
+        if gap_request:
+            more_evidence_requests.append(gap_request)
+    if contract_port.resident_completion_route_context_complete(completion_route_context):
+        more_evidence_requests.append({
+            "id": "completion-route:" + str(top_completion_route_packet.get("route_id") or "unknown"),
+            "kind": "completion_route_packet",
+            "owner": "abyss-stack" if top_completion_route_packet.get("status") == "blocked_by_stack_owner" else "abyss-machine",
+            "route_id": top_completion_route_packet.get("route_id"),
+            "route_path": top_completion_route_packet.get("route_path"),
+            "reason": "completion route packet binds the next route to actions, entities, events, documents, evidence refs, and verifier handoff commands",
+            "machine_action": "handoff_only",
+            "command": "abyss-machine self-awareness completion-audit --json",
+            "source_command": "abyss-machine self-awareness completion-audit --json",
+            "automatic": False,
+            "requires_human_approval": True,
+            "executes_commands": False,
+            "host_layer_mutates_stack": False,
+            "action_ids": top_completion_route_packet.get("action_ids"),
+            "entity_ids": top_completion_route_packet.get("entity_ids"),
+            "event_ids": top_completion_route_packet.get("event_ids"),
+            "document_ids": top_completion_route_packet.get("document_ids"),
+            "coverage_planes": top_completion_route_packet.get("coverage_planes"),
+            "closure_blocker_keys": top_completion_route_packet.get("closure_blocker_keys"),
+            "verifier_commands": top_completion_route_packet.get("verifier_commands"),
+            "safe_next_actions": top_completion_route_packet.get("safe_next_actions"),
+            "policy": {
+                "handoff_only": True,
+                "automatic": False,
+                "requires_human_approval": True,
+                "executes_commands": False,
+                "host_layer_mutates_stack": False,
+                "action_execution": False,
+            },
+            "evidence_refs": top_completion_route_packet.get("evidence_refs") if isinstance(top_completion_route_packet.get("evidence_refs"), list) else [{"path": str(paths.completion_audit_latest), "section": "completion_route_packets.top_packet"}],
+        })
+    for action in stack_handoff_actions[:8]:
+        if not isinstance(action, dict):
+            continue
+        more_evidence_requests.append({
+            "id": "requirement:" + str(action.get("requirement_id") or action.get("id") or "unknown"),
+            "kind": "stack_handoff_action",
+            "owner": action.get("owner_route") or "abyss-stack",
+            "requirement_id": action.get("requirement_id"),
+            "priority_rank": action.get("priority_rank"),
+            "priority_score": action.get("priority_score"),
+            "priority_class": action.get("priority_class"),
+            "priority_reasons": action.get("priority_reasons"),
+            "impact_organ": action.get("impact_organ"),
+            "coverage_planes": action.get("coverage_planes") if isinstance(action.get("coverage_planes"), list) else [],
+            "coverage_impact": action.get("coverage_impact") if isinstance(action.get("coverage_impact"), dict) else {},
+            "reason": "stack-owned blocker remains open; use prioritized action map for closure details",
+            "machine_action": "handoff_only",
+            "command": "abyss-machine self-awareness export --json",
+            "source_command": "abyss-machine self-awareness requirement-probes --json",
+            "automatic": False,
+            "requires_human_approval": True,
+            "executes_commands": False,
+            "host_layer_mutates_stack": False,
+            "closure_blockers": action.get("closure_blockers"),
+            "closure_blocker_keys": action.get("closure_blocker_keys"),
+            "current_state": action.get("current_state"),
+            "runbook_candidate_id": action.get("runbook_candidate_id"),
+            "runbook_candidate": action.get("runbook_candidate"),
+            "acceptance_verifiers": action.get("acceptance_verifiers"),
+            "verifier_commands": action.get("verifier_commands"),
+            "closure_readiness": action.get("closure_readiness"),
+            "safe_next_action": action.get("safe_next_action"),
+            "policy": action.get("policy"),
+            "evidence_refs": action.get("evidence_refs") if isinstance(action.get("evidence_refs"), list) else [{"path": str(paths.requirement_probes_latest), "requirement_id": action.get("requirement_id")}],
+        })
+    if not more_evidence_requests:
+        for requirement in open_requirements[:8]:
+            if not isinstance(requirement, dict):
+                continue
+            more_evidence_requests.append({
+                "id": "requirement:" + str(requirement.get("id")),
+                "kind": "stack_owned_handoff",
+                "owner": requirement.get("owner") or "abyss-stack",
+                "reason": requirement.get("reason") or requirement.get("title") or "stack-owned evidence route remains open",
+                "machine_action": "record_requirement_only",
+                "command": "abyss-machine self-awareness requirements --json",
+                "automatic": False,
+                "requires_human_approval": True,
+                "executes_commands": False,
+                "host_layer_mutates_stack": False,
+                "evidence_refs": requirement.get("evidence_refs") if isinstance(requirement.get("evidence_refs"), list) else [{"path": str(paths.requirements_latest), "requirement_id": requirement.get("id")}],
+            })
+    if _safe_int(_nested_get(memory_space, ["summary", "blocked_gates"]), 0) > 0:
+        more_evidence_requests.append({
+            "id": "memory-space:freshness",
+            "kind": "freshness_maintenance_route",
+            "owner": "abyss-machine",
+            "reason": "memory-space has blocked freshness gates before deep reasoning",
+            "command": semantic_maintain_review_command,
+            "retry_command": semantic_maintain_retry_command,
+            "automatic": False,
+            "host_layer_mutates_stack": False,
+            "evidence_refs": [{"path": str(paths.context_latest), "summary": memory_space.get("summary")}],
+        })
+    involved_contexts = selected.get("involved_contexts") if isinstance(selected.get("involved_contexts"), list) else []
+    if not any((ctx or {}).get("trace_id") for ctx in involved_contexts if isinstance(ctx, dict)):
+        more_evidence_requests.append({
+            "id": "trace-context:direct-span-evidence",
+            "kind": "stronger_trace_or_span_evidence",
+            "owner": "abyss-stack",
+            "reason": "selected episode lacks direct trace/span proof; keep root-cause claim candidate-only",
+            "command": "abyss-machine self-awareness requirements --json",
+            "automatic": False,
+            "host_layer_mutates_stack": False,
+            "evidence_refs": [{"path": str(paths.episodes_latest), "episode_id": selected.get("episode_id")}],
+        })
+    if not more_evidence_requests:
+        more_evidence_requests.append({
+            "id": "bounded-followup:self-awareness-context",
+            "kind": "bounded_followup_read",
+            "owner": "abyss-machine",
+            "reason": "investigation reached a candidate conclusion; keep next turn evidence-cited and replayable",
+            "command": "abyss-machine self-awareness context --json",
+            "automatic": False,
+            "host_layer_mutates_stack": False,
+            "evidence_refs": [{"path": str(paths.context_latest)}],
+        })
+
+    states: list[dict[str, Any]] = []
+    checkpoints: list[dict[str, Any]] = []
+    parent: str | None = None
+
+    def step(node: str, state: dict[str, Any]) -> None:
+        nonlocal parent
+        state = dict(state)
+        state.setdefault("artifact_refs", artifact_refs)
+        states.append({"node": node, "state": state})
+        checkpoint = persistence_port.checkpoint(thread_id, node, state, parent)
+        checkpoints.append(checkpoint)
+        parent = checkpoint["checkpoint_id"]
+
+    step("plan_queries", {
+        "phase": "plan",
+        "query": query_text,
+        "promql": _nested_get(query_doc, ["query_plan", "promql"]) or [],
+        "logql": _nested_get(query_doc, ["query_plan", "logql"]) or [],
+        "context_keys": _nested_get(query_doc, ["query_plan", "context_keys"]) or [],
+        "readmodels": _nested_get(query_doc, ["query_plan", "readmodels"]) or [],
+        "next_node": "query_evidence",
+        "policy": {"read_only": True, "host_layer_mutates_stack": False},
+    })
+    step("query_evidence", {
+        "phase": "query",
+        "event_hits": _nested_get(query_doc, ["summary", "event_hits"]),
+        "episode_hits": _nested_get(query_doc, ["summary", "episode_hits"]),
+        "node_hits": _nested_get(query_doc, ["summary", "node_hits"]),
+        "memory_space_hits": _nested_get(query_doc, ["summary", "memory_space_hits"]),
+        "episode_id": selected.get("episode_id"),
+        "episode_event_ids": selected.get("event_ids", [])[:20],
+        "capability_requirements": _nested_get(capabilities, ["summary", "requirements"]),
+        "promql": _nested_get(query_doc, ["query_plan", "promql"]) or [],
+        "logql": _nested_get(query_doc, ["query_plan", "logql"]) or [],
+        "rag_validate_ok": bool(rag_validation.get("ok")),
+        "memory_space_summary": memory_space.get("summary"),
+        "spatial_graph": {"path": str(paths.spatial_graph_latest)},
+        "policy": {"bounded_results": True, "read_only": True, "host_layer_mutates_stack": False},
+    })
+    step("resident_context_packet", {
+        "resident_worker": "warm-e2b/gemma4.spark",
+        "resident_status": resident_detail.get("status"),
+        "resident_running": contract_port.resident_worker_detail_complete(resident_detail),
+        "resident_worker_detail": resident_detail,
+        "resident_cognitive_packet": resident_cognitive_packet,
+        "body_trace": body_trace,
+        "completion_route_context": completion_route_context,
+        "top_completion_route_packet": top_completion_route_packet,
+        "read_only_tools": resident_cognitive_packet.get("read_only_tools"),
+        "hypothesis_tests": resident_cognitive_packet.get("hypothesis_tests"),
+        "contradiction_notes": resident_cognitive_packet.get("contradiction_notes"),
+        "escalation_gate": resident_cognitive_packet.get("escalation_gate"),
+        "serving_owner": _nested_get(resident_detail, ["serving", "owner"]),
+        "health_latency_ms": _nested_get(resident_detail, ["health", "health_latency_ms"]),
+        "package_temp_c": _nested_get(resident_detail, ["resource_thermal", "package_temp_c"]),
+        "candidate_count": _nested_get(resident_detail, ["candidate_context", "candidates"]),
+        "review_required": _nested_get(resident_detail, ["candidate_context", "review_required"]),
+        "eval_overall_score": _nested_get(resident_detail, ["evals", "overall_score"]),
+        "action_execution": _nested_get(resident_detail, ["candidate_context", "action_execution"]),
+        "digest_available": bool(llm_resident_digest.get("ok")),
+        "micro_available": bool(llm_resident_micro.get("ok")),
+        "rag_validate_ok": bool(rag_validation.get("ok")),
+        "nervous_readiness": nervous.get("readiness") if isinstance(nervous.get("readiness"), dict) else None,
+        "bounded_context": True,
+        "model_execution_in_this_graph": False,
+        "host_layer_mutates_stack": False,
+        "reason": "Investigator consumes resident worker state and candidate artifacts; model execution remains governed by resource/mode gates.",
+    })
+    hypothesis = {
+        "statement": "Observed symptoms are correlated by context/resource/time, but remain candidate until direct trace/span or counterfactual evidence confirms cause.",
+        "support": selected.get("suspected_cause_chain", []),
+        "counter_evidence": selected.get("counter_evidence", []),
+    }
+    step("reason_over_evidence", {
+        "phase": "reason",
+        "body_trace": body_trace,
+        "hypotheses": [hypothesis] + (resident_cognitive_packet.get("hypothesis_tests") if isinstance(resident_cognitive_packet.get("hypothesis_tests"), list) else []),
+        "contradiction_notes": resident_cognitive_packet.get("contradiction_notes"),
+        "slo_views": correlation.get("slo_views", []),
+        "anomaly_baselines": correlation.get("anomaly_baselines", []),
+        "completion_route_context": completion_route_context,
+        "top_completion_route_packet": top_completion_route_packet,
+        "truth_boundary": "candidate_not_root_cause_fact",
+        "policy": {"claim_without_evidence": False, "host_layer_mutates_stack": False},
+    })
+    step("request_more_evidence", {
+        "phase": "request_more_evidence",
+        "requests": more_evidence_requests,
+        "requests_count": len(more_evidence_requests),
+        "working_stack_gap": working_stack_gap_packet,
+        "working_stack_gap_selected": bool(working_stack_gap_packet),
+        "stack_handoff_action_map": stack_handoff_action_map,
+        "stack_handoff_action_summary": stack_handoff_action_map.get("summary"),
+        "stack_handoff_closure_readiness": stack_handoff_closure_readiness,
+        "stack_handoff_closure_readiness_summary": stack_handoff_closure_readiness.get("summary"),
+        "completion_route_context": completion_route_context,
+        "top_completion_route_packet": top_completion_route_packet,
+        "all_requests_non_mutating": all(
+            request.get("host_layer_mutates_stack") is False
+            and request.get("automatic") is False
+            and request.get("executes_commands") is not True
+            for request in more_evidence_requests
+        ),
+        "owner_routes": sorted(set(str(request.get("owner") or "unknown") for request in more_evidence_requests)),
+        "policy": {
+            "requests_are_handoffs": True,
+            "automatic_stack_changes": False,
+            "actions_executed": False,
+            "host_layer_mutates_stack": False,
+        },
+    })
+    confidence = selected.get("confidence") if isinstance(selected.get("confidence"), dict) else {"score": 0.35, "reasons": ["no selected episode"]}
+    evidence_validation_checks = [
+        {
+            "id": "artifact_refs_present",
+            "ok": bool(artifact_refs) and all(isinstance(ref, dict) and (ref.get("path") or ref.get("python_module") or ref.get("url")) for ref in artifact_refs),
+            "evidence_refs": artifact_refs[:12],
+        },
+        {
+            "id": "resident_cognitive_packet_complete",
+            "ok": contract_port.resident_cognitive_packet_complete(resident_cognitive_packet),
+            "evidence_refs": [{"path": str(paths.investigation_latest), "section": "resident_cognitive_packet"}],
+        },
+        {
+            "id": "completion_route_context_complete",
+            "ok": contract_port.resident_completion_route_context_complete(completion_route_context),
+            "evidence_refs": [{"path": str(paths.completion_audit_latest), "section": "completion_route_packets"}],
+        },
+        {
+            "id": "body_trace_complete",
+            "ok": contract_port.body_trace_complete(body_trace),
+            "evidence_refs": [{"path": str(paths.context_latest), "section": "context_packet.host_body"}],
+        },
+        {
+            "id": "hypotheses_have_evidence",
+            "ok": all(item.get("evidence_refs") for item in resident_cognitive_packet.get("hypothesis_tests", []) if isinstance(item, dict)),
+            "evidence_refs": [{"path": str(paths.investigation_latest), "section": "hypothesis_tests"}],
+        },
+        {
+            "id": "more_evidence_requests_non_mutating",
+            "ok": all(request.get("host_layer_mutates_stack") is False and request.get("automatic") is False and request.get("executes_commands") is not True for request in more_evidence_requests),
+            "evidence_refs": [{"path": str(paths.requirements_latest)}],
+        },
+        {
+            "id": "working_stack_gap_packet_complete",
+            "ok": selected.get("episode_kind") != "working_stack_usage_gap" or contract_port.working_stack_gap_complete(working_stack_gap_packet),
+            "evidence_refs": [{"path": str(paths.episodes_latest), "episode_id": selected.get("episode_id"), "section": "working_stack_gap"}],
+        },
+        {
+            "id": "stack_handoff_action_map_complete",
+            "ok": stack_handoff_action_map.get("schema") == f"{schema_prefix}_self_awareness_brief_stack_handoff_action_map_v1"
+            and _nested_get(stack_handoff_action_map, ["policy", "host_layer_mutates_stack"]) is False
+            and _nested_get(stack_handoff_action_map, ["policy", "executes_commands"]) is False
+            and all(
+                isinstance(action, dict)
+                and action.get("closure_blockers")
+                and action.get("runbook_candidate")
+                and action.get("verifier_commands")
+                and contract_port.stack_coverage_impact_complete(action.get("coverage_impact"))
+                and _nested_get(action, ["policy", "host_layer_mutates_stack"]) is False
+                and _nested_get(action, ["policy", "executes_commands"]) is False
+                for action in stack_handoff_actions
+            ),
+            "evidence_refs": [{"path": str(paths.brief_latest), "section": "stack_handoff_action_map"}],
+        },
+        {
+            "id": "stack_handoff_coverage_impact_complete",
+            "ok": _safe_int(_nested_get(stack_handoff_action_map, ["summary", "coverage_impact_entries"]), -1) == len(stack_handoff_actions)
+            and _safe_int(_nested_get(stack_handoff_closure_readiness, ["summary", "coverage_impact_entries"]), -1) == len(stack_handoff_actions)
+            and (not stack_handoff_actions or bool(_nested_get(stack_handoff_action_map, ["summary", "blocked_coverage_planes"])))
+            and all(contract_port.stack_coverage_impact_complete(action.get("coverage_impact")) for action in stack_handoff_actions)
+            and all(contract_port.stack_coverage_impact_complete(request.get("coverage_impact")) for request in more_evidence_requests if request.get("kind") == "stack_handoff_action"),
+            "evidence_refs": [{"path": str(paths.brief_latest), "section": "stack_handoff_action_map.coverage_impact"}],
+        },
+        {
+            "id": "stack_handoff_closure_readiness_complete",
+            "ok": stack_handoff_closure_readiness.get("schema") == f"{schema_prefix}_self_awareness_investigation_stack_handoff_closure_readiness_v1"
+            and _nested_get(stack_handoff_closure_readiness, ["summary", "complete"]) is True
+            and _safe_int(_nested_get(stack_handoff_closure_readiness, ["summary", "packets"]), -1) == len(stack_handoff_actions)
+            and _nested_get(stack_handoff_closure_readiness, ["policy", "host_layer_mutates_stack"]) is False
+            and _nested_get(stack_handoff_closure_readiness, ["policy", "executes_commands"]) is False
+            and _nested_get(stack_handoff_closure_readiness, ["policy", "action_execution"]) is False
+            and all(isinstance(action, dict) and isinstance(action.get("closure_readiness"), dict) for action in stack_handoff_actions),
+            "evidence_refs": [{"path": str(paths.requirement_probes_latest), "section": "closure_readiness"}],
+        },
+        {
+            "id": "read_only_policy",
+            "ok": _nested_get(resident_cognitive_packet, ["policy", "read_only_tools_only"]) is True and _nested_get(resident_cognitive_packet, ["policy", "action_execution"]) is False,
+            "evidence_refs": [{"path": str(paths.investigation_latest), "section": "resident_cognitive_packet.policy"}],
+        },
+        {
+            "id": "no_stack_mutation",
+            "ok": _nested_get(resident_cognitive_packet, ["policy", "host_layer_mutates_stack"]) is False and _nested_get(resident_cognitive_packet, ["escalation_gate", "host_layer_mutates_stack"]) is False,
+            "evidence_refs": [{"path": str(paths.investigation_latest), "section": "resident_cognitive_packet"}],
+        },
+        {
+            "id": "conclusion_candidate_only",
+            "ok": _nested_get(resident_cognitive_packet, ["policy", "conclusions_are_candidates"]) is True and _nested_get(resident_cognitive_packet, ["policy", "candidate_output_is_owner_truth"]) is False,
+            "evidence_refs": [{"path": str(paths.investigation_latest), "section": "conclusion"}],
+        },
+        {
+            "id": "human_approval_before_mutation",
+            "ok": True,
+            "evidence_refs": [{"path": str(paths.investigation_latest), "section": "policy"}],
+        },
+    ]
+    evidence_validation = {
+        "schema": f"{schema_prefix}_self_awareness_investigation_evidence_validation_v1",
+        "checks": evidence_validation_checks,
+        "fails": sum(1 for item in evidence_validation_checks if item.get("ok") is not True),
+        "summary": {
+            "checks": len(evidence_validation_checks),
+            "fails": sum(1 for item in evidence_validation_checks if item.get("ok") is not True),
+        },
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "action_execution": False,
+            "claim_without_evidence": False,
+            "human_approval_before_mutation": True,
+        },
+    }
+    step("validate_evidence", {
+        "phase": "validate",
+        "validation": evidence_validation,
+        "validation_ok": evidence_validation["fails"] == 0,
+        "policy": evidence_validation["policy"],
+    })
+    artifact_record = {
+        "schema": f"{schema_prefix}_self_awareness_investigation_artifact_record_v1",
+        "thread_id": thread_id,
+        "artifact_path": str(paths.investigation_latest),
+        "history_path": str(persistence_port.daily_jsonl_path(paths.investigation_history_root)),
+        "records_checkpointed_state": True,
+        "checkpoint_count_before_record": len(checkpoints),
+        "previous_checkpoint_id": parent,
+        "artifact_refs": artifact_refs,
+        "policy": {
+            "host_layer_mutates_stack": False,
+            "writes_project_roots": False,
+            "records_transient_graph_state": True,
+        },
+    }
+    step("record_artifact", artifact_record)
+    default_safe_next_action = {
+        "kind": "owner_review",
+        "command": "abyss-machine self-awareness brief --json",
+        "automatic": False,
+        "requires_human_approval": True,
+        "executes_commands": False,
+        "host_layer_mutates_stack": False,
+        "action_execution": False,
+        "reversible": True,
+        "rollback": "discard candidate/readmodel output; no stack state was changed",
+        "owner_route": "abyss-machine:self-awareness",
+    }
+    working_stack_gap_safe_next = working_stack_gap_packet.get("safe_next_action") if isinstance(working_stack_gap_packet.get("safe_next_action"), dict) else {}
+    safe_next_action = working_stack_gap_safe_next if working_stack_gap_safe_next else stack_handoff_safe_next if stack_handoff_safe_next else default_safe_next_action
+    brief_reaction_candidate = {
+        "phase": "brief_reaction",
+        "confidence": confidence,
+        "safe_next_action": safe_next_action,
+        "working_stack_gap": working_stack_gap_packet,
+        "working_stack_gap_selected": bool(working_stack_gap_packet),
+        "requirements": capabilities.get("requirements", []),
+        "stack_handoff_action_map": stack_handoff_action_map,
+        "stack_handoff_actions": stack_handoff_actions,
+        "stack_handoff_closure_readiness": stack_handoff_closure_readiness,
+        "completion_route_context": completion_route_context,
+        "top_completion_route_packet": top_completion_route_packet,
+        "top_stack_handoff_action": stack_handoff_actions[0] if stack_handoff_actions else None,
+        "brief_command": "abyss-machine self-awareness brief --json",
+        "reaction_route": "abyss-machine reactions --json",
+        "response_route": "abyss-machine responses --json",
+        "risk": "candidate-only; no automatic remediation",
+        "blast_radius": "readmodel only",
+        "rollback": safe_next_action["rollback"],
+        "human_approval_before_mutation": True,
+        "policy": {
+            "automatic_response": False,
+            "action_execution": False,
+            "host_layer_mutates_stack": False,
+        },
+    }
+    step("brief_reaction_candidate", brief_reaction_candidate)
+    conclusion = {
+        "what_happened": "Self-awareness investigation correlated the selected evidence set into a candidate episode.",
+        "where": selected.get("affected_spatial_nodes", []),
+        "when": selected.get("time_window"),
+        "why_likely": hypothesis["statement"],
+        "resident_worker": {
+            "profile": "gemma4.spark",
+            "status": resident_detail.get("status"),
+            "serving_owner": _nested_get(resident_detail, ["serving", "owner"]),
+            "health_latency_ms": _nested_get(resident_detail, ["health", "health_latency_ms"]),
+            "package_temp_c": _nested_get(resident_detail, ["resource_thermal", "package_temp_c"]),
+            "candidate_count": _nested_get(resident_detail, ["candidate_context", "candidates"]),
+            "review_required": _nested_get(resident_detail, ["candidate_context", "review_required"]),
+            "eval_overall_score": _nested_get(resident_detail, ["evals", "overall_score"]),
+            "action_execution": _nested_get(resident_detail, ["candidate_context", "action_execution"]),
+            "candidate_output_is_owner_truth": _nested_get(resident_detail, ["policy", "candidate_output_is_owner_truth"]),
+            "used_as": "bounded context/evidence consumer in this graph; direct model generation remains owner/resource gated",
+        },
+        "resident_cognitive_packet": {
+            "schema": resident_cognitive_packet.get("schema"),
+            "read_only_tools": len(resident_cognitive_packet.get("read_only_tools") if isinstance(resident_cognitive_packet.get("read_only_tools"), list) else []),
+            "hypothesis_tests": len(resident_cognitive_packet.get("hypothesis_tests") if isinstance(resident_cognitive_packet.get("hypothesis_tests"), list) else []),
+            "contradiction_notes": len(resident_cognitive_packet.get("contradiction_notes") if isinstance(resident_cognitive_packet.get("contradiction_notes"), list) else []),
+            "escalation_status": _nested_get(resident_cognitive_packet, ["escalation_gate", "model_execution_now", "status"]),
+            "complete": contract_port.resident_cognitive_packet_complete(resident_cognitive_packet),
+            "completion_route_context_complete": contract_port.resident_completion_route_context_complete(completion_route_context),
+            "top_completion_route_id": top_completion_route_packet.get("route_id"),
+        },
+        "body_trace": body_trace,
+        "unknown": selected.get("open_questions", []) + ["Native trace backend may be absent; see requirements.", "Resident model generation is not treated as proof unless a cited model job artifact is present."],
+        "more_evidence_requests": more_evidence_requests,
+        "working_stack_gap": working_stack_gap_packet,
+        "stack_handoff_action_map": {
+            "schema": stack_handoff_action_map.get("schema"),
+            "summary": stack_handoff_action_map.get("summary"),
+            "open_requirement_ids": stack_handoff_action_map.get("open_requirement_ids"),
+            "coverage_impact_by_requirement": {
+                str(action.get("requirement_id")): action.get("coverage_impact")
+                for action in stack_handoff_actions
+                if isinstance(action, dict) and action.get("requirement_id") and isinstance(action.get("coverage_impact"), dict)
+            },
+            "safe_next_action": stack_handoff_action_map.get("safe_next_action"),
+            "policy": stack_handoff_action_map.get("policy"),
+        },
+        "stack_handoff_closure_readiness": stack_handoff_closure_readiness,
+        "completion_route_context": completion_route_context,
+        "top_completion_route_packet": top_completion_route_packet,
+        "top_stack_handoff_action": stack_handoff_actions[0] if stack_handoff_actions else None,
+        "evidence_validation": {
+            "schema": evidence_validation.get("schema"),
+            "summary": evidence_validation.get("summary"),
+            "policy": evidence_validation.get("policy"),
+        },
+        "artifact_record": {
+            "schema": artifact_record.get("schema"),
+            "artifact_path": artifact_record.get("artifact_path"),
+            "history_path": artifact_record.get("history_path"),
+            "checkpoint_count_before_record": artifact_record.get("checkpoint_count_before_record"),
+        },
+        "graph_contract": {
+            "node_order": expected_nodes,
+            "resume_supported": True,
+            "failure_recovery_supported": True,
+            "replay_required_before_action": True,
+            "human_approval_before_mutation": True,
+        },
+        "brief_reaction_candidate": {
+            "safe_next_action": safe_next_action,
+            "working_stack_gap": {
+                "service": working_stack_gap_packet.get("service"),
+                "machine_usage_status": working_stack_gap_packet.get("machine_usage_status"),
+                "working_stack_link_id": working_stack_gap_packet.get("working_stack_link_id"),
+                "complete": contract_port.working_stack_gap_complete(working_stack_gap_packet) if working_stack_gap_packet else False,
+            } if working_stack_gap_packet else {},
+            "stack_handoff_action_summary": stack_handoff_action_map.get("summary"),
+            "top_stack_handoff_action_id": _nested_get(stack_handoff_actions[0], ["id"]) if stack_handoff_actions else None,
+            "risk": brief_reaction_candidate.get("risk"),
+            "blast_radius": brief_reaction_candidate.get("blast_radius"),
+            "human_approval_before_mutation": brief_reaction_candidate.get("human_approval_before_mutation"),
+        },
+        "next_safe_action": safe_next_action,
+        "evidence_refs": artifact_refs + (selected.get("evidence_refs", [])[:8] if isinstance(selected.get("evidence_refs"), list) else []),
+    }
+    step("write_semantic_conclusion", conclusion)
+    graph_nodes = [item["node"] for item in states]
+    latest_checkpoint_id = checkpoints[-1]["checkpoint_id"] if checkpoints else None
+    resume = {
+        "supported": True,
+        "thread_id": thread_id,
+        "latest_checkpoint_id": latest_checkpoint_id,
+        "resume_command": f"abyss-machine self-awareness replay --thread-id {thread_id} --json",
+        "replay_required_before_action": True,
+    }
+    failure_recovery = contract_port.failure_recovery(thread_id, latest_checkpoint_id)
+    data = {
+        "schema": f"{schema_prefix}_self_awareness_investigation_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": bool(checkpoints) and graph_nodes == expected_nodes and evidence_validation["fails"] == 0 and bool(conclusion.get("evidence_refs")),
+        "thread_id": thread_id,
+        "query": query_text,
+        "selected_episode_id": selected.get("episode_id"),
+        "graph": {
+            "engine": "jsonl_checkpointed_state_graph",
+            "langgraph_python_available": input_port.module_available("langgraph"),
+            "native_langgraph_required_for_success": False,
+            "nodes": graph_nodes,
+            "node_order": expected_nodes,
+            "edges": [[states[i]["node"], states[i + 1]["node"]] for i in range(max(0, len(states) - 1))],
+            "checkpointer": "machine-owned latest+history JSONL",
+            "resident_worker": "warm-e2b/gemma4.spark",
+            "resume": resume,
+            "failure_recovery": failure_recovery,
+            "human_approval_before_mutation": True,
+            "mutation_nodes": [],
+            "automatic_actions": False,
+        },
+        "checkpoints": checkpoints,
+        "states": states,
+        "resident_cognitive_packet": resident_cognitive_packet,
+        "body_trace": body_trace,
+        "read_only_tools": resident_cognitive_packet.get("read_only_tools"),
+        "hypothesis_tests": resident_cognitive_packet.get("hypothesis_tests"),
+        "contradiction_notes": resident_cognitive_packet.get("contradiction_notes"),
+        "escalation_gate": resident_cognitive_packet.get("escalation_gate"),
+        "stack_handoff_action_map": stack_handoff_action_map,
+        "stack_handoff_actions": stack_handoff_actions,
+        "stack_handoff_closure_readiness": stack_handoff_closure_readiness,
+        "completion_route_context": completion_route_context,
+        "top_completion_route_packet": top_completion_route_packet,
+        "working_stack_gap": working_stack_gap_packet,
+        "more_evidence_requests": more_evidence_requests,
+        "evidence_validation": evidence_validation,
+        "artifact_record": artifact_record,
+        "brief_reaction_candidate": brief_reaction_candidate,
+        "conclusion": conclusion,
+        "policy": {
+            "bounded_context": True,
+            "claim_without_evidence": False,
+            "auto_remediation": False,
+            "transient_graph_state_separate_from_artifacts": True,
+            "resident_model_execution": False,
+            "read_only_tools_only": True,
+            "human_approval_before_mutation": True,
+            "replay_required_before_action": True,
+            "failure_recovery_non_mutating": True,
+            "action_execution": False,
+            "host_layer_mutates_stack": False,
+        },
+        "summary": {
+            "checkpoints": len(checkpoints),
+            "graph_nodes": len(graph_nodes),
+            "selected_episode": selected.get("episode_id"),
+            "requirements": _nested_get(capabilities, ["summary", "requirements"]),
+            "more_evidence_requests": len(more_evidence_requests),
+            "working_stack_gap_selected": bool(working_stack_gap_packet),
+            "working_stack_gap_service": working_stack_gap_packet.get("service") if working_stack_gap_packet else None,
+            "working_stack_gap_status": working_stack_gap_packet.get("machine_usage_status") if working_stack_gap_packet else None,
+            "working_stack_gap_complete": contract_port.working_stack_gap_complete(working_stack_gap_packet) if working_stack_gap_packet else False,
+            "stack_handoff_actions": len(stack_handoff_actions),
+            "stack_handoff_open": _nested_get(stack_handoff_action_map, ["summary", "open_stack_requirements"]),
+            "stack_handoff_verifier_steps": _nested_get(stack_handoff_action_map, ["summary", "acceptance_verifier_steps"]),
+            "stack_handoff_closure_readiness_packets": _nested_get(stack_handoff_closure_readiness, ["summary", "packets"]),
+            "stack_handoff_closure_readiness_missing_checks": _nested_get(stack_handoff_closure_readiness, ["summary", "missing_checks"]),
+            "stack_handoff_closure_readiness_dependency_edges": _nested_get(stack_handoff_closure_readiness, ["summary", "dependency_edges"]),
+            "top_stack_handoff_requirement": _nested_get(stack_handoff_action_map, ["summary", "top_requirement_id"]),
+            "completion_route_context_complete": contract_port.resident_completion_route_context_complete(completion_route_context),
+            "completion_route_packets": _nested_get(completion_route_context, ["summary", "packets"]),
+            "completion_route_packet_actions": _nested_get(completion_route_context, ["summary", "covered_actions"]),
+            "top_completion_route_id": top_completion_route_packet.get("route_id"),
+            "top_completion_route_path": top_completion_route_packet.get("route_path"),
+            "evidence_validation_fails": evidence_validation["fails"],
+            "resume_supported": True,
+            "failure_recovery_routes": len(failure_recovery.get("routes", [])),
+            "conclusion_refs": len(conclusion.get("evidence_refs", [])),
+            "resident_worker_status": resident_detail.get("status"),
+            "resident_worker_detail_complete": contract_port.resident_worker_detail_complete(resident_detail),
+            "resident_cognitive_packet_complete": contract_port.resident_cognitive_packet_complete(resident_cognitive_packet),
+            "body_trace_complete": contract_port.body_trace_complete(body_trace),
+            "resident_candidate_count": _nested_get(resident_detail, ["candidate_context", "candidates"]),
+            "read_only_tools": len(resident_cognitive_packet.get("read_only_tools") if isinstance(resident_cognitive_packet.get("read_only_tools"), list) else []),
+            "hypothesis_tests": len(resident_cognitive_packet.get("hypothesis_tests") if isinstance(resident_cognitive_packet.get("hypothesis_tests"), list) else []),
+            "contradiction_notes": len(resident_cognitive_packet.get("contradiction_notes") if isinstance(resident_cognitive_packet.get("contradiction_notes"), list) else []),
+        },
+    }
+    if write_latest:
+        errors = persistence_port.write_latest_and_history(
+            data,
+            paths.investigation_latest,
+            paths.investigation_history_root,
+        )
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    return data
 
 
 def run_replay(
