@@ -79,12 +79,14 @@ Use these mechanic owners for the next extraction slices:
   evidence snapshots, cycle open-requirement/issue guard input assembly, cycle
   chain assembly through supplied completion predicates, cycle post-export chain
   updates, cycle stack-handoff summary document assembly, and cycle
-  partial/building/final result document assembly, complete investigation
+  partial/building/final result document assembly, complete probe preflight,
+  traced request and synthetic movement, refresh-chain, validation, and
+  two-stage persistence orchestration, complete investigation
   input/refresh ordering, episode selection, checkpoint-graph/evidence/
   conclusion assembly and latest/history persistence, and complete replay
   orchestration live in `self_awareness_adapters`; CLI binds concrete paths,
-  live functions, contract builders, and write intent. Probe/cycle
-  orchestration, deeper runtime refresh, and concrete artifact/freshness
+  live functions, contract builders, and write intent. Cycle orchestration,
+  deeper runtime refresh, and concrete artifact/freshness
   binding remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc

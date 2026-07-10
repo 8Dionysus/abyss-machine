@@ -89,6 +89,9 @@ ResidentWorkerDetailPort = Callable[..., dict[str, Any]]
 DocumentBuilderPort = Callable[..., dict[str, Any]]
 DocumentCompletePort = Callable[[Any], bool]
 CheckpointPort = Callable[[str, str, dict[str, Any], str | None], dict[str, Any]]
+ProcessIdPort = Callable[[], int]
+ResourcePreflightPort = Callable[[str], dict[str, Any]]
+HttpStatusHeadersPort = Callable[[str, Mapping[str, str]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -259,6 +262,88 @@ class SelfAwarenessInvestigationContractPort:
 class SelfAwarenessInvestigationPersistencePort:
     checkpoint: CheckpointPort
     daily_jsonl_path: DailyJsonlPathPort
+    write_latest_and_history: WriteLatestHistoryPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessProbePaths:
+    probe_latest: Path
+    probe_history_root: Path
+    capabilities_latest: Path
+    requirements_latest: Path
+    requirement_probes_latest: Path
+    stack_closure_dossier_latest: Path
+    failure_matrix_latest: Path
+    working_stack_latest: Path
+    events_latest: Path
+    collect_latest: Path
+    query_latest: Path
+    correlation_latest: Path
+    timeline_latest: Path
+    spatial_graph_latest: Path
+    context_latest: Path
+    episodes_latest: Path
+    trace_context_latest: Path
+    alerts_latest: Path
+    investigate_latest: Path
+    replay_latest: Path
+    reactions_latest: Path
+    responses_latest: Path
+    brief_latest: Path
+    autolink_latest: Path
+    completion_audit_latest: Path
+    export_latest: Path
+    validate_latest: Path
+
+
+@dataclass(frozen=True)
+class SelfAwarenessProbeRuntimePort:
+    hostname: HostNamePort
+    process_id: ProcessIdPort
+    resource_preflight: ResourcePreflightPort
+    http_status_with_headers: HttpStatusHeadersPort
+    make_event: ObservationEventBuilderPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessProbeRefreshPort:
+    capabilities: RefreshDocumentPort
+    requirement_probes: RefreshDocumentPort
+    working_stack: RefreshDocumentPort
+    stack_closure_dossier: RefreshDocumentPort
+    failure_matrix: RefreshDocumentPort
+    collect: RefreshDocumentPort
+    query: RefreshDocumentPort
+    correlation: RefreshDocumentPort
+    timeline: RefreshDocumentPort
+    spatial_graph: RefreshDocumentPort
+    context: RefreshDocumentPort
+    episodes: RefreshDocumentPort
+    investigate: RefreshDocumentPort
+    replay: RefreshDocumentPort
+    trace_context_fallback: RefreshDocumentPort
+    alerts: RefreshDocumentPort
+    reactions: RefreshDocumentPort
+    responses: RefreshDocumentPort
+    brief: RefreshDocumentPort
+    autolink: RefreshDocumentPort
+    export: RefreshDocumentPort
+    validate: RefreshDocumentPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessProbeContractPort:
+    stack_organ_signal_route: DocumentBuilderPort
+    stack_organ_state_digest: Callable[[dict[str, Any]], str]
+    trace_context_fallback_complete: DocumentCompletePort
+    resident_cognitive_replay_complete: DocumentCompletePort
+    autolink_complete: DocumentCompletePort
+    e2e_lineage_proof: DocumentBuilderPort
+    top_level_lineage_packet: DocumentBuilderPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessProbePersistencePort:
     write_latest_and_history: WriteLatestHistoryPort
 
 
@@ -2407,6 +2492,491 @@ def run_investigation(
             data,
             paths.investigation_latest,
             paths.investigation_history_root,
+        )
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    return data
+
+
+def run_probe(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    grafana_url: str,
+    paths: SelfAwarenessProbePaths,
+    write_latest: bool,
+    runtime_port: SelfAwarenessProbeRuntimePort,
+    refresh_port: SelfAwarenessProbeRefreshPort,
+    contract_port: SelfAwarenessProbeContractPort,
+    persistence_port: SelfAwarenessProbePersistencePort,
+) -> dict[str, Any]:
+    host = runtime_port.hostname()
+    seed = {"at": generated_at, "host": host, "pid": runtime_port.process_id()}
+    run_id = "saprobe-" + self_awareness_contracts.stable_hash_json(seed, length=16)
+    trace_id = self_awareness_contracts.stable_hash_json({"trace": seed}, length=32)
+    span_id = self_awareness_contracts.stable_hash_json({"span": seed}, length=16)
+    traceparent = f"00-{trace_id}-{span_id}-01"
+    resource_preflight = runtime_port.resource_preflight("self-awareness-probe")
+    if not resource_preflight.get("ok"):
+        data = probe_resource_denied_document(
+            schema_prefix=schema_prefix,
+            version=version,
+            generated_at=generated_at,
+            run_id=run_id,
+            traceparent=traceparent,
+            resource_preflight=resource_preflight,
+        )
+        if write_latest:
+            errors = persistence_port.write_latest_and_history(
+                data,
+                paths.probe_latest,
+                paths.probe_history_root,
+            )
+            if errors:
+                data["write_errors"] = errors
+        return data
+
+    target_url = f"{grafana_url.rstrip('/')}/api/health"
+    response = runtime_port.http_status_with_headers(
+        target_url,
+        {
+            "Accept": "application/json",
+            "traceparent": traceparent,
+            "X-Abyss-Self-Awareness-Probe": run_id,
+        },
+    )
+    probe_context = {
+        "traceparent": traceparent,
+        "trace_id": trace_id,
+        "span_id": span_id,
+        "synthetic_run_id": run_id,
+    }
+    probe_event = runtime_port.make_event(
+        "synthetic_probe",
+        "synthetic",
+        event_time=generated_at,
+        source_query=f"GET {target_url}",
+        resource={"service": "grafana", "endpoint": "/api/health", "owner_surface": "abyss-stack", "write": False},
+        context=probe_context,
+        space={"host": host, "owner_surface": "abyss-stack", "endpoint": "/api/health"},
+        severity="info" if response.get("ok") else "warning",
+        confidence={"score": 0.9 if response.get("ok") else 0.55, "reason": "Synthetic W3C traceparent request through safe stack health route"},
+        body={"run_id": run_id, "traceparent": traceparent, "response": response},
+        evidence_refs=[{"probe_run_id": run_id, "url": target_url, "traceparent": traceparent, "status_code": response.get("status_code")}],
+        truth_level="raw",
+    )
+    context_event = runtime_port.make_event(
+        "trace_context",
+        "synthetic",
+        event_time=generated_at,
+        source_query="generated W3C traceparent",
+        resource={"service": "self-awareness-probe", "owner_surface": "abyss-machine", "write": False},
+        context=probe_context,
+        space={"host": host, "owner_surface": "abyss-machine"},
+        severity="info",
+        confidence={"score": 0.95, "reason": "Generated by self-awareness probe before request"},
+        body={"run_id": run_id, "traceparent": traceparent},
+        evidence_refs=[{"path": str(paths.probe_latest), "probe_run_id": run_id}],
+        truth_level="raw",
+    )
+    synthetic_alert_event = runtime_port.make_event(
+        "alert",
+        "synthetic",
+        event_time=generated_at,
+        source_query="safe synthetic self-awareness alert condition",
+        resource={
+            "alertname": "SelfAwarenessSyntheticProbe",
+            "alert_fingerprint": "synthetic:" + run_id,
+            "service": "self-awareness-probe",
+            "owner_surface": "abyss-machine",
+            "write": False,
+        },
+        context={**probe_context, "alert_fingerprint": "synthetic:" + run_id},
+        space={"host": host, "owner_surface": "abyss-machine", "route": "self-awareness/probe"},
+        severity="notice",
+        confidence={"score": 0.93, "reason": "Synthetic alert exists only inside machine-owned readmodels and does not mutate stack rules"},
+        body={"run_id": run_id, "alertstate": "synthetic_firing_for_probe"},
+        evidence_refs=[{"path": str(paths.probe_latest), "probe_run_id": run_id}],
+        truth_level="raw",
+    )
+    capabilities = refresh_port.capabilities(write_latest=True)
+    requirement_probes = refresh_port.requirement_probes(write_latest=True)
+    working_stack = refresh_port.working_stack(write_latest=True)
+    stack_closure_dossier = refresh_port.stack_closure_dossier(
+        write_latest=True,
+        requirement_probes_doc=requirement_probes,
+        working_stack_doc=working_stack,
+    )
+    failure_matrix = refresh_port.failure_matrix(write_latest=True)
+    working_stack_organs = [
+        organ
+        for organ in (working_stack.get("organs") if isinstance(working_stack.get("organs"), list) else [])
+        if isinstance(organ, dict) and organ.get("service")
+    ]
+    target_organ = next(
+        (organ for organ in working_stack_organs if str(organ.get("service") or "") == "grafana"),
+        working_stack_organs[0] if working_stack_organs else {},
+    )
+    target_service = str(target_organ.get("service") or "working-stack")
+    target_runtime = target_organ.get("runtime") if isinstance(target_organ.get("runtime"), dict) else {}
+    target_link = target_organ.get("time_space_context_link") if isinstance(target_organ.get("time_space_context_link"), dict) else {}
+    target_signal_route = contract_port.stack_organ_signal_route(target_service, target_organ)
+    target_state_digest = (
+        contract_port.stack_organ_state_digest(target_organ)
+        if target_organ
+        else self_awareness_contracts.stable_hash_json({"service": target_service, "run_id": run_id}, length=24)
+    )
+    movement_packet_id = "samove-smoke-" + self_awareness_contracts.stable_hash_json(
+        {"run_id": run_id, "service": target_service, "state": target_state_digest},
+        length=20,
+    )
+    movement_selection = {
+        "schema": f"{schema_prefix}_self_awareness_stack_organ_movement_selection_v1",
+        "service": target_service,
+        "categories": ["raw_signal", "correlation_candidate", "episode_candidate", "needs_resident_reasoning"],
+        "state_changed": False,
+        "previous_state_digest": target_state_digest,
+        "current_state_digest": target_state_digest,
+        "selected_for_timeline": True,
+        "selected_for_spatial_graph": True,
+        "selected_for_episode": True,
+        "selected_for_resident_reasoning": True,
+        "selected_reason": "controlled read-only probe selected this live organ movement to exercise resident reasoning and replay",
+        "not_selected_reason": None,
+        "degradation_reasons": [],
+        "failed_probe_names": [],
+        "policy": {
+            "read_only": True,
+            "host_layer_mutates_stack": False,
+            "executes_commands": False,
+            "automatic_remediation": False,
+            "runtime_incident_claim": False,
+        },
+    }
+    movement_context = {
+        **probe_context,
+        "working_stack_link_id": target_link.get("link_id") or _nested_get(target_link, ["context", "working_stack_link_id"]),
+        "machine_usage_status": target_organ.get("machine_usage_status"),
+        "movement_packet_id": movement_packet_id,
+        "pid": target_runtime.get("pid"),
+        "pid_alive": target_runtime.get("pid_alive"),
+        "current_state_digest": target_state_digest,
+        "state_changed": False,
+    }
+    movement_evidence_refs = [
+        {"path": str(paths.working_stack_latest), "service": target_service, "working_stack_link_id": movement_context.get("working_stack_link_id")},
+        *(
+            target_organ.get("evidence_refs")
+            if isinstance(target_organ.get("evidence_refs"), list)
+            else [{"path": str(paths.working_stack_latest)}]
+        ),
+    ]
+    probe_movement_event = runtime_port.make_event(
+        "organ_movement",
+        "working-stack",
+        event_time=generated_at,
+        source_query=f"abyss-machine self-awareness working-stack --json#organs.{target_service}",
+        resource={
+            "service": target_service,
+            "container": target_runtime.get("container"),
+            "pid": target_runtime.get("pid"),
+            "pid_alive": target_runtime.get("pid_alive"),
+            "owner_surface": "abyss-stack",
+            "path": str(paths.working_stack_latest),
+            "route": "working-stack/" + target_service,
+            "observed_signal": target_signal_route.get("signal"),
+            "observed_source": target_signal_route.get("source"),
+            "movement_packet_id": movement_packet_id,
+            "machine_usage_status": target_organ.get("machine_usage_status"),
+            "movement_categories": movement_selection["categories"],
+            "selected_reason": movement_selection["selected_reason"],
+            "not_selected_reason": None,
+            "degradation_reasons": [],
+            "selected_for_episode": True,
+            "selected_for_resident_reasoning": True,
+            "controlled_smoke": True,
+            "write": False,
+        },
+        context=movement_context,
+        space={
+            "host": host,
+            "owner_surface": "abyss-stack",
+            "layer": "working-stack-runtime",
+            "service": target_service,
+            "container": target_runtime.get("container"),
+            "pid": target_runtime.get("pid"),
+            "pid_alive": target_runtime.get("pid_alive"),
+            "route": "working-stack/" + target_service,
+            "path": str(paths.working_stack_latest),
+        },
+        severity="notice",
+        confidence={"score": 0.86, "reason": "Controlled smoke movement is anchored to a live working-stack organ and does not assert a runtime incident"},
+        body={
+            "schema": f"{schema_prefix}_self_awareness_stack_organ_movement_observation_v1",
+            "movement_packet_id": movement_packet_id,
+            "service": target_service,
+            "observed_signal": target_signal_route.get("signal"),
+            "observed_source": target_signal_route.get("source"),
+            "container": target_runtime.get("container"),
+            "pid": target_runtime.get("pid"),
+            "pid_alive": target_runtime.get("pid_alive"),
+            "current_state_digest": target_state_digest,
+            "movement_selection": movement_selection,
+            "controlled_smoke": True,
+            "runtime_incident_claim": False,
+        },
+        evidence_refs=movement_evidence_refs[:12],
+        truth_level="working_stack_movement_observation",
+    )
+    synthetic_inputs = [probe_event, context_event, synthetic_alert_event, probe_movement_event]
+    collect = refresh_port.collect(
+        write_latest=True,
+        synthetic_events=synthetic_inputs,
+        working_stack_doc=working_stack,
+    )
+    query_doc = refresh_port.query(run_id, limit=40, write_latest=True)
+    correlation = refresh_port.correlation(write_latest=True)
+    timeline = refresh_port.timeline(write_latest=True)
+    spatial_graph = refresh_port.spatial_graph(
+        write_latest=True,
+        working_stack_doc=working_stack,
+        timeline_doc=timeline,
+    )
+    context = refresh_port.context(write_latest=True)
+    episodes = refresh_port.episodes(write_latest=True, working_stack_doc=working_stack)
+    probe_movement_episode = next(
+        (
+            episode
+            for episode in (episodes.get("episodes") if isinstance(episodes.get("episodes"), list) else [])
+            if isinstance(episode, dict)
+            and episode.get("episode_kind") == "working_stack_movement"
+            and probe_movement_event.get("event_id") in (episode.get("event_ids") if isinstance(episode.get("event_ids"), list) else [])
+        ),
+        {},
+    )
+    investigation = refresh_port.investigate(
+        episode_id=str(probe_movement_episode.get("episode_id") or "") or None,
+        query=run_id,
+        write_latest=True,
+    )
+    replay = refresh_port.replay(
+        thread_id=str(investigation.get("thread_id") or ""),
+        write_latest=True,
+    )
+    trace_context_fallback = refresh_port.trace_context_fallback(
+        write_latest=True,
+        requirement_probes_doc=requirement_probes,
+        probe_doc={
+            "schema": f"{schema_prefix}_self_awareness_probe_v1",
+            "run_id": run_id,
+            "traceparent": traceparent,
+            "ok": response.get("ok"),
+            "generated_at": generated_at,
+        },
+        context_doc=context,
+        timeline_doc=timeline,
+        episodes_doc=episodes,
+    )
+    alerts = refresh_port.alerts(write_latest=True)
+    reactions = refresh_port.reactions(write_latest=True)
+    responses = refresh_port.responses(
+        write_latest=True,
+        reactions=reactions,
+        refresh_reactions=False,
+    )
+    brief = refresh_port.brief(write_latest=True)
+    autolink = refresh_port.autolink(
+        write_latest=True,
+        probe_run_id=run_id,
+        working_stack_doc=working_stack,
+        stack_closure_dossier_doc=stack_closure_dossier,
+    )
+    export = refresh_port.export(run_id=run_id, write_latest=True, include_cycle=False)
+    movement_episode_id = str(probe_movement_episode.get("episode_id") or "")
+    movement_reaction_candidate_present = any(
+        str(item.get("episode_id") or "") == movement_episode_id
+        for item in (reactions.get("candidates") if isinstance(reactions.get("candidates"), list) else [])
+        if isinstance(item, dict)
+    )
+    movement_response_present = any(
+        str(_nested_get(item, ["validated_episode", "episode_id"]) or _nested_get(item, ["response_contract", "validated_episode", "episode_id"]) or "") == movement_episode_id
+        for item in (responses.get("routes") if isinstance(responses.get("routes"), list) else [])
+        if isinstance(item, dict)
+    )
+    collect_events = collect.get("events") if isinstance(collect.get("events"), list) else []
+    chain = {
+        "request": bool(response.get("ok")),
+        "capability_map": bool(capabilities.get("ok")),
+        "requirement_probes": bool(requirement_probes.get("ok")),
+        "stack_closure_dossier": bool(stack_closure_dossier.get("ok")),
+        "failure_matrix": bool(failure_matrix.get("ok")),
+        "working_stack": bool(working_stack.get("ok"))
+        and _safe_int(_nested_get(working_stack, ["summary", "time_space_context_links"]), 0) >= _safe_int(_nested_get(working_stack, ["summary", "organs"]), 0) > 0
+        and any(event.get("source") == "working-stack" for event in collect_events if isinstance(event, dict)),
+        "metric": any(event.get("signal") == "metric" for event in collect_events if isinstance(event, dict)),
+        "log": any(event.get("signal") == "log" for event in collect_events if isinstance(event, dict)),
+        "trace_context": any(event.get("signal") == "trace_context" and (event.get("context") or {}).get("synthetic_run_id") == run_id for event in collect_events if isinstance(event, dict) and isinstance(event.get("context"), dict)),
+        "trace_context_fallback": contract_port.trace_context_fallback_complete(trace_context_fallback),
+        "context": any((event.get("context") or {}).get("synthetic_run_id") == run_id for event in collect_events if isinstance(event, dict) and isinstance(event.get("context"), dict)),
+        "observation_events": bool(collect_events),
+        "query": bool(query_doc.get("ok")),
+        "correlation": bool(correlation.get("ok")),
+        "timeline": bool(timeline.get("ok")),
+        "spatial_graph": bool(spatial_graph.get("ok")),
+        "causal_episode": any(run_id in json.dumps(item, sort_keys=True) for item in (episodes.get("episodes") if isinstance(episodes.get("episodes"), list) else []) if isinstance(item, dict)),
+        "movement_episode": bool(probe_movement_episode.get("episode_id")),
+        "alert": any((event.get("context") or {}).get("synthetic_run_id") == run_id and event.get("signal") == "alert" for event in collect_events if isinstance(event, dict) and isinstance(event.get("context"), dict)),
+        "warm_e2b": any((event.get("resource") or {}).get("service") == "warm-e2b-gemma4.spark" for event in collect_events if isinstance(event, dict)),
+        "rag_memory": any(event.get("source") == "rag" for event in collect_events if isinstance(event, dict)),
+        "nervous_freshness": any(event.get("source") == "nervous" for event in collect_events if isinstance(event, dict)),
+        "langgraph_investigation": bool(investigation.get("ok")) and bool(investigation.get("checkpoints")),
+        "replay": bool(replay.get("ok")),
+        "resident_cognitive_replay": contract_port.resident_cognitive_replay_complete(replay.get("resident_cognitive_replay") if isinstance(replay.get("resident_cognitive_replay"), dict) else {}),
+        "reaction_candidate": movement_reaction_candidate_present,
+        "movement_reaction_candidate": movement_reaction_candidate_present,
+        "governed_response": bool(responses.get("ok")) and movement_response_present,
+        "movement_response": movement_response_present,
+        "body_trace": (
+            _nested_get(context, ["context_packet", "sections", "host_body", "complete"]) is True
+            and _nested_get(replay, ["body_trace_replay", "replayable"]) is True
+            and _safe_int(_nested_get(responses, ["summary", "self_awareness_body_trace_routes"]), 0) >= 1
+            and _safe_int(_nested_get(responses, ["summary", "self_awareness_body_trace_missing"]), -1) == 0
+            and _nested_get(export, ["body_trace_handoff", "host_body_context_packet_included"]) is True
+            and _nested_get(export, ["body_trace_handoff", "resident_body_trace_replayable"]) is True
+            and _nested_get(export, ["body_trace_handoff", "response_body_trace_included"]) is True
+        ),
+        "entity_event_document": (
+            _safe_int(_nested_get(responses, ["summary", "self_awareness_entity_event_document_routes"]), 0) >= 1
+            and _safe_int(_nested_get(responses, ["summary", "self_awareness_entity_event_document_missing"]), -1) == 0
+            and _nested_get(export, ["portable_contract", "response_entity_event_document_context_included"]) is True
+            and _nested_get(export, ["response_entity_event_document_handoff", "complete"]) is True
+        ),
+        "semantic_brief": bool(brief.get("ok")),
+        "autolink": contract_port.autolink_complete(autolink),
+        "export": bool(export.get("ok")),
+        "resident_cognitive_export": contract_port.resident_cognitive_replay_complete(export.get("resident_cognitive_replay") if isinstance(export.get("resident_cognitive_replay"), dict) else {}),
+    }
+    e2e_lineage_proof = contract_port.e2e_lineage_proof(
+        generated_at=generated_at,
+        run_id=run_id,
+        traceparent=traceparent,
+        chain=chain,
+        synthetic_events=synthetic_inputs,
+        include_probe=False,
+    )
+    synthetic_event_refs = [
+        {
+            "event_id": event.get("event_id"),
+            "signal": event.get("signal"),
+            "source": event.get("source"),
+            "evidence_refs": event.get("evidence_refs") if isinstance(event.get("evidence_refs"), list) else [],
+        }
+        for event in synthetic_inputs
+    ]
+    artifacts = {
+        "capabilities": str(paths.capabilities_latest),
+        "requirements": str(paths.requirements_latest),
+        "requirement_probes": str(paths.requirement_probes_latest),
+        "stack_closure_dossier": str(paths.stack_closure_dossier_latest),
+        "failure_matrix": str(paths.failure_matrix_latest),
+        "working_stack": str(paths.working_stack_latest),
+        "events": str(paths.events_latest),
+        "collect": str(paths.collect_latest),
+        "query": str(paths.query_latest),
+        "correlation": str(paths.correlation_latest),
+        "timeline": str(paths.timeline_latest),
+        "spatial_graph": str(paths.spatial_graph_latest),
+        "context": str(paths.context_latest),
+        "episodes": str(paths.episodes_latest),
+        "trace_context": str(paths.trace_context_latest),
+        "alerts": str(paths.alerts_latest),
+        "investigate": str(paths.investigate_latest),
+        "replay": str(paths.replay_latest),
+        "reactions": str(paths.reactions_latest),
+        "responses": str(paths.responses_latest),
+        "brief": str(paths.brief_latest),
+        "autolink": str(paths.autolink_latest),
+        "completion_audit": str(paths.completion_audit_latest),
+        "export": str(paths.export_latest),
+    }
+    lineage = contract_port.top_level_lineage_packet(
+        generated_at=generated_at,
+        source="probe",
+        run_id=run_id,
+        traceparent=traceparent,
+        chain=chain,
+        artifacts=artifacts,
+        e2e_lineage_proof=e2e_lineage_proof,
+        investigation=investigation,
+        replay=replay,
+        reactions=reactions,
+        responses=responses,
+        export=export,
+        synthetic_events=synthetic_event_refs,
+    )
+    data = probe_result_document(
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+        run_id=run_id,
+        traceparent=traceparent,
+        target_url=target_url,
+        response=response,
+        resource_preflight=resource_preflight,
+        chain=chain,
+        e2e_lineage_proof=e2e_lineage_proof,
+        lineage=lineage,
+        synthetic_event_refs=synthetic_event_refs,
+        artifacts=artifacts,
+        target_service=target_service,
+        movement_packet_id=movement_packet_id,
+        movement_selection=movement_selection,
+        probe_movement_event=probe_movement_event,
+        probe_movement_episode=probe_movement_episode,
+        investigation=investigation,
+        replay=replay,
+        alerts=alerts,
+        autolink=autolink,
+        paths={
+            "events": paths.events_latest,
+            "episodes": paths.episodes_latest,
+            "investigate": paths.investigate_latest,
+            "replay": paths.replay_latest,
+            "reactions": paths.reactions_latest,
+            "responses": paths.responses_latest,
+            "export": paths.export_latest,
+        },
+    )
+    if write_latest:
+        errors = persistence_port.write_latest_and_history(
+            data,
+            paths.probe_latest,
+            paths.probe_history_root,
+        )
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    validation = refresh_port.validate(
+        strict=False,
+        write_latest=True,
+        refresh=False,
+        require_cycle=False,
+        allow_probe_refresh=False,
+    )
+    data["validation"] = {
+        "ok": validation.get("ok"),
+        "summary": validation.get("summary"),
+        "path": str(paths.validate_latest),
+    }
+    data["ok"] = bool(data.get("ok")) and bool(validation.get("ok"))
+    data["summary"]["validation_ok"] = validation.get("ok")
+    if write_latest:
+        errors = persistence_port.write_latest_and_history(
+            data,
+            paths.probe_latest,
+            paths.probe_history_root,
         )
         if errors:
             data["ok"] = False
