@@ -189,6 +189,16 @@ latest/readmodel refresh. Report status/counts/reasons only, never raw stack
 responses, local latest payloads, generated event/fabric stores, browser
 captures, or private host evidence.
 
+For self-awareness capabilities orchestration changes, public CI should rely on
+synthetic input, contract, and persistence ports for stack/container refresh
+order, bounded endpoint order, latest-read routing, the 18-row capability
+matrix, ready/degraded gates, no-write behavior, ordered requirements then
+capabilities writes, and write-error projection. Live-host closeout may compare
+compact source and installed summaries containing only status,
+capability/available counts, required-missing IDs, matrix counts, coverage
+booleans, history delta, and write-error count. Do not publish raw capability
+documents, endpoint bodies, model inventories, or private latest paths.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
