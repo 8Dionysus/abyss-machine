@@ -85,8 +85,10 @@ Use these mechanic owners for the next extraction slices:
   input/refresh ordering, episode selection, checkpoint-graph/evidence/
   conclusion assembly and latest/history persistence, and complete replay
   orchestration live in `self_awareness_adapters`; CLI binds concrete paths,
-  live functions, contract builders, and write intent. Cycle orchestration,
-  deeper runtime refresh, and concrete artifact/freshness
+  live functions, contract builders, and write intent. Complete cycle
+  preflight/probe/double-investigate-replay/artifact/proof/two-stage
+  persistence orchestration also lives in `self_awareness_adapters`; deeper
+  runtime refresh and concrete artifact/freshness
   binding remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc

@@ -1181,6 +1181,307 @@ def test_probe_cli_only_binds_host_paths_and_ports(monkeypatch) -> None:
     assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
 
 
+def _cycle_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessCyclePaths:
+    keys = set(self_awareness_adapters.CYCLE_LATEST_READ_NAMES)
+    keys.update(spec.path_key for spec in self_awareness_adapters.CYCLE_INITIAL_ARTIFACT_STEP_SPECS)
+    keys.update(spec.path_key for spec in self_awareness_adapters.CYCLE_FINAL_ARTIFACT_STEP_SPECS)
+    artifacts = {key: tmp_path / key.replace("_", "-") / "latest.json" for key in sorted(keys)}
+    return self_awareness_adapters.SelfAwarenessCyclePaths(
+        cycle_latest=tmp_path / "cycle/latest.json",
+        cycle_history_root=tmp_path / "cycle",
+        artifacts=artifacts,
+    )
+
+
+def _fake_cycle_ports(
+    paths: self_awareness_adapters.SelfAwarenessCyclePaths,
+    calls: list[str],
+    *,
+    resource_ok: bool = True,
+    write_results: list[list[dict[str, Any]]] | None = None,
+) -> tuple[
+    self_awareness_adapters.SelfAwarenessCycleRuntimePort,
+    self_awareness_adapters.SelfAwarenessCycleRefreshPort,
+    self_awareness_adapters.SelfAwarenessCycleContractPort,
+    self_awareness_adapters.SelfAwarenessCyclePersistencePort,
+    list[dict[str, Any]],
+]:
+    writes: list[dict[str, Any]] = []
+    probe_chain = {
+        key: True
+        for key in (
+            "request",
+            "capability_map",
+            "requirement_probes",
+            "stack_closure_dossier",
+            "failure_matrix",
+            "working_stack",
+            "metric",
+            "log",
+            "trace_context",
+            "context",
+            "observation_events",
+            "query",
+            "correlation",
+            "timeline",
+            "spatial_graph",
+            "causal_episode",
+            "alert",
+            "warm_e2b",
+            "rag_memory",
+            "nervous_freshness",
+            "reaction_candidate",
+            "governed_response",
+            "body_trace",
+            "entity_event_document",
+        )
+    }
+    probe = {
+        "schema": "abyss_machine_self_awareness_probe_v1",
+        "ok": True,
+        "run_id": "probe-fixture",
+        "traceparent": "00-00000000000000000000000000000000-0000000000000000-01",
+        "chain": probe_chain,
+        "synthetic_events": [{"event_id": f"event-{index}", "signal": "fixture", "source": "synthetic"} for index in range(4)],
+    }
+    investigation_counter = {"value": 0}
+
+    def investigate(*, query: str, write_latest: bool) -> dict[str, Any]:
+        investigation_counter["value"] += 1
+        calls.append("refresh:investigate")
+        return {"ok": True, "thread_id": f"thread-{investigation_counter['value']}", "checkpoints": [{"checkpoint_id": "checkpoint"}], "query": query}
+
+    def replay(*, thread_id: str, write_latest: bool) -> dict[str, Any]:
+        calls.append("refresh:replay")
+        return {
+            "ok": True,
+            "thread_id": thread_id,
+            "summary": {"divergences": 0},
+            "resident_cognitive_replay": {"complete": True},
+            "body_trace_replay": {"replayable": True},
+            "stack_handoff_replay": {"closure_readiness_replayable": True},
+            "stack_handoff_closure_readiness": {"summary": {"packets": 0}, "open_requirement_ids": []},
+        }
+
+    requirement_probes = {"ok": True, "summary": {}}
+    stack_closure_dossier = {
+        "ok": True,
+        "summary": {
+            "probes": 0,
+            "missing_checks": 0,
+            "dependency_edges": 0,
+            "closure_acceptance_packets": 0,
+            "closure_acceptance_packets_complete": 0,
+            "stack_requirement_compat_requirements": 0,
+        },
+        "working_stack_activation_dossier": {"summary": {"open_activation_gaps": 0}},
+    }
+    activation_smoke = {"ok": True, "summary": {"failed_services": [], "rows": 0, "rows_ok": 0}}
+    responses = {
+        "ok": True,
+        "summary": {
+            "automatic_responses": 0,
+            "routes_with_mutating_command_if_run": 0,
+            "self_awareness_body_trace_routes": 1,
+            "self_awareness_body_trace_missing": 0,
+            "self_awareness_entity_event_document_routes": 1,
+            "self_awareness_entity_event_document_missing": 0,
+        },
+    }
+    export = {
+        "ok": True,
+        "resident_cognitive_replay": {"complete": True},
+        "body_trace_handoff": {
+            "host_body_context_packet_included": True,
+            "resident_body_trace_replayable": True,
+            "response_body_trace_included": True,
+        },
+        "portable_contract": {"response_entity_event_document_context_included": True},
+        "response_entity_event_document_handoff": {"complete": True},
+        "working_stack_link_integrity": {"complete": True},
+    }
+
+    def record(name: str, document: dict[str, Any]):
+        def refresh(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            calls.append(f"refresh:{name}")
+            return document
+
+        return refresh
+
+    runtime_port = self_awareness_adapters.SelfAwarenessCycleRuntimePort(
+        hostname=lambda: calls.append("runtime:hostname") or "fixture-host",
+        process_id=lambda: calls.append("runtime:pid") or 1234,
+        resource_preflight=lambda operation: calls.append(f"runtime:preflight:{operation}") or {
+            "ok": resource_ok,
+            "status": "ok" if resource_ok else "resource_denied",
+            "denial_reasons": [] if resource_ok else ["fixture pressure"],
+        },
+        load_latest_json=lambda _path, schema: calls.append("runtime:load_latest") or {"schema": schema, "ok": True},
+        path_exists=lambda _path: True,
+        path_stat=lambda _path: type("Stat", (), {"st_mtime": 1.0})(),
+        path_sha256=lambda _path: "sha256:fixture",
+    )
+    refresh_port = self_awareness_adapters.SelfAwarenessCycleRefreshPort(
+        probe=record("probe", probe),
+        investigate=investigate,
+        replay=replay,
+        requirement_probes=record("requirement_probes", requirement_probes),
+        stack_closure_dossier=record("stack_closure_dossier", stack_closure_dossier),
+        trace_context_fallback=record("trace_context_fallback", {"complete": True}),
+        activation_smoke=record("activation_smoke", activation_smoke),
+        failure_matrix=record("failure_matrix", {"ok": True, "rows": []}),
+        reactions=record("reactions", {"ok": True}),
+        responses=record("responses", responses),
+        brief=record("brief", {"ok": True}),
+        autolink=record("autolink", {"ok": True}),
+        export=record("export", export),
+    )
+    bridge_surfaces = [
+        {"id": spec.document_key, "path": paths.artifacts[spec.path_key], "schema": "fixture_bridge_v1"}
+        for spec in self_awareness_adapters.CYCLE_INITIAL_ARTIFACT_STEP_SPECS
+        if spec.document_group == "bridge"
+    ]
+    contract_port = self_awareness_adapters.SelfAwarenessCycleContractPort(
+        resident_cognitive_replay_complete=lambda document: document.get("complete") is True,
+        working_stack_activation_smoke_complete=lambda document: document.get("ok") is True,
+        trace_context_fallback_complete=lambda document: document.get("complete") is True,
+        cycle_bridge_proof=lambda **_kwargs: {"ok": True, "summary": {"bridges": len(bridge_surfaces)}},
+        cycle_bridge_proof_complete=lambda document: document.get("ok") is True,
+        cycle_bridge_surfaces=lambda: bridge_surfaces,
+        autolink_complete=lambda document: document.get("ok") is True,
+        working_stack_link_integrity_complete=lambda document: document.get("complete") is True,
+        cycle_from_zero_proof=lambda **_kwargs: {"ok": True, "summary": {"proof_steps": 36, "chain_obligations": 32}},
+        e2e_lineage_proof=lambda **_kwargs: {"ok": True, "summary": {"rows": 22, "missing_rows": []}},
+        top_level_lineage_packet=lambda **_kwargs: {"complete": True, "summary": {"artifacts": 36, "synthetic_event_ids": 4}},
+    )
+    queued_results = list(write_results or [])
+
+    def write(document: dict[str, Any], latest: Path, root: Path) -> list[dict[str, Any]]:
+        calls.append("persistence:write")
+        assert latest == paths.cycle_latest
+        assert root == paths.cycle_history_root
+        writes.append(json.loads(json.dumps(document)))
+        return queued_results.pop(0) if queued_results else []
+
+    persistence_port = self_awareness_adapters.SelfAwarenessCyclePersistencePort(
+        write_latest_and_history=write,
+    )
+    return runtime_port, refresh_port, contract_port, persistence_port, writes
+
+
+def _run_fake_cycle(
+    paths: self_awareness_adapters.SelfAwarenessCyclePaths,
+    ports: tuple[Any, Any, Any, Any, Any],
+    *,
+    write_latest: bool,
+) -> dict[str, Any]:
+    runtime_port, refresh_port, contract_port, persistence_port, _writes = ports
+    return self_awareness_adapters.run_cycle(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T01:30:00-06:00",
+        paths=paths,
+        write_latest=write_latest,
+        runtime_port=runtime_port,
+        refresh_port=refresh_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+    )
+
+
+def test_cycle_orchestration_fails_closed_before_probe(tmp_path: Path) -> None:
+    paths = _cycle_paths(tmp_path)
+    calls: list[str] = []
+    ports = _fake_cycle_ports(paths, calls, resource_ok=False)
+
+    cycle = _run_fake_cycle(paths, ports, write_latest=True)
+
+    assert cycle["ok"] is False
+    assert cycle["status"] == "resource_denied"
+    assert "refresh:probe" not in calls
+    assert calls[-1] == "persistence:write"
+    assert len(ports[-1]) == 1
+
+
+def test_cycle_orchestration_runs_double_investigation_and_two_stage_persistence(tmp_path: Path) -> None:
+    paths = _cycle_paths(tmp_path)
+    calls: list[str] = []
+    ports = _fake_cycle_ports(paths, calls)
+
+    cycle = _run_fake_cycle(paths, ports, write_latest=True)
+
+    assert cycle["ok"] is True
+    assert cycle["status"] == "covered"
+    assert cycle["summary"]["steps"] == 36
+    assert cycle["summary"]["chain_passed"] == cycle["summary"]["chain_total"] == 32
+    assert calls.count("refresh:probe") == 1
+    assert calls.count("refresh:investigate") == 2
+    assert calls.count("refresh:replay") == 2
+    assert calls.count("persistence:write") == 2
+    assert ports[-1][0]["status"] == "building"
+    assert ports[-1][1]["status"] == "covered"
+    assert calls.index("persistence:write") < calls.index("refresh:autolink") < calls.index("refresh:export")
+
+
+def test_cycle_orchestration_no_write_still_runs_complete_chain(tmp_path: Path) -> None:
+    paths = _cycle_paths(tmp_path)
+    calls: list[str] = []
+    ports = _fake_cycle_ports(paths, calls)
+
+    cycle = _run_fake_cycle(paths, ports, write_latest=False)
+
+    assert cycle["ok"] is True
+    assert cycle["summary"]["steps"] == 36
+    assert calls.count("refresh:investigate") == 2
+    assert "persistence:write" not in calls
+    assert ports[-1] == []
+
+
+def test_cycle_orchestration_projects_final_write_failure(tmp_path: Path) -> None:
+    paths = _cycle_paths(tmp_path)
+    calls: list[str] = []
+    first_error = {"path": str(paths.cycle_latest), "error": "fixture partial write failure"}
+    second_error = {"path": str(paths.cycle_latest), "error": "fixture final write failure"}
+    ports = _fake_cycle_ports(paths, calls, write_results=[[first_error], [second_error]])
+
+    cycle = _run_fake_cycle(paths, ports, write_latest=True)
+
+    assert cycle["ok"] is False
+    assert cycle["write_errors"] == [second_error]
+    assert calls.count("persistence:write") == 2
+
+
+def test_cycle_cli_only_binds_host_paths_and_ports(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    sentinel = {"schema": "fixture_cycle_v1", "ok": True}
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "run_cycle",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+
+    assert cli.self_awareness_cycle(write_latest=False) is sentinel
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["write_latest"] is False
+    assert call["paths"].cycle_latest == cli.SELF_AWARENESS_CYCLE_LATEST_PATH
+    assert call["paths"].cycle_history_root == cli.SELF_AWARENESS_CYCLE_ROOT
+    assert call["paths"].artifacts["probe"] == cli.SELF_AWARENESS_PROBE_LATEST_PATH
+    assert call["paths"].artifacts["investigate"] == cli.SELF_AWARENESS_INVESTIGATE_LATEST_PATH
+    assert call["paths"].artifacts["export"] == cli.SELF_AWARENESS_EXPORT_LATEST_PATH
+    assert isinstance(call["runtime_port"], self_awareness_adapters.SelfAwarenessCycleRuntimePort)
+    assert isinstance(call["refresh_port"], self_awareness_adapters.SelfAwarenessCycleRefreshPort)
+    assert isinstance(call["contract_port"], self_awareness_adapters.SelfAwarenessCycleContractPort)
+    assert isinstance(call["persistence_port"], self_awareness_adapters.SelfAwarenessCyclePersistencePort)
+    assert call["refresh_port"].probe is cli.self_awareness_probe
+    assert call["refresh_port"].investigate is cli.self_awareness_investigate
+    assert call["refresh_port"].replay is cli.self_awareness_replay
+    assert call["contract_port"].cycle_bridge_proof is cli.self_awareness_cycle_bridge_proof
+    assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
+
+
 def _replay_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessReplayPaths:
     return self_awareness_adapters.SelfAwarenessReplayPaths(
         investigation_latest=tmp_path / "investigate" / "latest.json",
