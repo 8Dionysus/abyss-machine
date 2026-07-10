@@ -115,6 +115,7 @@ try:
     from . import self_awareness_contracts
     from . import self_awareness_export_handoff_contracts
     from . import self_awareness_failure_matrix_contracts
+    from . import self_awareness_query_correlation_contracts
     from . import self_awareness_stack_closure_contracts
     from . import self_awareness_stack_probe_adapters
     from . import self_awareness_validation_contracts
@@ -290,6 +291,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import self_awareness_contracts
     from abyss_machine import self_awareness_export_handoff_contracts
     from abyss_machine import self_awareness_failure_matrix_contracts
+    from abyss_machine import self_awareness_query_correlation_contracts
     from abyss_machine import self_awareness_stack_closure_contracts
     from abyss_machine import self_awareness_stack_probe_adapters
     from abyss_machine import self_awareness_validation_contracts
@@ -40955,225 +40957,95 @@ def self_awareness_governance_gate_detail_complete(detail: dict[str, Any]) -> bo
     )
 
 
+def self_awareness_query_correlation_paths() -> self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationPaths:
+    return self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationPaths(
+        events_latest=SELF_AWARENESS_EVENTS_LATEST_PATH,
+        episodes_latest=SELF_AWARENESS_EPISODES_LATEST_PATH,
+        spatial_graph_latest=SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+        capabilities_latest=SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
+        context_latest=SELF_AWARENESS_CONTEXT_LATEST_PATH,
+        stack_observability_latest=STACK_OBSERVABILITY_LATEST_PATH,
+        collect_latest=SELF_AWARENESS_COLLECT_LATEST_PATH,
+        ai_capabilities_latest=AI_CAPABILITIES_LATEST_PATH,
+        ai_llm_resident_status_latest=AI_LLM_RESIDENT_ROOT / "status" / "latest.json",
+        rag_validate_latest=RAG_VALIDATE_LATEST_PATH,
+        nervous_brief_latest=NERVOUS_BRIEF_LATEST_PATH,
+        memory_latest=MEMORY_LATEST_PATH,
+        resource_latest=RESOURCE_LATEST_PATH,
+        mode_latest=MODE_LATEST_PATH,
+        maps_latest=MAPS_LATEST_PATH,
+        graph_latest=GRAPH_LATEST_PATH,
+        rag_trace_latest=RAG_TRACE_LATEST_PATH,
+        process_container_latest=PROCESS_CONTAINER_LATEST_PATH,
+        query_latest=SELF_AWARENESS_QUERY_LATEST_PATH,
+        query_root=SELF_AWARENESS_QUERY_ROOT,
+        correlation_latest=SELF_AWARENESS_CORRELATION_LATEST_PATH,
+        correlation_root=SELF_AWARENESS_CORRELATION_ROOT,
+    )
+
+
+def self_awareness_query_correlation_config() -> self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationConfig:
+    return self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationConfig(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
+
+
+def self_awareness_query_correlation_runtime_port() -> self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationRuntimePort:
+    return self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationRuntimePort(
+        load_events=self_awareness_load_events,
+        load_latest_json=load_latest_json,
+        now_iso=now_iso,
+    )
+
+
+def self_awareness_query_correlation_refresh_port() -> self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationRefreshPort:
+    return self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationRefreshPort(
+        spatial_graph=self_awareness_spatial_graph,
+        memory_space_overlay=self_awareness_memory_space_overlay,
+        capabilities=self_awareness_capabilities,
+    )
+
+
+def self_awareness_query_correlation_contract_port() -> self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationContractPort:
+    return self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationContractPort(
+        redact_text=self_awareness_redact_text,
+        query_terms=self_awareness_query_terms,
+        match_score=self_awareness_match_score,
+        correlation_index=self_awareness_correlation_index,
+    )
+
+
+def self_awareness_query_correlation_persistence_port() -> self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationPersistencePort:
+    return self_awareness_query_correlation_contracts.SelfAwarenessQueryCorrelationPersistencePort(
+        write_latest_and_history=write_latest_and_history,
+    )
+
+
 def self_awareness_query(query: str = "", limit: int = 20, write_latest: bool = True) -> dict[str, Any]:
-    generated_at = now_iso()
-    text = self_awareness_redact_text(query or "latest", 240)
-    limit = max(1, min(100, safe_int(limit, 20)))
-    events = self_awareness_load_events(refresh=True)
-    episodes = load_latest_json(SELF_AWARENESS_EPISODES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_episodes_v1")
-    graph = self_awareness_spatial_graph(write_latest=True)
-    capabilities = load_latest_json(SELF_AWARENESS_CAPABILITIES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_capabilities_v1")
-    memory_space = graph.get("memory_space_overlay") if isinstance(graph.get("memory_space_overlay"), dict) else self_awareness_memory_space_overlay(events)
-    terms = self_awareness_query_terms(text)
-
-    def top_hits(items: list[Any]) -> list[Any]:
-        scored = []
-        for item in items:
-            score = self_awareness_match_score(item, text)
-            if score > 0:
-                scored.append((score, item))
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [item for _, item in scored[:limit]]
-
-    episode_rows = [item for item in (episodes.get("episodes") if isinstance(episodes.get("episodes"), list) else []) if isinstance(item, dict)]
-    node_rows = [item for item in (graph.get("nodes") if isinstance(graph.get("nodes"), list) else []) if isinstance(item, dict)]
-    memory_space_rows = []
-    for key in ("retrieval_packets", "freshness_gates", "spatial_overlays", "stack_semantic_backends", "event_contexts"):
-        rows = memory_space.get(key) if isinstance(memory_space.get(key), list) else []
-        for row in rows:
-            if isinstance(row, dict):
-                row_copy = dict(row)
-                row_copy["memory_space_section"] = key
-                memory_space_rows.append(row_copy)
-    event_hits = top_hits([event for event in events if isinstance(event, dict)])
-    episode_hits = top_hits(episode_rows)
-    node_hits = top_hits(node_rows)
-    memory_space_hits = top_hits(memory_space_rows)
-    query_plan = {
-        "terms": terms,
-        "match_strategy": "bounded_term_score_over_redacted_json",
-        "promql": [
-            'up{job=~"loki|alloy|grafana|prometheus"}',
-            'ALERTS{alertstate=~"firing|pending"}',
-        ],
-        "logql": [
-            '{container="route-api"}',
-            '{source="podman-journal-event"}',
-            '{container="route-api"} |= "traceparent"',
-        ],
-        "context_keys": ["trace_id", "traceparent", "synthetic_run_id", "alert_fingerprint"],
-        "readmodels": [
-            str(AI_CAPABILITIES_LATEST_PATH),
-            str(AI_LLM_RESIDENT_ROOT / "status" / "latest.json"),
-            str(RAG_VALIDATE_LATEST_PATH),
-            str(NERVOUS_BRIEF_LATEST_PATH),
-            str(MEMORY_LATEST_PATH),
-            str(RESOURCE_LATEST_PATH),
-            str(MODE_LATEST_PATH),
-            str(MAPS_LATEST_PATH),
-            str(GRAPH_LATEST_PATH),
-            str(RAG_TRACE_LATEST_PATH),
-        ],
-        "bounded": True,
-        "raw_secret_storage": False,
-        "freshness_must_precede_reasoning": True,
-        "raw_evidence_is_not_truth": True,
-    }
-    refs = [
-        {"path": str(SELF_AWARENESS_EVENTS_LATEST_PATH), "matches": len(event_hits)},
-        {"path": str(SELF_AWARENESS_EPISODES_LATEST_PATH), "matches": len(episode_hits)},
-        {"path": str(SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH), "matches": len(node_hits)},
-        {"path": str(SELF_AWARENESS_CAPABILITIES_LATEST_PATH), "ok": capabilities.get("ok")},
-        {"path": str(SELF_AWARENESS_CONTEXT_LATEST_PATH), "memory_space_matches": len(memory_space_hits)},
-    ]
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_query_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": True,
-        "query": text,
-        "summary": {
-            "event_hits": len(event_hits),
-            "episode_hits": len(episode_hits),
-            "node_hits": len(node_hits),
-            "memory_space_hits": len(memory_space_hits),
-            "limit": limit,
-        },
-        "query_plan": query_plan,
-        "results": {
-            "events": event_hits,
-            "episodes": episode_hits,
-            "spatial_nodes": node_hits,
-            "memory_space": memory_space_hits,
-        },
-        "evidence_refs": refs,
-        "policy": {
-            "bounded_results": True,
-            "redacted_query": text,
-            "does_not_mutate_stack": True,
-            "freshness_must_precede_reasoning": True,
-            "raw_evidence_is_not_truth": True,
-            "raw_private_content": False,
-        },
-    }
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_QUERY_LATEST_PATH, SELF_AWARENESS_QUERY_ROOT)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
+    return self_awareness_query_correlation_contracts.query(
+        query,
+        limit,
+        write_latest,
+        paths=self_awareness_query_correlation_paths(),
+        config=self_awareness_query_correlation_config(),
+        runtime_port=self_awareness_query_correlation_runtime_port(),
+        refresh_port=self_awareness_query_correlation_refresh_port(),
+        contract_port=self_awareness_query_correlation_contract_port(),
+        persistence_port=self_awareness_query_correlation_persistence_port(),
+    )
 
 
 def self_awareness_correlation(write_latest: bool = True) -> dict[str, Any]:
-    generated_at = now_iso()
-    events = self_awareness_load_events(refresh=True)
-    capabilities = load_latest_json(SELF_AWARENESS_CAPABILITIES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_capabilities_v1")
-    if not capabilities.get("schema"):
-        capabilities = self_awareness_capabilities(write_latest=True)
-    stack = load_latest_json(STACK_OBSERVABILITY_LATEST_PATH, f"{SCHEMA_PREFIX}_stack_observability_v1")
-    index = self_awareness_correlation_index(events)
-    jobs = nested_get(stack, ["prometheus", "jobs"]) or {}
-    jobs_up = {str(job): str(value) in {"1", "1.0"} for job, value in jobs.items()} if isinstance(jobs, dict) else {}
-    core_jobs = [job for job in ("prometheus", "grafana", "loki", "alloy") if job in jobs_up]
-    availability = round(sum(1 for job in core_jobs if jobs_up.get(job)) / max(1, len(core_jobs)), 3)
-    slo_views = [
-        {
-            "id": "stack-core-up",
-            "objective": "Prometheus, Grafana, Loki, and Alloy are up in current evidence window",
-            "availability_ratio": availability,
-            "error_budget_remaining_ratio": max(0.0, round(1.0 - (1.0 - availability), 3)),
-            "evidence_refs": [{"path": str(STACK_OBSERVABILITY_LATEST_PATH), "locator": "prometheus.jobs"}],
-            "truth_level": "current_window",
-        }
-    ]
-    signal_counts = dict(collections.Counter(str(event.get("signal")) for event in events))
-    source_counts = dict(collections.Counter(str(event.get("source")) for event in events))
-    anomaly_baselines = [
-        {
-            "id": "signal-distribution-current-window",
-            "baseline_kind": "current_window_counts",
-            "counts": signal_counts,
-            "confidence": "low" if len(events) < 50 else "medium",
-            "reason": "Uses bounded latest/history evidence; broaden window before production anomaly claims.",
-            "evidence_refs": [{"path": str(SELF_AWARENESS_EVENTS_LATEST_PATH), "events": len(events)}],
-        },
-        {
-            "id": "source-distribution-current-window",
-            "baseline_kind": "current_window_counts",
-            "counts": source_counts,
-            "confidence": "low" if len(events) < 50 else "medium",
-            "reason": "Current-window baseline prevents blind anomaly claims while history matures.",
-            "evidence_refs": [{"path": str(SELF_AWARENESS_EVENTS_LATEST_PATH), "events": len(events)}],
-        },
-    ]
-    dependencies = [
-        {"from": "grafana", "to": "prometheus", "kind": "datasource", "evidence_refs": [{"path": str(STACK_OBSERVABILITY_LATEST_PATH)}]},
-        {"from": "grafana", "to": "loki", "kind": "datasource", "evidence_refs": [{"path": str(STACK_OBSERVABILITY_LATEST_PATH)}]},
-        {"from": "prometheus", "to": "alertmanager", "kind": "alert_route", "evidence_refs": [{"path": str(SELF_AWARENESS_CAPABILITIES_LATEST_PATH)}]},
-        {"from": "alloy", "to": "loki", "kind": "log_pipeline", "evidence_refs": [{"path": str(STACK_OBSERVABILITY_LATEST_PATH), "locator": "loki.labels"}]},
-        {"from": "abyss-machine:self-awareness", "to": "prometheus", "kind": "read_only_query", "evidence_refs": [{"path": str(SELF_AWARENESS_COLLECT_LATEST_PATH)}]},
-        {"from": "abyss-machine:self-awareness", "to": "loki", "kind": "read_only_query", "evidence_refs": [{"path": str(SELF_AWARENESS_COLLECT_LATEST_PATH)}]},
-        {"from": "abyss-machine:self-awareness", "to": "warm-e2b-gemma4.spark", "kind": "resident_reasoning_context", "evidence_refs": [{"path": str(AI_LLM_RESIDENT_ROOT / "status" / "latest.json")}]},
-        {"from": "warm-e2b-gemma4.spark", "to": "rag", "kind": "bounded_retrieval_context", "evidence_refs": [{"path": str(RAG_VALIDATE_LATEST_PATH)}]},
-        {"from": "warm-e2b-gemma4.spark", "to": "nervous", "kind": "freshness_gate", "evidence_refs": [{"path": str(NERVOUS_BRIEF_LATEST_PATH)}]},
-        {"from": "warm-e2b-gemma4.spark", "to": "resource", "kind": "resource_gate", "evidence_refs": [{"path": str(RESOURCE_LATEST_PATH)}]},
-        {"from": "warm-e2b-gemma4.spark", "to": "mode", "kind": "mode_gate", "evidence_refs": [{"path": str(MODE_LATEST_PATH)}]},
-        {"from": "rag-api", "to": "postgres", "kind": "stack_memory_backend_candidate", "evidence_refs": [{"path": str(PROCESS_CONTAINER_LATEST_PATH)}]},
-        {"from": "rag-api", "to": "neo4j", "kind": "stack_spatial_graph_backend_candidate", "evidence_refs": [{"path": str(PROCESS_CONTAINER_LATEST_PATH)}]},
-    ]
-    joins = []
-    for key, event_ids in (nested_get(index, ["indexes", "by_context"]) or {}).items():
-        if len(event_ids) < 2:
-            continue
-        joins.append({"join_key": key, "event_ids": event_ids[:20], "join_kind": "context", "evidence_refs": [{"path": str(SELF_AWARENESS_EVENTS_LATEST_PATH)}]})
-    for service, event_ids in (nested_get(index, ["indexes", "by_service"]) or {}).items():
-        if len(event_ids) < 2:
-            continue
-        joins.append({"join_key": "service:" + service, "event_ids": event_ids[:20], "join_kind": "service", "evidence_refs": [{"path": str(SELF_AWARENESS_EVENTS_LATEST_PATH)}]})
-    episodes = load_latest_json(SELF_AWARENESS_EPISODES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_episodes_v1")
-    provenance = []
-    for episode in (episodes.get("episodes") if isinstance(episodes.get("episodes"), list) else [])[:12]:
-        if not isinstance(episode, dict):
-            continue
-        provenance.append({
-            "episode_id": episode.get("episode_id"),
-            "symptom": ", ".join(episode.get("primary_signals") or []),
-            "evidence": episode.get("evidence_refs", [])[:8],
-            "hypothesis": episode.get("suspected_cause_chain", [])[:4],
-            "conclusion": "candidate causal episode; no root-cause fact claim",
-            "confidence": episode.get("confidence"),
-        })
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_correlation_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": bool(events),
-        "summary": {
-            "events": len(events),
-            "joins": len(joins),
-            "dependencies": len(dependencies),
-            "slo_views": len(slo_views),
-            "anomaly_baselines": len(anomaly_baselines),
-            "provenance_chains": len(provenance),
-        },
-        "joins": joins[:80],
-        "service_dependencies": dependencies,
-        "slo_views": slo_views,
-        "anomaly_baselines": anomaly_baselines,
-        "provenance_chains": provenance,
-        "capability_requirements": capabilities.get("requirements", []),
-        "policy": {
-            "no_high_cardinality_loki_labels": True,
-            "correlation_not_root_cause_fact": True,
-            "bounded_windows": True,
-        },
-    }
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_CORRELATION_LATEST_PATH, SELF_AWARENESS_CORRELATION_ROOT)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
+    return self_awareness_query_correlation_contracts.correlation(
+        write_latest,
+        paths=self_awareness_query_correlation_paths(),
+        config=self_awareness_query_correlation_config(),
+        runtime_port=self_awareness_query_correlation_runtime_port(),
+        refresh_port=self_awareness_query_correlation_refresh_port(),
+        contract_port=self_awareness_query_correlation_contract_port(),
+        persistence_port=self_awareness_query_correlation_persistence_port(),
+    )
 
 
 SELF_AWARENESS_INVESTIGATION_NODE_ORDER = [

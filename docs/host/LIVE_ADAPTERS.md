@@ -1496,6 +1496,28 @@ and CLI binding. Live closeout compares only schema/ok/status/summary/policy;
 retrieval rows, event contexts, graph nodes/edges, evidence refs, and local
 paths remain private host evidence.
 
+## Extracted Self-Awareness Query And Correlation Readmodels
+
+`abyss_machine.self_awareness_query_correlation_contracts` owns the complete
+bounded query and correlation pipelines:
+
+- redacted bounded scoring across supplied events, episodes, spatial nodes,
+  and memory-space rows plus query-plan/evidence-ref assembly;
+- current-window context/service joins, stack-core availability, signal/source
+  baselines, service dependencies, and candidate causal provenance projection;
+- invalid-capabilities fallback through an explicit refresh port and optional
+  query/correlation latest/history persistence through a named write port;
+- explicit runtime, refresh, contract, persistence, path, and config ports with
+  no concrete filesystem, network, subprocess, or stack mutation inside the
+  module.
+
+The CLI binds current paths and callbacks and preserves the existing command
+signatures. Synthetic tests constrain supplied-document reuse without hidden
+reads/refreshes, bounded scoring, join and SLO assembly, capability fallback,
+write routing, and CLI binding. Live closeout compares only schema/ok/summary/
+policy; result rows, joins, provenance bodies, evidence refs, and local paths
+remain private host evidence.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1786,7 +1808,9 @@ machine evidence.
    and stack-closure-dossier refresh/assembly/persistence now live in
    `self_awareness_stack_closure_contracts`; memory-space and stack-handoff
    time-space overlay assembly now lives in
-   `self_awareness_causal_overlay_contracts`. Before declaring this family
+   `self_awareness_causal_overlay_contracts`; bounded query and correlation
+   readmodel assembly now lives in
+   `self_awareness_query_correlation_contracts`. Before declaring this family
    closed, extract the remaining causal readmodels plus activation/lineage/
    coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
