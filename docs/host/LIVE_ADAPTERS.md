@@ -1381,6 +1381,30 @@ no-write behavior, and partial-write failure projection. Live closeout compares
 only compact final/core/graph summaries, coverage key whitelist, no-execution
 booleans, and write-error count.
 
+## Extracted Self-Awareness Validation Intake Seam
+
+`abyss_machine.self_awareness_adapters` owns the live intake and persistence
+boundary for `self-awareness validate`:
+
+- the exact 23-step optional refresh order from capabilities through coverage
+  audit;
+- document, agent-card, and generated-root path checks through a fakeable path
+  validation port;
+- cycle-aware latest schema selection, ordered JSON validation, and matching
+  daily-history status checks through fakeable runtime ports;
+- typed return of the accumulated checks and already-loaded documents to the
+  stable validation rules;
+- optional validate latest/history persistence with fail-closed write-error
+  projection.
+
+The CLI binds concrete paths, current refresh functions, topology/path/history
+readers, the shared writer, and operator refresh/write intent. Conditional
+freshness-repair decisions and the stable validation check assembly still live
+in CLI pending their contract extraction. Public tests prove refresh order,
+cycle exclusion, latest/history order, no-write behavior, and partial-write
+failure projection. Live closeout reports only schema/status, check/fail/warning
+counts, bounded refresh state, and write-error count.
+
 ## Extracted Self-Awareness Systemd Observation Seam
 
 `abyss_machine.self_awareness_adapters` owns the read-only systemd observation
@@ -1597,9 +1621,10 @@ machine evidence.
    route-packet indexing. Completion backlog/final-audit assembly now lives in
    `self_awareness_completion_document_contracts`; complete completion-audit
    live input/contract/persistence orchestration now lives in
-   `self_awareness_adapters`. Split remaining validation orchestration plus the
-   stable export stack-handoff contract builder only when the next evidence-led
-   slice proves a reusable center still sits in CLI.
+   `self_awareness_adapters`. Validation optional-refresh order, path/latest/
+   history intake, and final persistence now also live there. Split the
+   remaining conditional validation refresh/check assembly plus the stable
+   export stack-handoff contract builder in evidence-led contract slices.
 3. Further AI runtime adapters: only after a fresh inventory proves a concrete
    reusable center still sits in `cli.py`.
    Runtime/model discovery, bounded OpenVINO benchmark/eval runners,
