@@ -367,6 +367,18 @@ compare the full source/installed alert document locally by hash, but may report
 only candidate/depth/body-trace counts and policy; never publish events,
 episodes, candidates, response bodies, evidence refs, or machine paths.
 
+For self-awareness brief-pipeline changes, public CI should use synthetic
+timeline/spatial/context/episode/alert/capability/probe/latest documents plus
+fake refresh, memory-freshness, coverage-impact, completion, clock, and
+latest/history ports. It must constrain stack-requirement priority and closed-
+row filtering, closure/coverage/verifier projection, refresh order, referenced
+claims, health/degradation summaries, no-write and write-error behavior,
+no-mutation policy, and CLI binding. Live-host closeout must capture one input
+snapshot before full source/installed hash comparison because container probes,
+network errors, and freshness timestamps may change between calls; report only
+brief/action-map summary counts and policy, never claims, blockers, runbooks,
+evidence refs, endpoints, or paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.
