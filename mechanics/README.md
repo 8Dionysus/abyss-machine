@@ -150,9 +150,12 @@ Use these mechanic owners for the next extraction slices:
   accounting, and optional persistence through explicit ports;
   `self_awareness_brief_contracts` owns ordered brief intake, stack-handoff
   priority/action maps, referenced claims, health/degradation summaries, and
-  optional persistence through explicit ports. Remaining resident causal
-  readmodels and activation/lineage/coverage centers must be extracted before
-  the final residual CLI-edge classification and family completion audit.
+  optional persistence through explicit ports;
+  `self_awareness_resident_worker_contracts` owns bounded resident health,
+  serving, monitor, resource, candidate, eval, and non-authoritative cognitive-
+  contract projection plus completion. Remaining resident cognitive context/
+  replay and activation/lineage/coverage centers must be extracted before the
+  final residual CLI-edge classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
