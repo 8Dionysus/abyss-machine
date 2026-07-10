@@ -123,10 +123,13 @@ Use these mechanic owners for the next extraction slices:
   latest/history ports; `self_awareness_stack_closure_contracts` owns
   requirement-probes and stack-closure-dossier refresh/assembly/persistence,
   dependency and acceptance matrices, ordered artifact refs, and stack-owner
-  handoff through explicit ports. Remaining causal overlays/readmodels, live
-  stack capability/evidence probes, failure matrix, and activation/lineage/
-  coverage centers must be extracted before the final residual CLI-edge
-  classification and family completion audit.
+  handoff through explicit ports; `self_awareness_stack_probe_adapters` owns
+  bounded HTTP/TCP stack probes, capability artifact metadata, OpenAPI/name
+  projection, Grafana datasource redaction, and optional external-evidence
+  intake through fakeable runtime ports. Remaining causal overlays/readmodels,
+  failure matrix, and activation/lineage/coverage centers must be extracted
+  before the final residual CLI-edge classification and family completion
+  audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
