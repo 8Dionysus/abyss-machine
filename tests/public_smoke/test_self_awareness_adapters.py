@@ -420,6 +420,437 @@ def test_collect_cli_keeps_write_opt_in_and_delegates_concrete_paths(monkeypatch
     )
 
 
+def _investigation_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessInvestigationPaths:
+    return self_awareness_adapters.SelfAwarenessInvestigationPaths(
+        capabilities_latest=tmp_path / "capabilities/latest.json",
+        correlation_latest=tmp_path / "correlation/latest.json",
+        query_latest=tmp_path / "query/latest.json",
+        episodes_latest=tmp_path / "episodes/latest.json",
+        resident_status_latest=tmp_path / "resident/status/latest.json",
+        resident_monitor_latest=tmp_path / "resident/monitor/latest.json",
+        resident_digest_latest=tmp_path / "resident/digests/latest.json",
+        resident_micro_latest=tmp_path / "resident/jobs/micro/latest.json",
+        resident_candidates_latest=tmp_path / "resident/candidates/latest.json",
+        resident_evals_latest=tmp_path / "resident/evals/latest.json",
+        rag_validate_latest=tmp_path / "rag/validate/latest.json",
+        nervous_brief_latest=tmp_path / "nervous/brief/latest.json",
+        context_latest=tmp_path / "context/latest.json",
+        completion_audit_latest=tmp_path / "completion-audit/latest.json",
+        working_stack_latest=tmp_path / "working-stack/latest.json",
+        requirement_probes_latest=tmp_path / "requirement-probes/latest.json",
+        brief_latest=tmp_path / "brief/latest.json",
+        requirements_latest=tmp_path / "requirements/latest.json",
+        spatial_graph_latest=tmp_path / "spatial-graph/latest.json",
+        investigation_latest=tmp_path / "investigate/latest.json",
+        investigation_history_root=tmp_path / "investigate",
+    )
+
+
+def _fake_investigation_ports(
+    paths: self_awareness_adapters.SelfAwarenessInvestigationPaths,
+    calls: list[str],
+    *,
+    context_needs_refresh: bool = False,
+    completion_needs_refresh: bool = False,
+    write_errors: list[dict[str, Any]] | None = None,
+) -> tuple[
+    self_awareness_adapters.SelfAwarenessInvestigationInputPort,
+    self_awareness_adapters.SelfAwarenessInvestigationContractPort,
+    self_awareness_adapters.SelfAwarenessInvestigationPersistencePort,
+]:
+    episode = {
+        "episode_id": "episode-fixture",
+        "episode_kind": "causal_episode",
+        "affected_spatial_nodes": ["service:fixture"],
+        "time_window": {"start": "2026-07-09T11:55:00Z", "end": "2026-07-09T12:00:00Z"},
+        "confidence": {"score": 0.75, "reasons": ["fixture evidence"]},
+        "suspected_cause_chain": ["signal-a", "signal-b"],
+        "counter_evidence": [],
+        "open_questions": ["fixture question"],
+        "involved_contexts": [{"trace_id": "trace-fixture"}],
+        "evidence_refs": [{"path": "/fixture/events/latest.json"}],
+    }
+    capabilities = {
+        "schema": "abyss_machine_self_awareness_capabilities_v1",
+        "summary": {"requirements": 0},
+        "capabilities": [{"id": "llm.escalation.routes", "detail": {"ready": False}}],
+        "requirements": [],
+    }
+    correlation = {
+        "schema": "abyss_machine_self_awareness_correlation_v1",
+        "slo_views": [],
+        "anomaly_baselines": [],
+    }
+    query_doc = {
+        "schema": "abyss_machine_self_awareness_query_v1",
+        "query_plan": {"promql": [], "logql": [], "context_keys": [], "readmodels": []},
+        "results": {"episodes": [episode]},
+        "summary": {"event_hits": 1, "episode_hits": 1, "node_hits": 1, "memory_space_hits": 1},
+    }
+    context_doc = {
+        "schema": "abyss_machine_self_awareness_context_v1",
+        "memory_space": {"summary": {"blocked_gates": 0}},
+    }
+    completion_context = {
+        "schema": "fixture_completion_route_context_v1",
+        "summary": {"packets": 1, "covered_actions": 1},
+        "top_packet": {
+            "route_id": "fixture.route",
+            "route_path": "fixture/route",
+            "status": "ready",
+            "action_ids": ["fixture-action"],
+            "entity_ids": [],
+            "event_ids": [],
+            "document_ids": [],
+            "coverage_planes": ["fixture"],
+            "closure_blocker_keys": [],
+            "verifier_commands": ["fixture verify"],
+            "safe_next_actions": [],
+            "evidence_refs": [{"path": str(paths.completion_audit_latest)}],
+        },
+    }
+    completion_doc = {
+        "schema": "abyss_machine_self_awareness_completion_audit_v1",
+        "completion_context": completion_context,
+        "complete": not completion_needs_refresh,
+    }
+    refreshed_completion_doc = dict(completion_doc, complete=True)
+    loaded: dict[Path, dict[str, Any]] = {
+        paths.resident_status_latest: {"schema": "resident_status", "status": "running"},
+        paths.resident_monitor_latest: {"schema": "resident_monitor", "ok": True},
+        paths.resident_digest_latest: {"schema": "resident_digest", "ok": True},
+        paths.resident_micro_latest: {"schema": "resident_micro", "ok": True},
+        paths.resident_candidates_latest: {"schema": "resident_candidates", "ok": True},
+        paths.resident_evals_latest: {"schema": "resident_evals", "ok": True},
+        paths.rag_validate_latest: {"schema": "abyss_machine_rag_validate_v1", "ok": True},
+        paths.nervous_brief_latest: {"schema": "abyss_machine_nervous_brief_v1", "readiness": {"status": "ready"}},
+        paths.context_latest: ({"schema": "abyss_machine_self_awareness_context_v1"} if context_needs_refresh else context_doc),
+        paths.episodes_latest: {"schema": "abyss_machine_self_awareness_episodes_v1", "episodes": [episode]},
+        paths.completion_audit_latest: completion_doc,
+    }
+
+    def refresh(name: str, document: dict[str, Any]):
+        def run(*, write_latest: bool = True) -> dict[str, Any]:
+            calls.append(f"refresh:{name}:{write_latest}")
+            return document
+
+        return run
+
+    def refresh_query(query: str, *, limit: int, write_latest: bool) -> dict[str, Any]:
+        calls.append(f"refresh:query:{query}:{limit}:{write_latest}")
+        return query_doc
+
+    def load_latest(path: Path, _schema: str) -> dict[str, Any]:
+        calls.append(f"load:{path.relative_to(paths.investigation_history_root.parent)}")
+        return loaded[path]
+
+    input_port = self_awareness_adapters.SelfAwarenessInvestigationInputPort(
+        refresh_capabilities=refresh("capabilities", capabilities),
+        refresh_correlation=refresh("correlation", correlation),
+        refresh_query=refresh_query,
+        load_latest_json=load_latest,
+        refresh_context=refresh("context", context_doc),
+        refresh_completion_audit=refresh("completion", refreshed_completion_doc),
+        refresh_requirement_probes=lambda *, write_latest, capabilities: calls.append(
+            f"refresh:requirement_probes:{write_latest}:{capabilities is not None}"
+        ) or {"schema": "abyss_machine_self_awareness_requirement_probes_v1", "summary": {}},
+        module_available=lambda name: calls.append(f"module:{name}") or False,
+    )
+
+    resident_detail = {
+        "status": "running",
+        "serving": {"owner": "abyss-stack"},
+        "health": {"health_latency_ms": 4.0},
+        "resource_thermal": {"package_temp_c": 42.0},
+        "candidate_context": {"candidates": 1, "review_required": 1, "action_execution": False},
+        "evals": {"overall_score": 1.0},
+        "policy": {"candidate_output_is_owner_truth": False},
+    }
+    body_trace = {"schema": "fixture_body_trace_v1", "complete": True, "episode_id": "episode-fixture"}
+    resident_packet = {
+        "schema": "fixture_resident_cognitive_packet_v1",
+        "body_trace": body_trace,
+        "completion_route_context": completion_context,
+        "read_only_tools": [{"kind": "fixture-read"}],
+        "hypothesis_tests": [{"id": "fixture-hypothesis", "evidence_refs": [{"path": "/fixture/evidence.json"}]}],
+        "contradiction_notes": [],
+        "escalation_gate": {"host_layer_mutates_stack": False, "model_execution_now": {"status": "blocked_by_preflight"}},
+        "policy": {
+            "read_only_tools_only": True,
+            "action_execution": False,
+            "host_layer_mutates_stack": False,
+            "conclusions_are_candidates": True,
+            "candidate_output_is_owner_truth": False,
+        },
+    }
+    action_map = {
+        "schema": "abyss_machine_self_awareness_brief_stack_handoff_action_map_v1",
+        "summary": {
+            "open_stack_requirements": 0,
+            "acceptance_verifier_steps": 0,
+            "coverage_impact_entries": 0,
+            "blocked_coverage_planes": [],
+        },
+        "open_requirement_ids": [],
+        "actions": [],
+        "safe_next_action": {},
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+    }
+    closure_readiness = {
+        "schema": "abyss_machine_self_awareness_investigation_stack_handoff_closure_readiness_v1",
+        "summary": {
+            "complete": True,
+            "packets": 0,
+            "missing_checks": 0,
+            "dependency_edges": 0,
+            "coverage_impact_entries": 0,
+            "blocked_coverage_planes": [],
+        },
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False, "action_execution": False},
+    }
+
+    def completion_route_context(document: dict[str, Any]) -> dict[str, Any]:
+        calls.append("contract:completion_route_context")
+        return document["completion_context"]
+
+    def completion_route_context_complete(_packet: Any) -> bool:
+        calls.append("contract:completion_route_context_complete")
+        return bool(completion_doc.get("complete")) if calls.count("contract:completion_route_context_complete") == 1 else True
+
+    contract_port = self_awareness_adapters.SelfAwarenessInvestigationContractPort(
+        redact_text=lambda value, limit: calls.append(f"contract:redact:{limit}") or str(value)[:limit],
+        resident_worker_detail=lambda *_documents: calls.append("contract:resident_worker_detail") or resident_detail,
+        resident_worker_detail_complete=lambda _detail: True,
+        working_stack_gap=lambda _episode: {},
+        working_stack_gap_complete=lambda packet: bool(packet.get("complete")),
+        resident_completion_route_context=completion_route_context,
+        resident_completion_route_context_complete=completion_route_context_complete,
+        resident_cognitive_packet=lambda **_kwargs: calls.append("contract:resident_cognitive_packet") or resident_packet,
+        resident_cognitive_packet_complete=lambda _packet: True,
+        body_trace_complete=lambda packet: isinstance(packet, dict) and packet.get("complete") is True,
+        stack_handoff_action_map=lambda _probes: calls.append("contract:stack_handoff_action_map") or action_map,
+        stack_handoff_closure_readiness=lambda _map: calls.append("contract:closure_readiness") or closure_readiness,
+        stack_coverage_impact_complete=lambda _impact: True,
+        failure_recovery=lambda thread_id, checkpoint_id: calls.append("contract:failure_recovery") or {
+            "supported": True,
+            "thread_id": thread_id,
+            "latest_checkpoint_id": checkpoint_id,
+            "routes": [],
+        },
+    )
+
+    checkpoint_counter = {"value": 0}
+
+    def checkpoint(thread_id: str, node: str, _state: dict[str, Any], parent: str | None) -> dict[str, Any]:
+        calls.append(f"checkpoint:{node}")
+        checkpoint_id = f"checkpoint-{checkpoint_counter['value']}"
+        checkpoint_counter["value"] += 1
+        return {"checkpoint_id": checkpoint_id, "thread_id": thread_id, "node": node, "parent": parent}
+
+    persistence_port = self_awareness_adapters.SelfAwarenessInvestigationPersistencePort(
+        checkpoint=checkpoint,
+        daily_jsonl_path=lambda root: calls.append("persistence:daily_path") or root / "2026/07/2026-07-09.jsonl",
+        write_latest_and_history=lambda _data, _latest, _root: calls.append("persistence:write") or list(write_errors or []),
+    )
+    return input_port, contract_port, persistence_port
+
+
+def test_investigation_orchestration_builds_complete_read_only_graph_and_writes(tmp_path: Path) -> None:
+    paths = _investigation_paths(tmp_path)
+    calls: list[str] = []
+    input_port, contract_port, persistence_port = _fake_investigation_ports(paths, calls)
+
+    investigation = self_awareness_adapters.run_investigation(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        query="fixture query",
+        episode_id=None,
+        expected_node_order=[
+            "plan_queries",
+            "query_evidence",
+            "resident_context_packet",
+            "reason_over_evidence",
+            "request_more_evidence",
+            "validate_evidence",
+            "record_artifact",
+            "brief_reaction_candidate",
+            "write_semantic_conclusion",
+        ],
+        paths=paths,
+        write_latest=True,
+        input_port=input_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+        semantic_maintain_review_command="fixture semantic review",
+        semantic_maintain_retry_command="fixture semantic retry",
+    )
+
+    assert investigation["ok"] is True
+    assert investigation["summary"]["checkpoints"] == 9
+    assert investigation["summary"]["graph_nodes"] == 9
+    assert investigation["summary"]["evidence_validation_fails"] == 0
+    assert investigation["graph"]["nodes"] == investigation["graph"]["node_order"]
+    assert [row["parent"] for row in investigation["checkpoints"]] == [
+        None,
+        "checkpoint-0",
+        "checkpoint-1",
+        "checkpoint-2",
+        "checkpoint-3",
+        "checkpoint-4",
+        "checkpoint-5",
+        "checkpoint-6",
+        "checkpoint-7",
+    ]
+    assert investigation["policy"]["read_only_tools_only"] is True
+    assert investigation["policy"]["action_execution"] is False
+    assert investigation["policy"]["host_layer_mutates_stack"] is False
+    assert "refresh:capabilities:True" in calls
+    assert "refresh:correlation:True" in calls
+    assert "refresh:query:fixture query:30:True" in calls
+    assert "refresh:requirement_probes:True:True" in calls
+    assert calls[-1] == "persistence:write"
+
+
+def test_investigation_orchestration_refreshes_incomplete_inputs_and_skips_final_write(tmp_path: Path) -> None:
+    paths = _investigation_paths(tmp_path)
+    calls: list[str] = []
+    input_port, contract_port, persistence_port = _fake_investigation_ports(
+        paths,
+        calls,
+        context_needs_refresh=True,
+        completion_needs_refresh=True,
+    )
+
+    investigation = self_awareness_adapters.run_investigation(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        query="",
+        episode_id="episode-fixture",
+        expected_node_order=[
+            "plan_queries",
+            "query_evidence",
+            "resident_context_packet",
+            "reason_over_evidence",
+            "request_more_evidence",
+            "validate_evidence",
+            "record_artifact",
+            "brief_reaction_candidate",
+            "write_semantic_conclusion",
+        ],
+        paths=paths,
+        write_latest=False,
+        input_port=input_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+        semantic_maintain_review_command="fixture semantic review",
+        semantic_maintain_retry_command="fixture semantic retry",
+    )
+
+    assert investigation["ok"] is True
+    assert investigation["query"] == "latest self-awareness episode"
+    assert investigation["selected_episode_id"] == "episode-fixture"
+    assert "refresh:context:True" in calls
+    assert "refresh:completion:True" in calls
+    assert "refresh:requirement_probes:False:True" in calls
+    assert "persistence:write" not in calls
+
+
+def test_investigation_orchestration_projects_final_write_failure(tmp_path: Path) -> None:
+    paths = _investigation_paths(tmp_path)
+    calls: list[str] = []
+    write_error = {"path": str(paths.investigation_latest), "error": "fixture write failure"}
+    input_port, contract_port, persistence_port = _fake_investigation_ports(
+        paths,
+        calls,
+        write_errors=[write_error],
+    )
+
+    investigation = self_awareness_adapters.run_investigation(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        query="fixture query",
+        episode_id=None,
+        expected_node_order=[
+            "plan_queries",
+            "query_evidence",
+            "resident_context_packet",
+            "reason_over_evidence",
+            "request_more_evidence",
+            "validate_evidence",
+            "record_artifact",
+            "brief_reaction_candidate",
+            "write_semantic_conclusion",
+        ],
+        paths=paths,
+        write_latest=True,
+        input_port=input_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+        semantic_maintain_review_command="fixture semantic review",
+        semantic_maintain_retry_command="fixture semantic retry",
+    )
+
+    assert investigation["ok"] is False
+    assert investigation["write_errors"] == [write_error]
+    assert investigation["summary"]["checkpoints"] == 9
+    assert calls[-1] == "persistence:write"
+
+
+def test_investigation_cli_only_binds_host_paths_and_ports(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    sentinel = {"schema": "fixture_investigation_v1", "ok": True}
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "run_investigation",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+
+    assert cli.self_awareness_investigate(
+        "fixture query",
+        episode_id="episode-fixture",
+        write_latest=False,
+    ) is sentinel
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["query"] == "fixture query"
+    assert call["episode_id"] == "episode-fixture"
+    assert call["write_latest"] is False
+    assert call["expected_node_order"] == cli.SELF_AWARENESS_INVESTIGATION_NODE_ORDER
+    assert call["paths"] == self_awareness_adapters.SelfAwarenessInvestigationPaths(
+        capabilities_latest=cli.SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
+        correlation_latest=cli.SELF_AWARENESS_CORRELATION_LATEST_PATH,
+        query_latest=cli.SELF_AWARENESS_QUERY_LATEST_PATH,
+        episodes_latest=cli.SELF_AWARENESS_EPISODES_LATEST_PATH,
+        resident_status_latest=cli.AI_LLM_RESIDENT_ROOT / "status" / "latest.json",
+        resident_monitor_latest=cli.AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json",
+        resident_digest_latest=cli.AI_LLM_RESIDENT_ROOT / "digests" / "latest.json",
+        resident_micro_latest=cli.AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json",
+        resident_candidates_latest=cli.AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH,
+        resident_evals_latest=cli.AI_LLM_RESIDENT_EVALS_LATEST_PATH,
+        rag_validate_latest=cli.RAG_VALIDATE_LATEST_PATH,
+        nervous_brief_latest=cli.NERVOUS_BRIEF_LATEST_PATH,
+        context_latest=cli.SELF_AWARENESS_CONTEXT_LATEST_PATH,
+        completion_audit_latest=cli.SELF_AWARENESS_COMPLETION_AUDIT_LATEST_PATH,
+        working_stack_latest=cli.SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        requirement_probes_latest=cli.SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+        brief_latest=cli.SELF_AWARENESS_BRIEF_LATEST_PATH,
+        requirements_latest=cli.SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+        spatial_graph_latest=cli.SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+        investigation_latest=cli.SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+        investigation_history_root=cli.SELF_AWARENESS_INVESTIGATE_ROOT,
+    )
+    assert isinstance(call["input_port"], self_awareness_adapters.SelfAwarenessInvestigationInputPort)
+    assert isinstance(call["contract_port"], self_awareness_adapters.SelfAwarenessInvestigationContractPort)
+    assert isinstance(call["persistence_port"], self_awareness_adapters.SelfAwarenessInvestigationPersistencePort)
+    assert call["persistence_port"].checkpoint is cli.self_awareness_checkpoint
+    assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
+
+
 def _replay_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessReplayPaths:
     return self_awareness_adapters.SelfAwarenessReplayPaths(
         investigation_latest=tmp_path / "investigate" / "latest.json",

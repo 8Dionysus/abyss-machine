@@ -311,10 +311,10 @@ latest reads, and latest/history writes at the CLI/live binding edge.
 For self-awareness activation-smoke predicate adapter changes, public CI should
 rely on synthetic stack-organ-use packets, activation-smoke rows, compact rows,
 smoke documents, and activation entries for completion, compact projection, and
-refresh predicates. Keep actual investigate execution, caller-side replay
-invocation, activation latest reads, and activation latest/history writes at
-the CLI/live binding edge; the replay engine itself belongs to the replay
-orchestration adapter.
+refresh predicates. Keep activation caller orchestration, caller-side
+investigate/replay invocation, activation latest reads, and activation
+latest/history writes at the CLI/live binding edge; the invoked investigate
+and replay engines belong to their orchestration adapters.
 
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
@@ -333,18 +333,19 @@ For self-awareness activation-gap or stack-requirement handoff route adapter
 changes, public CI should rely on synthetic working-stack gap documents,
 activation-smoke row summaries, stack closure packets, stack replay summaries,
 and fake completion ports for route assembly and completion predicates. Keep
-actual investigate execution, caller-side replay invocation, stack latest
-reads, and route latest/history writes at the CLI/live binding edge; replay
-construction and replay persistence belong to the replay orchestration adapter.
+caller-side investigate/replay invocation, stack latest reads, and route
+latest/history writes at the CLI/live binding edge; investigation construction
+and persistence belong to the investigation orchestration adapter, while
+replay construction and persistence belong to the replay orchestration adapter.
 
 For self-awareness activation synthetic-scenario, closure-acceptance,
 activation synthetic-proof, or export-overlay adapter changes, public CI should
 rely on synthetic activation entries, verifier command lists, stack source refs,
 evidence refs, replay summaries, coverage rows, cycle documents, and export
 documents for packet/proof/overlay assembly and completion predicates. Keep
-actual proof investigate/replay orchestration, concrete export writes, source
-latest reads, and proof latest/history writes at the CLI/live binding edge;
-the invoked replay engine remains adapter-owned.
+proof-level investigate/replay caller orchestration, concrete export writes,
+source latest reads, and proof latest/history writes at the CLI/live binding
+edge; both invoked engines remain adapter-owned.
 
 For self-awareness systemd observation adapter changes, public CI should rely
 on fake command, unit-state, property, hostname, and event-builder ports for
@@ -383,6 +384,22 @@ closeout may report only before/after history counts, latest schemas, event
 count, and write-error count. History is append-only; recovery from a partial
 failure is a bounded retry that may duplicate records already appended, not a
 destructive rollback.
+
+For self-awareness investigation-orchestration adapter changes, public CI
+should use synthetic input, contract, checkpoint, module-availability, and
+writer ports to prove mandatory refresh/read ordering, context and
+completion-route fallback refresh, explicit/query/latest episode selection,
+the canonical nine-node parent-linked graph, evidence validation, read-only
+handoff policy, candidate-only conclusion, write opt-in, and ordered
+write-error projection. Existing host-contract fixtures should continue to
+exercise working-stack gaps, stack-handoff closure readiness, and the complete
+investigate/replay loop. Live-host closeout may report only schema,
+selected-episode identity, checkpoint/node and validation-failure counts,
+completeness booleans, policy booleans, history-count delta, and write-error
+count; never publish checkpoint states, conclusions, evidence bodies, resident
+payloads, or private paths. A failed final write leaves the complete in-memory
+document available with `ok=false`; retry may replace latest and may append a
+duplicate history row after a partial failure.
 
 For self-awareness replay-orchestration adapter changes, public CI should use a
 synthetic investigation/checkpoint chain and fake latest/write ports to prove
