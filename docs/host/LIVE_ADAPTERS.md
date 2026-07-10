@@ -1640,6 +1640,21 @@ between source and installed implementations and reports only ok/completion/
 status and policy; model paths, endpoints, metrics, candidates, and eval bodies
 remain private.
 
+## Extracted Self-Awareness Resident Cognitive Contracts
+
+`abyss_machine.self_awareness_resident_cognitive_contracts` owns completion-
+route context, bounded cognitive packet, packet/replay completion, checkpoint
+state-preservation summary, and cycle-chain overlay assembly through seventeen
+typed paths and runtime, refresh, and dependent-contract ports. It preserves
+read-only tools, evidence-cited hypotheses/contradictions, body trace, route
+packets, resource/mode escalation gates, and explicit non-authoritative/no-
+mutation policy. The CLI keeps established helper signatures as binders.
+Public tests constrain supplied-vs-latest reads, completion-route projection,
+cycle refresh/no-refresh behavior, policy, and typed binding; existing host-
+contract tests constrain empty-route and replay state preservation. Live
+closeout compares fixed completion/investigation/replay/export snapshots and
+reports only completion booleans and overlay state.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1941,9 +1956,11 @@ machine evidence.
    candidate assembly, response enrichment, and persistence now live in
    `self_awareness_alert_contracts`; referenced brief and stack-handoff action-
    map assembly now live in `self_awareness_brief_contracts`. Before declaring
-   this family closed, extract the remaining resident cognitive context/replay
-   readmodels plus
-   activation/lineage/
+   resident worker projection now lives in
+   `self_awareness_resident_worker_contracts`; completion-route context,
+   bounded cognitive packet/replay, and cycle overlay now live in
+   `self_awareness_resident_cognitive_contracts`. Before declaring this family
+   closed, extract the remaining activation/lineage/
    coverage centers, then classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
    unextracted reusable center.
