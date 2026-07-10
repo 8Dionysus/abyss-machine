@@ -316,6 +316,15 @@ no-write behavior, and CLI binding. Live closeout may compare only schema/ok/
 status/summary for requirement-probes and stack-closure-dossier; never publish
 current-state bodies, checks, artifact refs, runbooks, or host paths.
 
+For self-awareness stack-probe runtime changes, public CI should use fake HTTP,
+socket, clock, path metadata, JSON loader, daily-history, and secret-pattern
+ports. It must constrain bounded OpenAPI/name projection, TCP timing/error
+projection, capability artifact metadata without body reads, Grafana URL and
+credential redaction, external-evidence size/policy rejection, and CLI concrete
+binding. Live closeout may compare capability IDs/ok/status and aggregate
+summary plus external-evidence status/summary only; never publish HTTP bodies,
+datasource rows, database or graph data, external evidence rows, or host paths.
+
 For self-awareness latest-read adapter changes, public CI should rely on fake
 latest-reader tests for spec order, schema selection, cycle latest document
 dispatch, and bridge-document load dispatch. Live-host closeout may use compact
