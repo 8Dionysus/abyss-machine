@@ -75,6 +75,12 @@ CorrelationIndexPort = Callable[[list[dict[str, Any]]], dict[str, Any]]
 EventIssuesPort = Callable[[dict[str, Any]], list[str]]
 SignalFabricSummaryPort = Callable[[list[dict[str, Any]]], dict[str, Any]]
 JsonMutationPort = Callable[[Path, dict[str, Any], int], dict[str, Any] | None]
+StackHandoffClosureReadinessPort = Callable[[dict[str, Any]], dict[str, Any]]
+WorkingStackGapCompletePort = Callable[[dict[str, Any]], bool]
+ResidentCognitiveReplayPort = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+DocumentPredicatePort = Callable[[dict[str, Any]], bool]
+FailureRecoveryPort = Callable[[str, str | None], dict[str, Any]]
+WriteLatestHistoryPort = Callable[[dict[str, Any], Path, Path], list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -165,6 +171,25 @@ class SelfAwarenessCollectPersistencePort:
     atomic_write_json: JsonMutationPort
     append_jsonl: JsonMutationPort
     daily_jsonl_path: DailyJsonlPathPort
+
+
+@dataclass(frozen=True)
+class SelfAwarenessReplayPaths:
+    investigation_latest: Path
+    replay_latest: Path
+    replay_history_root: Path
+
+
+@dataclass(frozen=True)
+class SelfAwarenessReplayPort:
+    load_latest_json: LatestJsonReaderPort
+    stack_handoff_closure_readiness: StackHandoffClosureReadinessPort
+    working_stack_gap_complete: WorkingStackGapCompletePort
+    resident_cognitive_replay: ResidentCognitiveReplayPort
+    body_trace_complete: DocumentPredicatePort
+    resident_cognitive_replay_complete: DocumentPredicatePort
+    failure_recovery: FailureRecoveryPort
+    write_latest_and_history: WriteLatestHistoryPort
 
 
 SYSTEMD_ENABLED_STATES = {
@@ -1556,6 +1581,270 @@ def persist_collect_documents(
         collect_doc["ok"] = False
         collect_doc["write_errors"] = errors
     return collect_doc
+
+
+def run_replay(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    thread_id: str | None,
+    expected_node_order: Iterable[str],
+    paths: SelfAwarenessReplayPaths,
+    write_latest: bool,
+    port: SelfAwarenessReplayPort,
+) -> dict[str, Any]:
+    investigation = port.load_latest_json(
+        paths.investigation_latest,
+        f"{schema_prefix}_self_awareness_investigation_v1",
+    )
+    checkpoints = investigation.get("checkpoints") if isinstance(investigation.get("checkpoints"), list) else []
+    selected_thread = thread_id or str(investigation.get("thread_id") or "")
+    replayed = [
+        item
+        for item in checkpoints
+        if isinstance(item, dict) and (not selected_thread or item.get("thread_id") == selected_thread)
+    ]
+    missing_parent: list[dict[str, Any]] = []
+    ids = {str(item.get("checkpoint_id")) for item in replayed}
+    for item in replayed:
+        parent = item.get("parent")
+        if parent and parent not in ids:
+            missing_parent.append({"checkpoint_id": item.get("checkpoint_id"), "missing_parent": parent})
+    node_order = [str(item.get("node")) for item in replayed]
+    expected = [str(node) for node in expected_node_order]
+    divergences: list[dict[str, Any]] = []
+    if node_order != expected:
+        divergences.append({"kind": "node_order", "expected": expected, "actual": node_order})
+    if missing_parent:
+        divergences.append({"kind": "missing_parent", "items": missing_parent})
+    state_rows = investigation.get("states") if isinstance(investigation.get("states"), list) else []
+    latest_checkpoint_id = replayed[-1].get("checkpoint_id") if replayed else None
+    state_digest = self_awareness_contracts.stable_hash_json(state_rows, length=24)
+    checkpoint_digest = self_awareness_contracts.stable_hash_json(replayed, length=24)
+    conclusion = investigation.get("conclusion", {}) if isinstance(investigation.get("conclusion"), dict) else {}
+    conclusion_digest = self_awareness_contracts.stable_hash_json(conclusion, length=24)
+    node_order_digest = self_awareness_contracts.stable_hash_json(node_order, length=24)
+    state_by_node = {
+        str(row.get("node")): (row.get("state") if isinstance(row.get("state"), dict) else {})
+        for row in state_rows
+        if isinstance(row, dict) and row.get("node")
+    }
+    investigation_action_map = investigation.get("stack_handoff_action_map") if isinstance(investigation.get("stack_handoff_action_map"), dict) else {}
+    investigation_closure_readiness = investigation.get("stack_handoff_closure_readiness") if isinstance(investigation.get("stack_handoff_closure_readiness"), dict) else {}
+    if investigation_closure_readiness.get("schema") != f"{schema_prefix}_self_awareness_investigation_stack_handoff_closure_readiness_v1":
+        investigation_closure_readiness = port.stack_handoff_closure_readiness(investigation_action_map)
+    request_state = state_by_node.get("request_more_evidence", {})
+    brief_state = state_by_node.get("brief_reaction_candidate", {})
+    request_closure_readiness = request_state.get("stack_handoff_closure_readiness") if isinstance(request_state.get("stack_handoff_closure_readiness"), dict) else {}
+    brief_closure_readiness = brief_state.get("stack_handoff_closure_readiness") if isinstance(brief_state.get("stack_handoff_closure_readiness"), dict) else {}
+    conclusion_closure_readiness = conclusion.get("stack_handoff_closure_readiness") if isinstance(conclusion.get("stack_handoff_closure_readiness"), dict) else {}
+    investigation_working_stack_gap = investigation.get("working_stack_gap") if isinstance(investigation.get("working_stack_gap"), dict) else {}
+    request_working_stack_gap = request_state.get("working_stack_gap") if isinstance(request_state.get("working_stack_gap"), dict) else {}
+    brief_working_stack_gap = brief_state.get("working_stack_gap") if isinstance(brief_state.get("working_stack_gap"), dict) else {}
+    conclusion_working_stack_gap = conclusion.get("working_stack_gap") if isinstance(conclusion.get("working_stack_gap"), dict) else {}
+    readiness_schema = f"{schema_prefix}_self_awareness_investigation_stack_handoff_closure_readiness_v1"
+    working_gap_schema = f"{schema_prefix}_self_awareness_investigation_working_stack_gap_v1"
+    packet_count = _safe_int(_nested_get(investigation_closure_readiness, ["summary", "packets"]), 0)
+    readiness_state_preservation = {
+        "request_more_evidence": request_closure_readiness.get("schema") == readiness_schema,
+        "brief_reaction_candidate": brief_closure_readiness.get("schema") == readiness_schema,
+        "write_semantic_conclusion": conclusion_closure_readiness.get("schema") == readiness_schema,
+    }
+    readiness_digests = {
+        "investigation": self_awareness_contracts.stable_hash_json(investigation_closure_readiness, length=24),
+        "request_more_evidence": self_awareness_contracts.stable_hash_json(request_closure_readiness, length=24) if request_closure_readiness else None,
+        "brief_reaction_candidate": self_awareness_contracts.stable_hash_json(brief_closure_readiness, length=24) if brief_closure_readiness else None,
+        "write_semantic_conclusion": self_awareness_contracts.stable_hash_json(conclusion_closure_readiness, length=24) if conclusion_closure_readiness else None,
+    }
+    working_gap_selected = bool(investigation_working_stack_gap)
+    working_gap_state_preservation = {
+        "investigation_top_level": not working_gap_selected or investigation_working_stack_gap.get("schema") == working_gap_schema,
+        "request_more_evidence": not working_gap_selected or request_working_stack_gap.get("schema") == working_gap_schema,
+        "brief_reaction_candidate": not working_gap_selected or brief_working_stack_gap.get("schema") == working_gap_schema,
+        "write_semantic_conclusion": not working_gap_selected or conclusion_working_stack_gap.get("schema") == working_gap_schema,
+    }
+    working_gap_digests = {
+        "investigation": self_awareness_contracts.stable_hash_json(investigation_working_stack_gap, length=24) if investigation_working_stack_gap else None,
+        "request_more_evidence": self_awareness_contracts.stable_hash_json(request_working_stack_gap, length=24) if request_working_stack_gap else None,
+        "brief_reaction_candidate": self_awareness_contracts.stable_hash_json(brief_working_stack_gap, length=24) if brief_working_stack_gap else None,
+        "write_semantic_conclusion": self_awareness_contracts.stable_hash_json(conclusion_working_stack_gap, length=24) if conclusion_working_stack_gap else None,
+    }
+    working_stack_gap_replay = {
+        "schema": f"{schema_prefix}_self_awareness_replay_working_stack_gap_v1",
+        "selected": working_gap_selected,
+        "service": investigation_working_stack_gap.get("service") if investigation_working_stack_gap else None,
+        "machine_usage_status": investigation_working_stack_gap.get("machine_usage_status") if investigation_working_stack_gap else None,
+        "working_stack_link_id": investigation_working_stack_gap.get("working_stack_link_id") if investigation_working_stack_gap else None,
+        "state_preservation": working_gap_state_preservation,
+        "digests": working_gap_digests,
+        "replayable": (
+            not working_gap_selected
+            or (
+                port.working_stack_gap_complete(investigation_working_stack_gap)
+                and all(working_gap_state_preservation.values())
+                and _nested_get(investigation_working_stack_gap, ["policy", "host_layer_mutates_stack"]) is False
+                and _nested_get(investigation_working_stack_gap, ["policy", "executes_commands"]) is False
+                and _nested_get(investigation_working_stack_gap, ["policy", "action_execution"]) is False
+            )
+        ),
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "executes_commands": False,
+            "action_execution": False,
+            "host_layer_mutates_stack": False,
+            "human_approval_before_mutation": True,
+        },
+        "evidence_refs": [{"path": str(paths.investigation_latest), "thread_id": selected_thread, "section": "working_stack_gap"}],
+    }
+    resident_cognitive_replay = port.resident_cognitive_replay(investigation, state_by_node)
+    investigation_body_trace = investigation.get("body_trace") if isinstance(investigation.get("body_trace"), dict) else {}
+    body_trace_state_preservation = {
+        "investigation_top_level": port.body_trace_complete(investigation_body_trace),
+        "resident_context_packet": port.body_trace_complete(_nested_get(state_by_node, ["resident_context_packet", "body_trace"])),
+        "reason_over_evidence": port.body_trace_complete(_nested_get(state_by_node, ["reason_over_evidence", "body_trace"])),
+        "write_semantic_conclusion": port.body_trace_complete(_nested_get(conclusion, ["body_trace"])),
+    }
+    body_trace_replay = {
+        "schema": f"{schema_prefix}_self_awareness_replay_body_trace_v1",
+        "thread_id": selected_thread,
+        "episode_id": investigation_body_trace.get("episode_id"),
+        "body_trace": investigation_body_trace,
+        "state_preservation": body_trace_state_preservation,
+        "replayable": all(body_trace_state_preservation.values()),
+        "policy": {
+            "read_only": True,
+            "replay_executes_actions": False,
+            "host_layer_mutates_stack": False,
+            "raw_private_content": False,
+        },
+        "evidence_refs": [{"path": str(paths.investigation_latest), "thread_id": selected_thread, "section": "body_trace"}],
+    }
+    stack_handoff_replay = {
+        "schema": f"{schema_prefix}_self_awareness_replay_stack_handoff_v1",
+        "action_map_schema": investigation_action_map.get("schema"),
+        "action_map_summary": investigation_action_map.get("summary") if isinstance(investigation_action_map.get("summary"), dict) else {},
+        "open_requirement_ids": investigation_closure_readiness.get("open_requirement_ids") if isinstance(investigation_closure_readiness.get("open_requirement_ids"), list) else [],
+        "closure_readiness_summary": investigation_closure_readiness.get("summary"),
+        "coverage_impact_summary": {
+            "coverage_impact_entries": _nested_get(investigation_closure_readiness, ["summary", "coverage_impact_entries"]),
+            "blocked_coverage_planes": _nested_get(investigation_closure_readiness, ["summary", "blocked_coverage_planes"]),
+            "coverage_impact_by_requirement": investigation_closure_readiness.get("coverage_impact_by_requirement") if isinstance(investigation_closure_readiness.get("coverage_impact_by_requirement"), dict) else {},
+        },
+        "closure_readiness_digests": readiness_digests,
+        "state_preservation": readiness_state_preservation,
+        "closure_readiness_replayable": (
+            investigation_closure_readiness.get("schema") == readiness_schema
+            and _nested_get(investigation_closure_readiness, ["summary", "complete"]) is True
+            and (packet_count == 0 or all(readiness_state_preservation.values()))
+            and (packet_count == 0 or _safe_int(_nested_get(investigation_closure_readiness, ["summary", "coverage_impact_entries"]), -1) == packet_count)
+            and _nested_get(investigation_closure_readiness, ["policy", "host_layer_mutates_stack"]) is False
+            and _nested_get(investigation_closure_readiness, ["policy", "executes_commands"]) is False
+            and _nested_get(investigation_closure_readiness, ["policy", "action_execution"]) is False
+        ),
+        "policy": {
+            "handoff_only": True,
+            "read_only": True,
+            "executes_commands": False,
+            "action_execution": False,
+            "host_layer_mutates_stack": False,
+            "human_approval_before_mutation": True,
+        },
+        "evidence_refs": [{"path": str(paths.investigation_latest), "thread_id": selected_thread, "section": "stack_handoff_closure_readiness"}],
+    }
+    conclusion_diff = {
+        "schema": f"{schema_prefix}_self_awareness_replay_conclusion_diff_v1",
+        "mode": "latest_conclusion_digest_vs_replayed_checkpoint_chain",
+        "changed": bool(divergences),
+        "conclusion_digest": conclusion_digest,
+        "state_digest": state_digest,
+        "checkpoint_digest": checkpoint_digest,
+        "node_order_digest": node_order_digest,
+        "divergences": divergences,
+    }
+    resume = {
+        "supported": True,
+        "thread_id": selected_thread,
+        "latest_checkpoint_id": latest_checkpoint_id,
+        "resume_command": f"abyss-machine self-awareness replay --thread-id {selected_thread} --json",
+        "replay_required_before_action": True,
+    }
+    failure_recovery = port.failure_recovery(selected_thread, latest_checkpoint_id)
+    data = {
+        "schema": f"{schema_prefix}_self_awareness_replay_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": (
+            bool(replayed)
+            and not divergences
+            and bool(stack_handoff_replay["closure_readiness_replayable"])
+            and bool(working_stack_gap_replay["replayable"])
+            and port.resident_cognitive_replay_complete(resident_cognitive_replay)
+            and bool(body_trace_replay["replayable"])
+        ),
+        "thread_id": selected_thread,
+        "summary": {
+            "checkpoints": len(replayed),
+            "divergences": len(divergences),
+            "node_order": node_order,
+            "expected_nodes": len(expected),
+            "actual_nodes": len(node_order),
+            "resume_supported": True,
+            "conclusion_diff_changed": conclusion_diff["changed"],
+            "stack_handoff_closure_readiness_packets": packet_count,
+            "stack_handoff_closure_readiness_replayable": stack_handoff_replay["closure_readiness_replayable"],
+            "stack_handoff_closure_readiness_missing_checks": _nested_get(investigation_closure_readiness, ["summary", "missing_checks"]),
+            "stack_handoff_closure_readiness_dependency_edges": _nested_get(investigation_closure_readiness, ["summary", "dependency_edges"]),
+            "stack_handoff_coverage_impact_entries": _nested_get(investigation_closure_readiness, ["summary", "coverage_impact_entries"]),
+            "stack_handoff_blocked_coverage_planes": _nested_get(investigation_closure_readiness, ["summary", "blocked_coverage_planes"]),
+            "working_stack_gap_selected": working_gap_selected,
+            "working_stack_gap_replayable": working_stack_gap_replay["replayable"],
+            "working_stack_gap_service": working_stack_gap_replay.get("service"),
+            "working_stack_gap_status": working_stack_gap_replay.get("machine_usage_status"),
+            "resident_cognitive_replay_complete": resident_cognitive_replay.get("complete"),
+            "body_trace_replayable": body_trace_replay.get("replayable"),
+            "resident_cognitive_read_only_tools": _nested_get(resident_cognitive_replay, ["summary", "read_only_tools"]),
+            "resident_cognitive_hypothesis_tests": _nested_get(resident_cognitive_replay, ["summary", "hypothesis_tests"]),
+            "resident_cognitive_contradiction_notes": _nested_get(resident_cognitive_replay, ["summary", "contradiction_notes"]),
+        },
+        "replayed_checkpoints": replayed,
+        "divergences": divergences,
+        "diff": {"conclusion_digest": conclusion_digest, "checkpoint_digest": checkpoint_digest},
+        "state_digest": state_digest,
+        "node_order_digest": node_order_digest,
+        "expected_node_order": expected,
+        "conclusion_diff": conclusion_diff,
+        "stack_handoff_action_map": investigation_action_map,
+        "stack_handoff_closure_readiness": investigation_closure_readiness,
+        "stack_handoff_replay": stack_handoff_replay,
+        "working_stack_gap_replay": working_stack_gap_replay,
+        "resident_cognitive_replay": resident_cognitive_replay,
+        "body_trace_replay": body_trace_replay,
+        "resume": resume,
+        "failure_recovery": failure_recovery,
+        "evidence_refs": [
+            {"path": str(paths.investigation_latest), "thread_id": selected_thread},
+            {"path": str(paths.investigation_latest), "thread_id": selected_thread, "section": "resident_cognitive_packet"},
+            {"path": str(paths.investigation_latest), "thread_id": selected_thread, "section": "body_trace"},
+            {"path": str(paths.investigation_latest), "thread_id": selected_thread, "section": "working_stack_gap"},
+        ],
+        "policy": {
+            "replay_mutates_stack": False,
+            "replay_executes_actions": False,
+            "host_layer_mutates_stack": False,
+            "action_execution": False,
+            "human_approval_before_mutation": True,
+            "replay_required_before_action": True,
+            "failure_recovery_non_mutating": True,
+        },
+    }
+    if write_latest:
+        errors = port.write_latest_and_history(data, paths.replay_latest, paths.replay_history_root)
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    return data
 
 
 def cycle_latest_specs(

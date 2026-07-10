@@ -420,6 +420,190 @@ def test_collect_cli_keeps_write_opt_in_and_delegates_concrete_paths(monkeypatch
     )
 
 
+def _replay_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessReplayPaths:
+    return self_awareness_adapters.SelfAwarenessReplayPaths(
+        investigation_latest=tmp_path / "investigate" / "latest.json",
+        replay_latest=tmp_path / "replay" / "latest.json",
+        replay_history_root=tmp_path / "replay",
+    )
+
+
+def _replay_investigation_fixture(
+    node_order: list[str],
+    *,
+    thread_id: str = "thread-fixture",
+    missing_parent: bool = False,
+) -> dict[str, Any]:
+    body_trace = {"schema": "fixture_body_trace_v1", "complete": True, "episode_id": "episode-fixture"}
+    checkpoints: list[dict[str, Any]] = []
+    states: list[dict[str, Any]] = []
+    parent: str | None = None
+    for index, node in enumerate(node_order):
+        checkpoint_id = f"checkpoint-{index}"
+        state: dict[str, Any] = {"node": node}
+        if node in {"resident_context_packet", "reason_over_evidence"}:
+            state["body_trace"] = body_trace
+        checkpoints.append({
+            "checkpoint_id": checkpoint_id,
+            "thread_id": thread_id,
+            "node": node,
+            "parent": "missing-checkpoint" if missing_parent and index == 1 else parent,
+        })
+        states.append({"node": node, "state": state})
+        parent = checkpoint_id
+    return {
+        "schema": "abyss_machine_self_awareness_investigation_v1",
+        "thread_id": thread_id,
+        "checkpoints": checkpoints,
+        "states": states,
+        "body_trace": body_trace,
+        "conclusion": {"body_trace": body_trace, "evidence_refs": [{"path": "/fixture/investigate/latest.json"}]},
+    }
+
+
+def _fake_replay_port(
+    investigation: dict[str, Any],
+    calls: list[str],
+    *,
+    write_errors: list[dict[str, Any]] | None = None,
+) -> self_awareness_adapters.SelfAwarenessReplayPort:
+    def load_latest(_path: Path, _schema: str) -> dict[str, Any]:
+        calls.append("load")
+        return investigation
+
+    def closure_readiness(_action_map: dict[str, Any]) -> dict[str, Any]:
+        calls.append("closure_readiness")
+        return {
+            "schema": "abyss_machine_self_awareness_investigation_stack_handoff_closure_readiness_v1",
+            "summary": {
+                "complete": True,
+                "packets": 0,
+                "missing_checks": 0,
+                "dependency_edges": 0,
+                "coverage_impact_entries": 0,
+                "blocked_coverage_planes": [],
+            },
+            "open_requirement_ids": [],
+            "coverage_impact_by_requirement": {},
+            "policy": {"host_layer_mutates_stack": False, "executes_commands": False, "action_execution": False},
+        }
+
+    def resident_replay(_investigation: dict[str, Any], _state_by_node: dict[str, Any]) -> dict[str, Any]:
+        calls.append("resident_replay")
+        return {
+            "schema": "abyss_machine_self_awareness_resident_cognitive_replay_v1",
+            "complete": True,
+            "summary": {"read_only_tools": 4, "hypothesis_tests": 2, "contradiction_notes": 1},
+        }
+
+    def failure_recovery(thread_id: str, checkpoint_id: str | None) -> dict[str, Any]:
+        calls.append("failure_recovery")
+        return {"supported": True, "thread_id": thread_id, "latest_checkpoint_id": checkpoint_id, "routes": []}
+
+    def write_latest_history(_data: dict[str, Any], _latest: Path, _root: Path) -> list[dict[str, Any]]:
+        calls.append("write")
+        return list(write_errors or [])
+
+    return self_awareness_adapters.SelfAwarenessReplayPort(
+        load_latest_json=load_latest,
+        stack_handoff_closure_readiness=closure_readiness,
+        working_stack_gap_complete=lambda packet: bool(packet.get("complete")),
+        resident_cognitive_replay=resident_replay,
+        body_trace_complete=lambda packet: isinstance(packet, dict) and packet.get("complete") is True,
+        resident_cognitive_replay_complete=lambda packet: packet.get("complete") is True,
+        failure_recovery=failure_recovery,
+        write_latest_and_history=write_latest_history,
+    )
+
+
+def test_replay_orchestration_replays_complete_read_only_chain(tmp_path: Path) -> None:
+    expected = [
+        "plan_queries",
+        "query_evidence",
+        "resident_context_packet",
+        "reason_over_evidence",
+        "request_more_evidence",
+        "validate_evidence",
+        "record_artifact",
+        "brief_reaction_candidate",
+        "write_semantic_conclusion",
+    ]
+    calls: list[str] = []
+    investigation = _replay_investigation_fixture(expected)
+
+    replay = self_awareness_adapters.run_replay(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        thread_id="thread-fixture",
+        expected_node_order=expected,
+        paths=_replay_paths(tmp_path),
+        write_latest=True,
+        port=_fake_replay_port(investigation, calls),
+    )
+
+    assert replay["ok"] is True
+    assert replay["summary"]["checkpoints"] == 9
+    assert replay["summary"]["divergences"] == 0
+    assert replay["summary"]["node_order"] == expected
+    assert replay["stack_handoff_replay"]["closure_readiness_replayable"] is True
+    assert replay["working_stack_gap_replay"]["replayable"] is True
+    assert replay["resident_cognitive_replay"]["complete"] is True
+    assert replay["body_trace_replay"]["replayable"] is True
+    assert replay["policy"]["replay_executes_actions"] is False
+    assert replay["policy"]["host_layer_mutates_stack"] is False
+    assert replay["resume"]["latest_checkpoint_id"] == "checkpoint-8"
+    assert calls == ["load", "closure_readiness", "resident_replay", "failure_recovery", "write"]
+
+
+def test_replay_orchestration_reports_node_and_parent_divergence_without_writing(tmp_path: Path) -> None:
+    expected = ["plan_queries", "query_evidence", "write_semantic_conclusion"]
+    investigation = _replay_investigation_fixture(
+        ["query_evidence", "plan_queries", "write_semantic_conclusion"],
+        missing_parent=True,
+    )
+    calls: list[str] = []
+
+    replay = self_awareness_adapters.run_replay(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        thread_id="thread-fixture",
+        expected_node_order=expected,
+        paths=_replay_paths(tmp_path),
+        write_latest=False,
+        port=_fake_replay_port(investigation, calls),
+    )
+
+    assert replay["ok"] is False
+    assert [row["kind"] for row in replay["divergences"]] == ["node_order", "missing_parent"]
+    assert replay["conclusion_diff"]["changed"] is True
+    assert "write" not in calls
+
+
+def test_replay_orchestration_projects_write_failures_after_complete_replay(tmp_path: Path) -> None:
+    expected = ["plan_queries", "write_semantic_conclusion"]
+    investigation = _replay_investigation_fixture(expected)
+    calls: list[str] = []
+    write_error = {"path": str(tmp_path / "replay/latest.json"), "error": "fixture write failure"}
+
+    replay = self_awareness_adapters.run_replay(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-09T12:00:00+00:00",
+        thread_id=None,
+        expected_node_order=expected,
+        paths=_replay_paths(tmp_path),
+        write_latest=True,
+        port=_fake_replay_port(investigation, calls, write_errors=[write_error]),
+    )
+
+    assert replay["thread_id"] == "thread-fixture"
+    assert replay["ok"] is False
+    assert replay["write_errors"] == [write_error]
+    assert calls[-1] == "write"
+
+
 def test_scheduler_timer_events_use_fake_systemd_ports() -> None:
     commands: list[tuple[str, ...]] = []
 

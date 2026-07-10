@@ -55,8 +55,9 @@ Use these mechanic owners for the next extraction slices:
   refreshes, optional network queries, time windows, and scheduler/service
   events, collect event/fabric/readmodel assembly through supplied contract
   ports and explicit host-path binding, ordered collect events/collect/index
-  persistence through shared atomic/locked-append filesystem adapters, cycle
-  latest-read/bridge-document dispatch,
+  persistence through shared atomic/locked-append filesystem adapters, replay
+  latest-read/checkpoint-chain validation/readmodel persistence through
+  purpose-shaped ports, cycle latest-read/bridge-document dispatch,
   validation latest-spec selection, bounded status latest summaries,
   body-closure status document builders, status open-potential/open-requirement
   row builders, resource preflight guard decisions, bounded HTTP status probe
@@ -81,7 +82,7 @@ Use these mechanic owners for the next extraction slices:
   partial/building/final result document assembly live in
   `self_awareness_adapters`; CLI retains the collect write opt-in decision while
   probe/cycle orchestration, deeper runtime refresh, concrete artifact/freshness
-  binding, and investigate/replay execution remain bounded CLI debt.
+  binding, and investigate execution remain bounded CLI debt.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
