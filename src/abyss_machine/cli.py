@@ -107,6 +107,7 @@ try:
     from . import resource_planning
     from . import runtime_evidence_contracts
     from . import self_awareness_adapters
+    from . import self_awareness_body_trace_contracts
     from . import self_awareness_causal_readmodel_contracts
     from . import self_awareness_causal_overlay_contracts
     from . import self_awareness_completion_contracts
@@ -284,6 +285,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import resource_planning
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import self_awareness_adapters
+    from abyss_machine import self_awareness_body_trace_contracts
     from abyss_machine import self_awareness_causal_readmodel_contracts
     from abyss_machine import self_awareness_causal_overlay_contracts
     from abyss_machine import self_awareness_completion_contracts
@@ -35609,171 +35611,55 @@ def self_awareness_episodes(
     )
 
 
+def self_awareness_body_trace_paths() -> self_awareness_body_trace_contracts.SelfAwarenessBodyTracePaths:
+    return self_awareness_body_trace_contracts.SelfAwarenessBodyTracePaths(
+        episodes_latest=SELF_AWARENESS_EPISODES_LATEST_PATH,
+        context_latest=SELF_AWARENESS_CONTEXT_LATEST_PATH,
+        timeline_latest=SELF_AWARENESS_TIMELINE_LATEST_PATH,
+        spatial_graph_latest=SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH,
+        events_latest=SELF_AWARENESS_EVENTS_LATEST_PATH,
+    )
+
+
+def self_awareness_body_trace_config() -> self_awareness_body_trace_contracts.SelfAwarenessBodyTraceConfig:
+    return self_awareness_body_trace_contracts.SelfAwarenessBodyTraceConfig(
+        schema_prefix=SCHEMA_PREFIX,
+    )
+
+
+def self_awareness_body_trace_runtime_port() -> self_awareness_body_trace_contracts.SelfAwarenessBodyTraceRuntimePort:
+    return self_awareness_body_trace_contracts.SelfAwarenessBodyTraceRuntimePort(
+        load_latest_json=load_latest_json,
+    )
+
+
+def self_awareness_body_trace_contract_port() -> self_awareness_body_trace_contracts.SelfAwarenessBodyTraceContractPort:
+    return self_awareness_body_trace_contracts.SelfAwarenessBodyTraceContractPort(
+        time_bucket=self_awareness_time_bucket,
+    )
+
+
 def self_awareness_episode_body_trace(
     *,
     episode: dict[str, Any],
     source_event: dict[str, Any] | None = None,
     context_doc: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    episode = episode if isinstance(episode, dict) else {}
-    source_event = source_event if isinstance(source_event, dict) else {}
-    context_doc = context_doc if isinstance(context_doc, dict) else load_latest_json(
-        SELF_AWARENESS_CONTEXT_LATEST_PATH,
-        f"{SCHEMA_PREFIX}_self_awareness_context_v1",
+    return self_awareness_body_trace_contracts.episode_body_trace(
+        episode=episode,
+        source_event=source_event,
+        context_doc=context_doc,
+        paths=self_awareness_body_trace_paths(),
+        config=self_awareness_body_trace_config(),
+        runtime_port=self_awareness_body_trace_runtime_port(),
+        contract_port=self_awareness_body_trace_contract_port(),
     )
-    context_packet = context_doc.get("context_packet") if isinstance(context_doc.get("context_packet"), dict) else {}
-    host_body = nested_get(context_packet, ["sections", "host_body"])
-    host_body = host_body if isinstance(host_body, dict) else {}
-    time_window = episode.get("time_window") if isinstance(episode.get("time_window"), dict) else {}
-    source_context = source_event.get("context") if isinstance(source_event.get("context"), dict) else {}
-    source_resource = source_event.get("resource") if isinstance(source_event.get("resource"), dict) else {}
-    involved_contexts = [
-        item for item in (episode.get("involved_contexts") if isinstance(episode.get("involved_contexts"), list) else [])
-        if isinstance(item, dict)
-    ]
-    context_keys = [
-        str(item) for item in (episode.get("context_keys") if isinstance(episode.get("context_keys"), list) else [])
-        if item
-    ]
-    for context in [*involved_contexts, source_context]:
-        for key, value in context.items():
-            if value in (None, ""):
-                continue
-            rendered = f"{key}:{value}"
-            if rendered not in context_keys:
-                context_keys.append(rendered)
-    affected_nodes = [
-        str(item) for item in (episode.get("affected_spatial_nodes") if isinstance(episode.get("affected_spatial_nodes"), list) else [])
-        if item
-    ]
-    affected_services = [
-        str(item) for item in (episode.get("affected_services") if isinstance(episode.get("affected_services"), list) else [])
-        if item
-    ]
-    for node in affected_nodes:
-        if node.startswith("service:"):
-            service = node.split(":", 1)[1]
-            if service and service not in affected_services:
-                affected_services.append(service)
-    for candidate in (
-        source_resource.get("service"),
-        nested_get(episode, ["working_stack_gap", "service"]),
-        episode.get("service"),
-    ):
-        if candidate and str(candidate) not in affected_services:
-            affected_services.append(str(candidate))
-    if source_resource.get("service") and not any(node == f"service:{source_resource.get('service')}" for node in affected_nodes):
-        affected_nodes.append(f"service:{source_resource.get('service')}")
-    evidence_refs = [
-        {"path": str(SELF_AWARENESS_EPISODES_LATEST_PATH), "episode_id": episode.get("episode_id")},
-        {"path": str(SELF_AWARENESS_CONTEXT_LATEST_PATH), "section": "context_packet.host_body"},
-        {"path": str(SELF_AWARENESS_TIMELINE_LATEST_PATH), "episode_id": episode.get("episode_id")},
-        {"path": str(SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH), "nodes": affected_nodes[:12]},
-    ]
-    if source_event.get("event_id"):
-        evidence_refs.append({"path": str(SELF_AWARENESS_EVENTS_LATEST_PATH), "event_id": source_event.get("event_id")})
-    evidence_refs.extend(episode.get("evidence_refs") if isinstance(episode.get("evidence_refs"), list) else [])
-    evidence_refs.extend(source_event.get("evidence_refs") if isinstance(source_event.get("evidence_refs"), list) else [])
-    start = time_window.get("start") or source_event.get("event_time") or context_doc.get("generated_at")
-    end = time_window.get("end") or source_event.get("event_time") or start
-    body_trace = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_body_trace_v1",
-        "trace_id": "sabody-" + stable_hash_json({
-            "episode": episode.get("episode_id"),
-            "event": source_event.get("event_id"),
-            "time": time_window,
-            "nodes": affected_nodes,
-            "contexts": context_keys,
-        }, length=20),
-        "episode_id": episode.get("episode_id"),
-        "episode_kind": episode.get("episode_kind") or "event_correlation",
-        "temporal": {
-            "start": start,
-            "end": end,
-            "bucket": time_window.get("bucket") or self_awareness_time_bucket(start),
-            "source_event_time": source_event.get("event_time"),
-            "context_generated_at": context_doc.get("generated_at"),
-        },
-        "spatial": {
-            "affected_spatial_nodes": affected_nodes[:40],
-            "affected_services": affected_services[:40],
-            "node_count": len(affected_nodes),
-            "service_count": len(affected_services),
-            "owner_surfaces": sorted(set(
-                str(item)
-                for item in [
-                    episode.get("owner_route"),
-                    nested_get(source_event, ["space", "owner_surface"]),
-                    source_resource.get("owner_surface"),
-                ]
-                if item
-            )),
-        },
-        "contextual": {
-            "context_keys": context_keys[:60],
-            "context_key_count": len(context_keys),
-            "involved_context_count": len(involved_contexts),
-            "event_ids": [
-                str(item) for item in (episode.get("event_ids") if isinstance(episode.get("event_ids"), list) else [])
-                if item
-            ][:40],
-            "source_event_id": source_event.get("event_id"),
-            "host_service_units": nested_get(episode, ["host_service", "units"]) if isinstance(nested_get(episode, ["host_service", "units"]), list) else [],
-            "host_service_categories": nested_get(episode, ["host_service", "categories"]) if isinstance(nested_get(episode, ["host_service", "categories"]), list) else [],
-            "scheduler_units": [item.split(":", 1)[1] for item in context_keys if item.startswith("scheduler_unit:")][:40],
-            "scheduler_categories": [item.split(":", 1)[1] for item in context_keys if item.startswith("scheduler_category:")][:40],
-        },
-        "host_body": {
-            "schema": host_body.get("schema"),
-            "complete": host_body.get("complete"),
-            "scheduler_unit_contexts": nested_get(host_body, ["scheduler", "unit_contexts"]),
-            "scheduler_categories": nested_get(host_body, ["scheduler", "categories"]) if isinstance(nested_get(host_body, ["scheduler", "categories"]), list) else [],
-            "host_service_unit_contexts": nested_get(host_body, ["host_services", "unit_contexts"]),
-            "host_service_categories": nested_get(host_body, ["host_services", "categories"]) if isinstance(nested_get(host_body, ["host_services", "categories"]), list) else [],
-            "manual_collect_contexts": nested_get(host_body, ["manual_collect", "contexts"]),
-        },
-        "lineage": {
-            "episode_latest": str(SELF_AWARENESS_EPISODES_LATEST_PATH),
-            "context_latest": str(SELF_AWARENESS_CONTEXT_LATEST_PATH),
-            "timeline_latest": str(SELF_AWARENESS_TIMELINE_LATEST_PATH),
-            "spatial_graph_latest": str(SELF_AWARENESS_SPATIAL_GRAPH_LATEST_PATH),
-            "source_event_latest": str(SELF_AWARENESS_EVENTS_LATEST_PATH) if source_event.get("event_id") else None,
-        },
-        "policy": {
-            "read_only": True,
-            "host_layer_mutates_stack": False,
-            "executes_commands": False,
-            "automatic_remediation": False,
-            "stores_raw_body": False,
-            "stores_raw_context_values": False,
-            "raw_private_content": False,
-        },
-        "evidence_refs": evidence_refs[:60],
-    }
-    body_trace["complete"] = self_awareness_body_trace_complete(body_trace)
-    return body_trace
 
 
 def self_awareness_body_trace_complete(trace: Any) -> bool:
-    if not isinstance(trace, dict):
-        return False
-    return (
-        trace.get("schema") == f"{SCHEMA_PREFIX}_self_awareness_body_trace_v1"
-        and bool(trace.get("trace_id"))
-        and bool(trace.get("episode_id"))
-        and bool(nested_get(trace, ["temporal", "start"]))
-        and bool(nested_get(trace, ["temporal", "end"]))
-        and (
-            safe_int(nested_get(trace, ["spatial", "node_count"]), 0) > 0
-            or safe_int(nested_get(trace, ["spatial", "service_count"]), 0) > 0
-        )
-        and safe_int(nested_get(trace, ["contextual", "context_key_count"]), 0) > 0
-        and nested_get(trace, ["host_body", "complete"]) is True
-        and nested_get(trace, ["policy", "host_layer_mutates_stack"]) is False
-        and nested_get(trace, ["policy", "executes_commands"]) is False
-        and nested_get(trace, ["policy", "stores_raw_body"]) is False
-        and nested_get(trace, ["policy", "stores_raw_context_values"]) is False
-        and bool(trace.get("evidence_refs"))
+    return self_awareness_body_trace_contracts.body_trace_complete(
+        trace,
+        schema_prefix=SCHEMA_PREFIX,
     )
 
 

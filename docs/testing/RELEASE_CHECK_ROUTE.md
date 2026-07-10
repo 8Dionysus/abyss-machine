@@ -336,6 +336,15 @@ locally by hash, but may report only schema/ok/status, readiness booleans and
 counts, and policy; never publish checks, links, samples, endpoints, evidence
 refs, or machine paths.
 
+For self-awareness episode-body-trace changes, public CI should use synthetic
+episode, event, and context documents plus fake context-latest and time-bucket
+ports. It must constrain supplied-context reuse, the single context fallback
+read, temporal/spatial/context/host-body projection, deterministic lineage,
+completion, no raw-body/context storage, and CLI binding. Live-host closeout
+may compare full source/installed documents locally by hash, but may report
+only completeness, temporal/spatial/context counts, and policy; never publish
+context values, event/episode bodies, evidence refs, or machine paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.

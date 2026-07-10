@@ -138,10 +138,12 @@ Use these mechanic owners for the next extraction slices:
   explicit runtime, refresh, contract, persistence, path, and config ports;
   `self_awareness_trace_context_contracts` owns bounded trace-link extraction,
   trace-backend fallback/readiness, ordered next-requirement routing,
-  completion, and optional persistence through the same explicit port style.
-  Remaining causal readmodels and activation/lineage/coverage centers must be
-  extracted before the final residual CLI-edge classification and family
-  completion audit.
+  completion, and optional persistence through the same explicit port style;
+  `self_awareness_body_trace_contracts` owns episode temporal/spatial/context/
+  host-body projection, deterministic bounded lineage, and completion through
+  explicit path, config, runtime, and contract ports. Remaining causal
+  readmodels and activation/lineage/coverage centers must be extracted before
+  the final residual CLI-edge classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
