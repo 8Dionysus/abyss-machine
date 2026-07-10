@@ -351,6 +351,15 @@ counts, categories, event validity, and read-only posture. Never publish unit
 payloads, environment values, command output, or private fragment paths, and do
 not start, stop, enable, disable, reload, or restart units as validation.
 
+For self-awareness collect-input adapter changes, public CI should prove the
+exact latest/live acquisition order with fake ports, required path/schema
+selection, supplied working-stack reuse, refresh fallback, stack-provided
+execution candidates, bounded Alertmanager routing, and the 15-minute LogQL
+window from a fake clock. Live-host closeout may run `self-awareness collect`
+and report only schema/status, event and invalid counts, degraded-source names,
+scheduler/service counts, and owner-boundary booleans. Do not publish latest
+documents, query responses, event bodies, runtime inventories, or private paths.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
