@@ -45780,680 +45780,86 @@ def self_awareness_llm_escalation_detail_complete(detail: dict[str, Any]) -> boo
 
 
 def self_awareness_capabilities(write_latest: bool = True) -> dict[str, Any]:
-    generated_at = now_iso()
-    stack = stack_bridge_observability(write_latest=True)
-    container_health = process_container_health(write_latest=True)
-    prom_targets = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/targets", timeout=2.5)
-    prom_rules = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/rules", timeout=2.5)
-    prom_alerts = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/alerts", timeout=2.5)
-    grafana_health = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_GRAFANA_URL.rstrip()}/api/health", timeout=2.0, max_bytes=65536)
-    grafana_datasources = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_GRAFANA_URL.rstrip()}/api/datasources", timeout=2.0, max_bytes=131072)
-    alertmanager_status = memory_orchestrate_http_json(f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip()}/api/v2/status", timeout=2.0)
-    alertmanager_alerts = memory_orchestrate_http_json(f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip()}/api/v2/alerts", timeout=2.0)
-    tempo_ready = memory_orchestrate_http_json(f"{SELF_AWARENESS_TEMPO_URL.rstrip()}/ready", timeout=1.2, max_bytes=65536)
-    langgraph_api = memory_orchestrate_http_json(f"{SELF_AWARENESS_LANGGRAPH_URL.rstrip()}/health", timeout=1.2, max_bytes=65536)
-    langchain_api = self_awareness_langchain_api_probe()
-    stack_closure_external_evidence = self_awareness_stack_closure_external_evidence()
-    trace_backend = self_awareness_trace_backend_probe(tempo_ready, stack, stack_closure_external_evidence)
-    grafana_datasource_probe = self_awareness_grafana_datasource_probe(
-        grafana_health,
-        grafana_datasources,
-        stack,
-        alertmanager_status,
-        trace_backend,
+    return self_awareness_adapters.run_capabilities(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+        paths=self_awareness_adapters.SelfAwarenessCapabilitiesPaths(
+            stack_observability_latest=STACK_OBSERVABILITY_LATEST_PATH,
+            process_container_latest=PROCESS_CONTAINER_LATEST_PATH,
+            ai_capabilities_latest=AI_CAPABILITIES_LATEST_PATH,
+            ai_devices_latest=AI_DEVICES_LATEST_PATH,
+            ai_models_latest=AI_MODELS_LATEST_PATH,
+            ai_tts_profiles_latest=AI_TTS_PROFILES_LATEST_PATH,
+            ai_tts_success_latest=AI_TTS_EVAL_LATEST_SUCCESS_PATH,
+            ai_llm_registry_latest=AI_LLM_REGISTRY_LATEST_PATH,
+            llm_resident_status_latest=AI_LLM_RESIDENT_ROOT / "status" / "latest.json",
+            llm_resident_monitor_latest=AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json",
+            llm_resident_digest_latest=AI_LLM_RESIDENT_ROOT / "digests" / "latest.json",
+            llm_resident_micro_latest=AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json",
+            llm_resident_evals_latest=AI_LLM_RESIDENT_EVALS_LATEST_PATH,
+            llm_resident_candidates_latest=AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH,
+            llm_workhorse_preflight_latest=AI_LLM_WORKHORSE_PREFLIGHT_LATEST_PATH,
+            llm_workhorse_pack_latest=AI_LLM_WORKHORSE_PACK_LATEST_PATH,
+            llm_workhorse_review_latest=AI_LLM_WORKHORSE_REVIEW_LATEST_PATH,
+            llm_workhorse_validate_latest=AI_LLM_WORKHORSE_VALIDATE_LATEST_PATH,
+            rag_trace_latest=RAG_TRACE_LATEST_PATH,
+            rag_validate_latest=RAG_VALIDATE_LATEST_PATH,
+            nervous_brief_latest=NERVOUS_BRIEF_LATEST_PATH,
+            memory_latest=MEMORY_LATEST_PATH,
+            resource_latest=RESOURCE_LATEST_PATH,
+            mode_latest=MODE_LATEST_PATH,
+            reactions_latest=REACTIONS_LATEST_PATH,
+            responses_latest=RESPONSES_LATEST_PATH,
+            requirement_probes_latest=SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
+            requirements_latest=SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+            requirements_root=SELF_AWARENESS_REQUIREMENTS_ROOT,
+            capabilities_latest=SELF_AWARENESS_CAPABILITIES_LATEST_PATH,
+            capabilities_root=SELF_AWARENESS_CAPABILITIES_ROOT,
+        ),
+        urls=self_awareness_adapters.SelfAwarenessCapabilitiesUrls(
+            prometheus=STACK_OBSERVABILITY_PROMETHEUS_URL,
+            grafana=STACK_OBSERVABILITY_GRAFANA_URL,
+            loki=STACK_OBSERVABILITY_LOKI_URL,
+            alertmanager=SELF_AWARENESS_ALERTMANAGER_URL,
+            tempo=SELF_AWARENESS_TEMPO_URL,
+            langgraph=SELF_AWARENESS_LANGGRAPH_URL,
+        ),
+        write_latest=write_latest,
+        input_port=self_awareness_adapters.SelfAwarenessCapabilitiesInputPort(
+            stack_observability=stack_bridge_observability,
+            container_health=process_container_health,
+            http_json=memory_orchestrate_http_json,
+            langchain_api_probe=self_awareness_langchain_api_probe,
+            stack_closure_external_evidence=self_awareness_stack_closure_external_evidence,
+            trace_backend_probe=self_awareness_trace_backend_probe,
+            grafana_datasource_probe=self_awareness_grafana_datasource_probe,
+            stack_memory_space_probe=self_awareness_stack_memory_space_probe,
+            module_available=lambda name: importlib.util.find_spec(name) is not None,
+            ai_capabilities=ai_capabilities_latest,
+            ai_llm_registry=ai_llm_registry,
+            load_latest_json=load_latest_json,
+            rag_validate=rag_validate,
+            nervous_brief=nervous_brief,
+        ),
+        contract_port=self_awareness_adapters.SelfAwarenessCapabilitiesContractPort(
+            resident_worker_detail=self_awareness_resident_worker_detail,
+            resident_worker_detail_complete=self_awareness_resident_worker_detail_complete,
+            ai_multimodal_detail=self_awareness_ai_multimodal_detail,
+            ai_multimodal_detail_complete=self_awareness_ai_multimodal_detail_complete,
+            governance_gate_detail=self_awareness_governance_gate_detail,
+            governance_gate_detail_complete=self_awareness_governance_gate_detail_complete,
+            llm_escalation_detail=self_awareness_llm_escalation_detail,
+            llm_escalation_detail_complete=self_awareness_llm_escalation_detail_complete,
+            capability_item=self_awareness_capability_item,
+            requirement_item=self_awareness_requirement_item,
+            requirements_document=self_awareness_requirements_document,
+            requirements_with_probe_readiness=self_awareness_requirements_with_probe_readiness,
+        ),
+        persistence_port=self_awareness_adapters.SelfAwarenessCapabilitiesPersistencePort(
+            write_latest_and_history=write_latest_and_history,
+        ),
     )
-    memory_space_routes = self_awareness_stack_memory_space_probe()
-    langgraph_python = importlib.util.find_spec("langgraph") is not None
-    ai_caps = ai_capabilities_latest()
-    ai_cap_map = ai_caps.get("capabilities") if isinstance(ai_caps.get("capabilities"), dict) else {}
-    ai_llm = ai_llm_registry(write_latest=True)
-    ai_devices_latest = load_latest_json(AI_DEVICES_LATEST_PATH, f"{SCHEMA_PREFIX}_ai_devices_v1")
-    ai_models_latest = load_latest_json(AI_MODELS_LATEST_PATH, f"{SCHEMA_PREFIX}_ai_models_v1")
-    ai_tts_profiles_latest = load_latest_json(AI_TTS_PROFILES_LATEST_PATH, f"{SCHEMA_PREFIX}_ai_tts_profiles_v1")
-    ai_tts_success_latest = load_latest_json(AI_TTS_EVAL_LATEST_SUCCESS_PATH, f"{SCHEMA_PREFIX}_ai_tts_eval_v1")
-    llm_profiles = ai_llm.get("profiles") if isinstance(ai_llm.get("profiles"), dict) else {}
-    llm_resident_status = load_latest_json(AI_LLM_RESIDENT_ROOT / "status" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_status_v1")
-    llm_resident_monitor = load_latest_json(AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_monitor_v1")
-    llm_resident_digest = load_latest_json(AI_LLM_RESIDENT_ROOT / "digests" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_digest_v1")
-    llm_resident_micro = load_latest_json(AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_micro_tick_v1")
-    llm_resident_evals = load_latest_json(AI_LLM_RESIDENT_EVALS_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_spark_resident_heartbeat_evals_v1")
-    llm_resident_candidates = load_latest_json(AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_spark_resident_candidate_readmodel_v2")
-    llm_workhorse_preflight = load_latest_json(AI_LLM_WORKHORSE_PREFLIGHT_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_workhorse_harness_preflight_v1")
-    llm_workhorse_pack = load_latest_json(AI_LLM_WORKHORSE_PACK_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_workhorse_harness_e4b_review_pack_v2")
-    llm_workhorse_review = load_latest_json(AI_LLM_WORKHORSE_REVIEW_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_workhorse_harness_review_v1")
-    llm_workhorse_validate = load_latest_json(AI_LLM_WORKHORSE_VALIDATE_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_workhorse_harness_validate_v1")
-    rag_validation = rag_validate(strict=False, write_latest=True)
-    nervous = nervous_brief(scope="now", limit=6, refresh=False, write_latest=True)
-    memory_latest = load_latest_json(MEMORY_LATEST_PATH, f"{SCHEMA_PREFIX}_memory_status_v1")
-    resource_latest = load_latest_json(RESOURCE_LATEST_PATH, f"{SCHEMA_PREFIX}_resource_status_v1")
-    mode_latest = load_latest_json(MODE_LATEST_PATH, f"{SCHEMA_PREFIX}_mode_status_v1")
-    reactions_latest = load_latest_json(REACTIONS_LATEST_PATH, f"{SCHEMA_PREFIX}_reactions_status_v1")
-    responses_latest = load_latest_json(RESPONSES_LATEST_PATH, f"{SCHEMA_PREFIX}_responses_status_v1")
-    containers = container_health.get("containers") if isinstance(container_health.get("containers"), list) else []
-    container_names = sorted(set(
-        str(name)
-        for item in containers if isinstance(item, dict)
-        for name in (item.get("names") if isinstance(item.get("names"), list) else [item.get("name")])
-        if name
-    ))
-    requirements: list[dict[str, Any]] = []
-    stack_summary = stack.get("summary") if isinstance(stack.get("summary"), dict) else {}
-    jobs_up = set(str(item) for item in (stack_summary.get("promql_jobs_up") or []))
-    loki_labels = nested_get(stack, ["loki", "labels", "labels"]) or []
-
-    def service_seen(*needles: str) -> bool:
-        haystack = " ".join(container_names).lower()
-        return all(needle.lower() in haystack for needle in needles)
-
-    def cap_status_ok(name: str, accepted: set[str]) -> bool:
-        item = ai_cap_map.get(name) if isinstance(ai_cap_map.get(name), dict) else {}
-        return str(item.get("status") or "") in accepted
-
-    resident_detail = self_awareness_resident_worker_detail(
-        llm_resident_status,
-        llm_resident_monitor,
-        llm_resident_digest,
-        llm_resident_micro,
-        llm_resident_evals,
-        llm_resident_candidates,
-    )
-    resident_running = self_awareness_resident_worker_detail_complete(resident_detail)
-    ai_multimodal_detail = self_awareness_ai_multimodal_detail(
-        ai_caps,
-        ai_devices_latest,
-        ai_models_latest,
-        ai_tts_profiles_latest,
-        ai_tts_success_latest,
-        ai_llm,
-    )
-    ai_multimodal_ready = self_awareness_ai_multimodal_detail_complete(ai_multimodal_detail)
-    governance_detail = self_awareness_governance_gate_detail(memory_latest, resource_latest, mode_latest)
-    llm_escalation_detail = self_awareness_llm_escalation_detail(
-        ai_llm,
-        llm_workhorse_pack,
-        llm_workhorse_review,
-        llm_workhorse_validate,
-        llm_workhorse_preflight,
-        resource_latest,
-        mode_latest,
-    )
-    llm_escalation_ready = self_awareness_llm_escalation_detail_complete(llm_escalation_detail)
-
-    def evidence(path: Path, schema: str | None = None, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-        item = {"path": str(path)}
-        if schema:
-            item["schema"] = schema
-        if extra:
-            item.update(extra)
-        return item
-
-    capabilities = [
-        self_awareness_capability_item(
-            "prometheus.targets",
-            "Prometheus target and rule discovery",
-            "abyss-stack",
-            bool(prom_targets.get("ok") and "prometheus" in jobs_up),
-            required=True,
-            evidence_refs=[evidence(STACK_OBSERVABILITY_LATEST_PATH, stack.get("schema")), {"url": prom_targets.get("url"), "status_code": prom_targets.get("status_code")}],
-            endpoints=[
-                {"url": prom_targets.get("url"), "status_code": prom_targets.get("status_code"), "ok": prom_targets.get("ok")},
-                {"url": prom_rules.get("url"), "status_code": prom_rules.get("status_code"), "ok": prom_rules.get("ok")},
-                {"url": prom_alerts.get("url"), "status_code": prom_alerts.get("status_code"), "ok": prom_alerts.get("ok")},
-            ],
-            detail={"targets_ok": prom_targets.get("ok"), "rules_ok": prom_rules.get("ok"), "alerts_ok": prom_alerts.get("ok"), "jobs_up": sorted(jobs_up)},
-        ),
-        self_awareness_capability_item(
-            "loki.logql",
-            "Loki labels and bounded LogQL discovery",
-            "abyss-stack",
-            bool(nested_get(stack, ["loki", "labels", "ok"]) and nested_get(stack, ["summary", "logql_entries_seen"])),
-            required=True,
-            evidence_refs=[evidence(STACK_OBSERVABILITY_LATEST_PATH, stack.get("schema"), {"locator": "loki"})],
-            endpoints=[
-                {"url": f"{STACK_OBSERVABILITY_LOKI_URL.rstrip('/')}/ready", "ok": nested_get(stack, ["loki", "ready", "ok"])},
-                {"url": f"{STACK_OBSERVABILITY_LOKI_URL.rstrip('/')}/loki/api/v1/labels", "ok": nested_get(stack, ["loki", "labels", "ok"])},
-                {"url": f"{STACK_OBSERVABILITY_LOKI_URL.rstrip('/')}/loki/api/v1/query_range", "ok": bool(nested_get(stack, ["summary", "logql_entries_seen"]))},
-            ],
-            detail={"labels": loki_labels, "logql_entries_seen": stack_summary.get("logql_entries_seen")},
-        ),
-        self_awareness_capability_item(
-            "grafana.health",
-            "Grafana health and datasource inventory",
-            "abyss-stack",
-            bool(grafana_health.get("ok") or nested_get(stack, ["grafana", "ok"])),
-            required=True,
-            evidence_refs=[evidence(STACK_OBSERVABILITY_LATEST_PATH, stack.get("schema")), {"url": grafana_health.get("url"), "status_code": grafana_health.get("status_code")}],
-            endpoints=[
-                {"url": grafana_health.get("url"), "status_code": grafana_health.get("status_code"), "ok": grafana_health.get("ok")},
-                {"url": grafana_datasources.get("url"), "status_code": grafana_datasources.get("status_code"), "ok": grafana_datasources.get("ok"), "error": grafana_datasources.get("error")},
-            ],
-            detail={
-                "health_ok": grafana_health.get("ok"),
-                "datasources_ok": grafana_datasources.get("ok"),
-                "datasources_status_code": grafana_datasources.get("status_code"),
-                "datasource_probe": grafana_datasource_probe,
-            },
-        ),
-        self_awareness_capability_item(
-            "alloy.otel.pipeline",
-            "Alloy/OTel pipeline evidence",
-            "abyss-stack",
-            bool("alloy" in jobs_up or nested_get(stack, ["alloy", "prometheus_value"]) in {"1", "1.0"}),
-            required=True,
-            evidence_refs=[evidence(STACK_OBSERVABILITY_LATEST_PATH, stack.get("schema"), {"locator": "alloy"})],
-            detail={
-                "alloy_prometheus_value": nested_get(stack, ["alloy", "prometheus_value"]),
-                "otel_signal_route": "logs_metrics_context",
-                "traceparent_log_query_ok": nested_get(trace_backend, ["trace_context", "traceparent_log_query_ok"]),
-                "traceparent_log_entries_seen": nested_get(trace_backend, ["trace_context", "traceparent_log_entries_seen"]),
-                "metrics_log_pipeline_readable": nested_get(trace_backend, ["pipeline_evidence", "metrics_log_pipeline_readable"]),
-            },
-        ),
-        self_awareness_capability_item(
-            "alertmanager.lifecycle",
-            "Alertmanager lifecycle API",
-            "abyss-stack",
-            bool(alertmanager_status.get("ok") or alertmanager_alerts.get("ok")),
-            required=False,
-            evidence_refs=[{"url": alertmanager_status.get("url"), "status_code": alertmanager_status.get("status_code")}, {"url": alertmanager_alerts.get("url"), "status_code": alertmanager_alerts.get("status_code")}],
-            endpoints=[
-                {"url": alertmanager_status.get("url"), "status_code": alertmanager_status.get("status_code"), "ok": alertmanager_status.get("ok")},
-                {"url": alertmanager_alerts.get("url"), "status_code": alertmanager_alerts.get("status_code"), "ok": alertmanager_alerts.get("ok")},
-            ],
-            detail={"status_ok": alertmanager_status.get("ok"), "alerts_ok": alertmanager_alerts.get("ok")},
-        ),
-        self_awareness_capability_item(
-            "tempo.trace.backend",
-            "Tempo or trace backend",
-            "abyss-stack",
-            bool(nested_get(trace_backend, ["join_readiness", "trace_backend_ready"])),
-            required=False,
-            evidence_refs=trace_backend.get("evidence_refs") if isinstance(trace_backend.get("evidence_refs"), list) else [{"url": tempo_ready.get("url"), "status_code": tempo_ready.get("status_code"), "error": tempo_ready.get("error")}],
-            endpoints=[
-                {"url": nested_get(trace_backend, ["backend", "ready", "url"]), "status_code": nested_get(trace_backend, ["backend", "ready", "status_code"]), "ok": nested_get(trace_backend, ["backend", "ready", "ok"]), "error": nested_get(trace_backend, ["backend", "ready", "error"])},
-                {"url": nested_get(trace_backend, ["backend", "search", "url"]), "status_code": nested_get(trace_backend, ["backend", "search", "status_code"]), "ok": nested_get(trace_backend, ["backend", "search", "ok"]), "error": nested_get(trace_backend, ["backend", "search", "error"])},
-            ],
-            detail=trace_backend,
-        ),
-        self_awareness_capability_item(
-            "langgraph.investigator.runtime",
-            "LangGraph investigator runtime",
-            "abyss-machine",
-            bool(langgraph_python or langgraph_api.get("ok")),
-            required=False,
-            evidence_refs=[{"python_module": "langgraph", "available": langgraph_python}, {"url": langgraph_api.get("url"), "status_code": langgraph_api.get("status_code"), "error": langgraph_api.get("error")}],
-            endpoints=[{"url": langgraph_api.get("url"), "status_code": langgraph_api.get("status_code"), "ok": langgraph_api.get("ok"), "error": langgraph_api.get("error")}],
-            detail={"python_module_available": langgraph_python, "api_health_ok": langgraph_api.get("ok"), "fallback": "jsonl_checkpointed_state_graph"},
-        ),
-        self_awareness_capability_item(
-            "stack.langchain-api.health-openapi",
-            "Live langchain-api health and bounded OpenAPI inventory",
-            "abyss-stack",
-            bool(langchain_api.get("ok")),
-            required=service_seen("langchain"),
-            evidence_refs=langchain_api.get("evidence_refs") if isinstance(langchain_api.get("evidence_refs"), list) else [],
-            endpoints=[
-                {
-                    "url": nested_get(langchain_api, ["health", "url"]),
-                    "status_code": nested_get(langchain_api, ["health", "status_code"]),
-                    "ok": nested_get(langchain_api, ["health", "ok"]),
-                    "error": nested_get(langchain_api, ["health", "error"]),
-                },
-                {
-                    "url": nested_get(langchain_api, ["openapi", "url"]),
-                    "status_code": nested_get(langchain_api, ["openapi", "status_code"]),
-                    "ok": nested_get(langchain_api, ["openapi", "ok"]),
-                    "error": nested_get(langchain_api, ["openapi", "error"]),
-                },
-            ],
-            detail={
-                "base_url": langchain_api.get("base_url"),
-                "health": langchain_api.get("health"),
-                "openapi": langchain_api.get("openapi"),
-                "runtime_surface": langchain_api.get("runtime_surface"),
-                "route_classes": langchain_api.get("route_classes"),
-                "replay_inventory": langchain_api.get("replay_inventory"),
-                "trace_backend_coupling": langchain_api.get("trace_backend_coupling"),
-                "observability": langchain_api.get("observability"),
-                "redaction": langchain_api.get("redaction"),
-                "policy": langchain_api.get("policy"),
-            },
-        ),
-        self_awareness_capability_item(
-            "host.container.service-map",
-            "Host/container/repo/service endpoint map",
-            "abyss-machine",
-            bool(container_names),
-            required=True,
-            evidence_refs=[evidence(PROCESS_CONTAINER_LATEST_PATH, container_health.get("schema"))],
-            detail={"container_count": len(container_names), "stack_candidates": [name for name in container_names if re.search(r"prometheus|grafana|loki|alloy|alertmanager|route-api|rag-api|langchain|postgres|neo4j", name)]},
-        ),
-        self_awareness_capability_item(
-            "stack.active.services",
-            "Active stack services beyond LGTM core",
-            "abyss-stack",
-            bool(service_seen("route-api") and service_seen("rag-api") and service_seen("postgres") and service_seen("neo4j")),
-            required=True,
-            evidence_refs=[evidence(PROCESS_CONTAINER_LATEST_PATH, container_health.get("schema")), evidence(STACK_OBSERVABILITY_LATEST_PATH, stack.get("schema"))],
-            detail={
-                "route_api_seen": service_seen("route-api"),
-                "rag_api_seen": service_seen("rag-api"),
-                "langchain_api_seen": service_seen("langchain"),
-                "postgres_seen": service_seen("postgres"),
-                "neo4j_seen": service_seen("neo4j"),
-                "container_names": [name for name in container_names if re.search(r"route-api|rag-api|langchain|postgres|neo4j", name)],
-            },
-        ),
-        self_awareness_capability_item(
-            "stack.memory-space.live-routes",
-            "Live route-api/RAG/Postgres/Neo4j bounded route evidence",
-            "abyss-stack",
-            bool(memory_space_routes.get("ok")),
-            required=bool(service_seen("route-api") and service_seen("rag-api") and service_seen("postgres") and service_seen("neo4j")),
-            evidence_refs=memory_space_routes.get("evidence_refs") if isinstance(memory_space_routes.get("evidence_refs"), list) else [],
-            endpoints=[
-                {
-                    "url": nested_get(memory_space_routes, ["route_api", "health", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["route_api", "health", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["route_api", "health", "ok"]),
-                    "error": nested_get(memory_space_routes, ["route_api", "health", "error"]),
-                },
-                {
-                    "url": nested_get(memory_space_routes, ["route_api", "openapi", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["route_api", "openapi", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["route_api", "openapi", "ok"]),
-                    "error": nested_get(memory_space_routes, ["route_api", "openapi", "error"]),
-                },
-                {
-                    "url": nested_get(memory_space_routes, ["rag_api", "health", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["rag_api", "health", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["rag_api", "health", "ok"]),
-                    "error": nested_get(memory_space_routes, ["rag_api", "health", "error"]),
-                },
-                {
-                    "url": nested_get(memory_space_routes, ["rag_api", "openapi", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["rag_api", "openapi", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["rag_api", "openapi", "ok"]),
-                    "error": nested_get(memory_space_routes, ["rag_api", "openapi", "error"]),
-                },
-                {
-                    "url": nested_get(memory_space_routes, ["rag_api", "collections", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["rag_api", "collections", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["rag_api", "collections", "ok"]),
-                    "error": nested_get(memory_space_routes, ["rag_api", "collections", "error"]),
-                },
-                {
-                    "url": nested_get(memory_space_routes, ["rag_api", "sources", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["rag_api", "sources", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["rag_api", "sources", "ok"]),
-                    "error": nested_get(memory_space_routes, ["rag_api", "sources", "error"]),
-                },
-                {
-                    "url": nested_get(memory_space_routes, ["rag_api", "agentic_graph", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["rag_api", "agentic_graph", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["rag_api", "agentic_graph", "ok"]),
-                    "error": nested_get(memory_space_routes, ["rag_api", "agentic_graph", "error"]),
-                },
-                {
-                    "url": nested_get(memory_space_routes, ["neo4j", "root", "url"]),
-                    "status_code": nested_get(memory_space_routes, ["neo4j", "root", "status_code"]),
-                    "ok": nested_get(memory_space_routes, ["neo4j", "root", "ok"]),
-                    "error": nested_get(memory_space_routes, ["neo4j", "root", "error"]),
-                },
-            ],
-            detail={
-                "route_api": memory_space_routes.get("route_api"),
-                "rag_api": memory_space_routes.get("rag_api"),
-                "postgres": memory_space_routes.get("postgres"),
-                "neo4j": memory_space_routes.get("neo4j"),
-                "semantic_inventory": memory_space_routes.get("semantic_inventory"),
-                "redaction": memory_space_routes.get("redaction"),
-                "policy": memory_space_routes.get("policy"),
-            },
-        ),
-        self_awareness_capability_item(
-            "ai.multimodal.capability-map",
-            "AI capability map for STT, embeddings, LLM, TTS, and NPU",
-            "abyss-machine",
-            ai_multimodal_ready,
-            required=True,
-            evidence_refs=[
-                evidence(AI_CAPABILITIES_LATEST_PATH, ai_caps.get("schema")),
-                evidence(AI_DEVICES_LATEST_PATH, ai_devices_latest.get("schema")),
-                evidence(AI_MODELS_LATEST_PATH, ai_models_latest.get("schema")),
-                evidence(AI_TTS_PROFILES_LATEST_PATH, ai_tts_profiles_latest.get("schema")),
-                evidence(AI_TTS_EVAL_LATEST_SUCCESS_PATH, ai_tts_success_latest.get("schema")),
-                evidence(AI_LLM_REGISTRY_LATEST_PATH, ai_llm.get("schema")),
-            ],
-            detail=ai_multimodal_detail,
-        ),
-        self_awareness_capability_item(
-            "warm-e2b.resident-cognitive-worker",
-            "warm-E2B/gemma4.spark resident cognitive worker",
-            "abyss-machine",
-            resident_running,
-            required=True,
-            evidence_refs=[
-                evidence(AI_LLM_RESIDENT_ROOT / "status" / "latest.json", llm_resident_status.get("schema")),
-                evidence(AI_LLM_RESIDENT_ROOT / "monitor" / "latest.json", llm_resident_monitor.get("schema")),
-                evidence(AI_LLM_RESIDENT_ROOT / "digests" / "latest.json", llm_resident_digest.get("schema")),
-                evidence(AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json", llm_resident_micro.get("schema")),
-                evidence(AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH, llm_resident_candidates.get("schema")),
-                evidence(AI_LLM_RESIDENT_EVALS_LATEST_PATH, llm_resident_evals.get("schema")),
-            ],
-            detail=resident_detail,
-        ),
-        self_awareness_capability_item(
-            "llm.escalation.routes",
-            "On-demand E4B/Qwen escalation routes behind resource/mode gates",
-            "abyss-machine",
-            llm_escalation_ready,
-            required=True,
-            evidence_refs=[
-                evidence(AI_LLM_REGISTRY_LATEST_PATH, ai_llm.get("schema")),
-                evidence(AI_LLM_WORKHORSE_PREFLIGHT_LATEST_PATH, llm_workhorse_preflight.get("schema")),
-                evidence(AI_LLM_WORKHORSE_PACK_LATEST_PATH, llm_workhorse_pack.get("schema")),
-                evidence(AI_LLM_WORKHORSE_REVIEW_LATEST_PATH, llm_workhorse_review.get("schema")),
-                evidence(AI_LLM_WORKHORSE_VALIDATE_LATEST_PATH, llm_workhorse_validate.get("schema")),
-                evidence(RESOURCE_LATEST_PATH, resource_latest.get("schema")),
-                evidence(MODE_LATEST_PATH, mode_latest.get("schema")),
-            ],
-            detail=llm_escalation_detail,
-        ),
-        self_awareness_capability_item(
-            "rag.memory.trace-gate",
-            "Machine RAG trace/eval/validation gate",
-            "abyss-machine",
-            bool(rag_validation.get("ok")),
-            required=True,
-            evidence_refs=[evidence(RAG_TRACE_LATEST_PATH, f"{SCHEMA_PREFIX}_rag_trace_v1"), evidence(RAG_VALIDATE_LATEST_PATH, rag_validation.get("schema"))],
-            detail={"validate_summary": rag_validation.get("summary"), "raw_private_content": False, "truth_publication": False},
-        ),
-        self_awareness_capability_item(
-            "nervous.freshness-gate",
-            "Nervous freshness, retrieval, semantic, and privacy gate",
-            "abyss-machine",
-            bool(nervous.get("readiness")),
-            required=True,
-            evidence_refs=[evidence(NERVOUS_BRIEF_LATEST_PATH, nervous.get("schema"))],
-            detail={
-                "readiness": nervous.get("readiness"),
-                "gaps": nervous.get("gaps"),
-                "next_actions": nervous.get("next_actions"),
-                "freshness_must_precede_reasoning": True,
-            },
-        ),
-        self_awareness_capability_item(
-            "host.governance-gates",
-            "Mode/resource/memory gates before model or action escalation",
-            "abyss-machine",
-            self_awareness_governance_gate_detail_complete(governance_detail),
-            required=True,
-            evidence_refs=[
-                evidence(MEMORY_LATEST_PATH, memory_latest.get("schema")),
-                evidence(RESOURCE_LATEST_PATH, resource_latest.get("schema")),
-                evidence(MODE_LATEST_PATH, mode_latest.get("schema")),
-            ],
-            detail=governance_detail,
-        ),
-        self_awareness_capability_item(
-            "governed.response-loop",
-            "Validated episodes route to non-executing reactions/responses",
-            "abyss-machine",
-            bool(reactions_latest.get("schema") and responses_latest.get("schema")),
-            required=True,
-            evidence_refs=[evidence(REACTIONS_LATEST_PATH, reactions_latest.get("schema")), evidence(RESPONSES_LATEST_PATH, responses_latest.get("schema"))],
-            detail={
-                "reaction_candidates": nested_get(reactions_latest, ["summary", "candidates"]),
-                "approval_required": nested_get(responses_latest, ["summary", "approval_required"]),
-                "automatic_actions": nested_get(reactions_latest, ["summary", "automatic_actions"]),
-                "automatic_responses": nested_get(responses_latest, ["summary", "automatic_responses"]),
-            },
-        ),
-    ]
-
-    if not grafana_datasources.get("ok"):
-        requirements.append(self_awareness_requirement_item(
-            "stack.grafana.datasource-read",
-            "Expose read-only Grafana datasource inventory for machine correlation",
-            reason="Grafana health is readable and live Prometheus/Loki/Alertmanager datasource candidates can be inferred from stack evidence, but Grafana datasource/search/settings inventory routes are auth-denied and inferred candidates are not authoritative datasource inventory.",
-            detection={
-                "health": grafana_datasource_probe.get("health"),
-                "api_access": grafana_datasource_probe.get("api_access"),
-                "datasource_inventory": grafana_datasource_probe.get("datasource_inventory"),
-                "inferred_datasource_candidates": grafana_datasource_probe.get("inferred_datasource_candidates"),
-                "handoff": grafana_datasource_probe.get("handoff"),
-                "evidence_refs": grafana_datasource_probe.get("evidence_refs"),
-            },
-            expected_shape={
-                "endpoint": "/api/datasources or stack-owned bounded export",
-                "auth": "read-only token or stack-owned public inventory",
-                "fields": ["uid_or_id", "name", "type", "access", "is_default", "freshness_or_version"],
-                "redaction": "no secureJsonData, passwords, tokens, or URL userinfo",
-                "mutated_by": "abyss-stack",
-            },
-        ))
-    if not (alertmanager_status.get("ok") or alertmanager_alerts.get("ok")):
-        requirements.append(self_awareness_requirement_item(
-            "stack.alertmanager.api",
-            "Expose Alertmanager v2 lifecycle API to the machine read-only bridge",
-            reason="Alertmanager health/alerts endpoint was not readable; reaction candidates can still consume Prometheus ALERTS and synthetic alerts.",
-            detection={"url": SELF_AWARENESS_ALERTMANAGER_URL, "status": alertmanager_status.get("status_code"), "error": alertmanager_status.get("error"), "evidence_refs": [{"url": alertmanager_status.get("url")}]},
-            expected_shape={"endpoints": ["/api/v2/status", "/api/v2/alerts"], "mode": "read-only", "mutated_by": "abyss-stack"},
-        ))
-    if not nested_get(trace_backend, ["join_readiness", "span_log_metric_join_supported"]):
-        requirements.append(self_awareness_requirement_item(
-            "stack.trace-backend",
-            "Add Tempo or equivalent trace backend for structural trace joins",
-            reason="Prometheus/Alloy/Loki evidence is readable and W3C traceparent log querying is bounded, but no Tempo-compatible trace backend or span search route is readable for structural span/log/metric joins.",
-            detection={
-                "url": nested_get(trace_backend, ["backend", "ready", "url"]),
-                "status": nested_get(trace_backend, ["backend", "ready", "status_code"]),
-                "error": nested_get(trace_backend, ["backend", "ready", "error"]),
-                "search_url": nested_get(trace_backend, ["backend", "search", "url"]),
-                "search_status": nested_get(trace_backend, ["backend", "search", "status_code"]),
-                "search_error": nested_get(trace_backend, ["backend", "search", "error"]),
-                "pipeline_evidence": trace_backend.get("pipeline_evidence"),
-                "trace_context": trace_backend.get("trace_context"),
-                "join_readiness": trace_backend.get("join_readiness"),
-                "evidence_refs": trace_backend.get("evidence_refs"),
-            },
-            expected_shape={
-                "backend": "Tempo or compatible trace API",
-                "signals": ["traces", "logs", "metrics"],
-                "propagation": "W3C traceparent",
-                "routes": ["/ready", "/api/search or equivalent trace search/export"],
-                "redaction": "bounded spans, no raw payload attributes by default",
-                "mutated_by": "abyss-stack",
-            },
-        ))
-    if not (langgraph_python or langgraph_api.get("ok")):
-        requirements.append(self_awareness_requirement_item(
-            "machine.langgraph-runtime",
-            "Install or route a LangGraph runtime for native graph execution",
-            owner="abyss-machine",
-            reason="Investigator uses a deterministic jsonl checkpointed state graph until native LangGraph runtime is available.",
-            detection={"python_module": "langgraph", "available": langgraph_python, "api_url": langgraph_api.get("url"), "evidence_refs": [{"python_module": "langgraph"}]},
-            expected_shape={"runtime": "langgraph Python package or stack-owned LangGraph API", "checkpointer": "persistent", "mutated_by": "abyss-machine"},
-        ))
-    if service_seen("postgres") or service_seen("neo4j"):
-        requirements.append(self_awareness_requirement_item(
-            "stack.database-graph.read-route",
-            "Expose read-only Postgres/Neo4j semantic inventory for machine correlation",
-            reason="route-api/rag-api inventories, Postgres readiness, and Neo4j root metadata are readable, but abyss-machine still has no stack-owned semantic inventory for Postgres schemas/freshness or Neo4j labels/relationships/freshness.",
-            detection={
-                "postgres_seen": service_seen("postgres"),
-                "neo4j_seen": service_seen("neo4j"),
-                "route_api_seen": service_seen("route-api"),
-                "rag_api_seen": service_seen("rag-api"),
-                "route_api_health_ok": nested_get(memory_space_routes, ["route_api", "health", "ok"]),
-                "route_api_openapi_ok": nested_get(memory_space_routes, ["route_api", "openapi", "ok"]),
-                "route_api_openapi_paths": nested_get(memory_space_routes, ["route_api", "openapi", "paths"]),
-                "rag_api_health_ok": nested_get(memory_space_routes, ["rag_api", "health", "ok"]),
-                "rag_api_openapi_ok": nested_get(memory_space_routes, ["rag_api", "openapi", "ok"]),
-                "rag_api_openapi_paths": nested_get(memory_space_routes, ["rag_api", "openapi", "paths"]),
-                "rag_collection_names": nested_get(memory_space_routes, ["rag_api", "collections", "collection_names"]),
-                "rag_source_count": nested_get(memory_space_routes, ["rag_api", "sources", "source_count"]),
-                "rag_agentic_graph_node_count": nested_get(memory_space_routes, ["rag_api", "agentic_graph", "node_count"]),
-                "rag_agentic_graph_edge_count": nested_get(memory_space_routes, ["rag_api", "agentic_graph", "edge_count"]),
-                "postgres_tcp_ready": nested_get(memory_space_routes, ["postgres", "tcp_ready"]),
-                "neo4j_root_readable": nested_get(memory_space_routes, ["neo4j", "root", "ok"]),
-                "neo4j_version": nested_get(memory_space_routes, ["neo4j", "root", "neo4j_version"]),
-                "stack_owned_postgres_schema_inventory_present": nested_get(memory_space_routes, ["semantic_inventory", "stack_owned_postgres_schema_inventory_present"]),
-                "stack_owned_neo4j_graph_inventory_present": nested_get(memory_space_routes, ["semantic_inventory", "stack_owned_neo4j_graph_inventory_present"]),
-                "evidence_refs": [evidence(PROCESS_CONTAINER_LATEST_PATH, container_health.get("schema"))] + (memory_space_routes.get("evidence_refs") if isinstance(memory_space_routes.get("evidence_refs"), list) else []),
-            },
-            expected_shape={
-                "route_api": "health and bounded OpenAPI remain readable as route/federation context",
-                "rag_api": "health/OpenAPI plus bounded collections, sources, and agentic graph inventory routes remain readable",
-                "postgres": "read-only schema/freshness endpoint or exported datasource inventory",
-                "neo4j": "read-only labels/relationship/freshness endpoint or exported graph inventory",
-                "auth": "stack-owned read-only token or public bounded inventory",
-                "mutated_by": "abyss-stack",
-            },
-        ))
-    if service_seen("langchain") and not nested_get(langchain_api, ["observability", "graph_observability_complete"]):
-        requirements.append(self_awareness_requirement_item(
-            "stack.langchain-api.graph-observability",
-            "Expose LangChain/LangGraph trace and checkpoint inventory",
-            reason="langchain-api health, OpenAPI, runtime routes, federated run route, embeddings route, and OVMS-backed health metadata are readable, but the stack does not expose bounded thread/checkpoint/trace inventory or trace-backend coupling for machine replay and spatial correlation.",
-            detection={
-                "langchain_api_seen": service_seen("langchain"),
-                "langchain_api_base_url": langchain_api.get("base_url"),
-                "health_ok": nested_get(langchain_api, ["health", "ok"]),
-                "health_url": nested_get(langchain_api, ["health", "url"]),
-                "health_status_code": nested_get(langchain_api, ["health", "status_code"]),
-                "health_service": nested_get(langchain_api, ["health", "service"]),
-                "embeddings_provider": nested_get(langchain_api, ["health", "embeddings_provider"]),
-                "ovms_auth_enabled": nested_get(langchain_api, ["health", "ovms_auth_enabled"]),
-                "federated_run_enabled": nested_get(langchain_api, ["health", "federated_run_enabled"]),
-                "openapi_ok": nested_get(langchain_api, ["openapi", "ok"]),
-                "openapi_url": nested_get(langchain_api, ["openapi", "url"]),
-                "openapi_status_code": nested_get(langchain_api, ["openapi", "status_code"]),
-                "openapi_paths": nested_get(langchain_api, ["openapi", "paths"]),
-                "runtime_surface": langchain_api.get("runtime_surface"),
-                "route_classes": langchain_api.get("route_classes"),
-                "thread_inventory_present": nested_get(langchain_api, ["observability", "thread_inventory_present"]),
-                "checkpoint_inventory_present": nested_get(langchain_api, ["observability", "checkpoint_inventory_present"]),
-                "trace_inventory_present": nested_get(langchain_api, ["observability", "trace_inventory_present"]),
-                "missing_replay_inventory": nested_get(langchain_api, ["observability", "missing_replay_inventory"]),
-                "trace_backend_coupling": langchain_api.get("trace_backend_coupling"),
-                "evidence_refs": [evidence(PROCESS_CONTAINER_LATEST_PATH, container_health.get("schema"))] + (langchain_api.get("evidence_refs") if isinstance(langchain_api.get("evidence_refs"), list) else []),
-            },
-            expected_shape={
-                "endpoints": ["/health", "/openapi.json", "/run", "/run/federated", "/embeddings", "/threads", "/checkpoints", "/traces"],
-                "mode": "read-only bounded inventory",
-                "trace_backend": "Tempo or equivalent trace route linked to LangGraph traces",
-                "redaction": "no prompts, messages, tool payload bodies, or raw trace payloads",
-                "mutated_by": "abyss-stack",
-            },
-        ))
-
-    requirements_doc = self_awareness_requirements_document(requirements, generated_at)
-    required_missing = [item.get("id") for item in capabilities if item.get("required_for_full_coverage") and not item.get("ok")]
-    capability_matrix_depth = {
-        "rows": len(capabilities),
-        "with_matrix": sum(1 for item in capabilities if isinstance(item.get("matrix"), dict)),
-        "with_owner_boundary": sum(1 for item in capabilities if isinstance(item.get("owner_boundary"), dict)),
-        "with_access": sum(1 for item in capabilities if isinstance(item.get("access"), dict)),
-        "with_freshness": sum(1 for item in capabilities if isinstance(item.get("freshness"), dict)),
-        "with_history": sum(1 for item in capabilities if isinstance(item.get("history"), dict)),
-        "with_latest_artifacts": sum(1 for item in capabilities if item.get("latest_artifacts")),
-        "with_endpoints": sum(1 for item in capabilities if item.get("endpoints")),
-        "with_evidence_route": sum(1 for item in capabilities if nested_get(item, ["matrix", "evidence_route", "has_endpoint_or_artifact"]) is True),
-        "stack_owned": sum(1 for item in capabilities if item.get("owner") == "abyss-stack"),
-        "machine_owned": sum(1 for item in capabilities if item.get("owner") == "abyss-machine"),
-    }
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_capabilities_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "ok": not required_missing and requirements_doc.get("ok"),
-        "status": "ready" if not required_missing else "degraded",
-        "summary": {
-            "capabilities": len(capabilities),
-            "available": sum(1 for item in capabilities if item.get("ok")),
-            "requirements": len(requirements),
-            "required_missing": required_missing,
-            "stack_candidates": len([name for name in container_names if re.search(r"prometheus|grafana|loki|alloy|alertmanager|route-api|rag-api|langchain|postgres|neo4j", name)]),
-            "capability_matrix_depth": capability_matrix_depth,
-            "coverage_planes": {
-                "observability": True,
-                "active_stack_services": True,
-                "ai_multimodal": ai_multimodal_ready,
-                "ai_resident_worker": resident_running,
-                "llm_escalation": llm_escalation_ready,
-                "rag_memory": bool(rag_validation.get("ok")),
-                "nervous_freshness_gate": bool(nervous.get("readiness")),
-                "governance_gates": self_awareness_governance_gate_detail_complete(governance_detail),
-                "governed_response": bool(reactions_latest.get("schema") and responses_latest.get("schema")),
-            },
-        },
-        "capabilities": capabilities,
-        "requirements_latest": str(SELF_AWARENESS_REQUIREMENTS_LATEST_PATH),
-        "requirements": requirements,
-        "raw": {
-            "prometheus_targets": {"ok": prom_targets.get("ok"), "status_code": prom_targets.get("status_code"), "url": prom_targets.get("url")},
-            "prometheus_rules": {"ok": prom_rules.get("ok"), "status_code": prom_rules.get("status_code"), "url": prom_rules.get("url")},
-            "prometheus_alerts": {"ok": prom_alerts.get("ok"), "status_code": prom_alerts.get("status_code"), "url": prom_alerts.get("url")},
-            "grafana_datasources": {"ok": grafana_datasources.get("ok"), "status_code": grafana_datasources.get("status_code"), "url": grafana_datasources.get("url"), "error": grafana_datasources.get("error")},
-            "grafana_datasource_inventory": grafana_datasource_probe,
-            "tempo_ready": {"ok": tempo_ready.get("ok"), "status_code": tempo_ready.get("status_code"), "url": tempo_ready.get("url"), "error": tempo_ready.get("error")},
-            "trace_backend": trace_backend,
-            "stack_closure_external_evidence": stack_closure_external_evidence,
-            "langchain_api": langchain_api,
-            "memory_space_routes": memory_space_routes,
-            "ai_capabilities": {"ok": ai_caps.get("ok"), "schema": ai_caps.get("schema"), "capabilities": sorted(ai_cap_map.keys())},
-            "ai_multimodal": {
-                "status": ai_multimodal_detail.get("status"),
-                "ready": ai_multimodal_ready,
-                "model_entries": nested_get(ai_multimodal_detail, ["model_inventory", "entries"]),
-                "openvino_devices": nested_get(ai_multimodal_detail, ["devices", "available_devices"]),
-                "tts_executable_profiles": nested_get(ai_multimodal_detail, ["modalities", "tts", "executable_profiles"]),
-                "llm_ready_profiles": nested_get(ai_multimodal_detail, ["modalities", "llm_text", "registry_summary", "ready_profiles"]),
-            },
-            "warm_e2b": {
-                "ok": resident_detail.get("ok"),
-                "status": resident_detail.get("status"),
-                "health_latency_ms": nested_get(resident_detail, ["health", "health_latency_ms"]),
-                "candidate_count": nested_get(resident_detail, ["candidate_context", "candidates"]),
-                "eval_overall_score": nested_get(resident_detail, ["evals", "overall_score"]),
-                "serving_owner": nested_get(resident_detail, ["serving", "owner"]),
-            },
-            "llm_escalation": {
-                "status": llm_escalation_detail.get("status"),
-                "route_ready": llm_escalation_detail.get("route_ready"),
-                "review_pipeline_ready": llm_escalation_detail.get("review_pipeline_ready"),
-                "model_execution_now": nested_get(llm_escalation_detail, ["gates", "model_execution_now"]),
-                "qwen_ready": nested_get(llm_escalation_detail, ["qwen_lazy_load", "ready"]),
-                "workhorse_validate_summary": nested_get(llm_escalation_detail, ["workhorse", "validate", "summary"]),
-            },
-            "rag_validate": {"ok": rag_validation.get("ok"), "summary": rag_validation.get("summary")},
-            "nervous_brief": {"ok": nervous.get("ok"), "readiness": nervous.get("readiness")},
-            "governance_gates": {
-                "readiness": governance_detail.get("readiness"),
-                "memory_status": governance_detail.get("memory_status"),
-                "resource_status": governance_detail.get("resource_status"),
-                "mode_status": governance_detail.get("mode_status"),
-            },
-        },
-        "owner_boundary": {
-            "stack_owner": "abyss-stack",
-            "machine_role": "read_only_consumer",
-            "writes_project_roots": False,
-            "host_layer_mutates_stack": False,
-        },
-    }
-    if write_latest:
-        errors = []
-        requirement_probes = load_latest_json(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_requirement_probes_v1")
-        requirements_latest_doc = self_awareness_requirements_with_probe_readiness(requirements_doc, requirement_probes)
-        errors.extend(write_latest_and_history(requirements_latest_doc, SELF_AWARENESS_REQUIREMENTS_LATEST_PATH, SELF_AWARENESS_REQUIREMENTS_ROOT))
-        errors.extend(write_latest_and_history(data, SELF_AWARENESS_CAPABILITIES_LATEST_PATH, SELF_AWARENESS_CAPABILITIES_ROOT))
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
 
 
 def self_awareness_governance_gate_detail(

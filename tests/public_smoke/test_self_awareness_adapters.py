@@ -5540,3 +5540,359 @@ def test_cycle_artifact_steps_builds_grouped_manifest_without_live_io(tmp_path: 
     assert steps[2]["artifact"]["ok"] is False
     assert steps[2]["artifact"]["summary"] == {"status": "degraded"}
     assert calls == ["exists:latest.json", "exists:latest.json", "exists:latest.json"]
+
+
+def _capabilities_paths(tmp_path: Path) -> self_awareness_adapters.SelfAwarenessCapabilitiesPaths:
+    latest = lambda name: tmp_path / name / "latest.json"
+    return self_awareness_adapters.SelfAwarenessCapabilitiesPaths(
+        stack_observability_latest=latest("stack-observability"),
+        process_container_latest=latest("process-containers"),
+        ai_capabilities_latest=latest("ai-capabilities"),
+        ai_devices_latest=latest("ai-devices"),
+        ai_models_latest=latest("ai-models"),
+        ai_tts_profiles_latest=latest("ai-tts-profiles"),
+        ai_tts_success_latest=latest("ai-tts-success"),
+        ai_llm_registry_latest=latest("ai-llm-registry"),
+        llm_resident_status_latest=latest("resident-status"),
+        llm_resident_monitor_latest=latest("resident-monitor"),
+        llm_resident_digest_latest=latest("resident-digest"),
+        llm_resident_micro_latest=latest("resident-micro"),
+        llm_resident_evals_latest=latest("resident-evals"),
+        llm_resident_candidates_latest=latest("resident-candidates"),
+        llm_workhorse_preflight_latest=latest("workhorse-preflight"),
+        llm_workhorse_pack_latest=latest("workhorse-pack"),
+        llm_workhorse_review_latest=latest("workhorse-review"),
+        llm_workhorse_validate_latest=latest("workhorse-validate"),
+        rag_trace_latest=latest("rag-trace"),
+        rag_validate_latest=latest("rag-validate"),
+        nervous_brief_latest=latest("nervous-brief"),
+        memory_latest=latest("memory"),
+        resource_latest=latest("resource"),
+        mode_latest=latest("mode"),
+        reactions_latest=latest("reactions"),
+        responses_latest=latest("responses"),
+        requirement_probes_latest=latest("requirement-probes"),
+        requirements_latest=latest("requirements"),
+        requirements_root=tmp_path / "requirements",
+        capabilities_latest=latest("capabilities"),
+        capabilities_root=tmp_path / "capabilities",
+    )
+
+
+def _fake_capabilities_ports(
+    paths: self_awareness_adapters.SelfAwarenessCapabilitiesPaths,
+    calls: list[str],
+    *,
+    detail_complete: bool = True,
+    write_errors: dict[Path, list[dict[str, Any]]] | None = None,
+) -> tuple[
+    self_awareness_adapters.SelfAwarenessCapabilitiesInputPort,
+    self_awareness_adapters.SelfAwarenessCapabilitiesContractPort,
+    self_awareness_adapters.SelfAwarenessCapabilitiesPersistencePort,
+    list[tuple[Path, Path, dict[str, Any]]],
+]:
+    def http_json(url: str, timeout: float, max_bytes: int = 262144) -> dict[str, Any]:
+        calls.append(f"http:{url}")
+        return {"ok": True, "url": url, "status_code": 200, "json": [], "timeout": timeout, "max_bytes": max_bytes}
+
+    def load_latest(path: Path, schema: str) -> dict[str, Any]:
+        calls.append(f"latest:{path.parent.name}")
+        document: dict[str, Any] = {"schema": schema, "ok": True, "status": "ready", "summary": {}}
+        if path == paths.reactions_latest:
+            document["summary"] = {"candidates": 1, "automatic_actions": 0}
+        if path == paths.responses_latest:
+            document["summary"] = {"approval_required": 1, "automatic_responses": 0}
+        return document
+
+    stack = {
+        "schema": "abyss_machine_stack_observability_v1",
+        "ok": True,
+        "summary": {"promql_jobs_up": ["prometheus", "alloy"], "logql_entries_seen": 1},
+        "loki": {"ready": {"ok": True}, "labels": {"ok": True, "labels": ["service_name"]}},
+        "grafana": {"ok": True},
+        "alloy": {"prometheus_value": "1"},
+    }
+    containers = {
+        "schema": "abyss_machine_process_container_health_v1",
+        "ok": True,
+        "containers": [
+            {"names": [name]}
+            for name in (
+                "prometheus",
+                "grafana",
+                "loki",
+                "alloy",
+                "alertmanager",
+                "route-api",
+                "rag-api",
+                "langchain-api",
+                "postgres",
+                "neo4j",
+            )
+        ],
+    }
+    trace_backend = {
+        "ok": True,
+        "join_readiness": {"trace_backend_ready": True, "span_log_metric_join_supported": True},
+        "backend": {"ready": {"ok": True, "url": "http://tempo/ready", "status_code": 200}, "search": {"ok": True}},
+        "trace_context": {"traceparent_log_query_ok": True, "traceparent_log_entries_seen": 1},
+        "pipeline_evidence": {"metrics_log_pipeline_readable": True},
+        "evidence_refs": [],
+    }
+    langchain = {
+        "ok": True,
+        "base_url": "http://langchain",
+        "health": {"ok": True, "url": "http://langchain/health", "status_code": 200},
+        "openapi": {"ok": True, "url": "http://langchain/openapi.json", "status_code": 200, "paths": []},
+        "observability": {"graph_observability_complete": True},
+        "evidence_refs": [],
+    }
+    memory_space = {
+        "ok": True,
+        "route_api": {"health": {"ok": True}, "openapi": {"ok": True, "paths": []}},
+        "rag_api": {
+            "health": {"ok": True},
+            "openapi": {"ok": True, "paths": []},
+            "collections": {"collection_names": []},
+            "sources": {"source_count": 0},
+            "agentic_graph": {"node_count": 0, "edge_count": 0},
+        },
+        "postgres": {"tcp_ready": True},
+        "neo4j": {"root": {"ok": True, "neo4j_version": "fixture"}},
+        "semantic_inventory": {
+            "stack_owned_postgres_schema_inventory_present": True,
+            "stack_owned_neo4j_graph_inventory_present": True,
+        },
+        "evidence_refs": [],
+    }
+
+    input_port = self_awareness_adapters.SelfAwarenessCapabilitiesInputPort(
+        stack_observability=lambda **_kwargs: calls.append("input:stack") or stack,
+        container_health=lambda **_kwargs: calls.append("input:containers") or containers,
+        http_json=http_json,
+        langchain_api_probe=lambda: calls.append("input:langchain") or langchain,
+        stack_closure_external_evidence=lambda: calls.append("input:external-evidence") or {"ok": True},
+        trace_backend_probe=lambda *_args: calls.append("input:trace-backend") or trace_backend,
+        grafana_datasource_probe=lambda *_args: calls.append("input:grafana-datasources") or {"ok": True},
+        stack_memory_space_probe=lambda: calls.append("input:memory-space") or memory_space,
+        module_available=lambda name: calls.append(f"module:{name}") or True,
+        ai_capabilities=lambda: calls.append("input:ai-capabilities") or {"schema": "fixture_ai_capabilities_v1", "ok": True, "capabilities": {}},
+        ai_llm_registry=lambda **_kwargs: calls.append("input:ai-llm") or {"schema": "fixture_ai_llm_v1", "ok": True, "profiles": {}},
+        load_latest_json=load_latest,
+        rag_validate=lambda **_kwargs: calls.append("input:rag") or {"schema": "fixture_rag_v1", "ok": True, "summary": {}},
+        nervous_brief=lambda **_kwargs: calls.append("input:nervous") or {"schema": "fixture_nervous_v1", "ok": True, "readiness": "ready"},
+    )
+
+    def detail(kind: str):
+        def build(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {"schema": f"fixture_{kind}_v1", "ok": detail_complete, "status": "ready" if detail_complete else "degraded"}
+
+        return build
+
+    def capability_item(
+        capability_id: str,
+        title: str,
+        owner: str,
+        ok: bool,
+        *,
+        required: bool = False,
+        evidence_refs: list[dict[str, Any]] | None = None,
+        endpoints: list[dict[str, Any]] | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        latest_artifacts = list(evidence_refs or [])
+        endpoint_rows = list(endpoints or [])
+        return {
+            "id": capability_id,
+            "title": title,
+            "owner": owner,
+            "ok": ok,
+            "required_for_full_coverage": required,
+            "evidence_refs": latest_artifacts,
+            "endpoints": endpoint_rows,
+            "latest_artifacts": latest_artifacts,
+            "schemas": [],
+            "detail": detail or {},
+            "matrix": {"evidence_route": {"has_endpoint_or_artifact": bool(latest_artifacts or endpoint_rows)}},
+            "owner_boundary": {"owner": owner},
+            "access": {"read_only": True},
+            "freshness": {"freshness_must_precede_reasoning": True},
+            "history": {"latest_artifacts": latest_artifacts},
+        }
+
+    contract_port = self_awareness_adapters.SelfAwarenessCapabilitiesContractPort(
+        resident_worker_detail=detail("resident"),
+        resident_worker_detail_complete=lambda _document: detail_complete,
+        ai_multimodal_detail=detail("multimodal"),
+        ai_multimodal_detail_complete=lambda _document: detail_complete,
+        governance_gate_detail=detail("governance"),
+        governance_gate_detail_complete=lambda _document: detail_complete,
+        llm_escalation_detail=detail("escalation"),
+        llm_escalation_detail_complete=lambda _document: detail_complete,
+        capability_item=capability_item,
+        requirement_item=lambda requirement_id, title, **kwargs: {"id": requirement_id, "title": title, **kwargs},
+        requirements_document=lambda requirements, _generated_at: {
+            "schema": "abyss_machine_self_awareness_requirements_v1",
+            "ok": True,
+            "requirements": requirements,
+        },
+        requirements_with_probe_readiness=lambda document, _probes: document,
+    )
+    writes: list[tuple[Path, Path, dict[str, Any]]] = []
+
+    def write(document: dict[str, Any], latest: Path, root: Path) -> list[dict[str, Any]]:
+        calls.append(f"write:{latest.parent.name}")
+        writes.append((latest, root, json.loads(json.dumps(document))))
+        return list((write_errors or {}).get(latest, []))
+
+    persistence_port = self_awareness_adapters.SelfAwarenessCapabilitiesPersistencePort(
+        write_latest_and_history=write,
+    )
+    return input_port, contract_port, persistence_port, writes
+
+
+def _run_fake_capabilities(
+    tmp_path: Path,
+    calls: list[str],
+    *,
+    write_latest: bool,
+    detail_complete: bool = True,
+    write_errors: dict[Path, list[dict[str, Any]]] | None = None,
+) -> tuple[dict[str, Any], self_awareness_adapters.SelfAwarenessCapabilitiesPaths, list[tuple[Path, Path, dict[str, Any]]]]:
+    paths = _capabilities_paths(tmp_path)
+    input_port, contract_port, persistence_port, writes = _fake_capabilities_ports(
+        paths,
+        calls,
+        detail_complete=detail_complete,
+        write_errors=write_errors,
+    )
+    document = self_awareness_adapters.run_capabilities(
+        schema_prefix="abyss_machine",
+        version="0.test",
+        generated_at="2026-07-10T02:00:00-06:00",
+        paths=paths,
+        urls=self_awareness_adapters.SelfAwarenessCapabilitiesUrls(
+            prometheus="http://prometheus",
+            grafana="http://grafana",
+            loki="http://loki",
+            alertmanager="http://alertmanager",
+            tempo="http://tempo",
+            langgraph="http://langgraph",
+        ),
+        write_latest=write_latest,
+        input_port=input_port,
+        contract_port=contract_port,
+        persistence_port=persistence_port,
+    )
+    return document, paths, writes
+
+
+def test_capabilities_orchestration_builds_complete_readmodel_without_writes(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    document, _paths, writes = _run_fake_capabilities(tmp_path, calls, write_latest=False)
+
+    assert document["ok"] is True
+    assert document["status"] == "ready"
+    assert document["summary"]["capabilities"] == 18
+    assert document["summary"]["available"] == 18
+    assert document["summary"]["required_missing"] == []
+    assert document["owner_boundary"]["host_layer_mutates_stack"] is False
+    assert calls[:2] == ["input:stack", "input:containers"]
+    assert [call for call in calls if call.startswith(("input:", "module:"))] == [
+        "input:stack",
+        "input:containers",
+        "input:langchain",
+        "input:external-evidence",
+        "input:trace-backend",
+        "input:grafana-datasources",
+        "input:memory-space",
+        "module:langgraph",
+        "input:ai-capabilities",
+        "input:ai-llm",
+        "input:rag",
+        "input:nervous",
+    ]
+    assert [call.removeprefix("http:") for call in calls if call.startswith("http:")] == [
+        "http://prometheus/api/v1/targets",
+        "http://prometheus/api/v1/rules",
+        "http://prometheus/api/v1/alerts",
+        "http://grafana/api/health",
+        "http://grafana/api/datasources",
+        "http://alertmanager/api/v2/status",
+        "http://alertmanager/api/v2/alerts",
+        "http://tempo/ready",
+        "http://langgraph/health",
+    ]
+    assert calls.count("input:langchain") == 1
+    assert calls.count("input:memory-space") == 1
+    assert not any(call.startswith("write:") for call in calls)
+    assert writes == []
+
+
+def test_capabilities_orchestration_projects_degraded_detail_gates(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    document, _paths, _writes = _run_fake_capabilities(
+        tmp_path,
+        calls,
+        write_latest=False,
+        detail_complete=False,
+    )
+
+    assert document["ok"] is False
+    assert document["status"] == "degraded"
+    assert {
+        "ai.multimodal.capability-map",
+        "warm-e2b.resident-cognitive-worker",
+        "llm.escalation.routes",
+        "host.governance-gates",
+    }.issubset(set(document["summary"]["required_missing"]))
+
+
+def test_capabilities_orchestration_writes_requirements_then_capabilities_and_reports_errors(tmp_path: Path) -> None:
+    calls: list[str] = []
+    paths = _capabilities_paths(tmp_path)
+    write_error = {"path": str(paths.capabilities_latest), "error": "fixture write failure"}
+
+    document, actual_paths, writes = _run_fake_capabilities(
+        tmp_path,
+        calls,
+        write_latest=True,
+        write_errors={paths.capabilities_latest: [write_error]},
+    )
+
+    assert actual_paths == paths
+    assert [latest for latest, _root, _document in writes] == [paths.requirements_latest, paths.capabilities_latest]
+    assert calls[-2:] == ["write:requirements", "write:capabilities"]
+    assert document["ok"] is False
+    assert document["write_errors"] == [write_error]
+
+
+def test_capabilities_cli_only_binds_host_paths_urls_and_ports(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    sentinel = {"schema": "fixture_capabilities_v1", "ok": True}
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        self_awareness_adapters,
+        "run_capabilities",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+
+    assert cli.self_awareness_capabilities(write_latest=False) is sentinel
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["write_latest"] is False
+    assert call["paths"].capabilities_latest == cli.SELF_AWARENESS_CAPABILITIES_LATEST_PATH
+    assert call["paths"].requirements_latest == cli.SELF_AWARENESS_REQUIREMENTS_LATEST_PATH
+    assert call["urls"].prometheus == cli.STACK_OBSERVABILITY_PROMETHEUS_URL
+    assert call["urls"].langgraph == cli.SELF_AWARENESS_LANGGRAPH_URL
+    assert isinstance(call["input_port"], self_awareness_adapters.SelfAwarenessCapabilitiesInputPort)
+    assert isinstance(call["contract_port"], self_awareness_adapters.SelfAwarenessCapabilitiesContractPort)
+    assert isinstance(call["persistence_port"], self_awareness_adapters.SelfAwarenessCapabilitiesPersistencePort)
+    assert call["input_port"].stack_observability is cli.stack_bridge_observability
+    assert call["input_port"].container_health is cli.process_container_health
+    assert call["input_port"].load_latest_json is cli.load_latest_json
+    assert call["contract_port"].capability_item is cli.self_awareness_capability_item
+    assert call["persistence_port"].write_latest_and_history is cli.write_latest_and_history
