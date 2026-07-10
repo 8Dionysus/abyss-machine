@@ -53,6 +53,11 @@ TtsSmokeProbesPort = Callable[[bool], list[dict[str, Any]]]
 BackupPlaneActiveChangePort = Callable[[Mapping[str, Any]], bool]
 BackupPlaneBlockersPort = Callable[[Mapping[str, Any]], list[str]]
 ActivationGapRouteBuilderPort = Callable[..., dict[str, Any]]
+SystemdUnitStatePort = Callable[[str, bool], dict[str, Any]]
+SystemdUnitPropertiesPort = Callable[[str, list[str], bool, float], dict[str, Any]]
+ObservationEventBuilderPort = Callable[..., dict[str, Any]]
+HostNamePort = Callable[[], str]
+SystemdServiceCategoryPort = Callable[[str, str], str]
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,462 @@ class WorkingStackTcpProbeSpec:
     host: str
     port: int
     timeout: float = 1.2
+
+
+SYSTEMD_ENABLED_STATES = {
+    "enabled",
+    "enabled-runtime",
+    "static",
+    "generated",
+    "linked",
+    "linked-runtime",
+}
+
+
+def scheduler_discovered_timer_specs(
+    existing: set[tuple[str, str]],
+    *,
+    run_command: RunCommandPort,
+) -> list[dict[str, Any]]:
+    discovered: list[dict[str, Any]] = []
+    timer_re = re.compile(r"\b(?:abyss|aoa)[A-Za-z0-9_.@-]+\.timer\b")
+    for scope in ("user", "system"):
+        command = ["systemctl"]
+        if scope == "user":
+            command.append("--user")
+        command.extend(["list-timers", "abyss-*", "aoa-*", "--all", "--no-pager"])
+        result = run_command(command, 2.5)
+        for unit in sorted(set(timer_re.findall(str(result.get("stdout") or "")))):
+            key = (scope, unit)
+            if key in existing:
+                continue
+            existing.add(key)
+            discovered.append(
+                {
+                    "scope": scope,
+                    "unit": unit,
+                    "category": "discovered",
+                    "required": False,
+                    "discovered": True,
+                    "discovery_ok": bool(result.get("ok")),
+                }
+            )
+    return discovered
+
+
+def scheduler_timer_specs(
+    static_specs: Iterable[Mapping[str, Any]],
+    *,
+    run_command: RunCommandPort,
+) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str]] = set()
+    specs: list[dict[str, Any]] = []
+    for raw_spec in static_specs:
+        spec = dict(raw_spec)
+        unit = str(spec.get("unit") or "")
+        scope = str(spec.get("scope") or "user")
+        if not unit or (scope, unit) in seen:
+            continue
+        seen.add((scope, unit))
+        specs.append(spec)
+    specs.extend(scheduler_discovered_timer_specs(seen, run_command=run_command))
+    return specs
+
+
+def scheduler_timer_state(
+    spec: Mapping[str, Any],
+    *,
+    schema_prefix: str,
+    unit_state: SystemdUnitStatePort,
+    unit_properties: SystemdUnitPropertiesPort,
+) -> dict[str, Any]:
+    unit = str(spec.get("unit") or "")
+    scope = str(spec.get("scope") or "user")
+    category = str(spec.get("category") or "uncategorized")
+    is_user = scope == "user"
+    state_summary = unit_state(unit, is_user)
+    properties_result = unit_properties(
+        unit,
+        [
+            "LoadState",
+            "ActiveState",
+            "SubState",
+            "UnitFileState",
+            "FragmentPath",
+            "Triggers",
+            "Unit",
+            "LastTriggerUSec",
+            "NextElapseUSecMonotonic",
+            "Result",
+            "NeedDaemonReload",
+        ],
+        is_user,
+        2.0,
+    )
+    properties = properties_result.get("properties") if isinstance(properties_result.get("properties"), dict) else {}
+    active = str(properties.get("ActiveState") or state_summary.get("active") or "unknown")
+    enabled = str(properties.get("UnitFileState") or state_summary.get("enabled") or "unknown")
+    fragment_path = str(properties.get("FragmentPath") or "")
+    state = {
+        "schema": f"{schema_prefix}_systemd_timer_state_v1",
+        "unit": unit,
+        "scope": scope,
+        "category": category,
+        "required": bool(spec.get("required")),
+        "discovered": bool(spec.get("discovered")),
+        "active": active,
+        "enabled": enabled,
+        "is_active": active == "active" or bool(state_summary.get("is_active")),
+        "is_enabled": enabled in SYSTEMD_ENABLED_STATES or bool(state_summary.get("is_enabled")),
+        "load_state": properties.get("LoadState"),
+        "sub_state": properties.get("SubState"),
+        "result": properties.get("Result"),
+        "timer_activates": str(properties.get("Triggers") or properties.get("Unit") or spec.get("activates") or ""),
+        "last_trigger": properties.get("LastTriggerUSec"),
+        "next_elapse_monotonic": properties.get("NextElapseUSecMonotonic"),
+        "fragment_path": fragment_path or None,
+        "need_daemon_reload": properties.get("NeedDaemonReload"),
+        "properties_ok": bool(properties_result.get("ok")),
+    }
+    state["ok"] = bool(state["is_active"] and state["is_enabled"]) or not bool(state["required"])
+    return state
+
+
+def scheduler_timer_events(
+    generated_at: str,
+    *,
+    schema_prefix: str,
+    static_specs: Iterable[Mapping[str, Any]],
+    run_command: RunCommandPort,
+    unit_state: SystemdUnitStatePort,
+    unit_properties: SystemdUnitPropertiesPort,
+    make_event: ObservationEventBuilderPort,
+    host_name: HostNamePort,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    host = host_name()
+    for spec in scheduler_timer_specs(static_specs, run_command=run_command):
+        state = scheduler_timer_state(
+            spec,
+            schema_prefix=schema_prefix,
+            unit_state=unit_state,
+            unit_properties=unit_properties,
+        )
+        unit = str(state.get("unit") or "")
+        scope = str(state.get("scope") or "user")
+        category = str(state.get("category") or "uncategorized")
+        if not unit:
+            continue
+        source_query = "systemctl " + ("--user " if scope == "user" else "")
+        source_query += f"show {unit} -p ActiveState -p UnitFileState -p Triggers -p LastTriggerUSec"
+        severity = "info" if state.get("is_active") and state.get("is_enabled") else ("warning" if state.get("required") else "notice")
+        path = str(state.get("fragment_path") or "")
+        evidence_ref: dict[str, Any] = {
+            "schema": state.get("schema"),
+            "unit": unit,
+            "scope": scope,
+            "category": category,
+            "command": source_query,
+        }
+        if path.startswith("/"):
+            evidence_ref["path"] = path
+        events.append(
+            make_event(
+                "service",
+                "scheduler",
+                event_time=generated_at,
+                source_query=source_query,
+                resource={
+                    "service": unit,
+                    "owner_surface": "abyss-machine",
+                    "timer_unit": unit,
+                    "timer_scope": scope,
+                    "timer_category": category,
+                    "timer_active": bool(state.get("is_active")),
+                    "timer_enabled": bool(state.get("is_enabled")),
+                    "timer_required": bool(state.get("required")),
+                    "timer_discovered": bool(state.get("discovered")),
+                    "timer_activates": state.get("timer_activates"),
+                    "route": f"scheduler/{category}",
+                    "path": path or None,
+                    "write": False,
+                },
+                context={
+                    "scheduler_unit": unit,
+                    "scheduler_scope": scope,
+                    "scheduler_category": category,
+                },
+                space={
+                    "host": host,
+                    "owner_surface": "abyss-machine",
+                    "layer": "host-scheduler",
+                    "route": f"scheduler/{category}",
+                    "path": path or None,
+                    "service": unit,
+                },
+                severity=severity,
+                confidence={
+                    "score": 0.82 if state.get("properties_ok") else 0.62,
+                    "reason": "Bounded systemd timer state read through systemctl show/is-active/is-enabled",
+                },
+                body={
+                    "unit": unit,
+                    "scope": scope,
+                    "category": category,
+                    "active": state.get("active"),
+                    "enabled": state.get("enabled"),
+                    "is_active": state.get("is_active"),
+                    "is_enabled": state.get("is_enabled"),
+                    "timer_activates": state.get("timer_activates"),
+                    "last_trigger": state.get("last_trigger"),
+                    "next_elapse_monotonic": state.get("next_elapse_monotonic"),
+                    "result": state.get("result"),
+                    "required": state.get("required"),
+                    "discovered": state.get("discovered"),
+                },
+                evidence_refs=[evidence_ref],
+                truth_level="host_scheduler_state",
+            )
+        )
+    return events
+
+
+def host_service_category(unit: str, fallback: str = "discovered") -> str:
+    lower = unit.lower()
+    if "dictation" in lower:
+        return "dictation"
+    if "typing" in lower:
+        return "typing"
+    if "session-memory" in lower or "indexing-probe" in lower or "indexing-" in lower:
+        return "session_memory"
+    if "ydotool" in lower:
+        return "input_actuation"
+    if "nervous" in lower:
+        return "nervous"
+    if "observability" in lower:
+        return "observability"
+    return fallback
+
+
+def host_service_discovered_specs(
+    existing: set[tuple[str, str]],
+    *,
+    run_command: RunCommandPort,
+    service_category: SystemdServiceCategoryPort = host_service_category,
+) -> list[dict[str, Any]]:
+    discovered: list[dict[str, Any]] = []
+    service_re = re.compile(r"\b(?:(?:abyss|aoa)[A-Za-z0-9_.@-]+\.service|ydotoold\.service)\b")
+    for scope in ("user", "system"):
+        command = ["systemctl"]
+        if scope == "user":
+            command.append("--user")
+        command.extend(["list-units", "--type=service", "--state=running", "--no-legend", "--no-pager"])
+        result = run_command(command, 2.5)
+        for unit in sorted(set(service_re.findall(str(result.get("stdout") or "")))):
+            key = (scope, unit)
+            if key in existing:
+                continue
+            existing.add(key)
+            discovered.append(
+                {
+                    "scope": scope,
+                    "unit": unit,
+                    "category": service_category(unit, "discovered"),
+                    "required": False,
+                    "discovered": True,
+                    "discovery_ok": bool(result.get("ok")),
+                }
+            )
+    return discovered
+
+
+def host_service_specs(
+    static_specs: Iterable[Mapping[str, Any]],
+    *,
+    run_command: RunCommandPort,
+    service_category: SystemdServiceCategoryPort = host_service_category,
+) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str]] = set()
+    specs: list[dict[str, Any]] = []
+    for raw_spec in static_specs:
+        spec = dict(raw_spec)
+        unit = str(spec.get("unit") or "")
+        scope = str(spec.get("scope") or "user")
+        if not unit or (scope, unit) in seen:
+            continue
+        seen.add((scope, unit))
+        specs.append(spec)
+    specs.extend(
+        host_service_discovered_specs(
+            seen,
+            run_command=run_command,
+            service_category=service_category,
+        )
+    )
+    return specs
+
+
+def host_service_state(
+    spec: Mapping[str, Any],
+    *,
+    schema_prefix: str,
+    unit_state: SystemdUnitStatePort,
+    unit_properties: SystemdUnitPropertiesPort,
+    service_category: SystemdServiceCategoryPort = host_service_category,
+) -> dict[str, Any]:
+    unit = str(spec.get("unit") or "")
+    scope = str(spec.get("scope") or "user")
+    category = service_category(unit, str(spec.get("category") or "discovered"))
+    is_user = scope == "user"
+    state_summary = unit_state(unit, is_user)
+    properties_result = unit_properties(
+        unit,
+        [
+            "LoadState",
+            "ActiveState",
+            "SubState",
+            "UnitFileState",
+            "FragmentPath",
+            "Description",
+            "MainPID",
+            "ExecMainStatus",
+            "Result",
+            "NeedDaemonReload",
+        ],
+        is_user,
+        2.0,
+    )
+    properties = properties_result.get("properties") if isinstance(properties_result.get("properties"), dict) else {}
+    active = str(properties.get("ActiveState") or state_summary.get("active") or "unknown")
+    enabled = str(properties.get("UnitFileState") or state_summary.get("enabled") or "unknown")
+    fragment_path = str(properties.get("FragmentPath") or "")
+    state = {
+        "schema": f"{schema_prefix}_systemd_service_state_v1",
+        "unit": unit,
+        "scope": scope,
+        "category": category,
+        "required": bool(spec.get("required")),
+        "discovered": bool(spec.get("discovered")),
+        "active": active,
+        "enabled": enabled,
+        "is_active": active == "active" or bool(state_summary.get("is_active")),
+        "is_enabled": enabled in SYSTEMD_ENABLED_STATES or bool(state_summary.get("is_enabled")),
+        "load_state": properties.get("LoadState"),
+        "sub_state": properties.get("SubState"),
+        "result": properties.get("Result"),
+        "description": properties.get("Description"),
+        "main_pid": _safe_int(properties.get("MainPID"), 0),
+        "exec_main_status": properties.get("ExecMainStatus"),
+        "fragment_path": fragment_path or None,
+        "need_daemon_reload": properties.get("NeedDaemonReload"),
+        "properties_ok": bool(properties_result.get("ok")),
+    }
+    state["ok"] = bool(state["is_active"]) or not bool(state["required"])
+    return state
+
+
+def host_service_events(
+    generated_at: str,
+    *,
+    schema_prefix: str,
+    static_specs: Iterable[Mapping[str, Any]],
+    run_command: RunCommandPort,
+    unit_state: SystemdUnitStatePort,
+    unit_properties: SystemdUnitPropertiesPort,
+    make_event: ObservationEventBuilderPort,
+    host_name: HostNamePort,
+    service_category: SystemdServiceCategoryPort = host_service_category,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    host = host_name()
+    for spec in host_service_specs(
+        static_specs,
+        run_command=run_command,
+        service_category=service_category,
+    ):
+        state = host_service_state(
+            spec,
+            schema_prefix=schema_prefix,
+            unit_state=unit_state,
+            unit_properties=unit_properties,
+            service_category=service_category,
+        )
+        unit = str(state.get("unit") or "")
+        scope = str(state.get("scope") or "user")
+        category = str(state.get("category") or "discovered")
+        if not unit or not state.get("is_active"):
+            continue
+        source_query = "systemctl " + ("--user " if scope == "user" else "")
+        source_query += f"show {unit} -p ActiveState -p SubState -p MainPID -p FragmentPath -p Description"
+        path = str(state.get("fragment_path") or "")
+        evidence_ref: dict[str, Any] = {
+            "schema": state.get("schema"),
+            "unit": unit,
+            "scope": scope,
+            "category": category,
+            "command": source_query,
+        }
+        if path.startswith("/"):
+            evidence_ref["path"] = path
+        events.append(
+            make_event(
+                "service",
+                "host-service",
+                event_time=generated_at,
+                source_query=source_query,
+                resource={
+                    "service": unit,
+                    "owner_surface": "abyss-machine",
+                    "host_service_unit": unit,
+                    "host_service_scope": scope,
+                    "host_service_category": category,
+                    "host_service_active": bool(state.get("is_active")),
+                    "host_service_enabled": bool(state.get("is_enabled")),
+                    "host_service_required": bool(state.get("required")),
+                    "host_service_discovered": bool(state.get("discovered")),
+                    "main_pid": state.get("main_pid"),
+                    "route": f"host-service/{category}",
+                    "path": path or None,
+                    "write": False,
+                },
+                context={
+                    "host_service_unit": unit,
+                    "host_service_scope": scope,
+                    "host_service_category": category,
+                },
+                space={
+                    "host": host,
+                    "owner_surface": "abyss-machine",
+                    "layer": "host-service",
+                    "route": f"host-service/{category}",
+                    "path": path or None,
+                    "service": unit,
+                    "pid": state.get("main_pid"),
+                },
+                severity="info",
+                confidence={
+                    "score": 0.82 if state.get("properties_ok") else 0.62,
+                    "reason": "Bounded systemd service state read through list-units and systemctl show",
+                },
+                body={
+                    "unit": unit,
+                    "scope": scope,
+                    "category": category,
+                    "active": state.get("active"),
+                    "enabled": state.get("enabled"),
+                    "is_active": state.get("is_active"),
+                    "is_enabled": state.get("is_enabled"),
+                    "description": state.get("description"),
+                    "main_pid": state.get("main_pid"),
+                    "result": state.get("result"),
+                    "required": state.get("required"),
+                    "discovered": state.get("discovered"),
+                },
+                evidence_refs=[evidence_ref],
+                truth_level="host_service_state",
+            )
+        )
+    return events
 
 
 READMODEL_SCHEMA_SUFFIXES: tuple[tuple[str, str], ...] = (

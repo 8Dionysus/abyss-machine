@@ -37165,197 +37165,53 @@ def self_awareness_scheduler_static_timer_specs() -> list[dict[str, Any]]:
 
 
 def self_awareness_scheduler_discovered_timer_specs(existing: set[tuple[str, str]]) -> list[dict[str, Any]]:
-    discovered: list[dict[str, Any]] = []
-    timer_re = re.compile(r"\b(?:abyss|aoa)[A-Za-z0-9_.@-]+\.timer\b")
-    for scope in ("user", "system"):
-        cmd = ["systemctl"]
-        if scope == "user":
-            cmd.append("--user")
-        cmd.extend(["list-timers", "abyss-*", "aoa-*", "--all", "--no-pager"])
-        out = run(cmd, timeout=2.5)
-        for unit in sorted(set(timer_re.findall(str(out.get("stdout") or "")))):
-            key = (scope, unit)
-            if key in existing:
-                continue
-            existing.add(key)
-            discovered.append({
-                "scope": scope,
-                "unit": unit,
-                "category": "discovered",
-                "required": False,
-                "discovered": True,
-                "discovery_ok": bool(out.get("ok")),
-            })
-    return discovered
+    return self_awareness_adapters.scheduler_discovered_timer_specs(
+        existing,
+        run_command=lambda command, timeout: run(command, timeout=timeout),
+    )
 
 
 def self_awareness_scheduler_timer_specs() -> list[dict[str, Any]]:
-    seen: set[tuple[str, str]] = set()
-    result: list[dict[str, Any]] = []
-    for spec in self_awareness_scheduler_static_timer_specs():
-        unit = str(spec.get("unit") or "")
-        scope = str(spec.get("scope") or "user")
-        if not unit:
-            continue
-        key = (scope, unit)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(spec))
-    result.extend(self_awareness_scheduler_discovered_timer_specs(seen))
-    return result
+    return self_awareness_adapters.scheduler_timer_specs(
+        self_awareness_scheduler_static_timer_specs(),
+        run_command=lambda command, timeout: run(command, timeout=timeout),
+    )
 
 
 def self_awareness_scheduler_timer_state(spec: dict[str, Any]) -> dict[str, Any]:
-    unit = str(spec.get("unit") or "")
-    scope = str(spec.get("scope") or "user")
-    category = str(spec.get("category") or "uncategorized")
-    is_user = scope == "user"
-    unit_state = user_systemd_unit(unit) if is_user else systemd_unit(unit)
-    props = systemd_unit_properties(
-        unit,
-        [
-            "LoadState",
-            "ActiveState",
-            "SubState",
-            "UnitFileState",
-            "FragmentPath",
-            "Triggers",
-            "Unit",
-            "LastTriggerUSec",
-            "NextElapseUSecMonotonic",
-            "Result",
-            "NeedDaemonReload",
-        ],
-        user=is_user,
-        timeout=2.0,
+    return self_awareness_adapters.scheduler_timer_state(
+        spec,
+        schema_prefix=SCHEMA_PREFIX,
+        unit_state=lambda unit, is_user: user_systemd_unit(unit) if is_user else systemd_unit(unit),
+        unit_properties=lambda unit, properties, is_user, timeout: systemd_unit_properties(
+            unit,
+            properties,
+            user=is_user,
+            timeout=timeout,
+        ),
     )
-    values = props.get("properties") if isinstance(props.get("properties"), dict) else {}
-    active = str(values.get("ActiveState") or unit_state.get("active") or "unknown")
-    enabled = str(values.get("UnitFileState") or unit_state.get("enabled") or "unknown")
-    enabled_ok = enabled in {"enabled", "enabled-runtime", "static", "generated", "linked", "linked-runtime"}
-    timer_activates = str(values.get("Triggers") or values.get("Unit") or spec.get("activates") or "")
-    fragment_path = str(values.get("FragmentPath") or "")
-    state = {
-        "schema": f"{SCHEMA_PREFIX}_systemd_timer_state_v1",
-        "unit": unit,
-        "scope": scope,
-        "category": category,
-        "required": bool(spec.get("required")),
-        "discovered": bool(spec.get("discovered")),
-        "active": active,
-        "enabled": enabled,
-        "is_active": active == "active" or bool(unit_state.get("is_active")),
-        "is_enabled": enabled_ok or bool(unit_state.get("is_enabled")),
-        "load_state": values.get("LoadState"),
-        "sub_state": values.get("SubState"),
-        "result": values.get("Result"),
-        "timer_activates": timer_activates,
-        "last_trigger": values.get("LastTriggerUSec"),
-        "next_elapse_monotonic": values.get("NextElapseUSecMonotonic"),
-        "fragment_path": fragment_path or None,
-        "need_daemon_reload": values.get("NeedDaemonReload"),
-        "properties_ok": bool(props.get("ok")),
-    }
-    state["ok"] = bool(state["is_active"] and state["is_enabled"]) or not bool(state["required"])
-    return state
 
 
 def self_awareness_scheduler_timer_events(generated_at: str) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for spec in self_awareness_scheduler_timer_specs():
-        state = self_awareness_scheduler_timer_state(spec)
-        unit = str(state.get("unit") or "")
-        scope = str(state.get("scope") or "user")
-        category = str(state.get("category") or "uncategorized")
-        if not unit:
-            continue
-        source_query = "systemctl "
-        if scope == "user":
-            source_query += "--user "
-        source_query += f"show {unit} -p ActiveState -p UnitFileState -p Triggers -p LastTriggerUSec"
-        severity = "info" if state.get("is_active") and state.get("is_enabled") else ("warning" if state.get("required") else "notice")
-        path = str(state.get("fragment_path") or "")
-        evidence_ref: dict[str, Any] = {
-            "schema": state.get("schema"),
-            "unit": unit,
-            "scope": scope,
-            "category": category,
-            "command": source_query,
-        }
-        if path.startswith("/"):
-            evidence_ref["path"] = path
-        events.append(self_awareness_make_event(
-            "service",
-            "scheduler",
-            event_time=generated_at,
-            source_query=source_query,
-            resource={
-                "service": unit,
-                "owner_surface": "abyss-machine",
-                "timer_unit": unit,
-                "timer_scope": scope,
-                "timer_category": category,
-                "timer_active": bool(state.get("is_active")),
-                "timer_enabled": bool(state.get("is_enabled")),
-                "timer_required": bool(state.get("required")),
-                "timer_discovered": bool(state.get("discovered")),
-                "timer_activates": state.get("timer_activates"),
-                "route": f"scheduler/{category}",
-                "path": path or None,
-                "write": False,
-            },
-            context={
-                "scheduler_unit": unit,
-                "scheduler_scope": scope,
-                "scheduler_category": category,
-            },
-            space={
-                "host": platform.node(),
-                "owner_surface": "abyss-machine",
-                "layer": "host-scheduler",
-                "route": f"scheduler/{category}",
-                "path": path or None,
-                "service": unit,
-            },
-            severity=severity,
-            confidence={"score": 0.82 if state.get("properties_ok") else 0.62, "reason": "Bounded systemd timer state read through systemctl show/is-active/is-enabled"},
-            body={
-                "unit": unit,
-                "scope": scope,
-                "category": category,
-                "active": state.get("active"),
-                "enabled": state.get("enabled"),
-                "is_active": state.get("is_active"),
-                "is_enabled": state.get("is_enabled"),
-                "timer_activates": state.get("timer_activates"),
-                "last_trigger": state.get("last_trigger"),
-                "next_elapse_monotonic": state.get("next_elapse_monotonic"),
-                "result": state.get("result"),
-                "required": state.get("required"),
-                "discovered": state.get("discovered"),
-            },
-            evidence_refs=[evidence_ref],
-            truth_level="host_scheduler_state",
-        ))
-    return events
+    return self_awareness_adapters.scheduler_timer_events(
+        generated_at,
+        schema_prefix=SCHEMA_PREFIX,
+        static_specs=self_awareness_scheduler_static_timer_specs(),
+        run_command=lambda command, timeout: run(command, timeout=timeout),
+        unit_state=lambda unit, is_user: user_systemd_unit(unit) if is_user else systemd_unit(unit),
+        unit_properties=lambda unit, properties, is_user, timeout: systemd_unit_properties(
+            unit,
+            properties,
+            user=is_user,
+            timeout=timeout,
+        ),
+        make_event=self_awareness_make_event,
+        host_name=platform.node,
+    )
 
 
 def self_awareness_host_service_category(unit: str, fallback: str = "discovered") -> str:
-    lower = unit.lower()
-    if "dictation" in lower:
-        return "dictation"
-    if "typing" in lower:
-        return "typing"
-    if "session-memory" in lower or "indexing-probe" in lower or "indexing-" in lower:
-        return "session_memory"
-    if "ydotool" in lower:
-        return "input_actuation"
-    if "nervous" in lower:
-        return "nervous"
-    if "observability" in lower:
-        return "observability"
-    return fallback
+    return self_awareness_adapters.host_service_category(unit, fallback)
 
 
 def self_awareness_host_service_static_specs() -> list[dict[str, Any]]:
@@ -37369,176 +37225,53 @@ def self_awareness_host_service_static_specs() -> list[dict[str, Any]]:
 
 
 def self_awareness_host_service_discovered_specs(existing: set[tuple[str, str]]) -> list[dict[str, Any]]:
-    discovered: list[dict[str, Any]] = []
-    service_re = re.compile(r"\b(?:(?:abyss|aoa)[A-Za-z0-9_.@-]+\.service|ydotoold\.service)\b")
-    for scope in ("user", "system"):
-        cmd = ["systemctl"]
-        if scope == "user":
-            cmd.append("--user")
-        cmd.extend(["list-units", "--type=service", "--state=running", "--no-legend", "--no-pager"])
-        out = run(cmd, timeout=2.5)
-        for unit in sorted(set(service_re.findall(str(out.get("stdout") or "")))):
-            key = (scope, unit)
-            if key in existing:
-                continue
-            existing.add(key)
-            discovered.append({
-                "scope": scope,
-                "unit": unit,
-                "category": self_awareness_host_service_category(unit),
-                "required": False,
-                "discovered": True,
-                "discovery_ok": bool(out.get("ok")),
-            })
-    return discovered
+    return self_awareness_adapters.host_service_discovered_specs(
+        existing,
+        run_command=lambda command, timeout: run(command, timeout=timeout),
+        service_category=self_awareness_host_service_category,
+    )
 
 
 def self_awareness_host_service_specs() -> list[dict[str, Any]]:
-    seen: set[tuple[str, str]] = set()
-    result: list[dict[str, Any]] = []
-    for spec in self_awareness_host_service_static_specs():
-        unit = str(spec.get("unit") or "")
-        scope = str(spec.get("scope") or "user")
-        if not unit:
-            continue
-        key = (scope, unit)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(spec))
-    result.extend(self_awareness_host_service_discovered_specs(seen))
-    return result
+    return self_awareness_adapters.host_service_specs(
+        self_awareness_host_service_static_specs(),
+        run_command=lambda command, timeout: run(command, timeout=timeout),
+        service_category=self_awareness_host_service_category,
+    )
 
 
 def self_awareness_host_service_state(spec: dict[str, Any]) -> dict[str, Any]:
-    unit = str(spec.get("unit") or "")
-    scope = str(spec.get("scope") or "user")
-    category = self_awareness_host_service_category(unit, str(spec.get("category") or "discovered"))
-    is_user = scope == "user"
-    unit_state = user_systemd_unit(unit) if is_user else systemd_unit(unit)
-    props = systemd_unit_properties(
-        unit,
-        [
-            "LoadState",
-            "ActiveState",
-            "SubState",
-            "UnitFileState",
-            "FragmentPath",
-            "Description",
-            "MainPID",
-            "ExecMainStatus",
-            "Result",
-            "NeedDaemonReload",
-        ],
-        user=is_user,
-        timeout=2.0,
+    return self_awareness_adapters.host_service_state(
+        spec,
+        schema_prefix=SCHEMA_PREFIX,
+        unit_state=lambda unit, is_user: user_systemd_unit(unit) if is_user else systemd_unit(unit),
+        unit_properties=lambda unit, properties, is_user, timeout: systemd_unit_properties(
+            unit,
+            properties,
+            user=is_user,
+            timeout=timeout,
+        ),
+        service_category=self_awareness_host_service_category,
     )
-    values = props.get("properties") if isinstance(props.get("properties"), dict) else {}
-    active = str(values.get("ActiveState") or unit_state.get("active") or "unknown")
-    enabled = str(values.get("UnitFileState") or unit_state.get("enabled") or "unknown")
-    fragment_path = str(values.get("FragmentPath") or "")
-    state = {
-        "schema": f"{SCHEMA_PREFIX}_systemd_service_state_v1",
-        "unit": unit,
-        "scope": scope,
-        "category": category,
-        "required": bool(spec.get("required")),
-        "discovered": bool(spec.get("discovered")),
-        "active": active,
-        "enabled": enabled,
-        "is_active": active == "active" or bool(unit_state.get("is_active")),
-        "is_enabled": enabled in {"enabled", "enabled-runtime", "static", "generated", "linked", "linked-runtime"} or bool(unit_state.get("is_enabled")),
-        "load_state": values.get("LoadState"),
-        "sub_state": values.get("SubState"),
-        "result": values.get("Result"),
-        "description": values.get("Description"),
-        "main_pid": safe_int(values.get("MainPID"), 0),
-        "exec_main_status": values.get("ExecMainStatus"),
-        "fragment_path": fragment_path or None,
-        "need_daemon_reload": values.get("NeedDaemonReload"),
-        "properties_ok": bool(props.get("ok")),
-    }
-    state["ok"] = bool(state["is_active"]) or not bool(state["required"])
-    return state
 
 
 def self_awareness_host_service_events(generated_at: str) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for spec in self_awareness_host_service_specs():
-        state = self_awareness_host_service_state(spec)
-        unit = str(state.get("unit") or "")
-        scope = str(state.get("scope") or "user")
-        category = str(state.get("category") or "discovered")
-        if not unit or not state.get("is_active"):
-            continue
-        source_query = "systemctl "
-        if scope == "user":
-            source_query += "--user "
-        source_query += f"show {unit} -p ActiveState -p SubState -p MainPID -p FragmentPath -p Description"
-        path = str(state.get("fragment_path") or "")
-        evidence_ref: dict[str, Any] = {
-            "schema": state.get("schema"),
-            "unit": unit,
-            "scope": scope,
-            "category": category,
-            "command": source_query,
-        }
-        if path.startswith("/"):
-            evidence_ref["path"] = path
-        events.append(self_awareness_make_event(
-            "service",
-            "host-service",
-            event_time=generated_at,
-            source_query=source_query,
-            resource={
-                "service": unit,
-                "owner_surface": "abyss-machine",
-                "host_service_unit": unit,
-                "host_service_scope": scope,
-                "host_service_category": category,
-                "host_service_active": bool(state.get("is_active")),
-                "host_service_enabled": bool(state.get("is_enabled")),
-                "host_service_required": bool(state.get("required")),
-                "host_service_discovered": bool(state.get("discovered")),
-                "main_pid": state.get("main_pid"),
-                "route": f"host-service/{category}",
-                "path": path or None,
-                "write": False,
-            },
-            context={
-                "host_service_unit": unit,
-                "host_service_scope": scope,
-                "host_service_category": category,
-            },
-            space={
-                "host": platform.node(),
-                "owner_surface": "abyss-machine",
-                "layer": "host-service",
-                "route": f"host-service/{category}",
-                "path": path or None,
-                "service": unit,
-                "pid": state.get("main_pid"),
-            },
-            severity="info",
-            confidence={"score": 0.82 if state.get("properties_ok") else 0.62, "reason": "Bounded systemd service state read through list-units and systemctl show"},
-            body={
-                "unit": unit,
-                "scope": scope,
-                "category": category,
-                "active": state.get("active"),
-                "enabled": state.get("enabled"),
-                "is_active": state.get("is_active"),
-                "is_enabled": state.get("is_enabled"),
-                "description": state.get("description"),
-                "main_pid": state.get("main_pid"),
-                "result": state.get("result"),
-                "required": state.get("required"),
-                "discovered": state.get("discovered"),
-            },
-            evidence_refs=[evidence_ref],
-            truth_level="host_service_state",
-        ))
-    return events
+    return self_awareness_adapters.host_service_events(
+        generated_at,
+        schema_prefix=SCHEMA_PREFIX,
+        static_specs=self_awareness_host_service_static_specs(),
+        run_command=lambda command, timeout: run(command, timeout=timeout),
+        unit_state=lambda unit, is_user: user_systemd_unit(unit) if is_user else systemd_unit(unit),
+        unit_properties=lambda unit, properties, is_user, timeout: systemd_unit_properties(
+            unit,
+            properties,
+            user=is_user,
+            timeout=timeout,
+        ),
+        make_event=self_awareness_make_event,
+        host_name=platform.node,
+        service_category=self_awareness_host_service_category,
+    )
 
 
 def self_awareness_collect(

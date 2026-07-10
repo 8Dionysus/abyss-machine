@@ -342,6 +342,15 @@ documents for packet/proof/overlay assembly and completion predicates. Keep
 actual proof replay execution, concrete export writes, latest reads, and
 latest/history writes at the CLI/live binding edge.
 
+For self-awareness systemd observation adapter changes, public CI should rely
+on fake command, unit-state, property, hostname, and event-builder ports for
+user/system discovery, static/discovered deduplication, timer/service state
+normalization, inactive-service filtering, evidence refs, and explicit
+read-only resource projection. Live-host closeout may report only timer/service
+counts, categories, event validity, and read-only posture. Never publish unit
+payloads, environment values, command output, or private fragment paths, and do
+not start, stop, enable, disable, reload, or restart units as validation.
+
 For self-awareness working-stack runtime-probe adapter changes, public CI should
 rely on fake-port tests for HTTP JSON/status probe routing, TCP connect
 success/failure envelopes, `podman exec` container HTTP probe projection,
