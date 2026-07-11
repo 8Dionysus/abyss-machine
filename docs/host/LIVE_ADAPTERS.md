@@ -1724,6 +1724,22 @@ tests constrain alternate endpoint configuration, non-mutating handoff policy,
 and typed binding; existing host-contract scenarios constrain all four current
 stack-owner requirement families and readiness/closure behavior.
 
+## Extracted Self-Awareness Cognitive Contracts
+
+`abyss_machine.self_awareness_cognitive_contracts` owns compact freshness and
+trace-join context, memory-space freshness handoff, bounded context packets,
+AI multimodal and LLM escalation detail/completion, governance gate detail,
+investigation failure recovery, and working-stack usage-gap packets. Nineteen
+path labels, schema and semantic-maintenance commands, plus trace-context,
+resident-worker, and coverage completion predicates enter through typed path,
+config, and contract ports. The module performs no latest reads, command
+execution, persistence, or stack mutation. The CLI preserves established
+helper signatures as binders; capabilities, causal context, and investigation
+orchestration remain with their existing owners. Public tests constrain
+review-only recovery and typed binding, while existing host-contract scenarios
+constrain bounded joins, multimodal inventory, escalation gates, governance,
+and working-stack handoff completeness.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete

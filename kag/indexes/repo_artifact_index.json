@@ -730,7 +730,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "c13495e58c976a62999ae1d7373afbbfdaf3721916935055caa33644f89a7cf6",
+      "content_hash": "c1a94dc910b971382f51a149e7b48ec5a82bfbe89e2e9c8f29fe0d305e99e945",
       "id": "artifact:file:docs/host/live_adapters.md:42934316d8",
       "path": "docs/host/LIVE_ADAPTERS.md",
       "source_record_id": "file:docs/host/live_adapters.md:42934316d8",
@@ -746,7 +746,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "a3eb93378d290a088fa17da29db02fe498976e26b94750c5af2c037cdff8d6fc",
+      "content_hash": "c73b2e1d690b0d9433360c1bc49819e23773a6c526f8196bdfff03a198f91d3e",
       "id": "artifact:file:docs/host/subsystem_commands.md:c005361b7c",
       "path": "docs/host/SUBSYSTEM_COMMANDS.md",
       "source_record_id": "file:docs/host/subsystem_commands.md:c005361b7c",
@@ -802,7 +802,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "a221ea48fdbacddfa066eaec51ef6229ffab6268a2671a1b6d082c0b569ae330",
+      "content_hash": "78db8264d838e8cf40470448270c760017c91fa8f12a46dbfd5b621184f40619",
       "id": "artifact:file:docs/testing/release_check_route.md:89abf65538",
       "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
       "source_record_id": "file:docs/testing/release_check_route.md:89abf65538",
@@ -882,7 +882,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "1cd3b839386c138c7e1a73149b4fc4c25175a017ffa12a17b512699ac9493b30",
+      "content_hash": "ef4585df7924b373b512cafcbe0748aab8ed1938228cbdb9d226eb6ae06538af",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -1098,7 +1098,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "21b783ff8abe9f94d32319002ad3bb80a831475c9341081272216759d6d70ae4",
+      "content_hash": "fc10c4ae5cf9505eb730c76860ecdd8f0827c9ebdd1d77d9e65a0453b519efa7",
       "id": "artifact:file:mechanics/readme.md:c091f898d3",
       "path": "mechanics/README.md",
       "source_record_id": "file:mechanics/readme.md:c091f898d3",
@@ -2042,7 +2042,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "f1eb8ea1c04998db77cbc323d6d738746c6f41e81c45d6c1a62ad3d141d94345",
+      "content_hash": "656bd9a74e47d8d4471d8d4376d03f6aebc2888b7bb7a222a6dbcbfc9946f210",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -2558,6 +2558,14 @@
       "id": "artifact:file:src/abyss_machine/self_awareness_causal_readmodel_contracts.py:d0e7d16d73",
       "path": "src/abyss_machine/self_awareness_causal_readmodel_contracts.py",
       "source_record_id": "file:src/abyss_machine/self_awareness_causal_readmodel_contracts.py:d0e7d16d73",
+      "surface_state": "authored_source"
+    },
+    {
+      "artifact_kind": "source_code",
+      "content_hash": "b8e32f1662ef1e266d70ded9a4a0995b389e9fc6eaa257d3e075b4ed17acb4b7",
+      "id": "artifact:file:src/abyss_machine/self_awareness_cognitive_contracts.py:6604093da5",
+      "path": "src/abyss_machine/self_awareness_cognitive_contracts.py",
+      "source_record_id": "file:src/abyss_machine/self_awareness_cognitive_contracts.py:6604093da5",
       "surface_state": "authored_source"
     },
     {
@@ -4186,6 +4194,14 @@
     },
     {
       "artifact_kind": "test",
+      "content_hash": "657d862a4b737b64f32371d531a432047175ee4bcc43c9b7a3ed4a5cf191d389",
+      "id": "artifact:file:tests/public_smoke/test_self_awareness_cognitive_contracts.py:a8b94c9585",
+      "path": "tests/public_smoke/test_self_awareness_cognitive_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_cognitive_contracts.py:a8b94c9585",
+      "surface_state": "authored_source"
+    },
+    {
+      "artifact_kind": "test",
       "content_hash": "0873de49edc75284e19a3c431aaa807b20e4273b4ebb0b498cc5f74f3fc6b9da",
       "id": "artifact:file:tests/public_smoke/test_self_awareness_completion_adapter.py:e13fb83d22",
       "path": "tests/public_smoke/test_self_awareness_completion_adapter.py",
@@ -4707,7 +4723,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "b5d5dc75bdc56f5d5e1dbdf12fd744caae993722902ec13ce105d57967b0ec0c",
+    "content_digest": "4e4846b978599672eb893fdc81872123a4c41eaa83dcd5e4c7d349f9aba3f330",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4731,12 +4747,12 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "60ec13dd0a0cb725d26e5f32d917b07ce52481bf4fb75499c509ef9b55ea2159",
+    "content_digest": "16a6b0fe15a46a54a0b6c234ea431ad92f9f9b74cfca40a09402b6d7d490ab16",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 588,
+    "entry_count": 590,
     "kind_counts": {
       "config": 31,
       "document": 189,
@@ -4751,8 +4767,8 @@
       "script": 38,
       "security": 1,
       "service_unit": 59,
-      "source_code": 108,
-      "test": 133
+      "source_code": 109,
+      "test": 134
     }
   }
 }
