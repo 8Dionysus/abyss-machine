@@ -158,7 +158,8 @@ Use these mechanic owners for the next extraction slices:
   contract projection plus completion;
   `self_awareness_resident_cognitive_contracts` owns completion-route context,
   bounded cognitive packet/replay state preservation, completion predicates,
-  and cycle overlay through explicit ports;
+  stack-handoff closure-readiness replay packets, and cycle overlay through
+  explicit ports;
   `self_awareness_activation_smoke_contracts` owns activation-smoke latest/
   refresh/persistence orchestration and per-organ movement/use-packet summary
   assembly through explicit ports;

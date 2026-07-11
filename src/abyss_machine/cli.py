@@ -431,7 +431,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     )
 
 
-VERSION = "0.8.88"
+VERSION = "0.8.89"
 SCHEMA_PREFIX = "abyss_machine"
 PATH_POLICY = DEFAULT_PATH_POLICY
 MANIFEST_PATH = PATH_POLICY.etc_file("bridge.json")
@@ -36338,6 +36338,7 @@ def self_awareness_resident_cognitive_paths() -> self_awareness_resident_cogniti
         nervous_brief_latest=NERVOUS_BRIEF_LATEST_PATH,
         rag_validate_latest=RAG_VALIDATE_LATEST_PATH,
         requirements_latest=SELF_AWARENESS_REQUIREMENTS_LATEST_PATH,
+        requirement_probes_latest=SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH,
         investigate_latest=SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
         replay_latest=SELF_AWARENESS_REPLAY_LATEST_PATH,
         export_latest=SELF_AWARENESS_EXPORT_LATEST_PATH,
@@ -36370,6 +36371,7 @@ def self_awareness_resident_cognitive_contract_port() -> self_awareness_resident
         episode_body_trace=self_awareness_episode_body_trace,
         body_trace_complete=self_awareness_body_trace_complete,
         resident_worker_detail_complete=self_awareness_resident_worker_detail_complete,
+        stack_coverage_impact_complete=self_awareness_stack_coverage_impact_complete,
     )
 
 
@@ -36474,117 +36476,12 @@ def self_awareness_resident_cognitive_cycle_chain_overlay(
     )
 
 def self_awareness_stack_handoff_closure_readiness_replay_packet(action_map: dict[str, Any]) -> dict[str, Any]:
-    action_map = action_map if isinstance(action_map, dict) else {}
-    actions = action_map.get("actions") if isinstance(action_map.get("actions"), list) else []
-    packets: list[dict[str, Any]] = []
-    ordered_next_actions: list[dict[str, Any]] = []
-    blocking_by_requirement: dict[str, list[str]] = {}
-    dependencies_by_requirement: dict[str, list[str]] = {}
-    coverage_by_requirement: dict[str, dict[str, Any]] = {}
-    blocked_coverage_planes: set[str] = set()
-    dependency_edges: list[dict[str, Any]] = []
-    fulfilled_checks = 0
-    missing_checks = 0
-    for rank, action in enumerate(actions, start=1):
-        if not isinstance(action, dict):
-            continue
-        readiness = action.get("closure_readiness") if isinstance(action.get("closure_readiness"), dict) else {}
-        requirement_id = str(action.get("requirement_id") or readiness.get("requirement_id") or action.get("id") or f"unknown-{rank}")
-        if readiness:
-            packets.append(readiness)
-        blocking_keys = readiness.get("blocking_check_keys") if isinstance(readiness.get("blocking_check_keys"), list) else action.get("closure_blocker_keys")
-        blocking_keys = [str(item) for item in (blocking_keys if isinstance(blocking_keys, list) else [])]
-        coverage_impact = action.get("coverage_impact") if isinstance(action.get("coverage_impact"), dict) else {}
-        if coverage_impact:
-            coverage_by_requirement[requirement_id] = coverage_impact
-            for plane in (coverage_impact.get("coverage_planes") if isinstance(coverage_impact.get("coverage_planes"), list) else []):
-                if plane:
-                    blocked_coverage_planes.add(str(plane))
-        dependency_ids = readiness.get("dependency_requirement_ids") if isinstance(readiness.get("dependency_requirement_ids"), list) else []
-        dependency_ids = [str(item) for item in dependency_ids]
-        fulfilled_checks += safe_int(readiness.get("fulfilled_check_count"), len(readiness.get("fulfilled_checks") if isinstance(readiness.get("fulfilled_checks"), list) else []))
-        missing_checks += safe_int(readiness.get("open_blocker_count"), len(readiness.get("missing_checks") if isinstance(readiness.get("missing_checks"), list) else []))
-        blocking_by_requirement[requirement_id] = blocking_keys
-        dependencies_by_requirement[requirement_id] = dependency_ids
-        dependency_reasons = readiness.get("dependency_reasons") if isinstance(readiness.get("dependency_reasons"), list) else []
-        for index, dependency_id in enumerate(dependency_ids):
-            dependency_edges.append({
-                "from_requirement_id": requirement_id,
-                "to_requirement_id": dependency_id,
-                "reason": dependency_reasons[index] if index < len(dependency_reasons) else "closure readiness depends on this requirement first",
-            })
-        ordered_next_actions.append({
-            "requirement_id": requirement_id,
-            "priority_rank": action.get("priority_rank") or rank,
-            "priority_class": action.get("priority_class"),
-            "readiness_score": readiness.get("readiness_score"),
-            "impact_organ": coverage_impact.get("organ"),
-            "coverage_planes": coverage_impact.get("coverage_planes") if isinstance(coverage_impact.get("coverage_planes"), list) else [],
-            "coverage_impact": coverage_impact,
-            "fulfilled_check_count": readiness.get("fulfilled_check_count"),
-            "missing_check_count": safe_int(readiness.get("open_blocker_count"), len(readiness.get("missing_checks") if isinstance(readiness.get("missing_checks"), list) else [])),
-            "blocking_check_keys": blocking_keys,
-            "dependency_requirement_ids": dependency_ids,
-            "safe_next_action": readiness.get("safe_next_action") if isinstance(readiness.get("safe_next_action"), dict) else action.get("safe_next_action"),
-            "verifier_commands": readiness.get("verifier_commands") if isinstance(readiness.get("verifier_commands"), list) else action.get("verifier_commands"),
-            "evidence_refs": readiness.get("evidence_refs") if isinstance(readiness.get("evidence_refs"), list) else action.get("evidence_refs"),
-            "policy": readiness.get("policy") if isinstance(readiness.get("policy"), dict) else action.get("policy"),
-        })
-    open_requirement_ids = [str(item) for item in (action_map.get("open_requirement_ids") if isinstance(action_map.get("open_requirement_ids"), list) else [])]
-    if not open_requirement_ids:
-        open_requirement_ids = [item["requirement_id"] for item in ordered_next_actions]
-    action_map_summary = action_map.get("summary") if isinstance(action_map.get("summary"), dict) else {}
-    packet_complete = len(actions) == len(packets) and all(
-        isinstance(packet, dict)
-        and packet.get("schema") == f"{SCHEMA_PREFIX}_stack_handoff_closure_readiness_v1"
-        and packet.get("requirement_id")
-        and isinstance(packet.get("blocking_check_keys"), list)
-        and isinstance(packet.get("safe_next_action"), dict)
-        and nested_get(packet, ["policy", "host_layer_mutates_stack"]) is False
-        and nested_get(packet, ["policy", "executes_commands"]) is False
-        for packet in packets
-    ) and all(
-        self_awareness_stack_coverage_impact_complete(action.get("coverage_impact"))
-        for action in actions
-        if isinstance(action, dict)
+    return self_awareness_resident_cognitive_contracts.stack_handoff_closure_readiness_replay_packet(
+        action_map,
+        paths=self_awareness_resident_cognitive_paths(),
+        config=self_awareness_resident_cognitive_config(),
+        contract_port=self_awareness_resident_cognitive_contract_port(),
     )
-    summary = {
-        "open_stack_requirements": safe_int(action_map_summary.get("open_stack_requirements"), len(actions)),
-        "actions": len(actions),
-        "packets": len(packets),
-        "fulfilled_checks": fulfilled_checks,
-        "missing_checks": missing_checks,
-        "dependency_edges": len(dependency_edges),
-        "coverage_impact_entries": len(coverage_by_requirement),
-        "blocked_coverage_planes": sorted(blocked_coverage_planes),
-        "top_requirement_id": action_map_summary.get("top_requirement_id") or (ordered_next_actions[0]["requirement_id"] if ordered_next_actions else None),
-        "top_blocking_check_keys": ordered_next_actions[0]["blocking_check_keys"] if ordered_next_actions else [],
-        "complete": packet_complete,
-    }
-    return {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_investigation_stack_handoff_closure_readiness_v1",
-        "summary": summary,
-        "open_requirement_ids": open_requirement_ids,
-        "packets": packets,
-        "ordered_next_actions": ordered_next_actions,
-        "blocking_check_keys_by_requirement": blocking_by_requirement,
-        "dependency_requirement_ids_by_requirement": dependencies_by_requirement,
-        "coverage_impact_by_requirement": coverage_by_requirement,
-        "dependency_edges": dependency_edges,
-        "action_map_summary": action_map_summary,
-        "source_action_map_schema": action_map.get("schema"),
-        "source_action_map_digest": stable_hash_json(action_map, length=24),
-        "evidence_refs": [{"path": str(SELF_AWARENESS_REQUIREMENT_PROBES_LATEST_PATH), "section": "closure_readiness"}],
-        "policy": {
-            "handoff_only": True,
-            "read_only": True,
-            "executes_commands": False,
-            "action_execution": False,
-            "host_layer_mutates_stack": False,
-            "human_approval_before_mutation": True,
-            "raw_secrets_included": False,
-        },
-    }
 
 
 def self_awareness_investigate(query: str = "", episode_id: str | None = None, write_latest: bool = True) -> dict[str, Any]:

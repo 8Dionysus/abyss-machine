@@ -26,6 +26,7 @@ def _contract_port() -> cognitive.SelfAwarenessResidentCognitiveContractPort:
         episode_body_trace=lambda **_kwargs: {"complete": True},
         body_trace_complete=lambda document: document.get("complete") is True,
         resident_worker_detail_complete=lambda document: document.get("complete") is True,
+        stack_coverage_impact_complete=lambda document: document.get("complete") is True,
     )
 
 
@@ -184,3 +185,97 @@ def test_cli_completion_context_only_binds_typed_ports(
     assert isinstance(captured["config"], cognitive.SelfAwarenessResidentCognitiveConfig)
     assert isinstance(captured["runtime_port"], cognitive.SelfAwarenessResidentCognitiveRuntimePort)
     assert isinstance(captured["contract_port"], cognitive.SelfAwarenessResidentCognitiveContractPort)
+
+
+def test_stack_handoff_closure_readiness_replay_packet_preserves_action_state(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    readiness = {
+        "schema": "abyss_machine_stack_handoff_closure_readiness_v1",
+        "requirement_id": "stack.trace-backend",
+        "fulfilled_check_count": 1,
+        "fulfilled_checks": [{"key": "traceparent_present"}],
+        "open_blocker_count": 1,
+        "missing_checks": [{"key": "trace_backend_ready"}],
+        "blocking_check_keys": ["trace_backend_ready"],
+        "dependency_requirement_ids": ["stack.grafana.datasource-read"],
+        "dependency_reasons": ["trace discovery depends on datasource inventory"],
+        "safe_next_action": {"kind": "owner_handoff"},
+        "verifier_commands": ["verify-trace"],
+        "evidence_refs": [{"fixture": "readiness"}],
+        "policy": {"host_layer_mutates_stack": False, "executes_commands": False},
+    }
+    coverage_impact = {
+        "complete": True,
+        "organ": "trace_join_backbone",
+        "coverage_planes": ["signal_fabric", "causal_timeline"],
+    }
+    action_map = {
+        "schema": "abyss_machine_self_awareness_brief_stack_handoff_action_map_v1",
+        "summary": {"open_stack_requirements": 1, "top_requirement_id": "stack.trace-backend"},
+        "open_requirement_ids": ["stack.trace-backend"],
+        "actions": [
+            {
+                "requirement_id": "stack.trace-backend",
+                "priority_rank": 1,
+                "priority_class": "critical_trace_join",
+                "closure_readiness": readiness,
+                "coverage_impact": coverage_impact,
+            }
+        ],
+    }
+
+    result = cognitive.stack_handoff_closure_readiness_replay_packet(
+        action_map,
+        paths=paths,
+        config=_config(),
+        contract_port=_contract_port(),
+    )
+
+    assert result["summary"] == {
+        "open_stack_requirements": 1,
+        "actions": 1,
+        "packets": 1,
+        "fulfilled_checks": 1,
+        "missing_checks": 1,
+        "dependency_edges": 1,
+        "coverage_impact_entries": 1,
+        "blocked_coverage_planes": ["causal_timeline", "signal_fabric"],
+        "top_requirement_id": "stack.trace-backend",
+        "top_blocking_check_keys": ["trace_backend_ready"],
+        "complete": True,
+    }
+    assert result["ordered_next_actions"][0]["coverage_impact"] == coverage_impact
+    assert result["dependency_edges"][0]["to_requirement_id"] == "stack.grafana.datasource-read"
+    assert result["evidence_refs"] == [
+        {"path": str(paths.requirement_probes_latest), "section": "closure_readiness"}
+    ]
+    assert result["policy"]["host_layer_mutates_stack"] is False
+    assert result["policy"]["executes_commands"] is False
+
+
+def test_cli_replay_readiness_wrapper_binds_resident_cognitive_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_packet(action_map: Any, **kwargs: Any) -> dict[str, Any]:
+        captured["action_map"] = action_map
+        captured.update(kwargs)
+        return {"schema": "synthetic-replay-readiness"}
+
+    monkeypatch.setattr(
+        cognitive, "stack_handoff_closure_readiness_replay_packet", fake_packet
+    )
+    result = cli.self_awareness_stack_handoff_closure_readiness_replay_packet(
+        {"actions": []}
+    )
+
+    assert result == {"schema": "synthetic-replay-readiness"}
+    assert captured["action_map"] == {"actions": []}
+    assert isinstance(captured["paths"], cognitive.SelfAwarenessResidentCognitivePaths)
+    assert isinstance(captured["config"], cognitive.SelfAwarenessResidentCognitiveConfig)
+    assert isinstance(
+        captured["contract_port"], cognitive.SelfAwarenessResidentCognitiveContractPort
+    )

@@ -401,7 +401,9 @@ synthetic completion-audit/context/episode/investigation/replay/export inputs
 plus fake latest, replay/export refresh, body-trace, worker-completion, and
 route-issue ports. It must constrain supplied-vs-latest reads, route context,
 bounded tools/hypotheses/contradictions, packet and checkpoint preservation,
-cycle refresh/no-refresh behavior, no-mutation policy, and CLI binding. Live
+stack-handoff closure-readiness ordering, dependencies, coverage impacts and
+evidence refs, cycle refresh/no-refresh behavior, no-mutation policy, and CLI
+binding. Live
 closeout must compare fixed input snapshots and may report only completion
 booleans and overlay state; never publish cognitive packets, claims, evidence,
 endpoints, or paths.
