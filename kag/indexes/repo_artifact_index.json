@@ -730,7 +730,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "90215935c352b8f5adef29b7e5a999ecb56b96a681a532480292083378b9e7aa",
+      "content_hash": "fd4c1b305d3005f86413543cb3699c0dcdcc47e9d16652b3a8ac55b701a4a001",
       "id": "artifact:file:docs/host/live_adapters.md:42934316d8",
       "path": "docs/host/LIVE_ADAPTERS.md",
       "source_record_id": "file:docs/host/live_adapters.md:42934316d8",
@@ -746,7 +746,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "9272e1bbd1113c05952b98a41275de3782f0a54bd5f8a616d5851f6654501c57",
+      "content_hash": "733fa1fe323ab50ccbe99f32ed198518a71a6368be82c9c3aaa12d69d9d32aca",
       "id": "artifact:file:docs/host/subsystem_commands.md:c005361b7c",
       "path": "docs/host/SUBSYSTEM_COMMANDS.md",
       "source_record_id": "file:docs/host/subsystem_commands.md:c005361b7c",
@@ -802,7 +802,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "1aab186f7d849025030ff42e36285084d6b23e95c844c9dcdb57080b9c62d911",
+      "content_hash": "9c8c65e6cd6b0efd1664bcf318bac2be21e975c609e9175ae7fdb2ae10221326",
       "id": "artifact:file:docs/testing/release_check_route.md:89abf65538",
       "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
       "source_record_id": "file:docs/testing/release_check_route.md:89abf65538",
@@ -882,7 +882,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "e4256622395a6c26a15e2bb9cf2671cb524eb99952e5918d06dd8c5059b84be7",
+      "content_hash": "5691f3a55795535d8adf71cc2dcbc07571a1dfea7f74e43307822a9477f57321",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -1098,7 +1098,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "bdcf2aec3e28b6ee21faf6ef79f8083d7490152a2ac8468ffeb990fb36646213",
+      "content_hash": "3ca5388c3d48dcf8f14223643070dfe51ca8aba8a377f755760ce6b0524a42c1",
       "id": "artifact:file:mechanics/readme.md:c091f898d3",
       "path": "mechanics/README.md",
       "source_record_id": "file:mechanics/readme.md:c091f898d3",
@@ -1682,7 +1682,7 @@
     },
     {
       "artifact_kind": "manifest",
-      "content_hash": "e1335a955fabf77eab61eb270526b11da091ed0111b71cc671a2e0e622be9119",
+      "content_hash": "a307b61848efdd75607ebeaae35bd88ea6547af4700bde23f5aefa38b6a7ef7d",
       "id": "artifact:file:pyproject.toml:50c86b7ed8",
       "path": "pyproject.toml",
       "source_record_id": "file:pyproject.toml:50c86b7ed8",
@@ -1978,7 +1978,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "7ccb916819a0852b07adaa201a9ed17536bf1d61b112a827bbba7ca0d288f232",
+      "content_hash": "d352f397137fadc1451e6e13e47b57806287adb0e3f70de649acbcd6fb612a86",
       "id": "artifact:file:src/abyss_machine/__init__.py:6ea1e3a01e",
       "path": "src/abyss_machine/__init__.py",
       "source_record_id": "file:src/abyss_machine/__init__.py:6ea1e3a01e",
@@ -2042,7 +2042,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "0fd486dce8dedea53fd231b696a883df6b9a13789fb6c66ddc49c5a2fe33a3dd",
+      "content_hash": "24c55c5768e6e04e79966c14d13bcc860ea8b8a88d1a6f61637cb0e75579e18f",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -2610,7 +2610,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "e240cecba858b6f27790868d9cffce1594ca313d557be7cda8bca658f1dd75e6",
+      "content_hash": "91f76369fefc2bdbfb8b2f85a61160e54085678cc5e440739887272b4103232c",
       "id": "artifact:file:src/abyss_machine/self_awareness_coverage_contracts.py:22871866fb",
       "path": "src/abyss_machine/self_awareness_coverage_contracts.py",
       "source_record_id": "file:src/abyss_machine/self_awareness_coverage_contracts.py:22871866fb",
@@ -4274,7 +4274,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "38ce53de7f6796695190651f5882de2795d5d69f152096f2b0c9e843ad8f8da0",
+      "content_hash": "4fabff27f0cd80f858b6f9c94a90a15e0e7104914b99771794c2ebf070040346",
       "id": "artifact:file:tests/public_smoke/test_self_awareness_coverage_contracts.py:59263bccd7",
       "path": "tests/public_smoke/test_self_awareness_coverage_contracts.py",
       "source_record_id": "file:tests/public_smoke/test_self_awareness_coverage_contracts.py:59263bccd7",
@@ -4771,7 +4771,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "31641ce89570523e8cb8f7e970e4868df4704503644f83eebbd2704298326295",
+    "content_digest": "50a4e21340059678e61c2362d92fe57f6c7b3995acdc5961d5c49bb2daa4ac6e",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4795,7 +4795,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "7c0dc55e5749f0ced055c96e2f40113d2675c6d53060359448eaabcbcadd1f86",
+    "content_digest": "d7a2041e1f0ed554b1bd8a95dfc1314e0b63a1a18954424a03f88aa328b3ca79",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },

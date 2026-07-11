@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abyss-machine"
-version = "0.8.89"
+version = "0.8.90"
 description = "Host-machine bridge, policies, and bootstrap seed for Abyss OS integration."
 readme = "README.md"
 requires-python = ">=3.11"

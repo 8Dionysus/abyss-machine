@@ -174,7 +174,8 @@ Use these mechanic owners for the next extraction slices:
   artifact/filesystem runtime ports;
   `self_awareness_coverage_contracts` owns objective specs/planes and complete
   coverage-audit intake, refresh, stack-blocker/activation linkage, assembly,
-  and persistence through typed runtime, refresh, and contract ports;
+  persistence, and fail-closed blocker/closure/plane linkage audit through typed
+  runtime, refresh, and contract ports;
   `self_awareness_requirement_contracts` owns requirement acceptance,
   compatibility, negative controls, closure readiness, runbook, coverage
   impact, probe evaluation, readiness enrichment, and requirements persistence
