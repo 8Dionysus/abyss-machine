@@ -730,7 +730,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "320832814d4fc43ba3f6498658637b7c9e924e38ee2d863d2a6dbd8a189a0de7",
+      "content_hash": "90215935c352b8f5adef29b7e5a999ecb56b96a681a532480292083378b9e7aa",
       "id": "artifact:file:docs/host/live_adapters.md:42934316d8",
       "path": "docs/host/LIVE_ADAPTERS.md",
       "source_record_id": "file:docs/host/live_adapters.md:42934316d8",
@@ -746,7 +746,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "e344b695039b5e8034c4a4f48d8d2ff00ed6de9f9090326caafed90da6efc59d",
+      "content_hash": "9272e1bbd1113c05952b98a41275de3782f0a54bd5f8a616d5851f6654501c57",
       "id": "artifact:file:docs/host/subsystem_commands.md:c005361b7c",
       "path": "docs/host/SUBSYSTEM_COMMANDS.md",
       "source_record_id": "file:docs/host/subsystem_commands.md:c005361b7c",
@@ -802,7 +802,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "0b3bb585ef83f57831319e24344e7db4c126cfa9ec3c95c8a8a2f0d5b8dc1a64",
+      "content_hash": "1aab186f7d849025030ff42e36285084d6b23e95c844c9dcdb57080b9c62d911",
       "id": "artifact:file:docs/testing/release_check_route.md:89abf65538",
       "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
       "source_record_id": "file:docs/testing/release_check_route.md:89abf65538",
@@ -882,7 +882,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "73eaeaf148ac8c4ec547c8d2611081b54adeca0af95db6868979bfeb90328a42",
+      "content_hash": "e4256622395a6c26a15e2bb9cf2671cb524eb99952e5918d06dd8c5059b84be7",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -1098,7 +1098,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "222fc99c4244c3785ac3181943e4ef70cbd9213b7644912cb88f1fe19225617a",
+      "content_hash": "bdcf2aec3e28b6ee21faf6ef79f8083d7490152a2ac8468ffeb990fb36646213",
       "id": "artifact:file:mechanics/readme.md:c091f898d3",
       "path": "mechanics/README.md",
       "source_record_id": "file:mechanics/readme.md:c091f898d3",
@@ -1682,7 +1682,7 @@
     },
     {
       "artifact_kind": "manifest",
-      "content_hash": "396387ecd7807b73ea418a1cdc2f84a4f57b66cbb7282aa290f6f71c45081905",
+      "content_hash": "e1335a955fabf77eab61eb270526b11da091ed0111b71cc671a2e0e622be9119",
       "id": "artifact:file:pyproject.toml:50c86b7ed8",
       "path": "pyproject.toml",
       "source_record_id": "file:pyproject.toml:50c86b7ed8",
@@ -1978,7 +1978,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "a1c3c57e5f5b1021ab8de79ce02a70ed44fdbd27799b43bfecafeb6dc0d3efef",
+      "content_hash": "7ccb916819a0852b07adaa201a9ed17536bf1d61b112a827bbba7ca0d288f232",
       "id": "artifact:file:src/abyss_machine/__init__.py:6ea1e3a01e",
       "path": "src/abyss_machine/__init__.py",
       "source_record_id": "file:src/abyss_machine/__init__.py:6ea1e3a01e",
@@ -2042,7 +2042,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "7793bc8399c412086749ef5a407acf97d37830a2fd676062d3f4765f7b17d94a",
+      "content_hash": "0fd486dce8dedea53fd231b696a883df6b9a13789fb6c66ddc49c5a2fe33a3dd",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -2674,7 +2674,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "4dd814412e0141394389cdc2e2f42804fccf568025bc1b0f07d9d2a2ef6f3a7d",
+      "content_hash": "54305cea1100558b155298d7d55a95c2a3f56c078558052a094bae957bea254c",
       "id": "artifact:file:src/abyss_machine/self_awareness_resident_cognitive_contracts.py:a585838ad2",
       "path": "src/abyss_machine/self_awareness_resident_cognitive_contracts.py",
       "source_record_id": "file:src/abyss_machine/self_awareness_resident_cognitive_contracts.py:a585838ad2",
@@ -4338,7 +4338,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "0e7c1ae3a2b9f06dba4c0a1a6874522f5261b4ceb9fff32c09f3001b094a33e0",
+      "content_hash": "5d59bd76262a0d25a0f8b6111d13fa207f8d7a23959c0267580ab0e3ac38b56a",
       "id": "artifact:file:tests/public_smoke/test_self_awareness_resident_cognitive_contracts.py:2cb8f45e91",
       "path": "tests/public_smoke/test_self_awareness_resident_cognitive_contracts.py",
       "source_record_id": "file:tests/public_smoke/test_self_awareness_resident_cognitive_contracts.py:2cb8f45e91",
@@ -4771,7 +4771,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "a2c8b7f55fd4bbf0b9d0bfb9dd653c856e0940f3f818ed3d4bfe84339f91a125",
+    "content_digest": "31641ce89570523e8cb8f7e970e4868df4704503644f83eebbd2704298326295",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4795,7 +4795,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "8c60d63593ed6b0fd0a262e3a1b5e1d3ed815a157ee856f55f40af8586c0350c",
+    "content_digest": "7c0dc55e5749f0ced055c96e2f40113d2675c6d53060359448eaabcbcadd1f86",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },

@@ -1658,14 +1658,16 @@ remain private.
 
 `abyss_machine.self_awareness_resident_cognitive_contracts` owns completion-
 route context, bounded cognitive packet, packet/replay completion, checkpoint
-state-preservation summary, and cycle-chain overlay assembly through seventeen
-typed paths and runtime, refresh, and dependent-contract ports. It preserves
+state-preservation summary, stack-handoff closure-readiness replay packet, and
+cycle-chain overlay assembly through eighteen typed paths and runtime, refresh,
+and dependent-contract ports. It preserves
 read-only tools, evidence-cited hypotheses/contradictions, body trace, route
 packets, resource/mode escalation gates, and explicit non-authoritative/no-
 mutation policy. The CLI keeps established helper signatures as binders.
 Public tests constrain supplied-vs-latest reads, completion-route projection,
-cycle refresh/no-refresh behavior, policy, and typed binding; existing host-
-contract tests constrain empty-route and replay state preservation. Live
+closure packet ordering/dependencies/coverage/evidence, cycle refresh/no-refresh
+behavior, policy, and typed binding; existing host-contract tests constrain
+empty-route and replay state preservation. Live
 closeout compares fixed completion/investigation/replay/export snapshots and
 reports only completion booleans and overlay state.
 
