@@ -1694,6 +1694,19 @@ complete e2e proof assembly, port-driven path fallback, no-mutation policy, and
 typed binding; existing host-contract tests constrain cycle-bound lineage and
 broken-proof rejection.
 
+## Extracted Self-Awareness Coverage Pipeline
+
+`abyss_machine.self_awareness_coverage_contracts` owns objective specifications
+and coverage planes plus the complete coverage-audit latest intake, conditional
+refresh, stack-requirement and working-stack activation linkage, artifact
+projection, row/summary assembly, and optional latest/history persistence.
+Twenty paths and explicit runtime, refresh, and dependent-contract ports retain
+the existing refresh order without hidden filesystem, subprocess, or stack
+mutation ownership. The CLI preserves the established command/helper signature
+as a typed binder. Public tests constrain specs/planes and binding; existing
+host-contract scenarios constrain stack-owned blockers, absent-but-capability-
+covered requirements, coverage impacts, activation rows, and policy.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -2000,8 +2013,7 @@ machine evidence.
    `self_awareness_resident_cognitive_contracts`. Stack-organ movement,
    activation rows/use packets, and their completion/compact/refresh contracts
    now live in `self_awareness_activation_contracts`. Before declaring this
-   family closed, extract the remaining coverage center, then classify
-   every remaining direct-IO CLI helper as a concrete
+   family closed, classify every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
    unextracted reusable center.
 3. Further AI runtime adapters: only after a fresh inventory proves a concrete

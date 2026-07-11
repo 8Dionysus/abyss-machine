@@ -574,6 +574,15 @@ and no-mutation policy. Keep concrete latest artifact metadata and path hashing
 at the CLI runtime binding edge. Live closeout may evaluate a fixed snapshot and
 report only row/artifact/missing-chain/completion counts and policy.
 
+For self-awareness coverage pipeline changes, public CI should use synthetic
+capabilities, requirements, probes, cycle chains, stack-closure dossiers,
+working-stack organs, activation rows, artifact refs, and fake runtime/refresh/
+contract ports. Cover stack-owned blockers, capability-covered absent
+requirements, objective/covered/blocked planes, linkage integrity, write/no-
+write behavior, and no-mutation policy. Live closeout must use one fixed latest
+snapshot and report only status, row/plane/blocker counts, completion, and
+policy.
+
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate

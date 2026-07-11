@@ -165,9 +165,11 @@ Use these mechanic owners for the next extraction slices:
   refresh contracts through typed paths, config, and dependent-contract ports;
   `self_awareness_lineage_contracts` owns artifact/spec maps, e2e and top-level
   lineage proof assembly, and completion through typed paths/config and
-  artifact/filesystem runtime ports. The coverage center must be extracted
-  before the final residual CLI-edge classification and family completion
-  audit.
+  artifact/filesystem runtime ports;
+  `self_awareness_coverage_contracts` owns objective specs/planes and complete
+  coverage-audit intake, refresh, stack-blocker/activation linkage, assembly,
+  and persistence through typed runtime, refresh, and contract ports. The final
+  residual CLI-edge classification and family completion audit remain.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
