@@ -19,6 +19,21 @@ PYTHONPATH=src python scripts/generate_scaffold_index.py --check
 These gates must not read private captures, local indexes, model weights, or
 host-only evidence.
 
+## Live-Adapter Goal Closeout
+
+Architecture ownership, the 20-family completion matrix, and remaining CLI-edge
+classification are authoritative in
+[LIVE_ADAPTERS.md](../host/LIVE_ADAPTERS.md). `SUBSYSTEM_COMMANDS.md` is a
+command-surface overview and `mechanics/README.md` is a route entrypoint; neither
+overrides that completion audit.
+
+A completion claim must come after the behavior exists and must combine the
+current source audit with existing evidence routes: focused public tests,
+`source-fast`, generated ABI/scaffold checks, an isolated first-run installed
+projection, relevant non-live host contracts, bootstrap doctor/render dry-runs,
+and the canonical host quick lane. A validator must not invent the completion
+boundary or convert the presence of concrete CLI IO into adapter debt.
+
 ## Bootstrap Dry-Runs
 
 ```bash

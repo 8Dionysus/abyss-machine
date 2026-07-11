@@ -628,8 +628,8 @@ capture execution seam:
 `abyss_machine.nervous_screenshot` still owns recurring-extension query policy
 and capture backend planning. The CLI still owns source-policy binding,
 environment flag binding, concrete path/callback binding, process owner
-callbacks, fact routing, and command rendering. Browser-history
-capture execution remains a separate nervous-local adapter debt.
+callbacks, fact routing, and command rendering. Browser-history capture
+execution is owned by the browser-content adapter described below.
 
 ## Extracted Nervous Clipboard Live Read Seam
 
@@ -648,8 +648,9 @@ fact assembly seam:
 
 The CLI still owns concrete environment binding, command lookup/runner binding,
 redaction callback binding, source-policy callback binding, fact routing, and
-command rendering. Browser-content source-policy and capture orchestration
-remain separate nervous-local CLI-edge debt.
+command rendering. Browser-content capture mechanics are owned by the adapter
+described below; source-policy and live capture selection remain concrete CLI
+bindings.
 
 ## Extracted Nervous Browser-Content Store, AT-SPI, BiDi, And History Seam
 
@@ -1046,7 +1047,8 @@ for `abyss-machine doctor validate`:
 
 `abyss_machine.doctor_contracts` still owns the validate document envelope. The
 CLI binds the concrete host probes, writes validate latest/history, and renders
-command output. Deeper `doctor` status probes remain live adapter debt.
+command output. The remaining status families are split into the adapters
+described below.
 
 ## Extracted Doctor Core Status Probe Seam
 
@@ -1063,8 +1065,8 @@ status-probe seam:
 The CLI binds the concrete platform, filesystem, command-map, topology validate,
 and stack-bridge validate ports. Power/cooling, storage/process,
 snapshot/observability/dictation, and AI/runtime status checks are split below;
-nervous, docs, memory, mode, and general timer probes remain deeper live
-adapter debt.
+nervous, docs, memory, mode, and general timer reads remain concrete subsystem
+bindings unless a new reusable diagnostic center is demonstrated.
 
 ## Extracted Doctor Power/Cooling Status Probe Seam
 
@@ -2045,98 +2047,68 @@ run intentionally records both the `building` snapshot and the final snapshot;
 append-only retries may duplicate rows and do not destructively roll back
 machine evidence.
 
-## Next Extraction Order
+## Goal-Family Completion Audit
 
-1. Storage/process/memory/mode/cooling adapters: continue with concrete
-   mutation-safety seams after the storage cleanup guard/apply execution
-   and storage hook/inventory measurement plus process `/proc` snapshot,
-   container-health, desktop-compositor command/proc/AT-SPI, and thermal
-   attribution/plan adapters plus memory read/orchestration adapters and the
-   first mode mutation/reconcile adapters and cooling host-control/TFN/RAPL orchestration adapters.
-   Continue with broader container orchestration and write-routing seams only
-   when the fakeable live port is clear. Keep
-   dry-run/preflight and operator intent ahead of every mutating route.
-2. Self-awareness live orchestration adapters: latest-read specs/load dispatch,
-   cycle latest-read/bridge-document dispatch, bounded status summaries,
-   resource preflight guard decisions, bounded HTTP status probe ports,
-   working-stack endpoint/TCP/container runtime probes, TTS smoke artifact
-   evidence/probe projection, working-stack source inventory projections,
-   working-stack inventory assembly/readmodel, working-stack movement/event
-   assembly, working-stack usage-gap episode builders, working-stack
-   link-integrity matrix assembly plus match/freshness predicates, autolink
-   row-state/completion/episode-coverage/document assembly and complete
-   latest/refresh/persistence orchestration,
-   activation-entry builders/completion predicates and activation-dossier
-   document builders, activation-gap and stack-requirement
-   handoff route builders/completion predicates, activation synthetic-scenario,
-   closure-acceptance, activation synthetic-proof, and export-overlay
-   builders/completion predicates, working-stack model/tool bridge policy, probe/cycle
-   resource-denial documents, probe result/movement-smoke document assembly,
-   cycle artifact step manifest/order/nonblocking bridge policy, cycle artifact
-   evidence snapshots, cycle open-requirement/issue guard input assembly, cycle
-   chain assembly through supplied completion predicates, cycle post-export
-   chain updates, cycle stack-handoff summary document assembly, and cycle
-   partial/building/final result document assembly, read-only systemd
-   timer/service discovery/state/event orchestration, ordered collect input
-   acquisition, collect event/fabric/readmodel assembly, and collect
-   events/collect/index persistence, complete investigation input/graph/
-   persistence orchestration, and replay latest-read/checkpoint-chain
-   validation/readmodel persistence now live in
-   `self_awareness_adapters`; complete capabilities input/readmodel/persistence
-   orchestration, complete status latest/body/open-row assembly, complete
-   export latest-read/refresh/artifact-manifest/handoff/persistence
-   orchestration, and complete probe/cycle preflight/refresh/proof/
-   two-stage-persistence orchestration also live there. Completion
-   entity/event/document mapping now lives in
-   `self_awareness_completion_graph_contracts`, together with completion
-   route-packet indexing. Completion backlog/final-audit assembly now lives in
-   `self_awareness_completion_document_contracts`; complete completion-audit
-   live input/contract/persistence orchestration now lives in
-   `self_awareness_adapters`. Validation optional-refresh order, path/latest/
-   history intake, and final persistence now also live there. Conditional
-   validation repair decisions and complete check/document assembly now live in
-   `self_awareness_validation_contracts`. Stable export stack-handoff assembly
-   lives in `self_awareness_export_handoff_contracts`. Timeline, spatial graph,
-   bounded context, and causal episode refresh/assembly/persistence pipelines
-   now live in `self_awareness_causal_readmodel_contracts`; requirement-probes
-   and stack-closure-dossier refresh/assembly/persistence now live in
-   `self_awareness_stack_closure_contracts`; memory-space and stack-handoff
-   time-space overlay assembly now lives in
-   `self_awareness_causal_overlay_contracts`; bounded query and correlation
-   readmodel assembly now lives in
-   `self_awareness_query_correlation_contracts`; bounded trace-context fallback
-   extraction/readmodel/persistence now lives in
-   `self_awareness_trace_context_contracts`; episode body-trace assembly and
-   completion now live in `self_awareness_body_trace_contracts`; episode-
-   specific response assembly and response/candidate/route depth predicates
-   now live in `self_awareness_response_contracts`; owner-gated alert intake,
-   candidate assembly, response enrichment, and persistence now live in
-   `self_awareness_alert_contracts`; referenced brief and stack-handoff action-
-   map assembly now live in `self_awareness_brief_contracts`. Before declaring
-   resident worker projection now lives in
-   `self_awareness_resident_worker_contracts`; completion-route context,
-   bounded cognitive packet/replay, and cycle overlay now live in
-   `self_awareness_resident_cognitive_contracts`. Stack-organ movement,
-   activation rows/use packets, and their completion/compact/refresh contracts
-   now live in `self_awareness_activation_contracts`. Before declaring this
-   family closed, classify every remaining direct-IO CLI helper as a concrete
-   adapter binder, a package-owned compatibility wrapper, or a still-
-   unextracted reusable center.
-3. Further AI runtime adapters: only after a fresh inventory proves a concrete
-   reusable center still sits in `cli.py`.
-   Runtime/model discovery, bounded OpenVINO benchmark/eval runners,
-   benchmark/eval suite orchestration and write routing, workload
-   store/readmodel write routing, core devices/models/capabilities/policy/
-   runtime/status/report readmodel store routing, LLM registry/latest/validate
-   store routing plus validate input collection, token-accounting tokenizer
-   execution plus token-accounting store/readmodel routing, capabilities input
-   collection, policy input collection, resource snapshot/profile assembly,
-   subprocess env binding, resident and workhorse LLM controller execution,
-   STT eval dictation-transport timing/resource envelopes, the TTS client/
-   server-loop/warm-runtime/cold-synth runner, and TTS output audio/resource
-   reporting are already split into `ai_runtime_adapters`/`ai_tts_adapters`;
-   concrete live readers and command rendering stay in CLI by design unless a
-   reusable adapter center is proven.
+This audit closes the 20-family live-adapter program at the boundary stated by
+this document. "Closed" means the reusable contract, policy, readmodel, runtime,
+or mutation center is package-owned and public-tested; concrete target-host IO
+is either adapter-owned behind fakeable ports or explicitly retained as CLI
+binding. It does not claim that the whole CLI can never gain another reusable
+center.
+
+| # | Adapter family | Reusable/package owner | Concrete edge retained by design | Disposition |
+|---:|---|---|---|---|
+| 1 | Codex semantic ingest | `typing_codex_semantics`, `typing_capture_contracts` | Codex JSONL/session-tail acquisition, current policy/path binding, and final ingest/write callbacks | closed |
+| 2 | Browser/native host | `typing_browser_adapters` | native stdio dispatch, Firefox executable/profile/process binding, and host result persistence | closed |
+| 3 | AT-SPI | `typing_atspi_adapters` | GI/Atspi import, desktop event loop, focused-object acquisition, current paths, and journal binding | closed |
+| 4 | Saved-text scan | `typing_saved_text_adapters` | configured roots/policy/clock binding and target-host state/latest writes | closed |
+| 5 | Editor/browser transcript and self-tests | `typing_editor_adapters`, `typing_browser_adapters`, `typing_atspi_adapters`, `typing_capture_contracts` | editor/browser process transport, release-profile selection, live focus/input probes, and result routing | closed |
+| 6 | Browser-content capture | `nervous_browser_content_adapters` | source-policy/privacy decisions, current Firefox process/profile selection, capture dispatch, and path binding | closed |
+| 7 | Screenshot/window/clipboard probes | `nervous_screenshot_adapters`, `nervous_clipboard_adapters`, `process_adapters` | Wayland/X11/DBus command, environment, process-owner, and artifact-path binding | closed |
+| 8 | JSONL/SQLite/index lifecycle | `typing_nervous_adapters`, `nervous_index_adapters`, `nervous_browser_content_adapters`, `nervous_status_adapters` | configured DB/index roots, connection/lock binding, current policy, and command rendering | closed |
+| 9 | Semantic execution | `nervous_semantic_adapters` | model/runtime/config discovery, privacy/resource gate callbacks, DB lock lifetime, and operator command binding | closed |
+| 10 | Rerank/recall execution | `nervous_rerank_adapters`, `nervous_retrieval_adapters` | runtime/config selection, neural scorer and resource-gate callbacks, and command rendering | closed |
+| 11 | Retention apply/unlink | `nervous_retention`, `nervous_retention_adapters` | privacy/global-pause gate, configured roots, explicit operator confirmation, and result rendering | closed |
+| 12 | Derived events/episodes/synthesis/eval | `nervous_events_adapters`, `nervous_synthesis_adapters`, `nervous_quality_adapters` | current source callbacks, configured local-private roots, dependency command binding, and rendering | closed |
+| 13 | AI runtime/model discovery | `ai_runtime_contracts`, `ai_runtime_adapters` | target `/etc`/environment/model-root selection and concrete host reader binding | closed |
+| 14 | AI runtime subprocess execution | `ai_runtime_adapters` | command runner, live resource readers, environment source, and operator dispatch | closed |
+| 15 | TTS/audio/server execution | `ai_tts_contracts`, `ai_tts_adapters` | current socket/SDK/runtime/audio paths, playback command binding, and operator dispatch | closed |
+| 16 | Dictation execution | `dictation_contracts` and the `dictation_*_adapters` family | concrete env/config/device/process/clipboard callbacks, command dispatch, and rendering | closed |
+| 17 | Diagnostic spine | `doctor_contracts`, `doctor_adapters` | concrete subsystem/status/systemd readers, latest/history writers, repair callback binding, and rendering | closed |
+| 18 | Host lifecycle parity | `host_lifecycle_parity`, `scripts/abyss-machine-bootstrap`, parity validator adapter | installed source/target paths and bounded runtime subprocess invocation | closed |
+| 19 | Storage/process/memory/mode/cooling | matching `*_contracts` and `*_adapters` modules | current policy/env/systemd/runner binding plus explicit operator mutation intent | closed |
+| 20 | Self-awareness live orchestration | `self_awareness_contracts`, the focused `self_awareness_*_contracts` modules, `self_awareness_stack_probe_adapters`, and `self_awareness_adapters` | current host paths, latest state, endpoint/socket/subprocess/systemd ports, clocks, write intent, and rendering | closed |
+
+## Remaining Self-Awareness CLI Edge Classification
+
+A fresh AST and owner-route review after the hermetic validation self-test
+extraction found no remaining reusable policy/readmodel center in
+`self_awareness_*` CLI functions. The remaining functions fall into these
+bounded categories:
+
+| CLI category | Representative helpers | Classification | Reason it stays at the edge |
+|---|---|---|---|
+| working-stack filesystem inventory | compose/service/model-root selectors and TTS evidence readers | concrete adapter binder | adapters own filtering, projection, policy, and result shape; CLI supplies current stack roots and filesystem operations |
+| network, container, process, and systemd primitives | TCP connect, HTTP status, container smoke, scheduler/service state, `/proc/meminfo` | concrete runtime binder | these are target-host capabilities supplied to package-owned orchestration through fakeable ports |
+| latest/path/artifact access | paths, body-closure latest intake, artifact refs, freshness gates, event loading, export fallback reads | concrete host-state binder | contracts own document law; CLI chooses current live paths and reader/stat callbacks |
+| orchestration port construction | working-stack inventory, collect, capabilities, investigate, replay, export, probe, cycle, validate | package-owned compatibility wrapper | each function constructs typed ports and delegates the state machine to its package owner |
+| deterministic helper aliases | requirement, cognitive, activation, lineage, coverage, response, brief, and completion helpers | package-owned compatibility wrapper | reusable behavior is already in the named contract module; the established CLI helper signature remains for host contracts and callers |
+| parser and text output | self-awareness dispatch and rendering | CLI edge | argument parsing, exit behavior, and operator-facing rendering are the CLI's responsibility |
+
+Direct IO is not, by itself, evidence that another adapter is needed. A new
+extraction requires current evidence of reusable logic mixed with the binding:
+repeated policy, non-trivial state transition, cross-command duplication, or a
+dependency that cannot be tested through the existing port.
+
+## Post-Goal Extension Rule
+
+Future slices should start only from a newly proven reusable center or a failed
+contract at an existing boundary. Broader container orchestration, command
+rendering, concrete config/latest readers, and host callback selection remain
+CLI-owned unless that evidence appears. The broader command-surface audit in
+`SUBSYSTEM_COMMANDS.md` may still call a command group "partial"; that label
+describes the whole product surface and is not an open item in this 20-family
+adapter goal.
 
 ## Stop Lines
 

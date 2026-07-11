@@ -20,15 +20,16 @@ visible and gives future implementation a place to land.
 ## Live Adapter Route
 
 Live adapter hardening is tracked from [docs/host/LIVE_ADAPTERS.md](../docs/host/LIVE_ADAPTERS.md).
-Use these mechanic owners for the next extraction slices:
+That document is authoritative for the 20-family completion state and residual
+CLI-edge classification. Use these mechanic owners for current adapter
+ownership and future extensions:
 
 - `typing-intake`: typing latest/history persistence, Codex session-tail
   filesystem reads and semantic ingest planning, browser/native-host ingest
   planning/transport/response envelopes, temporary Firefox WebExtension and
   browser-context/browser AT-SPI/focused-browser/browser-privacy selftest runtime, AT-SPI
   focused/text-event/generic GUI semantic plans, saved-text scan filesystem
-  mechanics, native-host stdio binding, and remaining `pyatspi` runtime
-  adapters.
+  mechanics, native-host stdio binding, and concrete `pyatspi` runtime binding.
 - `nervous-local`: nervous source capture, privacy state, local JSONL readers,
   browser-content store/dedupe/latest write adapter, AT-SPI browser-content
   capture runtime adapter, BiDi/WebSocket browser-content capture runtime
@@ -117,7 +118,9 @@ Use these mechanic owners for the next extraction slices:
   latest/history persistence;
   `self_awareness_validation_contracts` owns conditional validation repair
   decisions, the full cross-document check matrix, and final validate document
-  assembly through explicit repair/contract ports without concrete live IO;
+  assembly plus hermetic installed self-tests through explicit clock, repair,
+  contract, query-fixture, and failure-matrix-fixture ports without concrete
+  live IO;
   `self_awareness_export_handoff_contracts` owns public artifact-ref projection
   plus deterministic requirements, closure-order, dependency, coverage,
   verifier, activation, and stack-owner handoff assembly without live IO or
@@ -191,8 +194,10 @@ Use these mechanic owners for the next extraction slices:
   context selection through typed latest paths and loader;
   `self_awareness_cycle_proof_contracts` owns machine-bridge catalogs/proofs
   and from-zero chain/proof contracts through typed paths/config plus artifact-
-  ref and stat ports. The final
-  residual CLI-edge classification and family completion audit remain.
+  ref and stat ports. Remaining CLI helpers are classified in
+  `docs/host/LIVE_ADAPTERS.md` as concrete host binders, package-owned
+  compatibility wrappers, or parser/rendering edges; no reusable
+  self-awareness center remains unowned in the current audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
@@ -210,7 +215,8 @@ Use these mechanic owners for the next extraction slices:
   projection, temperature summary/sample, sample-series ports, profile apply
   orchestration, guarded TFN1 write, fan-validate, fan-series orchestration, and
   RAPL smoothing decision/state orchestration live in `cooling_adapters`.
-  Continue broader container orchestration and write-routing ports only as
-  bounded public-safe adapter slices.
+  Broader container orchestration and write routing remain concrete binding
+  unless a new reusable center is demonstrated through current source and
+  public-safe tests.
 - `host-lifecycle`: bootstrap, install projection, source/install parity, and
   release/check gates for the portable public seed.
