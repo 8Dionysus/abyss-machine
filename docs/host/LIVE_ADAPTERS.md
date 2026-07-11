@@ -1655,6 +1655,19 @@ contract tests constrain empty-route and replay state preservation. Live
 closeout compares fixed completion/investigation/replay/export snapshots and
 reports only completion booleans and overlay state.
 
+## Extracted Self-Awareness Activation Smoke Pipeline
+
+`abyss_machine.self_awareness_activation_smoke_contracts` owns working-stack
+activation-smoke latest intake, dossier/inventory/episode refresh decisions,
+per-organ movement-row fanout, use-packet coverage and summary assembly, and
+optional latest/history persistence through seven paths and typed runtime,
+refresh, and contract ports. Host identity/PID and clock are explicit runtime
+ports; no verifier or stack command is executed. The CLI preserves the command
+helper signature as a binder. Synthetic tests constrain supplied/fallback
+inputs, row aggregation, write failure, no-mutation policy, and binding. Live
+closeout compares one fixed latest snapshot/clock/host identity and reports only
+ok/completion/row/use-packet counts and policy.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete

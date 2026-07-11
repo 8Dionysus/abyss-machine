@@ -107,6 +107,7 @@ try:
     from . import resource_planning
     from . import runtime_evidence_contracts
     from . import self_awareness_adapters
+    from . import self_awareness_activation_smoke_contracts
     from . import self_awareness_alert_contracts
     from . import self_awareness_body_trace_contracts
     from . import self_awareness_brief_contracts
@@ -290,6 +291,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import resource_planning
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import self_awareness_adapters
+    from abyss_machine import self_awareness_activation_smoke_contracts
     from abyss_machine import self_awareness_alert_contracts
     from abyss_machine import self_awareness_body_trace_contracts
     from abyss_machine import self_awareness_brief_contracts
@@ -40453,195 +40455,70 @@ def self_awareness_activation_smoke_needs_refresh(smoke: dict[str, Any], activat
     )
 
 
+def self_awareness_activation_smoke_paths() -> self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokePaths:
+    return self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokePaths(
+        stack_closure_dossier_latest=SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+        working_stack_latest=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        activation_smoke_latest=SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
+        activation_smoke_root=SELF_AWARENESS_ACTIVATION_SMOKE_ROOT,
+        episodes_latest=SELF_AWARENESS_EPISODES_LATEST_PATH,
+        investigate_latest=SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+        replay_latest=SELF_AWARENESS_REPLAY_LATEST_PATH,
+    )
+
+
+def self_awareness_activation_smoke_config() -> self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeConfig:
+    return self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeConfig(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
+
+
+def self_awareness_activation_smoke_runtime_port() -> self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeRuntimePort:
+    return self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeRuntimePort(
+        load_latest_json=load_latest_json,
+        now_iso=now_iso,
+        write_latest_and_history=write_latest_and_history,
+        host_name=platform.node,
+        process_id=os.getpid,
+    )
+
+
+def self_awareness_activation_smoke_refresh_port() -> self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeRefreshPort:
+    return self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeRefreshPort(
+        stack_closure_dossier=self_awareness_stack_closure_dossier,
+        working_stack_inventory=self_awareness_working_stack_inventory,
+        episodes=self_awareness_episodes,
+    )
+
+
+def self_awareness_activation_smoke_contract_port() -> self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeContractPort:
+    return self_awareness_activation_smoke_contracts.SelfAwarenessActivationSmokeContractPort(
+        activation_missing_episode_services=self_awareness_working_stack_activation_missing_episode_services,
+        movement_smoke_row=self_awareness_working_stack_movement_smoke_row,
+        stack_organ_use_packet_complete=self_awareness_stack_organ_use_packet_complete,
+        activation_smoke_row_complete=self_awareness_working_stack_activation_smoke_row_complete,
+        activation_smoke_compact=self_awareness_working_stack_activation_smoke_compact,
+        activation_smoke_complete=self_awareness_working_stack_activation_smoke_complete,
+    )
+
+
 def self_awareness_activation_smoke(
     write_latest: bool = True,
     *,
     stack_closure_dossier_doc: dict[str, Any] | None = None,
     working_stack_doc: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    generated_at = now_iso()
-    run_id = "saactsmoke-" + stable_hash_json({"at": generated_at, "host": platform.node(), "pid": os.getpid()}, length=16)
-    working_stack_doc_supplied = isinstance(working_stack_doc, dict)
-    stack_closure_dossier = stack_closure_dossier_doc if isinstance(stack_closure_dossier_doc, dict) else load_latest_json(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_stack_closure_dossier_v1")
-    if stack_closure_dossier.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_stack_closure_dossier_v1":
-        stack_closure_dossier = self_awareness_stack_closure_dossier(write_latest=True)
-    working_stack_doc = working_stack_doc if isinstance(working_stack_doc, dict) else load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1")
-    if working_stack_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1":
-        working_stack_doc = self_awareness_working_stack_inventory(write_latest=True)
-    working_stack_organs = [
-        organ for organ in (working_stack_doc.get("organs") if isinstance(working_stack_doc.get("organs"), list) else [])
-        if isinstance(organ, dict) and organ.get("service")
-    ]
-    expected_stack_organ_services = sorted(str(organ.get("service")) for organ in working_stack_organs)
-    activation_dossier = stack_closure_dossier.get("working_stack_activation_dossier") if isinstance(stack_closure_dossier.get("working_stack_activation_dossier"), dict) else {}
-    activation_entries = activation_dossier.get("entries") if isinstance(activation_dossier.get("entries"), list) else []
-    activation_entry_by_service = {
-        str(entry.get("service")): entry
-        for entry in activation_entries
-        if isinstance(entry, dict) and entry.get("service")
-    }
-    previous_smoke = load_latest_json(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1")
-    previous_by_service = previous_smoke.get("by_service") if isinstance(previous_smoke.get("by_service"), dict) else {}
-    episodes_doc = load_latest_json(SELF_AWARENESS_EPISODES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_episodes_v1")
-    episode_identity_missing_before_refresh = self_awareness_working_stack_activation_missing_episode_services(activation_entries, episodes_doc)
-    episodes_refreshed_for_identity = False
-    if (
-        episodes_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_episodes_v1"
-        or safe_int(nested_get(episodes_doc, ["summary", "working_stack_gap_episodes"]), -1) < len(activation_entries)
-        or episode_identity_missing_before_refresh
-    ):
-        if working_stack_doc_supplied:
-            episodes_doc = self_awareness_episodes(write_latest=True, working_stack_doc=working_stack_doc)
-        else:
-            episodes_doc = self_awareness_episodes(write_latest=True)
-        episodes_refreshed_for_identity = True
-    episode_identity_missing_after_refresh = self_awareness_working_stack_activation_missing_episode_services(activation_entries, episodes_doc)
-
-    rows: list[dict[str, Any]] = []
-    for organ in working_stack_organs:
-        if not isinstance(organ, dict) or not organ.get("service"):
-            continue
-        service = str(organ.get("service") or "")
-        rows.append(self_awareness_working_stack_movement_smoke_row(
-            organ,
-            activation_entry_by_service.get(service),
-            previous_by_service.get(service) if isinstance(previous_by_service.get(service), dict) else None,
-            generated_at=generated_at,
-            run_id=run_id,
-        ))
-
-    by_service = {
-        str(row.get("service")): row
-        for row in rows
-        if isinstance(row, dict) and row.get("service")
-    }
-    stack_organ_use_packets = [
-        row.get("stack_organ_use_packet")
-        for row in rows
-        if isinstance(row, dict) and isinstance(row.get("stack_organ_use_packet"), dict)
-    ]
-    stack_organ_use_packet_by_service = {
-        str(packet.get("service")): packet
-        for packet in stack_organ_use_packets
-        if isinstance(packet, dict) and packet.get("service")
-    }
-    stack_organ_use_packet_services = sorted(str(service) for service in stack_organ_use_packet_by_service)
-    stack_organs_without_use_packets = sorted(set(expected_stack_organ_services) - set(stack_organ_use_packet_services))
-    all_stack_organs_have_use_packets = (
-        bool(expected_stack_organ_services)
-        and not stack_organs_without_use_packets
-        and len(stack_organ_use_packets) == len(expected_stack_organ_services)
-        and all(self_awareness_stack_organ_use_packet_complete(packet) for packet in stack_organ_use_packets)
+    return self_awareness_activation_smoke_contracts.activation_smoke(
+        write_latest=write_latest,
+        stack_closure_dossier_doc=stack_closure_dossier_doc,
+        working_stack_doc=working_stack_doc,
+        paths=self_awareness_activation_smoke_paths(),
+        config=self_awareness_activation_smoke_config(),
+        runtime_port=self_awareness_activation_smoke_runtime_port(),
+        refresh_port=self_awareness_activation_smoke_refresh_port(),
+        contract_port=self_awareness_activation_smoke_contract_port(),
     )
-    failed_services = [str(row.get("service") or "unknown") for row in rows if not self_awareness_working_stack_activation_smoke_row_complete(row)]
-    service_ids = [str(row.get("service")) for row in rows if isinstance(row, dict) and row.get("service")]
-    selected_for_resident_reasoning = sorted(
-        str(row.get("service"))
-        for row in rows
-        if nested_get(row, ["stack_organ_use_packet", "movement_selection", "selected_for_resident_reasoning"]) is True
-    )
-    selected_for_episode = sorted(
-        str(row.get("service"))
-        for row in rows
-        if nested_get(row, ["stack_organ_use_packet", "movement_selection", "selected_for_episode"]) is True
-    )
-    movement_category_counts: dict[str, int] = {}
-    for row in rows:
-        categories = nested_get(row, ["stack_organ_use_packet", "movement_selection", "categories"])
-        for category in categories if isinstance(categories, list) else []:
-            key = str(category)
-            movement_category_counts[key] = movement_category_counts.get(key, 0) + 1
-    activation_gap_classifications = sorted({
-        str(nested_get(packet, ["activation_gap", "classification"]))
-        for packet in stack_organ_use_packets
-        if nested_get(packet, ["activation_gap", "classification"])
-    })
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1",
-        "version": VERSION,
-        "generated_at": generated_at,
-        "run_id": run_id,
-        "ok": bool(rows) and all_stack_organs_have_use_packets and not failed_services and set(service_ids) == set(expected_stack_organ_services),
-        "status": "complete" if bool(rows) and all_stack_organs_have_use_packets and not failed_services and set(service_ids) == set(expected_stack_organ_services) else "incomplete",
-        "summary": {
-            "activation_entries": len([entry for entry in activation_entries if isinstance(entry, dict) and entry.get("service")]),
-            "stack_organs_expected": len(expected_stack_organ_services),
-            "stack_organs_expected_services": expected_stack_organ_services,
-            "rows": len(rows),
-            "rows_ok": sum(1 for row in rows if self_awareness_working_stack_activation_smoke_row_complete(row)),
-            "actual_investigation_runs": sum(1 for row in rows if nested_get(row, ["investigation", "actual_run"]) is True),
-            "actual_replay_runs": sum(1 for row in rows if nested_get(row, ["replay", "actual_run"]) is True),
-            "stack_organ_use_packets": len(stack_organ_use_packets),
-            "stack_organ_use_packets_complete": sum(1 for packet in stack_organ_use_packets if self_awareness_stack_organ_use_packet_complete(packet)),
-            "stack_organ_use_packet_services": stack_organ_use_packet_services,
-            "stack_organs_without_use_packets": stack_organs_without_use_packets,
-            "all_stack_organs_have_use_packets": all_stack_organs_have_use_packets,
-            "selected_for_episode": selected_for_episode,
-            "selected_for_resident_reasoning": selected_for_resident_reasoning,
-            "movement_category_counts": movement_category_counts,
-            "activation_gap_classifications": activation_gap_classifications,
-            "divergences": sum(safe_int(nested_get(row, ["replay", "divergences"]), 0) for row in rows),
-            "failed_services": failed_services,
-            "service_ids": service_ids,
-            "open_activation_gaps": safe_int(nested_get(activation_dossier, ["summary", "open_activation_gaps"]), len(rows)),
-            "episode_identity_missing_before_refresh": episode_identity_missing_before_refresh,
-            "episodes_refreshed_for_identity": episodes_refreshed_for_identity,
-            "episode_identity_missing_after_refresh": episode_identity_missing_after_refresh,
-            "latest_artifact_overwrite_note": "investigate/latest.json and replay/latest.json contain the last row run; this matrix preserves every per-service thread and replay result.",
-        },
-        "rows": rows,
-        "by_service": by_service,
-        "stack_organ_use_packets": stack_organ_use_packets,
-        "stack_organ_use_packet_by_service": stack_organ_use_packet_by_service,
-        "compact_by_service": {
-            service: self_awareness_working_stack_activation_smoke_compact(row)
-            for service, row in by_service.items()
-        },
-        "activation_dossier_summary": activation_dossier.get("summary") if isinstance(activation_dossier.get("summary"), dict) else {},
-        "source_commands": {
-            "activation_smoke": "abyss-machine self-awareness activation-smoke --json",
-            "stack_closure_dossier": "abyss-machine self-awareness stack-closure-dossier --json",
-            "episodes": "abyss-machine self-awareness episodes --json",
-            "investigate": "abyss-machine self-awareness investigate --episode-id EPISODE_ID --json",
-            "replay": "abyss-machine self-awareness replay --thread-id THREAD_ID --json",
-        },
-        "evidence_refs": [
-            {"path": str(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH), "section": "working_stack_activation_dossier"},
-            {"path": str(SELF_AWARENESS_EPISODES_LATEST_PATH), "section": "working_stack_gap_episodes"},
-            *[
-                {"path": str(SELF_AWARENESS_INVESTIGATE_LATEST_PATH), "thread_id": nested_get(row, ["investigation", "thread_id"]), "service": row.get("service")}
-                for row in rows
-                if nested_get(row, ["investigation", "thread_id"])
-            ],
-            *[
-                {"path": str(SELF_AWARENESS_REPLAY_LATEST_PATH), "thread_id": nested_get(row, ["replay", "thread_id"]), "service": row.get("service")}
-                for row in rows
-                if nested_get(row, ["replay", "thread_id"])
-            ],
-        ],
-        "policy": {
-            "readmodel_smoke": True,
-            "per_service_actual_investigate_replay": True,
-            "read_only": True,
-            "handoff_only": True,
-            "host_layer_mutates_stack": False,
-            "writes_project_roots": False,
-            "executes_commands": False,
-            "action_execution": False,
-            "automatic_remediation": False,
-            "raw_secrets_included": False,
-            "raw_private_content_included": False,
-            "open_activation_gaps_are_unexhausted_potential_not_host_failures": True,
-        },
-    }
-    data["complete"] = self_awareness_working_stack_activation_smoke_complete(data)
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, SELF_AWARENESS_ACTIVATION_SMOKE_ROOT)
-        if errors:
-            data["ok"] = False
-            data["complete"] = False
-            data["write_errors"] = errors
-    return data
 
 
 def self_awareness_export_artifact_refs(exported: dict[str, Any], names: list[str]) -> dict[str, Any]:
