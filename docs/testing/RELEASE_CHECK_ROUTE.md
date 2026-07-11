@@ -388,6 +388,16 @@ single fixed six-document source/installed snapshot and may report only
 ok/completion/status and policy; never publish model paths, endpoints, metrics,
 candidates, or eval bodies.
 
+For self-awareness resident-cognitive contract changes, public CI should use
+synthetic completion-audit/context/episode/investigation/replay/export inputs
+plus fake latest, replay/export refresh, body-trace, worker-completion, and
+route-issue ports. It must constrain supplied-vs-latest reads, route context,
+bounded tools/hypotheses/contradictions, packet and checkpoint preservation,
+cycle refresh/no-refresh behavior, no-mutation policy, and CLI binding. Live
+closeout must compare fixed input snapshots and may report only completion
+booleans and overlay state; never publish cognitive packets, claims, evidence,
+endpoints, or paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.
