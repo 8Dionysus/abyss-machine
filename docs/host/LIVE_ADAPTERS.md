@@ -1681,6 +1681,19 @@ API as compatibility delegates. Public tests cover movement classification,
 episode identity, organ projection, and typed binding. Existing host-contract
 tests constrain the complete packet and activation-smoke behavior.
 
+## Extracted Self-Awareness Lineage Contracts
+
+`abyss_machine.self_awareness_lineage_contracts` owns the ordered end-to-end
+lineage specification, machine-owned artifact map, e2e proof and completion,
+and top-level cycle/probe/replay/response/export lineage packet and completion.
+Twenty-seven latest paths and schema/version configuration are typed inputs.
+Artifact references and the legacy path fallback use explicit exists/stat/file/
+hash runtime ports, so the contract module performs no hidden filesystem IO.
+The CLI preserves established helper signatures as binders. Public tests cover
+complete e2e proof assembly, port-driven path fallback, no-mutation policy, and
+typed binding; existing host-contract tests constrain cycle-bound lineage and
+broken-proof rejection.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1987,7 +2000,7 @@ machine evidence.
    `self_awareness_resident_cognitive_contracts`. Stack-organ movement,
    activation rows/use packets, and their completion/compact/refresh contracts
    now live in `self_awareness_activation_contracts`. Before declaring this
-   family closed, extract the remaining lineage/coverage centers, then classify
+   family closed, extract the remaining coverage center, then classify
    every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
    unextracted reusable center.
