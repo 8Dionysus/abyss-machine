@@ -172,7 +172,11 @@ Use these mechanic owners for the next extraction slices:
   `self_awareness_requirement_contracts` owns requirement acceptance,
   compatibility, negative controls, closure readiness, runbook, coverage
   impact, probe evaluation, readiness enrichment, and requirements persistence
-  through typed path/config/runtime/refresh/contract ports. The final
+  through typed path/config/runtime/refresh/contract ports;
+  `self_awareness_cognitive_contracts` owns bounded freshness/trace/context,
+  multimodal and LLM escalation detail, governance gates, investigation
+  recovery, and working-stack gap handoff contracts through typed paths,
+  policy config, and completion ports. The final
   residual CLI-edge classification and family completion audit remain.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc

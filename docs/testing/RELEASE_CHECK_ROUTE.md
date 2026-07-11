@@ -594,6 +594,17 @@ action-map binding, and latest/history persistence at the CLI edge. Live
 closeout must compare one fixed requirements/probes snapshot and report only
 schema, status, open/closed counts, readiness counts, and policy.
 
+For self-awareness cognitive contract changes, public CI should use synthetic
+freshness gates, trace fallback, capability details, resource/mode snapshots,
+bounded contexts, and working-stack usage-gap episodes plus fake completion
+ports. Cover bounded projections, stale/resource-denied memory handoff,
+multimodal non-promotion, review-only LLM escalation, governance readiness,
+failure recovery, gap handoff completeness, and no-mutation policy. Keep live
+latest reads, capabilities refresh, investigation execution, and persistence
+in their existing orchestration owners. Live closeout may compare one fixed
+capabilities/context/episode snapshot and report only schemas, completion,
+bounded counts, readiness status, and policy.
+
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate
