@@ -1,0 +1,55 @@
+{
+  "schema_version": "aoa-local-kag-record-v1",
+  "repo": "abyss-machine",
+  "local_id": "edge:abyss-machine:source-routes-to-contracts",
+  "record_class": "edge",
+  "source_refs": [
+    {
+      "repo": "abyss-machine",
+      "path": "README.md",
+      "source_class": "runtime_source",
+      "role": "owner_route",
+      "authority": "authored_source"
+    },
+    {
+      "repo": "abyss-machine",
+      "path": "manifests/repo_scaffold.manifest.json",
+      "source_class": "runtime_source",
+      "role": "supporting",
+      "authority": "authored_control"
+    }
+  ],
+  "source_owner": "abyss-machine",
+  "provenance_mode": "strict_source_linked",
+  "derived_method": "source-linked edge from the host source home to its public contracts",
+  "generated_or_authored": "generated_from_source",
+  "status": "active",
+  "owner_return_route": {
+    "repo": "abyss-machine",
+    "surface": "README.md",
+    "route_kind": "runtime"
+  },
+  "freshness": {
+    "mode": "source_snapshot",
+    "state": "current",
+    "checked_ref": "README.md"
+  },
+  "builder": {
+    "route": "abyss-machine source-fast validation",
+    "surface": "scripts/ci_gate.py"
+  },
+  "validator": {
+    "route": "python scripts/ci_gate.py --mode source-fast",
+    "lane": "source-fast"
+  },
+  "storage_posture": {
+    "git_surface": "portable_records",
+    "payload_class": "edge",
+    "runtime_route": "source-repo"
+  },
+  "consumer_route": "aoa-kag registry",
+  "from_id": "node:abyss-machine:host-source-home",
+  "to_id": "node:abyss-machine:host-contract-route",
+  "edge_kind": "routes_to",
+  "edge_trace": "README.md routes public host topology through the scaffold and ABI contract surfaces"
+}

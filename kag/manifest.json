@@ -1,0 +1,63 @@
+{
+  "schema_version": "aoa-local-kag-manifest-v1",
+  "repo": "abyss-machine",
+  "owner_surface": "kag/AGENTS.md",
+  "source_surfaces": [
+    {
+      "repo": "abyss-machine",
+      "path": "README.md",
+      "source_class": "runtime_source",
+      "role": "primary",
+      "authority": "authored_source"
+    },
+    {
+      "repo": "abyss-machine",
+      "path": "DESIGN.md",
+      "source_class": "runtime_source",
+      "role": "supporting",
+      "authority": "authored_source"
+    },
+    {
+      "repo": "abyss-machine",
+      "path": "manifests/repo_scaffold.manifest.json",
+      "source_class": "runtime_source",
+      "role": "supporting",
+      "authority": "authored_control"
+    },
+    {
+      "repo": "abyss-machine",
+      "path": "generated/contract_abi_signatures.min.json",
+      "source_class": "generated_readmodel",
+      "role": "supporting",
+      "authority": "source_owned_export"
+    }
+  ],
+  "record_classes": ["node", "edge", "index", "projection", "receipt"],
+  "storage_posture": {
+    "git_surface": "portable_records",
+    "payload_class": "manifest",
+    "runtime_route": "source-repo"
+  },
+  "validation_routes": [
+    {
+      "route": "python scripts/ci_gate.py --mode source-fast",
+      "lane": "owner-local"
+    },
+    {
+      "route": "aoa-kag:scripts/validate_kag.py",
+      "lane": "local-kag"
+    }
+  ],
+  "consumer_routes": [
+    "aoa-kag registry",
+    "abyss-stack runtime source bridge",
+    "aoa-kag-mcp resource"
+  ],
+  "owner_return_routes": [
+    {
+      "repo": "abyss-machine",
+      "surface": "README.md",
+      "route_kind": "runtime"
+    }
+  ]
+}
