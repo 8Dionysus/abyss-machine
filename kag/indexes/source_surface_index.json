@@ -63,7 +63,7 @@
     "command_count": 175,
     "document_count": 190,
     "generated_count": 6,
-    "heading_count": 988,
+    "heading_count": 991,
     "mechanics_count": 74,
     "record_count": 596,
     "schema_count": 8,
@@ -74,7 +74,7 @@
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "e17b2319720056ed2080f3507bb27d701abe7f2f83834a06e580360070885570",
+    "content_digest": "db01c6f21d847f733e782118c5d4a487083236541c8d0db7b0790a7ce8b4d06a",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -12223,13 +12223,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "23d906daff6221223dafdc541180dd9eac7d523b3016f7cdd28eb0c11028dc8d",
+        "content_hash": "7cc5eb7e53bf9005c61dadab0b4188cb682f9de35b7b13ed8658f792730c1e37",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/live_adapters.md:42934316d8",
         "mime": "text/markdown",
         "path": "docs/host/LIVE_ADAPTERS.md",
         "repo": "abyss-machine",
-        "size_bytes": 132434
+        "size_bytes": 133394
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -12440,413 +12440,427 @@
           {
             "anchor": "extracted-nervous-browser-content-store-at-spi-bidi-and-history-seam",
             "level": 2,
-            "line": 654,
+            "line": 655,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-browser-content-store-at-spi-bidi-and-history-seam",
             "title": "Extracted Nervous Browser-Content Store, AT-SPI, BiDi, And History Seam"
           },
           {
             "anchor": "extracted-nervous-rerank-execution-seam",
             "level": 2,
-            "line": 693,
+            "line": 694,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-rerank-execution-seam",
             "title": "Extracted Nervous Rerank Execution Seam"
           },
           {
             "anchor": "extracted-nervous-retrievalrerank-live-search-seam",
             "level": 2,
-            "line": 715,
+            "line": 716,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-retrievalrerank-live-search-seam",
             "title": "Extracted Nervous Retrieval/Rerank Live Search Seam"
           },
           {
             "anchor": "extracted-nervous-synthesiseval-file-seam",
             "level": 2,
-            "line": 741,
+            "line": 742,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-synthesiseval-file-seam",
             "title": "Extracted Nervous Synthesis/Eval File Seam"
           },
           {
             "anchor": "extracted-nervous-quality-audit-seam",
             "level": 2,
-            "line": 764,
+            "line": 765,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-quality-audit-seam",
             "title": "Extracted Nervous Quality Audit Seam"
           },
           {
             "anchor": "extracted-ai-runtime-discovery-stt-fixture-openvino-runner-and-tts-client-seam",
             "level": 2,
-            "line": 785,
+            "line": 786,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-ai-runtime-discovery-stt-fixture-openvino-runner-and-tts-client-seam",
             "title": "Extracted AI Runtime Discovery, STT Fixture, OpenVINO Runner, And TTS Client Seam"
           },
           {
             "anchor": "extracted-dictation-execution-runtime-seam",
             "level": 2,
-            "line": 887,
+            "line": 888,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-dictation-execution-runtime-seam",
             "title": "Extracted Dictation Execution Runtime Seam"
           },
           {
             "anchor": "extracted-host-lifecycle-parity-summary",
             "level": 2,
-            "line": 1006,
+            "line": 1007,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-host-lifecycle-parity-summary",
             "title": "Extracted Host Lifecycle Parity Summary"
           },
           {
             "anchor": "extracted-doctor-validate-probe-seam",
             "level": 2,
-            "line": 1034,
+            "line": 1035,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-validate-probe-seam",
             "title": "Extracted Doctor Validate Probe Seam"
           },
           {
             "anchor": "extracted-doctor-core-status-probe-seam",
             "level": 2,
-            "line": 1051,
+            "line": 1053,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-core-status-probe-seam",
             "title": "Extracted Doctor Core Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-powercooling-status-probe-seam",
             "level": 2,
-            "line": 1069,
+            "line": 1071,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-powercooling-status-probe-seam",
             "title": "Extracted Doctor Power/Cooling Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-storageprocess-status-probe-seam",
             "level": 2,
-            "line": 1084,
+            "line": 1086,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-storageprocess-status-probe-seam",
             "title": "Extracted Doctor Storage/Process Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-snapshotobservability-status-probe-seam",
             "level": 2,
-            "line": 1099,
+            "line": 1101,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-snapshotobservability-status-probe-seam",
             "title": "Extracted Doctor Snapshot/Observability Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-dictation-status-probe-seam",
             "level": 2,
-            "line": 1114,
+            "line": 1116,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-dictation-status-probe-seam",
             "title": "Extracted Doctor Dictation Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-airuntime-status-probe-seam",
             "level": 2,
-            "line": 1131,
+            "line": 1133,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-airuntime-status-probe-seam",
             "title": "Extracted Doctor AI/Runtime Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-report-io-seam",
             "level": 2,
-            "line": 1149,
+            "line": 1151,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-report-io-seam",
             "title": "Extracted Doctor Report IO Seam"
           },
           {
             "anchor": "extracted-doctor-machine-report-input-seam",
             "level": 2,
-            "line": 1164,
+            "line": 1166,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-machine-report-input-seam",
             "title": "Extracted Doctor Machine Report Input Seam"
           },
           {
             "anchor": "extracted-doctor-safe-repair-orchestration-seam",
             "level": 2,
-            "line": 1182,
+            "line": 1184,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-safe-repair-orchestration-seam",
             "title": "Extracted Doctor Safe Repair Orchestration Seam"
           },
           {
             "anchor": "extracted-self-awareness-event-foundation",
             "level": 2,
-            "line": 1202,
+            "line": 1204,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-event-foundation",
             "title": "Extracted Self-Awareness Event Foundation"
           },
           {
             "anchor": "extracted-self-awareness-capabilities-seam",
             "level": 2,
-            "line": 1216,
+            "line": 1218,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-capabilities-seam",
             "title": "Extracted Self-Awareness Capabilities Seam"
           },
           {
             "anchor": "extracted-self-awareness-status-seam",
             "level": 2,
-            "line": 1243,
+            "line": 1245,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-status-seam",
             "title": "Extracted Self-Awareness Status Seam"
           },
           {
             "anchor": "extracted-self-awareness-export-seam",
             "level": 2,
-            "line": 1264,
+            "line": 1266,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-export-seam",
             "title": "Extracted Self-Awareness Export Seam"
           },
           {
             "anchor": "extracted-self-awareness-export-stack-handoff-contract",
             "level": 2,
-            "line": 1294,
+            "line": 1296,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-export-stack-handoff-contract",
             "title": "Extracted Self-Awareness Export Stack-Handoff Contract"
           },
           {
             "anchor": "extracted-self-awareness-completion-contract-core",
             "level": 2,
-            "line": 1317,
+            "line": 1319,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-contract-core",
             "title": "Extracted Self-Awareness Completion Contract Core"
           },
           {
             "anchor": "extracted-self-awareness-completion-graph-contract",
             "level": 2,
-            "line": 1346,
+            "line": 1348,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-graph-contract",
             "title": "Extracted Self-Awareness Completion Graph Contract"
           },
           {
             "anchor": "extracted-self-awareness-completion-document-contract",
             "level": 2,
-            "line": 1375,
+            "line": 1377,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-document-contract",
             "title": "Extracted Self-Awareness Completion Document Contract"
           },
           {
             "anchor": "extracted-self-awareness-completion-audit-orchestration",
             "level": 2,
-            "line": 1399,
+            "line": 1401,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-audit-orchestration",
             "title": "Extracted Self-Awareness Completion Audit Orchestration"
           },
           {
             "anchor": "extracted-self-awareness-validation-intake-seam",
             "level": 2,
-            "line": 1421,
+            "line": 1423,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-validation-intake-seam",
             "title": "Extracted Self-Awareness Validation Intake Seam"
           },
           {
             "anchor": "extracted-self-awareness-validation-contract-center",
             "level": 2,
-            "line": 1445,
+            "line": 1447,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-validation-contract-center",
             "title": "Extracted Self-Awareness Validation Contract Center"
           },
           {
             "anchor": "extracted-self-awareness-causal-readmodel-pipelines",
             "level": 2,
-            "line": 1472,
+            "line": 1474,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-causal-readmodel-pipelines",
             "title": "Extracted Self-Awareness Causal Readmodel Pipelines"
           },
           {
             "anchor": "extracted-self-awareness-causal-overlay-contracts",
             "level": 2,
-            "line": 1496,
+            "line": 1498,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-causal-overlay-contracts",
             "title": "Extracted Self-Awareness Causal Overlay Contracts"
           },
           {
             "anchor": "extracted-self-awareness-query-and-correlation-readmodels",
             "level": 2,
-            "line": 1519,
+            "line": 1521,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-query-and-correlation-readmodels",
             "title": "Extracted Self-Awareness Query And Correlation Readmodels"
           },
           {
             "anchor": "extracted-self-awareness-trace-context-fallback-pipeline",
             "level": 2,
-            "line": 1543,
+            "line": 1545,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-trace-context-fallback-pipeline",
             "title": "Extracted Self-Awareness Trace-Context Fallback Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-episode-body-trace-contracts",
             "level": 2,
-            "line": 1566,
+            "line": 1568,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-episode-body-trace-contracts",
             "title": "Extracted Self-Awareness Episode Body Trace Contracts"
           },
           {
             "anchor": "extracted-self-awareness-episode-response-contracts",
             "level": 2,
-            "line": 1587,
+            "line": 1589,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-episode-response-contracts",
             "title": "Extracted Self-Awareness Episode Response Contracts"
           },
           {
             "anchor": "extracted-self-awareness-alert-pipeline",
             "level": 2,
-            "line": 1610,
+            "line": 1612,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-alert-pipeline",
             "title": "Extracted Self-Awareness Alert Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-brief-pipeline",
             "level": 2,
-            "line": 1632,
+            "line": 1634,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-brief-pipeline",
             "title": "Extracted Self-Awareness Brief Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-resident-worker-contract",
             "level": 2,
-            "line": 1652,
+            "line": 1654,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-resident-worker-contract",
             "title": "Extracted Self-Awareness Resident Worker Contract"
           },
           {
             "anchor": "extracted-self-awareness-resident-cognitive-contracts",
             "level": 2,
-            "line": 1665,
+            "line": 1667,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-resident-cognitive-contracts",
             "title": "Extracted Self-Awareness Resident Cognitive Contracts"
           },
           {
             "anchor": "extracted-self-awareness-activation-smoke-pipeline",
             "level": 2,
-            "line": 1682,
+            "line": 1684,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-activation-smoke-pipeline",
             "title": "Extracted Self-Awareness Activation Smoke Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-autolink-orchestration",
             "level": 2,
-            "line": 1695,
+            "line": 1697,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-autolink-orchestration",
             "title": "Extracted Self-Awareness Autolink Orchestration"
           },
           {
             "anchor": "extracted-self-awareness-activation-contracts",
             "level": 2,
-            "line": 1712,
+            "line": 1714,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-activation-contracts",
             "title": "Extracted Self-Awareness Activation Contracts"
           },
           {
             "anchor": "extracted-self-awareness-lineage-contracts",
             "level": 2,
-            "line": 1725,
+            "line": 1727,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-lineage-contracts",
             "title": "Extracted Self-Awareness Lineage Contracts"
           },
           {
             "anchor": "extracted-self-awareness-coverage-pipeline",
             "level": 2,
-            "line": 1738,
+            "line": 1740,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-coverage-pipeline",
             "title": "Extracted Self-Awareness Coverage Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-requirement-contracts",
             "level": 2,
-            "line": 1753,
+            "line": 1755,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-requirement-contracts",
             "title": "Extracted Self-Awareness Requirement Contracts"
           },
           {
             "anchor": "extracted-self-awareness-cognitive-contracts",
             "level": 2,
-            "line": 1770,
+            "line": 1772,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cognitive-contracts",
             "title": "Extracted Self-Awareness Cognitive Contracts"
           },
           {
             "anchor": "extracted-self-awareness-entity-context-contracts",
             "level": 2,
-            "line": 1786,
+            "line": 1788,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-entity-context-contracts",
             "title": "Extracted Self-Awareness Entity Context Contracts"
           },
           {
             "anchor": "extracted-self-awareness-cycle-proof-contracts",
             "level": 2,
-            "line": 1800,
+            "line": 1802,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cycle-proof-contracts",
             "title": "Extracted Self-Awareness Cycle Proof Contracts"
           },
           {
             "anchor": "extracted-self-awareness-stack-closure-pipelines",
             "level": 2,
-            "line": 1813,
+            "line": 1815,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-stack-closure-pipelines",
             "title": "Extracted Self-Awareness Stack Closure Pipelines"
           },
           {
             "anchor": "extracted-self-awareness-stack-probe-runtime",
             "level": 2,
-            "line": 1834,
+            "line": 1836,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-stack-probe-runtime",
             "title": "Extracted Self-Awareness Stack Probe Runtime"
           },
           {
             "anchor": "extracted-self-awareness-failure-matrix",
             "level": 2,
-            "line": 1857,
+            "line": 1859,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-failure-matrix",
             "title": "Extracted Self-Awareness Failure Matrix"
           },
           {
             "anchor": "extracted-self-awareness-systemd-observation-seam",
             "level": 2,
-            "line": 1879,
+            "line": 1881,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-systemd-observation-seam",
             "title": "Extracted Self-Awareness Systemd Observation Seam"
           },
           {
             "anchor": "extracted-self-awareness-collect-seams",
             "level": 2,
-            "line": 1899,
+            "line": 1901,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-collect-seams",
             "title": "Extracted Self-Awareness Collect Seams"
           },
           {
             "anchor": "extracted-self-awareness-investigation-seam",
             "level": 2,
-            "line": 1932,
+            "line": 1934,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-investigation-seam",
             "title": "Extracted Self-Awareness Investigation Seam"
           },
           {
             "anchor": "extracted-self-awareness-replay-seam",
             "level": 2,
-            "line": 1963,
+            "line": 1965,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-replay-seam",
             "title": "Extracted Self-Awareness Replay Seam"
           },
           {
             "anchor": "extracted-self-awareness-probe-seam",
             "level": 2,
-            "line": 1984,
+            "line": 1986,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-probe-seam",
             "title": "Extracted Self-Awareness Probe Seam"
           },
           {
             "anchor": "extracted-self-awareness-cycle-seam",
             "level": 2,
-            "line": 2017,
+            "line": 2019,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cycle-seam",
             "title": "Extracted Self-Awareness Cycle Seam"
           },
           {
-            "anchor": "next-extraction-order",
+            "anchor": "goal-family-completion-audit",
             "level": 2,
-            "line": 2048,
-            "ref": "docs/host/LIVE_ADAPTERS.md#next-extraction-order",
-            "title": "Next Extraction Order"
+            "line": 2050,
+            "ref": "docs/host/LIVE_ADAPTERS.md#goal-family-completion-audit",
+            "title": "Goal-Family Completion Audit"
+          },
+          {
+            "anchor": "remaining-self-awareness-cli-edge-classification",
+            "level": 2,
+            "line": 2082,
+            "ref": "docs/host/LIVE_ADAPTERS.md#remaining-self-awareness-cli-edge-classification",
+            "title": "Remaining Self-Awareness CLI Edge Classification"
+          },
+          {
+            "anchor": "post-goal-extension-rule",
+            "level": 2,
+            "line": 2103,
+            "ref": "docs/host/LIVE_ADAPTERS.md#post-goal-extension-rule",
+            "title": "Post-Goal Extension Rule"
           },
           {
             "anchor": "stop-lines",
             "level": 2,
-            "line": 2141,
+            "line": 2113,
             "ref": "docs/host/LIVE_ADAPTERS.md#stop-lines",
             "title": "Stop Lines"
           }
@@ -12858,7 +12872,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "23d906daff6221223dafdc541180dd9eac7d523b3016f7cdd28eb0c11028dc8d",
+        "digest": "7cc5eb7e53bf9005c61dadab0b4188cb682f9de35b7b13ed8658f792730c1e37",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13001,13 +13015,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "3287555282f0e6438f335bfc21e77659a452e8734036318738874507455f443a",
+        "content_hash": "ae8b2a95a6563640b13970fb74ea06be4b9552230cb6034f4e4ff5d5feb8b816",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/subsystem_commands.md:c005361b7c",
         "mime": "text/markdown",
         "path": "docs/host/SUBSYSTEM_COMMANDS.md",
         "repo": "abyss-machine",
-        "size_bytes": 70424
+        "size_bytes": 68960
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13050,21 +13064,21 @@
           {
             "anchor": "full-cli-surface-audit",
             "level": 2,
-            "line": 76,
+            "line": 83,
             "ref": "docs/host/SUBSYSTEM_COMMANDS.md#full-cli-surface-audit",
             "title": "Full CLI Surface Audit"
           },
           {
             "anchor": "stop-lines",
             "level": 2,
-            "line": 108,
+            "line": 115,
             "ref": "docs/host/SUBSYSTEM_COMMANDS.md#stop-lines",
             "title": "Stop Lines"
           },
           {
             "anchor": "future-update-rule",
             "level": 2,
-            "line": 116,
+            "line": 123,
             "ref": "docs/host/SUBSYSTEM_COMMANDS.md#future-update-rule",
             "title": "Future Update Rule"
           }
@@ -13076,7 +13090,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "3287555282f0e6438f335bfc21e77659a452e8734036318738874507455f443a",
+        "digest": "ae8b2a95a6563640b13970fb74ea06be4b9552230cb6034f4e4ff5d5feb8b816",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13757,13 +13771,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "56ab3c557f166ddf84f4ec4d54478c63dc19d7495d131a0d2f6e9b535d0d75b5",
+        "content_hash": "11bde931087f24ffa5a0c06744705f27df9e2a818d7124fec3e5330d9611b56d",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/testing/release_check_route.md:89abf65538",
         "mime": "text/markdown",
         "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
         "repo": "abyss-machine",
-        "size_bytes": 62983
+        "size_bytes": 63779
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13804,30 +13818,37 @@
             "title": "Public-Safe Gates"
           },
           {
-            "anchor": "bootstrap-dry-runs",
+            "anchor": "live-adapter-goal-closeout",
             "level": 2,
             "line": 22,
+            "ref": "docs/testing/RELEASE_CHECK_ROUTE.md#live-adapter-goal-closeout",
+            "title": "Live-Adapter Goal Closeout"
+          },
+          {
+            "anchor": "bootstrap-dry-runs",
+            "level": 2,
+            "line": 37,
             "ref": "docs/testing/RELEASE_CHECK_ROUTE.md#bootstrap-dry-runs",
             "title": "Bootstrap Dry-Runs"
           },
           {
             "anchor": "secret-and-path-scans",
             "level": 2,
-            "line": 32,
+            "line": 47,
             "ref": "docs/testing/RELEASE_CHECK_ROUTE.md#secret-and-path-scans",
             "title": "Secret And Path Scans"
           },
           {
             "anchor": "sourceinstallruntime-parity",
             "level": 2,
-            "line": 45,
+            "line": 60,
             "ref": "docs/testing/RELEASE_CHECK_ROUTE.md#sourceinstallruntime-parity",
             "title": "Source/Install/Runtime Parity"
           },
           {
             "anchor": "completion-rule",
             "level": 2,
-            "line": 997,
+            "line": 1012,
             "ref": "docs/testing/RELEASE_CHECK_ROUTE.md#completion-rule",
             "title": "Completion Rule"
           }
@@ -13839,7 +13860,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "56ab3c557f166ddf84f4ec4d54478c63dc19d7495d131a0d2f6e9b535d0d75b5",
+        "digest": "11bde931087f24ffa5a0c06744705f27df9e2a818d7124fec3e5330d9611b56d",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -17286,13 +17307,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "c6ff4fda67bce84e2f69a9ae16d1713e7abc357e589abb510bc6f9c269c47805",
+        "content_hash": "fdbc4a68d15b80f4e398072a133bd0180a96f625b7a98d88dc26f4f3851ac107",
         "git_ref": "git-index-source-tree",
         "id": "file:mechanics/readme.md:c091f898d3",
         "mime": "text/markdown",
         "path": "mechanics/README.md",
         "repo": "abyss-machine",
-        "size_bytes": 15273
+        "size_bytes": 15699
       },
       "mechanics_role": "mechanic_package",
       "observed_form": "file",
@@ -17340,7 +17361,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "c6ff4fda67bce84e2f69a9ae16d1713e7abc357e589abb510bc6f9c269c47805",
+        "digest": "fdbc4a68d15b80f4e398072a133bd0180a96f625b7a98d88dc26f4f3851ac107",
         "signature_ref": "",
         "verification_state": "digest-only"
       },

@@ -730,7 +730,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "23d906daff6221223dafdc541180dd9eac7d523b3016f7cdd28eb0c11028dc8d",
+      "content_hash": "7cc5eb7e53bf9005c61dadab0b4188cb682f9de35b7b13ed8658f792730c1e37",
       "id": "artifact:file:docs/host/live_adapters.md:42934316d8",
       "path": "docs/host/LIVE_ADAPTERS.md",
       "source_record_id": "file:docs/host/live_adapters.md:42934316d8",
@@ -746,7 +746,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "3287555282f0e6438f335bfc21e77659a452e8734036318738874507455f443a",
+      "content_hash": "ae8b2a95a6563640b13970fb74ea06be4b9552230cb6034f4e4ff5d5feb8b816",
       "id": "artifact:file:docs/host/subsystem_commands.md:c005361b7c",
       "path": "docs/host/SUBSYSTEM_COMMANDS.md",
       "source_record_id": "file:docs/host/subsystem_commands.md:c005361b7c",
@@ -802,7 +802,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "56ab3c557f166ddf84f4ec4d54478c63dc19d7495d131a0d2f6e9b535d0d75b5",
+      "content_hash": "11bde931087f24ffa5a0c06744705f27df9e2a818d7124fec3e5330d9611b56d",
       "id": "artifact:file:docs/testing/release_check_route.md:89abf65538",
       "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
       "source_record_id": "file:docs/testing/release_check_route.md:89abf65538",
@@ -1098,7 +1098,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "c6ff4fda67bce84e2f69a9ae16d1713e7abc357e589abb510bc6f9c269c47805",
+      "content_hash": "fdbc4a68d15b80f4e398072a133bd0180a96f625b7a98d88dc26f4f3851ac107",
       "id": "artifact:file:mechanics/readme.md:c091f898d3",
       "path": "mechanics/README.md",
       "source_record_id": "file:mechanics/readme.md:c091f898d3",
@@ -4771,7 +4771,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "fe2b6ceae862d8e549f577c053dcb57a995f47fc840a4ea2915d6fcb48535ef0",
+    "content_digest": "0f28dd4301924c87ba9cfc7f671f62ffa8e2f5d0ad4a1eedf57f46426df1e540",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4795,7 +4795,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "e17b2319720056ed2080f3507bb27d701abe7f2f83834a06e580360070885570",
+    "content_digest": "db01c6f21d847f733e782118c5d4a487083236541c8d0db7b0790a7ce8b4d06a",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
