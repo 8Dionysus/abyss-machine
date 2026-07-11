@@ -199,6 +199,14 @@ capability/available counts, required-missing IDs, matrix counts, coverage
 booleans, history delta, and write-error count. Do not publish raw capability
 documents, endpoint bodies, model inventories, or private latest paths.
 
+For self-awareness event-foundation changes, public CI should use synthetic
+observation events, explicit clocks, host identity, and investigate/replay
+latest paths. It must constrain stable dedupe order, time/service/container/
+context/owner/source indexes, checkpoint trace links, bounded run IDs, event
+redaction, fabric completeness, and no-mutation policy. Keep concrete event
+latest reads and collect refresh at the CLI edge; do not run live collect or
+investigation merely to prove these contracts.
+
 For self-awareness status orchestration changes, public CI should rely on
 synthetic latest-reader, body-closure, activation-gap-route, and paths ports for
 canonical load order, complete/watch/degraded transitions, missing-latest

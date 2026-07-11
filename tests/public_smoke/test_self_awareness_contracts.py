@@ -141,6 +141,140 @@ def test_event_contract_redacts_and_rejects_unbounded_labels() -> None:
     assert "protected_write_claim" in issues
 
 
+def test_event_foundation_dedupes_and_builds_deterministic_correlation_index() -> None:
+    first = self_awareness_contracts.make_event(
+        "log",
+        "loki",
+        event_time="2026-07-11T08:02:00Z",
+        observed_at="2026-07-11T08:02:01Z",
+        resource={
+            "service": "route-api",
+            "container": "route-api",
+            "owner_surface": "abyss-stack",
+        },
+        context={"trace_id": "a" * 32, "thread_id": "thread-1"},
+        evidence_refs=[{"fixture": "first"}],
+        host="synthetic-host",
+    )
+    second = self_awareness_contracts.make_event(
+        "metric",
+        "prometheus",
+        event_time="2026-07-11T08:04:00Z",
+        observed_at="2026-07-11T08:04:01Z",
+        resource={
+            "service": "route-api",
+            "container": "route-api",
+            "owner_surface": "abyss-stack",
+        },
+        context={"trace_id": "a" * 32, "thread_id": "thread-1"},
+        evidence_refs=[{"fixture": "second"}],
+        host="synthetic-host",
+    )
+
+    events = self_awareness_contracts.dedupe_events([first, first, second])
+    index = self_awareness_contracts.correlation_index(
+        events,
+        generated_at="2026-07-11T08:05:00Z",
+        schema_prefix="abyss_machine",
+        version="test",
+    )
+
+    assert events == [first, second]
+    assert index["generated_at"] == "2026-07-11T08:05:00Z"
+    assert index["indexes"]["by_time_bucket"]["2026-07-11T08:00:00Z"] == [
+        first["event_id"],
+        second["event_id"],
+    ]
+    assert index["indexes"]["by_context"][f"trace_id:{'a' * 32}"] == [
+        first["event_id"],
+        second["event_id"],
+    ]
+
+
+def test_checkpoint_observation_events_use_explicit_host_paths_and_clock(
+    tmp_path: Path,
+) -> None:
+    generated_at = "2026-07-11T08:05:00Z"
+    investigate_path = tmp_path / "investigate" / "latest.json"
+    replay_path = tmp_path / "replay" / "latest.json"
+    investigation = {
+        "schema": "abyss_machine_self_awareness_investigation_v1",
+        "generated_at": "2026-07-11T08:03:00Z",
+        "ok": True,
+        "thread_id": "thread-1",
+        "query": "saprobe-fixture",
+        "graph": {
+            "nodes": ["plan_queries"],
+            "resume": {"latest_checkpoint_id": "checkpoint-1"},
+        },
+        "checkpoints": [{"checkpoint_id": "checkpoint-1"}],
+        "summary": {"checkpoints": 1},
+    }
+    replay = {
+        "schema": "abyss_machine_self_awareness_replay_v1",
+        "generated_at": "2026-07-11T08:04:00Z",
+        "ok": True,
+        "thread_id": "thread-1",
+        "summary": {"node_order": ["plan_queries"]},
+    }
+
+    events = self_awareness_contracts.checkpoint_observation_events(
+        investigation,
+        replay,
+        generated_at,
+        investigate_latest_path=investigate_path,
+        replay_latest_path=replay_path,
+        host="synthetic-host",
+        now=lambda: generated_at,
+        schema_prefix="abyss_machine",
+    )
+
+    assert len(events) == 2
+    assert {event["resource"]["path"] for event in events} == {
+        str(investigate_path),
+        str(replay_path),
+    }
+    assert {event["fabric"]["spatial"]["host"] for event in events} == {
+        "synthetic-host"
+    }
+    assert all(event["observed_at"] == generated_at for event in events)
+    assert all(event["context"]["synthetic_run_id"] == "saprobe-fixture" for event in events)
+    assert all(self_awareness_contracts.event_issues(event) == [] for event in events)
+
+
+def test_cli_event_foundation_wrappers_bind_current_runtime(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import cli
+
+    generated_at = "2026-07-11T08:05:00Z"
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli.platform, "node", lambda: "synthetic-host")
+    monkeypatch.setattr(
+        cli, "SELF_AWARENESS_INVESTIGATE_LATEST_PATH", tmp_path / "investigate.json"
+    )
+    monkeypatch.setattr(
+        cli, "SELF_AWARENESS_REPLAY_LATEST_PATH", tmp_path / "replay.json"
+    )
+    event = self_awareness_contracts.make_event(
+        "metric",
+        "prometheus",
+        event_time="2026-07-11T08:02:00Z",
+        observed_at="2026-07-11T08:02:01Z",
+        resource={"service": "route-api"},
+        context={"trace_id": "b" * 32},
+        evidence_refs=[{"fixture": "event"}],
+    )
+
+    assert cli.self_awareness_dedupe_events([event, event]) == [event]
+    index = cli.self_awareness_correlation_index([event])
+    assert index == self_awareness_contracts.correlation_index(
+        [event],
+        generated_at=generated_at,
+        schema_prefix=cli.SCHEMA_PREFIX,
+        version=cli.VERSION,
+    )
+    assert cli.self_awareness_checkpoint_observation_events({}, {}, generated_at) == []
+
+
 def test_query_time_and_probe_helpers_are_bounded() -> None:
     assert self_awareness_contracts.query_terms("latest RAG graph freshness") == [
         "rag",

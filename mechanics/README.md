@@ -49,7 +49,9 @@ Use these mechanic owners for the next extraction slices:
   prove the host layer is healthy without publishing private state.
 - `self-awareness`: latest surface specs, fakeable latest load dispatch,
   latest artifact-ref filesystem ports, artifact evidence-ref stat projection,
-  freshness-gate readmodel assembly, complete capabilities stack/container/
+  freshness-gate readmodel assembly, event dedupe/correlation-index/checkpoint-
+  observation contracts with explicit clock/host/path inputs, complete
+  capabilities stack/container/
   HTTP/AI/RAG/nervous/latest-read orchestration, capability and requirement
   readmodel assembly, ordered requirements/capabilities persistence, complete
   status latest/body/open-potential/open-requirement readmodel orchestration,

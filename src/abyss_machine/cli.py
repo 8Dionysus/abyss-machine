@@ -431,7 +431,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     )
 
 
-VERSION = "0.8.87"
+VERSION = "0.8.88"
 SCHEMA_PREFIX = "abyss_machine"
 PATH_POLICY = DEFAULT_PATH_POLICY
 MANIFEST_PATH = PATH_POLICY.etc_file("bridge.json")
@@ -34587,74 +34587,16 @@ def self_awareness_stack_handoff_time_space_overlay(
 
 
 def self_awareness_dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[str] = set()
-    result: list[dict[str, Any]] = []
-    for event in events:
-        event_id = str(event.get("event_id") or stable_hash_json(event, length=24))
-        if event_id in seen:
-            continue
-        seen.add(event_id)
-        result.append(event)
-    return result
+    return self_awareness_contracts.dedupe_events(events)
 
 
 def self_awareness_correlation_index(events: list[dict[str, Any]]) -> dict[str, Any]:
-    indexes: dict[str, dict[str, list[str]]] = {
-        "by_time_bucket": {},
-        "by_service": {},
-        "by_container": {},
-        "by_context": {},
-        "by_alert_fingerprint": {},
-        "by_owner_surface": {},
-        "by_source": {},
-        "by_synthetic_run": {},
-    }
-
-    def add(index_name: str, key: Any, event_id: str) -> None:
-        if key in (None, ""):
-            return
-        indexes[index_name].setdefault(str(key), []).append(event_id)
-
-    for event in events:
-        event_id = str(event.get("event_id") or "")
-        resource = event.get("resource") if isinstance(event.get("resource"), dict) else {}
-        context = event.get("context") if isinstance(event.get("context"), dict) else {}
-        space = event.get("space") if isinstance(event.get("space"), dict) else {}
-        add("by_time_bucket", self_awareness_time_bucket(event.get("event_time")), event_id)
-        add("by_service", resource.get("service") or resource.get("job"), event_id)
-        add("by_container", resource.get("container"), event_id)
-        add("by_owner_surface", resource.get("owner_surface") or space.get("owner_surface"), event_id)
-        add("by_source", event.get("source"), event_id)
-        for key in (
-            "trace_id",
-            "request_id",
-            "session_id",
-            "task_id",
-            "goal_id",
-            "traceparent",
-            "thread_id",
-            "checkpoint_id",
-            "run_id",
-            "synthetic_run_id",
-            "working_stack_link_id",
-            "movement_packet_id",
-            "scheduler_unit",
-            "scheduler_scope",
-            "scheduler_category",
-            "host_service_unit",
-            "host_service_scope",
-            "host_service_category",
-        ):
-            add("by_context", f"{key}:{context.get(key)}" if context.get(key) else None, event_id)
-        add("by_alert_fingerprint", resource.get("alert_fingerprint") or context.get("alert_fingerprint"), event_id)
-        add("by_synthetic_run", context.get("synthetic_run_id"), event_id)
-    return {
-        "schema": f"{SCHEMA_PREFIX}_self_awareness_correlation_index_v1",
-        "version": VERSION,
-        "generated_at": now_iso(),
-        "indexes": indexes,
-        "summary": {key: len(value) for key, value in indexes.items()},
-    }
+    return self_awareness_contracts.correlation_index(
+        events,
+        generated_at=now_iso(),
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
 
 
 def self_awareness_load_events(refresh: bool = True) -> list[dict[str, Any]]:
@@ -34671,96 +34613,16 @@ def self_awareness_checkpoint_observation_events(
     replay: dict[str, Any],
     generated_at: str,
 ) -> list[dict[str, Any]]:
-    if not isinstance(investigation, dict):
-        investigation = {}
-    if not isinstance(replay, dict):
-        replay = {}
-    checkpoints = [item for item in investigation.get("checkpoints", []) if isinstance(item, dict)]
-    thread_id = str(investigation.get("thread_id") or replay.get("thread_id") or "")
-    latest_checkpoint = checkpoints[-1] if checkpoints else {}
-    latest_checkpoint_id = str(
-        latest_checkpoint.get("checkpoint_id")
-        or nested_get(investigation, ["graph", "resume", "latest_checkpoint_id"])
-        or nested_get(replay, ["resume", "latest_checkpoint_id"])
-        or ""
+    return self_awareness_contracts.checkpoint_observation_events(
+        investigation,
+        replay,
+        generated_at,
+        investigate_latest_path=SELF_AWARENESS_INVESTIGATE_LATEST_PATH,
+        replay_latest_path=SELF_AWARENESS_REPLAY_LATEST_PATH,
+        host=platform.node(),
+        now=now_iso,
+        schema_prefix=SCHEMA_PREFIX,
     )
-    if not thread_id or not latest_checkpoint_id:
-        return []
-
-    context = {"thread_id": thread_id, "checkpoint_id": latest_checkpoint_id}
-    query_text = str(investigation.get("query") or "")
-    if re.fullmatch(r"[A-Za-z0-9_.:-]{2,80}", query_text):
-        context["run_id"] = query_text
-        if query_text.startswith("saprobe-"):
-            context["synthetic_run_id"] = query_text
-
-    graph_nodes = nested_get(investigation, ["graph", "nodes"])
-    if not isinstance(graph_nodes, list):
-        graph_nodes = []
-    replay_node_order = nested_get(replay, ["summary", "node_order"])
-    if not isinstance(replay_node_order, list):
-        replay_node_order = []
-
-    events = [
-        self_awareness_make_event(
-            "validation",
-            "graph",
-            event_time=str(investigation.get("generated_at") or generated_at),
-            source_query=str(SELF_AWARENESS_INVESTIGATE_LATEST_PATH),
-            resource={
-                "service": "self-awareness-investigate",
-                "owner_surface": "abyss-machine",
-                "path": str(SELF_AWARENESS_INVESTIGATE_LATEST_PATH),
-                "thread_id": thread_id,
-                "checkpoint_id": latest_checkpoint_id,
-                "write": False,
-            },
-            context=context,
-            space={"host": platform.node(), "owner_surface": "abyss-machine", "route": "self-awareness/investigate", "path": str(SELF_AWARENESS_INVESTIGATE_LATEST_PATH)},
-            severity="info" if investigation.get("ok") else "warning",
-            confidence={"score": 0.9 if investigation.get("ok") else 0.58, "reason": "Machine-owned checkpointed investigation readmodel"},
-            body={
-                "schema": investigation.get("schema"),
-                "ok": investigation.get("ok"),
-                "thread_id": thread_id,
-                "latest_checkpoint_id": latest_checkpoint_id,
-                "checkpoints": len(checkpoints),
-                "graph_nodes": graph_nodes,
-                "summary": investigation.get("summary"),
-            },
-            evidence_refs=[{"path": str(SELF_AWARENESS_INVESTIGATE_LATEST_PATH), "schema": investigation.get("schema"), "thread_id": thread_id, "checkpoint_id": latest_checkpoint_id}],
-            truth_level="checkpointed_langgraph_investigation",
-        ),
-        self_awareness_make_event(
-            "validation",
-            "graph",
-            event_time=str(replay.get("generated_at") or generated_at),
-            source_query=str(SELF_AWARENESS_REPLAY_LATEST_PATH),
-            resource={
-                "service": "self-awareness-replay",
-                "owner_surface": "abyss-machine",
-                "path": str(SELF_AWARENESS_REPLAY_LATEST_PATH),
-                "thread_id": thread_id,
-                "checkpoint_id": latest_checkpoint_id,
-                "write": False,
-            },
-            context=context,
-            space={"host": platform.node(), "owner_surface": "abyss-machine", "route": "self-awareness/replay", "path": str(SELF_AWARENESS_REPLAY_LATEST_PATH)},
-            severity="info" if replay.get("ok") else "warning",
-            confidence={"score": 0.88 if replay.get("ok") else 0.56, "reason": "Machine-owned replay readmodel over checkpoint chain"},
-            body={
-                "schema": replay.get("schema"),
-                "ok": replay.get("ok"),
-                "thread_id": thread_id,
-                "latest_checkpoint_id": latest_checkpoint_id,
-                "node_order": replay_node_order,
-                "summary": replay.get("summary"),
-            },
-            evidence_refs=[{"path": str(SELF_AWARENESS_REPLAY_LATEST_PATH), "schema": replay.get("schema"), "thread_id": thread_id, "checkpoint_id": latest_checkpoint_id}],
-            truth_level="checkpoint_replay_verification",
-        ),
-    ]
-    return events
 
 
 def self_awareness_scheduler_static_timer_specs() -> list[dict[str, Any]]:

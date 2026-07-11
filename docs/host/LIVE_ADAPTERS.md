@@ -1199,6 +1199,20 @@ command and regenerate the host-owned latest files; it does not authorize
 privileged actions, service stops, restarts, project repository mutation, large
 downloads, or destructive cleanup.
 
+## Extracted Self-Awareness Event Foundation
+
+`abyss_machine.self_awareness_contracts` owns observation-event deduplication,
+deterministic correlation-index assembly, and investigation/replay checkpoint
+observation-event assembly alongside the existing event, redaction, fabric,
+validation, and fabric-summary contracts. Correlation clock/schema/version and
+checkpoint host/latest paths/clock are explicit inputs; the contracts perform no
+latest read, persistence, network, subprocess, or stack mutation. The CLI keeps
+the established helper signatures as binders, while `self_awareness_load_events`
+retains concrete latest-read and collect-refresh ownership. Synthetic tests
+constrain dedupe order, correlation keys and buckets, path/host/clock binding,
+redaction, and no-mutation policy; existing host contracts constrain scheduler,
+trace, investigation, and replay links.
+
 ## Extracted Self-Awareness Capabilities Seam
 
 `abyss_machine.self_awareness_adapters` owns the complete read-only
