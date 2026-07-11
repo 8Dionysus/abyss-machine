@@ -134,6 +134,9 @@ abyss-machine changes record --id ID --title TITLE --intent TEXT --surface SURFA
 abyss-machine changes close --id ID --decision-review existing --decision-ref DECISION --note "validated and complete" --json
 abyss-machine storage validate --json
 abyss-machine memory validate --json
+abyss-machine memory controller validate --json
+abyss-machine memory controller status --json
+abyss-machine memory controller evidence --json
 abyss-machine resource validate --json
 abyss-machine heartbeats pulse --json
 abyss-machine heartbeats paths --json
@@ -303,9 +306,12 @@ work mode validation: `abyss-machine mode validate --json`
 memory pressure plan: `abyss-machine memory plan --json`
 memory headroom advisor: `abyss-machine memory headroom --json`
 memory validation: `abyss-machine memory validate --json`
-resource plan: `abyss-machine resource plan --class CLASS --kind KIND --json`, unified host pre-launch decision
+memory controller: `abyss-machine memory controller status --json`, event-driven observer/queue/lifecycle service; fresh public installs start in `shadow` with an empty registry
+memory controller validation: `abyss-machine memory controller validate --json`
+memory controller registration: `abyss-machine memory controller register --contract-file CONTRACT.json --json`; runtime registrations remain under the user runtime root
+resource plan: `abyss-machine resource plan --class CLASS --kind KIND --memory-demand-mib MIB --demand-key ID --demand-owner OWNER --json`, unified host pre-launch decision with runtime-only startup demand projection
 resource orchestrator: `abyss-machine resource orchestrator --json`, broad read-only matrix audit for future agents and stack bridges
-resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
+resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; unattended medium-or-larger starts may use the controller queue with `--memory-demand-mib`, `--queue-priority`, and `--queue-deadline`; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
 resource validation: `abyss-machine resource validate --json`
 OS Abyss heartbeats: `abyss-machine heartbeats pulse --json`, recurring compact pulse over current machine evidence and reaction candidates; writes heartbeat facts only and keeps `automatic_action=false`
 reaction candidates: `abyss-machine reactions --json`, non-executing evidence-to-action-candidate read model over nervous, doctor, resource, and selected systemd facts; candidates are suggestions only and keep `automatic=false`

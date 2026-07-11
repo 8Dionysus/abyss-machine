@@ -65,7 +65,7 @@ def test_quick_test_lane_does_not_include_password_prompting_commands() -> None:
 
 
 def test_memory_apply_requires_explicit_live_acknowledgement_in_cli_source() -> None:
-    source = Path("/usr/local/libexec/abyss-machine").read_text(encoding="utf-8")
+    source = Path("/usr/local/libexec/abyss_machine/cli.py").read_text(encoding="utf-8")
 
     assert "--execute-live" in source
     assert "--acknowledge-live-restart" in source

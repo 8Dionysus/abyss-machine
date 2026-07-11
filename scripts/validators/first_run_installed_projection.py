@@ -49,6 +49,7 @@ HELP_SURFACES: tuple[tuple[str, ...], ...] = (
     ("rag",),
     ("stack-bridge",),
     ("self-awareness",),
+    ("memory", "controller"),
     ("storage",),
     ("typing",),
     ("nervous",),
@@ -503,6 +504,11 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--scope",
         "--bytes",
         "--target",
+        "--memory-demand-mib",
+        "--demand-key",
+        "--demand-owner",
+        "--estimate-source",
+        "--estimate-confidence",
         "--no-thermal-sample",
         "--json",
     },
@@ -519,8 +525,23 @@ CRITICAL_HELP_OPTIONS: dict[tuple[str, ...], set[str]] = {
         "--timeout",
         "--bytes",
         "--target",
+        "--memory-demand-mib",
+        "--demand-key",
+        "--demand-owner",
+        "--estimate-source",
+        "--estimate-confidence",
+        "--startup-wait",
+        "--queue-priority",
+        "--queue-deadline",
         "--no-thermal-sample",
         "--success-on-block",
+        "--json",
+    },
+    ("memory", "controller"): {
+        "--policy",
+        "--registry",
+        "--runtime-root",
+        "--evidence-root",
         "--json",
     },
     ("ai", "cpu", "route"): {
@@ -718,7 +739,7 @@ def source_help_report(tmp_root: Path) -> dict[str, Any]:
     surfaces: dict[str, list[str]] = {}
     failures: list[str] = []
     for surface in HELP_SURFACES:
-        command = [sys.executable, "-m", "abyss_machine.cli", *surface, "--help"]
+        command = [sys.executable, "-m", "abyss_machine.entrypoint", *surface, "--help"]
         result = command_result(command, cwd=tmp_root, env=env, timeout=60)
         key = "top-level" if not surface else " ".join(surface)
         if result["returncode"] != 0:
@@ -793,7 +814,7 @@ def critical_help_option_report(
 
 def source_critical_help_option_report(tmp_root: Path) -> dict[str, Any]:
     return critical_help_option_report(
-        [sys.executable, "-m", "abyss_machine.cli"],
+        [sys.executable, "-m", "abyss_machine.entrypoint"],
         cwd=tmp_root,
         env=source_env(),
         label="source",
@@ -920,11 +941,11 @@ def content_parity_report(
 ) -> dict[str, Any]:
     failures: list[str] = []
     cli_row = {
-        "source": str(REPO_ROOT / "src" / "abyss_machine" / "cli.py"),
+        "source": str(REPO_ROOT / "src" / "abyss_machine" / "entrypoint.py"),
         "installed": str(installed_cli),
         "status": "ok",
     }
-    source_cli = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
+    source_cli = REPO_ROOT / "src" / "abyss_machine" / "entrypoint.py"
     if not installed_cli.is_file():
         cli_row["status"] = "missing"
         failures.append(f"{label} CLI missing: {installed_cli}")

@@ -137,6 +137,7 @@ def _bootstrap_install_registry_record(
 
 def test_bootstrap_doctor_dry_run() -> None:
     payload = run_bootstrap("doctor", "--dry-run")
+    assert payload["checks"]["entrypoint_source_exists"] is True
     assert payload["checks"]["cli_source_exists"] is True
     assert payload["checks"]["package_source_exists"] is True
     assert payload["checks"]["config_templates_exist"] is True
@@ -760,7 +761,11 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "install_cli" in actions
     assert "install_public_seed" in actions
     assert (libexec_dir / "abyss-machine").is_file()
+    assert (libexec_dir / "abyss-machine").read_bytes() == (
+        ROOT / "src" / "abyss_machine" / "entrypoint.py"
+    ).read_bytes()
     assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
+    assert Path(actions["install_cli"]["compiled_cli"]).is_file()
     assert run_root.is_dir()
     assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
     assert (tmp_path / "share" / "abyss-machine" / "generated" / "contract_abi_signatures.min.json").is_file()
@@ -1269,3 +1274,82 @@ def test_bootstrap_refresh_code_projects_only_cli_modules_and_public_seed(tmp_pa
     assert not run_root.exists()
     assert not systemd_system_dir.exists()
     assert not systemd_user_dir.exists()
+
+
+def test_linux_systemd_core_profile_enables_memory_controller() -> None:
+    payload = run_bootstrap("enable-profile", "--profile", "linux-systemd-core", "--dry-run")
+    units = {(action["scope"], action["unit"]) for action in payload["actions"]}
+    assert ("user", "abyss-memory-controller.service") in units
+
+
+def test_bootstrap_install_projects_memory_controller_surfaces(tmp_path: Path) -> None:
+    projection = tmp_path / "projection"
+    etc_root = projection / "etc" / "abyss-machine"
+    systemd_user_dir = projection / "home" / "agent" / ".config" / "systemd" / "user"
+    payload = run_bootstrap(
+        "install",
+        "--profile",
+        "linux-systemd-core",
+        "--apply",
+        "--skip-artifact-trust-gate",
+        "--home",
+        str(projection / "home" / "agent"),
+        "--etc-root",
+        str(etc_root),
+        "--state-root",
+        str(projection / "var" / "lib" / "abyss-machine"),
+        "--srv-root",
+        str(projection / "srv" / "abyss-machine"),
+        "--run-root",
+        str(projection / "run" / "abyss-machine"),
+        "--abyss-os-root",
+        str(projection / "srv" / "AbyssOS"),
+        "--vault-mount",
+        str(projection / "abyss"),
+        "--local-bin-dir",
+        str(projection / "usr" / "local" / "bin"),
+        "--local-libexec-dir",
+        str(projection / "usr" / "local" / "libexec"),
+        "--systemd-system-dir",
+        str(projection / "etc" / "systemd" / "system"),
+        "--systemd-user-dir",
+        str(systemd_user_dir),
+    )
+
+    assert payload["ok"] is True
+    assert (etc_root / "memory-controller-policy.json").is_file()
+    assert (etc_root / "memory-controller-registry.json").is_file()
+    controller_unit = systemd_user_dir / "abyss-memory-controller.service"
+    assert controller_unit.is_file()
+    unit_text = controller_unit.read_text(encoding="utf-8")
+    assert "{{" not in unit_text
+    assert f"--policy {etc_root}/memory-controller-policy.json" in unit_text
+    assert f"--evidence-root {projection}/srv/abyss-machine/tmp/memory-steward/controller" in unit_text
+
+    installed = projection / "usr" / "local" / "bin" / "abyss-machine"
+    result = subprocess.run(
+        [
+            str(installed),
+            "memory",
+            "controller",
+            "validate",
+            "--policy",
+            str(etc_root / "memory-controller-policy.json"),
+            "--registry",
+            str(etc_root / "memory-controller-registry.json"),
+            "--runtime-root",
+            str(projection / "run" / "abyss-machine" / "memory-controller"),
+            "--evidence-root",
+            str(projection / "srv" / "abyss-machine" / "tmp" / "memory-steward" / "controller"),
+            "--json",
+        ],
+        cwd=projection,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    validation = json.loads(result.stdout)
+    assert result.returncode == 0, result.stderr
+    assert validation["ok"] is True
+    assert validation["policy_mode"] == "shadow"

@@ -2079,6 +2079,23 @@ center.
 | 19 | Storage/process/memory/mode/cooling | matching `*_contracts` and `*_adapters` modules | current policy/env/systemd/runner binding plus explicit operator mutation intent | closed |
 | 20 | Self-awareness live orchestration | `self_awareness_contracts`, the focused `self_awareness_*_contracts` modules, `self_awareness_stack_probe_adapters`, and `self_awareness_adapters` | current host paths, latest state, endpoint/socket/subprocess/systemd ports, clocks, write intent, and rendering | closed |
 
+### Resident Memory Controller
+
+The Memory Controller is an additional host organ. It composes the existing
+memory, process, resource, and CLI boundaries without reopening reusable logic
+inside the 20 adapter families:
+
+| Organ | Reusable/package owner | Concrete edge retained by design | Disposition |
+|---|---|---|---|
+| event-driven memory controller | `memory_controller_contracts`, `memory_controller_adapters`, `memory_controller_lifecycle`, `memory_controller_service` | PSI/cgroup/zram/systemd/inotify/socket bindings, local lifecycle endpoints, evidence SQLite, runtime registry, and service loop | package-owned |
+| startup admission and queue bridge | `resource_planning`, `resource_adapters` | current memory/game/resource readers, runtime queue/grant/lease paths, systemd-run execution, and launch-outcome notification | package-owned |
+| installed dispatch and lifecycle | `entrypoint`, `scripts/abyss-machine-bootstrap`, upgrade rehearsal validator | installed roots, rendered `shadow` policy/empty registry/unit, source-to-installed refresh, rollback copy, and host activation | source projected, host activated |
+
+The public source owns code and safe defaults. Rendered `/etc` policy and
+registry, ephemeral `/run` admission state, and `/srv` evidence remain host
+owned. Existing host-only projection snapshots are migration evidence, not a
+second code authority after source rollout.
+
 ## Remaining Self-Awareness CLI Edge Classification
 
 A fresh AST and owner-route review after the hermetic validation self-test

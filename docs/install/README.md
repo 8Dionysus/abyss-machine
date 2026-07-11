@@ -65,3 +65,10 @@ Live `--apply` requires the same admitted install-bundle selector as full
 install. Use `--skip-artifact-trust-gate` only for dry-run review or isolated
 projection rehearsals whose refresh mutation targets are redirected away from
 live roots.
+
+## Memory Controller Lifecycle
+
+Fresh installs project the event-driven Memory Controller in `shadow` mode,
+with an empty registry and an opt-in systemd unit. Existing hosts with an older
+controller overlay use the isolated upgrade/rollback rehearsal before the live
+code refresh. See [Memory Controller](../operations/MEMORY_CONTROLLER.md).

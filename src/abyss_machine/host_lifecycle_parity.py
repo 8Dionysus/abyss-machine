@@ -231,7 +231,7 @@ def content_parity_summary(
         "generated": repo_root / "generated",
         "manifests": repo_root / "manifests",
     }
-    cli = compare_cli_file(repo_root / "src" / "abyss_machine" / "cli.py", installed_cli)
+    cli = compare_cli_file(repo_root / "src" / "abyss_machine" / "entrypoint.py", installed_cli)
     package = compare_digest_maps(
         relative_file_digests(source_package_root),
         relative_file_digests(installed_libexec_dir / "abyss_machine"),

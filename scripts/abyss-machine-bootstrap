@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -36,6 +38,7 @@ PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
             "abyss-power-profile-auto.timer",
         ],
         "user": [
+            "abyss-memory-controller.service",
             "abyss-machine-heartbeat.timer",
             "abyss-machine-context-refresh.timer",
             "abyss-topology-audit.timer",
@@ -229,10 +232,12 @@ def ensure_roots(values: dict[str, str], *, apply: bool, actions: list[dict[str,
 
 
 def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
-    source = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
+    source = REPO_ROOT / "src" / "abyss_machine" / "entrypoint.py"
     libexec = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss-machine"
     package_target = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss_machine"
     bin_path = Path(values["ABYSS_LOCAL_BIN_DIR"]) / "abyss-machine"
+    compiled_cli = Path(importlib.util.cache_from_source(str(package_target / "cli.py")))
+    compiled_module_count = 0
     if apply:
         libexec.parent.mkdir(parents=True, exist_ok=True)
         bin_path.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +250,11 @@ def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, 
             package_target,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
+        for module_path in sorted(package_target.glob("*.py")):
+            compiled_path = Path(importlib.util.cache_from_source(str(module_path)))
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            py_compile.compile(str(module_path), cfile=str(compiled_path), doraise=True)
+            compiled_module_count += 1
         if bin_path.exists() or bin_path.is_symlink():
             bin_path.unlink()
         bin_path.symlink_to(libexec)
@@ -256,6 +266,9 @@ def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, 
         "package_source": str(SOURCE_PACKAGE_ROOT),
         "package_target": str(package_target),
         "package_modules": modules,
+        "compiled_cli": str(compiled_cli),
+        "compiled_module_count": compiled_module_count if apply else len(modules),
+        "bytecode_policy": "compile_installed_package_once",
         "symlink": str(bin_path),
     })
 
@@ -451,6 +464,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     values = default_vars(args)
     checks = {
         "repo_root_exists": REPO_ROOT.exists(),
+        "entrypoint_source_exists": (REPO_ROOT / "src" / "abyss_machine" / "entrypoint.py").exists(),
         "cli_source_exists": (REPO_ROOT / "src" / "abyss_machine" / "cli.py").exists(),
         "package_source_exists": SOURCE_PACKAGE_ROOT.is_dir(),
         "config_templates_exist": CONFIG_TEMPLATE_ROOT.exists(),
