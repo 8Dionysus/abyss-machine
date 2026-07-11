@@ -162,9 +162,12 @@ Use these mechanic owners for the next extraction slices:
   assembly through explicit ports;
   `self_awareness_activation_contracts` owns stack-organ signal/state/movement,
   episode identity, activation row/use-packet assembly, and completion/compact/
-  refresh contracts through typed paths, config, and dependent-contract ports.
-  Lineage/coverage centers must be extracted before the final residual CLI-edge
-  classification and family completion audit.
+  refresh contracts through typed paths, config, and dependent-contract ports;
+  `self_awareness_lineage_contracts` owns artifact/spec maps, e2e and top-level
+  lineage proof assembly, and completion through typed paths/config and
+  artifact/filesystem runtime ports. The coverage center must be extracted
+  before the final residual CLI-edge classification and family completion
+  audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

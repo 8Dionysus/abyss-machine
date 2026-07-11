@@ -566,6 +566,14 @@ the invoked investigate and replay engines belong to their orchestration
 adapters. Live closeout uses a fixed latest snapshot and reports only compact
 completion/count/policy facts.
 
+For self-awareness lineage contract changes, public CI should use synthetic
+chain keys, artifact refs, cycle steps, traceparents, events, replay/response/
+export summaries, and fake filesystem ports. Cover complete and broken e2e
+proofs, cycle-required top-level completion, machine-owned path enforcement,
+and no-mutation policy. Keep concrete latest artifact metadata and path hashing
+at the CLI runtime binding edge. Live closeout may evaluate a fixed snapshot and
+report only row/artifact/missing-chain/completion counts and policy.
+
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate
