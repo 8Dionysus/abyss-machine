@@ -730,7 +730,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "96696a692d3d381f49d83fde460117a91d1b8e53720676dbd1875143d294e1ec",
+      "content_hash": "c0008667ec2c8be05b8c02cb6866de436f128c7e926049281cd034ba4578f281",
       "id": "artifact:file:docs/host/live_adapters.md:42934316d8",
       "path": "docs/host/LIVE_ADAPTERS.md",
       "source_record_id": "file:docs/host/live_adapters.md:42934316d8",
@@ -746,7 +746,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "b6e5be9b3d89e6a5ce28323c4d0a5ef7db70495664f30b223c4937906e37671d",
+      "content_hash": "2d7a4903987c8b5c53fef24ce71a5991166fdbe6e27361edf08c5ab4e1a9a9cf",
       "id": "artifact:file:docs/host/subsystem_commands.md:c005361b7c",
       "path": "docs/host/SUBSYSTEM_COMMANDS.md",
       "source_record_id": "file:docs/host/subsystem_commands.md:c005361b7c",
@@ -802,7 +802,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "68beca7928f2ee7ff12b007e68d7776649d20d69ab1599859cf632eef35d9ba7",
+      "content_hash": "0e7f1eec426cf65305b6581955b80da805c82f248d088076b4377710973648a7",
       "id": "artifact:file:docs/testing/release_check_route.md:89abf65538",
       "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
       "source_record_id": "file:docs/testing/release_check_route.md:89abf65538",
@@ -882,7 +882,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "2b4f978089e2c141218294f249683cb530a284bd2dfa03e8db00c69ac0be3a98",
+      "content_hash": "8400d3be9a2393ab3d9bb6d26f173a23ea42a5fd17a3f4b7837fdc459be283d5",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -1098,7 +1098,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "d32d423abb1cdbe3f945ec90159df1583d17d448c7e7baef1a5997abd0183a24",
+      "content_hash": "a6799fb2fc3241fd23b50f7da99af8ffa799bec235abff7418c445903c764b8d",
       "id": "artifact:file:mechanics/readme.md:c091f898d3",
       "path": "mechanics/README.md",
       "source_record_id": "file:mechanics/readme.md:c091f898d3",
@@ -1682,7 +1682,7 @@
     },
     {
       "artifact_kind": "manifest",
-      "content_hash": "edc8b2db2b9f78b4fb614ea3ff7f9197180ef6560352be05d34f6dbe0dcdee6a",
+      "content_hash": "6096e0ac2fe7df5c19a7807419d6867701d6d8689ffa3b690bf89aeff3ee3cfe",
       "id": "artifact:file:pyproject.toml:50c86b7ed8",
       "path": "pyproject.toml",
       "source_record_id": "file:pyproject.toml:50c86b7ed8",
@@ -1978,7 +1978,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "8fbd089653497108334875ccac6637dae5bceae55326d11cda1f3b24be209013",
+      "content_hash": "1486f2082bc5cdd03940bb08af1970f381e3c1360aba2df2e7d6d0a1fb8248f6",
       "id": "artifact:file:src/abyss_machine/__init__.py:6ea1e3a01e",
       "path": "src/abyss_machine/__init__.py",
       "source_record_id": "file:src/abyss_machine/__init__.py:6ea1e3a01e",
@@ -2042,7 +2042,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "b412b85a3d387dd7f0b9715e414c3d320cd78db2b67d5af34c6086eb18f51f2d",
+      "content_hash": "4e27615c15c9a86162d6679bc45784ac56dfbbd62c117ea017ab4fe797e3f334",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -2526,6 +2526,14 @@
       "id": "artifact:file:src/abyss_machine/self_awareness_alert_contracts.py:79c0c25e5c",
       "path": "src/abyss_machine/self_awareness_alert_contracts.py",
       "source_record_id": "file:src/abyss_machine/self_awareness_alert_contracts.py:79c0c25e5c",
+      "surface_state": "authored_source"
+    },
+    {
+      "artifact_kind": "source_code",
+      "content_hash": "76bc15af2e869ade90f53595034fe69cff087faa672d345f5e19ef4ad985d8bc",
+      "id": "artifact:file:src/abyss_machine/self_awareness_autolink_contracts.py:1b983d109e",
+      "path": "src/abyss_machine/self_awareness_autolink_contracts.py",
+      "source_record_id": "file:src/abyss_machine/self_awareness_autolink_contracts.py:1b983d109e",
       "surface_state": "authored_source"
     },
     {
@@ -4178,6 +4186,14 @@
     },
     {
       "artifact_kind": "test",
+      "content_hash": "ef0678d1d4e196e35e1b2c0e00cafed7ba4e5c21e21de1a1e1977e41852058e2",
+      "id": "artifact:file:tests/public_smoke/test_self_awareness_autolink_contracts.py:c54a8a8afe",
+      "path": "tests/public_smoke/test_self_awareness_autolink_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_autolink_contracts.py:c54a8a8afe",
+      "surface_state": "authored_source"
+    },
+    {
+      "artifact_kind": "test",
       "content_hash": "22ae00bb8b01e06accd012af1ff2607053a7c1cc69b247840f1bae73ca23d293",
       "id": "artifact:file:tests/public_smoke/test_self_awareness_body_trace_contracts.py:0e43df23ed",
       "path": "tests/public_smoke/test_self_awareness_body_trace_contracts.py",
@@ -4755,7 +4771,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "d3c12c997ebdddcb54d38a73de3a0f64fde86c5bfc421aa4c71013344eb27126",
+    "content_digest": "6dba5097b99759d5f4f8071bf99b65a9a0808c89adedf094000ea5baeca0d369",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4779,12 +4795,12 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "a7b50fbe441ec9be67de6c64386a459102d7e82e6fde8a25058b0a745dbf7c8e",
+    "content_digest": "aacdaae51c5e04b96941e2cf0beb6cab37bddc6c21acc5c76bd62ce65f2e346d",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 594,
+    "entry_count": 596,
     "kind_counts": {
       "config": 31,
       "document": 189,
@@ -4799,8 +4815,8 @@
       "script": 38,
       "security": 1,
       "service_unit": 59,
-      "source_code": 111,
-      "test": 136
+      "source_code": 112,
+      "test": 137
     }
   }
 }

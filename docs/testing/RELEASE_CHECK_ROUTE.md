@@ -544,16 +544,20 @@ or `self-awareness working-stack --json` summaries when needed.
 For self-awareness autolink predicate adapter changes, public CI should rely on
 synthetic autolink documents, working-stack link rows, episodes, and stack
 closure dossiers for row-state projection, completion, episode coverage, and
-activation-entry coverage predicates. Keep concrete latest reads, refresh
-orchestration, and latest/history writes at the CLI/live binding edge.
-Live-host closeout may use compact `self-awareness status --json` summaries.
+activation-entry coverage predicates. Concrete paths and live callbacks remain
+at the CLI binding edge; refresh order and latest/history write intent belong to
+the typed autolink orchestration port. Live-host closeout may use compact
+`self-awareness status --json` summaries.
 
 For self-awareness autolink document-builder adapter changes, public CI should
 rely on synthetic working-stack, coverage-audit, stack-closure, activation-smoke,
 episodes, and previous-autolink documents for organ links, stack-requirement
 links, state deltas, synthetic scenarios, evidence refs, summary counts, and
-non-mutating policy. Keep stale checks, dependency refresh orchestration,
-latest reads, and latest/history writes at the CLI/live binding edge.
+non-mutating policy. For orchestration changes, add fake-port scenarios for
+supplied-input reuse, stale working-stack and link-integrity refresh order,
+activation/episode refresh, no-write behavior, and persistence errors. Keep
+concrete paths and live callback binding at the CLI edge; do not run live stack
+probes merely to prove the public state machine.
 
 For self-awareness activation contract changes, public CI should rely on
 synthetic stack organs, activation entries, episodes, stack-organ-use packets,

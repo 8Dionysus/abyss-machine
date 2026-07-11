@@ -1333,6 +1333,15 @@
       "event_kind": "test_run",
       "event_role": "producer",
       "heading_ref": null,
+      "id": "event:repo:92fb7e6f05340e5298a0",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_autolink_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_autolink_contracts.py:c54a8a8afe"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
       "id": "event:repo:86b2b03ad1768abdd34f",
       "observation_state": "declared",
       "path": "tests/public_smoke/test_self_awareness_body_trace_contracts.py",
@@ -1845,7 +1854,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_event_index",
-    "content_digest": "395a5fd4c02864794498f1409d998080d4f8e8767c560c8169fe59ae7ab97fef",
+    "content_digest": "128f7456240689f12e65911cf80ae18aa483de5ffc10247a695cbab876c913c6",
     "index_kind": "event",
     "local_id": "index:repo-local:events",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -1870,19 +1879,19 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "a7b50fbe441ec9be67de6c64386a459102d7e82e6fde8a25058b0a745dbf7c8e",
+    "content_digest": "aacdaae51c5e04b96941e2cf0beb6cab37bddc6c21acc5c76bd62ce65f2e346d",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 202,
+    "entry_count": 203,
     "kind_counts": {
       "command_run": 34,
       "decision_record": 21,
       "generation_run": 2,
       "release_declaration": 2,
       "release_lane": 2,
-      "test_run": 136,
+      "test_run": 137,
       "validation_lane_run": 2,
       "validation_receipt": 1,
       "workflow_run": 2
