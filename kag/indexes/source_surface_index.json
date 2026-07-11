@@ -74,7 +74,7 @@
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "d7a2041e1f0ed554b1bd8a95dfc1314e0b63a1a18954424a03f88aa328b3ca79",
+    "content_digest": "e17b2319720056ed2080f3507bb27d701abe7f2f83834a06e580360070885570",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -12223,13 +12223,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "fd4c1b305d3005f86413543cb3699c0dcdcc47e9d16652b3a8ac55b701a4a001",
+        "content_hash": "23d906daff6221223dafdc541180dd9eac7d523b3016f7cdd28eb0c11028dc8d",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/live_adapters.md:42934316d8",
         "mime": "text/markdown",
         "path": "docs/host/LIVE_ADAPTERS.md",
         "repo": "abyss-machine",
-        "size_bytes": 131695
+        "size_bytes": 132434
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -12643,210 +12643,210 @@
           {
             "anchor": "extracted-self-awareness-causal-readmodel-pipelines",
             "level": 2,
-            "line": 1466,
+            "line": 1472,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-causal-readmodel-pipelines",
             "title": "Extracted Self-Awareness Causal Readmodel Pipelines"
           },
           {
             "anchor": "extracted-self-awareness-causal-overlay-contracts",
             "level": 2,
-            "line": 1490,
+            "line": 1496,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-causal-overlay-contracts",
             "title": "Extracted Self-Awareness Causal Overlay Contracts"
           },
           {
             "anchor": "extracted-self-awareness-query-and-correlation-readmodels",
             "level": 2,
-            "line": 1513,
+            "line": 1519,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-query-and-correlation-readmodels",
             "title": "Extracted Self-Awareness Query And Correlation Readmodels"
           },
           {
             "anchor": "extracted-self-awareness-trace-context-fallback-pipeline",
             "level": 2,
-            "line": 1535,
+            "line": 1543,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-trace-context-fallback-pipeline",
             "title": "Extracted Self-Awareness Trace-Context Fallback Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-episode-body-trace-contracts",
             "level": 2,
-            "line": 1558,
+            "line": 1566,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-episode-body-trace-contracts",
             "title": "Extracted Self-Awareness Episode Body Trace Contracts"
           },
           {
             "anchor": "extracted-self-awareness-episode-response-contracts",
             "level": 2,
-            "line": 1579,
+            "line": 1587,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-episode-response-contracts",
             "title": "Extracted Self-Awareness Episode Response Contracts"
           },
           {
             "anchor": "extracted-self-awareness-alert-pipeline",
             "level": 2,
-            "line": 1602,
+            "line": 1610,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-alert-pipeline",
             "title": "Extracted Self-Awareness Alert Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-brief-pipeline",
             "level": 2,
-            "line": 1624,
+            "line": 1632,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-brief-pipeline",
             "title": "Extracted Self-Awareness Brief Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-resident-worker-contract",
             "level": 2,
-            "line": 1644,
+            "line": 1652,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-resident-worker-contract",
             "title": "Extracted Self-Awareness Resident Worker Contract"
           },
           {
             "anchor": "extracted-self-awareness-resident-cognitive-contracts",
             "level": 2,
-            "line": 1657,
+            "line": 1665,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-resident-cognitive-contracts",
             "title": "Extracted Self-Awareness Resident Cognitive Contracts"
           },
           {
             "anchor": "extracted-self-awareness-activation-smoke-pipeline",
             "level": 2,
-            "line": 1674,
+            "line": 1682,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-activation-smoke-pipeline",
             "title": "Extracted Self-Awareness Activation Smoke Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-autolink-orchestration",
             "level": 2,
-            "line": 1687,
+            "line": 1695,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-autolink-orchestration",
             "title": "Extracted Self-Awareness Autolink Orchestration"
           },
           {
             "anchor": "extracted-self-awareness-activation-contracts",
             "level": 2,
-            "line": 1704,
+            "line": 1712,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-activation-contracts",
             "title": "Extracted Self-Awareness Activation Contracts"
           },
           {
             "anchor": "extracted-self-awareness-lineage-contracts",
             "level": 2,
-            "line": 1717,
+            "line": 1725,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-lineage-contracts",
             "title": "Extracted Self-Awareness Lineage Contracts"
           },
           {
             "anchor": "extracted-self-awareness-coverage-pipeline",
             "level": 2,
-            "line": 1730,
+            "line": 1738,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-coverage-pipeline",
             "title": "Extracted Self-Awareness Coverage Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-requirement-contracts",
             "level": 2,
-            "line": 1745,
+            "line": 1753,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-requirement-contracts",
             "title": "Extracted Self-Awareness Requirement Contracts"
           },
           {
             "anchor": "extracted-self-awareness-cognitive-contracts",
             "level": 2,
-            "line": 1762,
+            "line": 1770,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cognitive-contracts",
             "title": "Extracted Self-Awareness Cognitive Contracts"
           },
           {
             "anchor": "extracted-self-awareness-entity-context-contracts",
             "level": 2,
-            "line": 1778,
+            "line": 1786,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-entity-context-contracts",
             "title": "Extracted Self-Awareness Entity Context Contracts"
           },
           {
             "anchor": "extracted-self-awareness-cycle-proof-contracts",
             "level": 2,
-            "line": 1792,
+            "line": 1800,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cycle-proof-contracts",
             "title": "Extracted Self-Awareness Cycle Proof Contracts"
           },
           {
             "anchor": "extracted-self-awareness-stack-closure-pipelines",
             "level": 2,
-            "line": 1805,
+            "line": 1813,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-stack-closure-pipelines",
             "title": "Extracted Self-Awareness Stack Closure Pipelines"
           },
           {
             "anchor": "extracted-self-awareness-stack-probe-runtime",
             "level": 2,
-            "line": 1826,
+            "line": 1834,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-stack-probe-runtime",
             "title": "Extracted Self-Awareness Stack Probe Runtime"
           },
           {
             "anchor": "extracted-self-awareness-failure-matrix",
             "level": 2,
-            "line": 1849,
+            "line": 1857,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-failure-matrix",
             "title": "Extracted Self-Awareness Failure Matrix"
           },
           {
             "anchor": "extracted-self-awareness-systemd-observation-seam",
             "level": 2,
-            "line": 1869,
+            "line": 1879,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-systemd-observation-seam",
             "title": "Extracted Self-Awareness Systemd Observation Seam"
           },
           {
             "anchor": "extracted-self-awareness-collect-seams",
             "level": 2,
-            "line": 1889,
+            "line": 1899,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-collect-seams",
             "title": "Extracted Self-Awareness Collect Seams"
           },
           {
             "anchor": "extracted-self-awareness-investigation-seam",
             "level": 2,
-            "line": 1922,
+            "line": 1932,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-investigation-seam",
             "title": "Extracted Self-Awareness Investigation Seam"
           },
           {
             "anchor": "extracted-self-awareness-replay-seam",
             "level": 2,
-            "line": 1953,
+            "line": 1963,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-replay-seam",
             "title": "Extracted Self-Awareness Replay Seam"
           },
           {
             "anchor": "extracted-self-awareness-probe-seam",
             "level": 2,
-            "line": 1974,
+            "line": 1984,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-probe-seam",
             "title": "Extracted Self-Awareness Probe Seam"
           },
           {
             "anchor": "extracted-self-awareness-cycle-seam",
             "level": 2,
-            "line": 2007,
+            "line": 2017,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cycle-seam",
             "title": "Extracted Self-Awareness Cycle Seam"
           },
           {
             "anchor": "next-extraction-order",
             "level": 2,
-            "line": 2038,
+            "line": 2048,
             "ref": "docs/host/LIVE_ADAPTERS.md#next-extraction-order",
             "title": "Next Extraction Order"
           },
           {
             "anchor": "stop-lines",
             "level": 2,
-            "line": 2131,
+            "line": 2141,
             "ref": "docs/host/LIVE_ADAPTERS.md#stop-lines",
             "title": "Stop Lines"
           }
@@ -12858,7 +12858,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "fd4c1b305d3005f86413543cb3699c0dcdcc47e9d16652b3a8ac55b701a4a001",
+        "digest": "23d906daff6221223dafdc541180dd9eac7d523b3016f7cdd28eb0c11028dc8d",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13001,13 +13001,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "733fa1fe323ab50ccbe99f32ed198518a71a6368be82c9c3aaa12d69d9d32aca",
+        "content_hash": "3287555282f0e6438f335bfc21e77659a452e8734036318738874507455f443a",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/subsystem_commands.md:c005361b7c",
         "mime": "text/markdown",
         "path": "docs/host/SUBSYSTEM_COMMANDS.md",
         "repo": "abyss-machine",
-        "size_bytes": 70003
+        "size_bytes": 70424
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13050,21 +13050,21 @@
           {
             "anchor": "full-cli-surface-audit",
             "level": 2,
-            "line": 69,
+            "line": 76,
             "ref": "docs/host/SUBSYSTEM_COMMANDS.md#full-cli-surface-audit",
             "title": "Full CLI Surface Audit"
           },
           {
             "anchor": "stop-lines",
             "level": 2,
-            "line": 101,
+            "line": 108,
             "ref": "docs/host/SUBSYSTEM_COMMANDS.md#stop-lines",
             "title": "Stop Lines"
           },
           {
             "anchor": "future-update-rule",
             "level": 2,
-            "line": 109,
+            "line": 116,
             "ref": "docs/host/SUBSYSTEM_COMMANDS.md#future-update-rule",
             "title": "Future Update Rule"
           }
@@ -13076,7 +13076,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "733fa1fe323ab50ccbe99f32ed198518a71a6368be82c9c3aaa12d69d9d32aca",
+        "digest": "3287555282f0e6438f335bfc21e77659a452e8734036318738874507455f443a",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13757,13 +13757,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "9c8c65e6cd6b0efd1664bcf318bac2be21e975c609e9175ae7fdb2ae10221326",
+        "content_hash": "56ab3c557f166ddf84f4ec4d54478c63dc19d7495d131a0d2f6e9b535d0d75b5",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/testing/release_check_route.md:89abf65538",
         "mime": "text/markdown",
         "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
         "repo": "abyss-machine",
-        "size_bytes": 62682
+        "size_bytes": 62983
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13827,7 +13827,7 @@
           {
             "anchor": "completion-rule",
             "level": 2,
-            "line": 992,
+            "line": 997,
             "ref": "docs/testing/RELEASE_CHECK_ROUTE.md#completion-rule",
             "title": "Completion Rule"
           }
@@ -13839,7 +13839,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "9c8c65e6cd6b0efd1664bcf318bac2be21e975c609e9175ae7fdb2ae10221326",
+        "digest": "56ab3c557f166ddf84f4ec4d54478c63dc19d7495d131a0d2f6e9b535d0d75b5",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -14784,7 +14784,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "5691f3a55795535d8adf71cc2dcbc07571a1dfea7f74e43307822a9477f57321",
+        "content_hash": "77306087802a57a9219b0cffea45478f12d89ec08a337ff1581da744b6ebbbbe",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
@@ -14823,7 +14823,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "5691f3a55795535d8adf71cc2dcbc07571a1dfea7f74e43307822a9477f57321",
+        "digest": "77306087802a57a9219b0cffea45478f12d89ec08a337ff1581da744b6ebbbbe",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -17286,13 +17286,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "3ca5388c3d48dcf8f14223643070dfe51ca8aba8a377f755760ce6b0524a42c1",
+        "content_hash": "c6ff4fda67bce84e2f69a9ae16d1713e7abc357e589abb510bc6f9c269c47805",
         "git_ref": "git-index-source-tree",
         "id": "file:mechanics/readme.md:c091f898d3",
         "mime": "text/markdown",
         "path": "mechanics/README.md",
         "repo": "abyss-machine",
-        "size_bytes": 15180
+        "size_bytes": 15273
       },
       "mechanics_role": "mechanic_package",
       "observed_form": "file",
@@ -17340,7 +17340,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "3ca5388c3d48dcf8f14223643070dfe51ca8aba8a377f755760ce6b0524a42c1",
+        "digest": "c6ff4fda67bce84e2f69a9ae16d1713e7abc357e589abb510bc6f9c269c47805",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -24781,7 +24781,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "a307b61848efdd75607ebeaae35bd88ea6547af4700bde23f5aefa38b6a7ef7d",
+        "content_hash": "613e52deb9c18fa958286900338379ba7de363c72d4fd5f8a50ef98345f8841a",
         "git_ref": "git-index-source-tree",
         "id": "file:pyproject.toml:50c86b7ed8",
         "mime": "application/toml",
@@ -24820,7 +24820,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "a307b61848efdd75607ebeaae35bd88ea6547af4700bde23f5aefa38b6a7ef7d",
+        "digest": "613e52deb9c18fa958286900338379ba7de363c72d4fd5f8a50ef98345f8841a",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -28147,7 +28147,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "d352f397137fadc1451e6e13e47b57806287adb0e3f70de649acbcd6fb612a86",
+        "content_hash": "91182fda06a73634f28e555b1cf41f4435961ef4369ce6779bdb0f13b84349cb",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/__init__.py:6ea1e3a01e",
         "mime": "text/x-python",
@@ -28186,7 +28186,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "d352f397137fadc1451e6e13e47b57806287adb0e3f70de649acbcd6fb612a86",
+        "digest": "91182fda06a73634f28e555b1cf41f4435961ef4369ce6779bdb0f13b84349cb",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -28859,13 +28859,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "24c55c5768e6e04e79966c14d13bcc860ea8b8a88d1a6f61637cb0e75579e18f",
+        "content_hash": "d540d4ce3d9f2ab927352326088eb445256d2ee047456ec81e3fcb4731a1e48c",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/cli.py:3e116445b4",
         "mime": "text/x-python",
         "path": "src/abyss_machine/cli.py",
         "repo": "abyss-machine",
-        "size_bytes": 2661240
+        "size_bytes": 2650967
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -28898,7 +28898,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "24c55c5768e6e04e79966c14d13bcc860ea8b8a88d1a6f61637cb0e75579e18f",
+        "digest": "d540d4ce3d9f2ab927352326088eb445256d2ee047456ec81e3fcb4731a1e48c",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -35536,13 +35536,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "a26d5071f8c74a492ef28212ef0b2f847952b1afdb60fb87258ffe3812a5d166",
+        "content_hash": "bc3a129be5a088ba46b7ea6926b5d914c70af87949320a60475aec0b92dbcb25",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/self_awareness_failure_matrix_contracts.py:34c704d27f",
         "mime": "text/x-python",
         "path": "src/abyss_machine/self_awareness_failure_matrix_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 22674
+        "size_bytes": 25257
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -35575,7 +35575,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "a26d5071f8c74a492ef28212ef0b2f847952b1afdb60fb87258ffe3812a5d166",
+        "digest": "bc3a129be5a088ba46b7ea6926b5d914c70af87949320a60475aec0b92dbcb25",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -35714,13 +35714,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "8cac7de5d45e4eee1b4f0687638d06d6ced658b855c93ecd45076c498044ba1f",
+        "content_hash": "63e6d66c0e6ac1495d6bc7291724453aac94f30a239e2baa22f2b82c16783fc4",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/self_awareness_query_correlation_contracts.py:034edd465d",
         "mime": "text/x-python",
         "path": "src/abyss_machine/self_awareness_query_correlation_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 16342
+        "size_bytes": 17762
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -35753,7 +35753,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "8cac7de5d45e4eee1b4f0687638d06d6ced658b855c93ecd45076c498044ba1f",
+        "digest": "63e6d66c0e6ac1495d6bc7291724453aac94f30a239e2baa22f2b82c16783fc4",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -36426,13 +36426,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "dd86ae07013e12e7be020450e18011a7016ad4698944d274811c8e3b1bdfeb65",
+        "content_hash": "5b7da05d50b7c6c543015063f3d6afbd5bd068a846e68e9027048811a5c35115",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/self_awareness_validation_contracts.py:5cdbdfa816",
         "mime": "text/x-python",
         "path": "src/abyss_machine/self_awareness_validation_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 262592
+        "size_bytes": 275194
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -36465,7 +36465,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "dd86ae07013e12e7be020450e18011a7016ad4698944d274811c8e3b1bdfeb65",
+        "digest": "5b7da05d50b7c6c543015063f3d6afbd5bd068a846e68e9027048811a5c35115",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -54337,13 +54337,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "2391d958a7e5dcee3d91cdde0f414c90f344c2e05f94a6ad61bb35685884843c",
+        "content_hash": "5f279d7c5925590ddab8a7b2d1f41ce34af331dd40fe1da0861f327064ee13ec",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_self_awareness_failure_matrix_contracts.py:e6fe73d76d",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_self_awareness_failure_matrix_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 6570
+        "size_bytes": 7343
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -54376,7 +54376,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "2391d958a7e5dcee3d91cdde0f414c90f344c2e05f94a6ad61bb35685884843c",
+        "digest": "5f279d7c5925590ddab8a7b2d1f41ce34af331dd40fe1da0861f327064ee13ec",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -54519,13 +54519,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "e44821f919f42adc30fc853902e4b634bfbf2cde64354a0f61b3c4240e0e0df2",
+        "content_hash": "ea92161f8e926cdc283680eb5ff04c2c631e3d0dbf80e75359f826961e8fccbc",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_self_awareness_query_correlation_contracts.py:e34860133c",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_self_awareness_query_correlation_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 9467
+        "size_bytes": 10642
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -54558,7 +54558,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "e44821f919f42adc30fc853902e4b634bfbf2cde64354a0f61b3c4240e0e0df2",
+        "digest": "ea92161f8e926cdc283680eb5ff04c2c631e3d0dbf80e75359f826961e8fccbc",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -55247,13 +55247,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "65ed6b78d7e5807949f85270f01e98d2ab9e249aa59554da82ee019e7a11271e",
+        "content_hash": "97bbf57242b262f6c5a2473b74ee2277cbd8fc65e7cd896ccc5d4ce1d2cf4a53",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_self_awareness_validation_adapter.py:3185320d45",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_self_awareness_validation_adapter.py",
         "repo": "abyss-machine",
-        "size_bytes": 10451
+        "size_bytes": 12140
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -55286,7 +55286,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "65ed6b78d7e5807949f85270f01e98d2ab9e249aa59554da82ee019e7a11271e",
+        "digest": "97bbf57242b262f6c5a2473b74ee2277cbd8fc65e7cd896ccc5d4ce1d2cf4a53",
         "signature_ref": "",
         "verification_state": "digest-only"
       },

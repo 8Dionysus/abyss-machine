@@ -300,11 +300,14 @@ history rows, checks with private data, or generated host paths.
 
 For self-awareness validation-contract changes, public CI should prove CLI
 binding of named repair/contract ports, preserve the complete non-live
-self-awareness host-contract suite, and compare a compact source/installed
-validate envelope. Conditional repairs may refresh machine-owned readmodels;
-the contract module itself must not perform concrete filesystem, systemd,
-network, subprocess, or persistence IO. Live closeout may report only schema,
-status, check/fail/warning counts, and write-error count.
+self-awareness host-contract suite, run the installed synthetic self-tests with
+live latest/query/refresh/write functions replaced by rejecting fakes, and
+compare a compact source/installed validate envelope. Query and failure-matrix
+self-test fixtures must execute their real document builders over synthetic
+inputs with runtime IO denied. Conditional repairs may refresh machine-owned
+readmodels; the contract module itself must not perform concrete filesystem,
+systemd, network, subprocess, or persistence IO. Live closeout may report only
+schema, status, check/fail/warning counts, and write-error count.
 
 For self-awareness causal readmodel pipeline changes, public CI should use
 synthetic runtime, refresh, contract, and latest/history ports for timeline,
@@ -328,9 +331,10 @@ For self-awareness query/correlation changes, public CI should use supplied
 events, episodes, graph, memory-space, capabilities, stack, and index documents
 plus synthetic runtime, refresh, contract, persistence, path, and config ports.
 It must constrain no-hidden-read behavior, bounded scoring, query write routing,
-context/service joins, SLO and baseline projection, capability fallback, no-
-write behavior, and CLI binding. Live-host closeout must compare source and
-installed schema/ok/summary/policy only; never publish result rows, joins,
+context/service joins, SLO and baseline projection, capability fallback, the
+runtime-IO-denying query fixture, no-write behavior, and CLI binding. Live-host
+closeout must compare source and installed schema/ok/summary/policy only; never
+publish result rows, joins,
 provenance bodies, evidence refs, queries, or machine paths.
 
 For self-awareness trace-context fallback changes, public CI should use
@@ -438,8 +442,9 @@ datasource rows, database or graph data, external evidence rows, or host paths.
 For self-awareness failure-matrix changes, public CI should use fake ordered
 latest reads, capabilities refresh, clock, and latest/history writer ports. It
 must constrain read order, missing-capabilities fallback, current/absent/closed
-requirement rows, required-row completeness, malformed detection, write opt-in,
-no automatic remediation, and CLI binding. Live closeout may compare schema/
+requirement rows, hermetic required-row fixture completeness, malformed
+detection, write opt-in, no automatic remediation, and CLI binding. Live
+closeout may compare schema/
 ok/status/summary/policy only; never publish failure rows, current-state bodies,
 evidence refs, or host paths.
 

@@ -66,6 +66,13 @@ not be owned by argument parsing code. The command boundary is:
 | CLI help, exit codes, text rendering | `src/abyss_machine/cli.py` | CLI edge | Keep this thin and parity-tested across source and installed projections. |
 | AI runtime broader resource-sampling/resident readmodel adapters and self-awareness residual direct-IO helper classification | `src/abyss_machine/cli.py` | remaining adapter debt | Self-awareness capabilities, status, export, collect, investigation, replay, probe, cycle, completion-audit, validation, export stack-handoff, causal timeline/spatial/context/episode, memory-space and stack-handoff time-space overlays, bounded query/correlation, trace-context fallback, episode body trace, episode response contracts, owner-gated alert pipeline, referenced brief pipeline, resident-worker and resident-cognitive contracts, activation-smoke pipeline, requirement contracts/readiness/probe evaluation, cognitive detail/context/recovery contracts, entity-context validation/selection contracts, cycle bridge/from-zero proof contracts, requirement-probes, stack-closure-dossier, bounded stack-probe runtime, and failure matrix now have package owners. Before closure, direct latest/history/path/systemd/socket helpers must be classified as concrete binders or compatibility wrappers. |
 
+The self-awareness validation owner also owns the installed synthetic self-test
+matrix. Its query and failure-matrix probes use hermetic fixture builders over
+synthetic documents; runtime/latest reads, refreshes, and persistence are
+rejected inside that path. CLI supplies only the clock and current contract
+bindings, while real validation intake and conditional repair remain on their
+existing explicit adapter ports.
+
 ## Full CLI Surface Audit
 
 The current parser exposes more than the module-owned v1 surfaces above. This

@@ -412,3 +412,74 @@ def failure_matrix(
             data["ok"] = False
             data["write_errors"] = errors
     return data
+
+
+def failure_matrix_fixture(
+    *,
+    generated_at: str,
+    paths: SelfAwarenessFailureMatrixPaths,
+    config: SelfAwarenessFailureMatrixConfig,
+) -> dict[str, Any]:
+    documents = {
+        paths.capabilities_latest: {
+            "schema": f"{config.schema_prefix}_self_awareness_capabilities_v1",
+            "raw": {},
+        },
+        paths.requirements_latest: {
+            "schema": f"{config.schema_prefix}_self_awareness_requirements_v1",
+            "requirements": [],
+        },
+        paths.requirement_probes_latest: {
+            "schema": f"{config.schema_prefix}_self_awareness_requirement_probes_v1",
+            "probes": [],
+        },
+        paths.stack_observability_latest: {
+            "schema": f"{config.schema_prefix}_stack_observability_v1",
+            "summary": {"promql_jobs_up": []},
+        },
+        paths.collect_latest: {
+            "schema": f"{config.schema_prefix}_self_awareness_collect_v1",
+            "summary": {"degraded_sources": []},
+        },
+        paths.rag_validate_latest: {
+            "schema": f"{config.schema_prefix}_rag_validate_v1",
+        },
+        paths.llm_resident_status_latest: {
+            "schema": f"{config.schema_prefix}_gemma4_spark_resident_status_v1",
+            "status": "absent",
+        },
+        paths.nervous_brief_latest: {
+            "schema": f"{config.schema_prefix}_nervous_brief_v1",
+        },
+        paths.nervous_semantic_maintain_latest: {
+            "schema": f"{config.schema_prefix}_nervous_semantic_maintain_v1",
+            "decision": "not_needed",
+        },
+        paths.typing_validate_latest: {
+            "schema": f"{config.schema_prefix}_typing_validate_v1",
+        },
+        paths.context_latest: {
+            "schema": f"{config.schema_prefix}_self_awareness_context_v1",
+            "summary": {"forbidden_loki_labels": []},
+        },
+    }
+
+    def load_fixture(path: Path, _schema: str) -> dict[str, Any]:
+        return documents.get(path, {})
+
+    def unexpected_fixture_io(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("self-awareness failure-matrix fixture attempted runtime IO")
+
+    return failure_matrix(
+        write_latest=False,
+        paths=paths,
+        config=config,
+        runtime_port=SelfAwarenessFailureMatrixRuntimePort(
+            load_latest_json=load_fixture,
+            now_iso=lambda: generated_at,
+            write_latest_and_history=unexpected_fixture_io,
+        ),
+        refresh_port=SelfAwarenessFailureMatrixRefreshPort(
+            capabilities=unexpected_fixture_io,
+        ),
+    )

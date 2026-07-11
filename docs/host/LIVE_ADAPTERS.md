@@ -1452,16 +1452,22 @@ decision and check-assembly center for `self-awareness validate`:
   capabilities, investigation/replay, alerts, completion, and export surfaces;
 - the full cross-document invariant/check matrix and final validate document
   assembly;
+- the installed synthetic self-test matrix through an explicit clock and
+  contract port, including hermetic query and failure-matrix fixture builders
+  that reject runtime reads, refreshes, and writes;
 - explicit host constants, repair callbacks, and contract callbacks through
   named ports rather than module-global CLI coupling;
 - no concrete filesystem, systemd, network, subprocess, or persistence IO.
 
 The CLI binds machine paths/constants and current repair/contract functions.
 `self_awareness_adapters` still owns initial refresh/path/latest/history intake
-and final latest/history persistence. Public tests prove CLI port binding and
-the existing full non-live host-contract suite constrains the complete
-validation envelope. Live closeout compares only schema/status/check/fail/
-warning counts and write-error count.
+and final latest/history persistence. The CLI binds the explicit self-test
+clock plus current event, requirement, redaction, query-fixture, and failure-
+matrix-fixture contracts; synthetic self-tests no longer inspect or refresh
+live host state. Public tests prove IO denial and CLI port binding, while the
+existing full non-live host-contract suite constrains the complete validation
+envelope. Live closeout compares only schema/status/check/fail/warning counts
+and write-error count.
 
 ## Extracted Self-Awareness Causal Readmodel Pipelines
 
@@ -1521,6 +1527,8 @@ bounded query and correlation pipelines:
   baselines, service dependencies, and candidate causal provenance projection;
 - invalid-capabilities fallback through an explicit refresh port and optional
   query/correlation latest/history persistence through a named write port;
+- a hermetic query fixture that executes the real query builder over supplied
+  empty readmodels and rejects every runtime, refresh, or persistence call;
 - explicit runtime, refresh, contract, persistence, path, and config ports with
   no concrete filesystem, network, subprocess, or stack mutation inside the
   module.
@@ -1858,13 +1866,15 @@ negative-path coverage readmodel:
   owner and failure-kind aggregation, required-row completeness, and malformed
   row detection;
 - explicit non-mutating, no-automatic-remediation policy and optional
-  latest/history persistence through fakeable ports.
+  latest/history persistence through fakeable ports;
+- a hermetic complete-row fixture assembled by the real matrix builder from
+  synthetic latest documents with refresh and persistence denied.
 
 The CLI binds concrete latest/root paths, maintenance commands, unbounded-label
 policy, reader, clock, capabilities refresh, writer, and operator write intent.
-Public tests prove read order, fallback, required rows, write opt-in, and CLI
-binding. Live closeout compares schema/ok/status/summary/policy only and never
-publishes current-state rows or evidence refs.
+Public tests prove read order, fallback, hermetic required-row fixture, write
+opt-in, and CLI binding. Live closeout compares schema/ok/status/summary/policy
+only and never publishes current-state rows or evidence refs.
 
 ## Extracted Self-Awareness Systemd Observation Seam
 

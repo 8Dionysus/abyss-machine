@@ -431,7 +431,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     )
 
 
-VERSION = "0.8.90"
+VERSION = "0.8.91"
 SCHEMA_PREFIX = "abyss_machine"
 PATH_POLICY = DEFAULT_PATH_POLICY
 MANIFEST_PATH = PATH_POLICY.etc_file("bridge.json")
@@ -37634,228 +37634,61 @@ def self_awareness_cycle(write_latest: bool = True) -> dict[str, Any]:
     )
 
 
+def self_awareness_query_fixture(
+    query: str = "route-api",
+    limit: int = 3,
+    *,
+    generated_at: str,
+) -> dict[str, Any]:
+    return self_awareness_query_correlation_contracts.query_fixture(
+        query,
+        limit,
+        generated_at=generated_at,
+        paths=self_awareness_query_correlation_paths(),
+        config=self_awareness_query_correlation_config(),
+        contract_port=self_awareness_query_correlation_contract_port(),
+    )
+
+
+def self_awareness_failure_matrix_fixture(
+    *,
+    generated_at: str,
+) -> dict[str, Any]:
+    return self_awareness_failure_matrix_contracts.failure_matrix_fixture(
+        generated_at=generated_at,
+        paths=self_awareness_failure_matrix_paths(),
+        config=self_awareness_failure_matrix_config(),
+    )
+
+
+def self_awareness_self_test_contract_port(
+    generated_at: str,
+) -> self_awareness_validation_contracts.SelfAwarenessSelfTestPort:
+    return self_awareness_validation_contracts.SelfAwarenessSelfTestPort(
+        add_check=topology_validation_add,
+        context_from_text=self_awareness_context_from_text,
+        correlation_index=self_awareness_correlation_index,
+        event_issues=self_awareness_event_issues,
+        failure_matrix_fixture=self_awareness_failure_matrix_fixture,
+        make_event=lambda *args, **kwargs: self_awareness_contracts.make_event(
+            *args,
+            **kwargs,
+            schema_prefix=SCHEMA_PREFIX,
+            now=lambda: generated_at,
+        ),
+        query_fixture=self_awareness_query_fixture,
+        redact_text=self_awareness_redact_text,
+        requirement_item=self_awareness_requirement_item,
+        time_bucket=self_awareness_time_bucket,
+    )
+
+
 def self_awareness_self_tests() -> list[dict[str, Any]]:
-    checks: list[dict[str, Any]] = []
-    traceparent = "00-" + ("a" * 32) + "-" + ("b" * 16) + "-01"
-    valid_event = self_awareness_make_event(
-        "log",
-        "loki",
-        event_time="2026-01-01T00:00:00+00:00",
-        observed_at="2026-01-01T00:00:01+00:00",
-        source_query='{container="route-api"}',
-        resource={"service": "route-api", "container": "route-api", "owner_surface": "abyss-stack", "labels": {"container": "route-api"}, "write": False},
-        context=self_awareness_context_from_text("traceparent=" + traceparent),
-        space={"host": "fixture", "owner_surface": "abyss-stack"},
-        body="ok traceparent=" + traceparent,
-        evidence_refs=[{"fixture": "valid"}],
+    now_utc = dt.datetime.now(dt.timezone.utc)
+    return self_awareness_validation_contracts.self_tests(
+        now_utc=now_utc,
+        contract_port=self_awareness_self_test_contract_port(now_utc.isoformat()),
     )
-    invalid_event = dict(valid_event)
-    invalid_event.pop("evidence_refs", None)
-    topology_validation_add(checks, "ok" if not self_awareness_event_issues(valid_event) else "fail", "fixture_valid_event", "valid observation event fixture accepted", {"issues": self_awareness_event_issues(valid_event)})
-    topology_validation_add(checks, "ok" if self_awareness_event_issues(invalid_event) else "fail", "fixture_invalid_event", "malformed observation event fixture rejected", {"issues": self_awareness_event_issues(invalid_event)})
-    secret_preview = self_awareness_redact_text("Authorization: Bearer " + "sk" + "-testsecret1234567890")
-    topology_validation_add(checks, "ok" if "sk-test" not in secret_preview.lower() and "bearer" not in secret_preview.lower() else "fail", "fixture_redaction", "secret-like values are redacted", {"preview": secret_preview})
-    e2 = self_awareness_make_event(
-        "metric",
-        "prometheus",
-        event_time="2026-01-01T00:00:02+00:00",
-        resource={"service": "route-api", "owner_surface": "abyss-stack", "write": False},
-        context={"trace_id": valid_event["context"].get("trace_id")},
-        body={"value": 1},
-        evidence_refs=[{"fixture": "same_trace"}],
-    )
-    e3 = self_awareness_make_event(
-        "log",
-        "loki",
-        event_time="2026-01-01T00:20:00+00:00",
-        resource={"service": "route-api", "owner_surface": "abyss-stack", "write": False},
-        body="unrelated",
-        evidence_refs=[{"fixture": "unrelated"}],
-    )
-    index = self_awareness_correlation_index([valid_event, e2, e3])
-    context_key = "trace_id:" + str(valid_event["context"].get("trace_id"))
-    linked = nested_get(index, ["indexes", "by_context", context_key]) or []
-    topology_validation_add(checks, "ok" if len(linked) == 2 else "fail", "fixture_same_trace_links", "same trace links log and metric events", {"context_key": context_key, "linked": linked})
-    buckets = nested_get(index, ["indexes", "by_time_bucket"]) or {}
-    max_bucket_size = max((len(value) for value in buckets.values()), default=0)
-    topology_validation_add(checks, "ok" if max_bucket_size < 3 else "fail", "fixture_unrelated_time_window", "unrelated later event does not over-correlate by time", {"buckets": buckets})
-    bad_label_event = self_awareness_make_event(
-        "log",
-        "loki",
-        resource={"service": "route-api", "owner_surface": "abyss-stack", "labels": {"trace_id": "abc"}, "write": False},
-        body="bad label",
-        evidence_refs=[{"fixture": "bad_label"}],
-    )
-    topology_validation_add(checks, "ok" if any(issue.startswith("unbounded_label") for issue in self_awareness_event_issues(bad_label_event)) else "fail", "fixture_unbounded_label_rejected", "unbounded context IDs are rejected as labels", {"issues": self_awareness_event_issues(bad_label_event)})
-    resident_model_context_event = self_awareness_make_event(
-        "model",
-        "llm",
-        event_time="2026-01-01T00:00:04+00:00",
-        resource={
-            "service": "warm-e2b-gemma4",
-            "model": "gemma4",
-            "owner_surface": "abyss-machine",
-            "labels": {"service": "warm-e2b-gemma4", "role": "resident_llm"},
-            "write": False,
-        },
-        context={
-            "trace_id": "c" * 32,
-            "span_id": "d" * 16,
-            "thread_id": "thread-fixture",
-            "checkpoint_id": "checkpoint-fixture",
-        },
-        body={"prompt": "Authorization: Bearer sk-fixture-secret", "response_status": "ok"},
-        evidence_refs=[{"fixture": "resident_model_context"}],
-        truth_level="resident_model_observation",
-    )
-    resident_model_links = nested_get(resident_model_context_event, ["fabric", "context_links", "links"]) or {}
-    resident_model_label_policy = nested_get(resident_model_context_event, ["fabric", "label_policy"]) or {}
-    topology_validation_add(
-        checks,
-        "ok"
-        if not self_awareness_event_issues(resident_model_context_event)
-        and resident_model_links.get("trace_id")
-        and resident_model_links.get("thread_id") == "thread-fixture"
-        and resident_model_links.get("checkpoint_id") == "checkpoint-fixture"
-        and not resident_model_label_policy.get("forbidden_context_label_keys")
-        and "sk-fixture" not in str(resident_model_context_event.get("body_preview", "")).lower()
-        else "fail",
-        "fixture_resident_model_context_not_loki_labels",
-        "Resident model trace, thread, and checkpoint IDs remain context links and secret-like body text is redacted",
-        {
-            "issues": self_awareness_event_issues(resident_model_context_event),
-            "context_links": resident_model_links,
-            "label_policy": resident_model_label_policy,
-            "body_preview": resident_model_context_event.get("body_preview"),
-        },
-    )
-    model_event = self_awareness_make_event(
-        "model",
-        "llm",
-        resource={"service": "warm-e2b-gemma4.spark", "owner_surface": "abyss-machine", "write": False},
-        body={"status": "running", "model": "gemma-4-E2B"},
-        evidence_refs=[{"fixture": "warm_e2b"}],
-    )
-    topology_validation_add(
-        checks,
-        "ok" if not self_awareness_event_issues(model_event) else "fail",
-        "fixture_warm_e2b_model_event",
-        "warm-E2B model event fixture is accepted by the observation schema",
-        {"issues": self_awareness_event_issues(model_event)},
-    )
-    rag_event = self_awareness_make_event(
-        "rag",
-        "rag",
-        resource={"service": "machine-rag-validate", "owner_surface": "abyss-machine", "write": False},
-        body={"validate": "ok"},
-        evidence_refs=[{"fixture": "rag_validate"}],
-    )
-    topology_validation_add(
-        checks,
-        "ok" if not self_awareness_event_issues(rag_event) else "fail",
-        "fixture_rag_event",
-        "RAG event fixture is accepted by the observation schema",
-        {"issues": self_awareness_event_issues(rag_event)},
-    )
-    observability_event = self_awareness_make_event(
-        "metric",
-        "observability",
-        event_time="2026-01-01T00:00:03+00:00",
-        resource={"service": "observability-thermal-battery", "owner_surface": "abyss-machine", "write": False},
-        space={"host": "fixture", "owner_surface": "abyss-machine", "path": "/var/lib/abyss-machine/observability/thermal-battery/latest.json"},
-        body={"thermal_class": "ok", "battery_class": "ok", "temperature_c_max": 61.9, "battery_capacity_percent": 79},
-        evidence_refs=[{"path": "/var/lib/abyss-machine/observability/thermal-battery/latest.json", "fixture": "observability"}],
-    )
-    topology_validation_add(
-        checks,
-        "ok" if not self_awareness_event_issues(observability_event) else "fail",
-        "fixture_observability_metric_event",
-        "host thermal/battery observability event fixture is accepted by the observation schema",
-        {"issues": self_awareness_event_issues(observability_event)},
-    )
-    scheduler_event = self_awareness_make_event(
-        "service",
-        "scheduler",
-        event_time="2026-01-01T00:00:04+00:00",
-        resource={
-            "service": "abyss-machine-heartbeat.timer",
-            "owner_surface": "abyss-machine",
-            "timer_unit": "abyss-machine-heartbeat.timer",
-            "timer_scope": "user",
-            "timer_category": "heartbeat",
-            "timer_active": True,
-            "timer_enabled": True,
-            "timer_activates": "abyss-machine-heartbeat.service",
-            "route": "scheduler/heartbeat",
-            "write": False,
-        },
-        context={
-            "scheduler_unit": "abyss-machine-heartbeat.timer",
-            "scheduler_scope": "user",
-            "scheduler_category": "heartbeat",
-        },
-        space={"host": "fixture", "owner_surface": "abyss-machine", "layer": "host-scheduler", "route": "scheduler/heartbeat"},
-        body={"unit": "abyss-machine-heartbeat.timer", "active": "active", "enabled": "enabled"},
-        evidence_refs=[{"schema": "abyss_machine_systemd_timer_state_v1", "fixture": "scheduler"}],
-        truth_level="host_scheduler_state",
-    )
-    topology_validation_add(
-        checks,
-        "ok" if not self_awareness_event_issues(scheduler_event) else "fail",
-        "fixture_scheduler_service_event",
-        "host scheduler timer event fixture is accepted by the observation schema",
-        {"issues": self_awareness_event_issues(scheduler_event), "correlation_keys": nested_get(scheduler_event, ["fabric", "context_links", "correlation_keys"])},
-    )
-    requirement = self_awareness_requirement_item(
-        "fixture.missing-tempo",
-        "Fixture missing trace backend",
-        reason="fixture proves missing stack capability becomes a requirement, not a host mutation",
-        detection={"url": "http://127.0.0.1:3200/ready", "error": "connection refused", "evidence_refs": [{"fixture": "missing_tempo"}]},
-        expected_shape={"backend": "Tempo", "mutated_by": "abyss-stack"},
-    )
-    topology_validation_add(
-        checks,
-        "ok" if requirement.get("owner") == "abyss-stack" and requirement.get("host_layer_mutates_stack") is False else "fail",
-        "fixture_missing_capability_requirement",
-        "missing stack capability is represented as owner-routed non-mutating requirement",
-        requirement,
-    )
-    query_fixture = self_awareness_query("route-api", limit=3, write_latest=False)
-    query_plan = query_fixture.get("query_plan") if isinstance(query_fixture.get("query_plan"), dict) else {}
-    topology_validation_add(
-        checks,
-        "ok" if query_plan.get("bounded") and query_plan.get("promql") and query_plan.get("logql") and query_plan.get("readmodels") else "fail",
-        "fixture_bounded_query_builders",
-        "query builder fixture exposes bounded PromQL, LogQL, and host readmodel plans",
-        {"query_plan": query_plan},
-    )
-    failure_matrix = self_awareness_failure_matrix(write_latest=False)
-    failure_ids = {str(item.get("id")) for item in failure_matrix.get("rows", []) if isinstance(item, dict)}
-    topology_validation_add(
-        checks,
-        "ok" if {"machine.resource-denial", "machine.secret-redaction", "stack.downtime-bounded-readonly"}.issubset(failure_ids) else "fail",
-        "fixture_failure_matrix_required_rows",
-        "failure matrix fixture includes denial, redaction, and stack downtime rows",
-        {"missing": sorted({"machine.resource-denial", "machine.secret-redaction", "stack.downtime-bounded-readonly"} - failure_ids), "summary": failure_matrix.get("summary")},
-    )
-    stale_time = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
-    stale_event = self_awareness_make_event(
-        "validation",
-        "synthetic",
-        event_time=stale_time,
-        observed_at=stale_time,
-        resource={"service": "stale-fixture", "owner_surface": "abyss-machine", "write": False},
-        body="stale latest fixture",
-        evidence_refs=[{"fixture": "stale"}],
-    )
-    topology_validation_add(
-        checks,
-        "ok" if self_awareness_time_bucket(stale_event.get("event_time")) != "unknown" else "fail",
-        "fixture_stale_time_parse",
-        "stale data can still be parsed and routed to freshness checks",
-        {"event_time": stale_event.get("event_time"), "bucket": self_awareness_time_bucket(stale_event.get("event_time"))},
-    )
-    return checks
 
 
 def self_awareness_coverage_audit_blocker_linkage_issues(coverage_audit: dict[str, Any]) -> list[str]:
