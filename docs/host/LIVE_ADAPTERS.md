@@ -1754,6 +1754,19 @@ existing owners. Public tests constrain fail-closed behavior and typed binding;
 existing response and completion-audit host contracts constrain selection,
 reference resolution, automation policy, and completeness.
 
+## Extracted Self-Awareness Cycle Proof Contracts
+
+`abyss_machine.self_awareness_cycle_proof_contracts` owns the from-zero chain
+source contract, thirteen machine-bridge surface declarations, bridge proof
+assembly/completion, and from-zero cycle proof assembly/completion. Machine-
+owned latest paths and schema/version are typed inputs; artifact references and
+the additional mtime stat read use explicit contract and runtime ports, so the
+module performs no hidden filesystem IO. The CLI preserves established helper
+signatures as binders. Probe, investigate, replay, export, cycle step ordering,
+and persistence remain with cycle orchestration. Public tests constrain chain
+coverage and typed binding; existing host contracts constrain missing bridge
+rows, mutating policy rejection, step artifact obligations, and completion.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete

@@ -179,7 +179,10 @@ Use these mechanic owners for the next extraction slices:
   policy config, and completion ports;
   `self_awareness_entity_context_contracts` owns fail-closed entity/event/
   document and completion-route-packet validation plus bounded response
-  context selection through typed latest paths and loader. The final
+  context selection through typed latest paths and loader;
+  `self_awareness_cycle_proof_contracts` owns machine-bridge catalogs/proofs
+  and from-zero chain/proof contracts through typed paths/config plus artifact-
+  ref and stat ports. The final
   residual CLI-edge classification and family completion audit remain.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc

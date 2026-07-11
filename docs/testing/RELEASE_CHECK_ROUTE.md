@@ -616,6 +616,16 @@ Live closeout may evaluate a fixed completion-audit snapshot and report only
 issue counts, selected entity/event/document/route counts, completion, and
 policy.
 
+For self-awareness cycle-proof contract changes, public CI should use
+synthetic machine-bridge latest paths, fake artifact-ref/stat ports, fixed cycle
+and probe ids, cycle-chain rows, step artifacts, failed steps, and missing-chain
+lists. Cover all thirteen bridge surfaces, absent/schema/hash/machine-path
+failure, mtime projection, from-zero obligations, no-execution policy, and
+completion predicates. Keep probe/investigate/replay/export execution, cycle
+ordering, latest writes, and persistence in cycle orchestration. Live closeout
+may evaluate a fixed bridge/latest snapshot and report only row/obligation/
+step counts, failed ids, completion, and policy.
+
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate

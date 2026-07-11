@@ -4574,6 +4574,20 @@
         "surface_state": "authored_source"
       },
       "entity_kind": "code",
+      "id": "entity:file:src/abyss_machine/self_awareness_cycle_proof_contracts.py:56668f2e09",
+      "label": "src/abyss_machine/self_awareness_cycle_proof_contracts.py",
+      "source_record_id": "file:src/abyss_machine/self_awareness_cycle_proof_contracts.py:56668f2e09"
+    },
+    {
+      "coordinates": {
+        "artifact_kind": "source_code",
+        "code_role": "source_module",
+        "command_role": "none",
+        "document_role": "none",
+        "mechanics_role": "none",
+        "surface_state": "authored_source"
+      },
+      "entity_kind": "code",
       "id": "entity:file:src/abyss_machine/self_awareness_entity_context_contracts.py:185810a6c1",
       "label": "src/abyss_machine/self_awareness_entity_context_contracts.py",
       "source_record_id": "file:src/abyss_machine/self_awareness_entity_context_contracts.py:185810a6c1"
@@ -7458,6 +7472,20 @@
         "surface_state": "authored_source"
       },
       "entity_kind": "command",
+      "id": "entity:file:tests/public_smoke/test_self_awareness_cycle_proof_contracts.py:dc2342642a",
+      "label": "tests/public_smoke/test_self_awareness_cycle_proof_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_cycle_proof_contracts.py:dc2342642a"
+    },
+    {
+      "coordinates": {
+        "artifact_kind": "test",
+        "code_role": "test",
+        "command_role": "test",
+        "document_role": "none",
+        "mechanics_role": "none",
+        "surface_state": "authored_source"
+      },
+      "entity_kind": "command",
       "id": "entity:file:tests/public_smoke/test_self_awareness_entity_context_contracts.py:6e57874697",
       "label": "tests/public_smoke/test_self_awareness_entity_context_contracts.py",
       "source_record_id": "file:tests/public_smoke/test_self_awareness_entity_context_contracts.py:6e57874697"
@@ -8291,7 +8319,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_entity_index",
-    "content_digest": "9daee8c750378e999968140fb16bf34f7f692a1db379ae39d6fa1fee09a05eab",
+    "content_digest": "3e09f1147afb8c2bbf56cf7159830e7f34a6664a1a418886f43fa416cda55915",
     "index_kind": "entity",
     "local_id": "index:repo-local:entities",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -8314,17 +8342,17 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "cdb45d0967295c2d5961fe72f7b0948fe5ca20af17f8b0f393d74916107c747e",
+    "content_digest": "a7b50fbe441ec9be67de6c64386a459102d7e82e6fde8a25058b0a745dbf7c8e",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 592,
+    "entry_count": 594,
     "kind_counts": {
       "agent_route": 48,
       "artifact": 91,
-      "code": 110,
-      "command": 173,
+      "code": 111,
+      "command": 174,
       "contract": 8,
       "decision": 21,
       "document": 46,
