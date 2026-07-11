@@ -555,13 +555,16 @@ links, state deltas, synthetic scenarios, evidence refs, summary counts, and
 non-mutating policy. Keep stale checks, dependency refresh orchestration,
 latest reads, and latest/history writes at the CLI/live binding edge.
 
-For self-awareness activation-smoke predicate adapter changes, public CI should
-rely on synthetic stack-organ-use packets, activation-smoke rows, compact rows,
-smoke documents, and activation entries for completion, compact projection, and
-refresh predicates. Keep activation caller orchestration, caller-side
-investigate/replay invocation, activation latest reads, and activation
-latest/history writes at the CLI/live binding edge; the invoked investigate
-and replay engines belong to their orchestration adapters.
+For self-awareness activation contract changes, public CI should rely on
+synthetic stack organs, activation entries, episodes, stack-organ-use packets,
+activation-smoke rows, compact rows, and smoke documents for signal routing,
+state digests, movement selection, episode identity, packet assembly,
+completion, compact projection, and refresh behavior. Keep activation caller
+orchestration, caller-side investigate/replay invocation, activation latest
+reads, and activation latest/history writes in the activation-smoke pipeline;
+the invoked investigate and replay engines belong to their orchestration
+adapters. Live closeout uses a fixed latest snapshot and reports only compact
+completion/count/policy facts.
 
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation

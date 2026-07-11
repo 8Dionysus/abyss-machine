@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from . import self_awareness_activation_contracts
 from . import self_awareness_contracts
 from . import typing_nervous_adapters
 
@@ -10285,55 +10286,10 @@ def stack_organ_use_packet_complete(
     schema_prefix: str,
     event_issues: Callable[[dict[str, Any]], list[str]],
 ) -> bool:
-    if not isinstance(packet, Mapping):
-        return False
-    entity = packet.get("entity") if isinstance(packet.get("entity"), Mapping) else {}
-    event = packet.get("event") if isinstance(packet.get("event"), Mapping) else {}
-    documents = packet.get("documents") if isinstance(packet.get("documents"), list) else []
-    checks = packet.get("checks") if isinstance(packet.get("checks"), Mapping) else {}
-    observed_signal = packet.get("observed_signal") if isinstance(packet.get("observed_signal"), Mapping) else {}
-    movement_selection = packet.get("movement_selection") if isinstance(packet.get("movement_selection"), Mapping) else {}
-    return (
-        packet.get("schema") == f"{schema_prefix}_self_awareness_stack_organ_use_packet_v1"
-        and bool(packet.get("packet_id"))
-        and bool(packet.get("service"))
-        and packet.get("owner") == "abyss-stack"
-        and entity.get("schema") == f"{schema_prefix}_self_awareness_stack_organ_use_entity_v1"
-        and entity.get("entity_kind") == "stack_organ"
-        and bool(entity.get("entity_id"))
-        and event.get("schema") == f"{schema_prefix}_self_awareness_stack_organ_use_event_v1"
-        and bool(event.get("event_id"))
-        and bool(event.get("working_stack_link_id"))
-        and bool(event.get("classification"))
-        and isinstance(documents, list)
-        and len(documents) >= 5
-        and all(isinstance(item, Mapping) and item.get("document_id") and item.get("path") for item in documents)
-        and isinstance(packet.get("document_ids"), list)
-        and len(packet.get("document_ids")) == len(documents)
-        and isinstance(packet.get("current_state"), Mapping)
-        and bool(_nested_get(packet, ["time_space_context", "context", "working_stack_link_id"]))
-        and observed_signal.get("schema") == f"{schema_prefix}_observation_event_v1"
-        and not event_issues(dict(observed_signal))
-        and movement_selection.get("schema") == f"{schema_prefix}_self_awareness_stack_organ_movement_selection_v1"
-        and isinstance(movement_selection.get("categories"), list)
-        and bool(movement_selection.get("categories"))
-        and (
-            bool(movement_selection.get("selected_reason"))
-            or bool(movement_selection.get("not_selected_reason"))
-        )
-        and _nested_get(packet, ["automation", "required_in"]) == ["activation-smoke", "export", "validate"]
-        and _nested_get(packet, ["automation", "host_layer_mutates_stack"]) is False
-        and _nested_get(packet, ["automation", "executes_stack_verifiers"]) is False
-        and bool(packet.get("evidence_refs"))
-        and all(ok is True for ok in checks.values())
-        and packet.get("missing_checks") == []
-        and _nested_get(packet, ["policy", "host_layer_mutates_stack"]) is False
-        and _nested_get(packet, ["policy", "writes_project_roots"]) is False
-        and _nested_get(packet, ["policy", "executes_commands"]) is False
-        and _nested_get(packet, ["policy", "action_execution"]) is False
-        and _nested_get(packet, ["policy", "automatic_remediation"]) is False
-        and _nested_get(packet, ["policy", "raw_secrets_included"]) is False
-        and _nested_get(packet, ["policy", "raw_private_content_included"]) is False
+    return self_awareness_activation_contracts.stack_organ_use_packet_complete(
+        packet,
+        schema_prefix=schema_prefix,
+        event_issues=event_issues,
     )
 
 
@@ -10344,76 +10300,11 @@ def working_stack_activation_smoke_row_complete(
     investigation_node_count: int,
     event_issues: Callable[[dict[str, Any]], list[str]],
 ) -> bool:
-    if not isinstance(row, Mapping):
-        return False
-    investigation = row.get("investigation") if isinstance(row.get("investigation"), Mapping) else {}
-    replay = row.get("replay") if isinstance(row.get("replay"), Mapping) else {}
-    stack_organ_use_packet = row.get("stack_organ_use_packet") if isinstance(row.get("stack_organ_use_packet"), Mapping) else {}
-    packet_complete = stack_organ_use_packet_complete(
-        stack_organ_use_packet,
+    return self_awareness_activation_contracts.working_stack_activation_smoke_row_complete(
+        row,
         schema_prefix=schema_prefix,
+        investigation_node_count=investigation_node_count,
         event_issues=event_issues,
-    )
-    if row.get("row_kind") == "organ_movement":
-        return (
-            row.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_smoke_row_v1"
-            and row.get("ok") is True
-            and bool(row.get("service"))
-            and row.get("owner") == "abyss-stack"
-            and bool(row.get("machine_usage_status"))
-            and bool(row.get("working_stack_link_id"))
-            and investigation.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_smoke_investigation_v1"
-            and investigation.get("actual_run") is False
-            and replay.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_smoke_replay_v1"
-            and replay.get("actual_run") is False
-            and packet_complete
-            and stack_organ_use_packet.get("service") == row.get("service")
-            and _nested_get(stack_organ_use_packet, ["event", "working_stack_link_id"]) == row.get("working_stack_link_id")
-            and _nested_get(stack_organ_use_packet, ["event", "machine_usage_status"]) == row.get("machine_usage_status")
-            and bool(row.get("evidence_refs"))
-            and _nested_get(row, ["policy", "movement_packet"]) is True
-            and _nested_get(row, ["policy", "actual_investigate_replay_run"]) is False
-            and _nested_get(row, ["policy", "host_layer_mutates_stack"]) is False
-            and _nested_get(row, ["policy", "executes_commands"]) is False
-            and _nested_get(row, ["policy", "action_execution"]) is False
-            and _nested_get(row, ["policy", "automatic_remediation"]) is False
-        )
-    return (
-        row.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_smoke_row_v1"
-        and row.get("ok") is True
-        and bool(row.get("service"))
-        and row.get("owner") == "abyss-stack"
-        and bool(row.get("machine_usage_status"))
-        and bool(row.get("usage_gap"))
-        and bool(row.get("working_stack_link_id"))
-        and bool(row.get("episode_id"))
-        and investigation.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_smoke_investigation_v1"
-        and investigation.get("ok") is True
-        and investigation.get("selected_episode_matches") is True
-        and investigation.get("working_stack_gap_complete") is True
-        and investigation.get("working_stack_gap_matches") is True
-        and _safe_int(investigation.get("evidence_validation_fails"), -1) == 0
-        and _safe_int(investigation.get("checkpoints"), 0) == investigation_node_count
-        and _safe_int(investigation.get("graph_nodes"), 0) == investigation_node_count
-        and replay.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_smoke_replay_v1"
-        and replay.get("ok") is True
-        and replay.get("thread_matches") is True
-        and replay.get("working_stack_gap_selected") is True
-        and replay.get("working_stack_gap_replayable") is True
-        and replay.get("working_stack_gap_matches") is True
-        and _safe_int(replay.get("divergences"), -1) == 0
-        and replay.get("stack_handoff_closure_readiness_replayable") is True
-        and replay.get("resident_cognitive_replay_complete") is True
-        and packet_complete
-        and stack_organ_use_packet.get("service") == row.get("service")
-        and _nested_get(stack_organ_use_packet, ["event", "working_stack_link_id"]) == row.get("working_stack_link_id")
-        and _nested_get(stack_organ_use_packet, ["event", "machine_usage_status"]) == row.get("machine_usage_status")
-        and bool(row.get("evidence_refs"))
-        and _nested_get(row, ["policy", "actual_investigate_replay_run"]) is True
-        and _nested_get(row, ["policy", "host_layer_mutates_stack"]) is False
-        and _nested_get(row, ["policy", "executes_commands"]) is False
-        and _nested_get(row, ["policy", "action_execution"]) is False
-        and _nested_get(row, ["policy", "automatic_remediation"]) is False
     )
 
 
@@ -10424,41 +10315,12 @@ def working_stack_activation_smoke_compact(
     investigation_node_count: int,
     event_issues: Callable[[dict[str, Any]], list[str]],
 ) -> dict[str, Any]:
-    if not isinstance(row, Mapping):
-        return {}
-    return {
-        "schema": f"{schema_prefix}_self_awareness_working_stack_activation_smoke_compact_v1",
-        "row_kind": row.get("row_kind"),
-        "service": row.get("service"),
-        "machine_usage_status": row.get("machine_usage_status"),
-        "working_stack_link_id": row.get("working_stack_link_id"),
-        "episode_id": row.get("episode_id"),
-        "ok": row.get("ok"),
-        "complete": working_stack_activation_smoke_row_complete(
-            row,
-            schema_prefix=schema_prefix,
-            investigation_node_count=investigation_node_count,
-            event_issues=event_issues,
-        ),
-        "thread_id": _nested_get(row, ["investigation", "thread_id"]),
-        "divergences": _nested_get(row, ["replay", "divergences"]),
-        "working_stack_gap_replayable": _nested_get(row, ["replay", "working_stack_gap_replayable"]),
-        "resident_cognitive_replay_complete": _nested_get(row, ["replay", "resident_cognitive_replay_complete"]),
-        "stack_organ_use_packet_id": _nested_get(row, ["stack_organ_use_packet", "packet_id"]),
-        "stack_organ_entity_id": _nested_get(row, ["stack_organ_use_packet", "entity", "entity_id"]),
-        "stack_organ_event_id": _nested_get(row, ["stack_organ_use_packet", "event", "event_id"]),
-        "stack_organ_document_ids": _nested_get(row, ["stack_organ_use_packet", "document_ids"]) if isinstance(_nested_get(row, ["stack_organ_use_packet", "document_ids"]), list) else [],
-        "activation_gap_classification": _nested_get(row, ["stack_organ_use_packet", "activation_gap", "classification"]),
-        "movement_categories": _nested_get(row, ["stack_organ_use_packet", "movement_selection", "categories"]) if isinstance(_nested_get(row, ["stack_organ_use_packet", "movement_selection", "categories"]), list) else [],
-        "selected_for_resident_reasoning": _nested_get(row, ["stack_organ_use_packet", "movement_selection", "selected_for_resident_reasoning"]),
-        "evidence_refs": row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else [],
-        "policy": {
-            "read_only": True,
-            "host_layer_mutates_stack": False,
-            "executes_commands": False,
-            "action_execution": False,
-        },
-    }
+    return self_awareness_activation_contracts.working_stack_activation_smoke_compact(
+        row,
+        schema_prefix=schema_prefix,
+        investigation_node_count=investigation_node_count,
+        event_issues=event_issues,
+    )
 
 
 def working_stack_activation_smoke_complete(
@@ -10468,52 +10330,11 @@ def working_stack_activation_smoke_complete(
     investigation_node_count: int,
     event_issues: Callable[[dict[str, Any]], list[str]],
 ) -> bool:
-    if not isinstance(smoke, Mapping):
-        return False
-    rows = smoke.get("rows") if isinstance(smoke.get("rows"), list) else []
-    summary = smoke.get("summary") if isinstance(smoke.get("summary"), Mapping) else {}
-    packets = smoke.get("stack_organ_use_packets") if isinstance(smoke.get("stack_organ_use_packets"), list) else []
-    packet_by_service = smoke.get("stack_organ_use_packet_by_service") if isinstance(smoke.get("stack_organ_use_packet_by_service"), Mapping) else {}
-    service_ids = [str(row.get("service")) for row in rows if isinstance(row, Mapping) and row.get("service")]
-    summary_service_ids = [str(item) for item in (summary.get("service_ids") if isinstance(summary.get("service_ids"), list) else [])]
-    expected_services = [str(item) for item in (summary.get("stack_organs_expected_services") if isinstance(summary.get("stack_organs_expected_services"), list) else [])]
-    return (
-        smoke.get("schema") == f"{schema_prefix}_self_awareness_working_stack_activation_smoke_v1"
-        and smoke.get("ok") is True
-        and bool(smoke.get("run_id"))
-        and bool(rows)
-        and bool(packets)
-        and bool(expected_services)
-        and _safe_int(summary.get("stack_organs_expected"), -1) == len(expected_services)
-        and _safe_int(summary.get("rows"), -1) == len(rows)
-        and _safe_int(summary.get("rows_ok"), -1) == len(rows)
-        and _safe_int(summary.get("stack_organ_use_packets"), -1) == len(rows)
-        and _safe_int(summary.get("stack_organ_use_packets_complete"), -1) == len(rows)
-        and sorted(summary_service_ids) == sorted(service_ids)
-        and len(packets) == len(rows)
-        and set(service_ids) == set(expected_services)
-        and set(str(item) for item in packet_by_service) == set(service_ids)
-        and not summary.get("stack_organs_without_use_packets")
-        and summary.get("all_stack_organs_have_use_packets") is True
-        and all(
-            stack_organ_use_packet_complete(packet, schema_prefix=schema_prefix, event_issues=event_issues)
-            for packet in packets
-        )
-        and not summary.get("failed_services")
-        and all(
-            working_stack_activation_smoke_row_complete(
-                row,
-                schema_prefix=schema_prefix,
-                investigation_node_count=investigation_node_count,
-                event_issues=event_issues,
-            )
-            for row in rows
-        )
-        and bool(smoke.get("evidence_refs"))
-        and _nested_get(smoke, ["policy", "host_layer_mutates_stack"]) is False
-        and _nested_get(smoke, ["policy", "executes_commands"]) is False
-        and _nested_get(smoke, ["policy", "action_execution"]) is False
-        and _nested_get(smoke, ["policy", "automatic_remediation"]) is False
+    return self_awareness_activation_contracts.working_stack_activation_smoke_complete(
+        smoke,
+        schema_prefix=schema_prefix,
+        investigation_node_count=investigation_node_count,
+        event_issues=event_issues,
     )
 
 
@@ -10526,44 +10347,14 @@ def activation_smoke_needs_refresh(
     event_issues: Callable[[dict[str, Any]], list[str]],
     expected_services: Iterable[str] | None = None,
 ) -> bool:
-    if not working_stack_activation_smoke_complete(
+    return self_awareness_activation_contracts.activation_smoke_needs_refresh(
         smoke,
+        activation_entries,
         schema_prefix=schema_prefix,
         investigation_node_count=investigation_node_count,
         event_issues=event_issues,
-    ):
-        return True
-    rows = smoke.get("rows") if isinstance(smoke, Mapping) and isinstance(smoke.get("rows"), list) else []
-    row_by_service = {
-        str(row.get("service")): row
-        for row in rows
-        if isinstance(row, Mapping) and row.get("service")
-    }
-    expected_service_set = {
-        str(entry.get("service"))
-        for entry in activation_entries
-        if isinstance(entry, Mapping) and entry.get("service")
-    }
-    if expected_services is not None:
-        expected_service_set = {str(service) for service in expected_services if service}
-    if set(row_by_service) != expected_service_set:
-        return True
-    entry_by_service = {
-        str(entry.get("service")): entry
-        for entry in activation_entries
-        if isinstance(entry, Mapping) and entry.get("service")
-    }
-    for service in set(row_by_service) & set(entry_by_service):
-        entry = entry_by_service.get(service, {})
-        if not isinstance(entry, Mapping) or not entry.get("service"):
-            continue
-        row = row_by_service.get(str(entry.get("service")), {})
-        if (
-            str(row.get("machine_usage_status") or "") != str(entry.get("machine_usage_status") or "")
-            or str(row.get("working_stack_link_id") or "") != str(entry.get("working_stack_link_id") or "")
-        ):
-            return True
-    return False
+        expected_services=expected_services,
+    )
 
 
 def working_stack_model_bridge(
@@ -10933,75 +10724,11 @@ def working_stack_inventory_document(
 
 
 def working_stack_organ_signal_route(service: str, organ: Mapping[str, Any]) -> dict[str, str]:
-    service_l = service.lower()
-    if service_l in {"prometheus"}:
-        return {"signal": "metric", "source": "prometheus"}
-    if service_l in {"loki"}:
-        return {"signal": "log", "source": "loki"}
-    if service_l in {"grafana"}:
-        return {"signal": "service", "source": "grafana"}
-    if service_l in {"alertmanager"}:
-        return {"signal": "alert", "source": "alertmanager"}
-    if service_l in {"alloy", "tempo"}:
-        return {"signal": "trace_context", "source": "alloy" if service_l == "alloy" else "observability"}
-    if service_l in {"postgres"}:
-        return {"signal": "memory", "source": "postgres"}
-    if service_l in {"neo4j"}:
-        return {"signal": "memory", "source": "neo4j"}
-    if service_l in {"rag-api", "qdrant", "rerank-api"}:
-        return {"signal": "rag", "source": "rag-api" if service_l == "rag-api" else "rag"}
-    if service_l in {"embeddings"}:
-        return {"signal": "model", "source": "embeddings"}
-    if service_l in {"route-api"}:
-        return {"signal": "service", "source": "route-api"}
-    if service_l in {"langchain-api", "langchain-api-llamacpp"}:
-        return {"signal": "model", "source": "langchain-api"}
-    if service_l in {"llama-cpp", "llm-registry", "litellm", "ollama", "ovms"}:
-        return {"signal": "model", "source": "llm"}
-    if "tts" in service_l or service_l in {"qwen-tts", "babelvox-tts"}:
-        return {"signal": "model", "source": "tts"}
-    if service_l == "stt":
-        return {"signal": "model", "source": "stt"}
-    if service_l in {"redis"}:
-        return {"signal": "memory", "source": "memory"}
-    if service_l in {"cadvisor"}:
-        return {"signal": "container", "source": "processes"}
-    runtime = organ.get("runtime") if isinstance(organ.get("runtime"), Mapping) else {}
-    if runtime.get("container"):
-        return {"signal": "container", "source": "podman"}
-    return {"signal": "service", "source": "working-stack"}
+    return self_awareness_activation_contracts.stack_organ_signal_route(service, organ)
 
 
 def working_stack_organ_state_digest(organ: Mapping[str, Any]) -> str:
-    endpoint_probes = organ.get("endpoint_probes") if isinstance(organ.get("endpoint_probes"), list) else []
-    runtime = organ.get("runtime") if isinstance(organ.get("runtime"), Mapping) else {}
-    return self_awareness_contracts.stable_hash_json({
-        "service": organ.get("service"),
-        "machine_usage_status": organ.get("machine_usage_status"),
-        "usage_gap": organ.get("usage_gap"),
-        "runtime": {
-            "container": runtime.get("container"),
-            "pid": runtime.get("pid"),
-            "pid_alive": runtime.get("pid_alive"),
-            "running": runtime.get("running"),
-            "state": runtime.get("state"),
-            "health": runtime.get("health"),
-            "restart_count": runtime.get("restart_count"),
-        },
-        "endpoint_ok": organ.get("endpoint_ok"),
-        "endpoint_probes": [
-            {
-                "probe": probe.get("probe"),
-                "ok": probe.get("ok"),
-                "status_code": probe.get("status_code"),
-                "error": probe.get("error"),
-            }
-            for probe in endpoint_probes
-            if isinstance(probe, Mapping)
-        ],
-        "model_bridge": organ.get("model_bridge") if isinstance(organ.get("model_bridge"), Mapping) else {},
-        "deep_usage_proven": organ.get("deep_usage_proven"),
-    }, length=24)
+    return self_awareness_activation_contracts.stack_organ_state_digest(organ)
 
 
 def working_stack_organ_movement_selection(
@@ -11011,75 +10738,12 @@ def working_stack_organ_movement_selection(
     previous_row: Mapping[str, Any] | None,
     schema_prefix: str,
 ) -> dict[str, Any]:
-    service = str(organ.get("service") or "")
-    runtime = organ.get("runtime") if isinstance(organ.get("runtime"), Mapping) else {}
-    declared = organ.get("declared") if isinstance(organ.get("declared"), Mapping) else {}
-    status = str(organ.get("machine_usage_status") or "")
-    endpoint_probes = organ.get("endpoint_probes") if isinstance(organ.get("endpoint_probes"), list) else []
-    failed_probe_names = [
-        str(probe.get("probe"))
-        for probe in endpoint_probes
-        if isinstance(probe, Mapping) and probe.get("ok") is not True and probe.get("probe")
-    ]
-    previous_digest = _nested_get(previous_row or {}, ["stack_organ_use_packet", "current_state", "current_state_digest"])
-    categories = ["raw_signal"]
-    reasons: list[str] = ["organ observed in working-stack inventory"]
-    state_changed = bool(previous_digest and previous_digest != current_state_digest)
-    if previous_digest is None:
-        reasons.append("baseline movement packet")
-    elif state_changed:
-        categories.append("state_change")
-        reasons.append("state digest changed since previous activation-smoke")
-    degradation_reasons: list[str] = []
-    if organ.get("usage_gap"):
-        degradation_reasons.append("usage_gap")
-    runtime_expected = bool(
-        runtime
-        and declared.get("present") is True
-        and not status.startswith("policy_deferred_")
-        and status not in {"active_model_root_bridge", "recent_on_demand_tool_signal"}
+    return self_awareness_activation_contracts.stack_organ_movement_selection(
+        organ,
+        current_state_digest=current_state_digest,
+        previous_row=previous_row,
+        schema_prefix=schema_prefix,
     )
-    if runtime_expected and runtime.get("running") is False:
-        degradation_reasons.append("runtime_not_running")
-    if failed_probe_names:
-        degradation_reasons.append("failed_endpoint_probe")
-    if status.endswith("_degraded"):
-        degradation_reasons.append("degraded_status")
-    if degradation_reasons:
-        categories.append("degradation")
-        reasons.extend(degradation_reasons)
-    if _nested_get(organ, ["time_space_context_link", "link_id"]):
-        categories.append("correlation_candidate")
-    selected_for_episode = bool(state_changed or degradation_reasons)
-    if selected_for_episode:
-        categories.append("episode_candidate")
-    selected_for_resident = bool(degradation_reasons)
-    if selected_for_resident:
-        categories.append("needs_resident_reasoning")
-    elif not selected_for_episode and previous_digest is not None:
-        categories.append("ignore/noise")
-    return {
-        "schema": f"{schema_prefix}_self_awareness_stack_organ_movement_selection_v1",
-        "service": service,
-        "categories": list(dict.fromkeys(categories)),
-        "state_changed": state_changed,
-        "previous_state_digest": previous_digest,
-        "current_state_digest": current_state_digest,
-        "selected_for_timeline": True,
-        "selected_for_spatial_graph": True,
-        "selected_for_episode": selected_for_episode,
-        "selected_for_resident_reasoning": selected_for_resident,
-        "selected_reason": "; ".join(reasons) if selected_for_episode or selected_for_resident else None,
-        "not_selected_reason": None if selected_for_episode or selected_for_resident else "stable observation retained as raw signal and spatial context",
-        "degradation_reasons": degradation_reasons,
-        "failed_probe_names": failed_probe_names,
-        "policy": {
-            "read_only": True,
-            "host_layer_mutates_stack": False,
-            "executes_commands": False,
-            "automatic_remediation": False,
-        },
-    }
 
 
 def working_stack_gap_episodes(
