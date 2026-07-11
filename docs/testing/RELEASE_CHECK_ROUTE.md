@@ -605,6 +605,17 @@ in their existing orchestration owners. Live closeout may compare one fixed
 capabilities/context/episode snapshot and report only schemas, completion,
 bounded counts, readiness status, and policy.
 
+For self-awareness entity-context contract changes, public CI should use
+synthetic entity/event/document maps, completion route-packet indexes,
+episodes, source events, body traces, and a fake latest loader. Cover malformed
+and unresolved references, expected-count mismatches, supplied-vs-fallback
+completion audit, bounded response selections, automation stop-lines, and
+no-mutation policy. Keep map/index construction, live latest paths, response
+orchestration, probes, cycles, and persistence with their existing owners.
+Live closeout may evaluate a fixed completion-audit snapshot and report only
+issue counts, selected entity/event/document/route counts, completion, and
+policy.
+
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate

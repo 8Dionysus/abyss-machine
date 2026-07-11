@@ -176,7 +176,10 @@ Use these mechanic owners for the next extraction slices:
   `self_awareness_cognitive_contracts` owns bounded freshness/trace/context,
   multimodal and LLM escalation detail, governance gates, investigation
   recovery, and working-stack gap handoff contracts through typed paths,
-  policy config, and completion ports. The final
+  policy config, and completion ports;
+  `self_awareness_entity_context_contracts` owns fail-closed entity/event/
+  document and completion-route-packet validation plus bounded response
+  context selection through typed latest paths and loader. The final
   residual CLI-edge classification and family completion audit remain.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc

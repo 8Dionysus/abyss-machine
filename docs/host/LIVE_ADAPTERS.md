@@ -1740,6 +1740,20 @@ review-only recovery and typed binding, while existing host-contract scenarios
 constrain bounded joins, multimodal inventory, escalation gates, governance,
 and working-stack handoff completeness.
 
+## Extracted Self-Awareness Entity Context Contracts
+
+`abyss_machine.self_awareness_entity_context_contracts` owns fail-closed
+entity/event/document map and completion-route-packet issue/completion checks,
+plus bounded response context selection from the completion map. Completion-
+audit and event latest paths and the latest JSON loader are explicit typed
+inputs for the optional fallback read; all supplied-document paths remain pure.
+The module runs no probes, cycles, indexing, verifier commands, persistence, or
+stack mutation. The CLI preserves established helper signatures as binders,
+while completion-map construction and response orchestration remain with their
+existing owners. Public tests constrain fail-closed behavior and typed binding;
+existing response and completion-audit host contracts constrain selection,
+reference resolution, automation policy, and completeness.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
