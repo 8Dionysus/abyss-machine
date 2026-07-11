@@ -83,6 +83,7 @@ class SelfAwarenessCoverageContractPort:
     dependent_link_readmodels_fresh: DocumentPort
     link_integrity_matches_working_stack: DocumentPort
     working_stack_gap_coverage_planes: DocumentPort
+    stack_requirement_closure_acceptance_complete: DocumentPort
 
 
 def objective_coverage_specs() -> list[dict[str, Any]]:
@@ -1670,3 +1671,270 @@ def objective_coverage_audit(
             data["ok"] = False
             data["write_errors"] = errors
     return data
+
+
+def coverage_audit_blocker_linkage_issues(
+    coverage_audit: dict[str, Any],
+    *,
+    config: SelfAwarenessCoverageConfig,
+    contract_port: SelfAwarenessCoverageContractPort,
+) -> list[str]:
+    if (
+        coverage_audit.get("schema")
+        != f"{config.schema_prefix}_self_awareness_objective_coverage_audit_v1"
+    ):
+        return ["schema"]
+    rows = (
+        coverage_audit.get("rows")
+        if isinstance(coverage_audit.get("rows"), list)
+        else []
+    )
+    blocked_rows = [
+        row
+        for row in rows
+        if isinstance(row, dict) and row.get("status") == "blocked_stack_owned"
+    ]
+    covered_rows = [
+        row
+        for row in rows
+        if isinstance(row, dict) and row.get("status") == "covered"
+    ]
+    issues: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = str(row.get("id") or "unknown")
+        objective_planes = (
+            row.get("objective_coverage_planes")
+            if isinstance(row.get("objective_coverage_planes"), list)
+            else []
+        )
+        if not objective_planes:
+            issues.append(f"{row_id}:objective_coverage_planes")
+        plane_status = (
+            row.get("coverage_plane_status")
+            if isinstance(row.get("coverage_plane_status"), dict)
+            else {}
+        )
+        if [str(item) for item in plane_status.get("objective", []) if item] != [
+            str(item) for item in objective_planes
+        ]:
+            issues.append(f"{row_id}:coverage_plane_status_objective")
+    for row in covered_rows:
+        row_id = str(row.get("id") or "unknown")
+        objective_planes = (
+            row.get("objective_coverage_planes")
+            if isinstance(row.get("objective_coverage_planes"), list)
+            else []
+        )
+        covered_planes = (
+            row.get("covered_coverage_planes")
+            if isinstance(row.get("covered_coverage_planes"), list)
+            else []
+        )
+        coverage_planes = (
+            row.get("coverage_planes")
+            if isinstance(row.get("coverage_planes"), list)
+            else []
+        )
+        if not covered_planes:
+            issues.append(f"{row_id}:covered_coverage_planes")
+        if [str(item) for item in covered_planes] != [
+            str(item) for item in objective_planes
+        ]:
+            issues.append(f"{row_id}:covered_objective_mismatch")
+        if [str(item) for item in coverage_planes] != [
+            str(item) for item in objective_planes
+        ]:
+            issues.append(f"{row_id}:coverage_planes_objective_alias")
+    for row in blocked_rows:
+        row_id = str(row.get("id") or "unknown")
+        blocked_by = (
+            row.get("blocked_by_requirement_ids")
+            if isinstance(row.get("blocked_by_requirement_ids"), list)
+            else []
+        )
+        open_stack = (
+            row.get("open_stack_requirement_ids")
+            if isinstance(row.get("open_stack_requirement_ids"), list)
+            else []
+        )
+        requirements = (
+            row.get("requirements")
+            if isinstance(row.get("requirements"), list)
+            else []
+        )
+        coverage_impacts = (
+            row.get("coverage_impacts")
+            if isinstance(row.get("coverage_impacts"), list)
+            else []
+        )
+        blocked_planes = (
+            row.get("blocked_coverage_planes")
+            if isinstance(row.get("blocked_coverage_planes"), list)
+            else []
+        )
+        coverage_planes = (
+            row.get("coverage_planes")
+            if isinstance(row.get("coverage_planes"), list)
+            else []
+        )
+        if not blocked_by:
+            issues.append(f"{row_id}:blocked_by_requirement_ids")
+        if [str(item) for item in blocked_by] != [str(item) for item in open_stack]:
+            issues.append(f"{row_id}:blocked_by_open_stack_mismatch")
+        if not row.get("blocking_check_keys"):
+            issues.append(f"{row_id}:blocking_check_keys")
+        if not coverage_impacts:
+            issues.append(f"{row_id}:coverage_impacts")
+        if not blocked_planes:
+            issues.append(f"{row_id}:blocked_coverage_planes")
+        if [str(item) for item in coverage_planes] != [
+            str(item) for item in blocked_planes
+        ]:
+            issues.append(f"{row_id}:coverage_planes_alias")
+        for blocker in requirements:
+            if not isinstance(blocker, dict) or blocker.get("id") not in set(
+                open_stack
+            ):
+                continue
+            requirement_id = str(blocker.get("id") or "unknown")
+            closure_acceptance = (
+                blocker.get("closure_acceptance")
+                if isinstance(blocker.get("closure_acceptance"), dict)
+                else {}
+            )
+            if not contract_port.stack_requirement_closure_acceptance_complete(
+                closure_acceptance
+            ):
+                issues.append(f"{row_id}:{requirement_id}:closure_acceptance")
+            if (
+                closure_acceptance
+                and closure_acceptance.get("requirement_id") != requirement_id
+            ):
+                issues.append(
+                    f"{row_id}:{requirement_id}:closure_acceptance_identity"
+                )
+            if (
+                closure_acceptance
+                and self_awareness_contracts.nested_get(
+                    closure_acceptance, ["stack_compat_requirement", "owner"]
+                )
+                != "abyss-stack"
+            ):
+                issues.append(f"{row_id}:{requirement_id}:closure_acceptance_owner")
+            if (
+                closure_acceptance
+                and self_awareness_contracts.nested_get(
+                    closure_acceptance, ["policy", "host_layer_mutates_stack"]
+                )
+                is not False
+            ):
+                issues.append(f"{row_id}:{requirement_id}:closure_acceptance_policy")
+        for impact in coverage_impacts:
+            if not isinstance(impact, dict):
+                issues.append(f"{row_id}:malformed_coverage_impact")
+                continue
+            if not impact.get("requirement_id"):
+                issues.append(f"{row_id}:impact_requirement_id")
+            if (
+                not isinstance(impact.get("coverage_planes"), list)
+                or not impact.get("coverage_planes")
+            ):
+                issues.append(f"{row_id}:impact_coverage_planes")
+            if (
+                self_awareness_contracts.nested_get(
+                    impact, ["policy", "host_layer_mutates_stack"]
+                )
+                is not False
+            ):
+                issues.append(f"{row_id}:impact_policy")
+    summary_planes = self_awareness_contracts.nested_get(
+        coverage_audit, ["summary", "blocked_coverage_planes"]
+    )
+    if blocked_rows and not isinstance(summary_planes, list):
+        issues.append("summary:blocked_coverage_planes")
+    if blocked_rows and isinstance(summary_planes, list):
+        row_planes = sorted(
+            {
+                str(plane)
+                for row in blocked_rows
+                for plane in (
+                    row.get("blocked_coverage_planes")
+                    if isinstance(row.get("blocked_coverage_planes"), list)
+                    else []
+                )
+                if plane
+            }
+        )
+        if sorted(str(plane) for plane in summary_planes) != row_planes:
+            issues.append("summary:blocked_coverage_planes_mismatch")
+    summary_objective_planes = self_awareness_contracts.nested_get(
+        coverage_audit, ["summary", "objective_coverage_planes"]
+    )
+    row_objective_planes = sorted(
+        {
+            str(plane)
+            for row in rows
+            for plane in (
+                row.get("objective_coverage_planes")
+                if isinstance(row.get("objective_coverage_planes"), list)
+                else []
+            )
+            if plane
+        }
+    )
+    if sorted(
+        str(plane)
+        for plane in (
+            summary_objective_planes
+            if isinstance(summary_objective_planes, list)
+            else []
+        )
+    ) != row_objective_planes:
+        issues.append("summary:objective_coverage_planes_mismatch")
+    summary_covered_planes = self_awareness_contracts.nested_get(
+        coverage_audit, ["summary", "covered_coverage_planes"]
+    )
+    row_covered_planes = sorted(
+        {
+            str(plane)
+            for row in covered_rows
+            for plane in (
+                row.get("covered_coverage_planes")
+                if isinstance(row.get("covered_coverage_planes"), list)
+                else []
+            )
+            if plane
+        }
+    )
+    if sorted(
+        str(plane)
+        for plane in (
+            summary_covered_planes
+            if isinstance(summary_covered_planes, list)
+            else []
+        )
+    ) != row_covered_planes:
+        issues.append("summary:covered_coverage_planes_mismatch")
+    open_requirement_ids = sorted(
+        {
+            str(requirement_id)
+            for row in blocked_rows
+            for requirement_id in (
+                row.get("open_stack_requirement_ids")
+                if isinstance(row.get("open_stack_requirement_ids"), list)
+                else []
+            )
+            if requirement_id
+        }
+    )
+    if blocked_rows and runtime_evidence_contracts.safe_int(
+        self_awareness_contracts.nested_get(
+            coverage_audit,
+            ["summary", "stack_requirement_closure_acceptance_packets_complete"],
+        ),
+        -1,
+    ) < len(open_requirement_ids):
+        issues.append("summary:stack_requirement_closure_acceptance_packets_complete")
+    return issues
