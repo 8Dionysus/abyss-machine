@@ -687,6 +687,237 @@ def signal_fabric_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for event in events:
+        event_id = str(event.get("event_id") or stable_hash_json(event, length=24))
+        if event_id in seen:
+            continue
+        seen.add(event_id)
+        result.append(event)
+    return result
+
+
+def correlation_index(
+    events: list[dict[str, Any]],
+    *,
+    generated_at: str,
+    schema_prefix: str,
+    version: str,
+) -> dict[str, Any]:
+    indexes: dict[str, dict[str, list[str]]] = {
+        "by_time_bucket": {},
+        "by_service": {},
+        "by_container": {},
+        "by_context": {},
+        "by_alert_fingerprint": {},
+        "by_owner_surface": {},
+        "by_source": {},
+        "by_synthetic_run": {},
+    }
+
+    def add(index_name: str, key: Any, event_id: str) -> None:
+        if key in (None, ""):
+            return
+        indexes[index_name].setdefault(str(key), []).append(event_id)
+
+    for event in events:
+        event_id = str(event.get("event_id") or "")
+        resource = event.get("resource") if isinstance(event.get("resource"), dict) else {}
+        context = event.get("context") if isinstance(event.get("context"), dict) else {}
+        space = event.get("space") if isinstance(event.get("space"), dict) else {}
+        add("by_time_bucket", time_bucket(event.get("event_time")), event_id)
+        add("by_service", resource.get("service") or resource.get("job"), event_id)
+        add("by_container", resource.get("container"), event_id)
+        add(
+            "by_owner_surface",
+            resource.get("owner_surface") or space.get("owner_surface"),
+            event_id,
+        )
+        add("by_source", event.get("source"), event_id)
+        for key in (
+            "trace_id",
+            "request_id",
+            "session_id",
+            "task_id",
+            "goal_id",
+            "traceparent",
+            "thread_id",
+            "checkpoint_id",
+            "run_id",
+            "synthetic_run_id",
+            "working_stack_link_id",
+            "movement_packet_id",
+            "scheduler_unit",
+            "scheduler_scope",
+            "scheduler_category",
+            "host_service_unit",
+            "host_service_scope",
+            "host_service_category",
+        ):
+            add(
+                "by_context",
+                f"{key}:{context.get(key)}" if context.get(key) else None,
+                event_id,
+            )
+        add(
+            "by_alert_fingerprint",
+            resource.get("alert_fingerprint") or context.get("alert_fingerprint"),
+            event_id,
+        )
+        add("by_synthetic_run", context.get("synthetic_run_id"), event_id)
+    return {
+        "schema": _schema(schema_prefix, "self_awareness_correlation_index_v1"),
+        "version": version,
+        "generated_at": generated_at,
+        "indexes": indexes,
+        "summary": {key: len(value) for key, value in indexes.items()},
+    }
+
+
+def checkpoint_observation_events(
+    investigation: dict[str, Any],
+    replay: dict[str, Any],
+    generated_at: str,
+    *,
+    investigate_latest_path: Path | str,
+    replay_latest_path: Path | str,
+    host: str,
+    now: Callable[[], str],
+    schema_prefix: str = SCHEMA_PREFIX_DEFAULT,
+) -> list[dict[str, Any]]:
+    investigation = investigation if isinstance(investigation, dict) else {}
+    replay = replay if isinstance(replay, dict) else {}
+    checkpoints = [
+        item
+        for item in investigation.get("checkpoints", [])
+        if isinstance(item, dict)
+    ]
+    thread_id = str(investigation.get("thread_id") or replay.get("thread_id") or "")
+    latest_checkpoint = checkpoints[-1] if checkpoints else {}
+    latest_checkpoint_id = str(
+        latest_checkpoint.get("checkpoint_id")
+        or nested_get(investigation, ["graph", "resume", "latest_checkpoint_id"])
+        or nested_get(replay, ["resume", "latest_checkpoint_id"])
+        or ""
+    )
+    if not thread_id or not latest_checkpoint_id:
+        return []
+
+    context = {"thread_id": thread_id, "checkpoint_id": latest_checkpoint_id}
+    query_text = str(investigation.get("query") or "")
+    if re.fullmatch(r"[A-Za-z0-9_.:-]{2,80}", query_text):
+        context["run_id"] = query_text
+        if query_text.startswith("saprobe-"):
+            context["synthetic_run_id"] = query_text
+
+    graph_nodes = nested_get(investigation, ["graph", "nodes"])
+    if not isinstance(graph_nodes, list):
+        graph_nodes = []
+    replay_node_order = nested_get(replay, ["summary", "node_order"])
+    if not isinstance(replay_node_order, list):
+        replay_node_order = []
+
+    investigate_path = str(investigate_latest_path)
+    replay_path = str(replay_latest_path)
+    return [
+        make_event(
+            "validation",
+            "graph",
+            event_time=str(investigation.get("generated_at") or generated_at),
+            source_query=investigate_path,
+            resource={
+                "service": "self-awareness-investigate",
+                "owner_surface": "abyss-machine",
+                "path": investigate_path,
+                "thread_id": thread_id,
+                "checkpoint_id": latest_checkpoint_id,
+                "write": False,
+            },
+            context=context,
+            space={
+                "host": host,
+                "owner_surface": "abyss-machine",
+                "route": "self-awareness/investigate",
+                "path": investigate_path,
+            },
+            severity="info" if investigation.get("ok") else "warning",
+            confidence={
+                "score": 0.9 if investigation.get("ok") else 0.58,
+                "reason": "Machine-owned checkpointed investigation readmodel",
+            },
+            body={
+                "schema": investigation.get("schema"),
+                "ok": investigation.get("ok"),
+                "thread_id": thread_id,
+                "latest_checkpoint_id": latest_checkpoint_id,
+                "checkpoints": len(checkpoints),
+                "graph_nodes": graph_nodes,
+                "summary": investigation.get("summary"),
+            },
+            evidence_refs=[
+                {
+                    "path": investigate_path,
+                    "schema": investigation.get("schema"),
+                    "thread_id": thread_id,
+                    "checkpoint_id": latest_checkpoint_id,
+                }
+            ],
+            truth_level="checkpointed_langgraph_investigation",
+            schema_prefix=schema_prefix,
+            now=now,
+            host=host,
+        ),
+        make_event(
+            "validation",
+            "graph",
+            event_time=str(replay.get("generated_at") or generated_at),
+            source_query=replay_path,
+            resource={
+                "service": "self-awareness-replay",
+                "owner_surface": "abyss-machine",
+                "path": replay_path,
+                "thread_id": thread_id,
+                "checkpoint_id": latest_checkpoint_id,
+                "write": False,
+            },
+            context=context,
+            space={
+                "host": host,
+                "owner_surface": "abyss-machine",
+                "route": "self-awareness/replay",
+                "path": replay_path,
+            },
+            severity="info" if replay.get("ok") else "warning",
+            confidence={
+                "score": 0.88 if replay.get("ok") else 0.56,
+                "reason": "Machine-owned replay readmodel over checkpoint chain",
+            },
+            body={
+                "schema": replay.get("schema"),
+                "ok": replay.get("ok"),
+                "thread_id": thread_id,
+                "latest_checkpoint_id": latest_checkpoint_id,
+                "node_order": replay_node_order,
+                "summary": replay.get("summary"),
+            },
+            evidence_refs=[
+                {
+                    "path": replay_path,
+                    "schema": replay.get("schema"),
+                    "thread_id": thread_id,
+                    "checkpoint_id": latest_checkpoint_id,
+                }
+            ],
+            truth_level="checkpoint_replay_verification",
+            schema_prefix=schema_prefix,
+            now=now,
+            host=host,
+        ),
+    ]
+
+
 def query_terms(query: Any) -> list[str]:
     text = redact_text(query or "", 480).lower()
     if text in {"", "*", "latest"}:
