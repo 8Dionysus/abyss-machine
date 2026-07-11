@@ -398,6 +398,15 @@ closeout must compare fixed input snapshots and may report only completion
 booleans and overlay state; never publish cognitive packets, claims, evidence,
 endpoints, or paths.
 
+For self-awareness activation-smoke pipeline changes, public CI should use
+synthetic dossier/inventory/episode/previous-smoke documents plus fake latest,
+refresh, clock, host identity, PID, movement-row, completion, and persistence
+ports. It must constrain supplied/fallback reads, episode refresh, per-organ
+coverage, summaries, no-write/write-error behavior, no-mutation policy, and CLI
+binding. Live closeout must compare a fixed latest snapshot and may report only
+ok/completion/row/use-packet counts and policy; never publish organ packets,
+events, evidence refs, runtime identity, or paths.
+
 For self-awareness stack-closure pipeline changes, public CI should use
 synthetic capabilities/requirements/probes/activation refresh callbacks,
 contract builders, ordered artifact-ref callbacks, and latest/history writers.

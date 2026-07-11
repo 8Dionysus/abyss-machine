@@ -156,9 +156,12 @@ Use these mechanic owners for the next extraction slices:
   contract projection plus completion;
   `self_awareness_resident_cognitive_contracts` owns completion-route context,
   bounded cognitive packet/replay state preservation, completion predicates,
-  and cycle overlay through explicit ports. Remaining activation/lineage/
-  coverage centers must be extracted before the final residual CLI-edge
-  classification and family completion audit.
+  and cycle overlay through explicit ports;
+  `self_awareness_activation_smoke_contracts` owns activation-smoke latest/
+  refresh/persistence orchestration and per-organ movement/use-packet summary
+  assembly through explicit ports. Remaining activation pure contracts plus
+  lineage/coverage centers must be extracted before the final residual CLI-
+  edge classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
