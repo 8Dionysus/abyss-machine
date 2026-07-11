@@ -1,0 +1,54 @@
+{
+  "schema_version": "aoa-local-kag-record-v1",
+  "repo": "abyss-machine",
+  "local_id": "receipt:validation:abyss-machine-provider",
+  "record_class": "receipt",
+  "source_refs": [
+    {
+      "repo": "abyss-machine",
+      "path": "README.md",
+      "source_class": "runtime_source",
+      "role": "primary",
+      "authority": "authored_source"
+    },
+    {
+      "repo": "abyss-machine",
+      "path": "scripts/ci_gate.py",
+      "source_class": "validation_source",
+      "role": "validation_receipt",
+      "authority": "authored_control"
+    }
+  ],
+  "source_owner": "abyss-machine",
+  "provenance_mode": "strict_source_linked",
+  "derived_method": "validation receipt for the local public host-source provider",
+  "generated_or_authored": "authored_control",
+  "status": "active",
+  "owner_return_route": {
+    "repo": "abyss-machine",
+    "surface": "README.md",
+    "route_kind": "runtime"
+  },
+  "freshness": {
+    "mode": "validator_receipt",
+    "state": "current",
+    "checked_ref": "kag/manifest.json"
+  },
+  "builder": {
+    "route": "local KAG provider authoring",
+    "surface": "kag/manifest.json"
+  },
+  "validator": {
+    "route": "aoa-kag:scripts/validate_kag.py",
+    "lane": "local-kag"
+  },
+  "storage_posture": {
+    "git_surface": "receipt",
+    "payload_class": "receipt",
+    "runtime_route": "source-repo"
+  },
+  "consumer_route": "aoa-kag registry",
+  "receipt_kind": "validation",
+  "result": "current",
+  "fallback_route": "python scripts/ci_gate.py --mode source-fast"
+}

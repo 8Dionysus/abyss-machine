@@ -1,0 +1,1855 @@
+{
+  "entries": [
+    {
+      "event_kind": "workflow_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:b47ba429516dd6d7f6c8",
+      "observation_state": "declared",
+      "path": ".github/workflows/artifact-production-evidence.yml",
+      "source_record_id": "file:.github/workflows/artifact-production-evidence.yml:6f3722ed36"
+    },
+    {
+      "event_kind": "workflow_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:5fb16ab7e8923e6ac033",
+      "observation_state": "declared",
+      "path": ".github/workflows/repo-validation.yml",
+      "source_record_id": "file:.github/workflows/repo-validation.yml:3affb923d0"
+    },
+    {
+      "event_kind": "release_declaration",
+      "event_role": "declaration",
+      "heading_ref": {
+        "anchor": "010",
+        "level": 2,
+        "line": 72,
+        "ref": "CHANGELOG.md#010",
+        "title": "0.1.0"
+      },
+      "id": "event:repo:b0bc538d4435fe3fc376",
+      "observation_state": "declared",
+      "path": "CHANGELOG.md",
+      "source_record_id": "file:changelog.md:06572a96a5"
+    },
+    {
+      "event_kind": "release_lane",
+      "event_role": "declaration",
+      "heading_ref": {
+        "anchor": "unreleased",
+        "level": 2,
+        "line": 3,
+        "ref": "CHANGELOG.md#unreleased",
+        "title": "Unreleased"
+      },
+      "id": "event:repo:a4d9abdeac3a4922460b",
+      "observation_state": "declared",
+      "path": "CHANGELOG.md",
+      "source_record_id": "file:changelog.md:06572a96a5"
+    },
+    {
+      "event_kind": "release_declaration",
+      "event_role": "declaration",
+      "heading_ref": {
+        "anchor": "notes",
+        "level": 2,
+        "line": 223,
+        "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#notes",
+        "title": "Notes"
+      },
+      "id": "event:repo:00b5e5df436ff0f3f456",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/CHANGELOG.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3"
+    },
+    {
+      "event_kind": "release_lane",
+      "event_role": "declaration",
+      "heading_ref": {
+        "anchor": "unreleased",
+        "level": 2,
+        "line": 11,
+        "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#unreleased",
+        "title": "[Unreleased]"
+      },
+      "id": "event:repo:1f45817359bd21249bc2",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/CHANGELOG.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:6f5588e3e5a8a8b0bf21",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0001-roadmap-decisions-changelog-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0001-roadmap-decisions-changelog-route.md:ff1cfed8b4"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:b17345ae799f341f4021",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0002-decision-index-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0002-decision-index-route.md:94dc6bf8f7"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:e2f7ea982dbbe9476e39",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0003-host-agent-mesh-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0003-host-agent-mesh-route.md:220f23815c"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:bd4b444a9ed57d17ac7e",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0004-srv-large-root-design-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0004-srv-large-root-design-route.md:8249012cff"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:6a9efd37e0631eb56a19",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0005-zram-headroom-routing.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0005-zram-headroom-routing.md:ef2a059c2b"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:58e09eba5d3df9b650d0",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0006-doctor-self-maintenance-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0006-doctor-self-maintenance-route.md:224965f106"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:cb1ac1fd07b23eabb9e5",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0007-os-abyss-heartbeat-reaction-response-chain.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0007-os-abyss-heartbeat-reaction-response-chain.md:20ec804c52"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:b8413bb448ced17de375",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0008-change-close-decision-review-gate.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0008-change-close-decision-review-gate.md:453a5a1ffc"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:a53b5b57f79a8bb17761",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0009-decision-record-evolution-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0009-decision-record-evolution-route.md:3d1a81f10f"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:1f79b39066128b2b52c4",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0010-typing-journal-preservation-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0010-typing-journal-preservation-route.md:9d13e38b1d"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:3d86f79b0ba3baa5b69f",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0011-e2b-resident-selection-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0011-e2b-resident-selection-route.md:92f56a0080"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:5db891fb6ba230cd92ed",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0012-causal-spine-bridge-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0012-causal-spine-bridge-route.md:b2e1de912a"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:911f36be08b34111adb9",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0013-machine-atlas-maps-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0013-machine-atlas-maps-route.md:ded3f6edb0"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:55a1b9decb32eb05b9d1",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0014-machine-atlas-reader-profile-packets.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0014-machine-atlas-reader-profile-packets.md:3eb90b3e79"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:2a33d6eade77dab33959",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0015-machine-rag-trace-loop.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0015-machine-rag-trace-loop.md:2e4da28eff"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:e61f961f047cd05920a9",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0016-machine-context-refresh-automation.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0016-machine-context-refresh-automation.md:30c4dc54e7"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:1dd7bbc736ef0c8762ad",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0017-stack-observability-bridge-consumer.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0017-stack-observability-bridge-consumer.md:df698ae28b"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:ae76c37cc2ed166dcbea",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0018-self-awareness-observability-layer.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0018-self-awareness-observability-layer.md:341d80d6e3"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:31e1eaa092996c0067e3",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0019-self-awareness-full-stack-coverage.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0019-self-awareness-full-stack-coverage.md:3803301b27"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:195592d2e5164bd86c71",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/0020-artifact-evidence-cleanup-route.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0020-artifact-evidence-cleanup-route.md:145a447404"
+    },
+    {
+      "event_kind": "decision_record",
+      "event_role": "declaration",
+      "heading_ref": null,
+      "id": "event:repo:b5891fab903693cc5555",
+      "observation_state": "declared",
+      "path": "config-templates/etc/abyss-machine/decisions/TEMPLATE.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/template.md:dbf1a2ecda"
+    },
+    {
+      "event_kind": "validation_receipt",
+      "event_role": "receipt",
+      "heading_ref": null,
+      "id": "event:repo:312a3b59884926515bf0",
+      "observation_state": "observed",
+      "path": "kag/receipts/validation_receipt.json",
+      "source_record_id": "file:kag/receipts/validation_receipt.json:8e616be0cd"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:14d8a4d54c130591d21b",
+      "observation_state": "declared",
+      "path": "scripts/abyss-machine-bootstrap",
+      "source_record_id": "file:scripts/abyss-machine-bootstrap:2dc6fb84c6"
+    },
+    {
+      "event_kind": "validation_lane_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:16a299a0278e42a85e1b",
+      "observation_state": "declared",
+      "path": "scripts/ci_gate.py",
+      "source_record_id": "file:scripts/ci_gate.py:c5138334e3"
+    },
+    {
+      "event_kind": "generation_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:6cf11a2444e365c37250",
+      "observation_state": "declared",
+      "path": "scripts/generate_contract_abi_signatures.py",
+      "source_record_id": "file:scripts/generate_contract_abi_signatures.py:03362258aa"
+    },
+    {
+      "event_kind": "generation_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:bd62f818143cfaf71a3f",
+      "observation_state": "declared",
+      "path": "scripts/generate_scaffold_index.py",
+      "source_record_id": "file:scripts/generate_scaffold_index.py:53fbcb03c3"
+    },
+    {
+      "event_kind": "validation_lane_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8b577355ac18eac2075d",
+      "observation_state": "declared",
+      "path": "scripts/release_check.py",
+      "source_record_id": "file:scripts/release_check.py:070046d3ac"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:3b1bdddd92a136376d27",
+      "observation_state": "declared",
+      "path": "scripts/validation_lanes.py",
+      "source_record_id": "file:scripts/validation_lanes.py:dda053a98d"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a1f89ac0a103ef8505a4",
+      "observation_state": "declared",
+      "path": "scripts/validators/artifact_bundle_roundtrip.py",
+      "source_record_id": "file:scripts/validators/artifact_bundle_roundtrip.py:16aea9cba6"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c5656fff3cfde5cc7087",
+      "observation_state": "declared",
+      "path": "scripts/validators/artifact_signature_policy.py",
+      "source_record_id": "file:scripts/validators/artifact_signature_policy.py:2e266738e7"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:acf82b2c845d78321ce3",
+      "observation_state": "declared",
+      "path": "scripts/validators/bootstrap_contract.py",
+      "source_record_id": "file:scripts/validators/bootstrap_contract.py:f653595bd6"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:593bf049424fa5bacb19",
+      "observation_state": "declared",
+      "path": "scripts/validators/first_run_installed_projection.py",
+      "source_record_id": "file:scripts/validators/first_run_installed_projection.py:a72880428c"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d2083f2f66669b8225a2",
+      "observation_state": "declared",
+      "path": "scripts/validators/manifest_integrity.py",
+      "source_record_id": "file:scripts/validators/manifest_integrity.py:052f948107"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:742afbf51585ab1d8fcb",
+      "observation_state": "declared",
+      "path": "scripts/validators/mechanics_topology.py",
+      "source_record_id": "file:scripts/validators/mechanics_topology.py:8a17eb090b"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d02bd23a9b767be9aa4f",
+      "observation_state": "declared",
+      "path": "scripts/validators/path_policy.py",
+      "source_record_id": "file:scripts/validators/path_policy.py:f4123b5232"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:892cd2ffd431882019d1",
+      "observation_state": "declared",
+      "path": "scripts/validators/public_boundary.py",
+      "source_record_id": "file:scripts/validators/public_boundary.py:1902e3c4f1"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:1d6c3af13b4cbc3beb22",
+      "observation_state": "declared",
+      "path": "scripts/validators/release_artifact_policy.py",
+      "source_record_id": "file:scripts/validators/release_artifact_policy.py:c71cb0bb80"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:759adb6435d242c5c111",
+      "observation_state": "declared",
+      "path": "scripts/validators/repo_topology.py",
+      "source_record_id": "file:scripts/validators/repo_topology.py:051f8c9f5e"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:de7479b611b488d6254f",
+      "observation_state": "declared",
+      "path": "scripts/validators/schema_integrity.py",
+      "source_record_id": "file:scripts/validators/schema_integrity.py:1b16d421d5"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c12294246ec0ae23491b",
+      "observation_state": "declared",
+      "path": "scripts/validators/source_install_runtime_parity.py",
+      "source_record_id": "file:scripts/validators/source_install_runtime_parity.py:4c2b206248"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:b5549277f4ec23a7e5ad",
+      "observation_state": "declared",
+      "path": "scripts/validators/typing_nervous_policy.py",
+      "source_record_id": "file:scripts/validators/typing_nervous_policy.py:3305557beb"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:51b79daecc70f33cbdc0",
+      "observation_state": "declared",
+      "path": "scripts/validators/typing_nervous_refresh_logic.py",
+      "source_record_id": "file:scripts/validators/typing_nervous_refresh_logic.py:7fef35c992"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:27cf4d3904d0739848b0",
+      "observation_state": "declared",
+      "path": "src/abyss_machine/cli.py",
+      "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8733a88944085fd27b33",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_artifact_evidence.py",
+      "source_record_id": "file:tests/host_contract/contract/test_artifact_evidence.py:174cd2a8c1"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:b1072bdb289c65587bc9",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_cli_json_contracts.py",
+      "source_record_id": "file:tests/host_contract/contract/test_cli_json_contracts.py:4fbef3bb5c"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0989a77c0d2824dbd934",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_decisions_index_contract.py",
+      "source_record_id": "file:tests/host_contract/contract/test_decisions_index_contract.py:a55a739428"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:742a3904cfc065c91093",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_e2b_continuous_ops_phase6.py",
+      "source_record_id": "file:tests/host_contract/contract/test_e2b_continuous_ops_phase6.py:46fa1a816e"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a27287aecfc3a770fe87",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_e4b_workhorse_harness.py",
+      "source_record_id": "file:tests/host_contract/contract/test_e4b_workhorse_harness.py:87080e7fb8"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2ed18217f921ca10a5f0",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_heartbeat_ai_hygiene_phase4.py",
+      "source_record_id": "file:tests/host_contract/contract/test_heartbeat_ai_hygiene_phase4.py:34319449d6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:30de1a80087c81325c53",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_heartbeat_bridge_phase5.py",
+      "source_record_id": "file:tests/host_contract/contract/test_heartbeat_bridge_phase5.py:e11999d004"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a310313b7eaaacb1ab1a",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_heartbeat_pressure_capture.py",
+      "source_record_id": "file:tests/host_contract/contract/test_heartbeat_pressure_capture.py:452a3a89db"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:fc4e9892e4ecd05bed7f",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_heartbeat_readmodel_core.py",
+      "source_record_id": "file:tests/host_contract/contract/test_heartbeat_readmodel_core.py:b06772e6b8"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8d8ba04e892dddd1b6f6",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_heartbeat_web_phase3.py",
+      "source_record_id": "file:tests/host_contract/contract/test_heartbeat_web_phase3.py:97b367a2d3"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:37c2c7d6eb0d74272576",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_nervous_screenshot_game_safe.py",
+      "source_record_id": "file:tests/host_contract/contract/test_nervous_screenshot_game_safe.py:3a377b4261"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:69da75b19097c5624426",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_process_desktop_compositor.py",
+      "source_record_id": "file:tests/host_contract/contract/test_process_desktop_compositor.py:9f322d074b"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:e140a570f5583b0afb84",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_resource_launch_timeout_cleanup.py",
+      "source_record_id": "file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:4d843890059f2f95c576",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_schema_output_contracts.py",
+      "source_record_id": "file:tests/host_contract/contract/test_schema_output_contracts.py:41a88e9b67"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:7bdd158ba46e66c1fe88",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_self_awareness_contracts.py",
+      "source_record_id": "file:tests/host_contract/contract/test_self_awareness_contracts.py:c60820438c"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c5eecacd65d0fbb72930",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_typing_intake.py",
+      "source_record_id": "file:tests/host_contract/contract/test_typing_intake.py:15a74561e5"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:542ffa8696fcea3fc3e8",
+      "observation_state": "declared",
+      "path": "tests/host_contract/contract/test_typing_nervous_resource_gate.py",
+      "source_record_id": "file:tests/host_contract/contract/test_typing_nervous_resource_gate.py:0bdd8a3002"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:7297de6fce0340de9ddd",
+      "observation_state": "declared",
+      "path": "tests/host_contract/live/test_live_readonly_validators.py",
+      "source_record_id": "file:tests/host_contract/live/test_live_readonly_validators.py:af5bec5ac7"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:e917cb4ab953ed0779a9",
+      "observation_state": "declared",
+      "path": "tests/host_contract/live/test_self_awareness_live_readonly.py",
+      "source_record_id": "file:tests/host_contract/live/test_self_awareness_live_readonly.py:42a207dc13"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d6df50b351dfde1b66ce",
+      "observation_state": "declared",
+      "path": "tests/host_contract/regression/test_memory_zram_policy.py",
+      "source_record_id": "file:tests/host_contract/regression/test_memory_zram_policy.py:8ba5e7a5c6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:05bfd85eb331ca37f4a1",
+      "observation_state": "declared",
+      "path": "tests/host_contract/safety/test_storage_and_mutation_boundaries.py",
+      "source_record_id": "file:tests/host_contract/safety/test_storage_and_mutation_boundaries.py:b21cc1193b"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c31fbde44c53025f868e",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_ai_cpu_routing_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_ai_cpu_routing_contract.py:c4211e31f3"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0b8d350b782587dbed05",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_ai_runtime_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_ai_runtime_adapters.py:e9addcb736"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:4ce83fd500719719f71c",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_ai_runtime_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_ai_runtime_contracts.py:301042431c"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:74a833063043b6cad014",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_ai_tts_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_ai_tts_adapters.py:8bad6615b6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a62d38e7887bcd10e6fb",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_ai_tts_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_ai_tts_contracts.py:984973a4b6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d288028852a8b49ffd7a",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_artifact_bundle_verifier.py",
+      "source_record_id": "file:tests/public_smoke/test_artifact_bundle_verifier.py:0b09d5ae7b"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:3d9901252df3c8579bd9",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_artifact_identity_policy.py",
+      "source_record_id": "file:tests/public_smoke/test_artifact_identity_policy.py:c9fb7597ee"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:41a75be27ea4ad11755b",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_artifact_trust_tools_python.py",
+      "source_record_id": "file:tests/public_smoke/test_artifact_trust_tools_python.py:7ecce670b4"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2493ced2c96aea7d5e21",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_bootstrap.py",
+      "source_record_id": "file:tests/public_smoke/test_bootstrap.py:79b98a725b"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8aa36bf72fed05c317ba",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_changes_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_changes_contracts.py:0efdfec488"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d25f0e76c7e7e036063c",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_context_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_context_contracts.py:ebb120df7d"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:083a4bdcec5e6f7fa7fe",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_cooling_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_cooling_adapters.py:8a611ebcfa"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0b42afa974bd2fd120a0",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_cooling_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_cooling_contracts.py:196f246c34"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:cb398a01b9e9aea1d9fd",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_contracts.py:e0fa08f9de"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d8d8a07f73421a0039e4",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_docs_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_docs_adapters.py:0f0646a395"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:6bf103d26932963c3f07",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_execution_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_execution_adapters.py:69c2c13a03"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a7c5e093a502bd281427",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_lock_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_lock_adapters.py:df7ecdeb51"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:652cc63b5a3af9a7e236",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_notifications_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_notifications_adapters.py:7456a3db1f"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:5a3f3c6b40590bc5e493",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_postprocess_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_postprocess_adapters.py:62627554e9"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:87a9d113f0cf105dcd26",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_profile_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_profile_adapters.py:fa2b540368"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2e20ef39789182525274",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_replacements_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_replacements_adapters.py:4926fb0c6c"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0dcbe5927a5e6ac8a2b3",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_runtime_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_runtime_adapters.py:94f38cd280"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:39a115eac6f9dc594b8d",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_status_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_status_adapters.py:7a6e1e4fd9"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a92cc69169bc9029d704",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_dictation_validation_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_dictation_validation_adapters.py:6af88cd867"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:dc653686cdfe415d5fcc",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_docs_agents_mesh_boundary.py",
+      "source_record_id": "file:tests/public_smoke/test_docs_agents_mesh_boundary.py:fedc65d313"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8b305806152a0740dfc4",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_docs_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_docs_contracts.py:25aeed5bf5"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:db1139891efc83754f72",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_doctor_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_doctor_adapters.py:8269b09f14"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:9a807022ac87b21bf256",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_doctor_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_doctor_contracts.py:a2c1c2b39d"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:f05f3fe0a77fbc6170f5",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_first_run_installed_projection.py",
+      "source_record_id": "file:tests/public_smoke/test_first_run_installed_projection.py:6749811818"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:9a0b9b8f1d5c75eea2fb",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_github_artifact_production_evidence_workflow.py",
+      "source_record_id": "file:tests/public_smoke/test_github_artifact_production_evidence_workflow.py:e6b524a4d0"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:7e142fb06627297ebdf7",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_host_lifecycle_parity.py",
+      "source_record_id": "file:tests/public_smoke/test_host_lifecycle_parity.py:8f032809d7"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2cbc00b59ddd1590c377",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_memory_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:1af27a2f0d8c7589aff0",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_memory_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_memory_contracts.py:63edd4cace"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:4264988580e08da70437",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_mode_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_mode_adapters.py:f6268faacb"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:59fca83e2a6ae8ae6b0b",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_mode_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_mode_contracts.py:4fbaae6dc0"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:3f6c35f099150736fb01",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_brief_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_brief_contract.py:b5644cf29e"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a16aba0ffb46034c58d2",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_browser_content_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_browser_content_adapters.py:36051b1f72"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:49b4548bf07845ff9313",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_capture_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_capture_adapters.py:649e46ada9"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:bdef7db59a5aeae6b566",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_clipboard_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_clipboard_adapters.py:3df0f3e5ea"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a4355d352428d3e5a167",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_events_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_events_adapters.py:d7c21ab6c9"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c2ae10aac845e347e503",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_events_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_events_contract.py:1fbc46d841"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2108d808762e63ae3cfb",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_index_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_index_adapters.py:07b5cd4269"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:968546213650a46c9d4b",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_index_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_index_contract.py:c4ddc59204"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:bf2745cec850b7fd8b21",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_privacy_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_privacy_adapters.py:0af40da995"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:b2cf1906c563121cd9ea",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_privacy_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_privacy_contract.py:5c2c70857a"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2815ac5fbb9c320742dc",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_quality_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_quality_adapters.py:96453dfea6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:305b12adb9a0c4989cbe",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_quality_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_quality_contract.py:379c3d75b6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:4827980becfdeae719d9",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_recall_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_recall_contract.py:4835974657"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:47949cbd9ee015c1e8c0",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_redaction_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_redaction_contract.py:017db6ee52"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:89ef143756eba5905e2e",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_rerank_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_rerank_adapters.py:b132669270"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:9408213bc5805ac0943c",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_rerank_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_rerank_contract.py:25b1f39c70"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:57c9609b59d58882e6fd",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_retention_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_retention_adapters.py:23bbcd426a"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8ba6f44967f293c11827",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_retention_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_retention_contract.py:6605023baa"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:aaf25524a42897e077aa",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_retrieval_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_retrieval_adapters.py:64484524d6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:81fa6f6f72b6b46426c1",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_screenshot_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_screenshot_adapters.py:795d14d511"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c825451190f6225807ae",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_screenshot_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_screenshot_contract.py:213494e0a9"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:f91d6e52e68cdd9b3b18",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_semantic_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_semantic_adapters.py:93438c0b03"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:77dc948b143600b2f6bd",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_semantic_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_semantic_contract.py:026f5c10c7"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:3b7ab69b772a384d1931",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_source_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_source_adapters.py:30e98468ef"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:62112f1b5aa1a0a74572",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_sources_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_sources_contract.py:62bbf5d237"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0447af1900254ade28d0",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_status_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_status_adapters.py:a473aed8a1"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:99ff79c997dedc0a98c4",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_synthesis_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_synthesis_adapters.py:59ed80f486"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:21c6beec26b2989ea402",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_nervous_synthesis_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_nervous_synthesis_contract.py:f0daf64659"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:f3fd8380f314cc216320",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_observability_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_observability_contracts.py:92194d0bc5"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a7d6a7efb296e4b14aac",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_path_policy.py",
+      "source_record_id": "file:tests/public_smoke/test_path_policy.py:f59e512aea"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:e00d4b9e3c9a1b0d26b1",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_process_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_process_adapters.py:610c324e87"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:22442ce971652859aca4",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_process_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_process_contracts.py:dc52b91809"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:b6f5402ac1fa417eb498",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_public_boundary.py",
+      "source_record_id": "file:tests/public_smoke/test_public_boundary.py:3029fbfad3"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c8d51ca3b38250d13f29",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_repo_scaffold.py",
+      "source_record_id": "file:tests/public_smoke/test_repo_scaffold.py:88e6c0c9c2"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:cc5c04e1e1785188d312",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_resource_planning_contract.py",
+      "source_record_id": "file:tests/public_smoke/test_resource_planning_contract.py:775bfd31dc"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:eb9926b8cdb7cb16f35d",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_runtime_evidence_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_runtime_evidence_contracts.py:7ce033b237"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:62c8bdc7efa491164919",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_activation_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_activation_contracts.py:8be9db0f19"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:7535935fb89b2a1dfc2b",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_activation_smoke_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_activation_smoke_contracts.py:0a6754aa42"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:69bf3a2f018cfd1fc187",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_adapters.py:5e3168a99f"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c00ba91a41d24e6fc824",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_alert_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_alert_contracts.py:6035a8986b"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:86b2b03ad1768abdd34f",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_body_trace_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_body_trace_contracts.py:0e43df23ed"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:b74b4c41b75d5876cab8",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_brief_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_brief_contracts.py:167c008e86"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:27136c82914b9aa1afaf",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_causal_overlay_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_causal_overlay_contracts.py:04742dae15"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2aeb852a03d0e74e673c",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_causal_readmodel_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_causal_readmodel_contracts.py:1edbf53c14"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:cf56753d8bc06c6e4a59",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_completion_adapter.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_completion_adapter.py:e13fb83d22"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:ad18a885bd8d6e081909",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_completion_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_completion_contracts.py:d5263bdeca"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d1e1d24c2da80d93011c",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_completion_document_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_completion_document_contracts.py:7036fc9d55"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c6915f459c58a6bed263",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_completion_graph_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_completion_graph_contracts.py:f8616dd41d"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:c39526e3e7c0e92f4508",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_contracts.py:25c3548525"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:89a49eb5828af48597d1",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_coverage_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_coverage_contracts.py:59263bccd7"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:7c9abc08e8d1187552f2",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_export_handoff_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_export_handoff_contracts.py:de9c6a24e4"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d0d1a2bffdc0dd9d9c86",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_failure_matrix_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_failure_matrix_contracts.py:e6fe73d76d"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2f8430a2849ba42d513c",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_lineage_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_lineage_contracts.py:8c5b652376"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:56cef03f5be7b925d001",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_query_correlation_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_query_correlation_contracts.py:e34860133c"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:eeb5a266e49aded45e3e",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_resident_cognitive_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_resident_cognitive_contracts.py:2cb8f45e91"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:bc472dddfeb3ef738f5e",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_resident_worker_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_resident_worker_contracts.py:7e0dfc76b2"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:b8a4abf2700f3c4a94ee",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_response_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_response_contracts.py:f1055c46d8"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:5562653ba82a20d2af4a",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_stack_closure_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_stack_closure_contracts.py:1b4a2031a3"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:48a1f057aa3a04a94333",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_stack_probe_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_stack_probe_adapters.py:a906388dd8"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:1bd2470dfe71efb03fd1",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_trace_context_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_trace_context_contracts.py:dfa60118ef"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0ef5bdf18d8e3472b577",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_self_awareness_validation_adapter.py",
+      "source_record_id": "file:tests/public_smoke/test_self_awareness_validation_adapter.py:3185320d45"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:4d4af7139a0da7eee451",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_stack_bridge_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_stack_bridge_contracts.py:55d1e15c38"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d5ccb36845484e0886a1",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_storage_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_storage_adapters.py:56ba1d73fe"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:53f250315da5081a8310",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_storage_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_storage_contracts.py:c2fd4a9597"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:6ad4c1654aeb8d7546d8",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_topology_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_topology_contracts.py:351ea8bc64"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2fe8664d37a016f06259",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_atspi_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_atspi_adapters.py:68d1abf41c"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:7669870c0a6b3788eb59",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_browser_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_browser_adapters.py:64d6118d33"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2d1939033cb8a296c645",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_capture_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_capture_contracts.py:ab4d2f9ffd"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a044714b6d6558ecdd26",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_codex_semantics.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_codex_semantics.py:1ec45b46da"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:cae874212422dab13ad0",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_editor_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_editor_adapters.py:a38e695b6f"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:5b12e01805b7725fc152",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_nervous_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_nervous_adapters.py:328919e8c6"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:e62cf0e70403687b2a98",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_nervous_policy.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_nervous_policy.py:2c4800571e"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:d76ea26d0087d25c6020",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_nervous_refresh_logic.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_nervous_refresh_logic.py:976674637b"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:12d0a1cf08bc9559a77a",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_saved_text_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_saved_text_adapters.py:5fa1c24401"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:00f28a9c33c8f381d622",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_typing_shell_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_typing_shell_adapters.py:c44ccd1881"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:1dd7666c69c7f223773d",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_validation_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_validation_contracts.py:86ffce3718"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:2a12782b7c53fe3c56b5",
+      "observation_state": "declared",
+      "path": "tools/abyss-gemma4-e4b-harness",
+      "source_record_id": "file:tools/abyss-gemma4-e4b-harness:4ae2f6f1a0"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:5fa160b111d09ecdc5b9",
+      "observation_state": "declared",
+      "path": "tools/abyss-gemma4-spark-resident",
+      "source_record_id": "file:tools/abyss-gemma4-spark-resident:076f3ae78d"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:06d3118409c5f4540b4c",
+      "observation_state": "declared",
+      "path": "tools/abyss-machine-test",
+      "source_record_id": "file:tools/abyss-machine-test:f4112b8e35"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8b692193ccfc1a2070c3",
+      "observation_state": "declared",
+      "path": "tools/abyss-storage-reclaim-audit",
+      "source_record_id": "file:tools/abyss-storage-reclaim-audit:75ca15ffac"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0c3aef9219451f5f5ec0",
+      "observation_state": "declared",
+      "path": "tools/ai/gemma4-e2b-openvino-npu/bench_llama_cpp_http.py",
+      "source_record_id": "file:tools/ai/gemma4-e2b-openvino-npu/bench_llama_cpp_http.py:b1a50696b2"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a3606e6d55d89e8285b1",
+      "observation_state": "declared",
+      "path": "tools/ai/gemma4-e2b-openvino-npu/bench_openvino_genai.py",
+      "source_record_id": "file:tools/ai/gemma4-e2b-openvino-npu/bench_openvino_genai.py:90a1ef8208"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:e7c33a3112bbfb432479",
+      "observation_state": "declared",
+      "path": "tools/ai/gemma4-e2b-openvino-npu/convert_gemma4_e2b_openvino.py",
+      "source_record_id": "file:tools/ai/gemma4-e2b-openvino-npu/convert_gemma4_e2b_openvino.py:0d2ddc9772"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:1b41a2ea6e9dda7e4619",
+      "observation_state": "declared",
+      "path": "tools/ai/llm/abyss-qwen36-lazy-server",
+      "source_record_id": "file:tools/ai/llm/abyss-qwen36-lazy-server:975f6d5334"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:194d704b043a4e03d923",
+      "observation_state": "declared",
+      "path": "tools/ai/llm/qwen36_prefill_matrix.py",
+      "source_record_id": "file:tools/ai/llm/qwen36_prefill_matrix.py:de0ad01d4d"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:5be9b151dfd04f300099",
+      "observation_state": "declared",
+      "path": "tools/ai/rerankers/download_qwen3_reranker_openvino.py",
+      "source_record_id": "file:tools/ai/rerankers/download_qwen3_reranker_openvino.py:de785c56fc"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:f73c2c97bdc659d490d5",
+      "observation_state": "declared",
+      "path": "tools/ai/rerankers/qwen3_reranker_openvino_canary.py",
+      "source_record_id": "file:tools/ai/rerankers/qwen3_reranker_openvino_canary.py:6a8700e448"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:8d81d8f9ca3788b7d254",
+      "observation_state": "declared",
+      "path": "tools/ai/tts/qwen3-openvino/bench_qwen3_openvino.py",
+      "source_record_id": "file:tools/ai/tts/qwen3-openvino/bench_qwen3_openvino.py:f1a6a5206e"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:893cffa9a1edfdd60bc3",
+      "observation_state": "declared",
+      "path": "tools/ai/tts/voxcpm2/bench_voxcpm2_xpu.py",
+      "source_record_id": "file:tools/ai/tts/voxcpm2/bench_voxcpm2_xpu.py:0a4ae211f5"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:11a002b10e7306b69ddc",
+      "observation_state": "declared",
+      "path": "tools/ai/tts/voxtream2/bench_voxtream2_intel.py",
+      "source_record_id": "file:tools/ai/tts/voxtream2/bench_voxtream2_intel.py:87b8c36237"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:cb11818ccc379ce781a0",
+      "observation_state": "declared",
+      "path": "tools/nervous/browser-capture/firefox-bidi-launch",
+      "source_record_id": "file:tools/nervous/browser-capture/firefox-bidi-launch:df17658e27"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:5560a35ccdfae563b062",
+      "observation_state": "declared",
+      "path": "tools/topology/check_abyss_machine_topology.sh",
+      "source_record_id": "file:tools/topology/check_abyss_machine_topology.sh:4d2515fefb"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:a89a64afb0936814d512",
+      "observation_state": "declared",
+      "path": "tools/typing/browser-native-host",
+      "source_record_id": "file:tools/typing/browser-native-host:ae405e1be5"
+    }
+  ],
+  "index_identity": {
+    "artifact_kind": "repository_event_index",
+    "content_digest": "1282ebbdb920d2a6b4d6f43e814f801f2e277d3f46f8822fd6081580b187d1dd",
+    "index_kind": "event",
+    "local_id": "index:repo-local:events",
+    "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
+  },
+  "registry_output": {
+    "consumer": "aoa-kag-mcp",
+    "resource_shape": "repo-local-event-index",
+    "stable_fields": [
+      "id",
+      "event_kind",
+      "event_role",
+      "source_record_id",
+      "path",
+      "heading_ref"
+    ]
+  },
+  "repo": {
+    "git_ref": "git-index-source-tree",
+    "name": "abyss-machine",
+    "owner_type": "runtime_source",
+    "root": "."
+  },
+  "schema_version": "aoa-repo-local-kag-repository-index-v1",
+  "source_index": {
+    "content_digest": "40f22f4bbc9543b9756b42e8745e5140258e767ae46e7afb7f726fcb72adee96",
+    "local_id": "index:repo-local:source-surfaces",
+    "path": "kag/indexes/source_surface_index.json"
+  },
+  "summary": {
+    "entry_count": 198,
+    "kind_counts": {
+      "command_run": 34,
+      "decision_record": 21,
+      "generation_run": 2,
+      "release_declaration": 2,
+      "release_lane": 2,
+      "test_run": 132,
+      "validation_lane_run": 2,
+      "validation_receipt": 1,
+      "workflow_run": 2
+    }
+  }
+}

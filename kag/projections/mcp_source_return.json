@@ -1,0 +1,59 @@
+{
+  "schema_version": "aoa-local-kag-record-v1",
+  "repo": "abyss-machine",
+  "local_id": "projection:mcp:abyss-machine-source-return",
+  "record_class": "projection",
+  "source_refs": [
+    {
+      "repo": "abyss-machine",
+      "path": "README.md",
+      "source_class": "runtime_source",
+      "role": "owner_route",
+      "authority": "authored_source"
+    },
+    {
+      "repo": "abyss-machine",
+      "path": "generated/contract_abi_signatures.min.json",
+      "source_class": "generated_readmodel",
+      "role": "supporting",
+      "authority": "source_owned_export"
+    }
+  ],
+  "source_owner": "abyss-machine",
+  "provenance_mode": "strict_source_linked",
+  "derived_method": "source-return view over public host source and contract routes",
+  "generated_or_authored": "generated_from_source",
+  "status": "active",
+  "owner_return_route": {
+    "repo": "abyss-machine",
+    "surface": "README.md",
+    "route_kind": "runtime"
+  },
+  "freshness": {
+    "mode": "source_snapshot",
+    "state": "current",
+    "checked_ref": "README.md"
+  },
+  "builder": {
+    "route": "abyss-machine source-fast validation",
+    "surface": "scripts/ci_gate.py"
+  },
+  "validator": {
+    "route": "aoa-kag local subtree validator",
+    "lane": "local-kag"
+  },
+  "storage_posture": {
+    "git_surface": "compact_readmodel",
+    "payload_class": "projection",
+    "runtime_route": "source-repo"
+  },
+  "consumer_route": "aoa-kag-mcp resource",
+  "projection_kind": "source_return_view",
+  "source_record_ids": [
+    "node:abyss-machine:host-source-home",
+    "node:abyss-machine:host-contract-route",
+    "edge:abyss-machine:source-routes-to-contracts",
+    "index:abyss-machine:provider-records"
+  ],
+  "consumer_shape": "resources expose public host source and contract routes while authority returns to abyss-machine"
+}
