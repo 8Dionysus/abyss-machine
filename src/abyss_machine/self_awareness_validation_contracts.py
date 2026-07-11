@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import datetime as dt
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,11 +99,265 @@ class SelfAwarenessValidationContractPort:
     working_stack_link_integrity_matrix_complete: DocumentPort
 
 
+@dataclass(frozen=True)
+class SelfAwarenessSelfTestPort:
+    add_check: DocumentPort
+    context_from_text: DocumentPort
+    correlation_index: DocumentPort
+    event_issues: DocumentPort
+    failure_matrix_fixture: DocumentPort
+    make_event: DocumentPort
+    query_fixture: DocumentPort
+    redact_text: DocumentPort
+    requirement_item: DocumentPort
+    time_bucket: DocumentPort
+
+
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def self_tests(
+    *,
+    now_utc: dt.datetime,
+    contract_port: SelfAwarenessSelfTestPort,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    add_check = contract_port.add_check
+    context_from_text = contract_port.context_from_text
+    correlation_index = contract_port.correlation_index
+    event_issues = contract_port.event_issues
+    failure_matrix_fixture = contract_port.failure_matrix_fixture
+    make_event = contract_port.make_event
+    query_fixture = contract_port.query_fixture
+    redact_text = contract_port.redact_text
+    requirement_item = contract_port.requirement_item
+    time_bucket = contract_port.time_bucket
+    nested_get = self_awareness_contracts.nested_get
+    generated_at = now_utc.isoformat()
+    traceparent = "00-" + ("a" * 32) + "-" + ("b" * 16) + "-01"
+    valid_event = make_event(
+        "log",
+        "loki",
+        event_time="2026-01-01T00:00:00+00:00",
+        observed_at="2026-01-01T00:00:01+00:00",
+        source_query='{container="route-api"}',
+        resource={"service": "route-api", "container": "route-api", "owner_surface": "abyss-stack", "labels": {"container": "route-api"}, "write": False},
+        context=context_from_text("traceparent=" + traceparent),
+        space={"host": "fixture", "owner_surface": "abyss-stack"},
+        body="ok traceparent=" + traceparent,
+        evidence_refs=[{"fixture": "valid"}],
+    )
+    invalid_event = dict(valid_event)
+    invalid_event.pop("evidence_refs", None)
+    add_check(checks, "ok" if not event_issues(valid_event) else "fail", "fixture_valid_event", "valid observation event fixture accepted", {"issues": event_issues(valid_event)})
+    add_check(checks, "ok" if event_issues(invalid_event) else "fail", "fixture_invalid_event", "malformed observation event fixture rejected", {"issues": event_issues(invalid_event)})
+    secret_preview = redact_text("Authorization: Bearer " + "sk" + "-testsecret1234567890")
+    add_check(checks, "ok" if "sk-test" not in secret_preview.lower() and "bearer" not in secret_preview.lower() else "fail", "fixture_redaction", "secret-like values are redacted", {"preview": secret_preview})
+    e2 = make_event(
+        "metric",
+        "prometheus",
+        event_time="2026-01-01T00:00:02+00:00",
+        resource={"service": "route-api", "owner_surface": "abyss-stack", "write": False},
+        context={"trace_id": valid_event["context"].get("trace_id")},
+        body={"value": 1},
+        evidence_refs=[{"fixture": "same_trace"}],
+    )
+    e3 = make_event(
+        "log",
+        "loki",
+        event_time="2026-01-01T00:20:00+00:00",
+        resource={"service": "route-api", "owner_surface": "abyss-stack", "write": False},
+        body="unrelated",
+        evidence_refs=[{"fixture": "unrelated"}],
+    )
+    index = correlation_index([valid_event, e2, e3])
+    context_key = "trace_id:" + str(valid_event["context"].get("trace_id"))
+    linked = nested_get(index, ["indexes", "by_context", context_key]) or []
+    add_check(checks, "ok" if len(linked) == 2 else "fail", "fixture_same_trace_links", "same trace links log and metric events", {"context_key": context_key, "linked": linked})
+    buckets = nested_get(index, ["indexes", "by_time_bucket"]) or {}
+    max_bucket_size = max((len(value) for value in buckets.values()), default=0)
+    add_check(checks, "ok" if max_bucket_size < 3 else "fail", "fixture_unrelated_time_window", "unrelated later event does not over-correlate by time", {"buckets": buckets})
+    bad_label_event = make_event(
+        "log",
+        "loki",
+        resource={"service": "route-api", "owner_surface": "abyss-stack", "labels": {"trace_id": "abc"}, "write": False},
+        body="bad label",
+        evidence_refs=[{"fixture": "bad_label"}],
+    )
+    add_check(checks, "ok" if any(issue.startswith("unbounded_label") for issue in event_issues(bad_label_event)) else "fail", "fixture_unbounded_label_rejected", "unbounded context IDs are rejected as labels", {"issues": event_issues(bad_label_event)})
+    resident_model_context_event = make_event(
+        "model",
+        "llm",
+        event_time="2026-01-01T00:00:04+00:00",
+        resource={
+            "service": "warm-e2b-gemma4",
+            "model": "gemma4",
+            "owner_surface": "abyss-machine",
+            "labels": {"service": "warm-e2b-gemma4", "role": "resident_llm"},
+            "write": False,
+        },
+        context={
+            "trace_id": "c" * 32,
+            "span_id": "d" * 16,
+            "thread_id": "thread-fixture",
+            "checkpoint_id": "checkpoint-fixture",
+        },
+        body={"prompt": "Authorization: Bearer sk-fixture-secret", "response_status": "ok"},
+        evidence_refs=[{"fixture": "resident_model_context"}],
+        truth_level="resident_model_observation",
+    )
+    resident_model_links = nested_get(resident_model_context_event, ["fabric", "context_links", "links"]) or {}
+    resident_model_label_policy = nested_get(resident_model_context_event, ["fabric", "label_policy"]) or {}
+    add_check(
+        checks,
+        "ok"
+        if not event_issues(resident_model_context_event)
+        and resident_model_links.get("trace_id")
+        and resident_model_links.get("thread_id") == "thread-fixture"
+        and resident_model_links.get("checkpoint_id") == "checkpoint-fixture"
+        and not resident_model_label_policy.get("forbidden_context_label_keys")
+        and "sk-fixture" not in str(resident_model_context_event.get("body_preview", "")).lower()
+        else "fail",
+        "fixture_resident_model_context_not_loki_labels",
+        "Resident model trace, thread, and checkpoint IDs remain context links and secret-like body text is redacted",
+        {
+            "issues": event_issues(resident_model_context_event),
+            "context_links": resident_model_links,
+            "label_policy": resident_model_label_policy,
+            "body_preview": resident_model_context_event.get("body_preview"),
+        },
+    )
+    model_event = make_event(
+        "model",
+        "llm",
+        resource={"service": "warm-e2b-gemma4.spark", "owner_surface": "abyss-machine", "write": False},
+        body={"status": "running", "model": "gemma-4-E2B"},
+        evidence_refs=[{"fixture": "warm_e2b"}],
+    )
+    add_check(
+        checks,
+        "ok" if not event_issues(model_event) else "fail",
+        "fixture_warm_e2b_model_event",
+        "warm-E2B model event fixture is accepted by the observation schema",
+        {"issues": event_issues(model_event)},
+    )
+    rag_event = make_event(
+        "rag",
+        "rag",
+        resource={"service": "machine-rag-validate", "owner_surface": "abyss-machine", "write": False},
+        body={"validate": "ok"},
+        evidence_refs=[{"fixture": "rag_validate"}],
+    )
+    add_check(
+        checks,
+        "ok" if not event_issues(rag_event) else "fail",
+        "fixture_rag_event",
+        "RAG event fixture is accepted by the observation schema",
+        {"issues": event_issues(rag_event)},
+    )
+    observability_event = make_event(
+        "metric",
+        "observability",
+        event_time="2026-01-01T00:00:03+00:00",
+        resource={"service": "observability-thermal-battery", "owner_surface": "abyss-machine", "write": False},
+        space={"host": "fixture", "owner_surface": "abyss-machine", "path": "/var/lib/abyss-machine/observability/thermal-battery/latest.json"},
+        body={"thermal_class": "ok", "battery_class": "ok", "temperature_c_max": 61.9, "battery_capacity_percent": 79},
+        evidence_refs=[{"path": "/var/lib/abyss-machine/observability/thermal-battery/latest.json", "fixture": "observability"}],
+    )
+    add_check(
+        checks,
+        "ok" if not event_issues(observability_event) else "fail",
+        "fixture_observability_metric_event",
+        "host thermal/battery observability event fixture is accepted by the observation schema",
+        {"issues": event_issues(observability_event)},
+    )
+    scheduler_event = make_event(
+        "service",
+        "scheduler",
+        event_time="2026-01-01T00:00:04+00:00",
+        resource={
+            "service": "abyss-machine-heartbeat.timer",
+            "owner_surface": "abyss-machine",
+            "timer_unit": "abyss-machine-heartbeat.timer",
+            "timer_scope": "user",
+            "timer_category": "heartbeat",
+            "timer_active": True,
+            "timer_enabled": True,
+            "timer_activates": "abyss-machine-heartbeat.service",
+            "route": "scheduler/heartbeat",
+            "write": False,
+        },
+        context={
+            "scheduler_unit": "abyss-machine-heartbeat.timer",
+            "scheduler_scope": "user",
+            "scheduler_category": "heartbeat",
+        },
+        space={"host": "fixture", "owner_surface": "abyss-machine", "layer": "host-scheduler", "route": "scheduler/heartbeat"},
+        body={"unit": "abyss-machine-heartbeat.timer", "active": "active", "enabled": "enabled"},
+        evidence_refs=[{"schema": "abyss_machine_systemd_timer_state_v1", "fixture": "scheduler"}],
+        truth_level="host_scheduler_state",
+    )
+    add_check(
+        checks,
+        "ok" if not event_issues(scheduler_event) else "fail",
+        "fixture_scheduler_service_event",
+        "host scheduler timer event fixture is accepted by the observation schema",
+        {"issues": event_issues(scheduler_event), "correlation_keys": nested_get(scheduler_event, ["fabric", "context_links", "correlation_keys"])},
+    )
+    requirement = requirement_item(
+        "fixture.missing-tempo",
+        "Fixture missing trace backend",
+        reason="fixture proves missing stack capability becomes a requirement, not a host mutation",
+        detection={"url": "http://127.0.0.1:3200/ready", "error": "connection refused", "evidence_refs": [{"fixture": "missing_tempo"}]},
+        expected_shape={"backend": "Tempo", "mutated_by": "abyss-stack"},
+    )
+    add_check(
+        checks,
+        "ok" if requirement.get("owner") == "abyss-stack" and requirement.get("host_layer_mutates_stack") is False else "fail",
+        "fixture_missing_capability_requirement",
+        "missing stack capability is represented as owner-routed non-mutating requirement",
+        requirement,
+    )
+    query_document = query_fixture("route-api", limit=3, generated_at=generated_at)
+    query_plan = query_document.get("query_plan") if isinstance(query_document.get("query_plan"), dict) else {}
+    add_check(
+        checks,
+        "ok" if query_plan.get("bounded") and query_plan.get("promql") and query_plan.get("logql") and query_plan.get("readmodels") else "fail",
+        "fixture_bounded_query_builders",
+        "query builder fixture exposes bounded PromQL, LogQL, and host readmodel plans",
+        {"query_plan": query_plan},
+    )
+    failure_matrix = failure_matrix_fixture(generated_at=generated_at)
+    failure_ids = {str(item.get("id")) for item in failure_matrix.get("rows", []) if isinstance(item, dict)}
+    add_check(
+        checks,
+        "ok" if {"machine.resource-denial", "machine.secret-redaction", "stack.downtime-bounded-readonly"}.issubset(failure_ids) else "fail",
+        "fixture_failure_matrix_required_rows",
+        "failure matrix fixture includes denial, redaction, and stack downtime rows",
+        {"missing": sorted({"machine.resource-denial", "machine.secret-redaction", "stack.downtime-bounded-readonly"} - failure_ids), "summary": failure_matrix.get("summary")},
+    )
+    stale_time = (now_utc - dt.timedelta(days=7)).isoformat()
+    stale_event = make_event(
+        "validation",
+        "synthetic",
+        event_time=stale_time,
+        observed_at=stale_time,
+        resource={"service": "stale-fixture", "owner_surface": "abyss-machine", "write": False},
+        body="stale latest fixture",
+        evidence_refs=[{"fixture": "stale"}],
+    )
+    add_check(
+        checks,
+        "ok" if time_bucket(stale_event.get("event_time")) != "unknown" else "fail",
+        "fixture_stale_time_parse",
+        "stale data can still be parsed and routed to freshness checks",
+        {"event_time": stale_event.get("event_time"), "bucket": time_bucket(stale_event.get("event_time"))},
+    )
+    return checks
 
 
 def build_validation_document(

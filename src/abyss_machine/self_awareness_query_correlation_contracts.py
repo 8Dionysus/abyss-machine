@@ -241,6 +241,49 @@ def query(
     return data
 
 
+def query_fixture(
+    query_text: str = "route-api",
+    limit: int = 3,
+    *,
+    generated_at: str,
+    paths: SelfAwarenessQueryCorrelationPaths,
+    config: SelfAwarenessQueryCorrelationConfig,
+    contract_port: SelfAwarenessQueryCorrelationContractPort,
+) -> dict[str, Any]:
+    def unexpected_fixture_io(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("self-awareness query fixture attempted runtime IO")
+
+    return query(
+        query_text,
+        limit,
+        False,
+        events=[],
+        episodes={"episodes": []},
+        graph={"nodes": []},
+        capabilities={
+            "schema": f"{config.schema_prefix}_self_awareness_capabilities_v1",
+            "ok": True,
+        },
+        memory_space={},
+        paths=paths,
+        config=config,
+        runtime_port=SelfAwarenessQueryCorrelationRuntimePort(
+            load_events=unexpected_fixture_io,
+            load_latest_json=unexpected_fixture_io,
+            now_iso=lambda: generated_at,
+        ),
+        refresh_port=SelfAwarenessQueryCorrelationRefreshPort(
+            spatial_graph=unexpected_fixture_io,
+            memory_space_overlay=unexpected_fixture_io,
+            capabilities=unexpected_fixture_io,
+        ),
+        contract_port=contract_port,
+        persistence_port=SelfAwarenessQueryCorrelationPersistencePort(
+            write_latest_and_history=unexpected_fixture_io,
+        ),
+    )
+
+
 def correlation(
     write_latest: bool = True,
     *,

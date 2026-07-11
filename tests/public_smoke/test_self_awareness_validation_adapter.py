@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from abyss_machine import cli
 from abyss_machine import self_awareness_adapters as adapters
@@ -289,3 +292,52 @@ def test_cli_validation_binds_intake_contract_and_persistence_ports(monkeypatch)
     assert build["contract_port"].validate_document_from_checks is cli.self_awareness_validate_document_from_checks
     assert calls["persist"]["write_latest"] is False
     assert calls["persist"]["persistence_port"].write_latest_and_history is cli.write_latest_and_history
+
+
+def test_installed_self_tests_are_hermetic_from_live_host_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_live_io(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("synthetic self-tests reached live host IO")
+
+    for name in (
+        "self_awareness_query",
+        "self_awareness_failure_matrix",
+        "self_awareness_load_events",
+        "self_awareness_spatial_graph",
+        "self_awareness_capabilities",
+        "load_latest_json",
+        "write_latest_and_history",
+    ):
+        monkeypatch.setattr(cli, name, unexpected_live_io)
+
+    checks = cli.self_awareness_self_tests()
+    by_key = {str(check.get("key")): check for check in checks}
+
+    assert len(checks) >= 14
+    assert all(check.get("level") == "ok" for check in checks)
+    assert "fixture_bounded_query_builders" in by_key
+    assert "fixture_failure_matrix_required_rows" in by_key
+    assert "fixture_redaction" in by_key
+
+
+def test_cli_self_tests_only_bind_validation_fixture_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_self_tests(**kwargs: Any) -> list[dict[str, Any]]:
+        captured.update(kwargs)
+        return [{"key": "fixture", "status": "ok"}]
+
+    monkeypatch.setattr(validation_contracts, "self_tests", fake_self_tests)
+
+    checks = cli.self_awareness_self_tests()
+
+    assert checks == [{"key": "fixture", "status": "ok"}]
+    assert isinstance(captured["now_utc"], dt.datetime)
+    assert captured["now_utc"].tzinfo is not None
+    assert isinstance(
+        captured["contract_port"],
+        validation_contracts.SelfAwarenessSelfTestPort,
+    )

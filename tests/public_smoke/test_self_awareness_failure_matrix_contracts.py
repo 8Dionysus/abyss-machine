@@ -166,3 +166,27 @@ def test_cli_failure_matrix_only_binds_current_ports(
         captured["refresh_port"],
         failure_matrix.SelfAwarenessFailureMatrixRefreshPort,
     )
+
+
+def test_failure_matrix_fixture_builds_required_rows_without_host_io(
+    tmp_path: Path,
+) -> None:
+    document = failure_matrix.failure_matrix_fixture(
+        generated_at="2026-07-11T09:00:00-06:00",
+        paths=_paths(tmp_path),
+        config=_config(),
+    )
+
+    row_ids = {
+        str(row.get("id"))
+        for row in document.get("rows", [])
+        if isinstance(row, dict)
+    }
+    assert document["schema"] == "abyss_machine_self_awareness_failure_matrix_v1"
+    assert {
+        "machine.resource-denial",
+        "machine.secret-redaction",
+        "stack.downtime-bounded-readonly",
+    }.issubset(row_ids)
+    assert document["summary"]["missing_required"] == []
+    assert all(row["host_layer_mutates_stack"] is False for row in document["rows"])

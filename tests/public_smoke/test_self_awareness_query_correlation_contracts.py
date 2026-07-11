@@ -149,6 +149,47 @@ def test_query_uses_supplied_readmodels_and_routes_single_write(tmp_path: Path) 
     assert writes == [(paths.query_latest, paths.query_root)]
 
 
+def test_query_fixture_builds_real_query_document_without_runtime_io(
+    tmp_path: Path,
+) -> None:
+    reads: list[tuple[Any, ...]] = []
+    refreshes: list[str] = []
+    writes: list[tuple[Path, Path]] = []
+    _runtime_port, _refresh_port, contract_port, _persistence_port = _ports(
+        reads,
+        refreshes,
+        writes,
+    )
+
+    document = readmodels.query_fixture(
+        "route-api",
+        3,
+        generated_at="2026-07-11T09:00:00-06:00",
+        paths=_paths(tmp_path),
+        config=readmodels.SelfAwarenessQueryCorrelationConfig(
+            "abyss_machine",
+            "0.test",
+        ),
+        contract_port=contract_port,
+    )
+
+    assert document["schema"] == "abyss_machine_self_awareness_query_v1"
+    assert document["query_plan"]["bounded"] is True
+    assert document["query_plan"]["promql"]
+    assert document["query_plan"]["logql"]
+    assert document["query_plan"]["readmodels"]
+    assert document["summary"] == {
+        "event_hits": 0,
+        "episode_hits": 0,
+        "node_hits": 0,
+        "memory_space_hits": 0,
+        "limit": 3,
+    }
+    assert reads == []
+    assert refreshes == []
+    assert writes == []
+
+
 def test_correlation_uses_supplied_evidence_without_io(tmp_path: Path) -> None:
     reads: list[tuple[Any, ...]] = []
     refreshes: list[str] = []

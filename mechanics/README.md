@@ -64,7 +64,9 @@ Use these mechanic owners for the next extraction slices:
   persistence through shared atomic/locked-append filesystem adapters, replay
   latest-read/checkpoint-chain validation/readmodel persistence through
   purpose-shaped ports, cycle latest-read/bridge-document dispatch,
-  validation latest-spec selection, bounded status latest summaries,
+  validation latest-spec selection, hermetic installed self-tests through
+  explicit clock/query/failure-matrix fixture ports, bounded status latest
+  summaries,
   body-closure status document builders, status open-potential/open-requirement
   row builders, resource preflight guard decisions, bounded HTTP status probe
   ports, working-stack endpoint/TCP/container runtime probes,
