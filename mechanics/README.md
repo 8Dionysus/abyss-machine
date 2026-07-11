@@ -160,6 +160,9 @@ Use these mechanic owners for the next extraction slices:
   `self_awareness_activation_smoke_contracts` owns activation-smoke latest/
   refresh/persistence orchestration and per-organ movement/use-packet summary
   assembly through explicit ports;
+  `self_awareness_autolink_contracts` owns complete autolink latest intake,
+  stale-input decisions, ordered dependency refresh, existing document-builder
+  dispatch, and optional latest/history persistence through typed ports;
   `self_awareness_activation_contracts` owns stack-organ signal/state/movement,
   episode identity, activation row/use-packet assembly, and completion/compact/
   refresh contracts through typed paths, config, and dependent-contract ports;

@@ -1668,6 +1668,23 @@ inputs, row aggregation, write failure, no-mutation policy, and binding. Live
 closeout compares one fixed latest snapshot/clock/host identity and reports only
 ok/completion/row/use-packet counts and policy.
 
+## Extracted Self-Awareness Autolink Orchestration
+
+`abyss_machine.self_awareness_autolink_contracts` owns the complete autolink
+latest-intake, stale-input decision, ordered dependency refresh, document-build,
+and optional latest/history persistence state machine. Seven concrete paths,
+schema/version configuration, latest/clock/write runtime operations, six refresh
+operations, and eleven dependent predicates/builders enter through typed ports.
+`self_awareness_adapters.autolink_document` remains the single owner of autolink
+document semantics; the orchestration module does not duplicate it or perform
+filesystem, network, subprocess, or stack mutation directly. The CLI preserves
+the established helper signature and binds live paths and callbacks. Synthetic
+tests constrain complete-input reuse, stale-chain order, no-write behavior, and
+persistence failure; existing host-contract tests constrain episode refresh and
+document completeness. Live closeout compares a fixed source/installed input
+snapshot and reports only digest, byte size, completion counts, and mutation
+policy.
+
 ## Extracted Self-Awareness Activation Contracts
 
 `abyss_machine.self_awareness_activation_contracts` owns stack-organ signal
@@ -2019,7 +2036,8 @@ machine evidence.
    working-stack inventory assembly/readmodel, working-stack movement/event
    assembly, working-stack usage-gap episode builders, working-stack
    link-integrity matrix assembly plus match/freshness predicates, autolink
-   row-state/completion/episode-coverage,
+   row-state/completion/episode-coverage/document assembly and complete
+   latest/refresh/persistence orchestration,
    activation-entry builders/completion predicates and activation-dossier
    document builders, activation-gap and stack-requirement
    handoff route builders/completion predicates, activation synthetic-scenario,

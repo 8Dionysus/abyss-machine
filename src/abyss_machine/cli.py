@@ -109,6 +109,7 @@ try:
     from . import self_awareness_activation_contracts
     from . import self_awareness_activation_smoke_contracts
     from . import self_awareness_alert_contracts
+    from . import self_awareness_autolink_contracts
     from . import self_awareness_body_trace_contracts
     from . import self_awareness_brief_contracts
     from . import self_awareness_causal_readmodel_contracts
@@ -300,6 +301,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import self_awareness_activation_contracts
     from abyss_machine import self_awareness_activation_smoke_contracts
     from abyss_machine import self_awareness_alert_contracts
+    from abyss_machine import self_awareness_autolink_contracts
     from abyss_machine import self_awareness_body_trace_contracts
     from abyss_machine import self_awareness_brief_contracts
     from abyss_machine import self_awareness_causal_readmodel_contracts
@@ -429,7 +431,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     )
 
 
-VERSION = "0.8.86"
+VERSION = "0.8.87"
 SCHEMA_PREFIX = "abyss_machine"
 PATH_POLICY = DEFAULT_PATH_POLICY
 MANIFEST_PATH = PATH_POLICY.etc_file("bridge.json")
@@ -33983,6 +33985,60 @@ def self_awareness_refresh_working_stack_dependent_readmodels(
     }
 
 
+def self_awareness_autolink_paths() -> self_awareness_autolink_contracts.SelfAwarenessAutolinkPaths:
+    return self_awareness_autolink_contracts.SelfAwarenessAutolinkPaths(
+        working_stack_latest=SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
+        coverage_audit_latest=SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
+        stack_closure_dossier_latest=SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
+        activation_smoke_latest=SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
+        episodes_latest=SELF_AWARENESS_EPISODES_LATEST_PATH,
+        autolink_latest=SELF_AWARENESS_AUTOLINK_LATEST_PATH,
+        autolink_root=SELF_AWARENESS_AUTOLINK_ROOT,
+    )
+
+
+def self_awareness_autolink_config() -> self_awareness_autolink_contracts.SelfAwarenessAutolinkConfig:
+    return self_awareness_autolink_contracts.SelfAwarenessAutolinkConfig(
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
+
+
+def self_awareness_autolink_runtime_port() -> self_awareness_autolink_contracts.SelfAwarenessAutolinkRuntimePort:
+    return self_awareness_autolink_contracts.SelfAwarenessAutolinkRuntimePort(
+        load_latest_json=load_latest_json,
+        now_iso=now_iso,
+        write_latest_and_history=write_latest_and_history,
+    )
+
+
+def self_awareness_autolink_refresh_port() -> self_awareness_autolink_contracts.SelfAwarenessAutolinkRefreshPort:
+    return self_awareness_autolink_contracts.SelfAwarenessAutolinkRefreshPort(
+        working_stack_inventory=self_awareness_working_stack_inventory,
+        dependent_readmodels=self_awareness_refresh_working_stack_dependent_readmodels,
+        objective_coverage_audit=self_awareness_objective_coverage_audit,
+        stack_closure_dossier=self_awareness_stack_closure_dossier,
+        activation_smoke=self_awareness_activation_smoke,
+        episodes=self_awareness_episodes,
+    )
+
+
+def self_awareness_autolink_contract_port() -> self_awareness_autolink_contracts.SelfAwarenessAutolinkContractPort:
+    return self_awareness_autolink_contracts.SelfAwarenessAutolinkContractPort(
+        working_stack_links_match_stable_identity=self_awareness_working_stack_links_match_stable_identity,
+        link_integrity_matrix_complete=self_awareness_working_stack_link_integrity_matrix_complete,
+        link_integrity_matches_working_stack=self_awareness_link_integrity_matches_working_stack,
+        activation_entries_from_link_rows=self_awareness_activation_entries_from_link_rows,
+        activation_entries_cover_expected=self_awareness_activation_entries_cover_expected,
+        activation_smoke_needs_refresh=self_awareness_activation_smoke_needs_refresh,
+        episodes_cover_stack_requirements=self_awareness_episodes_cover_stack_requirements,
+        autolink_document=self_awareness_adapters.autolink_document,
+        activation_smoke_compact=self_awareness_working_stack_activation_smoke_compact,
+        stack_requirement_closure_acceptance_complete=self_awareness_stack_requirement_closure_acceptance_complete,
+        stack_coverage_impact_complete=self_awareness_stack_coverage_impact_complete,
+    )
+
+
 def self_awareness_autolink(
     write_latest: bool = True,
     *,
@@ -33993,89 +34049,20 @@ def self_awareness_autolink(
     stack_closure_dossier_doc: dict[str, Any] | None = None,
     activation_smoke_doc: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    generated_at = now_iso()
-    dependency_refresh: dict[str, Any] = {}
-    working_stack_doc = working_stack_doc if isinstance(working_stack_doc, dict) else load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1")
-    if (
-        working_stack_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1"
-        or not self_awareness_working_stack_links_match_stable_identity(working_stack_doc)
-    ):
-        working_stack_doc = self_awareness_working_stack_inventory(write_latest=True)
-        dependency_refresh = self_awareness_refresh_working_stack_dependent_readmodels(working_stack_doc=working_stack_doc)
-        working_stack_doc = load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1")
-    coverage_audit_doc = coverage_audit_doc if isinstance(coverage_audit_doc, dict) else load_latest_json(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_objective_coverage_audit_v1")
-    link_integrity = coverage_audit_doc.get("working_stack_link_integrity") if isinstance(coverage_audit_doc.get("working_stack_link_integrity"), dict) else {}
-    if (
-        not self_awareness_working_stack_link_integrity_matrix_complete(link_integrity)
-        or not self_awareness_link_integrity_matches_working_stack(working_stack_doc, link_integrity)
-    ):
-        if not dependency_refresh:
-            dependency_refresh = self_awareness_refresh_working_stack_dependent_readmodels(working_stack_doc=working_stack_doc)
-            working_stack_doc = load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1")
-        coverage_audit_doc = self_awareness_objective_coverage_audit(
-            write_latest=True,
-            working_stack_doc=working_stack_doc,
-            stack_closure_dossier_doc=stack_closure_dossier_doc,
-        )
-        link_integrity = coverage_audit_doc.get("working_stack_link_integrity") if isinstance(coverage_audit_doc.get("working_stack_link_integrity"), dict) else {}
-    link_rows = link_integrity.get("rows") if isinstance(link_integrity.get("rows"), list) else []
-    current_activation_entries = self_awareness_activation_entries_from_link_rows(link_rows)
-    stack_closure_dossier_doc = stack_closure_dossier_doc if isinstance(stack_closure_dossier_doc, dict) else load_latest_json(SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_stack_closure_dossier_v1")
-    if stack_closure_dossier_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_stack_closure_dossier_v1":
-        stack_closure_dossier_doc = self_awareness_stack_closure_dossier(write_latest=True, working_stack_doc=working_stack_doc)
-    activation_entries = nested_get(stack_closure_dossier_doc, ["working_stack_activation_dossier", "entries"])
-    activation_entries = activation_entries if isinstance(activation_entries, list) else []
-    if current_activation_entries and not self_awareness_activation_entries_cover_expected(activation_entries, current_activation_entries):
-        stack_closure_dossier_doc = self_awareness_stack_closure_dossier(write_latest=True, working_stack_doc=working_stack_doc)
-        activation_entries = nested_get(stack_closure_dossier_doc, ["working_stack_activation_dossier", "entries"])
-        activation_entries = activation_entries if isinstance(activation_entries, list) else []
-    activation_smoke_doc = activation_smoke_doc if isinstance(activation_smoke_doc, dict) else load_latest_json(SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_activation_smoke_v1")
-    activation_refresh_entries = current_activation_entries or activation_entries
-    if self_awareness_activation_smoke_needs_refresh(activation_smoke_doc, activation_refresh_entries):
-        activation_smoke_doc = self_awareness_activation_smoke(
-            write_latest=True,
-            stack_closure_dossier_doc=stack_closure_dossier_doc,
-            working_stack_doc=working_stack_doc,
-        )
-    episodes_doc = load_latest_json(SELF_AWARENESS_EPISODES_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_episodes_v1")
-    if (
-        episodes_doc.get("schema") != f"{SCHEMA_PREFIX}_self_awareness_episodes_v1"
-        or not self_awareness_episodes_cover_stack_requirements(episodes_doc, stack_closure_dossier_doc)
-    ):
-        episodes_doc = self_awareness_episodes(write_latest=True, working_stack_doc=working_stack_doc)
-
-    previous = load_latest_json(SELF_AWARENESS_AUTOLINK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_autolink_v1")
-    data = self_awareness_adapters.autolink_document(
+    return self_awareness_autolink_contracts.autolink(
+        write_latest=write_latest,
+        cycle_id=cycle_id,
+        probe_run_id=probe_run_id,
         working_stack_doc=working_stack_doc,
         coverage_audit_doc=coverage_audit_doc,
         stack_closure_dossier_doc=stack_closure_dossier_doc,
         activation_smoke_doc=activation_smoke_doc,
-        episodes_doc=episodes_doc,
-        previous=previous,
-        dependency_refresh=dependency_refresh,
-        generated_at=generated_at,
-        version=VERSION,
-        schema_prefix=SCHEMA_PREFIX,
-        cycle_id=cycle_id,
-        probe_run_id=probe_run_id,
-        latest_paths={
-            "working_stack": SELF_AWARENESS_WORKING_STACK_LATEST_PATH,
-            "coverage_audit": SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH,
-            "stack_closure_dossier": SELF_AWARENESS_STACK_CLOSURE_DOSSIER_LATEST_PATH,
-            "activation_smoke": SELF_AWARENESS_ACTIVATION_SMOKE_LATEST_PATH,
-            "episodes": SELF_AWARENESS_EPISODES_LATEST_PATH,
-            "autolink": SELF_AWARENESS_AUTOLINK_LATEST_PATH,
-        },
-        activation_smoke_compact=self_awareness_working_stack_activation_smoke_compact,
-        stack_requirement_closure_acceptance_complete=self_awareness_stack_requirement_closure_acceptance_complete,
-        stack_coverage_impact_complete=self_awareness_stack_coverage_impact_complete,
+        paths=self_awareness_autolink_paths(),
+        config=self_awareness_autolink_config(),
+        runtime_port=self_awareness_autolink_runtime_port(),
+        refresh_port=self_awareness_autolink_refresh_port(),
+        contract_port=self_awareness_autolink_contract_port(),
     )
-    if write_latest:
-        errors = write_latest_and_history(data, SELF_AWARENESS_AUTOLINK_LATEST_PATH, SELF_AWARENESS_AUTOLINK_ROOT)
-        if errors:
-            data["ok"] = False
-            data["write_errors"] = errors
-    return data
 
 
 def self_awareness_latest_path_map() -> dict[str, Path]:
