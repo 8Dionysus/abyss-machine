@@ -159,9 +159,12 @@ Use these mechanic owners for the next extraction slices:
   and cycle overlay through explicit ports;
   `self_awareness_activation_smoke_contracts` owns activation-smoke latest/
   refresh/persistence orchestration and per-organ movement/use-packet summary
-  assembly through explicit ports. Remaining activation pure contracts plus
-  lineage/coverage centers must be extracted before the final residual CLI-
-  edge classification and family completion audit.
+  assembly through explicit ports;
+  `self_awareness_activation_contracts` owns stack-organ signal/state/movement,
+  episode identity, activation row/use-packet assembly, and completion/compact/
+  refresh contracts through typed paths, config, and dependent-contract ports.
+  Lineage/coverage centers must be extracted before the final residual CLI-edge
+  classification and family completion audit.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in

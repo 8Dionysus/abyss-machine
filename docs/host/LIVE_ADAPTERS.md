@@ -1668,6 +1668,19 @@ inputs, row aggregation, write failure, no-mutation policy, and binding. Live
 closeout compares one fixed latest snapshot/clock/host identity and reports only
 ok/completion/row/use-packet counts and policy.
 
+## Extracted Self-Awareness Activation Contracts
+
+`abyss_machine.self_awareness_activation_contracts` owns stack-organ signal
+routing and state digests, movement selection, episode identity, organ-entry
+projection, activation and movement rows, stack-organ-use packets, and their
+completion, compact, and refresh contracts. Concrete latest paths, schema
+configuration, event construction, and dependent completion predicates enter
+through typed path, config, and contract ports. The CLI preserves established
+helper signatures as binders; `self_awareness_adapters` preserves its package
+API as compatibility delegates. Public tests cover movement classification,
+episode identity, organ projection, and typed binding. Existing host-contract
+tests constrain the complete packet and activation-smoke behavior.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete
@@ -1921,9 +1934,8 @@ machine evidence.
    assembly, working-stack usage-gap episode builders, working-stack
    link-integrity matrix assembly plus match/freshness predicates, autolink
    row-state/completion/episode-coverage,
-   activation-entry builders/completion predicates, activation-dossier document
-   builders, activation-smoke and stack-organ-use
-   completion/compact/refresh predicates, activation-gap and stack-requirement
+   activation-entry builders/completion predicates and activation-dossier
+   document builders, activation-gap and stack-requirement
    handoff route builders/completion predicates, activation synthetic-scenario,
    closure-acceptance, activation synthetic-proof, and export-overlay
    builders/completion predicates, working-stack model/tool bridge policy, probe/cycle
@@ -1972,9 +1984,11 @@ machine evidence.
    resident worker projection now lives in
    `self_awareness_resident_worker_contracts`; completion-route context,
    bounded cognitive packet/replay, and cycle overlay now live in
-   `self_awareness_resident_cognitive_contracts`. Before declaring this family
-   closed, extract the remaining activation/lineage/
-   coverage centers, then classify every remaining direct-IO CLI helper as a concrete
+   `self_awareness_resident_cognitive_contracts`. Stack-organ movement,
+   activation rows/use packets, and their completion/compact/refresh contracts
+   now live in `self_awareness_activation_contracts`. Before declaring this
+   family closed, extract the remaining lineage/coverage centers, then classify
+   every remaining direct-IO CLI helper as a concrete
    adapter binder, a package-owned compatibility wrapper, or a still-
    unextracted reusable center.
 3. Further AI runtime adapters: only after a fresh inventory proves a concrete
