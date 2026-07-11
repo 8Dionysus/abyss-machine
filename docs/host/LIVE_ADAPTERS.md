@@ -1707,6 +1707,23 @@ as a typed binder. Public tests constrain specs/planes and binding; existing
 host-contract scenarios constrain stack-owned blockers, absent-but-capability-
 covered requirements, coverage impacts, activation rows, and policy.
 
+## Extracted Self-Awareness Requirement Contracts
+
+`abyss_machine.self_awareness_requirement_contracts` owns requirement item,
+acceptance, compatibility, negative-control, closure-acceptance, runbook,
+coverage-impact, readiness-enrichment, and per-requirement probe-evaluation
+contracts. It also owns the requirements latest/read/refresh/persistence
+pipeline through typed path, config, runtime, refresh, and dependent-contract
+ports. Endpoint candidates, local latest paths, the secret scanner, clock,
+latest/history persistence, capabilities refresh, and brief action-map builder
+are explicit inputs; the module performs no network, subprocess, filesystem,
+or stack mutation directly. The CLI preserves established helper signatures as
+typed binders, while `self_awareness_stack_closure_contracts` continues to own
+the aggregate requirement-probes and stack-closure-dossier pipelines. Public
+tests constrain alternate endpoint configuration, non-mutating handoff policy,
+and typed binding; existing host-contract scenarios constrain all four current
+stack-owner requirement families and readiness/closure behavior.
+
 ## Extracted Self-Awareness Stack Closure Pipelines
 
 `abyss_machine.self_awareness_stack_closure_contracts` owns the complete

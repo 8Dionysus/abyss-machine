@@ -168,7 +168,11 @@ Use these mechanic owners for the next extraction slices:
   artifact/filesystem runtime ports;
   `self_awareness_coverage_contracts` owns objective specs/planes and complete
   coverage-audit intake, refresh, stack-blocker/activation linkage, assembly,
-  and persistence through typed runtime, refresh, and contract ports. The final
+  and persistence through typed runtime, refresh, and contract ports;
+  `self_awareness_requirement_contracts` owns requirement acceptance,
+  compatibility, negative controls, closure readiness, runbook, coverage
+  impact, probe evaluation, readiness enrichment, and requirements persistence
+  through typed path/config/runtime/refresh/contract ports. The final
   residual CLI-edge classification and family completion audit remain.
 - `host-facts`: low-level process `/proc` snapshot collection, sanitized
   process container-health reads, and read-only desktop-compositor command/proc

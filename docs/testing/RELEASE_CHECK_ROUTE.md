@@ -583,6 +583,17 @@ write behavior, and no-mutation policy. Live closeout must use one fixed latest
 snapshot and report only status, row/plane/blocker counts, completion, and
 policy.
 
+For self-awareness requirement contract changes, public CI should use
+synthetic requirement, capability, external-closure, readiness, and action-map
+documents plus fake latest/clock/write/refresh ports. Cover alternate endpoint
+configuration, acceptance/compatibility/negative controls, all supported
+stack-owner probe families, stale probe rejection, write/no-write behavior,
+secret redaction, and the no-stack-mutation policy. Keep concrete endpoint
+selection, latest paths, secret scanner, clock, capabilities refresh, brief
+action-map binding, and latest/history persistence at the CLI edge. Live
+closeout must compare one fixed requirements/probes snapshot and report only
+schema, status, open/closed counts, readiness counts, and policy.
+
 For self-awareness activation-entry adapter changes, public CI should rely on
 synthetic working-stack organs with supplied latest paths for activation
 readiness, runbook, closure, scenario, evidence-ref, and completion predicate
