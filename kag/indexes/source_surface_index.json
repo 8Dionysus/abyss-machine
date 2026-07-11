@@ -1,8 +1,8 @@
 {
   "classification_summary": {
     "artifact_kind": {
-      "config": 31,
-      "document": 189,
+      "config": 33,
+      "document": 190,
       "generated_readmodel": 2,
       "index": 1,
       "license": 1,
@@ -11,18 +11,18 @@
       "projection": 1,
       "receipt": 1,
       "schema": 8,
-      "script": 38,
+      "script": 40,
       "security": 1,
-      "service_unit": 59,
-      "source_code": 112,
-      "test": 137
+      "service_unit": 60,
+      "source_code": 117,
+      "test": 144
     },
     "command_role": {
       "builder": 2,
       "lane_entrypoint": 2,
-      "none": 421,
-      "script": 34,
-      "test": 137
+      "none": 430,
+      "script": 36,
+      "test": 144
     },
     "document_role": {
       "agents": 57,
@@ -32,49 +32,49 @@
       "design": 2,
       "design_agents": 2,
       "mechanics_doc": 16,
-      "none": 406,
+      "none": 423,
       "parts": 8,
       "provenance": 8,
       "readme": 48,
       "release_notes": 1,
       "roadmap": 10,
       "testing_doc": 1,
-      "unknown_document": 12,
+      "unknown_document": 13,
       "validation_doc": 1
     },
     "mechanics_role": {
       "mechanic_package": 66,
-      "none": 522,
+      "none": 540,
       "part_doc": 8
     },
     "primary_kind": {
-      "artifact": 66,
-      "command": 175,
-      "document": 190,
-      "surface": 165
+      "artifact": 67,
+      "command": 184,
+      "document": 191,
+      "surface": 172
     },
     "surface_state": {
-      "authored_source": 589,
+      "authored_source": 607,
       "generated_readmodel": 6,
       "receipt": 1
     }
   },
   "coverage_summary": {
-    "command_count": 175,
-    "document_count": 190,
+    "command_count": 184,
+    "document_count": 191,
     "generated_count": 6,
-    "heading_count": 991,
+    "heading_count": 999,
     "mechanics_count": 74,
-    "record_count": 596,
+    "record_count": 614,
     "schema_count": 8,
-    "script_count": 38,
-    "test_count": 137,
+    "script_count": 40,
+    "test_count": 144,
     "unknown_count": 0,
     "validator_count": 0
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "db01c6f21d847f733e782118c5d4a487083236541c8d0db7b0790a7ce8b4d06a",
+    "content_digest": "e304b9f0e6b5c46906b08c51f050a9d31c39f5ca7d05941470033fbbfc219e95",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -1497,13 +1497,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "92765764c3bfcf28668538a945467ed88cb15672bb59ca775274c100ba155a30",
+        "content_hash": "2f519ecba4ca9ee8dc07ef1cca80d1de7dcc99349d3be7b99f36e7139240afb0",
         "git_ref": "git-index-source-tree",
         "id": "file:readme.md:b335630551",
         "mime": "text/markdown",
         "path": "README.md",
         "repo": "abyss-machine",
-        "size_bytes": 41851
+        "size_bytes": 42429
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -1553,21 +1553,21 @@
           {
             "anchor": "public-boundary",
             "level": 2,
-            "line": 347,
+            "line": 355,
             "ref": "README.md#public-boundary",
             "title": "Public Boundary"
           },
           {
             "anchor": "test-lanes",
             "level": 2,
-            "line": 357,
+            "line": 365,
             "ref": "README.md#test-lanes",
             "title": "Test Lanes"
           },
           {
             "anchor": "current-status",
             "level": 2,
-            "line": 390,
+            "line": 398,
             "ref": "README.md#current-status",
             "title": "Current Status"
           }
@@ -1579,7 +1579,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "92765764c3bfcf28668538a945467ed88cb15672bb59ca775274c100ba155a30",
+        "digest": "2f519ecba4ca9ee8dc07ef1cca80d1de7dcc99349d3be7b99f36e7139240afb0",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -2200,13 +2200,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "9f81245b3e3513de3f635a7e5c41e796351a390f89b572d475457e1cac0fb24c",
+        "content_hash": "a828f4d9d92cd596dbc03c65c9c288fcfaa6474cfe3c050bf80361a16a5c3a55",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/CHANGELOG.md",
         "repo": "abyss-machine",
-        "size_bytes": 14509
+        "size_bytes": 14809
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -2256,21 +2256,21 @@
           {
             "anchor": "changed",
             "level": 3,
-            "line": 188,
+            "line": 192,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#changed",
             "title": "Changed"
           },
           {
             "anchor": "ledger",
             "level": 3,
-            "line": 203,
+            "line": 207,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#ledger",
             "title": "Ledger"
           },
           {
             "anchor": "notes",
             "level": 2,
-            "line": 223,
+            "line": 227,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#notes",
             "title": "Notes"
           }
@@ -2282,7 +2282,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "9f81245b3e3513de3f635a7e5c41e796351a390f89b572d475457e1cac0fb24c",
+        "digest": "a828f4d9d92cd596dbc03c65c9c288fcfaa6474cfe3c050bf80361a16a5c3a55",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -4101,13 +4101,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "ddb9b17b71b9265a7f7e75e0263ddf1ebaf19a79fd41a6d4140119d2dcd0ee67",
+        "content_hash": "f2c149df77ef0f8dc47e0b773ff4cf5087983fad772d872dac14943b603c5c41",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/commands.md",
         "repo": "abyss-machine",
-        "size_bytes": 97883
+        "size_bytes": 98694
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -4157,91 +4157,91 @@
           {
             "anchor": "abyss-nervous-system",
             "level": 2,
-            "line": 323,
+            "line": 329,
             "ref": "config-templates/etc/abyss-machine/commands.md#abyss-nervous-system",
             "title": "Abyss Nervous System"
           },
           {
             "anchor": "reaction-candidates",
             "level": 2,
-            "line": 386,
+            "line": 392,
             "ref": "config-templates/etc/abyss-machine/commands.md#reaction-candidates",
             "title": "Reaction Candidates"
           },
           {
             "anchor": "os-abyss-responses",
             "level": 2,
-            "line": 396,
+            "line": 402,
             "ref": "config-templates/etc/abyss-machine/commands.md#os-abyss-responses",
             "title": "OS Abyss Responses"
           },
           {
             "anchor": "os-abyss-heartbeats",
             "level": 2,
-            "line": 406,
+            "line": 412,
             "ref": "config-templates/etc/abyss-machine/commands.md#os-abyss-heartbeats",
             "title": "OS Abyss Heartbeats"
           },
           {
             "anchor": "ai-host",
             "level": 2,
-            "line": 555,
+            "line": 561,
             "ref": "config-templates/etc/abyss-machine/commands.md#ai-host",
             "title": "AI Host"
           },
           {
             "anchor": "storage-routing",
             "level": 2,
-            "line": 739,
+            "line": 745,
             "ref": "config-templates/etc/abyss-machine/commands.md#storage-routing",
             "title": "Storage Routing"
           },
           {
             "anchor": "observability",
             "level": 2,
-            "line": 913,
+            "line": 919,
             "ref": "config-templates/etc/abyss-machine/commands.md#observability",
             "title": "Observability"
           },
           {
             "anchor": "typing",
             "level": 2,
-            "line": 949,
+            "line": 955,
             "ref": "config-templates/etc/abyss-machine/commands.md#typing",
             "title": "Typing"
           },
           {
             "anchor": "dictation",
             "level": 2,
-            "line": 1178,
+            "line": 1184,
             "ref": "config-templates/etc/abyss-machine/commands.md#dictation",
             "title": "Dictation"
           },
           {
             "anchor": "work-modes",
             "level": 2,
-            "line": 1253,
+            "line": 1259,
             "ref": "config-templates/etc/abyss-machine/commands.md#work-modes",
             "title": "Work Modes"
           },
           {
             "anchor": "cooling",
             "level": 2,
-            "line": 1293,
+            "line": 1299,
             "ref": "config-templates/etc/abyss-machine/commands.md#cooling",
             "title": "Cooling"
           },
           {
             "anchor": "snapshots",
             "level": 2,
-            "line": 1357,
+            "line": 1363,
             "ref": "config-templates/etc/abyss-machine/commands.md#snapshots",
             "title": "Snapshots"
           },
           {
             "anchor": "notes",
             "level": 2,
-            "line": 1365,
+            "line": 1371,
             "ref": "config-templates/etc/abyss-machine/commands.md#notes",
             "title": "Notes"
           }
@@ -4253,7 +4253,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "ddb9b17b71b9265a7f7e75e0263ddf1ebaf19a79fd41a6d4140119d2dcd0ee67",
+        "digest": "f2c149df77ef0f8dc47e0b773ff4cf5087983fad772d872dac14943b603c5c41",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -10686,6 +10686,184 @@
         "state": "current"
       },
       "identity": {
+        "content_hash": "bd57b3a9bbc44a7a51fa4fdc1fb87eb8cbea38d630d594c90a737cc01ad377a5",
+        "git_ref": "git-index-source-tree",
+        "id": "file:config-templates/etc/abyss-machine/memory-controller-policy.json:e29af5b16e",
+        "mime": "application/json",
+        "path": "config-templates/etc/abyss-machine/memory-controller-policy.json",
+        "repo": "abyss-machine",
+        "size_bytes": 2898
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "config-templates/etc/abyss-machine/memory-controller-policy.json"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "config-templates/etc/abyss-machine/memory-controller-policy.json",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "config-templates/etc/abyss-machine/memory-controller-policy.json:1"
+        ],
+        "path_ref": "config-templates/etc/abyss-machine/memory-controller-policy.json"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "bd57b3a9bbc44a7a51fa4fdc1fb87eb8cbea38d630d594c90a737cc01ad377a5",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "jq"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "config",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "config",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "none",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "b3b8f366516c45c943be1eca8863692b15f18a58c7065fecb313145ba6e6de2e",
+        "git_ref": "git-index-source-tree",
+        "id": "file:config-templates/etc/abyss-machine/memory-controller-registry.json:537c3bb564",
+        "mime": "application/json",
+        "path": "config-templates/etc/abyss-machine/memory-controller-registry.json",
+        "repo": "abyss-machine",
+        "size_bytes": 1335
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "config-templates/etc/abyss-machine/memory-controller-registry.json"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "config-templates/etc/abyss-machine/memory-controller-registry.json",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "config-templates/etc/abyss-machine/memory-controller-registry.json:1"
+        ],
+        "path_ref": "config-templates/etc/abyss-machine/memory-controller-registry.json"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "b3b8f366516c45c943be1eca8863692b15f18a58c7065fecb313145ba6e6de2e",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "jq"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "config",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "config",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "none",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
         "content_hash": "bc3a35e717b85c9a4e733adae5dedccb178122e0c425c4a3d9a66bcce0280c17",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/memory-policy.json:6c461971ea",
@@ -11583,13 +11761,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "64837c6ab6eef2719b80cd0093c7a5c7d2987ea0a1c2daca52c94ff88844013b",
+        "content_hash": "2fd1374c5ef558510d893425f6f3d738c397a8244003f607d59be82e2cf3103b",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/resource-policy.json:f90dc8318c",
         "mime": "application/json",
         "path": "config-templates/etc/abyss-machine/resource-policy.json",
         "repo": "abyss-machine",
-        "size_bytes": 2915
+        "size_bytes": 3495
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -11622,7 +11800,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "64837c6ab6eef2719b80cd0093c7a5c7d2987ea0a1c2daca52c94ff88844013b",
+        "digest": "2fd1374c5ef558510d893425f6f3d738c397a8244003f607d59be82e2cf3103b",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -12223,13 +12401,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "7cc5eb7e53bf9005c61dadab0b4188cb682f9de35b7b13ed8658f792730c1e37",
+        "content_hash": "75d07bc5bad4232ffead5a45ab4430dfe934df4e7de262db82ccb43d964cf8e8",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/live_adapters.md:42934316d8",
         "mime": "text/markdown",
         "path": "docs/host/LIVE_ADAPTERS.md",
         "repo": "abyss-machine",
-        "size_bytes": 133394
+        "size_bytes": 134798
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -12844,23 +13022,30 @@
             "title": "Goal-Family Completion Audit"
           },
           {
+            "anchor": "resident-memory-controller",
+            "level": 3,
+            "line": 2082,
+            "ref": "docs/host/LIVE_ADAPTERS.md#resident-memory-controller",
+            "title": "Resident Memory Controller"
+          },
+          {
             "anchor": "remaining-self-awareness-cli-edge-classification",
             "level": 2,
-            "line": 2082,
+            "line": 2099,
             "ref": "docs/host/LIVE_ADAPTERS.md#remaining-self-awareness-cli-edge-classification",
             "title": "Remaining Self-Awareness CLI Edge Classification"
           },
           {
             "anchor": "post-goal-extension-rule",
             "level": 2,
-            "line": 2103,
+            "line": 2120,
             "ref": "docs/host/LIVE_ADAPTERS.md#post-goal-extension-rule",
             "title": "Post-Goal Extension Rule"
           },
           {
             "anchor": "stop-lines",
             "level": 2,
-            "line": 2113,
+            "line": 2130,
             "ref": "docs/host/LIVE_ADAPTERS.md#stop-lines",
             "title": "Stop Lines"
           }
@@ -12872,7 +13057,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "7cc5eb7e53bf9005c61dadab0b4188cb682f9de35b7b13ed8658f792730c1e37",
+        "digest": "75d07bc5bad4232ffead5a45ab4430dfe934df4e7de262db82ccb43d964cf8e8",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13015,13 +13200,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "ae8b2a95a6563640b13970fb74ea06be4b9552230cb6034f4e4ff5d5feb8b816",
+        "content_hash": "9d7df52c841dd0f2831a2e477897dacec1f80c06be115de0e96f22342733a458",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/subsystem_commands.md:c005361b7c",
         "mime": "text/markdown",
         "path": "docs/host/SUBSYSTEM_COMMANDS.md",
         "repo": "abyss-machine",
-        "size_bytes": 68960
+        "size_bytes": 69065
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13090,7 +13275,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "ae8b2a95a6563640b13970fb74ea06be4b9552230cb6034f4e4ff5d5feb8b816",
+        "digest": "9d7df52c841dd0f2831a2e477897dacec1f80c06be115de0e96f22342733a458",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13138,13 +13323,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "1b0d67417d9994752fbe510b1727c4c6ced926587b2bbe90a6fcbd52a33ddeb6",
+        "content_hash": "3f5e34d53ced994efcc3a6942cc3bb5a23004db641e14c6ffda354755460b1a4",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/install/readme.md:a120db8f77",
         "mime": "text/markdown",
         "path": "docs/install/README.md",
         "repo": "abyss-machine",
-        "size_bytes": 3041
+        "size_bytes": 3384
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13197,6 +13382,13 @@
             "line": 55,
             "ref": "docs/install/README.md#or",
             "title": "or:"
+          },
+          {
+            "anchor": "memory-controller-lifecycle",
+            "level": 2,
+            "line": 69,
+            "ref": "docs/install/README.md#memory-controller-lifecycle",
+            "title": "Memory Controller Lifecycle"
           }
         ],
         "line_refs": [
@@ -13206,7 +13398,137 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "1b0d67417d9994752fbe510b1727c4c6ced926587b2bbe90a6fcbd52a33ddeb6",
+        "digest": "3f5e34d53ced994efcc3a6942cc3bb5a23004db641e14c6ffda354755460b1a4",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": []
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "document",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "document",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "document"
+      },
+      "code_role": "none",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "unknown_document",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "ee4ec32e4c03809b6294327b94cc1af364510234507b68c31c5aaee4ad48d2f1",
+        "git_ref": "git-index-source-tree",
+        "id": "file:docs/operations/memory_controller.md:44676a71cc",
+        "mime": "text/markdown",
+        "path": "docs/operations/MEMORY_CONTROLLER.md",
+        "repo": "abyss-machine",
+        "size_bytes": 4579
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "document_owner",
+        "surface": "docs/operations/MEMORY_CONTROLLER.md"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "docs/operations/MEMORY_CONTROLLER.md",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [
+          {
+            "anchor": "memory-controller",
+            "level": 1,
+            "line": 1,
+            "ref": "docs/operations/MEMORY_CONTROLLER.md#memory-controller",
+            "title": "Memory Controller"
+          },
+          {
+            "anchor": "ownership",
+            "level": 2,
+            "line": 8,
+            "ref": "docs/operations/MEMORY_CONTROLLER.md#ownership",
+            "title": "Ownership"
+          },
+          {
+            "anchor": "fresh-machine",
+            "level": 2,
+            "line": 22,
+            "ref": "docs/operations/MEMORY_CONTROLLER.md#fresh-machine",
+            "title": "Fresh Machine"
+          },
+          {
+            "anchor": "resource-admission",
+            "level": 2,
+            "line": 45,
+            "ref": "docs/operations/MEMORY_CONTROLLER.md#resource-admission",
+            "title": "Resource Admission"
+          },
+          {
+            "anchor": "upgrade-rehearsal",
+            "level": 2,
+            "line": 61,
+            "ref": "docs/operations/MEMORY_CONTROLLER.md#upgrade-rehearsal",
+            "title": "Upgrade Rehearsal"
+          },
+          {
+            "anchor": "live-rollout",
+            "level": 2,
+            "line": 83,
+            "ref": "docs/operations/MEMORY_CONTROLLER.md#live-rollout",
+            "title": "Live Rollout"
+          }
+        ],
+        "line_refs": [
+          "docs/operations/MEMORY_CONTROLLER.md:1"
+        ],
+        "path_ref": "docs/operations/MEMORY_CONTROLLER.md"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "ee4ec32e4c03809b6294327b94cc1af364510234507b68c31c5aaee4ad48d2f1",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13254,13 +13576,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "e01e24adc690e29886bf82b3a416a601197058cddb27f724527678aff05ecae6",
+        "content_hash": "65e6b05ea98fe70147dc62533a253d3a8b0c63c0e94f2b97beb14d860720e2ef",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/operations/readme.md:3492caf43a",
         "mime": "text/markdown",
         "path": "docs/operations/README.md",
         "repo": "abyss-machine",
-        "size_bytes": 2165
+        "size_bytes": 2386
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13308,7 +13630,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "e01e24adc690e29886bf82b3a416a601197058cddb27f724527678aff05ecae6",
+        "digest": "65e6b05ea98fe70147dc62533a253d3a8b0c63c0e94f2b97beb14d860720e2ef",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13451,13 +13773,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "32744af89b9b3eb553c372142602e05fedc9c21cbd5b1074ddb7d078f22a9cca",
+        "content_hash": "beee7985b4ddabefcb3c250f8d931ef04f285f684a2344181887a43281e15460",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/publication/publication_boundary.md:ab5fe111b3",
         "mime": "text/markdown",
         "path": "docs/publication/PUBLICATION_BOUNDARY.md",
         "repo": "abyss-machine",
-        "size_bytes": 4077
+        "size_bytes": 4529
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13500,28 +13822,28 @@
           {
             "anchor": "not-published",
             "level": 2,
-            "line": 20,
+            "line": 22,
             "ref": "docs/publication/PUBLICATION_BOUNDARY.md#not-published",
             "title": "Not Published"
           },
           {
             "anchor": "release-and-artifact-trust",
             "level": 2,
-            "line": 34,
+            "line": 36,
             "ref": "docs/publication/PUBLICATION_BOUNDARY.md#release-and-artifact-trust",
             "title": "Release And Artifact Trust"
           },
           {
             "anchor": "lifecycle-on-a-new-machine",
             "level": 2,
-            "line": 58,
+            "line": 60,
             "ref": "docs/publication/PUBLICATION_BOUNDARY.md#lifecycle-on-a-new-machine",
             "title": "Lifecycle On A New Machine"
           },
           {
             "anchor": "cold-start-proof-route",
             "level": 2,
-            "line": 74,
+            "line": 81,
             "ref": "docs/publication/PUBLICATION_BOUNDARY.md#cold-start-proof-route",
             "title": "Cold-Start Proof Route"
           }
@@ -13533,7 +13855,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "32744af89b9b3eb553c372142602e05fedc9c21cbd5b1074ddb7d078f22a9cca",
+        "digest": "beee7985b4ddabefcb3c250f8d931ef04f285f684a2344181887a43281e15460",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -14805,13 +15127,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "77306087802a57a9219b0cffea45478f12d89ec08a337ff1581da744b6ebbbbe",
+        "content_hash": "119559c5464d50e96f2c7b30bc2cbab346f6ab2d1c5763ca71097ecabb792366",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
         "path": "generated/contract_abi_signatures.min.json",
         "repo": "abyss-machine",
-        "size_bytes": 89991
+        "size_bytes": 93295
       },
       "mechanics_role": "none",
       "observed_form": "generated_output",
@@ -14844,7 +15166,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "77306087802a57a9219b0cffea45478f12d89ec08a337ff1581da744b6ebbbbe",
+        "digest": "119559c5464d50e96f2c7b30bc2cbab346f6ab2d1c5763ca71097ecabb792366",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -14894,7 +15216,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "5cb177b16c9a4e9b2cbb50ea6cf45d6831758f0795a586d04feb3a013630da3a",
+        "content_hash": "9f26698ab3efacd5308ac4cb0422c3921adee0c35f80422c8335a011c1543c54",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/scaffold_index.min.json:0527a4f31c",
         "mime": "application/json",
@@ -14933,7 +15255,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "5cb177b16c9a4e9b2cbb50ea6cf45d6831758f0795a586d04feb3a013630da3a",
+        "digest": "9f26698ab3efacd5308ac4cb0422c3921adee0c35f80422c8335a011c1543c54",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -16856,13 +17178,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "1d3a48da3c8d8c3af0f73da6cd62b59f6a95669c19debc90c236ea410289c97e",
+        "content_hash": "bb0290792a910c27383ea141fb3abcc7af540296a0675bf4240844311535b809",
         "git_ref": "git-index-source-tree",
         "id": "file:manifests/bootstrap_profiles.manifest.json:0bda5b50fd",
         "mime": "application/json",
         "path": "manifests/bootstrap_profiles.manifest.json",
         "repo": "abyss-machine",
-        "size_bytes": 1770
+        "size_bytes": 1813
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -16895,7 +17217,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "1d3a48da3c8d8c3af0f73da6cd62b59f6a95669c19debc90c236ea410289c97e",
+        "digest": "bb0290792a910c27383ea141fb3abcc7af540296a0675bf4240844311535b809",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -24802,13 +25124,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "613e52deb9c18fa958286900338379ba7de363c72d4fd5f8a50ef98345f8841a",
+        "content_hash": "e6de97efb6789a35ad6cedffb350b22218ea02c2641ad6fe1778f31801464e00",
         "git_ref": "git-index-source-tree",
         "id": "file:pyproject.toml:50c86b7ed8",
         "mime": "application/toml",
         "path": "pyproject.toml",
         "repo": "abyss-machine",
-        "size_bytes": 625
+        "size_bytes": 632
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -24841,7 +25163,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "613e52deb9c18fa958286900338379ba7de363c72d4fd5f8a50ef98345f8841a",
+        "digest": "e6de97efb6789a35ad6cedffb350b22218ea02c2641ad6fe1778f31801464e00",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -26068,13 +26390,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "9a7fb63b154db245bfcd014f4674371b10b52b3868cef775ead6894fde99624e",
+        "content_hash": "d7699f7779fb12ca81a4097fa79ff05207221b53237ac7254b11426569bb31c8",
         "git_ref": "git-index-source-tree",
         "id": "file:scripts/abyss-machine-bootstrap:2dc6fb84c6",
         "mime": "text/x-python",
         "path": "scripts/abyss-machine-bootstrap",
         "repo": "abyss-machine",
-        "size_bytes": 28070
+        "size_bytes": 28918
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -26107,7 +26429,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "9a7fb63b154db245bfcd014f4674371b10b52b3868cef775ead6894fde99624e",
+        "digest": "d7699f7779fb12ca81a4097fa79ff05207221b53237ac7254b11426569bb31c8",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -26710,13 +27032,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "3defe5850f20cabeeba1708f3049b3c7ca360f635caa305d213a0cebd8d70ce7",
+        "content_hash": "b47f67c45b27076cc530c168d20170b79312b9ba4650f150550230b1e265ef77",
         "git_ref": "git-index-source-tree",
         "id": "file:scripts/validators/readme.md:32de82cda8",
         "mime": "text/markdown",
         "path": "scripts/validators/README.md",
         "repo": "abyss-machine",
-        "size_bytes": 27736
+        "size_bytes": 28157
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -26757,7 +27079,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "3defe5850f20cabeeba1708f3049b3c7ca360f635caa305d213a0cebd8d70ce7",
+        "digest": "b47f67c45b27076cc530c168d20170b79312b9ba4650f150550230b1e265ef77",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -27167,13 +27489,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "fd64f14704543a2f36b272e9d16b74c446453ef7fe1e3c203743eb9224177f67",
+        "content_hash": "f6c9807b4e8a0ed9ddef0fb3e15d83d2faa8d6b3023dc583dfb8ecb412df1fa6",
         "git_ref": "git-index-source-tree",
         "id": "file:scripts/validators/first_run_installed_projection.py:a72880428c",
         "mime": "text/x-python",
         "path": "scripts/validators/first_run_installed_projection.py",
         "repo": "abyss-machine",
-        "size_bytes": 51684
+        "size_bytes": 52262
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -27206,7 +27528,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "fd64f14704543a2f36b272e9d16b74c446453ef7fe1e3c203743eb9224177f67",
+        "digest": "f6c9807b4e8a0ed9ddef0fb3e15d83d2faa8d6b3023dc583dfb8ecb412df1fa6",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -27400,6 +27722,97 @@
         ],
         "owner_commands": [
           "python scripts/validators/mechanics_topology.py"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "script",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "script",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "entrypoint",
+      "command_role": "script",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "5ead579e35071e18d35ed299625ad0b0fc1f739813962a0c48ed2ba6024e9c90",
+        "git_ref": "git-index-source-tree",
+        "id": "file:scripts/validators/memory_controller_upgrade_rehearsal.py:0812ad48c1",
+        "mime": "text/x-python",
+        "path": "scripts/validators/memory_controller_upgrade_rehearsal.py",
+        "repo": "abyss-machine",
+        "size_bytes": 21373
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "command_owner",
+        "surface": "scripts/validators/memory_controller_upgrade_rehearsal.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "scripts/validators/memory_controller_upgrade_rehearsal.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "scripts/validators/memory_controller_upgrade_rehearsal.py:1"
+        ],
+        "path_ref": "scripts/validators/memory_controller_upgrade_rehearsal.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "5ead579e35071e18d35ed299625ad0b0fc1f739813962a0c48ed2ba6024e9c90",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "python scripts/validators/memory_controller_upgrade_rehearsal.py"
         ],
         "required_tools": [
           "python"
@@ -28168,7 +28581,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "91182fda06a73634f28e555b1cf41f4435961ef4369ce6779bdb0f13b84349cb",
+        "content_hash": "554bc200d23d1fa43ffda74bd2e2b6e4ab508d27b766add159388f37fb51b6bd",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/__init__.py:6ea1e3a01e",
         "mime": "text/x-python",
@@ -28207,7 +28620,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "91182fda06a73634f28e555b1cf41f4435961ef4369ce6779bdb0f13b84349cb",
+        "digest": "554bc200d23d1fa43ffda74bd2e2b6e4ab508d27b766add159388f37fb51b6bd",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -28880,13 +29293,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "d540d4ce3d9f2ab927352326088eb445256d2ee047456ec81e3fcb4731a1e48c",
+        "content_hash": "9f7b100fa648ffcf60612c587ece7bb2e7e68d5581b50dde5614f1ec17bdf763",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/cli.py:3e116445b4",
         "mime": "text/x-python",
         "path": "src/abyss_machine/cli.py",
         "repo": "abyss-machine",
-        "size_bytes": 2650967
+        "size_bytes": 2686866
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -28919,7 +29332,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "d540d4ce3d9f2ab927352326088eb445256d2ee047456ec81e3fcb4731a1e48c",
+        "digest": "9f7b100fa648ffcf60612c587ece7bb2e7e68d5581b50dde5614f1ec17bdf763",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -30457,6 +30870,97 @@
     {
       "abi": {
         "abi_epoch": "source",
+        "artifact_class": "script",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "script",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "entrypoint",
+      "command_role": "script",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "1dbec1f56da3591038811c834b1198e2f0ce95d02324933007f2a70d9b6984d3",
+        "git_ref": "git-index-source-tree",
+        "id": "file:src/abyss_machine/entrypoint.py:c7714d0f37",
+        "mime": "text/x-python",
+        "path": "src/abyss_machine/entrypoint.py",
+        "repo": "abyss-machine",
+        "size_bytes": 855
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "command_owner",
+        "surface": "src/abyss_machine/entrypoint.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "src/abyss_machine/entrypoint.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "src/abyss_machine/entrypoint.py:1"
+        ],
+        "path_ref": "src/abyss_machine/entrypoint.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "1dbec1f56da3591038811c834b1198e2f0ce95d02324933007f2a70d9b6984d3",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "python src/abyss_machine/entrypoint.py"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
         "artifact_class": "source_code",
         "compatibility": "stable",
         "contract_version": "none",
@@ -30484,13 +30988,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "718dbe2a566b95057eb66f7cd0214f740e5b275a56f148fcf91c84d93ded2ce7",
+        "content_hash": "1ade26128862b1d5e7e16b6356af91f315dc563b682053ae78675b2763b13afb",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/host_lifecycle_parity.py:7a252f7bd4",
         "mime": "text/x-python",
         "path": "src/abyss_machine/host_lifecycle_parity.py",
         "repo": "abyss-machine",
-        "size_bytes": 19640
+        "size_bytes": 19647
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -30523,7 +31027,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "718dbe2a566b95057eb66f7cd0214f740e5b275a56f148fcf91c84d93ded2ce7",
+        "digest": "1ade26128862b1d5e7e16b6356af91f315dc563b682053ae78675b2763b13afb",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -30702,6 +31206,362 @@
       "signs": {
         "attestation_ref": "",
         "digest": "d3a947911a86148d2518333da590fcf0b75122dda55f81c85a5344b356c487ef",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "source_code",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "source_code",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "source_module",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "7ef2b7aa782bdf3a008680be077f142fba0d078e62ab16e056dfa64ac1ed6603",
+        "git_ref": "git-index-source-tree",
+        "id": "file:src/abyss_machine/memory_controller_adapters.py:3e65a6b139",
+        "mime": "text/x-python",
+        "path": "src/abyss_machine/memory_controller_adapters.py",
+        "repo": "abyss-machine",
+        "size_bytes": 64486
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "src/abyss_machine/memory_controller_adapters.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "src/abyss_machine/memory_controller_adapters.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "src/abyss_machine/memory_controller_adapters.py:1"
+        ],
+        "path_ref": "src/abyss_machine/memory_controller_adapters.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "7ef2b7aa782bdf3a008680be077f142fba0d078e62ab16e056dfa64ac1ed6603",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "source_code",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "source_code",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "source_module",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "383a3daeb54c7acdf7335b364506a6c307827d48f292dfae3b52a71b3473a240",
+        "git_ref": "git-index-source-tree",
+        "id": "file:src/abyss_machine/memory_controller_contracts.py:3296a276d4",
+        "mime": "text/x-python",
+        "path": "src/abyss_machine/memory_controller_contracts.py",
+        "repo": "abyss-machine",
+        "size_bytes": 55969
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "src/abyss_machine/memory_controller_contracts.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "src/abyss_machine/memory_controller_contracts.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "src/abyss_machine/memory_controller_contracts.py:1"
+        ],
+        "path_ref": "src/abyss_machine/memory_controller_contracts.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "383a3daeb54c7acdf7335b364506a6c307827d48f292dfae3b52a71b3473a240",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "source_code",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "source_code",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "source_module",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "0c97614044f9db36951462374714dcb79247466fc7555ba159c68e40a07d9fd7",
+        "git_ref": "git-index-source-tree",
+        "id": "file:src/abyss_machine/memory_controller_lifecycle.py:3519e059a2",
+        "mime": "text/x-python",
+        "path": "src/abyss_machine/memory_controller_lifecycle.py",
+        "repo": "abyss-machine",
+        "size_bytes": 22447
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "src/abyss_machine/memory_controller_lifecycle.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "src/abyss_machine/memory_controller_lifecycle.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "src/abyss_machine/memory_controller_lifecycle.py:1"
+        ],
+        "path_ref": "src/abyss_machine/memory_controller_lifecycle.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "0c97614044f9db36951462374714dcb79247466fc7555ba159c68e40a07d9fd7",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "source_code",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "source_code",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "source_module",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "ed515f692c0ba6c6af9b03eb5ff460b7b03a25af5f98006ba688027a59846c97",
+        "git_ref": "git-index-source-tree",
+        "id": "file:src/abyss_machine/memory_controller_service.py:37331316da",
+        "mime": "text/x-python",
+        "path": "src/abyss_machine/memory_controller_service.py",
+        "repo": "abyss-machine",
+        "size_bytes": 75602
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "src/abyss_machine/memory_controller_service.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "src/abyss_machine/memory_controller_service.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "src/abyss_machine/memory_controller_service.py:1"
+        ],
+        "path_ref": "src/abyss_machine/memory_controller_service.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "ed515f692c0ba6c6af9b03eb5ff460b7b03a25af5f98006ba688027a59846c97",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -33777,13 +34637,102 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "e40e6f00d35e3459247a7709758fd375a6811defcfb9b3e61fa35b7b92b5da01",
+        "content_hash": "00773b82fcf2eee6ccb9260eea7cadc9bf20112d8f8cc787aa3102c73d86240a",
+        "git_ref": "git-index-source-tree",
+        "id": "file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
+        "mime": "text/x-python",
+        "path": "src/abyss_machine/resource_adapters.py",
+        "repo": "abyss-machine",
+        "size_bytes": 16824
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "src/abyss_machine/resource_adapters.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "src/abyss_machine/resource_adapters.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "src/abyss_machine/resource_adapters.py:1"
+        ],
+        "path_ref": "src/abyss_machine/resource_adapters.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "00773b82fcf2eee6ccb9260eea7cadc9bf20112d8f8cc787aa3102c73d86240a",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "source_code",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "source_code",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "source_module",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "85f170ecd8365982bb46699eb08cb0682f621e6e682cd90b7aeadba18a73172b",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/resource_planning.py:87745a04a8",
         "mime": "text/x-python",
         "path": "src/abyss_machine/resource_planning.py",
         "repo": "abyss-machine",
-        "size_bytes": 23399
+        "size_bytes": 38513
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -33816,7 +34765,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "e40e6f00d35e3459247a7709758fd375a6811defcfb9b3e61fa35b7b92b5da01",
+        "digest": "85f170ecd8365982bb46699eb08cb0682f621e6e682cd90b7aeadba18a73172b",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -41628,6 +42577,93 @@
         "state": "current"
       },
       "identity": {
+        "content_hash": "b159eece443e831edcc54d1fba020353f93e617ea04d88275fab852d6cc0c3b8",
+        "git_ref": "git-index-source-tree",
+        "id": "file:systemd/user/abyss-memory-controller.service:89c82c093f",
+        "mime": "text/plain",
+        "path": "systemd/user/abyss-memory-controller.service",
+        "repo": "abyss-machine",
+        "size_bytes": 1125
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "systemd/user/abyss-memory-controller.service"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "systemd/user/abyss-memory-controller.service",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "systemd/user/abyss-memory-controller.service:1"
+        ],
+        "path_ref": "systemd/user/abyss-memory-controller.service"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "b159eece443e831edcc54d1fba020353f93e617ea04d88275fab852d6cc0c3b8",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": []
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "service_unit",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "service_unit",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "artifact"
+      },
+      "code_role": "none",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
         "content_hash": "31630e1e12927a67ec425032fed0800bb866a0befab63b1948b8ebdd279fc322",
         "git_ref": "git-index-source-tree",
         "id": "file:systemd/user/abyss-mirror.service:d34499e5c3",
@@ -44913,13 +45949,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "88d4a820938e167dc082fe50c41ea4b2bd795f49d2fdff9fa357fffe238495ca",
+        "content_hash": "39adb1313cdf4cdc3833f10f6dad9619b38326be1d0462e5d99cd2c2c711a9e1",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_resource_launch_timeout_cleanup.py",
         "repo": "abyss-machine",
-        "size_bytes": 5482
+        "size_bytes": 22850
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -44952,7 +45988,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "88d4a820938e167dc082fe50c41ea4b2bd795f49d2fdff9fa357fffe238495ca",
+        "digest": "39adb1313cdf4cdc3833f10f6dad9619b38326be1d0462e5d99cd2c2c711a9e1",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -46077,13 +47113,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "c7d9a87b772ee50de2e79e1eb0fa2fab31aeefc602d74cbcf8efa858b6b1fa93",
+        "content_hash": "664ef6e45d0261919637522efda66fa22791e5213b0bb9846ebbfc0d1ac9a4c0",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/safety/test_storage_and_mutation_boundaries.py:b21cc1193b",
         "mime": "text/x-python",
         "path": "tests/host_contract/safety/test_storage_and_mutation_boundaries.py",
         "repo": "abyss-machine",
-        "size_bytes": 2665
+        "size_bytes": 2672
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -46116,7 +47152,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "c7d9a87b772ee50de2e79e1eb0fa2fab31aeefc602d74cbcf8efa858b6b1fa93",
+        "digest": "664ef6e45d0261919637522efda66fa22791e5213b0bb9846ebbfc0d1ac9a4c0",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -46896,13 +47932,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "e75bf36f6a52f4aeb016f5102623326db5b5ae83ec65a02a537ef48971764f3b",
+        "content_hash": "a04fa97792ed2ab7e9082b95090e138e55a874e2eff20483c3b665daf662fe16",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_bootstrap.py:79b98a725b",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_bootstrap.py",
         "repo": "abyss-machine",
-        "size_bytes": 48308
+        "size_bytes": 51605
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -46935,7 +47971,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "e75bf36f6a52f4aeb016f5102623326db5b5ae83ec65a02a537ef48971764f3b",
+        "digest": "a04fa97792ed2ab7e9082b95090e138e55a874e2eff20483c3b665daf662fe16",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -47027,6 +48063,97 @@
       "signs": {
         "attestation_ref": "",
         "digest": "dbd17079fb9019864d56cb1a16820425ccf98dc162d52ba7ff2e2fcb6bf6c35c",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "42b5f204d0d7510bbf4130c9433b4dbdae60e2d2621a835450385adfa8ef4573",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_cli_direct_script_fallback.py:3ecf16de67",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_cli_direct_script_fallback.py",
+        "repo": "abyss-machine",
+        "size_bytes": 1247
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_cli_direct_script_fallback.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_cli_direct_script_fallback.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_cli_direct_script_fallback.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_cli_direct_script_fallback.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "42b5f204d0d7510bbf4130c9433b4dbdae60e2d2621a835450385adfa8ef4573",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -48716,13 +49843,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "6bc4949a94dbe425fad7f8580c6800956ac53f9757836ab2d5f4a1aedef6ccba",
+        "content_hash": "484d79a5499bf8f130410b9495944a19f9f95fae52f5207cc3330075a0fd9c80",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_first_run_installed_projection.py:6749811818",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_first_run_installed_projection.py",
         "repo": "abyss-machine",
-        "size_bytes": 14420
+        "size_bytes": 15174
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -48755,7 +49882,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "6bc4949a94dbe425fad7f8580c6800956ac53f9757836ab2d5f4a1aedef6ccba",
+        "digest": "484d79a5499bf8f130410b9495944a19f9f95fae52f5207cc3330075a0fd9c80",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -48898,13 +50025,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "92199799085cab14e161b1bd7166cf6a5f81cae272a06844cb5456a834fae5c6",
+        "content_hash": "640dda285ad0e020f125a2913e53c643c8d8c95583b21b78e75ccce14b168b10",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_host_lifecycle_parity.py:8f032809d7",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_host_lifecycle_parity.py",
         "repo": "abyss-machine",
-        "size_bytes": 13774
+        "size_bytes": 13874
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -48937,7 +50064,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "92199799085cab14e161b1bd7166cf6a5f81cae272a06844cb5456a834fae5c6",
+        "digest": "640dda285ad0e020f125a2913e53c643c8d8c95583b21b78e75ccce14b168b10",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -49120,6 +50247,461 @@
       "signs": {
         "attestation_ref": "",
         "digest": "387f0cbdc38d110bb7fa47ed9cf1a72a9b069f2f95798a7eb19212e2b0db4355",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "83d03dfe0abab9c5d0e342a242dcdeef7b860639f0a6b61fb3881720c2339ac8",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_memory_controller_adapters.py:eaeffa9788",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_memory_controller_adapters.py",
+        "repo": "abyss-machine",
+        "size_bytes": 17317
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_memory_controller_adapters.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_memory_controller_adapters.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_memory_controller_adapters.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_memory_controller_adapters.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "83d03dfe0abab9c5d0e342a242dcdeef7b860639f0a6b61fb3881720c2339ac8",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "ae62fb4cd7eef8c6e639b68f4deab895971493b99231059c78242345e732782a",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_memory_controller_contracts.py:380a1b582a",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_memory_controller_contracts.py",
+        "repo": "abyss-machine",
+        "size_bytes": 26629
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_memory_controller_contracts.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_memory_controller_contracts.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_memory_controller_contracts.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_memory_controller_contracts.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "ae62fb4cd7eef8c6e639b68f4deab895971493b99231059c78242345e732782a",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "2d42dcc39de48475e3f742f8ed25d2d3e75febbae87d7b352b7eb0edbdb51426",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_memory_controller_lifecycle.py:304f9ab96c",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_memory_controller_lifecycle.py",
+        "repo": "abyss-machine",
+        "size_bytes": 15055
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_memory_controller_lifecycle.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_memory_controller_lifecycle.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_memory_controller_lifecycle.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_memory_controller_lifecycle.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "2d42dcc39de48475e3f742f8ed25d2d3e75febbae87d7b352b7eb0edbdb51426",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "5ab7e5879a86ff71989de6e6bf51271c3ded7aec43d7725dcff9d072b8ee69ea",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_memory_controller_service.py:95c5854a98",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_memory_controller_service.py",
+        "repo": "abyss-machine",
+        "size_bytes": 34112
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_memory_controller_service.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_memory_controller_service.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_memory_controller_service.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_memory_controller_service.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "5ab7e5879a86ff71989de6e6bf51271c3ded7aec43d7725dcff9d072b8ee69ea",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "2d07b49255bc6b12c3017e07212d20220fac5782fccc451042518653100bf4cf",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_memory_controller_upgrade_rehearsal.py:32747d0e22",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py",
+        "repo": "abyss-machine",
+        "size_bytes": 1498
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "2d07b49255bc6b12c3017e07212d20220fac5782fccc451042518653100bf4cf",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -52447,13 +54029,104 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "ce0fee03d99e5888a6631204592ba239075168ba5194a5801d70c2ea3a8c585f",
+        "content_hash": "f53b81327611d6cd5112ac3ade2dedf998323d10f64cadb693a1df42d844495e",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_resource_adapters.py",
+        "repo": "abyss-machine",
+        "size_bytes": 4531
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_resource_adapters.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_resource_adapters.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_resource_adapters.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_resource_adapters.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "f53b81327611d6cd5112ac3ade2dedf998323d10f64cadb693a1df42d844495e",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "ee6910b8b18110b61834b8e450cbc87e59b267dd35ca151e45749d5838a0b41f",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_resource_planning_contract.py:775bfd31dc",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_resource_planning_contract.py",
         "repo": "abyss-machine",
-        "size_bytes": 4405
+        "size_bytes": 20503
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -52486,7 +54159,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "ce0fee03d99e5888a6631204592ba239075168ba5194a5801d70c2ea3a8c585f",
+        "digest": "ee6910b8b18110b61834b8e450cbc87e59b267dd35ca151e45749d5838a0b41f",
         "signature_ref": "",
         "verification_state": "digest-only"
       },

@@ -54,7 +54,7 @@
       "heading_ref": {
         "anchor": "notes",
         "level": 2,
-        "line": 223,
+        "line": 227,
         "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#notes",
         "title": "Notes"
       },
@@ -388,6 +388,15 @@
       "event_kind": "command_run",
       "event_role": "producer",
       "heading_ref": null,
+      "id": "event:repo:a2a54bd7e12c9e860e98",
+      "observation_state": "declared",
+      "path": "scripts/validators/memory_controller_upgrade_rehearsal.py",
+      "source_record_id": "file:scripts/validators/memory_controller_upgrade_rehearsal.py:0812ad48c1"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
       "id": "event:repo:d02bd23a9b767be9aa4f",
       "observation_state": "declared",
       "path": "scripts/validators/path_policy.py",
@@ -464,6 +473,15 @@
       "observation_state": "declared",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4"
+    },
+    {
+      "event_kind": "command_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:0d9b1dc460297bc12fdb",
+      "observation_state": "declared",
+      "path": "src/abyss_machine/entrypoint.py",
+      "source_record_id": "file:src/abyss_machine/entrypoint.py:c7714d0f37"
     },
     {
       "event_kind": "test_run",
@@ -748,6 +766,15 @@
       "event_kind": "test_run",
       "event_role": "producer",
       "heading_ref": null,
+      "id": "event:repo:8e76d6b18e8debc554ea",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_cli_direct_script_fallback.py",
+      "source_record_id": "file:tests/public_smoke/test_cli_direct_script_fallback.py:3ecf16de67"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
       "id": "event:repo:d25f0e76c7e7e036063c",
       "observation_state": "declared",
       "path": "tests/public_smoke/test_context_contracts.py",
@@ -950,6 +977,51 @@
       "observation_state": "declared",
       "path": "tests/public_smoke/test_memory_contracts.py",
       "source_record_id": "file:tests/public_smoke/test_memory_contracts.py:63edd4cace"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:93ae5e9b44a2028a85a8",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_memory_controller_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_memory_controller_adapters.py:eaeffa9788"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:516b1b1c6f4ffa9936a2",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_memory_controller_contracts.py",
+      "source_record_id": "file:tests/public_smoke/test_memory_controller_contracts.py:380a1b582a"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:9ac42f1850310252e981",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_memory_controller_lifecycle.py",
+      "source_record_id": "file:tests/public_smoke/test_memory_controller_lifecycle.py:304f9ab96c"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:03c850218c6778b4139f",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_memory_controller_service.py",
+      "source_record_id": "file:tests/public_smoke/test_memory_controller_service.py:95c5854a98"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:42f61e1d74b2f2ce4d85",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py",
+      "source_record_id": "file:tests/public_smoke/test_memory_controller_upgrade_rehearsal.py:32747d0e22"
     },
     {
       "event_kind": "test_run",
@@ -1274,6 +1346,15 @@
       "observation_state": "declared",
       "path": "tests/public_smoke/test_repo_scaffold.py",
       "source_record_id": "file:tests/public_smoke/test_repo_scaffold.py:88e6c0c9c2"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
+      "id": "event:repo:31b7a7978ec44a81185b",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_resource_adapters.py",
+      "source_record_id": "file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a"
     },
     {
       "event_kind": "test_run",
@@ -1854,7 +1935,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_event_index",
-    "content_digest": "ccd142581f2105b3faa60c93119dd6824a6d9d6fae10ef38a61e00bbdd19b73d",
+    "content_digest": "a3e91e4f99e7086d368b94a02af2e997ba5e79deabf6db18cd30b08c76d35f0b",
     "index_kind": "event",
     "local_id": "index:repo-local:events",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -1879,19 +1960,19 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "db01c6f21d847f733e782118c5d4a487083236541c8d0db7b0790a7ce8b4d06a",
+    "content_digest": "e304b9f0e6b5c46906b08c51f050a9d31c39f5ca7d05941470033fbbfc219e95",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 203,
+    "entry_count": 212,
     "kind_counts": {
-      "command_run": 34,
+      "command_run": 36,
       "decision_record": 21,
       "generation_run": 2,
       "release_declaration": 2,
       "release_lane": 2,
-      "test_run": 137,
+      "test_run": 144,
       "validation_lane_run": 2,
       "validation_receipt": 1,
       "workflow_run": 2

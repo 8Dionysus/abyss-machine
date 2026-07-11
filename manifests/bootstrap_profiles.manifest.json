@@ -8,6 +8,7 @@
         "abyss-power-profile-auto.timer"
       ],
       "user": [
+        "abyss-memory-controller.service",
         "abyss-machine-heartbeat.timer",
         "abyss-machine-context-refresh.timer",
         "abyss-topology-audit.timer",

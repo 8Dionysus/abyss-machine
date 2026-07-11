@@ -1,6 +1,6 @@
 {
   "schema": "abyss_machine_resource_policy_v1",
-  "version": "0.8.35",
+  "version": "0.8.36",
   "owner": "abyss-machine",
   "purpose": "Unified host resource planning and systemd-run launch policy for new local work.",
   "classes": [
@@ -94,6 +94,22 @@
     "memory_max_by_default": false,
     "cpu_quota_by_default": false,
     "applies_to_new_processes_only": true
+  },
+  "startup_admission": {
+    "enabled": true,
+    "runtime_only": true,
+    "known_demand_ttl_sec": 120,
+    "unknown_demand_ttl_sec": 15,
+    "unknown_wait_timeout_sec": 20,
+    "default_demand_mib": {
+      "agent": {"medium": 2048, "heavy": 4096, "sustained": 4096},
+      "indexing": {"medium": 2048, "heavy": 4096, "sustained": 6144},
+      "benchmark": {"medium": 2048, "heavy": 4096, "sustained": 8192},
+      "generic": {"medium": 1024, "heavy": 2048, "sustained": 4096}
+    },
+    "explicit_demand_expected_for": {
+      "ai": ["medium", "heavy", "sustained"]
+    }
   },
   "protected_contexts": {
     "games": "Active games defer new heavy/sustained work and unattended medium-or-heavier starts.",

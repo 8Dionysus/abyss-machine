@@ -1,0 +1,46 @@
+{
+  "schema": "abyss_machine_memory_controller_registry_v1",
+  "version": "1",
+  "owner": "abyss-machine",
+  "workloads": [],
+  "rules": [
+    {
+      "id": "preserve-operator-and-interactive-capabilities",
+      "match": {
+        "kind": [
+          "browser",
+          "codex",
+          "terminal",
+          "desktop",
+          "compositor",
+          "tts",
+          "dictation",
+          "game",
+          "editor",
+          "operator_capability",
+          "stack_state"
+        ]
+      },
+      "contract": {
+        "owner": "declared-owner",
+        "organ": "operator-session",
+        "role": "protected_capability",
+        "importance": "protected",
+        "posture": "interactive",
+        "statefulness": "unknown",
+        "protected": true
+      }
+    }
+  ],
+  "contract": {
+    "unknown_policy": "preserve_owner_review",
+    "runtime_registration": "user_runtime_only",
+    "runtime_registration_can_enroll_mutation": false,
+    "lifecycle_enrollment_authority": "root_owned_static_exact_workload_only",
+    "lifecycle_route_kind": "local_http_json_v1",
+    "lifecycle_route_host": "127.0.0.1_or_ipv6_loopback_literal_only",
+    "owner_fields_are_authoritative": true,
+    "observations_may_only_supplement_memory_activity_and_metadata": true,
+    "lifecycle_actions_require_exact_valid_contract": true
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "schema": "abyss_machine_memory_controller_policy_v1",
+  "version": "1",
+  "owner": "abyss-machine",
+  "mode": "shadow",
+  "rollout": {
+    "stage": "shadow",
+    "live_actuator_count": 0,
+    "requires_natural_load_hours": 6
+  },
+  "event_loop": {
+    "heartbeat_sec": 10,
+    "debounce_ms": 200,
+    "max_coalesce_ms": 1000,
+    "systemd": {
+      "managed_prefixes": [
+        "abyss-machine-"
+      ]
+    },
+    "psi": {
+      "some": {
+        "threshold_usec": 100000,
+        "window_usec": 2000000
+      },
+      "full": {
+        "threshold_usec": 20000,
+        "window_usec": 2000000
+      }
+    }
+  },
+  "forecast": {
+    "horizons_sec": [
+      10,
+      30,
+      120
+    ],
+    "minimum_samples": 3,
+    "minimum_span_sec": 60,
+    "freshness_sec": 30,
+    "sample_window_limit": 512,
+    "sample_window_sec": 600,
+    "memory_bands_percent": {
+      "watch": 30,
+      "warm": 22,
+      "hot": 14,
+      "critical": 8
+    },
+    "active_stall_percent": {
+      "some": 2,
+      "full": 0.5
+    },
+    "major_faults_per_sec": 20,
+    "swap_in_pages_per_sec": 128,
+    "swap_churn_pages_per_sec": 256,
+    "stall_persistence": {
+      "active_sec": 10,
+      "severe_sec": 30,
+      "major_fault_multiplier": 4
+    },
+    "residual_zram_swap_percent": 30,
+    "target_swap_free_mib": 2048
+  },
+  "utility": {
+    "ram_benefit_per_mib": 0.025,
+    "stall_relief_bonus": 120,
+    "work_admission_bonus": 80,
+    "rehydrate_ms_cost": 0.01,
+    "cache_loss_mib_cost": 0.01,
+    "rehydrate_energy_mwh_cost": 0.1,
+    "stateful_penalty": 500,
+    "uncertainty_penalty": 100,
+    "minimum_score": 1
+  },
+  "queue": {
+    "starvation_sec": 4,
+    "grant_ttl_sec": 5,
+    "maximum_wait_sec": 120
+  },
+  "history": {
+    "sample_limit": 30000,
+    "decision_limit": 30000,
+    "retention_hours": 24,
+    "processed_event_limit": 512
+  },
+  "calibration": {
+    "maximum_step_ratio": 0.15,
+    "minimum_mib": 64,
+    "maximum_mib": 131072
+  },
+  "safety": {
+    "unknown_preserved": true,
+    "protected_preserved": true,
+    "one_relief_action_at_a_time": true,
+    "generic_kill": false,
+    "swapoff": false,
+    "drop_caches": false,
+    "automatic_oomd": false,
+    "live_zram_resize": false,
+    "generic_root_shell": false
+  },
+  "actions": {
+    "queue_control": {
+      "enabled": true,
+      "live_enabled": false
+    },
+    "cooperative_cache_release": {
+      "enabled": true,
+      "live_enabled": false
+    },
+    "managed_dehydrate": {
+      "enabled": true,
+      "live_enabled": false
+    },
+    "owner_restart": {
+      "enabled": false,
+      "live_enabled": false
+    }
+  },
+  "execution": {
+    "enrolled": false,
+    "typed_plans_only": true,
+    "local_http_literal_only": true,
+    "action_plan_ttl_sec": 5,
+    "generic_process_mutation": false
+  },
+  "adviser": {
+    "enabled": false,
+    "mutation_capability": false,
+    "requires_shadow_ab_benefit": true
+  }
+}

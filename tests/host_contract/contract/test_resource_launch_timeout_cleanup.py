@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 import subprocess
+import time
 
 
-def test_resource_plan_caps_unattended_medium_indexing(abyss_machine_module):
+def test_resource_plan_keeps_unattended_medium_indexing_under_soft_memory_high(abyss_machine_module):
     plan = abyss_machine_module.resource_plan(
         workload_class="medium",
         kind="indexing",
@@ -30,16 +34,220 @@ def test_resource_plan_caps_unattended_medium_indexing(abyss_machine_module):
             "unattended_allowed": True,
             "route": {"cpuset": "0-1", "env": {}},
         },
-        thermal_plan_data={},
+        thermal_plan_data={"thermal": {"class": "green"}},
     )
 
     props = plan["systemd"]["properties"]
     assert props["MemoryHigh"] == "4096M"
-    assert props["MemoryMax"] == "6144M"
-    assert plan["systemd"]["policy"]["memory_max_not_set"] is False
-    assert plan["systemd"]["policy"]["memory_max_set_for_indexing"] is True
-    assert plan["policy"]["memory_max_not_set_by_default"] is False
-    assert plan["policy"]["memory_max_set_for_indexing"] is True
+    assert "MemoryMax" not in props
+    assert "MemorySwapMax" not in props
+    assert plan["systemd"]["policy"]["memory_max_not_set"] is True
+    assert plan["systemd"]["policy"]["memory_max_set_for_indexing"] is False
+    assert plan["policy"]["memory_max_not_set_by_default"] is True
+    assert plan["policy"]["memory_max_set_for_indexing"] is False
+
+
+def test_resource_plan_reuses_bounded_inputs_but_refreshes_memory_and_game_guard(
+    monkeypatch,
+    tmp_path,
+    abyss_machine_module,
+):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    generated_at = abyss_machine_module.now_iso()
+    latest_documents = {
+        "mode": {
+            "schema": "abyss_machine_mode_plan_v1",
+            "generated_at": generated_at,
+            "ok": True,
+            "effective_mode": "balanced",
+            "launch_policy": {"max_unattended_class": "medium"},
+        },
+        "storage": {
+            "schema": "abyss_machine_storage_pressure_v1",
+            "generated_at": generated_at,
+            "ok": True,
+            "summary": {"root_pressure_class": "green", "srv_pressure_class": "green"},
+        },
+        "route": {
+            "schema": "abyss_machine_ai_cpu_route_v1",
+            "generated_at": generated_at,
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "forced": False,
+            "requested": {"normalized_class": "light", "latency": "balanced"},
+            "route": {"cpuset": "0-1", "env": {}},
+        },
+        "pressure": {
+            "schema": "abyss_machine_memory_pressure_v1",
+            "generated_at": generated_at,
+            "ok": True,
+            "processes": {"summary": {"processes": 123, "cgroup_memory_read": 20, "cgroup_swap_read": 20}},
+        },
+    }
+    paths = {}
+    for name, document in latest_documents.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        paths[name] = path
+    monkeypatch.setattr(abyss_machine_module, "MODE_PLAN_LATEST_PATH", paths["mode"])
+    monkeypatch.setattr(abyss_machine_module, "STORAGE_PRESSURE_LATEST_PATH", paths["storage"])
+    monkeypatch.setattr(abyss_machine_module, "AI_CPU_ROUTE_LATEST_PATH", paths["route"])
+    monkeypatch.setattr(abyss_machine_module, "MEMORY_PRESSURE_LATEST_PATH", paths["pressure"])
+
+    current_status = {
+        "generated_at": generated_at,
+        "ok": True,
+        "class": "warm",
+        "reasons": ["current_live_status"],
+        "meminfo": {"summary": {"mem_available_mib": 16000.0, "mem_available_percent": 50.0, "swap_used_mib": 8400.0, "swap_used_percent": 42.0, "swap_free_mib": 11600.0}},
+        "psi": {"some": {"avg10": 0.0}, "full": {"avg10": 0.0}},
+        "swap": {"devices": [{"name": "/dev/zram0"}], "summary": {"free_mib": 11600.0}},
+        "zram": {"summary": {"data_mib": 8000.0, "total_memory_mib": 4000.0, "logical_to_memory_ratio": 2.0}},
+        "zswap": {},
+        "oomd": {},
+    }
+    game_guard = {"ok": True, "active": False, "platform_present": False, "summary": {}}
+    monkeypatch.setattr(abyss_machine_module, "memory_status", lambda **_kwargs: current_status)
+    monkeypatch.setattr(abyss_machine_module, "process_game_guard", lambda **_kwargs: game_guard)
+
+    def unexpected_refresh(**_kwargs):
+        raise AssertionError("fresh bounded input should have been reused")
+
+    monkeypatch.setattr(abyss_machine_module, "mode_plan", unexpected_refresh)
+    monkeypatch.setattr(abyss_machine_module, "storage_pressure", unexpected_refresh)
+    monkeypatch.setattr(abyss_machine_module, "ai_cpu_route", unexpected_refresh)
+    captured = {}
+
+    def fake_memory_plan(**kwargs):
+        captured.update(kwargs)
+        pressure = kwargs["pressure_input"]
+        return {
+            "ok": True,
+            "class": pressure["class"],
+            "pressure": {"summary": pressure["summary"]},
+            "recommended_new_work": {
+                "light": {"allowed": True, "unattended_allowed": True, "blocked_reasons": [], "unattended_blocked_reasons": []}
+            },
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "memory_plan", fake_memory_plan)
+    plan = abyss_machine_module.resource_plan(
+        workload_class="light",
+        kind="agent",
+        unattended=True,
+        sample_thermal=False,
+        write_latest=False,
+        policy_data=abyss_machine_module.resource_planning.default_policy(version="test"),
+        thermal_plan_data={"thermal": {"class": "green"}},
+    )
+
+    assert plan["input_freshness"]["mode"]["status"] == "fresh_latest_reused"
+    assert plan["input_freshness"]["storage"]["status"] == "fresh_latest_reused"
+    assert plan["input_freshness"]["cpu_route"]["status"] == "fresh_latest_reused"
+    assert plan["input_freshness"]["memory"]["status"] == "live_status_with_bounded_attribution"
+    assert plan["input_freshness"]["memory"]["live_status"]["status"] == "live_refresh"
+    assert plan["input_freshness"]["game_guard"]["status"] == "live_refresh"
+    assert plan["policy"]["subsecond_live_input_coalescing"] is True
+    assert captured["pressure_input"]["summary"]["swap_used_percent"] == 42.0
+    assert captured["pressure_input"]["summary"]["processes"] == 123
+
+
+def test_resource_subsecond_latest_input_uses_precise_file_age(tmp_path, abyss_machine_module):
+    path = tmp_path / "live.json"
+    document = {
+        "schema": "abyss_machine_memory_status_v1",
+        "generated_at": abyss_machine_module.now_iso(),
+        "ok": True,
+    }
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    current, freshness = abyss_machine_module.resource_subsecond_latest_input(path, max_age_sec=1.0)
+    assert current == document
+    assert freshness["status"] == "fresh_latest_reused"
+    assert freshness["age_source"] == "file_mtime_ns"
+
+    old_ns = time.time_ns() - 3_000_000_000
+    os.utime(path, ns=(old_ns, old_ns))
+    stale, freshness = abyss_machine_module.resource_subsecond_latest_input(path, max_age_sec=1.0)
+    assert stale is None
+    assert freshness["status"] == "latest_stale"
+
+
+def test_resource_plan_keeps_unattended_medium_agent_free_of_generic_hard_caps(abyss_machine_module):
+    plan = abyss_machine_module.resource_plan(
+        workload_class="medium",
+        kind="agent",
+        unattended=True,
+        sample_thermal=False,
+        write_latest=False,
+        mode_data={"effective_mode": "balanced", "launch_policy": {"max_unattended_class": "medium"}},
+        memory_data={
+            "class": "green",
+            "recommended_new_work": {
+                "medium": {
+                    "allowed": True,
+                    "unattended_allowed": True,
+                    "blocked_reasons": [],
+                    "unattended_blocked_reasons": [],
+                }
+            },
+        },
+        storage_data={"summary": {}},
+        game_guard_data={"active": False},
+        route_data={
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-1", "env": {}},
+        },
+        thermal_plan_data={"thermal": {"class": "green"}},
+    )
+
+    props = plan["systemd"]["properties"]
+    assert props["MemoryHigh"] == "23628M"
+    assert "MemoryMax" not in props
+    assert "MemorySwapMax" not in props
+    assert plan["systemd"]["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["policy"]["generic_unattended_hard_caps_not_applied"] is True
+
+
+def test_resource_plan_keeps_unattended_medium_ai_free_of_generic_hard_caps(abyss_machine_module):
+    plan = abyss_machine_module.resource_plan(
+        workload_class="medium",
+        kind="ai",
+        unattended=True,
+        sample_thermal=False,
+        write_latest=False,
+        mode_data={"effective_mode": "balanced", "launch_policy": {"max_unattended_class": "medium"}},
+        memory_data={
+            "class": "green",
+            "recommended_new_work": {
+                "medium": {
+                    "allowed": True,
+                    "unattended_allowed": True,
+                    "blocked_reasons": [],
+                    "unattended_blocked_reasons": [],
+                }
+            },
+        },
+        storage_data={"summary": {}},
+        game_guard_data={"active": False},
+        route_data={
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-1", "env": {}},
+        },
+        thermal_plan_data={"thermal": {"class": "green"}},
+    )
+
+    props = plan["systemd"]["properties"]
+    assert props["MemoryHigh"] == "23628M"
+    assert "MemoryMax" not in props
+    assert "MemorySwapMax" not in props
+    assert plan["systemd"]["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["policy"]["generic_unattended_hard_caps_not_applied"] is True
 
 
 def test_resource_plan_blocks_unattended_medium_indexing_under_swap_pressure(abyss_machine_module):
@@ -70,7 +278,7 @@ def test_resource_plan_blocks_unattended_medium_indexing_under_swap_pressure(aby
             "unattended_allowed": True,
             "route": {"cpuset": "0-1", "env": {}},
         },
-        thermal_plan_data={},
+        thermal_plan_data={"thermal": {"class": "green"}},
     )
 
     assert plan["ok"] is False
@@ -79,8 +287,50 @@ def test_resource_plan_blocks_unattended_medium_indexing_under_swap_pressure(aby
     assert plan["policy"]["unattended_indexing_blocks_on_swap_pressure"] is True
 
 
-def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monkeypatch):
+def test_resource_plan_does_not_force_unattended_indexing_under_swap_pressure(abyss_machine_module):
+    plan = abyss_machine_module.resource_plan(
+        workload_class="medium",
+        kind="indexing",
+        unattended=True,
+        force=True,
+        sample_thermal=False,
+        write_latest=False,
+        mode_data={"effective_mode": "balanced", "launch_policy": {"max_unattended_class": "medium"}},
+        memory_data={
+            "class": "green",
+            "pressure": {"summary": {"swap_used_percent": 46.0, "swap_free_mib": 8192}},
+            "recommended_new_work": {
+                "medium": {
+                    "allowed": True,
+                    "unattended_allowed": True,
+                    "blocked_reasons": [],
+                    "unattended_blocked_reasons": [],
+                }
+            },
+        },
+        storage_data={"summary": {}},
+        game_guard_data={"active": False},
+        route_data={
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-1", "env": {}},
+        },
+        thermal_plan_data={"thermal": {"class": "green"}},
+    )
+
+    assert plan["forced"] is True
+    assert plan["force_effective"] is False
+    assert plan["ok"] is False
+    assert plan["decision"] == "force_required"
+    assert plan["blocked_reasons"] == ["indexing_unattended_swap_used_pressure"]
+    assert plan["overridden_reasons"] == []
+    assert plan["warnings"] == ["unattended_force_not_operator_effective"]
+
+
+def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monkeypatch, tmp_path):
     calls: list[list[str]] = []
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     def fake_plan(**kwargs):
         return {
@@ -143,3 +393,173 @@ def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monk
     assert cleanup["stop"]["returncode"] == 0
     assert cleanup["state"]["value"] == "inactive"
     assert any(call[:3] == ["systemctl", "--user", "stop"] for call in calls)
+
+
+def test_resource_launch_releases_startup_lease_after_submit(monkeypatch, tmp_path, abyss_machine_module):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(version="test")
+    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
+
+    def fake_plan(**kwargs):
+        requested = abyss_machine_module.resource_planning.resolve_startup_demand(
+            policy,
+            workload_class=kwargs["workload_class"],
+            kind=kwargs["kind"],
+            explicit_mib=kwargs.get("memory_demand_mib"),
+            demand_key=kwargs.get("demand_key"),
+        )
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {"normalized_class": "medium", "normalized_kind": "ai"},
+            "inputs": {"startup_demand": {"requested": requested}},
+            "systemd": {"unit_type": "service", "slice": "abyss-machine-ai.slice", "properties": {}, "env": {}},
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "Finished with result: success\n", ""),
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="ai",
+        memory_demand_mib=4096,
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["startup_admission"]["lease"]["demand_mib"] == 4096.0
+    assert result["startup_admission"]["lease_released"] is True
+    reservation_root = Path(result["startup_admission"]["reservation_root"])
+    assert list(reservation_root.glob("*.json")) == []
+
+
+def test_resource_launch_consumes_live_controller_queue_grant_before_lease(monkeypatch, tmp_path, abyss_machine_module):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(version="test")
+    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
+
+    def fake_plan(**kwargs):
+        requested = abyss_machine_module.resource_planning.resolve_startup_demand(
+            policy,
+            workload_class=kwargs["workload_class"],
+            kind=kwargs["kind"],
+            explicit_mib=kwargs.get("memory_demand_mib"),
+            demand_key=kwargs.get("demand_key"),
+            demand_owner=kwargs.get("demand_owner"),
+        )
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {"normalized_class": "medium", "normalized_kind": "agent"},
+            "inputs": {"startup_demand": {"requested": requested}},
+            "systemd": {"unit_type": "service", "slice": "abyss-machine-agents.slice", "properties": {}, "env": {}},
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "controller_admission_snapshot",
+        lambda _root: {"ok": True, "status": "fresh", "queue_live": True},
+    )
+    real_grant = abyss_machine_module.resource_adapters.controller_queue_grant
+
+    def grant_after_request(root, request_id, **_kwargs):
+        abyss_machine_module.resource_adapters.atomic_write_controller_queue_grant(
+            root,
+            {
+                "schema": "abyss_machine_memory_controller_queue_grant_v1",
+                "request_id": request_id,
+                "expires_epoch": time.time() + 5,
+                "controller_sequence": 7,
+                "nonce": "fixture-nonce",
+            },
+        )
+        return real_grant(root, request_id)
+
+    monkeypatch.setattr(abyss_machine_module.resource_adapters, "controller_queue_grant", grant_after_request)
+    monkeypatch.setattr(
+        abyss_machine_module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "Finished with result: success\n", ""),
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="agent",
+        unattended=True,
+        memory_demand_mib=2048,
+        demand_owner="agent-owner",
+        startup_wait_sec=1,
+        write_latest=False,
+    )
+
+    queue = result["startup_admission"]["controller_queue"]
+    assert result["ok"] is True
+    assert queue["request"]["owner"] == "agent-owner"
+    assert queue["grant"]["status"] == "granted"
+    assert queue["request_released"] is True
+    assert queue["grant_released"] is True
+    assert list((tmp_path / "run" / "abyss-machine" / "memory-controller" / "queue").glob("*.json")) == []
+    assert list((tmp_path / "run" / "abyss-machine" / "memory-controller" / "grants").glob("*.json")) == []
+
+
+def test_resource_launch_never_queues_operator_visible_start(monkeypatch, tmp_path, abyss_machine_module):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(version="test")
+    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
+
+    def fake_plan(**kwargs):
+        requested = abyss_machine_module.resource_planning.resolve_startup_demand(
+            policy,
+            workload_class=kwargs["workload_class"],
+            kind=kwargs["kind"],
+            explicit_mib=kwargs.get("memory_demand_mib"),
+        )
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {"normalized_class": "medium", "normalized_kind": "agent"},
+            "inputs": {"startup_demand": {"requested": requested}},
+            "systemd": {"unit_type": "service", "slice": "abyss-machine-agents.slice", "properties": {}, "env": {}},
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "controller_admission_snapshot",
+        lambda _root: {"ok": True, "status": "fresh", "queue_live": True},
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "atomic_write_controller_queue_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("interactive start must not queue")),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "Finished with result: success\n", ""),
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="agent",
+        unattended=False,
+        memory_demand_mib=2048,
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["startup_admission"]["controller_queue"]["request"] is None

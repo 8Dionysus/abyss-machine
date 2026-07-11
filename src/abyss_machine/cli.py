@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import array
+import concurrent.futures
 from contextlib import contextmanager
 import datetime as dt
 import fcntl
@@ -103,6 +104,7 @@ try:
     from . import nervous_synthesis as nervous_synthesis_contracts
     from . import nervous_synthesis_adapters
     from . import process_contracts
+    from . import resource_adapters
     from . import resource_planning
     from . import runtime_evidence_contracts
     from . import self_awareness_adapters
@@ -295,6 +297,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import nervous_synthesis_adapters
     from abyss_machine import process_adapters
     from abyss_machine import process_contracts
+    from abyss_machine import resource_adapters
     from abyss_machine import resource_planning
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import self_awareness_adapters
@@ -431,7 +434,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     )
 
 
-VERSION = "0.8.91"
+VERSION = "0.8.92"
 SCHEMA_PREFIX = "abyss_machine"
 PATH_POLICY = DEFAULT_PATH_POLICY
 MANIFEST_PATH = PATH_POLICY.etc_file("bridge.json")
@@ -5069,7 +5072,7 @@ def memory_pressure_class(mem: dict[str, Any], psi: dict[str, Any], swap: dict[s
     return memory_contracts.pressure_class(mem, psi, swap, policy)
 
 
-def memory_status(write_latest: bool = True) -> dict[str, Any]:
+def memory_status(write_latest: bool = True, append_history: bool = True) -> dict[str, Any]:
     mem = memory_meminfo_details()
     psi = memory_parse_pressure_file(Path("/proc/pressure/memory"))
     swap = memory_swap_status()
@@ -5108,7 +5111,7 @@ def memory_status(write_latest: bool = True) -> dict[str, Any]:
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_STATUS_ROOT), data, 0o664)
+        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_STATUS_ROOT), data, 0o664) if append_history else None
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
         errors = [error for error in (latest_error, daily_error, index_error) if error]
         if errors:
@@ -5367,11 +5370,16 @@ def memory_launch_gate_for_class(memory_class: str, workload_class: str, unatten
     return memory_contracts.launch_gate_for_class(memory_class, workload_class, unattended, policy)
 
 
-def memory_plan(write_latest: bool = True, pressure_input: dict[str, Any] | None = None) -> dict[str, Any]:
+def memory_plan(
+    write_latest: bool = True,
+    pressure_input: dict[str, Any] | None = None,
+    mode_input: dict[str, Any] | None = None,
+    game_guard_input: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     pressure = pressure_input if isinstance(pressure_input, dict) else memory_pressure(top=30, write_latest=True)
     policy = memory_policy_document()
-    mode = mode_status()
-    game_guard = process_game_guard(write_latest=True)
+    mode = mode_input if isinstance(mode_input, dict) else mode_status()
+    game_guard = game_guard_input if isinstance(game_guard_input, dict) else process_game_guard(write_latest=True)
     data = memory_contracts.plan_document(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
@@ -17436,6 +17444,263 @@ def resource_gate_regression_cases() -> list[dict[str, Any]]:
     return cases
 
 
+def resource_input_max_age_seconds(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(0.0, min(value, 3600.0))
+
+
+def resource_document_age_seconds(data: Mapping[str, Any]) -> float | None:
+    generated_at = data.get("generated_at")
+    if not generated_at:
+        return None
+    try:
+        generated = dt.datetime.fromisoformat(str(generated_at))
+    except ValueError:
+        return None
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=dt.timezone.utc)
+    now = dt.datetime.now(dt.timezone.utc)
+    return max(0.0, (now - generated.astimezone(dt.timezone.utc)).total_seconds())
+
+
+def resource_latest_input(
+    path: Path,
+    *,
+    max_age_sec: float,
+    compatible: Callable[[dict[str, Any]], bool] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    data, error = load_json_document(path)
+    base = {"path": str(path), "max_age_sec": max_age_sec}
+    if not isinstance(data, dict):
+        return None, {**base, "status": "latest_unavailable", "error": error}
+    age_sec = resource_document_age_seconds(data)
+    if age_sec is None:
+        return None, {
+            **base,
+            "status": "latest_age_unknown",
+            "generated_at": data.get("generated_at"),
+        }
+    freshness = {
+        **base,
+        "age_sec": round(age_sec, 3),
+        "generated_at": data.get("generated_at"),
+    }
+    if age_sec > max_age_sec:
+        return None, {**freshness, "status": "latest_stale"}
+    if data.get("ok") is False:
+        return None, {**freshness, "status": "latest_not_ok"}
+    if compatible is not None and not compatible(data):
+        return None, {**freshness, "status": "latest_request_mismatch"}
+    return data, {**freshness, "status": "fresh_latest_reused"}
+
+
+def resource_subsecond_latest_input(
+    path: Path,
+    *,
+    max_age_sec: float,
+    compatible: Callable[[dict[str, Any]], bool] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    base = {"path": str(path), "max_age_sec": max_age_sec, "age_source": "file_mtime_ns"}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+            modified_ns = os.fstat(handle.fileno()).st_mtime_ns
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, {**base, "status": "latest_unavailable", "error": str(exc)}
+    if not isinstance(data, dict):
+        return None, {**base, "status": "latest_unavailable", "error": "latest_not_object"}
+    age_sec = max(0.0, (time.time_ns() - modified_ns) / 1_000_000_000)
+    freshness = {
+        **base,
+        "age_sec": round(age_sec, 6),
+        "generated_at": data.get("generated_at"),
+    }
+    if age_sec > max_age_sec:
+        return None, {**freshness, "status": "latest_stale"}
+    if data.get("ok") is False:
+        return None, {**freshness, "status": "latest_not_ok"}
+    if compatible is not None and not compatible(data):
+        return None, {**freshness, "status": "latest_request_mismatch"}
+    return data, {**freshness, "status": "fresh_latest_reused"}
+
+
+def resource_timed_collect(collector: Callable[[], dict[str, Any]]) -> tuple[dict[str, Any], int]:
+    started = time.monotonic()
+    return collector(), int((time.monotonic() - started) * 1000)
+
+
+def resource_pressure_from_status(
+    status_data: dict[str, Any],
+    attribution_pressure: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    attribution = attribution_pressure if isinstance(attribution_pressure, dict) else {}
+    mem_summary = nested_get(status_data, ["meminfo", "summary"])
+    if not isinstance(mem_summary, dict):
+        mem_summary = {}
+    zram_summary = nested_get(status_data, ["zram", "summary"])
+    if not isinstance(zram_summary, dict):
+        zram_summary = {}
+    process_data = attribution.get("processes") if isinstance(attribution.get("processes"), dict) else {}
+    process_summary = process_data.get("summary") if isinstance(process_data.get("summary"), dict) else {}
+    return {
+        "schema": f"{SCHEMA_PREFIX}_memory_pressure_v1",
+        "version": VERSION,
+        "generated_at": status_data.get("generated_at") or now_iso(),
+        "ok": bool(status_data.get("ok", True)),
+        "class": status_data.get("class"),
+        "reasons": status_data.get("reasons"),
+        "summary": {
+            "class": status_data.get("class"),
+            "mem_total_mib": mem_summary.get("mem_total_mib"),
+            "mem_available_mib": mem_summary.get("mem_available_mib"),
+            "mem_available_percent": mem_summary.get("mem_available_percent"),
+            "swap_used_mib": mem_summary.get("swap_used_mib"),
+            "swap_used_percent": mem_summary.get("swap_used_percent"),
+            "swap_free_mib": mem_summary.get("swap_free_mib"),
+            "psi_some_avg10": nested_get(status_data, ["psi", "some", "avg10"]),
+            "psi_full_avg10": nested_get(status_data, ["psi", "full", "avg10"]),
+            "zram_data_mib": zram_summary.get("data_mib"),
+            "zram_resident_mib": zram_summary.get("total_memory_mib"),
+            "zram_logical_to_memory_ratio": zram_summary.get("logical_to_memory_ratio"),
+            "top_pss_total_mib": kib_to_mib(process_summary.get("top_pss_total_kib")),
+            "top_cgroup_memory_total_mib": kib_to_mib(process_summary.get("top_cgroup_memory_total_kib")),
+            "top_swap_total_mib": kib_to_mib(process_summary.get("top_swap_total_kib")),
+            "top_cgroup_swap_total_mib": kib_to_mib(process_summary.get("top_cgroup_swap_total_kib")),
+            "cgroup_memory_read": process_summary.get("cgroup_memory_read"),
+            "cgroup_swap_read": process_summary.get("cgroup_swap_read"),
+            "processes": process_summary.get("processes"),
+        },
+        "status": {
+            "latest": str(MEMORY_LATEST_PATH),
+            "class": status_data.get("class"),
+            "meminfo": status_data.get("meminfo"),
+            "psi": status_data.get("psi"),
+            "swap": status_data.get("swap"),
+            "zram": status_data.get("zram"),
+            "zswap": status_data.get("zswap"),
+            "oomd": status_data.get("oomd"),
+        },
+        "processes": process_data,
+        "policy": {
+            "live_status_required": True,
+            "process_attribution_may_be_reused": True,
+            "do_not_kill_or_tune_from_this_result": True,
+        },
+    }
+
+
+def resource_route_matches_request(
+    route: dict[str, Any],
+    workload_class: str,
+    latency: str,
+    force: bool,
+) -> bool:
+    requested = route.get("requested") if isinstance(route.get("requested"), dict) else {}
+    route_class = str(requested.get("normalized_class") or requested.get("class") or "")
+    route_latency = str(requested.get("latency") or "balanced")
+    return route_class == workload_class and route_latency == latency and bool(route.get("forced")) == bool(force)
+
+
+def resource_live_input_coalesce_seconds() -> float:
+    try:
+        value = float(os.environ.get("ABYSS_MACHINE_RESOURCE_LIVE_INPUT_COALESCE_SEC", "1.0"))
+    except (TypeError, ValueError):
+        value = 1.0
+    return max(0.0, min(value, 5.0))
+
+
+def resource_live_input_runtime_root() -> Path:
+    return resource_adapters.runtime_root(os.environ, uid=os.getuid())
+
+
+@contextmanager
+def resource_live_input_lock() -> Iterable[None]:
+    lock_path = resource_live_input_runtime_root() / "abyss-machine" / "resource" / "admission-live-inputs.lock"
+    lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def resource_coalesced_live_inputs(
+    *,
+    need_memory: bool,
+    need_game_guard: bool,
+    write_latest: bool,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+    freshness: dict[str, Any] = {}
+    max_age_sec = resource_live_input_coalesce_seconds()
+
+    with resource_live_input_lock():
+        if need_memory:
+            memory_status_data = None
+            latest_freshness: dict[str, Any] = {}
+            if write_latest and max_age_sec > 0 and not force_refresh:
+                memory_status_data, latest_freshness = resource_subsecond_latest_input(
+                    MEMORY_LATEST_PATH,
+                    max_age_sec=max_age_sec,
+                    compatible=lambda value: str(value.get("schema") or "").endswith("_memory_status_v1"),
+                )
+            if memory_status_data is None:
+                memory_status_data, elapsed_ms = resource_timed_collect(
+                    lambda: memory_status(write_latest=write_latest, append_history=False)
+                )
+                freshness["memory"] = {
+                    "status": "live_refresh",
+                    "collection_ms": elapsed_ms,
+                    "coalesce_max_age_sec": max_age_sec,
+                }
+            else:
+                freshness["memory"] = {
+                    **latest_freshness,
+                    "status": "subsecond_latest_reused",
+                    "coalesce_max_age_sec": max_age_sec,
+                }
+            results["memory_status"] = memory_status_data
+
+        if need_game_guard:
+            game_guard = None
+            latest_freshness = {}
+            if write_latest and max_age_sec > 0 and not force_refresh:
+                game_guard, latest_freshness = resource_subsecond_latest_input(
+                    PROCESS_GAME_GUARD_LATEST_PATH,
+                    max_age_sec=max_age_sec,
+                    compatible=lambda value: (
+                        str(value.get("schema") or "").endswith("_process_game_guard_v1")
+                        and nested_get(value, ["capture", "source"]) == "live_proc_scan"
+                    ),
+                )
+            if game_guard is None:
+                game_guard, elapsed_ms = resource_timed_collect(lambda: process_game_guard(write_latest=write_latest))
+                freshness["game_guard"] = {
+                    "status": "live_refresh",
+                    "collection_ms": elapsed_ms,
+                    "coalesce_max_age_sec": max_age_sec,
+                }
+            else:
+                freshness["game_guard"] = {
+                    **latest_freshness,
+                    "status": "subsecond_latest_reused",
+                    "coalesce_max_age_sec": max_age_sec,
+                }
+            results["game_guard"] = game_guard
+
+    results["freshness"] = freshness
+    return results
+
+
+
 def resource_plan(
     workload_class: str = "medium",
     kind: str = "generic",
@@ -17444,6 +17709,11 @@ def resource_plan(
     force: bool = False,
     bytes_required: int | None = None,
     target: str | None = None,
+    memory_demand_mib: float | None = None,
+    demand_key: str | None = None,
+    demand_owner: str | None = None,
+    estimate_source: str | None = None,
+    estimate_confidence: str | None = None,
     unit_type: str = "service",
     sample_thermal: bool | None = None,
     write_latest: bool = True,
@@ -17454,15 +17724,218 @@ def resource_plan(
     game_guard_data: dict[str, Any] | None = None,
     route_data: dict[str, Any] | None = None,
     thermal_plan_data: dict[str, Any] | None = None,
+    reservation_data: dict[str, Any] | None = None,
+    force_fresh_live_inputs: bool = False,
 ) -> dict[str, Any]:
     normalized_class = resource_valid_class(workload_class)
     normalized_kind = resource_valid_kind(kind)
     policy = policy_data if isinstance(policy_data, dict) else resource_policy_document()
-    mode = mode_data if isinstance(mode_data, dict) else mode_plan(write_latest=True)
-    memory = memory_data if isinstance(memory_data, dict) else memory_plan(write_latest=True)
-    storage = storage_data if isinstance(storage_data, dict) else storage_pressure(refresh_inventory=False, write_latest=True)
-    game_guard = game_guard_data if isinstance(game_guard_data, dict) else process_game_guard(write_latest=True)
-    route = route_data if isinstance(route_data, dict) else ai_cpu_route(workload_class=normalized_class, latency=latency, force=force, write_latest=True)
+    demand = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class=normalized_class,
+        kind=normalized_kind,
+        explicit_mib=memory_demand_mib,
+        demand_key=demand_key,
+        demand_owner=demand_owner,
+        estimate_source=estimate_source,
+        estimate_confidence=estimate_confidence,
+    )
+    reservations = reservation_data if isinstance(reservation_data, dict) else resource_adapters.reservation_snapshot(
+        resource_adapters.reservations_root(os.environ, uid=os.getuid()),
+        cleanup=False,
+    )
+    route_force = resource_planning.force_effective_for_request(force, unattended)
+    input_freshness: dict[str, Any] = {}
+
+    mode = mode_data if isinstance(mode_data, dict) else None
+    memory = memory_data if isinstance(memory_data, dict) else None
+    storage = storage_data if isinstance(storage_data, dict) else None
+    game_guard = game_guard_data if isinstance(game_guard_data, dict) else None
+    route = route_data if isinstance(route_data, dict) else None
+    for name, value in (
+        ("mode", mode),
+        ("memory", memory),
+        ("storage", storage),
+        ("game_guard", game_guard),
+        ("cpu_route", route),
+    ):
+        if isinstance(value, dict):
+            input_freshness[name] = {"status": "provided_by_caller"}
+
+    if mode is None:
+        mode, input_freshness["mode"] = resource_latest_input(
+            MODE_PLAN_LATEST_PATH,
+            max_age_sec=resource_input_max_age_seconds("ABYSS_MACHINE_RESOURCE_MODE_MAX_AGE_SEC", 120.0),
+        )
+    if storage is None:
+        storage, input_freshness["storage"] = resource_latest_input(
+            STORAGE_PRESSURE_LATEST_PATH,
+            max_age_sec=resource_input_max_age_seconds("ABYSS_MACHINE_RESOURCE_STORAGE_MAX_AGE_SEC", 300.0),
+        )
+    if route is None:
+        route, input_freshness["cpu_route"] = resource_latest_input(
+            AI_CPU_ROUTE_LATEST_PATH,
+            max_age_sec=resource_input_max_age_seconds("ABYSS_MACHINE_RESOURCE_CPU_ROUTE_MAX_AGE_SEC", 120.0),
+            compatible=lambda value: resource_route_matches_request(value, normalized_class, latency, route_force),
+        )
+
+    cpu_thermal_map: dict[str, Any] | None = None
+    cpu_policy: dict[str, Any] | None = None
+    cpu_support_freshness: dict[str, Any] = {}
+    if route is None:
+        cpu_support_max_age = resource_input_max_age_seconds("ABYSS_MACHINE_RESOURCE_CPU_SUPPORT_MAX_AGE_SEC", 120.0)
+        cpu_thermal_map, cpu_support_freshness["thermal_map"] = resource_latest_input(
+            AI_CPU_THERMAL_MAP_LATEST_PATH,
+            max_age_sec=cpu_support_max_age,
+        )
+        cpu_policy, cpu_support_freshness["policy"] = resource_latest_input(
+            AI_POLICY_LATEST_PATH,
+            max_age_sec=cpu_support_max_age,
+        )
+
+    collectors: dict[str, Callable[[], dict[str, Any]]] = {}
+    if memory is None or game_guard is None:
+        collectors["live_inputs"] = lambda: resource_coalesced_live_inputs(
+            need_memory=memory is None,
+            need_game_guard=game_guard is None,
+            write_latest=write_latest,
+            force_refresh=force_fresh_live_inputs,
+        )
+    if mode is None:
+        collectors["mode"] = lambda: mode_plan(write_latest=write_latest)
+    if storage is None:
+        collectors["storage"] = lambda: storage_pressure(refresh_inventory=False, write_latest=write_latest)
+    if route is None and (cpu_thermal_map is None or cpu_policy is None):
+        def collect_cpu_support() -> dict[str, Any]:
+            thermal_map = ai_cpu_thermal_map(write_latest=write_latest)
+            policy_data = ai_policy(write_latest=write_latest, cpu_thermal_map=thermal_map)
+            return {"thermal_map": thermal_map, "policy": policy_data}
+
+        collectors["cpu_support"] = collect_cpu_support
+
+    collected: dict[str, tuple[dict[str, Any], int]] = {}
+    if collectors:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(collectors)) as executor:
+            futures = {
+                name: executor.submit(resource_timed_collect, collector)
+                for name, collector in collectors.items()
+            }
+            for name, future in futures.items():
+                collected[name] = future.result()
+
+    if mode is None:
+        mode, elapsed_ms = collected["mode"]
+        input_freshness["mode"] = {
+            **input_freshness["mode"],
+            "status": "live_refresh",
+            "refresh_reason": input_freshness["mode"].get("status"),
+            "collection_ms": elapsed_ms,
+        }
+    if storage is None:
+        storage, elapsed_ms = collected["storage"]
+        input_freshness["storage"] = {
+            **input_freshness["storage"],
+            "status": "live_refresh",
+            "refresh_reason": input_freshness["storage"].get("status"),
+            "collection_ms": elapsed_ms,
+        }
+    live_inputs: dict[str, Any] = {}
+    live_input_freshness: dict[str, Any] = {}
+    if "live_inputs" in collected:
+        live_inputs, _elapsed_ms = collected["live_inputs"]
+        live_input_freshness = live_inputs.get("freshness") if isinstance(live_inputs.get("freshness"), dict) else {}
+    if game_guard is None:
+        game_guard = live_inputs["game_guard"]
+        input_freshness["game_guard"] = live_input_freshness.get("game_guard", {"status": "live_refresh"})
+    if route is None and "cpu_support" in collected:
+        cpu_support, elapsed_ms = collected["cpu_support"]
+        cpu_thermal_map = cpu_support.get("thermal_map") if isinstance(cpu_support.get("thermal_map"), dict) else None
+        cpu_policy = cpu_support.get("policy") if isinstance(cpu_support.get("policy"), dict) else None
+        cpu_support_freshness = {
+            "status": "live_refresh",
+            "collection_ms": elapsed_ms,
+            "thermal_map": cpu_support_freshness.get("thermal_map"),
+            "policy": cpu_support_freshness.get("policy"),
+        }
+    elif route is None:
+        cpu_support_freshness = {
+            "status": "fresh_latest_reused",
+            "thermal_map": cpu_support_freshness.get("thermal_map"),
+            "policy": cpu_support_freshness.get("policy"),
+        }
+    if route is None:
+        route, elapsed_ms = resource_timed_collect(lambda: ai_cpu_route(
+            workload_class=normalized_class,
+            latency=latency,
+            force=route_force,
+            write_latest=write_latest,
+            cpu_thermal_map=cpu_thermal_map,
+            policy_data=cpu_policy,
+            mode_data=mode,
+            battery_data=mode.get("battery") if isinstance(mode, dict) else None,
+        ))
+        input_freshness["cpu_route"] = {
+            **input_freshness["cpu_route"],
+            "status": "live_refresh",
+            "refresh_reason": input_freshness["cpu_route"].get("status"),
+            "collection_ms": elapsed_ms,
+            "support": cpu_support_freshness,
+        }
+    if memory is None:
+        current_status = live_inputs["memory_status"]
+        attribution, attribution_freshness = resource_latest_input(
+            MEMORY_PRESSURE_LATEST_PATH,
+            max_age_sec=resource_input_max_age_seconds("ABYSS_MACHINE_RESOURCE_ATTRIBUTION_MAX_AGE_SEC", 600.0),
+        )
+        pressure = resource_pressure_from_status(current_status, attribution)
+        memory = memory_plan(
+            write_latest=write_latest,
+            pressure_input=pressure,
+            mode_input=mode,
+            game_guard_input=game_guard,
+        )
+        input_freshness["memory"] = {
+            "status": "live_status_with_bounded_attribution",
+            "live_status": live_input_freshness.get("memory", {"status": "live_refresh"}),
+            "generated_at": current_status.get("generated_at"),
+            "attribution": attribution_freshness,
+        }
+
+    memory_summary = nested_get(memory, ["pressure", "summary"])
+    if not isinstance(memory_summary, dict):
+        memory_summary = {}
+    memory_policy = memory_policy_document()
+    demand_projection = resource_planning.startup_demand_projection(
+        memory_summary=memory_summary,
+        current_memory_class=str(memory.get("class") or memory_summary.get("class") or "green"),
+        memory_policy=memory_policy,
+        demand=demand,
+        reservations=reservations,
+    )
+    projected_class = str(nested_get(demand_projection, ["projected", "memory_class"]) or memory.get("class") or "green")
+    projected_gate = memory_launch_gate_for_class(
+        projected_class,
+        normalized_class,
+        unattended,
+        memory_policy,
+    )
+    demand_blocked = [f"startup_demand_{item}" for item in projected_gate.get("blocked_reasons", [])]
+    demand_denied: list[str] = []
+    demand_warnings: list[str] = []
+    if demand.get("valid") is False:
+        demand_denied.append("startup_demand_invalid")
+    if demand_projection.get("unknown_startup_conflict"):
+        demand_blocked.append("startup_unknown_demand_in_progress")
+    if demand.get("unknown_startup_lane"):
+        demand_warnings.append("startup_demand_estimate_unknown")
+    demand_projection["gate"] = {
+        "allowed": not demand_blocked,
+        "projected_memory_class": projected_class,
+        "blocked_reasons": list(dict.fromkeys(demand_blocked)),
+        "denied_reasons": demand_denied,
+        "warnings": demand_warnings,
+    }
+
     if sample_thermal is None:
         sample_thermal = resource_planning.should_sample_thermal(normalized_class)
     thermal_plan: dict[str, Any] | None = None
@@ -17514,7 +17987,14 @@ def resource_plan(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
+        startup_demand=demand_projection,
     )
+    data["input_freshness"] = input_freshness
+    data["policy"]["live_memory_status_per_plan"] = memory_data is None
+    data["policy"]["live_game_guard_per_plan"] = game_guard_data is None
+    data["policy"]["subsecond_live_input_coalescing"] = True
+    data["policy"]["launch_admission_uses_fresh_live_inputs"] = bool(force_fresh_live_inputs)
+    data["policy"]["bounded_latest_reuse_for_expensive_inputs"] = True
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_PLAN_LATEST_PATH, data, 0o664)
         daily_error = safe_append_jsonl(ai_daily_jsonl_path(RESOURCE_PLAN_ROOT), data, 0o664)
@@ -17621,33 +18101,183 @@ def resource_launch(
     timeout_sec: float = 0.0,
     bytes_required: int | None = None,
     target: str | None = None,
+    memory_demand_mib: float | None = None,
+    demand_key: str | None = None,
+    demand_owner: str | None = None,
+    estimate_source: str | None = None,
+    estimate_confidence: str | None = None,
+    startup_wait_sec: float | None = None,
+    queue_priority: int | None = None,
+    queue_deadline_sec: float | None = None,
     sample_thermal: bool | None = None,
     write_latest: bool = True,
 ) -> dict[str, Any]:
     clean_command = [str(item) for item in command if str(item)]
     if clean_command and clean_command[0] == "--":
         clean_command = clean_command[1:]
-    plan = resource_plan(
-        workload_class=workload_class,
-        kind=kind,
-        latency=latency,
-        unattended=unattended,
-        force=force,
-        bytes_required=bytes_required,
-        target=target,
-        unit_type=unit_type,
-        sample_thermal=sample_thermal,
-        write_latest=True,
-    )
-    blocked = list(plan.get("blocked_reasons") or [])
-    denied = list(plan.get("denied_reasons") or [])
-    if not clean_command:
-        denied.append("missing_command")
     generated_unit = None
     launch_unit = unit
     if clean_command and not unit:
         generated_unit = resource_generated_unit_name(kind, workload_class, unit_type)
         launch_unit = generated_unit
+    policy = resource_policy_document()
+    startup_policy = policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {}
+    reservation_root = resource_adapters.reservations_root(os.environ, uid=os.getuid())
+    controller_runtime = resource_adapters.memory_controller_runtime_root(os.environ, uid=os.getuid())
+    wait_timeout = (
+        float(startup_policy.get("unknown_wait_timeout_sec", 20.0))
+        if startup_wait_sec is None
+        else max(0.0, float(startup_wait_sec))
+    )
+    wait_deadline = time.monotonic() + wait_timeout
+    waited_sec = 0.0
+    wait_attempts = 0
+    lease: dict[str, Any] | None = None
+    lease_path: Path | None = None
+    lease_released = False
+    queue_request: dict[str, Any] | None = None
+    queue_request_path: Path | None = None
+    queue_grant: dict[str, Any] | None = None
+    queue_request_released = False
+    queue_grant_released = False
+    queue_wait_timeout = False
+    queue_default_priority = {"agent": 50, "ai": 40, "generic": 30, "indexing": 20, "benchmark": 10}.get(kind, 0)
+    resolved_queue_priority = queue_default_priority if queue_priority is None else int(queue_priority)
+    reservation_snapshot: dict[str, Any] = resource_adapters.reservation_snapshot(reservation_root, cleanup=False)
+
+    plan_kwargs = {
+        "workload_class": workload_class,
+        "kind": kind,
+        "latency": latency,
+        "unattended": unattended,
+        "force": force,
+        "bytes_required": bytes_required,
+        "target": target,
+        "memory_demand_mib": memory_demand_mib,
+        "demand_key": demand_key or launch_unit,
+        "demand_owner": demand_owner,
+        "estimate_source": estimate_source,
+        "estimate_confidence": estimate_confidence,
+        "unit_type": unit_type,
+        "sample_thermal": sample_thermal,
+        "policy_data": policy,
+        "write_latest": write_latest,
+    }
+
+    if dry_run or not clean_command:
+        plan = resource_plan(**plan_kwargs, reservation_data=reservation_snapshot)
+    else:
+        while True:
+            should_wait = False
+            wait_started = time.monotonic()
+            with resource_adapters.admission_lock(reservation_root):
+                reservation_snapshot = resource_adapters.reservation_snapshot(reservation_root, cleanup=True)
+                plan = resource_plan(
+                    **plan_kwargs,
+                    reservation_data=reservation_snapshot,
+                    force_fresh_live_inputs=True,
+                )
+                blocked_now = list(plan.get("blocked_reasons") or [])
+                denied_now = list(plan.get("denied_reasons") or [])
+                unknown_conflict = "startup_unknown_demand_in_progress" in blocked_now
+                only_unknown_conflict = unknown_conflict and not denied_now and set(blocked_now) == {"startup_unknown_demand_in_progress"}
+                if only_unknown_conflict and time.monotonic() < wait_deadline:
+                    should_wait = True
+                elif not blocked_now and not denied_now:
+                    requested = nested_get(plan, ["inputs", "startup_demand", "requested"])
+                    requested = requested if isinstance(requested, dict) else {}
+                    controller_admission = resource_adapters.controller_admission_snapshot(controller_runtime)
+                    queue_eligible = bool(
+                        unattended
+                        and requested.get("reservation_required")
+                        and controller_admission.get("queue_live") is True
+                    )
+                    if queue_eligible:
+                        if queue_request is None:
+                            now_epoch = time.time()
+                            queue_window = wait_timeout if queue_deadline_sec is None else max(0.0, float(queue_deadline_sec))
+                            queue_request = {
+                                "schema": f"{SCHEMA_PREFIX}_memory_controller_queue_request_v1",
+                                "id": f"{launch_unit or 'resource-launch'}:{os.getpid()}:{time.time_ns()}",
+                                "owner": requested.get("owner") or demand_owner or kind,
+                                "priority": resolved_queue_priority,
+                                "posture": "background",
+                                "created_epoch": now_epoch,
+                                "deadline_epoch": now_epoch + queue_window,
+                                "launcher_pid": os.getpid(),
+                                "unit": launch_unit,
+                                "class": requested.get("class"),
+                                "kind": requested.get("kind"),
+                                "demand_mib": requested.get("demand_mib"),
+                                "demand_key": requested.get("key") or launch_unit,
+                                "estimate_source": requested.get("estimate_source"),
+                                "estimate_confidence": requested.get("estimate_confidence"),
+                            }
+                            queue_request_path = resource_adapters.atomic_write_controller_queue_request(controller_runtime, queue_request)
+                        queue_grant = resource_adapters.controller_queue_grant(
+                            controller_runtime,
+                            str(queue_request.get("id") or ""),
+                        )
+                        if queue_grant.get("status") != "granted":
+                            if time.monotonic() < wait_deadline:
+                                should_wait = True
+                            else:
+                                queue_wait_timeout = True
+                    elif queue_request is not None:
+                        queue_request_released = resource_adapters.remove_controller_queue_request(
+                            controller_runtime,
+                            str(queue_request.get("id") or ""),
+                        )
+                        queue_grant_released = resource_adapters.remove_controller_queue_grant(
+                            controller_runtime,
+                            str(queue_request.get("id") or ""),
+                        )
+                    if requested.get("reservation_required") and not should_wait and not queue_wait_timeout:
+                        now_epoch = time.time()
+                        known = bool(requested.get("known"))
+                        ttl_key = "known_demand_ttl_sec" if known else "unknown_demand_ttl_sec"
+                        ttl_sec = max(1.0, float(startup_policy.get(ttl_key, 120.0 if known else 15.0)))
+                        lease = {
+                            "schema": f"{SCHEMA_PREFIX}_resource_startup_lease_v1",
+                            "version": VERSION,
+                            "id": f"{launch_unit or 'resource-launch'}:{os.getpid()}:{time.time_ns()}",
+                            "created_at": now_iso(),
+                            "created_at_epoch": now_epoch,
+                            "expires_at_epoch": now_epoch + ttl_sec,
+                            "launcher_pid": os.getpid(),
+                            "unit": launch_unit,
+                            "class": requested.get("class"),
+                            "kind": requested.get("kind"),
+                            "demand_mib": requested.get("demand_mib"),
+                            "demand_key": requested.get("key") or launch_unit,
+                            "demand_owner": requested.get("owner"),
+                            "estimate_source": requested.get("estimate_source"),
+                            "estimate_confidence": requested.get("estimate_confidence"),
+                            "startup_ttl_sec": ttl_sec,
+                        }
+                        lease_path = resource_adapters.atomic_write_lease(reservation_root, lease)
+                        if queue_request is not None:
+                            queue_request_released = resource_adapters.remove_controller_queue_request(
+                                controller_runtime,
+                                str(queue_request.get("id") or ""),
+                            )
+                            queue_grant_released = resource_adapters.remove_controller_queue_grant(
+                                controller_runtime,
+                                str(queue_request.get("id") or ""),
+                            )
+            if not should_wait:
+                break
+            wait_attempts += 1
+            wait_interval = 0.05 if queue_request is not None else 0.25
+            time.sleep(min(wait_interval, max(0.0, wait_deadline - time.monotonic())))
+            waited_sec += max(0.0, time.monotonic() - wait_started)
+
+    blocked = list(plan.get("blocked_reasons") or [])
+    denied = list(plan.get("denied_reasons") or [])
+    if queue_wait_timeout:
+        blocked.append("memory_controller_queue_wait_timeout")
+    if not clean_command:
+        denied.append("missing_command")
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
     result: dict[str, Any] | None = None
     started_at = now_iso()
@@ -17702,6 +18332,18 @@ def resource_launch(
                 "systemd": parsed,
                 "timeout_cleanup": cleanup,
             }
+        finally:
+            if lease is not None:
+                lease_released = resource_adapters.remove_lease(reservation_root, str(lease.get("id") or ""))
+    if queue_request is not None:
+        queue_request_released = resource_adapters.remove_controller_queue_request(
+            controller_runtime,
+            str(queue_request.get("id") or ""),
+        ) or queue_request_released
+        queue_grant_released = resource_adapters.remove_controller_queue_grant(
+            controller_runtime,
+            str(queue_request.get("id") or ""),
+        ) or queue_grant_released
     data = {
         "schema": f"{SCHEMA_PREFIX}_resource_launch_v1",
         "version": VERSION,
@@ -17724,6 +18366,14 @@ def resource_launch(
             "command": clean_command,
             "bytes_required": bytes_required,
             "target": target,
+            "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
+            "demand_key": demand_key,
+            "demand_owner": demand_owner,
+            "estimate_source": estimate_source,
+            "estimate_confidence": estimate_confidence,
+            "startup_wait_sec": wait_timeout,
+            "queue_priority": resolved_queue_priority,
+            "queue_deadline_sec": queue_deadline_sec,
             "sample_thermal": None if sample_thermal is None else bool(sample_thermal),
         },
         "blocked_reasons": blocked,
@@ -17731,6 +18381,24 @@ def resource_launch(
         "plan": plan,
         "argv": systemd_cmd,
         "execution": result,
+        "startup_admission": {
+            "reservation_root": str(reservation_root),
+            "snapshot": reservation_snapshot,
+            "waited_sec": round(waited_sec, 3),
+            "wait_attempts": wait_attempts,
+            "lease": lease,
+            "lease_path": str(lease_path) if lease_path is not None else None,
+            "lease_released": lease_released,
+            "controller_queue": {
+                "runtime_root": str(controller_runtime),
+                "request": queue_request,
+                "request_path": str(queue_request_path) if queue_request_path is not None else None,
+                "grant": queue_grant,
+                "request_released": queue_request_released,
+                "grant_released": queue_grant_released,
+                "wait_timeout": queue_wait_timeout,
+            },
+        },
         "paths": {
             "latest": str(RESOURCE_RUN_LATEST_PATH),
             "daily_glob": str(RESOURCE_RUN_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
@@ -17740,8 +18408,40 @@ def resource_launch(
             "runner": "systemd-run --user",
             "does_not_mutate_existing_processes": True,
             "does_not_mutate_stack": True,
+            "startup_reservations_runtime_only": True,
+            "known_demand_materialization_subtracted": True,
+            "unknown_demand_serializes_startup_only": True,
+            "no_memory_max_or_swap_max_added": True,
+            "controller_queue_new_background_starts_only": True,
+            "controller_queue_falls_back_when_missing_or_stale": True,
+            "fresh_resource_plan_and_atomic_lease_after_grant": True,
         },
     }
+    controller_outcome_notification: dict[str, Any] = {"sent": False, "status": "not_an_executed_launch"}
+    if not dry_run and (result is not None or queue_request is not None):
+        requested = nested_get(plan, ["inputs", "startup_demand", "requested"])
+        requested = requested if isinstance(requested, dict) else {}
+        systemd_result = result.get("systemd") if isinstance(result, dict) and isinstance(result.get("systemd"), dict) else {}
+        queue_request_id = str((queue_request or {}).get("id") or "")
+        outcome_event = {
+            "schema": f"{SCHEMA_PREFIX}_memory_controller_event_v1",
+            "kind": "resource_launch_outcome",
+            "event_id": f"resource-outcome:{queue_request_id or launch_unit or os.getpid()}:{time.time_ns()}",
+            "details": {
+                "workload_id": requested.get("key") or launch_unit,
+                "owner": requested.get("owner") or demand_owner or kind,
+                "requested_mib": requested.get("demand_mib"),
+                "observed_peak_mib": resource_adapters.parse_systemd_memory_peak_mib(systemd_result.get("memory_peak")),
+                "queue_delay_sec": round(waited_sec, 3),
+                "elapsed_sec": elapsed,
+                "ok": bool(data["ok"]),
+                "queue_granted": bool(queue_grant and queue_grant.get("status") == "granted"),
+                "blocked_reasons": list(blocked),
+                "denied_reasons": list(denied),
+            },
+        }
+        controller_outcome_notification = resource_adapters.notify_memory_controller(controller_runtime, outcome_event)
+    data["startup_admission"]["controller_outcome_notification"] = controller_outcome_notification
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_RUN_LATEST_PATH, data, 0o664)
         daily_error = safe_append_jsonl(ai_daily_jsonl_path(RESOURCE_RUN_ROOT), data, 0o664)
@@ -50664,6 +51364,11 @@ def main(argv: list[str]) -> int:
     resource_plan_parser.add_argument("--scope", action="store_true", help="plan systemd scope instead of service")
     resource_plan_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_plan_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
+    resource_plan_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
+    resource_plan_parser.add_argument("--demand-key", default=None, help="stable workload/model identity for startup demand")
+    resource_plan_parser.add_argument("--demand-owner", default=None, help="owner reporting the startup demand estimate")
+    resource_plan_parser.add_argument("--estimate-source", default=None, help="source of the startup demand estimate")
+    resource_plan_parser.add_argument("--estimate-confidence", default=None, help="confidence label for the startup demand estimate")
     resource_plan_parser.add_argument("--no-thermal-sample", action="store_true", help="use latest thermal plan instead of taking a fresh sample")
     resource_plan_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     resource_orchestrator_parser = resource_sub.add_parser("orchestrator")
@@ -50682,6 +51387,14 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--timeout", type=float, default=0.0, help="timeout for systemd-run call; 0 means no timeout")
     resource_launch_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_launch_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
+    resource_launch_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
+    resource_launch_parser.add_argument("--demand-key", default=None, help="stable workload/model identity for startup demand")
+    resource_launch_parser.add_argument("--demand-owner", default=None, help="owner reporting the startup demand estimate")
+    resource_launch_parser.add_argument("--estimate-source", default=None, help="source of the startup demand estimate")
+    resource_launch_parser.add_argument("--estimate-confidence", default=None, help="confidence label for the startup demand estimate")
+    resource_launch_parser.add_argument("--startup-wait", type=float, default=None, help="seconds to wait for an unknown-demand startup lane")
+    resource_launch_parser.add_argument("--queue-priority", type=int, default=None, help="owner priority for live background-start queue")
+    resource_launch_parser.add_argument("--queue-deadline", type=float, default=None, help="seconds before this queued background start expires")
     resource_launch_parser.add_argument("--no-thermal-sample", action="store_true", help="use latest thermal plan instead of taking a fresh sample")
     resource_launch_parser.add_argument("--success-on-block", action="store_true", help="return success when an overrideable gate blocks a scheduled launch")
     resource_launch_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -53123,6 +53836,11 @@ def main(argv: list[str]) -> int:
                 force=bool(args.force),
                 bytes_required=args.bytes_required,
                 target=args.target,
+                memory_demand_mib=args.memory_demand_mib,
+                demand_key=args.demand_key,
+                demand_owner=args.demand_owner,
+                estimate_source=args.estimate_source,
+                estimate_confidence=args.estimate_confidence,
                 unit_type="scope" if bool(args.scope) else "service",
                 sample_thermal=False if bool(args.no_thermal_sample) else None,
                 write_latest=True,
@@ -53147,6 +53865,14 @@ def main(argv: list[str]) -> int:
                 timeout_sec=float(args.timeout),
                 bytes_required=args.bytes_required,
                 target=args.target,
+                memory_demand_mib=args.memory_demand_mib,
+                demand_key=args.demand_key,
+                demand_owner=args.demand_owner,
+                estimate_source=args.estimate_source,
+                estimate_confidence=args.estimate_confidence,
+                startup_wait_sec=args.startup_wait,
+                queue_priority=args.queue_priority,
+                queue_deadline_sec=args.queue_deadline,
                 sample_thermal=False if bool(args.no_thermal_sample) else None,
                 write_latest=True,
             )

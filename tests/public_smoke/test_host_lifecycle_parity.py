@@ -17,6 +17,7 @@ def _seed_source_tree(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     package = repo / "src" / "abyss_machine"
     package.mkdir(parents=True)
+    (package / "entrypoint.py").write_text("print('source entrypoint')\n", encoding="utf-8")
     (package / "cli.py").write_text("print('source cli')\n", encoding="utf-8")
     (package / "__init__.py").write_text("__version__ = 'test'\n", encoding="utf-8")
     (package / "extra.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -48,7 +49,7 @@ def test_content_parity_summary_is_compact_and_detects_drift(tmp_path: Path) -> 
 
     assert report["status"] == "failed"
     assert report["cli"]["status"] == "failed"
-    assert report["package"]["missing_count"] == 2
+    assert report["package"]["missing_count"] == 3
     assert len(report["package"]["missing_sample"]) == 1
     assert report["public_seed"]["generated"]["missing_count"] == 1
     assert "print('source cli')" not in json.dumps(report)
@@ -185,7 +186,7 @@ def test_build_parity_document_combines_content_and_runtime(tmp_path: Path) -> N
     (installed_share / "generated").mkdir(parents=True)
     (installed_share / "manifests").mkdir(parents=True)
     installed_cli = installed_libexec / "abyss-machine"
-    installed_cli.write_text((repo / "src" / "abyss_machine" / "cli.py").read_text(encoding="utf-8"), encoding="utf-8")
+    installed_cli.write_text((repo / "src" / "abyss_machine" / "entrypoint.py").read_text(encoding="utf-8"), encoding="utf-8")
     for source in (repo / "src" / "abyss_machine").glob("*.py"):
         (installed_package / source.name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     for root_id in ("generated", "manifests"):
@@ -255,7 +256,7 @@ def test_parity_summary_document_omits_paths_digests_and_raw_runtime_details(tmp
 
     assert summary["projection"] == "summary"
     assert summary["ok"] is False
-    assert summary["content_parity"]["package"]["missing_count"] == 2
+    assert summary["content_parity"]["package"]["missing_count"] == 3
     assert summary["runtime"]["failure_checks"] == ["enter"]
     assert "source_sha256" not in rendered
     assert "installed_sha256" not in rendered
