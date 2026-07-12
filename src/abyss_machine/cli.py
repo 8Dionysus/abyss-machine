@@ -46996,7 +46996,12 @@ def heartbeat_status_from(
     )
 
 
-def heartbeat_self_awareness_breath(previous_latest: dict[str, Any] | None, generated_at: str) -> dict[str, Any]:
+def heartbeat_self_awareness_breath(
+    previous_latest: dict[str, Any] | None,
+    generated_at: str,
+    *,
+    refresh_allowed: bool = True,
+) -> dict[str, Any]:
     autolink = load_latest_json(SELF_AWARENESS_AUTOLINK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_autolink_v1")
     working_stack = load_latest_json(SELF_AWARENESS_WORKING_STACK_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_working_stack_inventory_v1")
     coverage_audit = load_latest_json(SELF_AWARENESS_COVERAGE_AUDIT_LATEST_PATH, f"{SCHEMA_PREFIX}_self_awareness_objective_coverage_audit_v1")
@@ -47018,7 +47023,7 @@ def heartbeat_self_awareness_breath(previous_latest: dict[str, Any] | None, gene
     refreshed = False
     refresh_reason = None
     refresh_skipped_reason = None
-    if (not autolink_complete or autolink_stale) and prerequisites_complete:
+    if refresh_allowed and (not autolink_complete or autolink_stale) and prerequisites_complete:
         refresh_reason = "autolink_incomplete" if not autolink_complete else "autolink_stale"
         autolink = self_awareness_autolink(
             write_latest=True,
@@ -47032,7 +47037,7 @@ def heartbeat_self_awareness_breath(previous_latest: dict[str, Any] | None, gene
         autolink_complete = self_awareness_autolink_complete(autolink)
         autolink_stale = bool(autolink_age_sec is None or autolink_age_sec > refresh_after_sec)
     elif not autolink_complete or autolink_stale:
-        refresh_skipped_reason = "prerequisites_need_deep_refresh"
+        refresh_skipped_reason = "compact_latest_only" if not refresh_allowed else "prerequisites_need_deep_refresh"
 
     summary = autolink.get("summary") if isinstance(autolink.get("summary"), dict) else {}
     state_delta = autolink.get("state_delta") if isinstance(autolink.get("state_delta"), dict) else {}
@@ -47103,6 +47108,7 @@ def heartbeat_self_awareness_breath(previous_latest: dict[str, Any] | None, gene
             "facts_only": True,
             "read_model": True,
             "refreshes_autolink_only_when_prerequisites_complete": True,
+            "refresh_allowed": refresh_allowed,
             "does_not_run_cycle": True,
             "does_not_run_probe": True,
             "does_not_run_model": True,
@@ -47114,7 +47120,69 @@ def heartbeat_self_awareness_breath(previous_latest: dict[str, Any] | None, gene
     }
 
 
-def heartbeat_pulse(write_latest: bool = True, refresh_reactions: bool = True) -> dict[str, Any]:
+def heartbeat_compact_capture_status(
+    previous_latest: dict[str, Any] | None,
+    generated_at: str,
+) -> dict[str, Any]:
+    latest, latest_error = load_json_document(NERVOUS_CAPTURE_LATEST_PATH)
+    browser_latest, browser_error = load_json_document(NERVOUS_BROWSER_CONTENT_LATEST_PATH)
+    previous_volume = nested_get(previous_latest or {}, ["capture_health", "volume"])
+    previous_volume = previous_volume if isinstance(previous_volume, dict) else {}
+
+    def previous_bytes(key: str) -> int:
+        value = previous_volume.get(key)
+        return int(float(value) * 1024 * 1024) if isinstance(value, (int, float)) else 0
+
+    return {
+        "schema": f"{SCHEMA_PREFIX}_nervous_capture_status_v1",
+        "version": VERSION,
+        "generated_at": generated_at,
+        "ok": isinstance(latest, dict),
+        "latest": latest if isinstance(latest, dict) else {},
+        "latest_error": latest_error,
+        "browser_content_latest": browser_latest if isinstance(browser_latest, dict) else {},
+        "browser_content_latest_error": browser_error,
+        "storage": {
+            "screenshots_count": safe_int(previous_volume.get("screenshots_count"), 0),
+            "screenshots_bytes": previous_bytes("screenshots_mib"),
+            "browser_content_jsonl_files": safe_int(previous_volume.get("browser_content_jsonl_files"), 0),
+            "browser_content_bytes": previous_bytes("browser_content_mib"),
+            "private_root_bytes": previous_bytes("private_root_mib"),
+        },
+        "compact_latest_only": True,
+    }
+
+
+def heartbeat_compact_typing_status() -> dict[str, Any]:
+    latest = load_latest_json(TYPING_EVENTS_LATEST_PATH, f"{SCHEMA_PREFIX}_typing_event_v1")
+    coverage = load_latest_json(TYPING_COVERAGE_LATEST_PATH, f"{SCHEMA_PREFIX}_typing_coverage_v1")
+    process = load_latest_json(TYPING_PROCESS_LATEST_PATH, f"{SCHEMA_PREFIX}_typing_process_v1")
+    policy = typing_policy(write_latest=False)
+    policy_contract = policy.get("policy") if isinstance(policy.get("policy"), dict) else {}
+    return {
+        "schema": f"{SCHEMA_PREFIX}_typing_status_compact_v1",
+        "ok": bool(latest.get("ok") and coverage.get("ok") and process.get("ok")),
+        "summary": {
+            "recent_records": nested_get(coverage, ["summary", "records"]),
+        },
+        "policy": {
+            "enabled": policy.get("enabled"),
+            "raw_keylogging": not bool(policy_contract.get("does_not_install_keylogger", True)),
+            "password_fields_captured": not bool(policy_contract.get("does_not_capture_password_fields", True)),
+        },
+        "latest": latest,
+        "coverage": coverage,
+        "process": process,
+        "compact_latest_only": True,
+    }
+
+
+def heartbeat_pulse(
+    write_latest: bool = True,
+    refresh_reactions: bool = True,
+    *,
+    compact: bool = False,
+) -> dict[str, Any]:
     previous_latest_raw, _previous_latest_error = load_json_document(HEARTBEATS_LATEST_PATH)
     previous_latest = previous_latest_raw if isinstance(previous_latest_raw, dict) else None
     generated_at = now_iso()
@@ -47126,10 +47194,14 @@ def heartbeat_pulse(write_latest: bool = True, refresh_reactions: bool = True) -
     memory_pressure_latest = load_latest_json(MEMORY_PRESSURE_LATEST_PATH, f"{SCHEMA_PREFIX}_memory_pressure_v1")
     memory_plan_latest = load_latest_json(MEMORY_PLAN_LATEST_PATH, f"{SCHEMA_PREFIX}_memory_plan_v1")
     game_guard_latest = load_latest_json(PROCESS_GAME_GUARD_LATEST_PATH, f"{SCHEMA_PREFIX}_process_game_guard_v1")
-    capture_status = nervous_capture_status()
+    capture_status = (
+        heartbeat_compact_capture_status(previous_latest, generated_at)
+        if compact
+        else nervous_capture_status()
+    )
     capture_latest = capture_status.get("latest") if isinstance(capture_status.get("latest"), dict) else {}
     browser_content_latest = capture_status.get("browser_content_latest") if isinstance(capture_status.get("browser_content_latest"), dict) else {}
-    typing_state = typing_status(write_latest=False)
+    typing_state = heartbeat_compact_typing_status() if compact else typing_status(write_latest=False)
     typing_latest = typing_state.get("latest") if isinstance(typing_state.get("latest"), dict) else {}
     typing_coverage_latest = typing_state.get("coverage") if isinstance(typing_state.get("coverage"), dict) else load_latest_json(TYPING_COVERAGE_LATEST_PATH, f"{SCHEMA_PREFIX}_typing_coverage_v1")
     typing_process_latest = typing_state.get("process") if isinstance(typing_state.get("process"), dict) else load_latest_json(TYPING_PROCESS_LATEST_PATH, f"{SCHEMA_PREFIX}_typing_process_v1")
@@ -47143,10 +47215,18 @@ def heartbeat_pulse(write_latest: bool = True, refresh_reactions: bool = True) -
     ai_resident_candidates_validate = load_latest_json(AI_LLM_RESIDENT_CANDIDATES_VALIDATE_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_spark_resident_candidates_validate_v1")
     ai_resident_evals_validate = load_latest_json(AI_LLM_RESIDENT_EVALS_VALIDATE_LATEST_PATH, f"{SCHEMA_PREFIX}_gemma4_spark_resident_heartbeat_evals_validate_v1")
     ai_resident_policy = load_latest_json(AI_LLM_RESIDENT_ROOT / "policy" / "latest.json", f"{SCHEMA_PREFIX}_gemma4_spark_resident_policy_v1")
-    reactions = reaction_status(write_latest=True) if refresh_reactions else load_latest_json(REACTIONS_LATEST_PATH, f"{SCHEMA_PREFIX}_reactions_status_v1")
-    responses = response_status(write_latest=True, reactions=reactions, refresh_reactions=False)
+    if compact:
+        reactions = load_latest_json(REACTIONS_LATEST_PATH, f"{SCHEMA_PREFIX}_reactions_status_v1")
+        responses = load_latest_json(RESPONSES_LATEST_PATH, f"{SCHEMA_PREFIX}_responses_status_v1")
+    else:
+        reactions = reaction_status(write_latest=True) if refresh_reactions else load_latest_json(REACTIONS_LATEST_PATH, f"{SCHEMA_PREFIX}_reactions_status_v1")
+        responses = response_status(write_latest=True, reactions=reactions, refresh_reactions=False)
     changes = load_latest_json(CHANGE_INDEX_PATH, f"{SCHEMA_PREFIX}_changes_index_v1")
-    self_awareness_breath = heartbeat_self_awareness_breath(previous_latest, generated_at)
+    self_awareness_breath = heartbeat_self_awareness_breath(
+        previous_latest,
+        generated_at,
+        refresh_allowed=not compact,
+    )
     heartbeat_timer = user_systemd_unit(HEARTBEAT_TIMER)
     heartbeat_service = user_systemd_unit(HEARTBEAT_SERVICE)
     reaction_candidates = reactions.get("candidates") if isinstance(reactions.get("candidates"), list) else []
@@ -47324,6 +47404,7 @@ def heartbeat_pulse(write_latest: bool = True, refresh_reactions: bool = True) -
             "executes_self_awareness_cycle": False,
             "executes_self_awareness_probe": False,
             "candidates_require_operator_or_owner_route": True,
+            "compact_latest_only": compact,
         },
     }
     if write_latest:
@@ -51403,6 +51484,7 @@ def main(argv: list[str]) -> int:
     heartbeats_parser = sub.add_parser("heartbeats", help="write and inspect recurring OS Abyss heartbeat pulses")
     heartbeats_parser.add_argument("heartbeats_command", nargs="?", choices=["pulse", "status", "paths", "validate"], default="pulse")
     heartbeats_parser.add_argument("--no-refresh-reactions", action="store_true", help="read latest reactions instead of refreshing them during pulse")
+    heartbeats_parser.add_argument("--compact", action="store_true", help="read bounded latest projections without refreshing heavy owner readmodels")
     heartbeats_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     heartbeats_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
@@ -53928,7 +54010,12 @@ def main(argv: list[str]) -> int:
             if getattr(args, "strict", False) and data.get("summary", {}).get("warnings"):
                 return 2
             return 0
-        data = heartbeat_pulse(write_latest=True, refresh_reactions=not bool(getattr(args, "no_refresh_reactions", False)))
+        compact = bool(getattr(args, "compact", False) or getattr(args, "heartbeats_command", "pulse") == "status")
+        data = heartbeat_pulse(
+            write_latest=True,
+            refresh_reactions=not bool(getattr(args, "no_refresh_reactions", False)) and not compact,
+            compact=compact,
+        )
         if args.json:
             print_json(data)
         else:

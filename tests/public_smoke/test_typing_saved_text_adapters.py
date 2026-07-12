@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from abyss_machine import typing_saved_text_adapters
@@ -112,10 +113,156 @@ def test_saved_text_scan_skips_low_signal_paths(tmp_path) -> None:
 
     assert candidates == []
     assert any(
-        item.get("path") == str(low_signal)
+        item.get("path") in {str(low_signal_dir), str(low_signal)}
         and item.get("reason") == "excluded_low_signal_artifact_path"
         for item in skips
     )
+
+
+def test_saved_text_scan_checkpoints_bounded_directory_work(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    first_dir = root / "a"
+    second_dir = root / "b"
+    first_dir.mkdir(parents=True)
+    second_dir.mkdir()
+    first = first_dir / "first.md"
+    second = second_dir / "second.md"
+    first.write_text("first checkpoint fixture", encoding="utf-8")
+    second.write_text("second checkpoint fixture", encoding="utf-8")
+    now_ts = max(first.stat().st_mtime, second.stat().st_mtime) + 1
+    policy = _policy(root)
+    policy.update({
+        "max_directories_per_scan": 1,
+        "max_entries_per_scan": 100,
+        "max_scan_seconds": 30,
+        "max_pending_directories": 20,
+    })
+    state: dict = {"files": {}}
+    discovered: set[str] = set()
+
+    for _ in range(5):
+        progress: dict = {}
+        candidates, _ = typing_saved_text_adapters.saved_text_scan_candidates(
+            policy,
+            state,
+            now_ts=now_ts,
+            progress=progress,
+        )
+        for item in candidates:
+            discovered.add(item["path"])
+            state["files"][item["path"]] = {"sha256": item["sha256"]}
+        assert state["scan_cursor"] == progress["cursor"]
+        assert progress["summary"]["processed_directories"] <= 1
+        assert progress["summary"]["pending_directories"] <= 20
+        if discovered == {str(first), str(second)}:
+            break
+
+    assert discovered == {str(first), str(second)}
+
+
+def test_saved_text_scan_bounds_skip_samples_but_keeps_counts(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    for index in range(20):
+        (root / f".env{index}").write_text("synthetic", encoding="utf-8")
+    policy = _policy(root)
+    policy.update({
+        "max_skip_records": 3,
+        "max_entries_per_scan": 100,
+        "max_scan_seconds": 30,
+    })
+    progress: dict = {}
+
+    candidates, skips = typing_saved_text_adapters.saved_text_scan_candidates(
+        policy,
+        {"files": {}},
+        now_ts=time.time(),
+        progress=progress,
+    )
+
+    assert candidates == []
+    assert len(skips) == 4  # Two samples, compact scan summary, and seen-files counter.
+    assert progress["summary"]["skip_counts"]["sensitive_path"] == 20
+
+
+def test_saved_text_scan_stops_streaming_directory_at_entry_budget(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+
+    class FakeEntry:
+        def __init__(self, index: int) -> None:
+            self.name = f"entry-{index:05d}"
+            self.path = str(root / self.name)
+
+        def is_dir(self, *, follow_symlinks: bool) -> bool:
+            return False
+
+        def is_file(self, *, follow_symlinks: bool) -> bool:
+            return False
+
+    class FakeScandir:
+        def __init__(self) -> None:
+            self.yielded = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self.yielded >= 1000:
+                raise StopIteration
+            entry = FakeEntry(self.yielded)
+            self.yielded += 1
+            return entry
+
+    scandir = FakeScandir()
+    monkeypatch.setattr(typing_saved_text_adapters.os, "scandir", lambda path: scandir)
+    policy = _policy(root)
+    policy.update({"max_entries_per_scan": 100, "max_scan_seconds": 30})
+    progress: dict = {}
+
+    candidates, _ = typing_saved_text_adapters.saved_text_scan_candidates(
+        policy,
+        {"files": {}},
+        now_ts=time.time(),
+        progress=progress,
+    )
+
+    assert candidates == []
+    assert scandir.yielded == 101
+    assert progress["summary"]["seen_entries"] == 100
+    assert progress["summary"]["stop_reason"] == "entry_budget"
+
+
+def test_saved_text_scan_prunes_state_to_bounded_recent_set(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    policy = _policy(root)
+    policy.update({"max_state_files": 1000, "max_scan_seconds": 30})
+    state = {
+        "files": {
+            f"/workspace/{index}.md": {"sha256": str(index), "mtime_ns": index}
+            for index in range(1005)
+        }
+    }
+    progress: dict = {}
+
+    typing_saved_text_adapters.saved_text_scan_candidates(
+        policy,
+        state,
+        now_ts=time.time(),
+        progress=progress,
+    )
+
+    assert len(state["files"]) == 1000
+    assert "/workspace/0.md" not in state["files"]
+    assert "/workspace/1004.md" in state["files"]
+    assert progress["summary"]["state_files_pruned"] == 5
 
 
 def test_saved_text_decode_rejects_binary_empty_and_large_files(tmp_path) -> None:
@@ -176,6 +323,7 @@ def test_saved_text_scan_document_and_event_projection_are_public_safe(tmp_path)
     assert document["policy"]["raw_keylogging"] is False
     assert document["policy"]["deny_sensitive_paths"] is True
     assert document["events"] == [event_summary]
+    assert document["scan"] == {}
     assert all("private fixture text" not in str(value) for value in document.values())
 
 

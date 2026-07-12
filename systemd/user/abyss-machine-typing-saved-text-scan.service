@@ -4,4 +4,11 @@ Documentation=file://{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/abyss-machine-typing-saved-text-scan-tick
+Nice=15
+IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10
+TimeoutStartSec=3min
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine resource launch --class light --kind indexing --unattended --memory-demand-mib 512 --demand-key typing-saved-text-scan --demand-owner abyss-machine-typing --estimate-source bounded-scan-canary --estimate-confidence medium --success-on-block --no-thermal-sample --timeout 120 --json -- {{ABYSS_LOCAL_BIN_DIR}}/abyss-machine typing saved-text-scan --json
+StandardOutput=null
+StandardError=journal

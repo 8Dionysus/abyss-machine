@@ -244,3 +244,73 @@ def test_heartbeat_self_awareness_breath_compacts_autolink_without_execution(mon
     assert breath["policy"]["does_not_run_probe"] is True
     assert breath["policy"]["action_execution"] is False
     assert breath["policy"]["host_layer_mutates_stack"] is False
+
+
+def test_heartbeat_compact_capture_status_reuses_bounded_volume(monkeypatch, abyss_machine_module) -> None:
+    machine = abyss_machine_module
+    capture = {"schema": "capture", "ok": True, "summary": {"facts": 4}}
+    browser = {"schema": "browser", "ok": True, "summary": {"captures": 2}}
+
+    def fake_load(path):
+        if path == machine.NERVOUS_CAPTURE_LATEST_PATH:
+            return capture, None
+        if path == machine.NERVOUS_BROWSER_CONTENT_LATEST_PATH:
+            return browser, None
+        raise AssertionError(f"unexpected compact read: {path}")
+
+    monkeypatch.setattr(machine, "load_json_document", fake_load)
+    result = machine.heartbeat_compact_capture_status(
+        {
+            "capture_health": {
+                "volume": {
+                    "screenshots_count": 3,
+                    "screenshots_mib": 2.5,
+                    "browser_content_jsonl_files": 7,
+                    "browser_content_mib": 1.25,
+                    "private_root_mib": 8.0,
+                }
+            }
+        },
+        "2026-07-12T00:00:00+00:00",
+    )
+
+    assert result["ok"] is True
+    assert result["latest"] is capture
+    assert result["browser_content_latest"] is browser
+    assert result["storage"]["screenshots_count"] == 3
+    assert result["storage"]["screenshots_bytes"] == 2.5 * 1024 * 1024
+    assert result["storage"]["private_root_bytes"] == 8 * 1024 * 1024
+    assert result["compact_latest_only"] is True
+
+
+def test_heartbeat_compact_typing_status_reads_latest_projections_only(monkeypatch, abyss_machine_module) -> None:
+    machine = abyss_machine_module
+    documents = {
+        machine.TYPING_EVENTS_LATEST_PATH: {"schema": "event", "ok": True},
+        machine.TYPING_COVERAGE_LATEST_PATH: {"schema": "coverage", "ok": True, "summary": {"records": 12}},
+        machine.TYPING_PROCESS_LATEST_PATH: {"schema": "process", "ok": True},
+    }
+
+    monkeypatch.setattr(machine, "load_latest_json", lambda path, schema: documents[path])
+    monkeypatch.setattr(
+        machine,
+        "typing_policy",
+        lambda write_latest=False: {
+            "enabled": True,
+            "policy": {
+                "does_not_install_keylogger": True,
+                "does_not_capture_password_fields": True,
+            },
+        },
+    )
+
+    result = machine.heartbeat_compact_typing_status()
+
+    assert result["ok"] is True
+    assert result["summary"]["recent_records"] == 12
+    assert result["policy"] == {
+        "enabled": True,
+        "raw_keylogging": False,
+        "password_fields_captured": False,
+    }
+    assert result["compact_latest_only"] is True
