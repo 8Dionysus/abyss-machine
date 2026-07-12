@@ -3,9 +3,9 @@ Description=Abyss Machine saved typed-text scan timer
 Documentation=file://{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md
 
 [Timer]
-OnBootSec=120s
-OnUnitActiveSec=120s
-AccuracySec=30s
+OnBootSec=10min
+OnUnitActiveSec=10min
+AccuracySec=1min
 Persistent=false
 
 [Install]

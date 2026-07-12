@@ -539,7 +539,7 @@ def typing_paths_document(
             "service": p("TYPING_SAVED_TEXT_SCAN_SERVICE_PATH"),
             "timer": p("TYPING_SAVED_TEXT_SCAN_TIMER_PATH"),
             "tick": p("TYPING_SAVED_TEXT_SCAN_TICK_PATH"),
-            "interval": "120s",
+            "interval": "600s",
             "command": "abyss-machine typing saved-text-scan --json",
         },
         "zsh_hook": {

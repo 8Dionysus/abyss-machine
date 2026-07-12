@@ -397,11 +397,17 @@
   "saved_text_scan": {
     "enabled": true,
     "adapter": "saved_text_snapshot",
-    "interval": "120s",
+    "interval": "600s",
     "changed_within_sec": 1800,
     "max_file_bytes": 262144,
     "max_files_per_scan": 80,
     "max_roots": 8,
+    "max_entries_per_scan": 5000,
+    "max_directories_per_scan": 500,
+    "max_scan_seconds": 5,
+    "max_skip_records": 80,
+    "max_pending_directories": 10000,
+    "max_state_files": 20000,
     "roots": [
       "{{ABYSS_USER_HOME}}/src",
       "{{ABYSS_OS_ROOT}}",

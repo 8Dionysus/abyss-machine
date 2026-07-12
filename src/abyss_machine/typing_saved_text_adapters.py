@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import os
 import time
+from collections import Counter, deque
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -62,14 +63,30 @@ def saved_text_scan_limits(saved_policy: Mapping[str, Any]) -> dict[str, int]:
         "max_file_bytes": max(1024, safe_int(saved_policy.get("max_file_bytes"), 262144)),
         "max_files_per_scan": max(1, min(safe_int(saved_policy.get("max_files_per_scan"), 80), 500)),
         "max_roots": max(1, min(safe_int(saved_policy.get("max_roots"), 8), 32)),
+        "max_entries_per_scan": max(100, min(safe_int(saved_policy.get("max_entries_per_scan"), 5000), 100000)),
+        "max_directories_per_scan": max(1, min(safe_int(saved_policy.get("max_directories_per_scan"), 500), 10000)),
+        "max_scan_seconds": max(1, min(safe_int(saved_policy.get("max_scan_seconds"), 5), 60)),
+        "max_skip_records": max(1, min(safe_int(saved_policy.get("max_skip_records"), 80), 500)),
+        "max_pending_directories": max(16, min(safe_int(saved_policy.get("max_pending_directories"), 10000), 50000)),
+        "max_state_files": max(1000, min(safe_int(saved_policy.get("max_state_files"), 20000), 100000)),
     }
 
 
 def saved_text_scan_report_limits(saved_policy: Mapping[str, Any]) -> dict[str, int]:
+    limits = saved_text_scan_limits(saved_policy)
     return {
-        "changed_within_sec": safe_int(saved_policy.get("changed_within_sec"), 1800),
-        "max_file_bytes": safe_int(saved_policy.get("max_file_bytes"), 262144),
-        "max_files_per_scan": safe_int(saved_policy.get("max_files_per_scan"), 80),
+        key: limits[key]
+        for key in (
+            "changed_within_sec",
+            "max_file_bytes",
+            "max_files_per_scan",
+            "max_entries_per_scan",
+            "max_directories_per_scan",
+            "max_scan_seconds",
+            "max_skip_records",
+            "max_pending_directories",
+            "max_state_files",
+        )
     }
 
 
@@ -101,59 +118,197 @@ def _policy_path_matches(path: Path, saved_policy: dict[str, Any]) -> tuple[str 
     return None, []
 
 
+def _cursor_queue(
+    state: Mapping[str, Any],
+    roots: list[Path],
+    max_pending: int,
+) -> tuple[deque[dict[str, str | None]], int]:
+    root_strings = [str(root) for root in roots]
+    cursor = state.get("scan_cursor") if isinstance(state.get("scan_cursor"), Mapping) else {}
+    pending_data = cursor.get("pending_directories") if isinstance(cursor, Mapping) else None
+    cycle = safe_int(cursor.get("cycle"), 0) if isinstance(cursor, Mapping) else 0
+    pending: deque[dict[str, str | None]] = deque()
+    seen: set[tuple[str, str | None]] = set()
+
+    if isinstance(cursor, Mapping) and cursor.get("roots") == root_strings and isinstance(pending_data, list):
+        for item in pending_data[:max_pending]:
+            if isinstance(item, str):
+                path, after = item, None
+            elif isinstance(item, Mapping):
+                path = str(item.get("path") or "")
+                after_value = item.get("after")
+                after = str(after_value) if after_value else None
+            else:
+                continue
+            if not path:
+                continue
+            key = (path, after)
+            if key not in seen:
+                pending.append({"path": path, "after": after})
+                seen.add(key)
+
+    if not pending:
+        pending.extend({"path": path, "after": None} for path in root_strings)
+        cycle += 1
+    return pending, cycle
+
+
+def _prune_state_files(state: Mapping[str, Any], max_files: int) -> int:
+    if not isinstance(state, dict):
+        return 0
+    files = state.get("files") if isinstance(state.get("files"), Mapping) else {}
+    if len(files) <= max_files:
+        return 0
+
+    def recency(item: tuple[str, Any]) -> tuple[int, str, str]:
+        path, value = item
+        entry = value if isinstance(value, Mapping) else {}
+        return (
+            safe_int(entry.get("mtime_ns"), 0),
+            str(entry.get("last_seen_at") or ""),
+            str(path),
+        )
+
+    retained = sorted(files.items(), key=recency, reverse=True)[:max_files]
+    state["files"] = {str(path): dict(entry) for path, entry in retained if isinstance(entry, Mapping)}
+    return len(files) - len(state["files"])
+
+
 def saved_text_scan_candidates(
     saved_policy: dict[str, Any],
     state: Mapping[str, Any],
     *,
     now_ts: float | None = None,
+    progress: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     current_ts = time.time() if now_ts is None else float(now_ts)
     limits = saved_text_scan_limits(saved_policy)
     exclude_dirs = {str(item) for item in saved_policy.get("exclude_dir_names", []) if str(item).strip()}
     candidates: list[dict[str, Any]] = []
     skips: list[dict[str, Any]] = []
+    skip_counts: Counter[str] = Counter()
     seen_files = 0
+    seen_entries = 0
+    processed_directories = 0
+    queue_deferred = 0
+    stop_reason: str | None = None
+    started = time.monotonic()
+    roots = saved_text_scan_roots(saved_policy)
+    state_files_pruned = _prune_state_files(state, limits["max_state_files"])
+    pending, cycle = _cursor_queue(state, roots, limits["max_pending_directories"])
+    root_strings = [str(root) for root in roots]
 
-    for root in saved_text_scan_roots(saved_policy):
-        if len(candidates) >= limits["max_files_per_scan"]:
+    def record_skip(item: dict[str, Any]) -> None:
+        reason = str(item.get("reason") or "unknown")
+        skip_counts[reason] += 1
+        if len(skips) < max(0, limits["max_skip_records"] - 1):
+            skips.append(item)
+
+    def root_for(path: Path) -> str:
+        for root in roots:
+            try:
+                path.relative_to(root)
+                return str(root)
+            except ValueError:
+                continue
+        return str(path)
+
+    while pending and len(candidates) < limits["max_files_per_scan"]:
+        if processed_directories >= limits["max_directories_per_scan"]:
+            stop_reason = "directory_budget"
             break
-        if not root.exists() or not root.is_dir():
-            skips.append({"path": str(root), "reason": "root_missing"})
+        if seen_entries >= limits["max_entries_per_scan"]:
+            stop_reason = "entry_budget"
+            break
+        if time.monotonic() - started >= limits["max_scan_seconds"]:
+            stop_reason = "time_budget"
+            break
+
+        work = pending.popleft()
+        directory = Path(str(work.get("path") or ""))
+        after = str(work.get("after")) if work.get("after") else None
+        processed_directories += 1
+        if not directory.exists() or not directory.is_dir():
+            reason = "root_missing" if str(directory) in root_strings else "directory_missing"
+            record_skip({"path": str(directory), "reason": reason})
             continue
+
+        last_processed = after
+        directory_incomplete = False
+        deferred_for_queue = False
+        resume_found = after is None
         try:
-            for dirpath, dirnames, filenames in os.walk(root):
-                if len(candidates) >= limits["max_files_per_scan"]:
-                    break
-                dirnames[:] = [
-                    name for name in dirnames
-                    if name not in exclude_dirs
-                    and not typing_capture_contracts.saved_text_path_excluded(Path(dirpath) / name, saved_policy)
-                    and not typing_capture_contracts.saved_text_path_denied(Path(dirpath) / name, saved_policy)
-                ]
-                for filename in filenames:
-                    if len(candidates) >= limits["max_files_per_scan"]:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if not resume_found:
+                        if entry.name == after:
+                            resume_found = True
+                        if time.monotonic() - started >= limits["max_scan_seconds"]:
+                            stop_reason = "time_budget"
+                            directory_incomplete = True
+                            break
+                        continue
+                    if seen_entries >= limits["max_entries_per_scan"]:
+                        stop_reason = "entry_budget"
+                        directory_incomplete = True
                         break
-                    path = Path(dirpath) / filename
+                    if time.monotonic() - started >= limits["max_scan_seconds"]:
+                        stop_reason = "time_budget"
+                        directory_incomplete = True
+                        break
+
+                    previous_processed = last_processed
+                    path = Path(entry.path)
+                    seen_entries += 1
+                    last_processed = entry.name
+                    try:
+                        is_directory = entry.is_dir(follow_symlinks=False)
+                        is_file = entry.is_file(follow_symlinks=False)
+                    except OSError as exc:
+                        record_skip({"path": str(path), "reason": f"stat_failed: {exc}"[:180]})
+                        continue
+
+                    if is_directory:
+                        if entry.name in exclude_dirs:
+                            record_skip({"path": str(path), "reason": "excluded_dir_name"})
+                            continue
+                        skip_reason, matches = _policy_path_matches(path, saved_policy)
+                        if skip_reason:
+                            record_skip({"path": str(path), "reason": skip_reason, "matches": matches})
+                            continue
+                        # Reserve one slot for this directory's continuation so
+                        # a full queue defers children instead of dropping them.
+                        if len(pending) >= limits["max_pending_directories"] - 1:
+                            queue_deferred += 1
+                            last_processed = previous_processed
+                            directory_incomplete = True
+                            deferred_for_queue = True
+                            break
+                        pending.append({"path": str(path), "after": None})
+                        continue
+                    if not is_file:
+                        continue
+
                     seen_files += 1
                     skip_reason, matches = _policy_path_matches(path, saved_policy)
                     if skip_reason:
-                        skips.append({"path": str(path), "reason": skip_reason, "matches": matches})
+                        record_skip({"path": str(path), "reason": skip_reason, "matches": matches})
                         continue
                     if not typing_capture_contracts.saved_text_file_allowed(path, saved_policy):
                         continue
                     try:
-                        stat = path.stat()
+                        stat = entry.stat(follow_symlinks=False)
                     except OSError as exc:
-                        skips.append({"path": str(path), "reason": f"stat_failed: {exc}"[:180]})
+                        record_skip({"path": str(path), "reason": f"stat_failed: {exc}"[:180]})
                         continue
-                    if not stat or not stat.st_mtime or current_ts - float(stat.st_mtime) > limits["changed_within_sec"]:
+                    if not stat.st_mtime or current_ts - float(stat.st_mtime) > limits["changed_within_sec"]:
                         continue
                     if int(stat.st_size) > limits["max_file_bytes"]:
-                        skips.append({"path": str(path), "reason": "too_large", "size_bytes": int(stat.st_size)})
+                        record_skip({"path": str(path), "reason": "too_large", "size_bytes": int(stat.st_size)})
                         continue
                     text, size, read_error = saved_text_decode(path, limits["max_file_bytes"])
                     if read_error:
-                        skips.append({"path": str(path), "reason": read_error, "size_bytes": size})
+                        record_skip({"path": str(path), "reason": read_error, "size_bytes": size})
                         continue
                     sha = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
                     previous = _previous_file_state(state, path)
@@ -161,7 +316,7 @@ def saved_text_scan_candidates(
                         continue
                     candidates.append({
                         "path": str(path),
-                        "root": str(root),
+                        "root": root_for(path),
                         "name": path.name,
                         "suffix": path.suffix.lower(),
                         "size_bytes": int(stat.st_size),
@@ -170,9 +325,58 @@ def saved_text_scan_candidates(
                         "sha256": sha,
                         "text": text,
                     })
+                    if len(candidates) >= limits["max_files_per_scan"]:
+                        stop_reason = "candidate_budget"
+                        directory_incomplete = True
+                        break
         except OSError as exc:
-            skips.append({"path": str(root), "reason": f"walk_failed: {exc}"[:180]})
+            record_skip({"path": str(directory), "reason": f"walk_failed: {exc}"[:180]})
+            continue
 
+        if after and not resume_found and not directory_incomplete:
+            record_skip({"path": str(directory), "reason": "cursor_marker_missing"})
+            pending.append({"path": str(directory), "after": None})
+            continue
+
+        if directory_incomplete:
+            cursor_item = {"path": str(directory), "after": last_processed}
+            if deferred_for_queue:
+                pending.append(cursor_item)
+                continue
+            pending.appendleft(cursor_item)
+            break
+
+    cycle_complete = not pending
+    if queue_deferred:
+        record_skip({"reason": "pending_directory_deferred", "count": queue_deferred})
+
+    elapsed_ms = round((time.monotonic() - started) * 1000.0, 3)
+    scan_summary = {
+        "cycle": cycle,
+        "cycle_complete": cycle_complete,
+        "stop_reason": stop_reason or ("cycle_complete" if cycle_complete else "candidate_budget"),
+        "elapsed_ms": elapsed_ms,
+        "seen_entries": seen_entries,
+        "seen_files": seen_files,
+        "processed_directories": processed_directories,
+        "pending_directories": len(pending),
+        "queue_deferred": queue_deferred,
+        "state_files_pruned": state_files_pruned,
+        "skip_counts": dict(sorted(skip_counts.items())),
+    }
+    cursor_payload = {
+        "version": 1,
+        "cycle": cycle,
+        "roots": root_strings,
+        "pending_directories": list(pending)[: limits["max_pending_directories"]],
+    }
+    if isinstance(state, dict):
+        state["scan_cursor"] = cursor_payload
+    if progress is not None:
+        progress.clear()
+        progress.update({"summary": scan_summary, "cursor": cursor_payload})
+
+    skips.append({"reason": "scan_summary", **scan_summary})
     skips.append({"reason": "scan_seen_files", "count": seen_files})
     return candidates, skips
 
@@ -314,6 +518,11 @@ def saved_text_scan_document(
     paths: Mapping[str, Any],
     prime_state: bool = False,
 ) -> dict[str, Any]:
+    scan = next(
+        ({key: value for key, value in item.items() if key != "reason"} for item in skips if item.get("reason") == "scan_summary"),
+        {},
+    )
+    public_skips = [item for item in skips if item.get("reason") != "scan_summary"]
     return {
         "schema": f"{schema_prefix}_typing_saved_text_scan_v1",
         "version": version,
@@ -325,11 +534,12 @@ def saved_text_scan_document(
             "candidates": len(candidates),
             "events": len(events),
             "primed": len(candidates) if prime_state else 0,
-            "skips": len(skips),
+            "skips": len(public_skips),
             "state_error": state_error,
         },
         "events": events,
-        "skips": skips[:80],
+        "skips": public_skips[: saved_text_scan_limits(saved_policy)["max_skip_records"]],
+        "scan": scan,
         "roots": saved_policy.get("roots", []),
         "limits": saved_text_scan_report_limits(saved_policy),
         "policy": {
