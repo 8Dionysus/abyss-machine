@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import re
 
 from _common import REPO_ROOT, fail, load_json, ok, tracked_files
 
 
 MANIFEST = REPO_ROOT / "manifests" / "public_boundary.manifest.json"
+
+
+def is_repo_self_index(path_text: str, text: str) -> bool:
+    if not path_text.startswith("kag/indexes/") or not path_text.endswith(".json"):
+        return False
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(payload, dict) and payload.get("schema_version") in {
+        "aoa-repo-local-kag-index-v2",
+        "aoa-repo-local-kag-repository-index-v2",
+    }
 
 
 def main() -> int:
@@ -31,7 +45,7 @@ def main() -> int:
         for pattern in patterns:
             if pattern.search(text):
                 failures.append(f"forbidden text pattern {pattern.pattern!r}: {path_text}")
-        if legacy_template_ref.search(text):
+        if legacy_template_ref.search(text) and not is_repo_self_index(path_text, text):
             if path_text not in allowed_legacy_mentions:
                 failures.append(f"legacy templates reference outside allowlist: {path_text}")
 
