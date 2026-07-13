@@ -450,10 +450,10 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "5d7864779fe1f8bff5e3c4d20c8e75c32cc1f75c21a7966a771692176761d6f8",
-      "id": "artifact:file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
-      "path": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md",
-      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
+      "content_hash": "f975f2fc09a5e0dcfa427c919d900839b869d5dcce71b5c9df1e3c9100b44155",
+      "id": "artifact:file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce",
+      "path": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce",
       "surface_state": "authored_source"
     },
     {
@@ -466,7 +466,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "f4299cafb0a626ec9c628e7f0514a1bab6ccdf1b59016dd8469a148d87a45263",
+      "content_hash": "6bd06e9748b62611d772f847d3a19e72de6887f7854c6b8dd81372202030312f",
       "id": "artifact:file:config-templates/etc/abyss-machine/decisions/readme.md:1dc9bda5ca",
       "path": "config-templates/etc/abyss-machine/decisions/README.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/decisions/readme.md:1dc9bda5ca",
@@ -890,7 +890,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "bdaa51e7086727652363656a8344d13e45d6c85a37e0ccf0304ec36c460a95e8",
+      "content_hash": "1aa53126da30e9f7f5e1eac074922ed7eebf501bce9ccdc94d3d94735c26c290",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -4827,7 +4827,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "8e65ac3dddbcf22b8f44c1941daba15f32c983298f21ce5c687370e504bb6d95",
+    "content_digest": "da97e151ab5a36a0ab9e8e4a2f396a4d71ac8e542f928e63d6bd3b2e2e37e548",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4851,7 +4851,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "d2f6697c0eb45e37b3dd8eacb620960fd9e6b08fb852c951f4cc89d996fb1f02",
+    "content_digest": "7a6d0d1d9fbde8c759c5c191808a2ad9e00fd3a6984a065ab3faed63a78700df",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
