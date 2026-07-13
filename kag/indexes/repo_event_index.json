@@ -1621,6 +1621,15 @@
       "event_kind": "test_run",
       "event_role": "producer",
       "heading_ref": null,
+      "id": "event:repo:e31a507c41668f8aac17",
+      "observation_state": "declared",
+      "path": "tests/public_smoke/test_subsystem_validation_retention.py",
+      "source_record_id": "file:tests/public_smoke/test_subsystem_validation_retention.py:90b16ad2d4"
+    },
+    {
+      "event_kind": "test_run",
+      "event_role": "producer",
+      "heading_ref": null,
       "id": "event:repo:6ad4c1654aeb8d7546d8",
       "observation_state": "declared",
       "path": "tests/public_smoke/test_topology_contracts.py",
@@ -1881,7 +1890,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_event_index",
-    "content_digest": "052b50a940edd2e28e6ea600abb6368ab42e2802813c39bbbc3a6544046ff7bb",
+    "content_digest": "abe830878ebc7d08841b27e823e297c92c4162252f1e6aba7d1a8d4d5a5c7715",
     "index_kind": "event",
     "local_id": "index:repo-local:events",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -1906,19 +1915,19 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "3020c5fa29c1ce6f36a8e88879e07af7f7138d6b38aa0834a674a82ec619bce4",
+    "content_digest": "8e8d00d2f9f9407e444a32336cf4a21adaa65bb36b79f5211843cdaaaa1e7a75",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 206,
+    "entry_count": 207,
     "kind_counts": {
       "command_run": 34,
       "decision_record": 22,
       "generation_run": 2,
       "release_declaration": 2,
       "release_lane": 2,
-      "test_run": 139,
+      "test_run": 140,
       "validation_lane_run": 2,
       "validation_receipt": 1,
       "workflow_run": 2

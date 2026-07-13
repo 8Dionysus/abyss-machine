@@ -40323,6 +40323,7 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
             "root": MEMORY_ROOT,
             "latest": MEMORY_VALIDATE_LATEST_PATH,
             "history": MEMORY_VALIDATE_ROOT,
+            "validation_retention": "latest_only",
             "paths": memory_paths,
             "docs": [MEMORY_AGENTS_PATH, MEMORY_POLICY_PATH, MEMORY_RESIDENCY_SPEC_PATH],
             "dirs": [MEMORY_ROOT, MEMORY_STATUS_ROOT, MEMORY_PRESSURE_ROOT, MEMORY_PROCESS_ROOT, MEMORY_PLAN_ROOT, MEMORY_HEADROOM_ROOT, MEMORY_RESIDENCY_ROOT, MEMORY_HOTPATH_ROOT, MEMORY_ORCHESTRATE_ROOT, MEMORY_ORCHESTRATE_APPLY_ROOT, MEMORY_ORCHESTRATE_IDLE_ROOT, MEMORY_ORCHESTRATE_CONFIRM_ROOT, MEMORY_ORCHESTRATE_EXECUTOR_ROOT, MEMORY_ORCHESTRATE_LIVE_ROOT, MEMORY_VALIDATE_ROOT],
@@ -40349,6 +40350,7 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
             "root": RESOURCE_ROOT,
             "latest": RESOURCE_VALIDATE_LATEST_PATH,
             "history": RESOURCE_VALIDATE_ROOT,
+            "validation_retention": "latest_only",
             "paths": resource_paths,
             "docs": [RESOURCE_AGENTS_PATH, RESOURCE_POLICY_PATH],
             "dirs": [RESOURCE_ROOT, RESOURCE_PLAN_ROOT, RESOURCE_RUN_ROOT, RESOURCE_ORCHESTRATOR_ROOT, RESOURCE_VALIDATE_ROOT],
@@ -41862,8 +41864,12 @@ def subsystem_validate(name: str, strict: bool = False, write_latest: bool = Tru
             errors = write_dictation_validation_latest(data)
         else:
             latest = Path(spec["latest"])
-            history = Path(spec["history"])
-            errors = write_latest_and_history(data, latest, history)
+            if spec.get("validation_retention") == "latest_only":
+                error = safe_atomic_write_json(latest, data, 0o664)
+                errors = [error] if error else []
+            else:
+                history = Path(spec["history"])
+                errors = write_latest_and_history(data, latest, history)
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
