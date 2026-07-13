@@ -890,7 +890,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "1bff15d3c189ff35bd90a4a0455f80df18b5362605926bf97318827e2f71cc6b",
+      "content_hash": "3761a9327c190ce432a6a26c8fe237b9085a2b168bf8f22d1fe5a22d3b206dc7",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -4811,7 +4811,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "31710467f37341e86bb83e6e2e61b2ffff5d0d40ef909d5bbe4ba8ecda738b23",
+    "content_digest": "a17ad109758cc5aba1b3867c06c9f71e762b53e150a8daa37d19960eabafa6ac",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4835,7 +4835,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "d13ab4cb0f3e44a0dcb5024781c8ecfe87a92ca15e024bcb4c0ce23e0a8093f0",
+    "content_digest": "7dccb538c1985ecb2dd32a38503b7ff1e0cb95edd559496a7131cb6a5a670930",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
