@@ -74,7 +74,7 @@
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "1410cf3f3707ec93d017d2eeab0447fd63bb391c6bb447a70d187eb02d81eab3",
+    "content_digest": "d13ab4cb0f3e44a0dcb5024781c8ecfe87a92ca15e024bcb4c0ce23e0a8093f0",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -4108,13 +4108,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "af43294935f266d0ab840d56cbf4daa665c78fcbaad9716773e67953d4b31833",
+        "content_hash": "1cc8cb791543f5e94277722c86b1d0ab61adbcdfab7d9c84bec6457882b9f523",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/commands.md",
         "repo": "abyss-machine",
-        "size_bytes": 97521
+        "size_bytes": 97561
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -4260,7 +4260,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "af43294935f266d0ab840d56cbf4daa665c78fcbaad9716773e67953d4b31833",
+        "digest": "1cc8cb791543f5e94277722c86b1d0ab61adbcdfab7d9c84bec6457882b9f523",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -15012,7 +15012,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "9ab37b223390d9c07a1855043d8b80874168bd431f3422bb8aea29735e2b6d5d",
+        "content_hash": "1bff15d3c189ff35bd90a4a0455f80df18b5362605926bf97318827e2f71cc6b",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
@@ -15051,7 +15051,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "9ab37b223390d9c07a1855043d8b80874168bd431f3422bb8aea29735e2b6d5d",
+        "digest": "1bff15d3c189ff35bd90a4a0455f80df18b5362605926bf97318827e2f71cc6b",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
