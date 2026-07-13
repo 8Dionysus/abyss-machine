@@ -890,7 +890,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "3761a9327c190ce432a6a26c8fe237b9085a2b168bf8f22d1fe5a22d3b206dc7",
+      "content_hash": "fd180684895513a2b9980cdb6aaf983c69e08444f9bd446306ac5bef86ae8dd1",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -2202,7 +2202,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "68b011f084ce90567aa2c514c0eead3141f6e1fb27e13dada50ded84571fb716",
+      "content_hash": "ecf4d4d71160384d5481fbd5347505c7bfd0552e5ca00d991d2f2719788a3269",
       "id": "artifact:file:src/abyss_machine/memory_adapters.py:54ff75dda2",
       "path": "src/abyss_machine/memory_adapters.py",
       "source_record_id": "file:src/abyss_machine/memory_adapters.py:54ff75dda2",
@@ -2490,7 +2490,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "66b233553f55a0f406b36bae357d53ad61d69ca103087445664f695fcbc72ce1",
+      "content_hash": "d4b819ebe9a3a3c60b0c3fca0cab503d40bbea95571ca8347ad0427bf7abf2d8",
       "id": "artifact:file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
       "path": "src/abyss_machine/resource_adapters.py",
       "source_record_id": "file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
@@ -3858,7 +3858,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "c5115285648d7827e3ac60da4e5f99bba456a4e9ee89d77f298a2dde883e83ee",
+      "content_hash": "f9bccfb115acdc113ebea5cc26eb12a4aa39bd9908acdcab870bba0abf60a23a",
       "id": "artifact:file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b",
       "path": "tests/public_smoke/test_memory_adapters.py",
       "source_record_id": "file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b",
@@ -4162,7 +4162,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "e2d291b82f6d77219ae6a253b3711bcb6f9c308eabcd71739f0e19765c152dbc",
+      "content_hash": "b9e2373370deb6851e7a4a5a5288c9102a4e51f4b7942a1b51821243955f68e7",
       "id": "artifact:file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
       "path": "tests/public_smoke/test_resource_adapters.py",
       "source_record_id": "file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
@@ -4811,7 +4811,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "a17ad109758cc5aba1b3867c06c9f71e762b53e150a8daa37d19960eabafa6ac",
+    "content_digest": "47ecda6e601912a9165d6db0e5e48ae9d29c508f607f39b9e90588bd61099bab",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4835,7 +4835,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "7dccb538c1985ecb2dd32a38503b7ff1e0cb95edd559496a7131cb6a5a670930",
+    "content_digest": "e9e45b02729575551075d78870c341333be7fbb8240680511c69a4f94f3ad540",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },

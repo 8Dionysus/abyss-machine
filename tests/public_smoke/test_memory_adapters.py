@@ -428,6 +428,91 @@ def test_process_snapshot_uses_fake_proc_cgroup_and_podman_ports(tmp_path: Path)
     assert body["top"]["pss"][0]["pss_kib"] == 2048
 
 
+def test_codex_thread_identity_uses_open_rollout_fd_without_exposing_path(tmp_path: Path) -> None:
+    fd_root = tmp_path / "proc" / "42" / "fd"
+    fd_root.mkdir(parents=True)
+    thread_id = "019f1568-843b-7832-888f-e17c5d74d697"
+    (fd_root / "7").symlink_to(
+        f"/srv/runtime/custom-codex-home/sessions/2026/07/12/rollout-2026-07-12T00-00-00-{thread_id}.jsonl"
+    )
+
+    identity = memory_adapters.codex_thread_identity(42, proc_root=tmp_path / "proc")
+
+    assert identity == {
+        "owner": "codex",
+        "identity_scope": "thread",
+        "stable_id": thread_id,
+        "candidate_ids": [thread_id],
+        "ambiguous": False,
+        "evidence": "open_rollout_fd",
+        "content_read": False,
+    }
+    assert "/srv/runtime" not in json.dumps(identity)
+
+
+def test_codex_thread_identity_preserves_ambiguous_owner_evidence(tmp_path: Path) -> None:
+    fd_root = tmp_path / "proc" / "42" / "fd"
+    fd_root.mkdir(parents=True)
+    first = "019f1568-843b-7832-888f-e17c5d74d697"
+    second = "019f4e25-20ec-77f0-9d41-e88b8cf1fae8"
+    for fd, thread_id in (("7", first), ("8", second)):
+        (fd_root / fd).symlink_to(
+            f"/home/operator/.codex/sessions/2026/07/12/rollout-2026-07-12T00-00-00-{thread_id}.jsonl"
+        )
+
+    identity = memory_adapters.codex_thread_identity(42, proc_root=tmp_path / "proc")
+
+    assert identity is not None
+    assert identity["stable_id"] is None
+    assert identity["candidate_ids"] == sorted([first, second])
+    assert identity["ambiguous"] is True
+
+
+def test_process_snapshot_carries_codex_thread_identity_to_cgroup(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    cgroup_root = tmp_path / "cgroup"
+    cgroup = cgroup_root / "user.slice" / "codex.scope"
+    (proc_root / "42").mkdir(parents=True)
+    cgroup.mkdir(parents=True)
+    (cgroup / "memory.current").write_text("4194304\n", encoding="utf-8")
+    (cgroup / "memory.swap.current").write_text("0\n", encoding="utf-8")
+    thread_id = "019f1568-843b-7832-888f-e17c5d74d697"
+    identity = {
+        "owner": "codex",
+        "identity_scope": "thread",
+        "stable_id": thread_id,
+        "candidate_ids": [thread_id],
+        "ambiguous": False,
+        "evidence": "open_rollout_fd",
+        "content_read": False,
+    }
+
+    body = memory_adapters.process_snapshot(
+        top=5,
+        smaps=False,
+        proc_root=proc_root,
+        cgroup_root=cgroup_root,
+        process_info=lambda pid: {
+            "pid": pid,
+            "name": "codex",
+            "comm": "codex",
+            "vmrss_kib": 4096,
+            "oom_score": 100,
+            "cgroup": "0::/user.slice/codex.scope",
+            "workload_hint": "development",
+            "capability_role": "none",
+            "cmdline": "codex",
+        },
+        owner_identity_port=lambda _pid: identity,
+        podman_index_port=lambda: {"containers": 0, "error": None, "by_pid": {}},
+        protected_roles={"persistent_model", "persistent_ai_service", "operator_dictation"},
+    )
+
+    assert body["summary"]["codex_thread_processes_identified"] == 1
+    assert body["top"]["rss"][0]["owner_identity"]["stable_id"] == thread_id
+    assert body["top"]["cgroup_memory"][0]["owner_identities"] == [identity]
+
+
 def test_residency_service_status_uses_fake_systemd_cgroup_and_rollup_ports(tmp_path: Path) -> None:
     cgroup_root = tmp_path / "cgroup"
     service_cgroup = cgroup_root / "user.slice" / "tts.service"
