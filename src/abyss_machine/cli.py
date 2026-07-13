@@ -16389,6 +16389,7 @@ def resource_plan(
         memory_policy=memory_policy,
         demand=demand,
         reservations=reservations,
+        unattended=unattended,
         admission_policy=policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {},
     )
     projected_class = str(nested_get(demand_projection, ["projected", "memory_class"]) or memory.get("class") or "green")
@@ -16655,8 +16656,13 @@ def resource_launch(
                 blocked_now = list(plan.get("blocked_reasons") or [])
                 denied_now = list(plan.get("denied_reasons") or [])
                 unknown_conflict = "startup_unknown_demand_in_progress" in blocked_now
-                only_unknown_conflict = unknown_conflict and not denied_now and set(blocked_now) == {"startup_unknown_demand_in_progress"}
-                if only_unknown_conflict and time.monotonic() < wait_deadline:
+                active_stall_defer = "startup_new_unattended_work_during_active_memory_stall" in blocked_now
+                waitable_reasons = {
+                    "startup_unknown_demand_in_progress",
+                    "startup_new_unattended_work_during_active_memory_stall",
+                }
+                only_waitable = bool(unknown_conflict or active_stall_defer) and not denied_now and set(blocked_now).issubset(waitable_reasons)
+                if only_waitable and time.monotonic() < wait_deadline:
                     should_wait = True
                 elif not blocked_now and not denied_now:
                     requested = nested_get(plan, ["inputs", "startup_demand", "requested"])

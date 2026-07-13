@@ -101,6 +101,79 @@ def test_resource_startup_projection_counts_only_unmaterialized_ram() -> None:
     assert projection["admission"]["pressure_facts_assign_importance"] is False
 
 
+def test_resource_startup_projection_defers_only_new_unattended_work_during_active_stall() -> None:
+    memory_policy = {
+        "thresholds": {
+            "mem_available_percent": {"watch_below": 30, "warm_below": 22, "hot_below": 14, "critical_below": 8},
+            "psi_some_avg10": {"hot_above": 8.0},
+            "psi_full_avg10": {"hot_above": 2.0},
+        }
+    }
+    demand = {
+        "reservation_required": True,
+        "known": True,
+        "estimate_available": True,
+        "demand_mib": 512,
+        "unknown_startup_lane": False,
+    }
+    reservations = {"summary": {"active_count": 0, "known_count": 0, "unknown_count": 0, "outstanding_mib": 0}}
+
+    unattended_active_stall = resource_planning.startup_demand_projection(
+        memory_summary={
+            "mem_total_mib": 32000,
+            "mem_available_mib": 13000,
+            "psi_some_avg10": 0.0,
+            "psi_full_avg10": 3.0,
+        },
+        current_memory_class="critical",
+        memory_policy=memory_policy,
+        demand=demand,
+        reservations=reservations,
+        unattended=True,
+        admission_policy={"hard_mem_available_floor_mib": 2048},
+    )
+    foreground_active_stall = resource_planning.startup_demand_projection(
+        memory_summary={
+            "mem_total_mib": 32000,
+            "mem_available_mib": 13000,
+            "psi_some_avg10": 0.0,
+            "psi_full_avg10": 3.0,
+        },
+        current_memory_class="critical",
+        memory_policy=memory_policy,
+        demand=demand,
+        reservations=reservations,
+        unattended=False,
+        admission_policy={"hard_mem_available_floor_mib": 2048},
+    )
+    quiet_unattended = resource_planning.startup_demand_projection(
+        memory_summary={
+            "mem_total_mib": 32000,
+            "mem_available_mib": 13000,
+            "psi_some_avg10": 0.0,
+            "psi_full_avg10": 0.0,
+        },
+        current_memory_class="critical",
+        memory_policy=memory_policy,
+        demand=demand,
+        reservations=reservations,
+        unattended=True,
+        admission_policy={"hard_mem_available_floor_mib": 2048},
+    )
+
+    assert unattended_active_stall["admission"]["allowed"] is False
+    assert unattended_active_stall["admission"]["active_stall"] is True
+    assert unattended_active_stall["admission"]["blocked_reasons"] == [
+        "new_unattended_work_during_active_memory_stall"
+    ]
+    assert unattended_active_stall["admission"]["pressure_facts_assign_importance"] is False
+    assert foreground_active_stall["admission"]["allowed"] is True
+    assert foreground_active_stall["admission"]["active_stall"] is True
+    assert foreground_active_stall["admission"]["unattended_start"] is False
+    assert quiet_unattended["admission"]["allowed"] is True
+    assert quiet_unattended["admission"]["active_stall"] is False
+
+
 def test_resource_planning_builds_indexing_systemd_contract_without_cli_state() -> None:
     policy = resource_planning.default_policy(version="test")
     route = {

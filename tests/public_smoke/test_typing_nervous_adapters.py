@@ -121,6 +121,21 @@ def test_read_recent_jsonl_records_reads_newest_files_and_preserves_parse_errors
     assert errors[0]["line"] == 2
 
 
+def test_read_recent_jsonl_records_does_not_load_an_old_large_prefix(tmp_path):
+    root = tmp_path / "typing-events"
+    path = root / "2026" / "07" / "2026-07-11.jsonl"
+    path.parent.mkdir(parents=True)
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write("{" + ("x" * (2 * 1024 * 1024)) + "\n")
+        for event_id in range(5):
+            handle.write(json.dumps({"event_id": f"recent-{event_id}"}) + "\n")
+
+    records, errors = typing_nervous_adapters.read_recent_jsonl_records(root, limit=3)
+
+    assert [record["event_id"] for record in records] == ["recent-4", "recent-3", "recent-2"]
+    assert errors == []
+
+
 def test_read_recent_jsonl_records_for_source_tracks_scan_exhaustion(tmp_path):
     root = tmp_path / "typing-events"
     path = root / "2026" / "06" / "2026-06-27.jsonl"
