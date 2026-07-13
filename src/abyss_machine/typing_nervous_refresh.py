@@ -7,15 +7,15 @@ from typing import Any
 TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS = frozenset(
     {
         "mode_unattended_cap_probe",
-        "memory_critical_blocks_medium",
-        "memory_critical_blocks_unattended_medium",
         "game_guard_unattended_medium_or_heavier",
         "game_guard_active",
         "thermal_plan_unattended_denied",
         "thermal_plan_denied",
         "cpu_route_unattended_denied",
-        "indexing_unattended_swap_used_pressure",
-        "indexing_unattended_swap_free_below_floor",
+        "startup_projected_mem_available_below_hard_reserve",
+        "startup_unknown_demand_with_low_physical_headroom",
+        "startup_unknown_demand_during_active_memory_stall",
+        "startup_unknown_demand_in_progress",
     }
 )
 

@@ -333,7 +333,7 @@ def test_semantic_maintain_adapter_blocks_build_launch_through_resource_port(tmp
         },
         lock_active=lambda: lock_calls.append(True) or False,
         resource_launch=resource_launch,
-        memory_plan=lambda: {"class": "normal", "pressure": {"summary": {}}, "recommended_new_work": {}},
+        memory_plan=lambda: {"class": "normal", "pressure": {"summary": {}}},
         latest_writer=lambda data: {**data, "written": True},
         json_parser=lambda _stdout: None,
         write_latest=True,

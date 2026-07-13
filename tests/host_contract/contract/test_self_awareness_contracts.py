@@ -1420,7 +1420,7 @@ def test_self_awareness_memory_space_overlay_preserves_freshness_and_boundaries(
             "assessment": {"needed": True, "reasons": ["stale_age_minutes=120.0"]},
             "index_refresh": {
                 "assessment": {"needed": True, "reasons": ["source_index_stale"]},
-                "launch": {"blocked_reasons": ["indexing_unattended_swap_used_pressure"], "denied_reasons": []},
+                "launch": {"blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"], "denied_reasons": []},
             },
         },
         requirements={"schema": "abyss_machine_self_awareness_requirements_v1", "requirements": [{"id": "stack.database-graph.read-route"}]},
@@ -1440,7 +1440,7 @@ def test_self_awareness_memory_space_overlay_preserves_freshness_and_boundaries(
     assert nervous_gate["status"] == "stale"
     assert nervous_gate["maintenance_route"] == abyss_machine_module.NERVOUS_SEMANTIC_MAINTAIN_REVIEW_COMMAND
     assert nervous_gate["details"]["semantic_maintain"]["decision"] == "blocked_index_refresh"
-    assert nervous_gate["details"]["semantic_maintain"]["index_refresh_blocked_reasons"] == ["indexing_unattended_swap_used_pressure"]
+    assert nervous_gate["details"]["semantic_maintain"]["index_refresh_blocked_reasons"] == ["startup_projected_mem_available_below_hard_reserve"]
     assert nervous_gate["details"]["resource_denial_is_safe_gate"] is True
     assert nervous_gate["details"]["policy"]["does_not_bypass_resource_gate"] is True
     assert any(ref.get("truth_level") == "nervous_semantic_maintain" for ref in nervous_gate["evidence_refs"])
@@ -5209,7 +5209,7 @@ def test_self_awareness_bounded_context_packet_joins_memory_handoff_resident_and
                         "resource": {"class": "medium", "kind": "indexing", "unattended": True},
                         "assessment": {"needed": True, "stale": True, "reasons": ["stale_age_minutes=1742.1"]},
                         "index_refresh_assessment": {"needed": True, "stale": True, "records_lag": 18},
-                        "index_refresh_blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+                        "index_refresh_blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
                         "index_refresh_denied_reasons": [],
                         "build_blocked_reasons": [],
                         "build_denied_reasons": [],
@@ -5352,7 +5352,7 @@ def test_self_awareness_bounded_context_packet_joins_memory_handoff_resident_and
     assert blocked_gate["gate_id"] == "nervous_freshness"
     assert blocked_gate["maintenance_route"] == abyss_machine_module.NERVOUS_SEMANTIC_MAINTAIN_REVIEW_COMMAND
     assert blocked_gate["semantic_maintain"]["decision"] == "blocked_index_refresh"
-    assert blocked_gate["blocked_reasons"] == ["indexing_unattended_swap_used_pressure"]
+    assert blocked_gate["blocked_reasons"] == ["startup_projected_mem_available_below_hard_reserve"]
     assert blocked_gate["resource_denial_is_safe_gate"] is True
     assert blocked_gate["policy"]["does_not_bypass_resource_gate"] is True
     assert blocked_gate["evidence_refs"][0]["truth_level"] == "nervous_semantic_maintain"

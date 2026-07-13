@@ -159,7 +159,7 @@ def default_policy(*, schema_prefix: str, version: str) -> dict[str, Any]:
         "schema": _schema(schema_prefix, "memory_policy_v1"),
         "version": version,
         "owner": "abyss-machine",
-        "purpose": "Host-side memory pressure classification and launch gating. Facts and gates only; no automatic process killing.",
+        "purpose": "Host-side memory pressure and swap-reserve facts. Pressure never assigns workload importance or authorizes process mutation.",
         "classes": ["green", "watch", "warm", "hot", "critical"],
         "thresholds": {
             "mem_available_percent": {
@@ -167,12 +167,6 @@ def default_policy(*, schema_prefix: str, version: str) -> dict[str, Any]:
                 "warm_below": 22,
                 "hot_below": 14,
                 "critical_below": 8,
-            },
-            "swap_used_percent": {
-                "watch_above": 5,
-                "warm_above": 15,
-                "hot_above": 35,
-                "critical_above": 65,
             },
             "psi_some_avg10": {
                 "watch_above": 0.2,
@@ -187,44 +181,10 @@ def default_policy(*, schema_prefix: str, version: str) -> dict[str, Any]:
                 "critical_above": 8.0,
             },
         },
-        "zram_swap_relief": {
+        "swap_reserve": {
             "enabled": True,
-            "applies_when_all_swap_devices_are_zram": True,
-            "swap_max_class": "warm",
-            "critical_swap_max_class": "warm",
-            "requires_mem_available_percent_at_or_above": 30,
-            "requires_mem_available_percent_for_headroom_relief_at_or_above": 22,
-            "requires_swap_free_mib_at_or_above": 2048,
-            "requires_psi_some_avg10_at_or_below": 2.0,
-            "requires_psi_full_avg10_at_or_below": 2.0,
-            "reason": "High zram occupancy alone is a launch-risk signal, not an OOM-risk signal, while MemAvailable or real zram headroom is present and PSI stalls stay below hot-pressure thresholds. Mild PSI should soften routing instead of promoting healthy zram occupancy to hot or critical.",
-        },
-        "launch_gates": {
-            "green": {
-                "block_classes": [],
-                "block_unattended_at_or_above": None,
-                "reason": "No memory pressure.",
-            },
-            "watch": {
-                "block_classes": [],
-                "block_unattended_at_or_above": "sustained",
-                "reason": "Keep sustained background work from making early pressure worse.",
-            },
-            "warm": {
-                "block_classes": ["sustained"],
-                "block_unattended_at_or_above": "heavy",
-                "reason": "Defer sustained work and heavy unattended starts while memory is constrained.",
-            },
-            "hot": {
-                "block_classes": ["heavy", "sustained"],
-                "block_unattended_at_or_above": "medium",
-                "reason": "Protect interactive work under memory pressure.",
-            },
-            "critical": {
-                "block_classes": ["medium", "heavy", "sustained"],
-                "block_unattended_at_or_above": "light",
-                "reason": "Avoid new pressure while OOM risk is high.",
-            },
+            "target_free_mib": 2048,
+            "reason": "Zram occupancy describes logical reserve debt. It remains separate from active pressure and never identifies a workload to mutate.",
         },
         "protected_workloads": {
             "games": "Game guard is authoritative for active games; memory policy must not mutate or kill game processes.",
@@ -237,7 +197,8 @@ def default_policy(*, schema_prefix: str, version: str) -> dict[str, Any]:
             "automatic_oomd_enable": False,
             "automatic_sysctl_tuning": False,
             "automatic_zram_reconfigure": False,
-            "launch_gate_only": True,
+            "numeric_workload_gating": False,
+            "owner_offer_required_for_existing_process_action": True,
         },
         "residency": default_residency_policy(),
     }
@@ -251,13 +212,33 @@ def policy_document(
     config_error: Any,
 ) -> dict[str, Any]:
     if isinstance(loaded, dict):
+        defaults = default_policy(schema_prefix=schema_prefix, version=version)
         data = dict(loaded)
         defaults_applied: list[str] = []
         data.setdefault("schema", _schema(schema_prefix, "memory_policy_v1"))
-        data.setdefault("version", version)
+        data["version"] = version
+        data["purpose"] = defaults["purpose"]
+        thresholds = dict(data.get("thresholds")) if isinstance(data.get("thresholds"), dict) else {}
+        thresholds.pop("swap_used_percent", None)
+        for key in ("mem_available_percent", "psi_some_avg10", "psi_full_avg10"):
+            current = thresholds.get(key) if isinstance(thresholds.get(key), dict) else {}
+            thresholds[key] = {**defaults["thresholds"][key], **current}
+        data["thresholds"] = thresholds
+        actions = data.get("actions") if isinstance(data.get("actions"), dict) else {}
+        data["actions"] = {**defaults["actions"], **actions}
+        data["actions"].pop("launch_gate_only", None)
+        for key, value in defaults["actions"].items():
+            data["actions"][key] = value
+        data.pop("launch_gates", None)
+        data.pop("zram_swap_relief", None)
         if not isinstance(data.get("residency"), dict):
             data["residency"] = default_residency_policy()
             defaults_applied.append("residency")
+        if not isinstance(data.get("swap_reserve"), dict):
+            data["swap_reserve"] = dict(defaults["swap_reserve"])
+            defaults_applied.append("swap_reserve")
+        else:
+            data["swap_reserve"] = {**defaults["swap_reserve"], **data["swap_reserve"]}
         data["defaults_applied"] = defaults_applied
         data["config_exists"] = True
         data["config_error"] = None
@@ -366,48 +347,9 @@ def swap_is_zram_only(swap: dict[str, Any]) -> bool:
     return True
 
 
-def zram_swap_relief_class(
-    mem_available_percent: Any,
-    psi_some_avg10: Any,
-    psi_full_avg10: Any,
-    swap: dict[str, Any],
-    policy: dict[str, Any],
-) -> str | None:
-    relief = policy.get("zram_swap_relief", {}) if isinstance(policy.get("zram_swap_relief"), dict) else {}
-    if not relief.get("enabled", False):
-        return None
-    if relief.get("applies_when_all_swap_devices_are_zram", True) and not swap_is_zram_only(swap):
-        return None
-    required_mem = float(relief.get("requires_mem_available_percent_at_or_above", 30))
-    headroom_mem = float(relief.get("requires_mem_available_percent_for_headroom_relief_at_or_above", 22))
-    required_swap_free_mib = float(relief.get("requires_swap_free_mib_at_or_above", 2048))
-    max_psi_some = float(relief.get("requires_psi_some_avg10_at_or_below", 0.2))
-    max_psi_full = float(relief.get("requires_psi_full_avg10_at_or_below", 0.05))
-    swap_free_mib = nested_get(swap, ["summary", "free_mib"])
-    if not isinstance(mem_available_percent, (int, float)):
-        return None
-    has_mem_relief = float(mem_available_percent) >= required_mem
-    has_headroom_relief = (
-        float(mem_available_percent) >= headroom_mem
-        and isinstance(swap_free_mib, (int, float))
-        and float(swap_free_mib) >= required_swap_free_mib
-    )
-    if not has_mem_relief and not has_headroom_relief:
-        return None
-    if not isinstance(psi_some_avg10, (int, float)) or float(psi_some_avg10) > max_psi_some:
-        return None
-    if not isinstance(psi_full_avg10, (int, float)) or float(psi_full_avg10) > max_psi_full:
-        return None
-    target = str(relief.get("swap_max_class") or "warm").strip().lower()
-    if class_rank(target) >= class_rank("critical"):
-        target = "hot"
-    return target
-
-
 def pressure_class(mem: dict[str, Any], psi: dict[str, Any], swap: dict[str, Any], policy: dict[str, Any]) -> tuple[str, list[str]]:
     thresholds = policy.get("thresholds", {}) if isinstance(policy.get("thresholds"), dict) else {}
     mem_available_percent = nested_get(mem, ["summary", "mem_available_percent"])
-    swap_used_percent = nested_get(swap, ["summary", "used_percent"])
     psi_some_avg10 = nested_get(psi, ["some", "avg10"])
     psi_full_avg10 = nested_get(psi, ["full", "avg10"])
     reasons: list[str] = []
@@ -423,47 +365,6 @@ def pressure_class(mem: dict[str, Any], psi: dict[str, Any], swap: dict[str, Any
             rank = promote(rank, "warm", f"mem_available_percent={mem_available_percent}<warm", reasons)
         elif mem_available_percent < float(mem_thresholds.get("watch_below", 30)):
             rank = promote(rank, "watch", f"mem_available_percent={mem_available_percent}<watch", reasons)
-
-    swap_thresholds = thresholds.get("swap_used_percent", {}) if isinstance(thresholds.get("swap_used_percent"), dict) else {}
-    if isinstance(swap_used_percent, (int, float)):
-        if swap_used_percent > float(swap_thresholds.get("critical_above", 65)):
-            relief_class = zram_swap_relief_class(mem_available_percent, psi_some_avg10, psi_full_avg10, swap, policy)
-            if relief_class:
-                rank = promote(
-                    rank,
-                    relief_class,
-                    (
-                        f"swap_used_percent={swap_used_percent}>critical"
-                        f"_but_zram_only_relief_to_{relief_class}"
-                        f"(mem_available_percent={mem_available_percent},"
-                        f"swap_free_mib={nested_get(swap, ['summary', 'free_mib'])},"
-                        f"psi_some_avg10={psi_some_avg10},psi_full_avg10={psi_full_avg10})"
-                    ),
-                    reasons,
-                )
-            else:
-                rank = promote(rank, "critical", f"swap_used_percent={swap_used_percent}>critical", reasons)
-        elif swap_used_percent > float(swap_thresholds.get("hot_above", 35)):
-            relief_class = zram_swap_relief_class(mem_available_percent, psi_some_avg10, psi_full_avg10, swap, policy)
-            if relief_class and class_rank(relief_class) < class_rank("hot"):
-                rank = promote(
-                    rank,
-                    relief_class,
-                    (
-                        f"swap_used_percent={swap_used_percent}>hot"
-                        f"_but_zram_only_relief_to_{relief_class}"
-                        f"(mem_available_percent={mem_available_percent},"
-                        f"swap_free_mib={nested_get(swap, ['summary', 'free_mib'])},"
-                        f"psi_some_avg10={psi_some_avg10},psi_full_avg10={psi_full_avg10})"
-                    ),
-                    reasons,
-                )
-            else:
-                rank = promote(rank, "hot", f"swap_used_percent={swap_used_percent}>hot", reasons)
-        elif swap_used_percent > float(swap_thresholds.get("warm_above", 15)):
-            rank = promote(rank, "warm", f"swap_used_percent={swap_used_percent}>warm", reasons)
-        elif swap_used_percent > float(swap_thresholds.get("watch_above", 5)):
-            rank = promote(rank, "watch", f"swap_used_percent={swap_used_percent}>watch", reasons)
 
     some_thresholds = thresholds.get("psi_some_avg10", {}) if isinstance(thresholds.get("psi_some_avg10"), dict) else {}
     if isinstance(psi_some_avg10, (int, float)):
@@ -488,30 +389,36 @@ def pressure_class(mem: dict[str, Any], psi: dict[str, Any], swap: dict[str, Any
             rank = promote(rank, "watch", f"psi_full_avg10={psi_full_avg10}>watch", reasons)
 
     if not reasons:
-        reasons.append("no_memory_pressure_observed")
+        reasons.append("no_active_memory_pressure_observed")
     return class_name(rank), reasons
 
 
-def launch_gate_for_class(memory_class: str, workload_class: str, unattended: bool, policy: dict[str, Any]) -> dict[str, Any]:
-    gates = policy.get("launch_gates", {}) if isinstance(policy.get("launch_gates"), dict) else {}
-    gate = gates.get(memory_class) if isinstance(gates.get(memory_class), dict) else {}
-    normalized = str(workload_class or "medium").strip().lower()
-    if normalized == "interactive":
-        normalized = "medium"
-    blocked: list[str] = []
-    block_classes = set(str(item) for item in gate.get("block_classes", []) if isinstance(item, str))
-    if normalized in block_classes:
-        blocked.append(f"memory_{memory_class}_blocks_{normalized}")
-    unattended_at = gate.get("block_unattended_at_or_above")
-    if unattended and unattended_at and workload_level(normalized) >= workload_level(str(unattended_at)):
-        blocked.append(f"memory_{memory_class}_blocks_unattended_{normalized}")
+def swap_reserve_status(swap: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    summary = swap.get("summary") if isinstance(swap.get("summary"), dict) else {}
+    reserve_policy = policy.get("swap_reserve") if isinstance(policy.get("swap_reserve"), dict) else {}
+    free_mib = float_value(summary.get("free_mib"), None)
+    total_mib = float_value(summary.get("total_mib"), None)
+    used_mib = float_value(summary.get("used_mib"), None)
+    used_percent = float_value(summary.get("used_percent"), None)
+    target_free_mib = max(0.0, float(reserve_policy.get("target_free_mib", 2048)))
+    shortfall_mib = None if free_mib is None else max(0.0, target_free_mib - free_mib)
+    if free_mib is None:
+        state = "unavailable"
+    elif shortfall_mib > 0:
+        state = "below_target"
+    else:
+        state = "within_target"
     return {
-        "allowed": not blocked,
-        "blocked_reasons": blocked,
-        "memory_class": memory_class,
-        "workload_class": normalized,
-        "unattended": bool(unattended),
-        "gate": gate,
+        "state": state,
+        "total_mib": None if total_mib is None else round(total_mib, 1),
+        "used_mib": None if used_mib is None else round(used_mib, 1),
+        "used_percent": None if used_percent is None else round(used_percent, 3),
+        "free_mib": None if free_mib is None else round(free_mib, 1),
+        "target_free_mib": round(target_free_mib, 1),
+        "shortfall_mib": None if shortfall_mib is None else round(shortfall_mib, 1),
+        "all_swap_devices_are_zram": swap_is_zram_only(swap),
+        "pressure_authority": False,
+        "action_authority": False,
     }
 
 
@@ -525,7 +432,7 @@ def headroom_process_buckets(processes: dict[str, Any], protected_roles: Iterabl
         top_cgroup_swap = []
     buckets: dict[tuple[str, str], dict[str, Any]] = {}
     protected_swap_kib = 0
-    operator_review_swap_kib = 0
+    owner_state_unknown_swap_kib = 0
     top: list[dict[str, Any]] = []
     for item in top_cgroup_swap:
         if not isinstance(item, dict):
@@ -536,17 +443,11 @@ def headroom_process_buckets(processes: dict[str, Any], protected_roles: Iterabl
         role = str(item.get("capability_role") or "none")
         protected = bool(item.get("protected")) or role in protected_role_set or workload == "game"
         if protected:
-            route = str(item.get("route") or "route_new_work_around_protected_capability")
+            route = "preserve_protected_owner_context"
             protected_swap_kib += swap_kib
-        elif workload == "game_platform":
-            route = str(item.get("route") or "operator_review_game_platform_only")
-            operator_review_swap_kib += swap_kib
-        elif workload in {"development", "browser", "normal"}:
-            route = str(item.get("route") or "operator_review_candidate")
-            operator_review_swap_kib += swap_kib
         else:
-            route = str(item.get("route") or "observe")
-            operator_review_swap_kib += swap_kib
+            route = "owner_state_required_before_action"
+            owner_state_unknown_swap_kib += swap_kib
         key = (workload, role)
         bucket = buckets.setdefault(
             key,
@@ -574,6 +475,7 @@ def headroom_process_buckets(processes: dict[str, Any], protected_roles: Iterabl
                     "capability_role": role,
                     "protected": protected,
                     "route": route,
+                    "action_authority": False,
                     "pss_mib": kib_to_mib(pss_kib),
                     "swap_mib": kib_to_mib(swap_kib),
                     "process_swap_rollup_mib": item.get("process_swap_rollup_mib"),
@@ -589,13 +491,9 @@ def headroom_process_buckets(processes: dict[str, Any], protected_roles: Iterabl
         role = str(item.get("capability_role") or "none")
         protected = role in protected_role_set or workload == "game"
         if protected:
-            route = "route_new_work_around_protected_capability"
-        elif workload == "game_platform":
-            route = "operator_review_game_platform_only"
-        elif workload in {"development", "browser", "normal"}:
-            route = "operator_review_candidate"
+            route = "preserve_protected_owner_context"
         else:
-            route = "observe"
+            route = "owner_state_required_before_action"
         if len(process_top) < 15:
             process_top.append(
                 {
@@ -605,9 +503,9 @@ def headroom_process_buckets(processes: dict[str, Any], protected_roles: Iterabl
                     "capability_role": role,
                     "protected": protected,
                     "route": route,
+                    "action_authority": False,
                     "pss_mib": kib_to_mib(pss_kib),
                     "swap_mib": kib_to_mib(swap_kib),
-                    "cmdline_preview": str(item.get("cmdline") or "")[:180],
                 }
             )
     bucket_items = []
@@ -621,16 +519,19 @@ def headroom_process_buckets(processes: dict[str, Any], protected_roles: Iterabl
                 "pss_mib": kib_to_mib(bucket["pss_kib"]),
                 "protected": bucket["protected"],
                 "route": bucket["route"],
+                "action_authority": False,
             }
         )
     bucket_items.sort(key=lambda item: float(item.get("swap_mib") or 0), reverse=True)
     return {
         "coverage": "cgroup_swap_current_primary_with_process_rollup_detail",
-        "protected_swap_mib": kib_to_mib(protected_swap_kib),
-        "operator_review_swap_mib": kib_to_mib(operator_review_swap_kib),
+        "protected_owner_context_swap_mib": kib_to_mib(protected_swap_kib),
+        "owner_state_unknown_swap_mib": kib_to_mib(owner_state_unknown_swap_kib),
         "buckets": bucket_items,
         "top_cgroup_swap": top,
         "top_swap": process_top,
+        "action_authority": False,
+        "importance_inference": False,
     }
 
 
@@ -648,25 +549,6 @@ def plan_document(
     game_guard_latest: Any,
 ) -> dict[str, Any]:
     memory_class = str(pressure.get("class") or nested_get(pressure, ["summary", "class"]) or "green")
-    recommended: dict[str, Any] = {}
-    for workload in ("probe", "light", "medium", "heavy", "sustained"):
-        gate = launch_gate_for_class(memory_class, workload, unattended=False, policy=policy)
-        unattended_gate = launch_gate_for_class(memory_class, workload, unattended=True, policy=policy)
-        recommended[workload] = {
-            "allowed": bool(gate.get("allowed")),
-            "unattended_allowed": bool(unattended_gate.get("allowed")),
-            "blocked_reasons": gate.get("blocked_reasons"),
-            "unattended_blocked_reasons": unattended_gate.get("blocked_reasons"),
-        }
-    if game_guard.get("active"):
-        for workload in ("heavy", "sustained"):
-            recommended[workload]["game_guarded"] = True
-            recommended[workload]["allowed"] = False
-            recommended[workload].setdefault("blocked_reasons", []).append("game_guard_active")
-        for workload in ("medium", "heavy", "sustained"):
-            recommended[workload]["unattended_allowed"] = False
-            recommended[workload].setdefault("unattended_blocked_reasons", []).append("game_guard_active")
-
     return {
         "schema": _schema(schema_prefix, "memory_plan_v1"),
         "version": version,
@@ -688,16 +570,17 @@ def plan_document(
             "summary": game_guard.get("summary"),
             "latest": str(game_guard_latest),
         },
-        "recommended_new_work": recommended,
         "commands": {
             "status": "abyss-machine memory status --json",
             "pressure": "abyss-machine memory pressure --json",
             "processes": "abyss-machine memory processes --json",
             "plan": "abyss-machine memory plan --json",
-            "launch": "abyss-machine ai cpu launch --class CLASS -- COMMAND...",
+            "launch": "abyss-machine resource launch --class CLASS --kind KIND -- COMMAND...",
         },
         "policy": {
-            "automation": "gate_new_work_only",
+            "automation": "advisory_machine_pressure_only",
+            "numeric_workload_gating": False,
+            "workload_importance_is_owner_declared": True,
             "do_not_kill_existing_processes": True,
             "do_not_tune_zram_or_sysctl_from_plan": True,
             "operator_force_supported_by_launchers": True,

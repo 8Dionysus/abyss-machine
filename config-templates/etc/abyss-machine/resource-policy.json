@@ -2,7 +2,7 @@
   "schema": "abyss_machine_resource_policy_v1",
   "version": "0.8.36",
   "owner": "abyss-machine",
-  "purpose": "Unified host resource planning and systemd-run launch policy for new local work.",
+  "purpose": "Owner-cooperative host resource planning for new local work. Numeric pressure facts protect reserve but never assign workload importance.",
   "classes": [
     "probe",
     "light",
@@ -27,33 +27,23 @@
   "class_defaults": {
     "probe": {
       "cpu_weight": 100,
-      "io_weight": 100,
-      "memory_high_percent_total": null,
-      "memory_high_min_mib": null
+      "io_weight": 100
     },
     "light": {
       "cpu_weight": 100,
-      "io_weight": 100,
-      "memory_high_percent_total": null,
-      "memory_high_min_mib": null
+      "io_weight": 100
     },
     "medium": {
       "cpu_weight": 85,
-      "io_weight": 100,
-      "memory_high_percent_total": 75,
-      "memory_high_min_mib": 8192
+      "io_weight": 100
     },
     "heavy": {
       "cpu_weight": 90,
-      "io_weight": 100,
-      "memory_high_percent_total": 85,
-      "memory_high_min_mib": 16384
+      "io_weight": 100
     },
     "sustained": {
       "cpu_weight": 65,
-      "io_weight": 75,
-      "memory_high_percent_total": 75,
-      "memory_high_min_mib": 12288
+      "io_weight": 75
     }
   },
   "gates": {
@@ -101,7 +91,14 @@
     "known_demand_ttl_sec": 120,
     "unknown_demand_ttl_sec": 15,
     "unknown_wait_timeout_sec": 20,
-    "default_demand_mib": {
+    "hard_mem_available_floor_mib": 2048,
+    "unknown_mem_available_floor_mib": 4096,
+    "unknown_psi_some_avg10_at_or_above": 2.0,
+    "unknown_psi_full_avg10_at_or_above": 0.5,
+    "observed_peak_multiplier": 1.25,
+    "profile_max_entries": 64,
+    "profile_max_samples": 16,
+    "bootstrap_demand_mib": {
       "agent": {"medium": 2048, "heavy": 4096, "sustained": 4096},
       "indexing": {"medium": 2048, "heavy": 4096, "sustained": 6144},
       "benchmark": {"medium": 2048, "heavy": 4096, "sustained": 8192},
@@ -110,6 +107,12 @@
     "explicit_demand_expected_for": {
       "ai": ["medium", "heavy", "sustained"]
     }
+  },
+  "memory_orchestration": {
+    "importance_source": "stable_owner_identity_and_owner_declared_state",
+    "pressure_is_not_importance": true,
+    "swap_occupancy_is_reserve_debt_not_pressure": true,
+    "static_memory_caps": false
   },
   "protected_contexts": {
     "games": "Active games defer new heavy/sustained work and unattended medium-or-heavier starts.",

@@ -850,7 +850,7 @@
       "plan": "abyss-machine memory plan --json",
       "validate": "abyss-machine memory validate --json"
     },
-    "contract": "Future stack-side launchers may consume memory plan before starting medium/heavy/sustained local work; host memory subsystem writes facts and gates new starts only.",
+    "contract": "Future stack-side launchers may consume memory pressure and swap-reserve facts; canonical startup admission is owned by resource launch and numeric memory facts never assign workload importance.",
     "protected_context": "Dictation, games, work projects, project repositories, and existing user processes must be reported before any operator action; this route never mutates them automatically."
   },
   "resource_bridge": {
@@ -871,7 +871,7 @@
       "orchestrator_refresh_nervous": "abyss-machine resource orchestrator --refresh-nervous --json"
     },
     "contract": "Future stack-side launchers may consume resource plan as the unified host decision over mode, memory, storage, game guard, thermal plan, and CPU route.",
-    "execution": "Resource launch uses user systemd transient services/scopes with AllowedCPUs, CPUWeight, IOWeight, and soft MemoryHigh for new processes only.",
+    "execution": "Resource launch uses user systemd transient services/scopes with AllowedCPUs, CPUWeight, IOWeight, cooperative startup reserve, and bounded runtime peak learning for new processes only.",
     "orchestrator_latest": "{{ABYSS_MACHINE_STATE}}/resource/orchestrator/latest.json"
   },
   "generated_at": "2026-05-07T12:53:48-06:00",

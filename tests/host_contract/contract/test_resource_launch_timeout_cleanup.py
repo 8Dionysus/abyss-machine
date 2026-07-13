@@ -7,7 +7,56 @@ import subprocess
 import time
 
 
-def test_resource_plan_keeps_unattended_medium_indexing_under_soft_memory_high(abyss_machine_module):
+def test_ai_cpu_launch_is_only_a_resource_launch_compatibility_wrapper(abyss_machine_module, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_resource_launch(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return {
+            "schema": "abyss_machine_resource_launch_v1",
+            "ok": True,
+            "started_at": "2026-07-13T04:00:00-06:00",
+            "dry_run": True,
+            "request": {"force": False, "unattended": False, "demand_key": "fixture"},
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "plan": {
+                "decision": "allow",
+                "inputs": {
+                    "cpu_route": {"route": {"cpuset": "0-1"}},
+                    "game_guard": {"active": False},
+                    "memory": {"class": "green", "summary": {"mem_available_mib": 8192}},
+                    "startup_demand": {"admission": {"allowed": True}},
+                },
+                "systemd": {"env": {}},
+            },
+            "argv": ["systemd-run", "--user", "/usr/bin/true"],
+            "execution": None,
+            "elapsed_sec": 0.0,
+            "startup_admission": {"runtime_only": True},
+            "paths": {"latest": "/tmp/resource/latest.json"},
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_launch", fake_resource_launch)
+
+    result = abyss_machine_module.ai_cpu_launch(
+        ["/usr/bin/true"],
+        workload_class="heavy",
+        dry_run=True,
+        write_latest=False,
+    )
+
+    assert captured["command"] == ["/usr/bin/true"]
+    assert captured["kwargs"]["kind"] == "ai"
+    assert captured["kwargs"]["unit_type"] == "service"
+    assert result["ok"] is True
+    assert result["policy"]["compatibility_wrapper_only"] is True
+    assert result["policy"]["single_execution_route"] == "abyss-machine resource launch --kind ai"
+    assert "gate" not in result["memory"]
+
+
+def test_resource_plan_keeps_unattended_medium_indexing_without_static_memory_caps(abyss_machine_module):
     plan = abyss_machine_module.resource_plan(
         workload_class="medium",
         kind="indexing",
@@ -38,13 +87,13 @@ def test_resource_plan_keeps_unattended_medium_indexing_under_soft_memory_high(a
     )
 
     props = plan["systemd"]["properties"]
-    assert props["MemoryHigh"] == "4096M"
+    assert "MemoryHigh" not in props
     assert "MemoryMax" not in props
     assert "MemorySwapMax" not in props
+    assert plan["systemd"]["policy"]["static_memory_caps_applied"] is False
     assert plan["systemd"]["policy"]["memory_max_not_set"] is True
-    assert plan["systemd"]["policy"]["memory_max_set_for_indexing"] is False
-    assert plan["policy"]["memory_max_not_set_by_default"] is True
-    assert plan["policy"]["memory_max_set_for_indexing"] is False
+    assert plan["policy"]["static_memory_caps_applied"] is False
+    assert plan["policy"]["memory_max_not_set"] is True
 
 
 def test_resource_plan_reuses_bounded_inputs_but_refreshes_memory_and_game_guard(
@@ -205,11 +254,11 @@ def test_resource_plan_keeps_unattended_medium_agent_free_of_generic_hard_caps(a
     )
 
     props = plan["systemd"]["properties"]
-    assert props["MemoryHigh"] == "23628M"
+    assert "MemoryHigh" not in props
     assert "MemoryMax" not in props
     assert "MemorySwapMax" not in props
-    assert plan["systemd"]["policy"]["generic_unattended_hard_caps_not_applied"] is True
-    assert plan["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["systemd"]["policy"]["static_memory_caps_applied"] is False
+    assert plan["policy"]["static_memory_caps_applied"] is False
 
 
 def test_resource_plan_keeps_unattended_medium_ai_free_of_generic_hard_caps(abyss_machine_module):
@@ -243,14 +292,14 @@ def test_resource_plan_keeps_unattended_medium_ai_free_of_generic_hard_caps(abys
     )
 
     props = plan["systemd"]["properties"]
-    assert props["MemoryHigh"] == "23628M"
+    assert "MemoryHigh" not in props
     assert "MemoryMax" not in props
     assert "MemorySwapMax" not in props
-    assert plan["systemd"]["policy"]["generic_unattended_hard_caps_not_applied"] is True
-    assert plan["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["systemd"]["policy"]["static_memory_caps_applied"] is False
+    assert plan["policy"]["static_memory_caps_applied"] is False
 
 
-def test_resource_plan_blocks_unattended_medium_indexing_under_swap_pressure(abyss_machine_module):
+def test_resource_plan_does_not_block_indexing_from_swap_occupancy(abyss_machine_module):
     plan = abyss_machine_module.resource_plan(
         workload_class="medium",
         kind="indexing",
@@ -281,13 +330,13 @@ def test_resource_plan_blocks_unattended_medium_indexing_under_swap_pressure(aby
         thermal_plan_data={"thermal": {"class": "green"}},
     )
 
-    assert plan["ok"] is False
-    assert plan["decision"] == "force_required"
-    assert "indexing_unattended_swap_used_pressure" in plan["blocked_reasons"]
-    assert plan["policy"]["unattended_indexing_blocks_on_swap_pressure"] is True
+    assert plan["ok"] is True
+    assert plan["decision"] == "allow"
+    assert plan["blocked_reasons"] == []
+    assert plan["policy"]["swap_occupancy_gating"] is False
 
 
-def test_resource_plan_does_not_force_unattended_indexing_under_swap_pressure(abyss_machine_module):
+def test_resource_plan_does_not_turn_unattended_force_into_permission(abyss_machine_module):
     plan = abyss_machine_module.resource_plan(
         workload_class="medium",
         kind="indexing",
@@ -321,11 +370,14 @@ def test_resource_plan_does_not_force_unattended_indexing_under_swap_pressure(ab
 
     assert plan["forced"] is True
     assert plan["force_effective"] is False
-    assert plan["ok"] is False
-    assert plan["decision"] == "force_required"
-    assert plan["blocked_reasons"] == ["indexing_unattended_swap_used_pressure"]
+    assert plan["ok"] is True
+    assert plan["decision"] == "allow"
+    assert plan["blocked_reasons"] == []
     assert plan["overridden_reasons"] == []
-    assert plan["warnings"] == ["unattended_force_not_operator_effective"]
+    assert plan["warnings"] == [
+        "unattended_force_not_operator_effective",
+        "startup_demand_bootstrap_uncalibrated",
+    ]
 
 
 def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monkeypatch, tmp_path):
@@ -374,6 +426,11 @@ def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monk
     monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
     monkeypatch.setattr(abyss_machine_module, "command_exists", fake_command_exists)
     monkeypatch.setattr(abyss_machine_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda unit, **_kwargs: {"ok": False, "unit": unit, "error": "fixture_no_peak"},
+    )
 
     result = abyss_machine_module.resource_launch(
         ["/bin/sleep", "60"],
@@ -424,6 +481,17 @@ def test_resource_launch_releases_startup_lease_after_submit(monkeypatch, tmp_pa
         "run",
         lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "Finished with result: success\n", ""),
     )
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda unit, **_kwargs: {
+            "ok": True,
+            "unit": unit,
+            "memory_peak_mib": 512.0,
+            "memory_swap_peak_mib": 128.0,
+            "footprint_peak_mib": 640.0,
+        },
+    )
 
     result = abyss_machine_module.resource_launch(
         ["/usr/bin/true"],
@@ -436,6 +504,9 @@ def test_resource_launch_releases_startup_lease_after_submit(monkeypatch, tmp_pa
     assert result["ok"] is True
     assert result["startup_admission"]["lease"]["demand_mib"] == 4096.0
     assert result["startup_admission"]["lease_released"] is True
+    assert result["startup_admission"]["demand_observation"]["recorded"] is True
+    assert result["startup_admission"]["demand_observation"]["record"]["profile"]["key"] == "true"
+    assert result["startup_admission"]["demand_observation"]["record"]["profile"]["estimate_mib"] == 800.0
     reservation_root = Path(result["startup_admission"]["reservation_root"])
     assert list(reservation_root.glob("*.json")) == []
 
@@ -481,6 +552,11 @@ def test_unattended_resource_launch_uses_direct_reservation_without_resident_con
         abyss_machine_module.subprocess,
         "run",
         lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "Finished with result: success\n", ""),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda unit, **_kwargs: {"ok": False, "unit": unit, "error": "fixture_no_peak"},
     )
 
     result = abyss_machine_module.resource_launch(

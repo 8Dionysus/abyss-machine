@@ -53,10 +53,17 @@ def test_core_policy_read_commands_preserve_schema_envelopes(run_abyss_machine) 
     assert isinstance(memory.get("classes"), list)
     assert {"green", "watch", "warm", "hot", "critical"}.issubset(memory["classes"])
     assert isinstance(memory.get("thresholds"), dict)
-    assert isinstance(memory.get("zram_swap_relief"), dict)
+    assert isinstance(memory.get("swap_reserve"), dict)
 
     resource = parse_json_stdout(run_abyss_machine("resource", "policy", "--json"))
     assert_envelope(resource, "abyss_machine_resource_policy_v1")
+    assert "default_demand_mib" not in resource["startup_admission"]
+    assert all(
+        "memory_high_percent_total" not in item and "memory_high_min_mib" not in item
+        for item in resource["class_defaults"].values()
+    )
+    assert resource["memory_orchestration"]["pressure_is_not_importance"] is True
+    assert resource["memory_orchestration"]["static_memory_caps"] is False
     assert isinstance(resource.get("classes"), list)
     assert {"probe", "light", "medium", "heavy", "sustained"}.issubset(resource["classes"])
     assert isinstance(resource.get("gates"), dict)
@@ -100,7 +107,8 @@ def test_planning_outputs_keep_non_apply_schema_contracts(run_abyss_machine) -> 
     assert_envelope(memory_plan, "abyss_machine_memory_plan_v1")
     assert memory_plan.get("ok") is True
     assert isinstance(memory_plan.get("pressure"), dict)
-    assert isinstance(memory_plan.get("recommended_new_work"), dict)
+    assert "recommended_new_work" not in memory_plan
+    assert memory_plan["policy"]["numeric_workload_gating"] is False
     assert memory_plan.get("executed") is None
 
     resource_plan = parse_json_stdout(

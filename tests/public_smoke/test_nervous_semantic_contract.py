@@ -159,17 +159,11 @@ def test_batch_policy_reduces_implicit_batch_under_load_but_preserves_explicit_b
             }
         },
         "game_guard": {"active": True, "platform_present": True, "summary": "fixture"},
-        "recommended_new_work": {
-            "medium": {
-                "unattended_allowed": False,
-                "unattended_blocked_reasons": ["fixture_unattended_block"],
-            }
-        },
     }
 
     implicit = batch_policy(
         {"embedding": {"batch_size": 16}},
-        {"loaded_batch_size": 4, "loaded_batch_zram_resident_mib": 8192},
+        {"loaded_batch_size": 4},
         None,
         "medium",
         True,
@@ -177,7 +171,7 @@ def test_batch_policy_reduces_implicit_batch_under_load_but_preserves_explicit_b
     )
     explicit = batch_policy(
         {"embedding": {"batch_size": 16}},
-        {"loaded_batch_size": 4, "loaded_batch_zram_resident_mib": 8192},
+        {"loaded_batch_size": 4},
         12,
         "medium",
         True,
@@ -189,9 +183,7 @@ def test_batch_policy_reduces_implicit_batch_under_load_but_preserves_explicit_b
     assert implicit["pass_batch_override"] == 4
     assert implicit["load_reasons"] == [
         "game_guard_active",
-        "fixture_unattended_block",
         "memory_class_hot",
-        "zram_resident_high",
         "memory_psi_active_stalls",
     ]
     assert explicit["effective_batch_size"] == 12

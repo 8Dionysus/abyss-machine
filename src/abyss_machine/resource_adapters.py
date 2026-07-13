@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 UnitStatePort = Callable[[str], dict[str, Any]]
 PidAlivePort = Callable[[int], bool]
+RunPort = Callable[..., subprocess.CompletedProcess[str]]
 
 
 def runtime_root(
@@ -40,6 +41,14 @@ def reservations_root(
     uid: int | None = None,
 ) -> Path:
     return runtime_root(environ, uid=uid) / "abyss-machine" / "resource" / "reservations"
+
+
+def demand_profiles_path(
+    environ: Mapping[str, str] | None = None,
+    *,
+    uid: int | None = None,
+) -> Path:
+    return runtime_root(environ, uid=uid) / "abyss-machine" / "resource" / "demand-profiles.json"
 
 
 def admission_lock_path(root: Path) -> Path:
@@ -97,6 +106,206 @@ def atomic_write_lease(root: Path, lease: dict[str, Any]) -> Path:
             pass
         raise
     return destination
+
+
+def atomic_write_json(path: Path, document: dict[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def load_demand_profiles(path: Path) -> dict[str, Any]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        document = {}
+    profiles = document.get("profiles") if isinstance(document, dict) else None
+    return {
+        "schema": "abyss_machine_resource_demand_profiles_v1",
+        "runtime_only": True,
+        "profiles": profiles if isinstance(profiles, dict) else {},
+    }
+
+
+def demand_profile(document: Mapping[str, Any], key: str | None) -> dict[str, Any] | None:
+    if not key:
+        return None
+    profiles = document.get("profiles") if isinstance(document.get("profiles"), dict) else {}
+    profile = profiles.get(key)
+    return dict(profile) if isinstance(profile, dict) else None
+
+
+def update_demand_profiles(
+    document: Mapping[str, Any],
+    *,
+    key: str,
+    owner: str,
+    kind: str,
+    memory_peak_mib: float,
+    memory_swap_peak_mib: float,
+    observed_at_epoch: float,
+    multiplier: float = 1.25,
+    max_entries: int = 64,
+    max_samples: int = 16,
+) -> dict[str, Any]:
+    profiles_source = document.get("profiles") if isinstance(document.get("profiles"), dict) else {}
+    profiles = {str(name): dict(value) for name, value in profiles_source.items() if isinstance(value, dict)}
+    profile = dict(profiles.get(key) or {})
+    old_samples = profile.get("samples") if isinstance(profile.get("samples"), list) else []
+    footprint_mib = max(0.0, float(memory_peak_mib)) + max(0.0, float(memory_swap_peak_mib))
+    sample = {
+        "observed_at_epoch": round(float(observed_at_epoch), 3),
+        "memory_peak_mib": round(max(0.0, float(memory_peak_mib)), 3),
+        "memory_swap_peak_mib": round(max(0.0, float(memory_swap_peak_mib)), 3),
+        "footprint_peak_mib": round(footprint_mib, 3),
+    }
+    samples = [dict(item) for item in old_samples if isinstance(item, dict)] + [sample]
+    samples = samples[-max(1, min(int(max_samples), 64)):]
+    observed_max = max(float(item.get("footprint_peak_mib") or 0.0) for item in samples)
+    profile.update(
+        {
+            "key": key,
+            "owner": owner,
+            "kind": kind,
+            "updated_at_epoch": round(float(observed_at_epoch), 3),
+            "sample_count": len(samples),
+            "observed_max_mib": round(observed_max, 3),
+            "estimate_mib": round(observed_max * max(1.0, float(multiplier)), 3),
+            "estimate_source": "runtime_observed_unit_peak",
+            "samples": samples,
+        }
+    )
+    profiles[key] = profile
+    bounded_entries = max(1, min(int(max_entries), 256))
+    if len(profiles) > bounded_entries:
+        ordered = sorted(profiles.items(), key=lambda item: float(item[1].get("updated_at_epoch") or 0.0), reverse=True)
+        profiles = dict(ordered[:bounded_entries])
+    return {
+        "schema": "abyss_machine_resource_demand_profiles_v1",
+        "runtime_only": True,
+        "profiles": profiles,
+    }
+
+
+def record_demand_observation(
+    path: Path,
+    *,
+    key: str,
+    owner: str,
+    kind: str,
+    memory_peak_mib: float,
+    memory_swap_peak_mib: float,
+    observed_at_epoch: float,
+    multiplier: float = 1.25,
+    max_entries: int = 64,
+    max_samples: int = 16,
+) -> dict[str, Any]:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = path.with_suffix(".lock")
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        updated = update_demand_profiles(
+            load_demand_profiles(path),
+            key=key,
+            owner=owner,
+            kind=kind,
+            memory_peak_mib=memory_peak_mib,
+            memory_swap_peak_mib=memory_swap_peak_mib,
+            observed_at_epoch=observed_at_epoch,
+            multiplier=multiplier,
+            max_entries=max_entries,
+            max_samples=max_samples,
+        )
+        atomic_write_json(path, updated)
+        profile = demand_profile(updated, key) or {}
+        return {"ok": True, "path": str(path), "profile": profile, "runtime_only": True}
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def journal_unit_resource_peaks(
+    unit: str,
+    *,
+    since_epoch: float | None = None,
+    run_port: RunPort = subprocess.run,
+) -> dict[str, Any]:
+    if not re.fullmatch(r"[A-Za-z0-9_.:@\\-]+\.(?:service|scope)", str(unit or "")):
+        return {"ok": False, "unit": unit, "error": "invalid_unit_identity"}
+    try:
+        command = ["journalctl", "--user", "--unit", unit]
+        if since_epoch is not None:
+            command.extend(["--since", f"@{max(0.0, float(since_epoch)):.6f}"])
+        command.extend(["--output=json", "--no-pager", "--all", "--lines=128"])
+        proc = run_port(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "unit": unit, "error": str(exc)}
+    memory_peak = 0
+    memory_swap_peak = 0
+    matched_records = 0
+    for line in proc.stdout.splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict):
+            continue
+        record_unit = str(item.get("USER_UNIT") or item.get("_SYSTEMD_USER_UNIT") or "")
+        if record_unit and record_unit != unit:
+            continue
+        found = False
+        for key, current in (("MEMORY_PEAK", "memory"), ("MEMORY_SWAP_PEAK", "swap")):
+            try:
+                value = max(0, int(item.get(key) or 0))
+            except (TypeError, ValueError):
+                value = 0
+            if value:
+                found = True
+                if current == "memory":
+                    memory_peak = max(memory_peak, value)
+                else:
+                    memory_swap_peak = max(memory_swap_peak, value)
+        if found:
+            matched_records += 1
+    return {
+        "ok": proc.returncode == 0 and bool(memory_peak or memory_swap_peak),
+        "unit": unit,
+        "memory_peak_bytes": memory_peak,
+        "memory_swap_peak_bytes": memory_swap_peak,
+        "memory_peak_mib": round(memory_peak / 1024.0 / 1024.0, 3),
+        "memory_swap_peak_mib": round(memory_swap_peak / 1024.0 / 1024.0, 3),
+        "footprint_peak_mib": round((memory_peak + memory_swap_peak) / 1024.0 / 1024.0, 3),
+        "matched_records": matched_records,
+        "returncode": proc.returncode,
+        "error": proc.stderr.strip() or (None if memory_peak or memory_swap_peak else "resource_peak_not_found"),
+    }
 
 
 def remove_lease(root: Path, lease_id: str) -> bool:
@@ -189,7 +398,8 @@ def lease_status(
     unit_active = bool(unit_state.get("active"))
     expired = expires_at <= 0.0 or now_epoch >= expires_at
     invalid = not lease_id or launcher_pid <= 0
-    startup_deadline_elapsed = expired and not unit_active
+    unknown_demand = bool(lease.get("unknown_demand")) or demand_mib is None
+    startup_deadline_elapsed = expired and (unknown_demand or not unit_active)
     stale = invalid or startup_deadline_elapsed or (not launcher_alive and not unit_active)
     if invalid:
         stale_reason = "invalid_identity"
@@ -212,7 +422,7 @@ def lease_status(
         "demand_mib": demand_mib,
         "materialized_mib": round(materialized_mib, 3),
         "outstanding_mib": None if outstanding_mib is None else round(outstanding_mib, 3),
-        "unknown_demand": demand_mib is None,
+        "unknown_demand": unknown_demand,
     }
 
 

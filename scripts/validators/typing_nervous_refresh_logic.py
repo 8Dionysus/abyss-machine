@@ -35,20 +35,20 @@ def main() -> int:
     failures: list[str] = []
 
     require(
-        "indexing_unattended_swap_used_pressure" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
-        "swap-used pressure must remain an accepted soft resource gate",
+        "startup_projected_mem_available_below_hard_reserve" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
+        "projected hard-reserve protection must remain an accepted soft resource gate",
         failures,
     )
     require(
-        "indexing_unattended_swap_free_below_floor" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
-        "swap-free floor must remain an accepted soft resource gate",
+        "startup_unknown_demand_with_low_physical_headroom" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
+        "unknown-demand physical headroom protection must remain an accepted soft resource gate",
         failures,
     )
     require(
         typing_nervous_index_resource_gated(
             {
                 "ok": False,
-                "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+                "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
                 "denied_reasons": [],
             }
         ),
@@ -59,7 +59,7 @@ def main() -> int:
         not typing_nervous_index_resource_gated(
             {
                 "ok": False,
-                "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+                "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
                 "denied_reasons": ["storage_denied"],
             }
         ),
@@ -202,7 +202,7 @@ def main() -> int:
         action_status="launched",
         index_launch={
             "ok": False,
-            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
             "denied_reasons": [],
             "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
             "elapsed_sec": 2.5,
@@ -394,7 +394,7 @@ def main() -> int:
         index_after={"freshness": {"records_lag": 9, "records_lag_tolerance": 4, "stale": True}},
         index_launch={
             "ok": False,
-            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
             "denied_reasons": [],
             "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
         },

@@ -5020,24 +5020,12 @@ def memory_swap_is_zram_only(swap: dict[str, Any]) -> bool:
     return memory_contracts.swap_is_zram_only(swap)
 
 
-def memory_zram_swap_relief_class(
-    mem_available_percent: Any,
-    psi_some_avg10: Any,
-    psi_full_avg10: Any,
-    swap: dict[str, Any],
-    policy: dict[str, Any],
-) -> str | None:
-    return memory_contracts.zram_swap_relief_class(
-        mem_available_percent,
-        psi_some_avg10,
-        psi_full_avg10,
-        swap,
-        policy,
-    )
-
-
 def memory_pressure_class(mem: dict[str, Any], psi: dict[str, Any], swap: dict[str, Any], policy: dict[str, Any]) -> tuple[str, list[str]]:
     return memory_contracts.pressure_class(mem, psi, swap, policy)
+
+
+def memory_swap_reserve_status(swap: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    return memory_contracts.swap_reserve_status(swap, policy)
 
 
 def memory_status(write_latest: bool = False) -> dict[str, Any]:
@@ -5049,6 +5037,7 @@ def memory_status(write_latest: bool = False) -> dict[str, Any]:
     cgroups = memory_cgroup_status()
     policy = memory_policy_document()
     pressure_class, reasons = memory_pressure_class(mem, psi, swap, policy)
+    swap_reserve = memory_swap_reserve_status(swap, policy)
     data = {
         "schema": f"{SCHEMA_PREFIX}_memory_status_v1",
         "version": VERSION,
@@ -5059,6 +5048,7 @@ def memory_status(write_latest: bool = False) -> dict[str, Any]:
         "meminfo": mem,
         "psi": psi,
         "swap": swap,
+        "swap_reserve": swap_reserve,
         "zram": zram,
         "zswap": zswap,
         "vmstat": memory_vmstat_snapshot(),
@@ -5074,6 +5064,7 @@ def memory_status(write_latest: bool = False) -> dict[str, Any]:
             "config_exists": policy.get("config_exists"),
             "automatic_kill": False,
             "automatic_tuning": False,
+            "pressure_assigns_workload_importance": False,
         },
         "paths": memory_paths(),
     }
@@ -5093,6 +5084,7 @@ def memory_pressure(top: int = 30, write_latest: bool = False) -> dict[str, Any]
     mem_summary = nested_get(status_data, ["meminfo", "summary"]) or {}
     zram_summary = nested_get(status_data, ["zram", "summary"]) or {}
     process_summary = processes.get("summary", {}) if isinstance(processes.get("summary"), dict) else {}
+    swap_reserve = status_data.get("swap_reserve") if isinstance(status_data.get("swap_reserve"), dict) else {}
     data = {
         "schema": f"{SCHEMA_PREFIX}_memory_pressure_v1",
         "version": VERSION,
@@ -5106,6 +5098,10 @@ def memory_pressure(top: int = 30, write_latest: bool = False) -> dict[str, Any]
             "mem_available_percent": mem_summary.get("mem_available_percent"),
             "swap_used_mib": mem_summary.get("swap_used_mib"),
             "swap_used_percent": mem_summary.get("swap_used_percent"),
+            "swap_free_mib": swap_reserve.get("free_mib"),
+            "target_swap_free_mib": swap_reserve.get("target_free_mib"),
+            "swap_free_shortfall_mib": swap_reserve.get("shortfall_mib"),
+            "swap_reserve_state": swap_reserve.get("state"),
             "psi_some_avg10": nested_get(status_data, ["psi", "some", "avg10"]),
             "psi_full_avg10": nested_get(status_data, ["psi", "full", "avg10"]),
             "zram_data_mib": zram_summary.get("data_mib"),
@@ -5125,6 +5121,7 @@ def memory_pressure(top: int = 30, write_latest: bool = False) -> dict[str, Any]
             "meminfo": status_data.get("meminfo"),
             "psi": status_data.get("psi"),
             "swap": status_data.get("swap"),
+            "swap_reserve": swap_reserve,
             "zram": status_data.get("zram"),
             "zswap": status_data.get("zswap"),
             "oomd": status_data.get("oomd"),
@@ -5138,13 +5135,14 @@ def memory_pressure(top: int = 30, write_latest: bool = False) -> dict[str, Any]
         "policy": {
             "facts_only": True,
             "do_not_kill_or_tune_from_this_result": True,
-            "launchers_should_consume_memory_plan": True,
+            "launchers_should_consume_fresh_pressure_and_reserve_facts": True,
+            "pressure_assigns_workload_importance": False,
         },
         "non_claims": [
             "MemAvailable and PSI are pressure signals, not proof of a leak.",
             "RSS overcounts shared memory; PSS is preferred where smaps_rollup was readable.",
             "OOM counters are cumulative unless a caller compares snapshots over time.",
-            "High zram swap with healthy MemAvailable and near-zero PSI is a launch-risk signal, not a standalone OOM claim.",
+            "High zram occupancy is reserve debt, not active pressure or permission to act on a workload.",
         ],
     }
     if write_latest:
@@ -5168,27 +5166,33 @@ def memory_headroom_process_buckets(processes: dict[str, Any]) -> dict[str, Any]
 def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]:
     pressure = memory_pressure(top=top, write_latest=False)
     policy = memory_policy_document()
-    relief = policy.get("zram_swap_relief", {}) if isinstance(policy.get("zram_swap_relief"), dict) else {}
+    reserve_policy = policy.get("swap_reserve", {}) if isinstance(policy.get("swap_reserve"), dict) else {}
+    thresholds = policy.get("thresholds", {}) if isinstance(policy.get("thresholds"), dict) else {}
+    mem_thresholds = thresholds.get("mem_available_percent", {}) if isinstance(thresholds.get("mem_available_percent"), dict) else {}
+    psi_some_thresholds = thresholds.get("psi_some_avg10", {}) if isinstance(thresholds.get("psi_some_avg10"), dict) else {}
+    psi_full_thresholds = thresholds.get("psi_full_avg10", {}) if isinstance(thresholds.get("psi_full_avg10"), dict) else {}
     status = pressure.get("status", {}) if isinstance(pressure.get("status"), dict) else {}
     swap = status.get("swap", {}) if isinstance(status.get("swap"), dict) else {}
+    swap_reserve = status.get("swap_reserve", {}) if isinstance(status.get("swap_reserve"), dict) else {}
     zram = status.get("zram", {}) if isinstance(status.get("zram"), dict) else {}
     swap_summary = swap.get("summary", {}) if isinstance(swap.get("summary"), dict) else {}
     zram_summary = zram.get("summary", {}) if isinstance(zram.get("summary"), dict) else {}
     mem_summary = nested_get(status, ["meminfo", "summary"]) or {}
     processes = pressure.get("processes", {}) if isinstance(pressure.get("processes"), dict) else {}
 
-    swap_free_mib = memory_float(swap_summary.get("free_mib"), 0.0) or 0.0
-    swap_used_percent = memory_float(swap_summary.get("used_percent"), 0.0) or 0.0
-    target_swap_free_mib = float(relief.get("requires_swap_free_mib_at_or_above", 2048))
-    swap_free_shortfall_mib = round(max(0.0, target_swap_free_mib - swap_free_mib), 1)
+    if not swap_reserve:
+        swap_reserve = memory_swap_reserve_status(swap, policy)
+    swap_free_mib = memory_float(swap_reserve.get("free_mib"), 0.0) or 0.0
+    swap_used_percent = memory_float(swap_reserve.get("used_percent"), 0.0) or 0.0
+    target_swap_free_mib = memory_float(swap_reserve.get("target_free_mib"), 2048.0) or 2048.0
+    swap_free_shortfall_mib = memory_float(swap_reserve.get("shortfall_mib"), 0.0) or 0.0
     mem_available_percent = memory_float(mem_summary.get("mem_available_percent"), 0.0) or 0.0
     mem_available_mib = memory_float(mem_summary.get("mem_available_mib"), 0.0) or 0.0
     psi_some_avg10 = memory_float(nested_get(status, ["psi", "some", "avg10"]), 0.0) or 0.0
     psi_full_avg10 = memory_float(nested_get(status, ["psi", "full", "avg10"]), 0.0) or 0.0
-    max_psi_some = float(relief.get("requires_psi_some_avg10_at_or_below", 2.0))
-    max_psi_full = float(relief.get("requires_psi_full_avg10_at_or_below", 0.5))
-    full_mem_relief_percent = float(relief.get("requires_mem_available_percent_at_or_above", 30))
-    headroom_mem_relief_percent = float(relief.get("requires_mem_available_percent_for_headroom_relief_at_or_above", 22))
+    max_psi_some = float(psi_some_thresholds.get("warm_above", 2.0))
+    max_psi_full = float(psi_full_thresholds.get("warm_above", 0.5))
+    physical_headroom_watch_percent = float(mem_thresholds.get("warm_below", 22))
     zram_only = memory_swap_is_zram_only(swap)
     zram_disk_mib = memory_float(zram_summary.get("disk_mib"), 0.0) or 0.0
     zram_data_mib = memory_float(zram_summary.get("data_mib"), 0.0) or 0.0
@@ -5196,57 +5200,36 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
 
     if psi_some_avg10 > max_psi_some or psi_full_avg10 > max_psi_full:
         condition = "active_memory_stalls"
-        decision = "block_new_pressure_and_investigate_stalls"
-    elif zram_only and swap_free_shortfall_mib > 0 and mem_available_percent >= headroom_mem_relief_percent:
-        condition = "zram_headroom_exhausted_without_active_stalls"
-        decision = "defer_medium_unattended_work_until_zram_headroom_recovers"
+        decision = "protect_launch_reserve_and_request_owner_offers"
+    elif mem_available_percent < physical_headroom_watch_percent:
+        condition = "physical_ram_reserve_watch"
+        decision = "protect_launch_reserve_without_assigning_workload_importance"
     elif swap_free_shortfall_mib > 0:
-        condition = "swap_headroom_exhausted"
-        decision = "defer_new_pressure_until_swap_headroom_recovers"
-    elif mem_available_percent < full_mem_relief_percent:
-        condition = "ram_headroom_watch"
-        decision = "allow_only_policy_per_memory_plan"
+        condition = "swap_reserve_below_target_without_active_stalls"
+        decision = "track_swap_debt_separately_from_active_pressure"
     else:
-        condition = "headroom_within_policy"
-        decision = "allow_policy_per_memory_plan"
-
-    gate_preview: dict[str, Any] = {}
-    for workload in ("probe", "light", "medium", "heavy", "sustained"):
-        normal_gate = memory_launch_gate_for_class(str(pressure.get("class") or "green"), workload, False, policy)
-        unattended_gate = memory_launch_gate_for_class(str(pressure.get("class") or "green"), workload, True, policy)
-        gate_preview[workload] = {
-            "allowed": normal_gate.get("allowed"),
-            "unattended_allowed": unattended_gate.get("allowed"),
-            "blocked_reasons": normal_gate.get("blocked_reasons"),
-            "unattended_blocked_reasons": unattended_gate.get("blocked_reasons"),
-        }
+        condition = "physical_headroom_within_policy"
+        decision = "continue_owner_cooperative_observation"
 
     attribution = memory_headroom_process_buckets(processes)
-    actions: list[dict[str, Any]] = [
-        {
-            "id": "keep_resource_gate",
-            "kind": "automation",
-            "status": "active",
-            "reason": "Resource launchers should continue skipping unattended medium/heavy work while memory plan blocks it.",
-            "command": "abyss-machine resource launch --class medium --kind indexing --unattended --success-on-block --json -- COMMAND...",
-        },
-        {
-            "id": "retry_semantic_maintenance_when_allowed",
-            "kind": "deferred_work",
-            "status": "blocked" if swap_free_shortfall_mib > 0 else "available",
-            "reason": "Semantic maintenance is useful but should go through dry-run review first and wait for the memory gate unless the operator explicitly retries it.",
-            "command": NERVOUS_SEMANTIC_MAINTAIN_REVIEW_COMMAND,
-            "retry_command": NERVOUS_SEMANTIC_MAINTAIN_RETRY_COMMAND,
-        },
-        {
-            "id": "operator_review_nonprotected_swap",
-            "kind": "operator_review",
-            "status": "candidate" if (attribution.get("operator_review_swap_mib") or 0) else "not_needed",
-            "reason": "Non-protected high-swap workloads can be reviewed by the operator; this subsystem does not stop them.",
-        },
-    ]
-    if zram_only and swap_free_shortfall_mib > 0:
+    owner_offers = memory_adapters.resource_slice_cache_offers()
+    actions: list[dict[str, Any]] = []
+    for offer in owner_offers.get("offers", []) if isinstance(owner_offers.get("offers"), list) else []:
+        if not isinstance(offer, dict) or not offer.get("eligible"):
+            continue
         actions.append(
+            {
+                "id": f"shadow_reclaim_{offer.get('owner')}",
+                "kind": "owner_native_reclaim_offer",
+                "status": "shadow_only",
+                "owner": offer.get("owner"),
+                "offer": offer.get("offer"),
+                "reason": "The stable owner cgroup is empty and contains only clean reclaimable file cache; no action is executed in shadow mode.",
+            }
+        )
+    maintenance_candidates: list[dict[str, Any]] = []
+    if zram_only and swap_free_shortfall_mib > 0:
+        maintenance_candidates.append(
             {
                 "id": "downtime_zram_policy_review",
                 "kind": "operator_maintenance",
@@ -5284,24 +5267,27 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
             "psi_full_avg10": psi_full_avg10,
             "commit_percent": mem_summary.get("commit_percent"),
         },
-        "relief_policy": {
-            "zram_relief_enabled": bool(relief.get("enabled", False)),
-            "full_mem_relief_percent": full_mem_relief_percent,
-            "headroom_mem_relief_percent": headroom_mem_relief_percent,
+        "reserve_policy": {
+            "enabled": bool(reserve_policy.get("enabled", False)),
             "target_swap_free_mib": target_swap_free_mib,
+            "physical_headroom_watch_percent": physical_headroom_watch_percent,
             "max_psi_some_avg10": max_psi_some,
             "max_psi_full_avg10": max_psi_full,
-            "swap_max_class": relief.get("swap_max_class"),
+            "pressure_authority": False,
+            "action_authority": False,
         },
-        "attribution": attribution,
-        "gate_preview": gate_preview,
+        "attribution": {
+            **attribution,
+            "action_authority": False,
+            "importance_inference": False,
+        },
+        "owner_offers": owner_offers,
         "next_actions": actions,
+        "maintenance_candidates": maintenance_candidates,
         "commands": {
             "pressure": "abyss-machine memory pressure --json",
             "plan": "abyss-machine memory plan --json",
             "resource_plan_medium_indexing": "abyss-machine resource plan --class medium --kind indexing --unattended --no-thermal-sample --json",
-            "semantic_maintain_review": NERVOUS_SEMANTIC_MAINTAIN_REVIEW_COMMAND,
-            "semantic_maintain_retry": NERVOUS_SEMANTIC_MAINTAIN_RETRY_COMMAND,
         },
         "paths": {
             "latest": str(MEMORY_HEADROOM_LATEST_PATH),
@@ -5312,13 +5298,16 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
         "policy": {
             "facts_only": True,
             "do_not_kill_or_tune_from_this_result": True,
-            "operator_force_required_for_overrides": True,
             "existing_process_mutation": False,
+            "numeric_pressure_is_not_action_authority": True,
+            "owner_offer_required_for_existing_cgroup_action": True,
+            "owner_offers_shadow_only": True,
         },
         "non_claims": [
             "Headroom diagnosis does not prove a leak.",
             "Top swap attribution uses cgroup memory.swap.current first, with per-process smaps_rollup as detail.",
             "Protected model, dictation, game, browser, editor, and stack workloads are not stopped from this route.",
+            "Process size and swap use do not establish importance or permission to reclaim memory.",
         ],
     }
     if write_latest:
@@ -5329,10 +5318,6 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
             data["ok"] = False
             data["write_errors"] = errors
     return data
-
-
-def memory_launch_gate_for_class(memory_class: str, workload_class: str, unattended: bool, policy: dict[str, Any]) -> dict[str, Any]:
-    return memory_contracts.launch_gate_for_class(memory_class, workload_class, unattended, policy)
 
 
 def memory_plan(
@@ -15573,105 +15558,67 @@ def ai_cpu_launch(
     clean_command = [str(item) for item in command if str(item)]
     if clean_command and clean_command[0] == "--":
         clean_command = clean_command[1:]
-    route = ai_cpu_route(workload_class=workload_class, latency=latency, force=force, write_latest=True)
-    game_guard = process_game_guard(write_latest=True)
-    route_cmd = nested_get(route, ["route", "taskset_command_prefix"]) or []
-    route_env = nested_get(route, ["route", "env"]) or {}
-    blocked: list[str] = []
-    normalized_class = str(nested_get(route, ["requested", "normalized_class"]) or workload_class or "medium").strip().lower()
-    memory = memory_plan(write_latest=False)
-    memory_policy = memory_policy_document()
-    memory_gate = memory_launch_gate_for_class(str(memory.get("class") or "green"), normalized_class, unattended=unattended, policy=memory_policy)
-    if not clean_command:
-        blocked.append("missing_command")
-    if not bool(route.get("allowed")) and not force:
-        blocked.append("route_denied")
-    if unattended and not bool(route.get("unattended_allowed")) and not force:
-        blocked.append("unattended_route_denied")
-    if game_guard.get("active") and not force:
-        if normalized_class in {"heavy", "sustained"}:
-            blocked.append("game_guard_active")
-        elif unattended and mode_workload_level(normalized_class) >= mode_workload_level("medium"):
-            blocked.append("game_guard_unattended_medium_or_heavier")
-    if not bool(memory_gate.get("allowed")) and not force:
-        blocked.extend(str(item) for item in memory_gate.get("blocked_reasons", []))
-    argv = [str(item) for item in route_cmd] + clean_command if clean_command else [str(item) for item in route_cmd]
-    env = ai_subprocess_env({str(key): str(value) for key, value in route_env.items()}) if isinstance(route_env, dict) else ai_subprocess_env()
-    started_at = now_iso()
-    result: dict[str, Any] | None = None
-    elapsed = 0.0
-    if not blocked and not dry_run:
-        timeout_value = None if timeout_sec <= 0 else max(0.1, float(timeout_sec))
-        started = time.monotonic()
-        try:
-            proc = subprocess.run(
-                argv,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=timeout_value,
-                check=False,
-                env=env,
-            )
-            elapsed = round(time.monotonic() - started, 3)
-            result = {
-                "ok": proc.returncode == 0,
-                "returncode": proc.returncode,
-                "stdout_tail": proc.stdout[-4000:],
-                "stderr_tail": proc.stderr[-4000:],
-            }
-        except FileNotFoundError:
-            elapsed = round(time.monotonic() - started, 3)
-            result = {"ok": False, "returncode": 127, "stdout_tail": "", "stderr_tail": "not found"}
-        except subprocess.TimeoutExpired as exc:
-            elapsed = round(time.monotonic() - started, 3)
-            result = {
-                "ok": False,
-                "returncode": 124,
-                "stdout_tail": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
-                "stderr_tail": (exc.stderr or "")[-4000:] if isinstance(exc.stderr, str) else "timeout",
-            }
+    delegated = resource_launch(
+        clean_command,
+        workload_class=workload_class,
+        kind="ai",
+        latency=latency,
+        unattended=unattended,
+        force=force,
+        dry_run=dry_run,
+        unit_type="service",
+        same_dir=True,
+        timeout_sec=timeout_sec,
+        write_latest=write_latest,
+    )
+    plan = delegated.get("plan") if isinstance(delegated.get("plan"), dict) else {}
+    plan_inputs = plan.get("inputs") if isinstance(plan.get("inputs"), dict) else {}
+    route = plan_inputs.get("cpu_route") if isinstance(plan_inputs.get("cpu_route"), dict) else {}
+    game_guard = plan_inputs.get("game_guard") if isinstance(plan_inputs.get("game_guard"), dict) else {}
+    memory = plan_inputs.get("memory") if isinstance(plan_inputs.get("memory"), dict) else {}
     data = {
         "schema": f"{SCHEMA_PREFIX}_ai_cpu_launch_v1",
         "version": VERSION,
         "generated_at": now_iso(),
-        "ok": not blocked and (dry_run or bool(result and result.get("ok"))),
-        "started_at": started_at,
-        "dry_run": dry_run,
-        "forced": bool(force),
-        "unattended": bool(unattended),
-        "blocked_reasons": blocked,
+        "ok": bool(delegated.get("ok")),
+        "started_at": delegated.get("started_at"),
+        "dry_run": bool(delegated.get("dry_run")),
+        "forced": bool(delegated.get("request", {}).get("force")),
+        "unattended": bool(delegated.get("request", {}).get("unattended")),
+        "blocked_reasons": list(delegated.get("blocked_reasons") or []),
+        "denied_reasons": list(delegated.get("denied_reasons") or []),
         "request": {
             "class": workload_class,
             "latency": latency,
             "timeout_sec": timeout_sec,
             "command": clean_command,
+            "demand_key": nested_get(delegated, ["request", "demand_key"]),
         },
-        "argv": argv,
-        "env_overrides": route_env,
+        "argv": delegated.get("argv"),
+        "env_overrides": nested_get(plan, ["systemd", "env"]) or {},
         "route": route,
-        "game_guard": {
-            "active": game_guard.get("active"),
-            "platform_present": game_guard.get("platform_present"),
-            "summary": game_guard.get("summary"),
-            "latest": str(PROCESS_GAME_GUARD_LATEST_PATH),
-        },
+        "game_guard": game_guard,
         "memory": {
             "class": memory.get("class"),
-            "summary": nested_get(memory, ["pressure", "summary"]),
-            "gate": memory_gate,
+            "summary": memory.get("summary"),
+            "startup_admission": plan_inputs.get("startup_demand"),
             "latest": str(MEMORY_PLAN_LATEST_PATH),
         },
-        "execution": result,
-        "elapsed_sec": elapsed,
+        "execution": delegated.get("execution"),
+        "elapsed_sec": delegated.get("elapsed_sec"),
+        "resource_launch": {
+            "schema": delegated.get("schema"),
+            "decision": plan.get("decision"),
+            "startup_admission": delegated.get("startup_admission"),
+            "paths": delegated.get("paths"),
+        },
         "policy": {
-            "applies_route_to_new_process_only": True,
+            "compatibility_wrapper_only": True,
+            "single_execution_route": "abyss-machine resource launch --kind ai",
+            "fresh_startup_admission": True,
+            "runtime_peak_learning": True,
+            "static_memory_caps_applied": False,
             "does_not_mutate_existing_processes": True,
-            "does_not_mutate_existing_game_processes": True,
-            "does_not_mutate_stack": True,
-            "route_source": "abyss-machine ai cpu route",
-            "game_guard_source": "abyss-machine processes game-guard",
-            "memory_gate_source": "abyss-machine memory plan",
         },
         "paths": {
             "latest": str(AI_CPU_LAUNCH_LATEST_PATH),
@@ -15694,7 +15641,23 @@ def resource_default_policy() -> dict[str, Any]:
 def resource_policy_document() -> dict[str, Any]:
     data, error = load_json_document(RESOURCE_POLICY_PATH)
     if isinstance(data, dict):
-        data = deep_merge(resource_default_policy(), data)
+        defaults = resource_default_policy()
+        data = deep_merge(defaults, data)
+        data["purpose"] = defaults["purpose"]
+        classes = data.get("class_defaults") if isinstance(data.get("class_defaults"), dict) else {}
+        for name, item in list(classes.items()):
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized.pop("memory_high_percent_total", None)
+            normalized.pop("memory_high_min_mib", None)
+            classes[name] = normalized
+        data["class_defaults"] = classes
+        startup = data.get("startup_admission") if isinstance(data.get("startup_admission"), dict) else {}
+        startup.pop("default_demand_mib", None)
+        data["startup_admission"] = startup
+        orchestration = data.get("memory_orchestration") if isinstance(data.get("memory_orchestration"), dict) else {}
+        data["memory_orchestration"] = {**orchestration, **defaults["memory_orchestration"]}
         data.setdefault("schema", f"{SCHEMA_PREFIX}_resource_policy_v1")
         data["version"] = VERSION
         data["config_exists"] = True
@@ -15757,10 +15720,6 @@ def resource_valid_kind(name: str | None) -> str:
     return resource_planning.normalize_kind(name)
 
 
-def resource_memory_high_value(policy: dict[str, Any], workload_class: str) -> str | None:
-    return resource_planning.memory_high_value(policy, workload_class, meminfo().get("MemTotal"))
-
-
 def resource_systemd_capabilities() -> dict[str, Any]:
     version_out = run(["systemctl", "--version"], timeout=2.0) if command_exists("systemctl") else {"ok": False, "stdout": "", "stderr": "missing"}
     version_line = (version_out.get("stdout") or "").splitlines()[0] if version_out.get("stdout") else None
@@ -15768,7 +15727,7 @@ def resource_systemd_capabilities() -> dict[str, Any]:
         "systemd_run_available": command_exists("systemd-run"),
         "systemctl_available": command_exists("systemctl"),
         "systemd_version": version_line,
-        "tested_properties": ["AllowedCPUs", "CPUWeight", "IOWeight", "MemoryHigh", "MemoryMax"],
+        "tested_properties": ["AllowedCPUs", "CPUWeight", "IOWeight"],
         "runner": "systemd-run --user",
     }
 
@@ -15801,23 +15760,6 @@ def resource_game_guard_block_reasons(
     force: bool,
 ) -> list[str]:
     return resource_planning.game_guard_block_reasons(policy, normalized_class, unattended, active_game, force)
-
-
-def resource_indexing_swap_pressure_block_reasons(
-    memory_data: dict[str, Any],
-    normalized_kind: str,
-    normalized_class: str,
-    unattended: bool,
-    force: bool,
-) -> list[str]:
-    return resource_planning.indexing_swap_pressure_block_reasons(
-        memory_data,
-        normalized_kind,
-        normalized_class,
-        unattended,
-        force,
-        environ=os.environ,
-    )
 
 
 def resource_thermal_plan_gate_reasons(
@@ -16074,6 +16016,7 @@ def resource_pressure_from_status(
         zram_summary = {}
     process_data = attribution.get("processes") if isinstance(attribution.get("processes"), dict) else {}
     process_summary = process_data.get("summary") if isinstance(process_data.get("summary"), dict) else {}
+    swap_reserve = status_data.get("swap_reserve") if isinstance(status_data.get("swap_reserve"), dict) else {}
     return {
         "schema": f"{SCHEMA_PREFIX}_memory_pressure_v1",
         "version": VERSION,
@@ -16088,7 +16031,10 @@ def resource_pressure_from_status(
             "mem_available_percent": mem_summary.get("mem_available_percent"),
             "swap_used_mib": mem_summary.get("swap_used_mib"),
             "swap_used_percent": mem_summary.get("swap_used_percent"),
-            "swap_free_mib": mem_summary.get("swap_free_mib"),
+            "swap_free_mib": swap_reserve.get("free_mib", mem_summary.get("swap_free_mib")),
+            "target_swap_free_mib": swap_reserve.get("target_free_mib"),
+            "swap_free_shortfall_mib": swap_reserve.get("shortfall_mib"),
+            "swap_reserve_state": swap_reserve.get("state"),
             "psi_some_avg10": nested_get(status_data, ["psi", "some", "avg10"]),
             "psi_full_avg10": nested_get(status_data, ["psi", "full", "avg10"]),
             "zram_data_mib": zram_summary.get("data_mib"),
@@ -16108,6 +16054,7 @@ def resource_pressure_from_status(
             "meminfo": status_data.get("meminfo"),
             "psi": status_data.get("psi"),
             "swap": status_data.get("swap"),
+            "swap_reserve": swap_reserve,
             "zram": status_data.get("zram"),
             "zswap": status_data.get("zswap"),
             "oomd": status_data.get("oomd"),
@@ -16257,6 +16204,9 @@ def resource_plan(
     normalized_class = resource_valid_class(workload_class)
     normalized_kind = resource_valid_kind(kind)
     policy = policy_data if isinstance(policy_data, dict) else resource_policy_document()
+    demand_profile_path = resource_adapters.demand_profiles_path(os.environ, uid=os.getuid())
+    demand_profiles = resource_adapters.load_demand_profiles(demand_profile_path)
+    learned_profile = resource_adapters.demand_profile(demand_profiles, demand_key)
     demand = resource_planning.resolve_startup_demand(
         policy,
         workload_class=normalized_class,
@@ -16266,6 +16216,7 @@ def resource_plan(
         demand_owner=demand_owner,
         estimate_source=estimate_source,
         estimate_confidence=estimate_confidence,
+        learned_profile=learned_profile,
     )
     reservations = reservation_data if isinstance(reservation_data, dict) else resource_adapters.reservation_snapshot(
         resource_adapters.reservations_root(os.environ, uid=os.getuid()),
@@ -16438,29 +16389,33 @@ def resource_plan(
         memory_policy=memory_policy,
         demand=demand,
         reservations=reservations,
+        admission_policy=policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {},
     )
     projected_class = str(nested_get(demand_projection, ["projected", "memory_class"]) or memory.get("class") or "green")
-    projected_gate = memory_launch_gate_for_class(
-        projected_class,
-        normalized_class,
-        unattended,
-        memory_policy,
-    )
-    demand_blocked = [f"startup_demand_{item}" for item in projected_gate.get("blocked_reasons", [])]
+    admission = demand_projection.get("admission") if isinstance(demand_projection.get("admission"), dict) else {}
+    demand_blocked = [f"startup_{item}" for item in admission.get("blocked_reasons", [])]
     demand_denied: list[str] = []
     demand_warnings: list[str] = []
     if demand.get("valid") is False:
         demand_denied.append("startup_demand_invalid")
     if demand_projection.get("unknown_startup_conflict"):
         demand_blocked.append("startup_unknown_demand_in_progress")
-    if demand.get("unknown_startup_lane"):
+    if demand.get("unknown_startup_lane") and demand.get("calibration") != "bootstrap_uncalibrated":
         demand_warnings.append("startup_demand_estimate_unknown")
+    if demand.get("calibration") == "bootstrap_uncalibrated":
+        demand_warnings.append("startup_demand_bootstrap_uncalibrated")
     demand_projection["gate"] = {
         "allowed": not demand_blocked,
         "projected_memory_class": projected_class,
         "blocked_reasons": list(dict.fromkeys(demand_blocked)),
         "denied_reasons": demand_denied,
         "warnings": demand_warnings,
+    }
+    demand_projection["runtime_profile"] = {
+        "path": str(demand_profile_path),
+        "key": demand_key,
+        "found": learned_profile is not None,
+        "runtime_only": True,
     }
 
     if sample_thermal is None:
@@ -16639,6 +16594,7 @@ def resource_launch(
     clean_command = [str(item) for item in command if str(item)]
     if clean_command and clean_command[0] == "--":
         clean_command = clean_command[1:]
+    resolved_demand_key = resource_planning.command_demand_key(clean_command, demand_key)
     generated_unit = None
     launch_unit = unit
     if clean_command and not unit:
@@ -16647,6 +16603,7 @@ def resource_launch(
     policy = resource_policy_document()
     startup_policy = policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {}
     reservation_root = resource_adapters.reservations_root(os.environ, uid=os.getuid())
+    demand_profile_path = resource_adapters.demand_profiles_path(os.environ, uid=os.getuid())
     wait_timeout = (
         float(startup_policy.get("unknown_wait_timeout_sec", 20.0))
         if startup_wait_sec is None
@@ -16669,7 +16626,7 @@ def resource_launch(
         "bytes_required": bytes_required,
         "target": target,
         "memory_demand_mib": memory_demand_mib,
-        "demand_key": demand_key or launch_unit,
+        "demand_key": resolved_demand_key,
         "demand_owner": demand_owner,
         "estimate_source": estimate_source,
         "estimate_confidence": estimate_confidence,
@@ -16703,7 +16660,7 @@ def resource_launch(
                     requested = requested if isinstance(requested, dict) else {}
                     if requested.get("reservation_required") and not should_wait:
                         now_epoch = time.time()
-                        known = bool(requested.get("known"))
+                        known = bool(requested.get("calibrated"))
                         ttl_key = "known_demand_ttl_sec" if known else "unknown_demand_ttl_sec"
                         ttl_sec = max(1.0, float(startup_policy.get(ttl_key, 120.0 if known else 15.0)))
                         lease = {
@@ -16722,6 +16679,8 @@ def resource_launch(
                             "demand_owner": requested.get("owner"),
                             "estimate_source": requested.get("estimate_source"),
                             "estimate_confidence": requested.get("estimate_confidence"),
+                            "calibration": requested.get("calibration"),
+                            "unknown_demand": not known,
                             "startup_ttl_sec": ttl_sec,
                         }
                         lease_path = resource_adapters.atomic_write_lease(reservation_root, lease)
@@ -16737,9 +16696,11 @@ def resource_launch(
         denied.append("missing_command")
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
     result: dict[str, Any] | None = None
+    demand_observation: dict[str, Any] | None = None
     started_at = now_iso()
     elapsed = 0.0
     if not dry_run and not denied and not blocked and clean_command:
+        launch_started_epoch = time.time()
         started = time.monotonic()
         timeout_value = None if timeout_sec <= 0 else max(0.1, float(timeout_sec))
         if timeout_value is not None and unit_type != "scope":
@@ -16791,7 +16752,32 @@ def resource_launch(
             }
         finally:
             if lease is not None:
-                lease_released = resource_adapters.remove_lease(reservation_root, str(lease.get("id") or ""))
+                lease_id = str(lease.get("id") or "")
+                lease_released = (
+                    resource_adapters.remove_lease(reservation_root, lease_id)
+                    or not resource_adapters.lease_path(reservation_root, lease_id).exists()
+                )
+        if launch_unit and unit_type == "service" and result is not None and result.get("ok") is True:
+            peaks = resource_adapters.journal_unit_resource_peaks(launch_unit, since_epoch=launch_started_epoch)
+            observation: dict[str, Any] = {"peaks": peaks, "recorded": False}
+            if peaks.get("ok") and resolved_demand_key:
+                try:
+                    recorded = resource_adapters.record_demand_observation(
+                        demand_profile_path,
+                        key=resolved_demand_key,
+                        owner=str(demand_owner or resource_valid_kind(kind)),
+                        kind=resource_valid_kind(kind),
+                        memory_peak_mib=float(peaks.get("memory_peak_mib") or 0.0),
+                        memory_swap_peak_mib=float(peaks.get("memory_swap_peak_mib") or 0.0),
+                        observed_at_epoch=time.time(),
+                        multiplier=float(startup_policy.get("observed_peak_multiplier", 1.25)),
+                        max_entries=int(startup_policy.get("profile_max_entries", 64)),
+                        max_samples=int(startup_policy.get("profile_max_samples", 16)),
+                    )
+                    observation.update({"recorded": True, "record": recorded})
+                except (OSError, TypeError, ValueError) as exc:
+                    observation["error"] = str(exc)
+            demand_observation = observation
     data = {
         "schema": f"{SCHEMA_PREFIX}_resource_launch_v1",
         "version": VERSION,
@@ -16815,7 +16801,7 @@ def resource_launch(
             "bytes_required": bytes_required,
             "target": target,
             "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
-            "demand_key": demand_key,
+            "demand_key": resolved_demand_key,
             "demand_owner": demand_owner,
             "estimate_source": estimate_source,
             "estimate_confidence": estimate_confidence,
@@ -16835,6 +16821,8 @@ def resource_launch(
             "lease": lease,
             "lease_path": str(lease_path) if lease_path is not None else None,
             "lease_released": lease_released,
+            "demand_profile_path": str(demand_profile_path),
+            "demand_observation": demand_observation,
         },
         "paths": {
             "latest": str(RESOURCE_RUN_LATEST_PATH),
@@ -16851,6 +16839,9 @@ def resource_launch(
             "no_memory_max_or_swap_max_added": True,
             "fresh_resource_plan_and_atomic_lease": True,
             "resident_memory_controller_required": False,
+            "runtime_peak_learning": True,
+            "runtime_profile_is_bounded_and_ephemeral": True,
+            "static_memory_caps_applied": False,
         },
     }
     if write_latest:
@@ -20863,7 +20854,6 @@ def nervous_semantic_config() -> dict[str, Any]:
     maintain.setdefault("refresh_index_first", True)
     maintain.setdefault("index_refresh_timeout_sec", 300)
     maintain.setdefault("loaded_batch_size", 8)
-    maintain.setdefault("loaded_batch_zram_resident_mib", 8192)
     maintain.setdefault("embedding_window_chunks", 1024)
     maintain.setdefault("timer", NERVOUS_SEMANTIC_MAINTAIN_TIMER)
     maintain.setdefault("service", NERVOUS_SEMANTIC_MAINTAIN_SERVICE)
@@ -43116,7 +43106,7 @@ def bridge_manifest() -> dict[str, Any]:
             "ai_cpu_thermal_map_json": ["abyss-machine", "ai", "cpu", "thermal-map", "--json"],
             "ai_cpu_route_medium_json": ["abyss-machine", "ai", "cpu", "route", "--class", "medium", "--json"],
             "ai_cpu_route_heavy_json": ["abyss-machine", "ai", "cpu", "route", "--class", "heavy", "--json"],
-            "ai_cpu_launch_heavy_dry_run_json": ["abyss-machine", "ai", "cpu", "launch", "--class", "heavy", "--dry-run", "--", "COMMAND"],
+            "resource_launch_heavy_ai_dry_run_json": ["abyss-machine", "resource", "launch", "--class", "heavy", "--kind", "ai", "--dry-run", "--", "COMMAND"],
             "ai_cpu_test_lp_e_json": ["abyss-machine", "ai", "cpu", "test", "--profile", "lp-e", "--seconds", "1", "--json"],
             "ai_workload_json": ["abyss-machine", "ai", "workload", "--json"],
             "ai_workload_stats_json": ["abyss-machine", "ai", "workload", "stats", "--json"],
@@ -44812,6 +44802,7 @@ def heartbeat_psi_snapshot() -> dict[str, Any]:
 def heartbeat_live_memory_pressure_from_status(status: dict[str, Any]) -> dict[str, Any]:
     mem_summary = nested_get(status, ["meminfo", "summary"]) or {}
     zram_summary = nested_get(status, ["zram", "summary"]) or {}
+    swap_reserve = status.get("swap_reserve") if isinstance(status.get("swap_reserve"), dict) else {}
     return {
         "schema": f"{SCHEMA_PREFIX}_heartbeat_live_memory_pressure_v1",
         "version": VERSION,
@@ -44825,6 +44816,10 @@ def heartbeat_live_memory_pressure_from_status(status: dict[str, Any]) -> dict[s
             "mem_available_percent": mem_summary.get("mem_available_percent"),
             "swap_used_mib": mem_summary.get("swap_used_mib"),
             "swap_used_percent": mem_summary.get("swap_used_percent"),
+            "swap_free_mib": swap_reserve.get("free_mib", mem_summary.get("swap_free_mib")),
+            "target_swap_free_mib": swap_reserve.get("target_free_mib"),
+            "swap_free_shortfall_mib": swap_reserve.get("shortfall_mib"),
+            "swap_reserve_state": swap_reserve.get("state"),
             "psi_some_avg10": nested_get(status, ["psi", "some", "avg10"]),
             "psi_full_avg10": nested_get(status, ["psi", "full", "avg10"]),
             "zram_data_mib": zram_summary.get("data_mib"),
@@ -44836,6 +44831,7 @@ def heartbeat_live_memory_pressure_from_status(status: dict[str, Any]) -> dict[s
             "meminfo": status.get("meminfo"),
             "psi": status.get("psi"),
             "swap": status.get("swap"),
+            "swap_reserve": swap_reserve,
             "zram": status.get("zram"),
             "zswap": status.get("zswap"),
             "oomd": status.get("oomd"),
@@ -44862,6 +44858,8 @@ def heartbeat_live_memory_pressure_from_status(status: dict[str, Any]) -> dict[s
             "does_not_scan_process_smaps": True,
             "does_not_write_memory_state": True,
             "does_not_kill_or_tune_from_this_result": True,
+            "swap_reserve_does_not_set_pressure_class": True,
+            "pressure_assigns_workload_importance": False,
         },
     }
 
@@ -44998,10 +44996,14 @@ def heartbeat_pressure_context_from(
             "swap_used_mib": memory_summary.get("swap_used_mib"),
             "swap_used_percent": memory_summary.get("swap_used_percent"),
             "swap_free_mib": nested_get(memory_pressure, ["status", "swap", "summary", "free_mib"]),
+            "swap_reserve_state": memory_summary.get("swap_reserve_state"),
+            "target_swap_free_mib": memory_summary.get("target_swap_free_mib"),
+            "swap_free_shortfall_mib": memory_summary.get("swap_free_shortfall_mib"),
             "zram_data_mib": memory_summary.get("zram_data_mib"),
             "zram_resident_mib": memory_summary.get("zram_resident_mib"),
             "zram_logical_to_memory_ratio": memory_summary.get("zram_logical_to_memory_ratio"),
             "occupied_swap_without_stall": occupied_swap_without_stall,
+            "swap_reserve_action_authority": False,
         },
         "attribution": {
             "available": attribution_available,
@@ -48743,12 +48745,13 @@ def print_memory_pressure_text(data: dict[str, Any]) -> None:
 
 
 def print_memory_plan_text(data: dict[str, Any]) -> None:
-    recommended = data.get("recommended_new_work", {}) if isinstance(data.get("recommended_new_work"), dict) else {}
-    heavy = recommended.get("heavy", {}) if isinstance(recommended.get("heavy"), dict) else {}
-    sustained = recommended.get("sustained", {}) if isinstance(recommended.get("sustained"), dict) else {}
+    summary = nested_get(data, ["pressure", "summary"]) or {}
     print(f"memory plan: ok={data.get('ok')} class={data.get('class')} reasons={','.join(data.get('reasons', []) or [])}")
-    print(f"heavy: allowed={heavy.get('allowed')} unattended={heavy.get('unattended_allowed')} blocked={heavy.get('blocked_reasons')}")
-    print(f"sustained: allowed={sustained.get('allowed')} unattended={sustained.get('unattended_allowed')} blocked={sustained.get('blocked_reasons')}")
+    print(
+        f"available={summary.get('mem_available_mib')}MiB/{summary.get('mem_available_percent')}% "
+        f"psi={summary.get('psi_some_avg10')}/{summary.get('psi_full_avg10')} "
+        f"swap_reserve={summary.get('swap_reserve_state')} free={summary.get('swap_free_mib')}MiB"
+    )
 
 
 def print_memory_headroom_text(data: dict[str, Any]) -> None:
@@ -49807,7 +49810,7 @@ def main(argv: list[str]) -> int:
     resource_plan_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_plan_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
     resource_plan_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
-    resource_plan_parser.add_argument("--demand-key", default=None, help="stable workload/model identity for startup demand")
+    resource_plan_parser.add_argument("--demand-key", default=None, help="stable non-secret owner identity for startup demand")
     resource_plan_parser.add_argument("--demand-owner", default=None, help="owner reporting the startup demand estimate")
     resource_plan_parser.add_argument("--estimate-source", default=None, help="source of the startup demand estimate")
     resource_plan_parser.add_argument("--estimate-confidence", default=None, help="confidence label for the startup demand estimate")
@@ -49830,7 +49833,7 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
     resource_launch_parser.add_argument("--target", default=None, help="optional generated-write target path for storage preflight")
     resource_launch_parser.add_argument("--memory-demand-mib", type=float, default=None, help="expected incremental startup memory demand in MiB")
-    resource_launch_parser.add_argument("--demand-key", default=None, help="stable workload/model identity for startup demand")
+    resource_launch_parser.add_argument("--demand-key", default=None, help="stable non-secret owner identity for startup demand")
     resource_launch_parser.add_argument("--demand-owner", default=None, help="owner reporting the startup demand estimate")
     resource_launch_parser.add_argument("--estimate-source", default=None, help="source of the startup demand estimate")
     resource_launch_parser.add_argument("--estimate-confidence", default=None, help="confidence label for the startup demand estimate")

@@ -1029,8 +1029,8 @@ def process_thermal_plan_document(
             "fresh_attribution": "abyss-machine processes thermal-attribution --seconds 3 --interval 0.5 --json",
             "game_guard": "abyss-machine processes game-guard --json",
             "route_heavy": "abyss-machine ai cpu route --class heavy --json",
-            "launch_heavy": "abyss-machine ai cpu launch --class heavy -- COMMAND...",
-            "launch_heavy_dry_run": "abyss-machine ai cpu launch --class heavy --dry-run -- COMMAND...",
+            "launch_heavy": "abyss-machine resource launch --class heavy --kind ai -- COMMAND...",
+            "launch_heavy_dry_run": "abyss-machine resource launch --class heavy --kind ai --dry-run -- COMMAND...",
         },
         "policy": {
             "automation": "route_new_work_only",

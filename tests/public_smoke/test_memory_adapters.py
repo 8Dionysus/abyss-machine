@@ -55,6 +55,60 @@ def test_memory_status_parsers_use_fake_roots_and_runners(tmp_path: Path) -> Non
     assert memory_adapters.cgroup_status(cgroup_root=cgroup_root, uid=1000)["user"]["memory_events"]["oom"] == 1
 
 
+def test_resource_slice_cache_offer_requires_empty_clean_owner_cgroup(tmp_path: Path) -> None:
+    cgroup = tmp_path / "owner.slice"
+    cgroup.mkdir()
+    (cgroup / "cgroup.events").write_text("populated 0\n", encoding="utf-8")
+    (cgroup / "memory.current").write_text(str(512 * 1024**2), encoding="utf-8")
+    (cgroup / "memory.reclaim").write_text("", encoding="utf-8")
+
+    def write_stat(dirty: int) -> None:
+        (cgroup / "memory.stat").write_text(
+            "anon 0\n"
+            "shmem 0\n"
+            f"file {512 * 1024**2}\n"
+            f"inactive_file {480 * 1024**2}\n"
+            f"file_dirty {dirty}\n"
+            "file_writeback 0\n",
+            encoding="utf-8",
+        )
+
+    def runner(_command: list[str], _timeout: float) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "stdout": (
+                "Id=abyss-machine-indexing.slice\n"
+                "LoadState=loaded\n"
+                "ActiveState=active\n"
+                "ControlGroup=/owner.slice\n"
+                "TasksCurrent=0\n"
+            ),
+            "stderr": "",
+        }
+
+    write_stat(0)
+    clean = memory_adapters.resource_slice_cache_offers(
+        slice_names=["abyss-machine-indexing.slice"],
+        cgroup_root=tmp_path,
+        command_runner=runner,
+    )
+    write_stat(4096)
+    dirty = memory_adapters.resource_slice_cache_offers(
+        slice_names=["abyss-machine-indexing.slice"],
+        cgroup_root=tmp_path,
+        command_runner=runner,
+    )
+
+    assert clean["summary"]["offered"] == 1
+    assert clean["offers"][0]["offer"]["target_mib"] == 480.0
+    assert clean["offers"][0]["offer"]["parameters"] == {"swappiness": 0}
+    assert clean["offers"][0]["offer"]["shadow_only"] is True
+    assert clean["offers"][0]["offer"]["execution_authority"] is False
+    assert dirty["summary"]["offered"] == 0
+    assert dirty["offers"][0]["facts"]["file_dirty_bytes"] == 4096
+    assert "dirty_file_pages_present_or_unknown" in dirty["offers"][0]["withheld_reasons"]
+
+
 def test_hotpath_tts_probe_uses_fake_synth_port() -> None:
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     monotonic_values = iter([1.0, 2.25])

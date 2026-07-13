@@ -6,10 +6,10 @@ import pytest
 @pytest.mark.quick
 @pytest.mark.contract
 @pytest.mark.regression
-def test_typing_nervous_refresh_accepts_unattended_swap_pressure_as_resource_gate(abyss_machine_module):
+def test_typing_nervous_refresh_accepts_startup_reserve_as_resource_gate(abyss_machine_module):
     for reason in {
-        "indexing_unattended_swap_used_pressure",
-        "indexing_unattended_swap_free_below_floor",
+        "startup_projected_mem_available_below_hard_reserve",
+        "startup_unknown_demand_with_low_physical_headroom",
     }:
         assert (
             abyss_machine_module.typing_nervous_index_resource_gated(
@@ -33,7 +33,7 @@ def test_typing_nervous_refresh_rejects_unknown_or_denied_resource_gate(abyss_ma
         abyss_machine_module.typing_nervous_index_resource_gated(
             {
                 "ok": False,
-                "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+                "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
                 "denied_reasons": ["storage_denied"],
             }
         )
@@ -41,7 +41,7 @@ def test_typing_nervous_refresh_rejects_unknown_or_denied_resource_gate(abyss_ma
     )
     assert (
         abyss_machine_module.typing_nervous_index_resource_gated(
-            {"ok": True, "blocked_reasons": ["indexing_unattended_swap_used_pressure"], "denied_reasons": []}
+            {"ok": True, "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"], "denied_reasons": []}
         )
         is False
     )

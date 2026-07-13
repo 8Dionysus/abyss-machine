@@ -18,11 +18,14 @@ accepted
 
 ## Current Applicability
 
-As of 2026-07-12, `abyss-machine` owns live host memory facts, synchronous
-launch admission, and runtime-only startup reservations. It does not run a
-resident forecast, workload registry, evidence database, or generic lifecycle
-controller. The older numeric `memory orchestrate` candidate ranking and
-restart executor are also retired. Reclaim, sleep, unload, checkpoint, resume,
+As of 2026-07-13, `abyss-machine` owns live pressure and swap-reserve facts,
+synchronous launch admission, runtime-only startup reservations, bounded
+runtime peak learning, one canonical resource-launch path, and shadow-only
+owner-cgroup reclaim offers. The older AI CPU launch command is only a
+compatibility wrapper over that path. It does not
+run a resident forecast, workload registry, evidence database, or generic
+lifecycle controller. The older numeric `memory orchestrate` candidate ranking
+and restart executor are retired. Reclaim, sleep, unload, checkpoint, resume,
 and rollback remain with the workload owner.
 
 ## Context
@@ -51,8 +54,26 @@ Remove the resident Memory Controller, its policy/registry projection, SQLite
 evidence, queue/grant protocol, dedicated entrypoint, systemd unit, rehearsal,
 and implementation-specific tests.
 
-Preserve the existing fresh resource plan, admission lock, startup demand
-model, and runtime-only reservations. Host read routes must honor
+Preserve the existing fresh resource plan, admission lock, and runtime-only
+reservations. Replace class/swap memory gates and static `MemoryHigh` with a
+hard cooperative physical-RAM floor for known projected demand and cautious
+startup serialization only while demand is unknown. Learn demand from the
+exact transient unit's journald `MEMORY_PEAK` plus `MEMORY_SWAP_PEAK`; keep at
+most 64 routes and 16 recent samples per route under `/run`, with an explicit
+owner estimate taking precedence. A class/kind estimate is bootstrap evidence
+only until a measured profile exists and therefore remains in the bounded
+unknown-startup lane.
+
+Memory plan publishes pressure and reserve facts, not an all-true compatibility
+recommendation table. Every host-managed execution path, including the AI CPU
+compatibility command, delegates to resource launch for fresh admission,
+atomic lease creation, cgroup identity, and post-run learning.
+
+Pressure class derives from MemAvailable and PSI. Swap occupancy has a separate
+reserve status and has neither pressure nor action authority. Empty stable
+resource-owner cgroups may publish a shadow-only file-cache reclaim offer only
+when anon, shmem, dirty, and writeback are all zero. No reclaim is executed by
+this slice. Host read routes must honor
 `write_latest=False` transitively. Memory observations and resource admission
 retain atomic latest-only documents; historical telemetry belongs to journald
 or the configured metrics retention instead of daily control-plane JSONL.
@@ -71,19 +92,25 @@ A future coordinator is admissible only when all of these are true:
 
 ## Rationale
 
-The host can make launch decisions from current facts without retaining a
-forecast database or continuously classifying every process. systemd and cgroup
-identity remain the host attribution substrate, while models, browsers,
-sessions, and services retain semantic authority over their own state. This
-keeps automation owner-aware and fail-closed without inventing a central score
-for work it cannot safely understand.
+The host can protect a point-in-time launch reserve for work entering the
+canonical route from current and learned facts, without retaining a forecast
+database or continuously classifying every process. This does not claim
+control over unregistered starts by other agents. systemd and cgroup identity
+remain the host attribution substrate, while models, browsers, sessions, and
+services retain semantic authority over their own state. This keeps automation
+owner-aware without inventing a central score for work it cannot safely
+understand.
 
 ## Consequences
 
-The always-resident memory-plane cost becomes zero. Concurrent medium and heavy
-starts still serialize through a fresh decision and atomic startup reservation.
-There is no host queue fairness layer; owner schedulers may add ordering before
-calling the launch route when they have a real scheduling need.
+The always-resident memory-plane cost becomes zero. Known starts reserve their
+learned or owner-declared incremental footprint atomically and may proceed
+concurrently while the hard floor remains intact. Unknown starts serialize only
+through their bounded startup window and are held during active stalls or low
+physical headroom. There is no host queue fairness layer; owner schedulers may
+add ordering before calling the launch route when they have a real scheduling
+need. Unregistered starts remain an explicit integration gap for shadow and
+owner-contract work, never an inferred permission to constrain them.
 
 Existing host-only controller state remains migration evidence until backup and
 restore-proof cleanup. A future pressure offer requires a new reviewed source
@@ -106,6 +133,11 @@ change rather than silently reactivating the removed controller.
 - 2026-07-13: Removed the pre-existing numeric candidate ranking, confirmation,
   restart executor, CLI/bridge surface, and required route card. Historical
   host evidence remains until restore-proof cleanup.
+- 2026-07-13: Separated pressure from swap reserve, removed static launch memory
+  caps, swap/class gates, and the fake recommendation table; unified the AI
+  compatibility launcher behind resource admission, added bounded transient-
+  unit peak learning, and exposed strict empty-cgroup cache reclaim as shadow
+  evidence only.
 
 ## Source Surfaces
 

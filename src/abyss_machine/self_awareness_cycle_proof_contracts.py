@@ -174,12 +174,12 @@ def cycle_bridge_surfaces(
         },
         {
             "id": "memory",
-            "organ": "memory_gate",
+            "organ": "memory_pressure_reserve",
             "path": MEMORY_LATEST_PATH,
             "schema": f"{SCHEMA_PREFIX}_memory_status_v1",
             "command": "abyss-machine memory status --json",
             "validator": "abyss-machine memory validate --json",
-            "coverage": ["memory", "pressure", "launch_gate"],
+            "coverage": ["memory", "pressure", "swap_reserve"],
         },
         {
             "id": "mode",
