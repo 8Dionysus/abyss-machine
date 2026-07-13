@@ -883,7 +883,7 @@ resource state retention: latest-only admission plans, launch receipts, and orch
 resource plan latest: {{ABYSS_MACHINE_STATE}}/resource/plans/latest.json
 resource launch latest: {{ABYSS_MACHINE_STATE}}/resource/runs/latest.json
 resource orchestrator latest: {{ABYSS_MACHINE_STATE}}/resource/orchestrator/latest.json
-OS Abyss heartbeat latest: {{ABYSS_MACHINE_STATE}}/heartbeats/latest.json and {{ABYSS_MACHINE_STATE}}/heartbeats/YYYY/MM/YYYY-MM-DD.jsonl
+OS Abyss heartbeat latest: {{ABYSS_MACHINE_STATE}}/heartbeats/latest.json; retention is latest-only, while historical service evidence remains in bounded journald/metrics owners
 OS Abyss heartbeat route: abyss-machine heartbeats pulse --json; recurring compact pulse over current nervous, doctor, resource, E2B breath, reaction, response-route, and change-ledger evidence; non-executing and `automatic_action=false`
 reaction candidates latest: {{ABYSS_MACHINE_STATE}}/reactions/latest.json and {{ABYSS_MACHINE_STATE}}/reactions/YYYY/MM/YYYY-MM-DD.jsonl
 reaction candidates route: abyss-machine reactions --json; converts current nervous, doctor, resource, and selected systemd evidence into operator-review candidates with reason, severity, command suggestion, and evidence pointers; non-executing and `automatic=false`
