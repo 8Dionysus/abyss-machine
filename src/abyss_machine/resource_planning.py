@@ -287,6 +287,7 @@ def startup_demand_projection(
     memory_policy: Mapping[str, Any],
     demand: Mapping[str, Any],
     reservations: Mapping[str, Any],
+    unattended: bool = False,
     admission_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     raw_current_available = _float_value(memory_summary.get("mem_available_mib"), None)
@@ -317,17 +318,30 @@ def startup_demand_projection(
     unknown_floor_mib = max(hard_floor_mib, _float_value(startup.get("unknown_mem_available_floor_mib"), 4096.0) or 4096.0)
     psi_some = _float_value(memory_summary.get("psi_some_avg10"), None)
     psi_full = _float_value(memory_summary.get("psi_full_avg10"), None)
+    psi_some_thresholds = thresholds.get("psi_some_avg10") if isinstance(thresholds.get("psi_some_avg10"), dict) else {}
+    psi_full_thresholds = thresholds.get("psi_full_avg10") if isinstance(thresholds.get("psi_full_avg10"), dict) else {}
+    active_stall_some_threshold = max(0.0, _float_value(psi_some_thresholds.get("hot_above"), 8.0) or 8.0)
+    active_stall_full_threshold = max(0.0, _float_value(psi_full_thresholds.get("hot_above"), 2.0) or 2.0)
+    active_stall = bool(
+        (psi_some is not None and psi_some >= active_stall_some_threshold)
+        or (psi_full is not None and psi_full >= active_stall_full_threshold)
+    )
     unknown_some_threshold = max(0.0, _float_value(startup.get("unknown_psi_some_avg10_at_or_above"), 2.0) or 2.0)
     unknown_full_threshold = max(0.0, _float_value(startup.get("unknown_psi_full_avg10_at_or_above"), 0.5) or 0.5)
     safety_blocks: list[str] = []
     estimate_available = bool(demand.get("estimate_available", demand.get("known")))
     if availability_known and demand.get("reservation_required") and estimate_available and projected_available < hard_floor_mib:
         safety_blocks.append("projected_mem_available_below_hard_reserve")
+    if demand.get("reservation_required") and unattended and active_stall:
+        safety_blocks.append("new_unattended_work_during_active_memory_stall")
     if demand.get("unknown_startup_lane"):
         unreserved_available = max(0.0, current_available - outstanding_mib)
         if availability_known and unreserved_available < unknown_floor_mib:
             safety_blocks.append("unknown_demand_with_low_physical_headroom")
-        if (psi_some is not None and psi_some >= unknown_some_threshold) or (psi_full is not None and psi_full >= unknown_full_threshold):
+        if not active_stall and (
+            (psi_some is not None and psi_some >= unknown_some_threshold)
+            or (psi_full is not None and psi_full >= unknown_full_threshold)
+        ):
             safety_blocks.append("unknown_demand_during_active_memory_stall")
     return {
         "current": {
@@ -352,6 +366,12 @@ def startup_demand_projection(
             "allowed": not safety_blocks,
             "blocked_reasons": safety_blocks,
             "availability_known": availability_known,
+            "active_stall": active_stall,
+            "psi_some_avg10": psi_some,
+            "psi_full_avg10": psi_full,
+            "active_stall_psi_some_avg10_at_or_above": round(active_stall_some_threshold, 3),
+            "active_stall_psi_full_avg10_at_or_above": round(active_stall_full_threshold, 3),
+            "unattended_start": bool(unattended),
             "hard_mem_available_floor_mib": round(hard_floor_mib, 3),
             "unknown_mem_available_floor_mib": round(unknown_floor_mib, 3),
             "pressure_facts_assign_importance": False,

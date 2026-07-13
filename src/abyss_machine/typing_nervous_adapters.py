@@ -5,6 +5,7 @@ import collections
 import fcntl
 import grp
 import json
+import mmap
 import os
 import re
 import tempfile
@@ -71,16 +72,88 @@ def load_source_records_from_root(root: Path) -> tuple[list[dict[str, Any]], lis
     return nervous_index.load_source_records_from_root(root)
 
 
+def load_recent_jsonl_records(
+    path: Path | str,
+    limit: int,
+    *,
+    max_bytes: int | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    source_path = Path(path)
+    bounded_limit = max(1, int(limit))
+    byte_budget = max(1, int(max_bytes)) if max_bytes is not None else None
+    try:
+        with source_path.open("rb") as handle:
+            file_size = os.fstat(handle.fileno()).st_size
+            if file_size == 0:
+                return [], []
+            with mmap.mmap(handle.fileno(), length=0, access=mmap.ACCESS_READ) as mapped:
+                line_end = len(mapped)
+                if mapped[line_end - 1] == ord("\n"):
+                    line_end -= 1
+                records: list[dict[str, Any]] = []
+                errors: list[dict[str, Any]] = []
+                line_from_end = 0
+                scanned_bytes = 0
+                reached_start = False
+                while line_end > 0 and len(records) < bounded_limit:
+                    newline = mapped.rfind(b"\n", 0, line_end)
+                    line_start = newline + 1
+                    line_bytes = line_end - line_start
+                    scanned_bytes += line_bytes + (1 if newline >= 0 else 0)
+                    if byte_budget is not None and scanned_bytes > byte_budget:
+                        break
+                    line_from_end += 1
+                    if line_bytes > 1024 * 1024:
+                        errors.append({
+                            "path": str(source_path),
+                            "line_from_end": line_from_end,
+                            "error": "record exceeds 1 MiB typing-event contract",
+                        })
+                    else:
+                        raw = mapped[line_start:line_end].decode("utf-8", errors="replace").strip()
+                        if raw:
+                            try:
+                                data = json.loads(raw)
+                            except json.JSONDecodeError as exc:
+                                errors.append({
+                                    "path": str(source_path),
+                                    "line_from_end": line_from_end,
+                                    "error": str(exc),
+                                })
+                            else:
+                                if isinstance(data, dict):
+                                    records.append(data)
+                                else:
+                                    errors.append({
+                                        "path": str(source_path),
+                                        "line_from_end": line_from_end,
+                                        "error": "record is not an object",
+                                    })
+                    if newline < 0:
+                        reached_start = True
+                        break
+                    line_end = newline
+    except (OSError, ValueError) as exc:
+        return [], [{"path": str(source_path), "error": str(exc)}]
+
+    if reached_start:
+        for error in errors:
+            from_end = error.pop("line_from_end", None)
+            if isinstance(from_end, int):
+                error["line"] = line_from_end - from_end + 1
+    return records, errors
+
+
 def read_recent_jsonl_records(root: Path, limit: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     records: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for path in sorted(jsonl_files(root), reverse=True):
-        parsed, parse_errors = load_jsonl_records(path)
+        remaining = max(0, int(limit) - len(records))
+        if remaining == 0:
+            break
+        parsed, parse_errors = load_recent_jsonl_records(path, remaining)
         errors.extend(parse_errors)
-        for record in reversed(parsed):
-            records.append(record)
-            if len(records) >= limit:
-                return records, errors
+        records.extend(parsed)
     return records, errors
 
 

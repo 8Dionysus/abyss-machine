@@ -452,6 +452,78 @@ def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monk
     assert any(call[:3] == ["systemctl", "--user", "stop"] for call in calls)
 
 
+def test_unattended_resource_launch_remeasures_after_active_stall(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(version="test")
+    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
+    plan_calls = 0
+
+    def fake_plan(**kwargs):
+        nonlocal plan_calls
+        plan_calls += 1
+        requested = abyss_machine_module.resource_planning.resolve_startup_demand(
+            policy,
+            workload_class=kwargs["workload_class"],
+            kind=kwargs["kind"],
+            explicit_mib=kwargs.get("memory_demand_mib"),
+            demand_key=kwargs.get("demand_key"),
+            demand_owner=kwargs.get("demand_owner"),
+        )
+        blocked = ["startup_new_unattended_work_during_active_memory_stall"] if plan_calls == 1 else []
+        return {
+            "ok": not blocked,
+            "decision": "force_required" if blocked else "allow",
+            "blocked_reasons": blocked,
+            "denied_reasons": [],
+            "request": {"normalized_class": "medium", "normalized_kind": "agent"},
+            "inputs": {"startup_demand": {"requested": requested}},
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-agents.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            0,
+            "Finished with result: success\n",
+            "",
+        ),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda unit, **_kwargs: {"ok": False, "unit": unit, "error": "fixture_no_peak"},
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="agent",
+        unattended=True,
+        memory_demand_mib=512,
+        demand_owner="agent-owner",
+        startup_wait_sec=1,
+        write_latest=False,
+    )
+
+    assert plan_calls == 2
+    assert result["ok"] is True
+    assert result["request"]["force"] is False
+    assert result["startup_admission"]["wait_attempts"] == 1
+    assert result["execution"]["returncode"] == 0
+
+
 def test_resource_launch_releases_startup_lease_after_submit(monkeypatch, tmp_path, abyss_machine_module):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     policy = abyss_machine_module.resource_planning.default_policy(version="test")
