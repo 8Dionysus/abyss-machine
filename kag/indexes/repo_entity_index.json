@@ -794,9 +794,9 @@
         "surface_state": "authored_source"
       },
       "entity_kind": "decision",
-      "id": "entity:file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
-      "label": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md",
-      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3"
+      "id": "entity:file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce",
+      "label": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce"
     },
     {
       "coordinates": {
@@ -8445,7 +8445,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_entity_index",
-    "content_digest": "da84ca2dfc9287d59778604ff57063fd68a512f8170f796c702fe200afc5d7f5",
+    "content_digest": "bd7c8a93972bdd17e2efe5d71e62941f43ba10726f5ef6b315060e4858cca96d",
     "index_kind": "entity",
     "local_id": "index:repo-local:entities",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -8468,7 +8468,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "d2f6697c0eb45e37b3dd8eacb620960fd9e6b08fb852c951f4cc89d996fb1f02",
+    "content_digest": "7a6d0d1d9fbde8c759c5c191808a2ad9e00fd3a6984a065ab3faed63a78700df",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },

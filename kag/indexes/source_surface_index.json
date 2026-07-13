@@ -74,7 +74,7 @@
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "d2f6697c0eb45e37b3dd8eacb620960fd9e6b08fb852c951f4cc89d996fb1f02",
+    "content_digest": "7a6d0d1d9fbde8c759c5c191808a2ad9e00fd3a6984a065ab3faed63a78700df",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -8394,11 +8394,11 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "5d7864779fe1f8bff5e3c4d20c8e75c32cc1f75c21a7966a771692176761d6f8",
+        "content_hash": "f975f2fc09a5e0dcfa427c919d900839b869d5dcce71b5c9df1e3c9100b44155",
         "git_ref": "git-index-source-tree",
-        "id": "file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
+        "id": "file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce",
         "mime": "text/markdown",
-        "path": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md",
+        "path": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md",
         "repo": "abyss-machine",
         "size_bytes": 5422
       },
@@ -8406,7 +8406,7 @@
       "observed_form": "file",
       "owner_return_route": {
         "route_kind": "document_owner",
-        "surface": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md"
+        "surface": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md"
       },
       "provenance": {
         "generated_by": "",
@@ -8415,7 +8415,7 @@
         "source_refs": [
           {
             "authority": "authored_source",
-            "path": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md",
+            "path": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md",
             "repo": "abyss-machine",
             "role": "primary"
           }
@@ -8427,119 +8427,119 @@
       "refs": {
         "heading_refs": [
           {
-            "anchor": "0021-owner-native-memory-orchestration",
+            "anchor": "0022-owner-native-memory-orchestration",
             "level": 1,
             "line": 1,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#0021-owner-native-memory-orchestration",
-            "title": "0021 Owner-Native Memory Orchestration"
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#0022-owner-native-memory-orchestration",
+            "title": "0022 Owner-Native Memory Orchestration"
           },
           {
             "anchor": "status",
             "level": 2,
             "line": 3,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#status",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#status",
             "title": "Status"
           },
           {
             "anchor": "date",
             "level": 2,
             "line": 7,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#date",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#date",
             "title": "Date"
           },
           {
             "anchor": "index-tags",
             "level": 2,
             "line": 11,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#index-tags",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#index-tags",
             "title": "Index Tags"
           },
           {
             "anchor": "current-applicability",
             "level": 2,
             "line": 19,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#current-applicability",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#current-applicability",
             "title": "Current Applicability"
           },
           {
             "anchor": "context",
             "level": 2,
             "line": 28,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#context",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#context",
             "title": "Context"
           },
           {
             "anchor": "options-considered",
             "level": 2,
             "line": 39,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#options-considered",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#options-considered",
             "title": "Options Considered"
           },
           {
             "anchor": "decision",
             "level": 2,
             "line": 48,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#decision",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#decision",
             "title": "Decision"
           },
           {
             "anchor": "rationale",
             "level": 2,
             "line": 72,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#rationale",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#rationale",
             "title": "Rationale"
           },
           {
             "anchor": "consequences",
             "level": 2,
             "line": 81,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#consequences",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#consequences",
             "title": "Consequences"
           },
           {
             "anchor": "boundaries",
             "level": 2,
             "line": 92,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#boundaries",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#boundaries",
             "title": "Boundaries"
           },
           {
             "anchor": "review-log",
             "level": 2,
             "line": 103,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#review-log",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#review-log",
             "title": "Review Log"
           },
           {
             "anchor": "source-surfaces",
             "level": 2,
             "line": 110,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#source-surfaces",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#source-surfaces",
             "title": "Source Surfaces"
           },
           {
             "anchor": "validation",
             "level": 2,
             "line": 118,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#validation",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#validation",
             "title": "Validation"
           },
           {
             "anchor": "follow-up-route",
             "level": 2,
             "line": 127,
-            "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#follow-up-route",
+            "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#follow-up-route",
             "title": "Follow-up Route"
           }
         ],
         "line_refs": [
-          "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:1"
+          "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:1"
         ],
-        "path_ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md"
+        "path_ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md"
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "5d7864779fe1f8bff5e3c4d20c8e75c32cc1f75c21a7966a771692176761d6f8",
+        "digest": "f975f2fc09a5e0dcfa427c919d900839b869d5dcce71b5c9df1e3c9100b44155",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -8759,7 +8759,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "f4299cafb0a626ec9c628e7f0514a1bab6ccdf1b59016dd8469a148d87a45263",
+        "content_hash": "6bd06e9748b62611d772f847d3a19e72de6887f7854c6b8dd81372202030312f",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/decisions/readme.md:1dc9bda5ca",
         "mime": "text/markdown",
@@ -8946,7 +8946,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "f4299cafb0a626ec9c628e7f0514a1bab6ccdf1b59016dd8469a148d87a45263",
+        "digest": "6bd06e9748b62611d772f847d3a19e72de6887f7854c6b8dd81372202030312f",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -15012,7 +15012,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "bdaa51e7086727652363656a8344d13e45d6c85a37e0ccf0304ec36c460a95e8",
+        "content_hash": "1aa53126da30e9f7f5e1eac074922ed7eebf501bce9ccdc94d3d94735c26c290",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
@@ -15051,7 +15051,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "bdaa51e7086727652363656a8344d13e45d6c85a37e0ccf0304ec36c460a95e8",
+        "digest": "1aa53126da30e9f7f5e1eac074922ed7eebf501bce9ccdc94d3d94735c26c290",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
