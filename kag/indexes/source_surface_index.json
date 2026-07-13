@@ -74,7 +74,7 @@
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "1272541adaa0a48d806045405d07d9de30c6543877d48c197b5b4b2dfef24fab",
+    "content_digest": "30821ef83076e6385dbf15f862263ccc3853bd73b6b50216bd84d70dc845f03b",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -15012,7 +15012,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "49519e78904ba47d76c227f52adf24dade316a2146473ca613b598978eaf3240",
+        "content_hash": "37865ac01a7eb8d5b57d8048810787021459daec9463af88f01ba23619373f30",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
@@ -15051,7 +15051,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "49519e78904ba47d76c227f52adf24dade316a2146473ca613b598978eaf3240",
+        "digest": "37865ac01a7eb8d5b57d8048810787021459daec9463af88f01ba23619373f30",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
