@@ -20,7 +20,7 @@ def pressure_inputs(*, mem_available: float, swap_used: float, swap_free_mib: fl
     return mem, psi, swap
 
 
-def test_zram_only_high_swap_with_headroom_and_low_psi_gets_relief(abyss_machine_module) -> None:
+def test_zram_only_high_swap_with_headroom_stays_out_of_pressure_class(abyss_machine_module) -> None:
     policy = abyss_machine_module.memory_default_policy()
     mem, psi, swap = pressure_inputs(
         mem_available=34.0,
@@ -33,11 +33,14 @@ def test_zram_only_high_swap_with_headroom_and_low_psi_gets_relief(abyss_machine
 
     memory_class, reasons = abyss_machine_module.memory_pressure_class(mem, psi, swap, policy)
 
-    assert memory_class == "warm"
-    assert any("zram_only_relief_to_warm" in reason for reason in reasons)
+    reserve = abyss_machine_module.memory_swap_reserve_status(swap, policy)
+    assert memory_class == "green"
+    assert reasons == ["no_active_memory_pressure_observed"]
+    assert reserve["state"] == "within_target"
+    assert reserve["pressure_authority"] is False
 
 
-def test_non_zram_high_swap_does_not_receive_zram_relief(abyss_machine_module) -> None:
+def test_non_zram_high_swap_also_does_not_assign_pressure_or_importance(abyss_machine_module) -> None:
     policy = abyss_machine_module.memory_default_policy()
     mem, psi, swap = pressure_inputs(
         mem_available=34.0,
@@ -50,32 +53,32 @@ def test_non_zram_high_swap_does_not_receive_zram_relief(abyss_machine_module) -
 
     memory_class, reasons = abyss_machine_module.memory_pressure_class(mem, psi, swap, policy)
 
-    assert memory_class == "critical"
-    assert not any("zram_only_relief" in reason for reason in reasons)
+    assert memory_class == "green"
+    assert reasons == ["no_active_memory_pressure_observed"]
 
 
-def test_zram_relief_is_blocked_when_psi_reports_stalls(abyss_machine_module) -> None:
+def test_psi_stalls_drive_pressure_independently_of_zram_occupancy(abyss_machine_module) -> None:
     policy = abyss_machine_module.memory_default_policy()
     mem, psi, swap = pressure_inputs(
         mem_available=34.0,
         swap_used=82.0,
         swap_free_mib=4096.0,
         zram=True,
-        psi_some=3.0,
+        psi_some=9.0,
         psi_full=0.0,
     )
 
     memory_class, reasons = abyss_machine_module.memory_pressure_class(mem, psi, swap, policy)
 
-    assert memory_class == "critical"
-    assert not any("zram_only_relief" in reason for reason in reasons)
+    assert memory_class == "hot"
+    assert reasons == ["psi_some_avg10=9.0>hot"]
 
 
 def test_memory_plan_is_not_a_zram_or_sysctl_mutation_plan(abyss_machine_module) -> None:
     pressure = {
         "ok": True,
         "class": "warm",
-        "reasons": ["swap_used_percent=82>critical_but_zram_only_relief_to_warm"],
+        "reasons": ["fixture_pressure"],
         "summary": {"class": "warm", "psi_some_avg10": 0.0, "psi_full_avg10": 0.0},
         "status": {"swap": {"summary": {"free_mib": 4096.0}}},
     }
@@ -83,10 +86,11 @@ def test_memory_plan_is_not_a_zram_or_sysctl_mutation_plan(abyss_machine_module)
     plan = abyss_machine_module.memory_plan(write_latest=False, pressure_input=pressure)
 
     assert plan["ok"] is True
-    assert plan["policy"]["automation"] == "gate_new_work_only"
+    assert plan["policy"]["automation"] == "advisory_machine_pressure_only"
+    assert plan["policy"]["numeric_workload_gating"] is False
     assert plan["policy"]["do_not_kill_existing_processes"] is True
     assert plan["policy"]["do_not_tune_zram_or_sysctl_from_plan"] is True
-    assert "recommended_new_work" in plan
+    assert "recommended_new_work" not in plan
 
 
 def test_memory_pressure_read_only_does_not_promote_child_writes(

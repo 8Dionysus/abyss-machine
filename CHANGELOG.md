@@ -71,6 +71,11 @@
 - Retire the numeric `memory orchestrate` ranking and restart executor so
   pressure and footprint remain host facts rather than workload-importance or
   mutation authority.
+- Separate pressure from swap reserve, remove static launch memory caps and
+  swap/class gates and fake memory recommendations, route host-managed AI work
+  through canonical resource admission, learn bounded demand from exact
+  transient-unit peaks, and expose only strict empty owner-cgroup cache reclaim
+  offers in shadow mode.
 
 ## 0.1.0
 

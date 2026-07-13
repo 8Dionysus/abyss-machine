@@ -46,7 +46,12 @@ def test_memory_policy_and_paths_contracts_are_module_owned() -> None:
     loaded = memory_contracts.policy_document(
         schema_prefix="abyss_machine",
         version="0.8.test",
-        loaded={"thresholds": {}, "actions": {"automatic_kill": False}},
+        loaded={
+            "thresholds": {"swap_used_percent": {"critical_above": 1}},
+            "actions": {"automatic_kill": True, "launch_gate_only": True, "numeric_workload_gating": True},
+            "launch_gates": {"critical": {"block_classes": ["medium"]}},
+            "zram_swap_relief": {"enabled": True},
+        },
         config_error=None,
     )
     refs = _refs()
@@ -58,9 +63,17 @@ def test_memory_policy_and_paths_contracts_are_module_owned() -> None:
     )
 
     assert policy["schema"] == "abyss_machine_memory_policy_v1"
-    assert policy["actions"]["launch_gate_only"] is True
+    assert policy["actions"]["numeric_workload_gating"] is False
+    assert policy["actions"]["owner_offer_required_for_existing_process_action"] is True
     assert loaded["config_exists"] is True
-    assert loaded["defaults_applied"] == ["residency"]
+    assert loaded["defaults_applied"] == ["residency", "swap_reserve"]
+    assert loaded["swap_reserve"]["enabled"] is True
+    assert loaded["actions"]["automatic_kill"] is False
+    assert loaded["actions"]["numeric_workload_gating"] is False
+    assert "launch_gate_only" not in loaded["actions"]
+    assert "launch_gates" not in loaded
+    assert "zram_swap_relief" not in loaded
+    assert "swap_used_percent" not in loaded["thresholds"]
     assert paths["schema"] == "abyss_machine_memory_paths_v3"
     for lane in ("status", "pressure", "processes", "plan", "headroom", "residency", "hotpath"):
         assert paths[lane]["retention"] == "latest_only"
@@ -72,24 +85,24 @@ def test_memory_policy_and_paths_contracts_are_module_owned() -> None:
     assert paths["policy_contract"]["repo_mutation"] is False
 
 
-def test_memory_pressure_zram_relief_and_launch_gates_are_module_owned() -> None:
+def test_memory_pressure_swap_reserve_and_importance_are_separate() -> None:
     policy = memory_contracts.default_policy(schema_prefix="abyss_machine", version="0.8.test")
     mem = {"summary": {"mem_available_percent": 35}}
     psi = {"some": {"avg10": 0.0}, "full": {"avg10": 0.0}}
-    zram_swap = {"devices": [{"name": "/dev/zram0"}], "summary": {"used_percent": 80, "free_mib": 4096}}
-    disk_swap = {"devices": [{"name": "/dev/nvme0n1p3"}], "summary": {"used_percent": 80, "free_mib": 4096}}
+    zram_swap = {"devices": [{"name": "/dev/zram0"}], "summary": {"total_mib": 20000, "used_mib": 19488, "used_percent": 97.44, "free_mib": 512}}
+    disk_swap = {"devices": [{"name": "/dev/nvme0n1p3"}], "summary": {"total_mib": 20000, "used_mib": 19488, "used_percent": 97.44, "free_mib": 512}}
 
     relieved_class, relieved_reasons = memory_contracts.pressure_class(mem, psi, zram_swap, policy)
     hard_class, hard_reasons = memory_contracts.pressure_class(mem, psi, disk_swap, policy)
-    hot_gate = memory_contracts.launch_gate_for_class("hot", "medium", unattended=True, policy=policy)
+    reserve = memory_contracts.swap_reserve_status(zram_swap, policy)
 
     assert memory_contracts.swap_is_zram_only(zram_swap) is True
-    assert relieved_class == "warm"
-    assert "zram_only_relief_to_warm" in relieved_reasons[0]
-    assert hard_class == "critical"
-    assert hard_reasons == ["swap_used_percent=80>critical"]
-    assert hot_gate["allowed"] is False
-    assert hot_gate["blocked_reasons"] == ["memory_hot_blocks_unattended_medium"]
+    assert relieved_class == hard_class == "green"
+    assert relieved_reasons == hard_reasons == ["no_active_memory_pressure_observed"]
+    assert reserve["state"] == "below_target"
+    assert reserve["shortfall_mib"] == 1536.0
+    assert reserve["pressure_authority"] is False
+    assert reserve["action_authority"] is False
 
 
 def test_memory_plan_and_headroom_attribution_contracts_are_module_owned() -> None:
@@ -131,13 +144,14 @@ def test_memory_plan_and_headroom_attribution_contracts_are_module_owned() -> No
     )
 
     assert plan["schema"] == "abyss_machine_memory_plan_v1"
-    assert plan["recommended_new_work"]["heavy"]["allowed"] is False
-    assert plan["recommended_new_work"]["heavy"]["game_guarded"] is True
-    assert plan["recommended_new_work"]["medium"]["unattended_allowed"] is False
+    assert "recommended_new_work" not in plan
+    assert plan["policy"]["numeric_workload_gating"] is False
     assert plan["policy"]["do_not_kill_existing_processes"] is True
-    assert attribution["protected_swap_mib"] == 512.0
-    assert attribution["operator_review_swap_mib"] == 128.0
+    assert attribution["protected_owner_context_swap_mib"] == 512.0
+    assert attribution["owner_state_unknown_swap_mib"] == 128.0
     assert attribution["top_cgroup_swap"][0]["protected"] is True
+    assert attribution["top_cgroup_swap"][1]["route"] == "owner_state_required_before_action"
+    assert attribution["action_authority"] is False
 
 
 def test_memory_paths_cli_uses_public_contract_shape_without_live_collection() -> None:

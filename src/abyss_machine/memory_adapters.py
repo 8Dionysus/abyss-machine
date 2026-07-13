@@ -34,6 +34,15 @@ DictationTranscribePort = Callable[[str, str], dict[str, Any]]
 LoadJsonDocumentPort = Callable[[Path], tuple[Any, Any]]
 
 
+RESOURCE_OWNER_SLICES = (
+    "abyss-machine-ai.slice",
+    "abyss-machine-agents.slice",
+    "abyss-machine-benchmarks.slice",
+    "abyss-machine-indexing.slice",
+    "abyss-machine-work.slice",
+)
+
+
 def tool_available(name: str) -> bool:
     return shutil.which(name) is not None
 
@@ -700,6 +709,140 @@ def cgroup_status(*, cgroup_root: Path = Path("/sys/fs/cgroup"), uid: int | None
     return scopes
 
 
+def _systemd_show_records(text: str) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in text.splitlines() + [""]:
+        if not line.strip():
+            if current:
+                records.append(current)
+                current = {}
+            continue
+        key, separator, value = line.partition("=")
+        if separator:
+            current[key] = value
+    return records
+
+
+def resource_slice_cache_offers(
+    *,
+    slice_names: Sequence[str] = RESOURCE_OWNER_SLICES,
+    cgroup_root: Path = Path("/sys/fs/cgroup"),
+    command_runner: CommandRunnerPort = run_tool_process,
+) -> dict[str, Any]:
+    names = [str(item) for item in slice_names if str(item).endswith(".slice")]
+    command = [
+        "systemctl",
+        "--user",
+        "show",
+        *names,
+        "--property=Id",
+        "--property=LoadState",
+        "--property=ActiveState",
+        "--property=ControlGroup",
+        "--property=TasksCurrent",
+    ]
+    result = command_runner(command, 3.0)
+    records = _systemd_show_records(str(result.get("stdout") or ""))
+    by_name = {str(item.get("Id") or ""): item for item in records}
+    offers: list[dict[str, Any]] = []
+    for name in names:
+        unit = by_name.get(name, {})
+        control_group = str(unit.get("ControlGroup") or "")
+        safe_control_group = bool(control_group.startswith("/") and ".." not in Path(control_group).parts)
+        path = cgroup_root / control_group.lstrip("/") if safe_control_group else None
+        exists = bool(path and path.is_dir())
+        stat = parse_key_value_file(path / "memory.stat") if path else {}
+        events = parse_key_value_file(path / "cgroup.events") if path else {}
+        memory_current = _read_optional_int(path / "memory.current") if path else None
+        tasks_current = _safe_int(unit.get("TasksCurrent"), -1)
+        populated = _safe_int(events.get("populated"), -1)
+        anon = _safe_int(stat.get("anon"), -1)
+        shmem = _safe_int(stat.get("shmem"), -1)
+        file_bytes = _safe_int(stat.get("file"), -1)
+        inactive_file = _safe_int(stat.get("inactive_file"), -1)
+        dirty = _safe_int(stat.get("file_dirty"), -1)
+        writeback = _safe_int(stat.get("file_writeback"), -1)
+        withheld: list[str] = []
+        if not bool(result.get("ok")) and not unit:
+            withheld.append("systemd_owner_state_unavailable")
+        if not exists:
+            withheld.append("owner_cgroup_not_present")
+        reclaim_available = bool(path and (path / "memory.reclaim").exists())
+        if exists:
+            if populated != 0:
+                withheld.append("owner_cgroup_populated_or_unknown")
+            if anon != 0:
+                withheld.append("anonymous_memory_present_or_unknown")
+            if shmem != 0:
+                withheld.append("shared_memory_present_or_unknown")
+            if dirty != 0:
+                withheld.append("dirty_file_pages_present_or_unknown")
+            if writeback != 0:
+                withheld.append("file_writeback_present_or_unknown")
+            if inactive_file <= 0:
+                withheld.append("no_inactive_file_cache")
+            if not reclaim_available:
+                withheld.append("memory_reclaim_interface_unavailable")
+        eligible = not withheld
+        offers.append(
+            {
+                "owner": name,
+                "owner_identity": {"systemd_unit": name, "control_group": control_group or None},
+                "status": "offered" if eligible else "withheld",
+                "eligible": eligible,
+                "withheld_reasons": withheld,
+                "facts": {
+                    "active_state": unit.get("ActiveState") or None,
+                    "tasks_current": tasks_current if tasks_current >= 0 else None,
+                    "populated": populated if populated >= 0 else None,
+                    "memory_current_mib": _bytes_to_mib(memory_current) if isinstance(memory_current, int) else None,
+                    "anon_bytes": anon if anon >= 0 else None,
+                    "anon_mib": _bytes_to_mib(anon) if anon >= 0 else None,
+                    "shmem_bytes": shmem if shmem >= 0 else None,
+                    "shmem_mib": _bytes_to_mib(shmem) if shmem >= 0 else None,
+                    "file_bytes": file_bytes if file_bytes >= 0 else None,
+                    "file_mib": _bytes_to_mib(file_bytes) if file_bytes >= 0 else None,
+                    "inactive_file_bytes": inactive_file if inactive_file >= 0 else None,
+                    "inactive_file_mib": _bytes_to_mib(inactive_file) if inactive_file >= 0 else None,
+                    "file_dirty_bytes": dirty if dirty >= 0 else None,
+                    "file_dirty_mib": _bytes_to_mib(dirty) if dirty >= 0 else None,
+                    "file_writeback_bytes": writeback if writeback >= 0 else None,
+                    "file_writeback_mib": _bytes_to_mib(writeback) if writeback >= 0 else None,
+                },
+                "offer": {
+                    "operation": "cgroup_memory_reclaim_file",
+                    "target_bytes": inactive_file if eligible else 0,
+                    "target_mib": _bytes_to_mib(inactive_file) if eligible else 0.0,
+                    "parameters": {"swappiness": 0},
+                    "resource_domain": "physical_ram_file_cache_only",
+                    "logical_swap_slots_recovered": False,
+                    "reversible_by": "owner_refault",
+                    "shadow_only": True,
+                    "execution_authority": False,
+                },
+            }
+        )
+    return {
+        "ok": bool(result.get("ok")),
+        "offers": offers,
+        "summary": {
+            "owners_checked": len(offers),
+            "offered": sum(1 for item in offers if item.get("eligible")),
+            "withheld": sum(1 for item in offers if not item.get("eligible")),
+            "offered_reclaim_mib": round(sum(float(nested_get(item, ["offer", "target_mib"]) or 0.0) for item in offers), 1),
+        },
+        "policy": {
+            "stable_owner_identity_required": True,
+            "empty_cgroup_required": True,
+            "anon_shmem_dirty_writeback_must_be_zero": True,
+            "shadow_only": True,
+            "no_mutation_performed": True,
+        },
+        "error": result.get("stderr") or None,
+    }
+
+
 def _read_optional_int(path: Path) -> int | None:
     text = _read_text(path)
     if not text:
@@ -903,13 +1046,9 @@ def cgroup_primary_bucket(
     workload = workload_counts.most_common(1)[0][0] if workload_counts else "normal"
     protected = role in protected_roles or workload == "game"
     if protected:
-        route = "route_new_work_around_protected_capability"
-    elif workload == "game_platform":
-        route = "operator_review_game_platform_only"
-    elif workload in {"development", "browser", "normal"}:
-        route = "operator_review_candidate"
+        route = "preserve_protected_owner_context"
     else:
-        route = "observe"
+        route = "owner_state_required_before_action"
     return workload, role, protected, route
 
 

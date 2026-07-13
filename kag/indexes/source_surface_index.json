@@ -74,7 +74,7 @@
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "7a6d0d1d9fbde8c759c5c191808a2ad9e00fd3a6984a065ab3faed63a78700df",
+    "content_digest": "30821ef83076e6385dbf15f862263ccc3853bd73b6b50216bd84d70dc845f03b",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -1062,13 +1062,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "5265bfa67923dee8d84250bf5acec6b720fdb5994a10e80843dbd08d149490e8",
+        "content_hash": "ddddb03bcfe27b1ccc1cf8d832003fde9727b16d968946a22d78e8bec89198ed",
         "git_ref": "git-index-source-tree",
         "id": "file:changelog.md:06572a96a5",
         "mime": "text/markdown",
         "path": "CHANGELOG.md",
         "repo": "abyss-machine",
-        "size_bytes": 4592
+        "size_bytes": 4924
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -1111,7 +1111,7 @@
           {
             "anchor": "010",
             "level": 2,
-            "line": 75,
+            "line": 80,
             "ref": "CHANGELOG.md#010",
             "title": "0.1.0"
           }
@@ -1123,7 +1123,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "5265bfa67923dee8d84250bf5acec6b720fdb5994a10e80843dbd08d149490e8",
+        "digest": "ddddb03bcfe27b1ccc1cf8d832003fde9727b16d968946a22d78e8bec89198ed",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -2200,13 +2200,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "3972f6797900146abf240723db795cb28ae70d38b9bda731011444a9c979ef49",
+        "content_hash": "85d3c4e3be6d927a69be2704a0d1e5f66c0f47a6ca04f6edc2ad446a267a2e46",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/CHANGELOG.md",
         "repo": "abyss-machine",
-        "size_bytes": 14809
+        "size_bytes": 15147
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -2256,28 +2256,28 @@
           {
             "anchor": "added",
             "level": 3,
-            "line": 20,
+            "line": 25,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#added",
             "title": "Added"
           },
           {
             "anchor": "changed-1",
             "level": 3,
-            "line": 195,
+            "line": 200,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#changed-1",
             "title": "Changed"
           },
           {
             "anchor": "ledger",
             "level": 3,
-            "line": 210,
+            "line": 215,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#ledger",
             "title": "Ledger"
           },
           {
             "anchor": "notes",
             "level": 2,
-            "line": 230,
+            "line": 235,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#notes",
             "title": "Notes"
           }
@@ -2289,7 +2289,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "3972f6797900146abf240723db795cb28ae70d38b9bda731011444a9c979ef49",
+        "digest": "85d3c4e3be6d927a69be2704a0d1e5f66c0f47a6ca04f6edc2ad446a267a2e46",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -4019,13 +4019,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "523ab885faf454cd5a9fab2a6d264199cff38d6468f04f79a06db20f71a00115",
+        "content_hash": "3e579599cc213e505992139b7ff8ce6b11533d3a163c45e799cf06f488c93904",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/bridge.json:4a4a9ebbc2",
         "mime": "application/json",
         "path": "config-templates/etc/abyss-machine/bridge.json",
         "repo": "abyss-machine",
-        "size_bytes": 80279
+        "size_bytes": 80305
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -4058,7 +4058,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "523ab885faf454cd5a9fab2a6d264199cff38d6468f04f79a06db20f71a00115",
+        "digest": "3e579599cc213e505992139b7ff8ce6b11533d3a163c45e799cf06f488c93904",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -4108,13 +4108,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "60f45d03d65554cceb72fcea44aee2252ed5d48a61c8a54917c2f4b2bce4af0b",
+        "content_hash": "088a8d43d1d743641c68f9e47d49216bc6c45ed3bb33c57739aaab15899ef925",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/commands.md",
         "repo": "abyss-machine",
-        "size_bytes": 92793
+        "size_bytes": 92817
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -4260,7 +4260,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "60f45d03d65554cceb72fcea44aee2252ed5d48a61c8a54917c2f4b2bce4af0b",
+        "digest": "088a8d43d1d743641c68f9e47d49216bc6c45ed3bb33c57739aaab15899ef925",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -8394,13 +8394,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "f975f2fc09a5e0dcfa427c919d900839b869d5dcce71b5c9df1e3c9100b44155",
+        "content_hash": "03defa1a1d0be3fe035c36037d255cee96842732bad0d6135e6e2bd6ce00079a",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md",
         "repo": "abyss-machine",
-        "size_bytes": 5422
+        "size_bytes": 7523
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -8464,70 +8464,70 @@
           {
             "anchor": "context",
             "level": 2,
-            "line": 28,
+            "line": 31,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#context",
             "title": "Context"
           },
           {
             "anchor": "options-considered",
             "level": 2,
-            "line": 39,
+            "line": 42,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#options-considered",
             "title": "Options Considered"
           },
           {
             "anchor": "decision",
             "level": 2,
-            "line": 48,
+            "line": 51,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#decision",
             "title": "Decision"
           },
           {
             "anchor": "rationale",
             "level": 2,
-            "line": 72,
+            "line": 93,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#rationale",
             "title": "Rationale"
           },
           {
             "anchor": "consequences",
             "level": 2,
-            "line": 81,
+            "line": 104,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#consequences",
             "title": "Consequences"
           },
           {
             "anchor": "boundaries",
             "level": 2,
-            "line": 92,
+            "line": 119,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#boundaries",
             "title": "Boundaries"
           },
           {
             "anchor": "review-log",
             "level": 2,
-            "line": 103,
+            "line": 130,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#review-log",
             "title": "Review Log"
           },
           {
             "anchor": "source-surfaces",
             "level": 2,
-            "line": 110,
+            "line": 142,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#source-surfaces",
             "title": "Source Surfaces"
           },
           {
             "anchor": "validation",
             "level": 2,
-            "line": 118,
+            "line": 150,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#validation",
             "title": "Validation"
           },
           {
             "anchor": "follow-up-route",
             "level": 2,
-            "line": 127,
+            "line": 159,
             "ref": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md#follow-up-route",
             "title": "Follow-up Route"
           }
@@ -8539,7 +8539,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "f975f2fc09a5e0dcfa427c919d900839b869d5dcce71b5c9df1e3c9100b44155",
+        "digest": "03defa1a1d0be3fe035c36037d255cee96842732bad0d6135e6e2bd6ce00079a",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -10886,13 +10886,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "bc3a35e717b85c9a4e733adae5dedccb178122e0c425c4a3d9a66bcce0280c17",
+        "content_hash": "26ce7db7d41e34b7c0af6770efe3495b8039ef926fedc23bd7361492c9e794bc",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/memory-policy.json:6c461971ea",
         "mime": "application/json",
         "path": "config-templates/etc/abyss-machine/memory-policy.json",
         "repo": "abyss-machine",
-        "size_bytes": 3347
+        "size_bytes": 1805
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -10925,7 +10925,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "bc3a35e717b85c9a4e733adae5dedccb178122e0c425c4a3d9a66bcce0280c17",
+        "digest": "26ce7db7d41e34b7c0af6770efe3495b8039ef926fedc23bd7361492c9e794bc",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -11783,13 +11783,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "2fd1374c5ef558510d893425f6f3d738c397a8244003f607d59be82e2cf3103b",
+        "content_hash": "5a36715dbd0bb5300e72bd45ddfce0390dfdec7f09006d1f0dde5a3d49f7eeee",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/resource-policy.json:f90dc8318c",
         "mime": "application/json",
         "path": "config-templates/etc/abyss-machine/resource-policy.json",
         "repo": "abyss-machine",
-        "size_bytes": 3495
+        "size_bytes": 3696
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -11822,7 +11822,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "2fd1374c5ef558510d893425f6f3d738c397a8244003f607d59be82e2cf3103b",
+        "digest": "5a36715dbd0bb5300e72bd45ddfce0390dfdec7f09006d1f0dde5a3d49f7eeee",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -11872,13 +11872,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "47df05df834358481f3737582c5c6b99b3fdd762e533dc711a2c3d3a1d0a3040",
+        "content_hash": "b0751002f3055edc5b9d144f3691251de1407c1b0d4be64d9f92506e3f3ff747",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/stack-bridge.json:af37b57072",
         "mime": "application/json",
         "path": "config-templates/etc/abyss-machine/stack-bridge.json",
         "repo": "abyss-machine",
-        "size_bytes": 52038
+        "size_bytes": 52111
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -11911,7 +11911,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "47df05df834358481f3737582c5c6b99b3fdd762e533dc711a2c3d3a1d0a3040",
+        "digest": "b0751002f3055edc5b9d144f3691251de1407c1b0d4be64d9f92506e3f3ff747",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -15012,7 +15012,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "1aa53126da30e9f7f5e1eac074922ed7eebf501bce9ccdc94d3d94735c26c290",
+        "content_hash": "37865ac01a7eb8d5b57d8048810787021459daec9463af88f01ba23619373f30",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
@@ -15051,7 +15051,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "1aa53126da30e9f7f5e1eac074922ed7eebf501bce9ccdc94d3d94735c26c290",
+        "digest": "37865ac01a7eb8d5b57d8048810787021459daec9463af88f01ba23619373f30",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -28284,13 +28284,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "cc8c899739c8920d59cb208bdf02367a5d72bb3aaa1a05b7158b7e7371871da3",
+        "content_hash": "ab780a6478b17e6145a6f0ff4a895562445ef0313320ebe05e1aac5b8784a2d2",
         "git_ref": "git-index-source-tree",
         "id": "file:scripts/validators/typing_nervous_refresh_logic.py:7fef35c992",
         "mime": "text/x-python",
         "path": "scripts/validators/typing_nervous_refresh_logic.py",
         "repo": "abyss-machine",
-        "size_bytes": 31878
+        "size_bytes": 31989
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -28323,7 +28323,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "cc8c899739c8920d59cb208bdf02367a5d72bb3aaa1a05b7158b7e7371871da3",
+        "digest": "ab780a6478b17e6145a6f0ff4a895562445ef0313320ebe05e1aac5b8784a2d2",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -29087,13 +29087,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "34317c3d5b1b22bfd195e49db70ce29c9ad993bf3d30a9fb23c617e01d09fb68",
+        "content_hash": "302b75ca8f7a65a9592dc5758691735e210b72280eaeaef4877493d9dc288e04",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/cli.py:3e116445b4",
         "mime": "text/x-python",
         "path": "src/abyss_machine/cli.py",
         "repo": "abyss-machine",
-        "size_bytes": 2603190
+        "size_bytes": 2605336
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -29126,7 +29126,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "34317c3d5b1b22bfd195e49db70ce29c9ad993bf3d30a9fb23c617e01d09fb68",
+        "digest": "302b75ca8f7a65a9592dc5758691735e210b72280eaeaef4877493d9dc288e04",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -30869,13 +30869,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "91a349e758a048ccb8898e9c19e3798c735929176c5dfa04437d85bc567f9af2",
+        "content_hash": "bfa5f6ccd67e789812581bcc9d7e731188b83520b9ad9b6229f5db3d97b6a2df",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/memory_adapters.py:54ff75dda2",
         "mime": "text/x-python",
         "path": "src/abyss_machine/memory_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 63320
+        "size_bytes": 69708
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -30908,7 +30908,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "91a349e758a048ccb8898e9c19e3798c735929176c5dfa04437d85bc567f9af2",
+        "digest": "bfa5f6ccd67e789812581bcc9d7e731188b83520b9ad9b6229f5db3d97b6a2df",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -30958,13 +30958,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "b386b9a5e89f33226eadbeb854842cd53964c672ba4a57c03b58038ade090864",
+        "content_hash": "430682c7962190d80bb0b559b7edfafaae07871b7c9177493bf8fd14f4e73460",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/memory_contracts.py:73e1eb706f",
         "mime": "text/x-python",
         "path": "src/abyss_machine/memory_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 30577
+        "size_bytes": 24511
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -30997,7 +30997,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "b386b9a5e89f33226eadbeb854842cd53964c672ba4a57c03b58038ade090864",
+        "digest": "430682c7962190d80bb0b559b7edfafaae07871b7c9177493bf8fd14f4e73460",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -31136,13 +31136,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "bd36d401ccec863f8be25ec8a4ba7200e94d17ebf049af247539570650b4e9c2",
+        "content_hash": "654416cbe95f883ff47f4ead16b4a950498b11b852a730305d2d7aef32605ae3",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/mode_contracts.py:5f487ed25f",
         "mime": "text/x-python",
         "path": "src/abyss_machine/mode_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 31729
+        "size_bytes": 31836
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -31175,7 +31175,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "bd36d401ccec863f8be25ec8a4ba7200e94d17ebf049af247539570650b4e9c2",
+        "digest": "654416cbe95f883ff47f4ead16b4a950498b11b852a730305d2d7aef32605ae3",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -33094,13 +33094,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "d8924712e398c2ac9eff0db0a1858da90dd920b95a1b93112bcd0ad20fbe3243",
+        "content_hash": "798b5fc376a86738dfa085b12509cbe85fe39058d34589baf0ce6510bbea8ff3",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/nervous_semantic.py:b8b92e772c",
         "mime": "text/x-python",
         "path": "src/abyss_machine/nervous_semantic.py",
         "repo": "abyss-machine",
-        "size_bytes": 43949
+        "size_bytes": 43191
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -33133,7 +33133,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "d8924712e398c2ac9eff0db0a1858da90dd920b95a1b93112bcd0ad20fbe3243",
+        "digest": "798b5fc376a86738dfa085b12509cbe85fe39058d34589baf0ce6510bbea8ff3",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -33895,13 +33895,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "b1f460ab9fd70ab338d47b4208d0749e6db1b5c7e6bb9b18b9a3bb6b1cdadc42",
+        "content_hash": "026dcc17c59f30831524538eb11b6659923363048c84159475d20010d29dbb97",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/process_adapters.py:8a2eb8f465",
         "mime": "text/x-python",
         "path": "src/abyss_machine/process_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 116766
+        "size_bytes": 116790
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -33934,7 +33934,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "b1f460ab9fd70ab338d47b4208d0749e6db1b5c7e6bb9b18b9a3bb6b1cdadc42",
+        "digest": "026dcc17c59f30831524538eb11b6659923363048c84159475d20010d29dbb97",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -34073,13 +34073,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "d4b819ebe9a3a3c60b0c3fca0cab503d40bbea95571ca8347ad0427bf7abf2d8",
+        "content_hash": "bcb08e17f6413849b332dd64e77b9d9014598e0993ae729909a4b3a34c14230b",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
         "mime": "text/x-python",
         "path": "src/abyss_machine/resource_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 9743
+        "size_bytes": 17586
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -34112,7 +34112,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "d4b819ebe9a3a3c60b0c3fca0cab503d40bbea95571ca8347ad0427bf7abf2d8",
+        "digest": "bcb08e17f6413849b332dd64e77b9d9014598e0993ae729909a4b3a34c14230b",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -34162,13 +34162,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "85f170ecd8365982bb46699eb08cb0682f621e6e682cd90b7aeadba18a73172b",
+        "content_hash": "d69a77351c856f30f60d1f9f484b9c616d5a27791d20f03d1128fc421d087992",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/resource_planning.py:87745a04a8",
         "mime": "text/x-python",
         "path": "src/abyss_machine/resource_planning.py",
         "repo": "abyss-machine",
-        "size_bytes": 38513
+        "size_bytes": 34389
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -34201,7 +34201,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "85f170ecd8365982bb46699eb08cb0682f621e6e682cd90b7aeadba18a73172b",
+        "digest": "d69a77351c856f30f60d1f9f484b9c616d5a27791d20f03d1128fc421d087992",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -34518,13 +34518,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "b679ec4c619cbedf978f17c183341bdfbe53959e81f1bdc5ca24c22b37be3984",
+        "content_hash": "ed640b0945d1b5643cac90e0b2729473e3b1ac1ad68bc09d95afa1ff273ff98d",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/self_awareness_adapters.py:e31dd120ca",
         "mime": "text/x-python",
         "path": "src/abyss_machine/self_awareness_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 600865
+        "size_bytes": 600910
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -34557,7 +34557,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "b679ec4c619cbedf978f17c183341bdfbe53959e81f1bdc5ca24c22b37be3984",
+        "digest": "ed640b0945d1b5643cac90e0b2729473e3b1ac1ad68bc09d95afa1ff273ff98d",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -35675,13 +35675,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "6d9e893a7c238f7f0c08d8b58f5c24ae13a8718184946c2fa696d88be878fcbb",
+        "content_hash": "c2def2d3b028439108adbd95ba0728f90f16dd68c9ee7db6a99c97f233e0e38d",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/self_awareness_cycle_proof_contracts.py:56668f2e09",
         "mime": "text/x-python",
         "path": "src/abyss_machine/self_awareness_cycle_proof_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 26207
+        "size_bytes": 26220
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -35714,7 +35714,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "6d9e893a7c238f7f0c08d8b58f5c24ae13a8718184946c2fa696d88be878fcbb",
+        "digest": "c2def2d3b028439108adbd95ba0728f90f16dd68c9ee7db6a99c97f233e0e38d",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -37900,13 +37900,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "1b71b84c5f3b1bcbc0dcc99329cbf5f70669db8d8f4929fd16f7a12b82eacb91",
+        "content_hash": "d5b1d141cb66ec637f0cc1cf9cbcebc89678dd6f1ab115944089d0e8687fbc7e",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/typing_nervous_refresh.py:d87dddda8b",
         "mime": "text/x-python",
         "path": "src/abyss_machine/typing_nervous_refresh.py",
         "repo": "abyss-machine",
-        "size_bytes": 49856
+        "size_bytes": 49890
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -37939,7 +37939,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "1b71b84c5f3b1bcbc0dcc99329cbf5f70669db8d8f4929fd16f7a12b82eacb91",
+        "digest": "d5b1d141cb66ec637f0cc1cf9cbcebc89678dd6f1ab115944089d0e8687fbc7e",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -44843,13 +44843,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "e0312862a2168a727c7ccfa71b23f55fde6533a2b60b2212a831ca0b1b39c1a1",
+        "content_hash": "57a347e515ffab72475ee5253aec0f6dca71f3689d65bfa15e3d1ef2c30d8f47",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_heartbeat_pressure_capture.py:452a3a89db",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_heartbeat_pressure_capture.py",
         "repo": "abyss-machine",
-        "size_bytes": 9576
+        "size_bytes": 9905
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -44882,7 +44882,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "e0312862a2168a727c7ccfa71b23f55fde6533a2b60b2212a831ca0b1b39c1a1",
+        "digest": "57a347e515ffab72475ee5253aec0f6dca71f3689d65bfa15e3d1ef2c30d8f47",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -45298,13 +45298,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "8039d93de76a35323bd0bbdd8748831ba3628711841d4727bc56f30535f4c32a",
+        "content_hash": "57f3c0ba389dbdf227033d3a41a765909ccfa6e9519a26e89783dff5840a86b9",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_resource_launch_timeout_cleanup.py",
         "repo": "abyss-machine",
-        "size_bytes": 20092
+        "size_bytes": 23288
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -45337,7 +45337,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "8039d93de76a35323bd0bbdd8748831ba3628711841d4727bc56f30535f4c32a",
+        "digest": "57f3c0ba389dbdf227033d3a41a765909ccfa6e9519a26e89783dff5840a86b9",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -45389,13 +45389,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "5cea57afe4368a81cf27ff7ac9934f1b93c1970ff9f48e27fe7204a7ad0884e5",
+        "content_hash": "16874c6cf89a846ae5bd6b9c7324b6e027e4d099d181ace8b80b381b3c0e0f54",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_schema_output_contracts.py:41a88e9b67",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_schema_output_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 7302
+        "size_bytes": 7741
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -45428,7 +45428,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "5cea57afe4368a81cf27ff7ac9934f1b93c1970ff9f48e27fe7204a7ad0884e5",
+        "digest": "16874c6cf89a846ae5bd6b9c7324b6e027e4d099d181ace8b80b381b3c0e0f54",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -45480,13 +45480,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "1b5eb3e75beb4ea39259b6882e4adbe6c1827b5c4d2520e487049a32a248990c",
+        "content_hash": "566667b36dd387151e02c194daf4603a586b724001edadffb15fc48886040a6f",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_self_awareness_contracts.py:c60820438c",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_self_awareness_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 497987
+        "size_bytes": 498035
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -45519,7 +45519,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "1b5eb3e75beb4ea39259b6882e4adbe6c1827b5c4d2520e487049a32a248990c",
+        "digest": "566667b36dd387151e02c194daf4603a586b724001edadffb15fc48886040a6f",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -45662,13 +45662,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "4d3344859fba7f0968f95b3447932242bd375e87140c2fa985fbbed87e2d9928",
+        "content_hash": "93b82dc68865b6ffcdc44553ba0a452b14fce342abe6b63ab39c0a85f28442f3",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_typing_nervous_resource_gate.py:0bdd8a3002",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_typing_nervous_resource_gate.py",
         "repo": "abyss-machine",
-        "size_bytes": 3945
+        "size_bytes": 3980
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -45701,7 +45701,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "4d3344859fba7f0968f95b3447932242bd375e87140c2fa985fbbed87e2d9928",
+        "digest": "93b82dc68865b6ffcdc44553ba0a452b14fce342abe6b63ab39c0a85f28442f3",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -46262,13 +46262,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "69e2ff1146d0b131d1da85cd843ded0cc7dddaeacebea05df593147f602a11e5",
+        "content_hash": "5ab07b15cead391fb9388cfc378503021fd7042fbd9ba1c0f8564ec7b34077c3",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/regression/test_memory_zram_policy.py:8ba5e7a5c6",
         "mime": "text/x-python",
         "path": "tests/host_contract/regression/test_memory_zram_policy.py",
         "repo": "abyss-machine",
-        "size_bytes": 6590
+        "size_bytes": 6776
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -46301,7 +46301,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "69e2ff1146d0b131d1da85cd843ded0cc7dddaeacebea05df593147f602a11e5",
+        "digest": "5ab07b15cead391fb9388cfc378503021fd7042fbd9ba1c0f8564ec7b34077c3",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -49556,13 +49556,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "218432e959758ee23427a514a21a60fc72a2d4be4afead3ddfdd3af1e76b7ced",
+        "content_hash": "38e534a9397dc4c09a581c960ac5d2708a9702b39658ff95183c4b0b23da47cd",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_memory_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 21852
+        "size_bytes": 23867
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -49595,7 +49595,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "218432e959758ee23427a514a21a60fc72a2d4be4afead3ddfdd3af1e76b7ced",
+        "digest": "38e534a9397dc4c09a581c960ac5d2708a9702b39658ff95183c4b0b23da47cd",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -49647,13 +49647,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "5e14d67dd78e823be0cb97d9c724b217697bde8a0e8f519e2dc5c1be61a283f3",
+        "content_hash": "98370f24b2f39f3a5d1a9af953df33707a188c9ff6ecc64769be3af6f227ed0a",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_memory_contracts.py:63edd4cace",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_memory_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 7421
+        "size_bytes": 8269
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -49686,7 +49686,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "5e14d67dd78e823be0cb97d9c724b217697bde8a0e8f519e2dc5c1be61a283f3",
+        "digest": "98370f24b2f39f3a5d1a9af953df33707a188c9ff6ecc64769be3af6f227ed0a",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -51831,13 +51831,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "a65a22ce70f904969e59762e9ab6cb8fc387f0f58246c5306c4bce486aace427",
+        "content_hash": "f7409a05766c965b3084efb95959fb1d35899e78b50f2dc873dfd93a7449481a",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_nervous_semantic_adapters.py:93438c0b03",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_nervous_semantic_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 59826
+        "size_bytes": 59798
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -51870,7 +51870,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "a65a22ce70f904969e59762e9ab6cb8fc387f0f58246c5306c4bce486aace427",
+        "digest": "f7409a05766c965b3084efb95959fb1d35899e78b50f2dc873dfd93a7449481a",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -51922,13 +51922,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "c96e1332096d1f13b0b17755209b69d0dd95e38def1f0cee4a6d8e35388be5b8",
+        "content_hash": "dad37d086cb36b433eccb7d54be4075defd9c5c672948e5a22f23055f6a38b9d",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_nervous_semantic_contract.py:026f5c10c7",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_nervous_semantic_contract.py",
         "repo": "abyss-machine",
-        "size_bytes": 16419
+        "size_bytes": 16069
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -51961,7 +51961,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "c96e1332096d1f13b0b17755209b69d0dd95e38def1f0cee4a6d8e35388be5b8",
+        "digest": "dad37d086cb36b433eccb7d54be4075defd9c5c672948e5a22f23055f6a38b9d",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -53014,13 +53014,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "b9e2373370deb6851e7a4a5a5288c9102a4e51f4b7942a1b51821243955f68e7",
+        "content_hash": "9f223221b3568cb1f117292d98dbdf38baab742c0a4c17f26b8235aa748737ba",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_resource_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 3499
+        "size_bytes": 7711
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -53053,7 +53053,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "b9e2373370deb6851e7a4a5a5288c9102a4e51f4b7942a1b51821243955f68e7",
+        "digest": "9f223221b3568cb1f117292d98dbdf38baab742c0a4c17f26b8235aa748737ba",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -53105,13 +53105,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "ee6910b8b18110b61834b8e450cbc87e59b267dd35ca151e45749d5838a0b41f",
+        "content_hash": "a64b718729400708ee69ea5af1a9769604f2d8053d00d289ea85f634c2d6f427",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_resource_planning_contract.py:775bfd31dc",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_resource_planning_contract.py",
         "repo": "abyss-machine",
-        "size_bytes": 20503
+        "size_bytes": 21606
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -53144,7 +53144,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "ee6910b8b18110b61834b8e450cbc87e59b267dd35ca151e45749d5838a0b41f",
+        "digest": "a64b718729400708ee69ea5af1a9769604f2d8053d00d289ea85f634c2d6f427",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -57109,13 +57109,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "2bfeb99051c77cf819df68b1a42c7b22ccceaca0c72cf692632604e0f6e845ff",
+        "content_hash": "4f021d980ce8e0e26aed87559def1f1208ae34e6533eedf50e50d79ce7a6f1cf",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_typing_nervous_refresh_logic.py:976674637b",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_typing_nervous_refresh_logic.py",
         "repo": "abyss-machine",
-        "size_bytes": 41604
+        "size_bytes": 41684
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -57148,7 +57148,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "2bfeb99051c77cf819df68b1a42c7b22ccceaca0c72cf692632604e0f6e845ff",
+        "digest": "4f021d980ce8e0e26aed87559def1f1208ae34e6533eedf50e50d79ce7a6f1cf",
         "signature_ref": "",
         "verification_state": "digest-only"
       },

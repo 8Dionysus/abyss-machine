@@ -4234,7 +4234,7 @@ def run_capabilities(
         ),
         self_awareness_capability_item(
             "host.governance-gates",
-            "Mode/resource/memory gates before model or action escalation",
+            "Mode/resource owner and safety gates plus memory pressure/reserve facts before model or action escalation",
             "abyss-machine",
             self_awareness_governance_gate_detail_complete(governance_detail),
             required=True,

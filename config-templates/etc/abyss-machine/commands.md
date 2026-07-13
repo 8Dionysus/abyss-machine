@@ -292,7 +292,7 @@ curated changelog: {{ABYSS_MACHINE_ETC}}/CHANGELOG.md, sparse milestone contour;
 documentation audit: `abyss-machine docs audit --json`, writes {{ABYSS_MACHINE_STATE}}/docs/latest.json and index.json
 static bridge sync: `{{ABYSS_MACHINE_ETC}}/bridge.json` and `{{ABYSS_MACHINE_ETC}}/stack-bridge.json` are synchronized with the dynamic Resource Orchestrator v2 and Nervous Quality Audit routes; verify future drift with `abyss-machine stack-bridge sync-static --dry-run --json` before treating a new dynamic route as present in static manifests. Use `pkexec abyss-machine stack-bridge sync-static --json` for future privileged static syncs.
 stack bridge shape note: dynamic reads (`stack-bridge export/latest`) expose named bridge payloads under `bridges.*`; root-owned `{{ABYSS_MACHINE_ETC}}/stack-bridge.json` keeps the static compatibility shape and, after sync, should contain `resource_bridge.orchestrator_latest`, top-level `nervous_quality_bridge`, `self_awareness_bridge.commands.requirements`, `self_awareness_bridge.commands.failure_matrix`, `self_awareness_bridge.commands.cycle`, and `artifacts.resource.orchestrator` / `artifacts.nervous.quality` / `artifacts.self_awareness.requirements` / `artifacts.self_awareness.failure_matrix` / `artifacts.self_awareness.cycle`.
-work mode plan: `abyss-machine mode plan --json`, maps GNOME-selected mode to power, cooling, thermal/memory gates, storage/process context, and launch policy
+work mode plan: `abyss-machine mode plan --json`, maps GNOME-selected mode to power, cooling, thermal and memory facts, storage/process context, and launch policy
 work mode validation: `abyss-machine mode validate --json`
 memory pressure plan: `abyss-machine memory plan --json`
 memory headroom advisor: `abyss-machine memory headroom --json`
@@ -614,7 +614,7 @@ abyss-machine ai cpu topology --json
 abyss-machine ai cpu thermal-map --json
 abyss-machine ai cpu route --class medium --json
 abyss-machine ai cpu route --class heavy --json
-abyss-machine ai cpu launch --class heavy --dry-run -- COMMAND
+abyss-machine resource launch --class heavy --kind ai --dry-run -- COMMAND
 abyss-machine ai cpu test --profile lp-e --seconds 1 --json
 abyss-machine ai cpu test --profile e-cores --seconds 1 --json
 abyss-machine ai storage --json
@@ -833,7 +833,7 @@ process thermal attribution: {{ABYSS_MACHINE_STATE}}/processes/thermal-attributi
 process thermal plan: {{ABYSS_MACHINE_STATE}}/processes/thermal-plan/latest.json and {{ABYSS_MACHINE_STATE}}/processes/thermal-plan/YYYY/MM/YYYY-MM-DD.jsonl
 process desktop compositor: {{ABYSS_MACHINE_STATE}}/processes/desktop-compositor/latest.json and {{ABYSS_MACHINE_STATE}}/processes/desktop-compositor/YYYY/MM/YYYY-MM-DD.jsonl
 process snapshot timer: abyss-process-snapshot.timer, user scope, 30min, low CPU/IO priority, stdout suppressed
-game guard route: abyss-machine processes game-guard --json; active games block default heavy/sustained ai cpu launch work and unattended medium-or-heavier launch wrappers without mutating existing game processes
+game guard route: abyss-machine processes game-guard --json; active games block default host-managed heavy/sustained starts and unattended medium-or-heavier launch wrappers without mutating existing game processes
 container health route: abyss-machine processes containers --json; exposes rootless Podman state, restart counts, health and compose service labels without env, create-command or mount contents
 thermal attribution route: abyss-machine processes thermal-attribution --seconds 3 --interval 0.5 --json; combines hot/avoid CPUs from ai cpu thermal-map with per-thread /proc CPU deltas, incident summary, and CPU distribution; confidence ceiling is high but still candidate evidence
 thermal orchestration plan: abyss-machine processes thermal-plan --seconds 3 --interval 0.5 --json; plan routes new work only and does not kill, throttle, or re-affinitize existing user processes
@@ -848,12 +848,12 @@ memory headroom advisor: {{ABYSS_MACHINE_STATE}}/memory/headroom/latest.json
 memory residency advisor: {{ABYSS_MACHINE_STATE}}/memory/residency/latest.json
 memory hot-path probe: {{ABYSS_MACHINE_STATE}}/memory/hotpath/latest.json
 machine report contour: {{ABYSS_MACHINE_STATE}}/doctor/machine-report/latest.json and latest.md; `abyss-machine doctor machine-report --json` joins doctor status, memory residency, zram ratio/headroom, PSI, protected TTS/dictation/resident LLM cgroup state, AI thermal policy, nervous readiness, and semantic maintenance state without stopping, restarting, disabling, throttling, re-affinitizing, or capping live services
-memory pressure route: abyss-machine memory pressure --json; combines meminfo, PSI, zram/zswap/sysctl/cgroup facts, zram resident/ratio telemetry, process PSS/RSS attribution, and cgroup swap counters; zram-only high swap is capped at hot when MemAvailable is healthy and PSI stalls are absent; resident model RSS/PSS/swap is routing evidence, not a stop/on-demand recommendation
-memory orchestration route: abyss-machine memory plan --json; gates new medium/heavy/sustained work only and does not kill, swap, reconfigure zram, enable oomd, tune sysctl, throttle, re-affinitize, stop, or demote existing processes, persistent models, warm AI services, or stack processes
-memory headroom route: abyss-machine memory headroom --json; explains zram swap headroom bottlenecks, policy shortfall to relief thresholds, protected/non-protected top swap attribution by cgroup/systemd unit, and safe next-action routes without mutating live processes or kernel/zram policy
+memory pressure route: abyss-machine memory pressure --json; combines MemAvailable, PSI, zram/zswap/sysctl/cgroup facts, process PSS/RSS attribution, and cgroup swap counters; swap occupancy is reported separately as reserve debt and never assigns workload importance or action authority
+memory orchestration route: abyss-machine memory plan --json; publishes advisory pressure/reserve facts only and does not gate by class/swap, kill, reconfigure zram, enable oomd, tune sysctl, throttle, re-affinitize, stop, or demote existing work
+memory headroom route: abyss-machine memory headroom --json; separates physical pressure from logical swap reserve, preserves protected and owner-unknown attribution, and exposes only strict empty owner-cgroup clean-cache offers in shadow mode
 memory residency route: abyss-machine memory residency --json; inspects protected resident service cgroups for TTS, dictation, and resident LLM, including MemoryLow/High/SwapMax, cgroup swap, sampled PSS/swap, memory events/stat, PSI, zram ratio/headroom, latest canonical hot-path probe evidence, and runtime-only pilot candidates; facts-only and does not apply cgroup properties, restart, stop, disable, throttle, re-affinitize, or cap live services; `measure_hot_path_latency` distinguishes missing/stale/failed/fresh_ok/fresh_watch probe evidence before persistent cgroup policy
 memory hot-path route: abyss-machine memory hotpath-probe --json; runs synthetic TTS->STT latency probes and optional resident LLM micro tick, records before/after zram/PSI/protected-service cgroup state, and does not record microphone audio, stop/restart services, cap swap, throttle, re-affinitize, or apply cgroup properties
-memory launch integration: abyss-machine ai cpu launch consumes memory plan alongside game guard and thermal route; use --force only for explicit operator override
+memory launch integration: abyss-machine resource launch performs fresh reserve admission, atomic runtime-only startup reservation, and bounded transient-unit peak learning; abyss-machine ai cpu launch is a compatibility wrapper over the same route
 resource status latest: {{ABYSS_MACHINE_STATE}}/resource/latest.json
 resource state retention: latest-only admission plans, launch receipts, and orchestrator audits; historical execution evidence belongs to journald or configured metrics retention
 resource plan latest: {{ABYSS_MACHINE_STATE}}/resource/plans/latest.json
@@ -867,8 +867,8 @@ response routes latest: {{ABYSS_MACHINE_STATE}}/responses/latest.json and {{ABYS
 response routes route: abyss-machine responses --json; converts reaction candidates into owner-gated response routes with command profile and approval requirement; non-executing and `automatic_response=false`
 resource route: abyss-machine resource plan --class CLASS --kind KIND --json; combines mode, memory, storage, game guard, process thermal plan, and ai cpu route
 resource orchestrator route: abyss-machine resource orchestrator --json; broad read-only route matrix and prerequisite audit for future agents and stack bridges
-resource launch route: abyss-machine resource launch --class CLASS --kind KIND -- COMMAND; applies AllowedCPUs, CPUWeight, IOWeight, and soft MemoryHigh through user systemd-run to new processes only; use --no-thermal-sample for quick dry-run checks that should rely on the latest process thermal plan; use --success-on-block for unattended timers that should report a clean skip when overrideable gates block
-resource limits rule: MemoryHigh is soft; MemoryMax and CPUQuota are not set by default; existing user/game/work/stack/persistent-model/warm-AI processes are never killed, throttled, re-affinitized, migrated, stopped, or demoted by this route
+resource launch route: abyss-machine resource launch --class CLASS --kind KIND -- COMMAND; the single canonical host launch path applies AllowedCPUs, CPUWeight, IOWeight, cooperative startup reserve, and bounded runtime peak learning through user systemd-run to new processes only; use --no-thermal-sample for quick dry-run checks that should rely on the latest process thermal plan; use --success-on-block for unattended timers that should report a clean skip when a real owner or safety contract blocks
+resource limits rule: static MemoryHigh, MemoryMax, MemorySwapMax, and CPUQuota are not set; pressure and swap occupancy do not assign workload importance; existing user/game/work/stack/persistent-model/warm-AI processes are never killed, throttled, re-affinitized, migrated, stopped, or demoted by this route
 hooks: {{ABYSS_MACHINE_ETC}}/hooks.d and {{ABYSS_MACHINE_SRV}}/hooks.d
 hook stages: pre_large_write, post_large_write, pre_runtime_create, post_runtime_create, pre_cache_cleanup, post_cache_cleanup, pre_podman_migration, post_podman_migration, process_snapshot
 symlink tails: do not leave them for machine-owned caches/runtimes; update configs and wrappers to direct {{ABYSS_MACHINE_SRV}} paths
@@ -1264,7 +1264,7 @@ active GameMode/external boost: preserve a stronger `performance` profile while 
 battery discharging: effective mode is saver even if selected mode is balanced/performance/ai; selected mode is preserved for AC restore
 ai overlay: selected through `abyss-machine mode set ai`; it maps to performance hardware targets but remains a host overlay, not a fourth GNOME panel profile
 thermal hot/critical: preserve the selected power profile on AC when possible, apply emergency cooling target, and gate new unattended work by class cap (`hot` <= `light`, `critical` <= `probe`); do not kill already running operator tasks
-routes: callers should use `abyss-machine mode plan --json`, `abyss-machine processes game-guard --json`, `abyss-machine processes thermal-plan --json`, `abyss-machine ai policy --json`, and `abyss-machine ai cpu route --class CLASS --json` before launching heavy local AI or agent work; use `abyss-machine ai cpu launch --class CLASS -- COMMAND...` when the host layer should apply taskset/env hints to a new process
+routes: callers should inspect `abyss-machine mode plan --json`, `abyss-machine processes game-guard --json`, `abyss-machine processes thermal-plan --json`, `abyss-machine ai policy --json`, and `abyss-machine ai cpu route --class CLASS --json`; use `abyss-machine resource launch --class CLASS --kind ai -- COMMAND...` as the canonical host-managed launch path
 automation: abyss-power-profile-auto.timer runs mode reconcile every 30s and applies the current mode/cooling plan
 ```
 

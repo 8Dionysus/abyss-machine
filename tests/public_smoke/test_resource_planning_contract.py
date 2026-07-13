@@ -34,13 +34,33 @@ def test_resource_startup_demand_resolution_keeps_model_owner_authoritative() ->
         demand_key="small-model",
         demand_owner="model-registry",
     )
+    learned_probe = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="probe",
+        kind="indexing",
+        explicit_mib=None,
+        demand_key="abyss-machine:nervous:index-build",
+        learned_profile={"estimate_mib": 3328, "sample_count": 4},
+    )
 
     assert agent["demand_mib"] == 2048.0
-    assert agent["estimate_source"] == "resource_policy_class_kind_default"
+    assert agent["estimate_source"] == "bootstrap_class_kind_estimate"
+    assert agent["calibration"] == "bootstrap_uncalibrated"
+    assert agent["calibrated"] is False
+    assert agent["known"] is False
+    assert agent["estimate_available"] is True
+    assert agent["unknown_startup_lane"] is True
     assert model["unknown_startup_lane"] is True
     assert explicit_model["demand_mib"] == 6144.0
+    assert explicit_model["known"] is True
     assert explicit_model["key"] == "small-model"
     assert explicit_model["owner"] == "model-registry"
+    assert learned_probe["demand_mib"] == 3328.0
+    assert learned_probe["reservation_required"] is True
+    assert learned_probe["calibration"] == "learned"
+    assert learned_probe["calibrated"] is True
+    assert learned_probe["known"] is True
+    assert learned_probe["unknown_startup_lane"] is False
 
 
 def test_resource_startup_demand_rejects_nonfinite_or_negative_values() -> None:
@@ -67,14 +87,18 @@ def test_resource_startup_projection_counts_only_unmaterialized_ram() -> None:
                 "mem_available_percent": {"watch_below": 30, "warm_below": 22, "hot_below": 14, "critical_below": 8}
             }
         },
-        demand={"reservation_required": True, "demand_mib": 8000},
+        demand={"reservation_required": True, "known": True, "demand_mib": 8000},
         reservations={"summary": {"active_count": 1, "known_count": 1, "unknown_count": 0, "outstanding_mib": 2500}},
+        admission_policy={"hard_mem_available_floor_mib": 2048},
     )
 
     assert projection["projected"]["mem_available_mib"] == 1500.0
     assert projection["projected"]["memory_class"] == "hot"
     assert projection["policy"]["zram_free_not_counted_as_ram"] is True
     assert projection["policy"]["materialized_memory_not_double_counted"] is True
+    assert projection["admission"]["allowed"] is False
+    assert projection["admission"]["blocked_reasons"] == ["projected_mem_available_below_hard_reserve"]
+    assert projection["admission"]["pressure_facts_assign_importance"] is False
 
 
 def test_resource_planning_builds_indexing_systemd_contract_without_cli_state() -> None:
@@ -93,10 +117,7 @@ def test_resource_planning_builds_indexing_systemd_contract_without_cli_state() 
         route,
         "service",
         total_mem_kib=64 * 1024 * 1024,
-        environ={
-            "ABYSS_MACHINE_INDEXING_MEMORY_HIGH": "3072M",
-            "ABYSS_MACHINE_INDEXING_MEMORY_MAX": "5120M",
-        },
+        environ={"ABYSS_MACHINE_INDEXING_MEMORY_HIGH": "3072M", "ABYSS_MACHINE_INDEXING_MEMORY_MAX": "5120M"},
     )
     argv = resource_planning.systemd_command(
         {"request": {"normalized_class": "medium", "normalized_kind": "indexing"}, "systemd": plan},
@@ -107,10 +128,11 @@ def test_resource_planning_builds_indexing_systemd_contract_without_cli_state() 
 
     assert plan["slice"] == "abyss-machine-indexing.slice"
     assert plan["properties"]["AllowedCPUs"] == "2-5"
-    assert plan["properties"]["MemoryHigh"] == "3072M"
-    assert plan["properties"]["MemoryMax"] == "5120M"
+    assert "MemoryHigh" not in plan["properties"]
+    assert "MemoryMax" not in plan["properties"]
+    assert plan["policy"]["static_memory_caps_applied"] is False
     assert "-p" in argv
-    assert "MemoryMax=5120M" in argv
+    assert not any(item.startswith("MemoryHigh=") or item.startswith("MemoryMax=") for item in argv)
     assert not any("MemorySwapMax=" in item for item in argv)
     assert "-E" in argv
     assert "ABYSS_RESOURCE_KIND=indexing" in argv
@@ -164,11 +186,11 @@ def test_resource_planning_keeps_unattended_medium_agent_free_of_generic_hard_ca
 
     props = plan["systemd"]["properties"]
     assert plan["decision"] == "allow"
-    assert props["MemoryHigh"] == "24576M"
+    assert "MemoryHigh" not in props
     assert "MemoryMax" not in props
     assert "MemorySwapMax" not in props
-    assert plan["systemd"]["policy"]["generic_unattended_hard_caps_not_applied"] is True
-    assert plan["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["systemd"]["policy"]["static_memory_caps_applied"] is False
+    assert plan["policy"]["static_memory_caps_applied"] is False
 
 
 def test_resource_planning_keeps_unattended_medium_ai_free_of_generic_hard_caps() -> None:
@@ -211,10 +233,10 @@ def test_resource_planning_keeps_unattended_medium_ai_free_of_generic_hard_caps(
 
     props = plan["systemd"]["properties"]
     assert plan["decision"] == "allow"
-    assert props["MemoryHigh"] == "24576M"
+    assert "MemoryHigh" not in props
     assert "MemoryMax" not in props
     assert "MemorySwapMax" not in props
-    assert plan["systemd"]["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["systemd"]["policy"]["static_memory_caps_applied"] is False
 
 
 def test_resource_planning_keeps_operator_visible_medium_agent_uncapped_by_swap_budget() -> None:
@@ -229,10 +251,10 @@ def test_resource_planning_keeps_operator_visible_medium_agent_uncapped_by_swap_
         unattended=False,
     )
 
-    assert plan["properties"]["MemoryHigh"] == "24576M"
+    assert "MemoryHigh" not in plan["properties"]
     assert "MemoryMax" not in plan["properties"]
     assert "MemorySwapMax" not in plan["properties"]
-    assert plan["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["policy"]["static_memory_caps_applied"] is False
 
 
 def test_resource_planning_keeps_operator_visible_medium_ai_uncapped_by_swap_budget() -> None:
@@ -247,10 +269,10 @@ def test_resource_planning_keeps_operator_visible_medium_ai_uncapped_by_swap_bud
         unattended=False,
     )
 
-    assert plan["properties"]["MemoryHigh"] == "24576M"
+    assert "MemoryHigh" not in plan["properties"]
     assert "MemoryMax" not in plan["properties"]
     assert "MemorySwapMax" not in plan["properties"]
-    assert plan["policy"]["generic_unattended_hard_caps_not_applied"] is True
+    assert plan["policy"]["static_memory_caps_applied"] is False
 
 
 def test_resource_plan_keeps_storage_denial_authoritative_even_when_forced() -> None:
@@ -319,17 +341,14 @@ def test_resource_plan_does_not_treat_unattended_force_as_background_permission(
 
     assert data["forced"] is True
     assert data["force_effective"] is False
-    assert data["decision"] == "force_required"
-    assert data["blocked_reasons"] == [
-        "indexing_unattended_swap_used_pressure",
-        "indexing_unattended_swap_free_below_floor",
-    ]
+    assert data["decision"] == "allow"
+    assert data["blocked_reasons"] == []
     assert data["overridden_reasons"] == []
     assert data["warnings"] == ["unattended_force_not_operator_effective"]
     assert data["policy"]["force_effective_only_when_unattended_false"] is True
 
 
-def test_resource_plan_consumes_zram_headroom_unattended_medium_gate() -> None:
+def test_resource_plan_ignores_legacy_numeric_memory_recommendation() -> None:
     data = resource_planning.build_plan(
         workload_class="medium",
         kind="ai",
@@ -367,12 +386,13 @@ def test_resource_plan_consumes_zram_headroom_unattended_medium_gate() -> None:
         generated_at="2026-06-25T12:00:00+00:00",
     )
 
-    assert data["decision"] == "force_required"
-    assert data["blocked_reasons"] == ["memory_zram_headroom_blocks_unattended_medium"]
+    assert data["decision"] == "allow"
+    assert data["blocked_reasons"] == []
     assert data["denied_reasons"] == []
+    assert data["policy"]["legacy_memory_recommendations_are_advisory"] is True
 
 
-def test_resource_plan_blocks_background_medium_ai_on_swap_debt_even_without_memory_recommendation() -> None:
+def test_resource_plan_does_not_infer_background_ai_importance_from_swap_debt() -> None:
     data = resource_planning.build_plan(
         workload_class="medium",
         kind="ai",
@@ -410,41 +430,30 @@ def test_resource_plan_blocks_background_medium_ai_on_swap_debt_even_without_mem
         generated_at="2026-06-25T12:00:00+00:00",
     )
 
-    assert data["decision"] == "force_required"
-    assert data["blocked_reasons"] == ["background_ai_unattended_swap_debt"]
-    assert data["policy"]["background_ai_unattended_blocks_on_swap_debt"] is True
+    assert data["decision"] == "allow"
+    assert data["blocked_reasons"] == []
+    assert data["policy"]["swap_occupancy_gating"] is False
+    assert data["policy"]["pressure_facts_assign_workload_importance"] is False
 
 
-def test_resource_swap_gates_treat_healthy_headroom_as_cooled_residual_debt() -> None:
-    memory = {
-        "pressure": {
-            "summary": {
-                "swap_used_percent": 47.0,
-                "swap_used_mib": 9400.0,
-                "target_swap_free_mib": 2048.0,
-                "mem_available_percent": 60.0,
-                "psi_some_avg10": 0.0,
-                "psi_full_avg10": 0.0,
-            }
-        }
-    }
+def test_resource_command_demand_key_is_stable_and_does_not_store_arguments() -> None:
+    first = resource_planning.command_demand_key(
+        ["/usr/bin/abyss-machine", "nervous", "index-build", "--token", "secret-a"]
+    )
+    second = resource_planning.command_demand_key(
+        ["/usr/bin/abyss-machine", "nervous", "index-build", "--token", "secret-b"]
+    )
+    env_wrapped = resource_planning.command_demand_key(
+        ["/usr/bin/env", "PRIVATE_TOKEN=secret-c", "/usr/bin/abyss-machine", "nervous", "index-build"]
+    )
+    env_unset = resource_planning.command_demand_key(
+        ["/usr/bin/env", "-u", "PRIVATE_TOKEN", "/usr/bin/abyss-machine", "nervous", "index-build"]
+    )
 
-    assert resource_planning.indexing_swap_pressure_block_reasons(
-        memory,
-        "indexing",
-        "medium",
-        unattended=True,
-        force=False,
-        environ={},
-    ) == []
-    assert resource_planning.background_ai_swap_debt_block_reasons(
-        memory,
-        "ai",
-        "medium",
-        unattended=True,
-        force=False,
-        environ={},
-    ) == []
+    assert first == second == "abyss-machine:nervous:index-build"
+    assert env_wrapped == first
+    assert env_unset == first
+    assert "secret" not in first
 
 
 def test_resource_plan_does_not_apply_background_ai_swap_gate_to_agents() -> None:

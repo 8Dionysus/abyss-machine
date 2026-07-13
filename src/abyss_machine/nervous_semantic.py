@@ -10,9 +10,6 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import resource_planning
-
-
 def _nested_get(data: Any, path: list[str]) -> Any:
     current = data
     for key in path:
@@ -499,23 +496,15 @@ def batch_policy(
     embedding = semantic_status.get("embedding") if isinstance(semantic_status.get("embedding"), dict) else {}
     configured_batch_size = _safe_int(embedding.get("batch_size") or 16, 16)
     loaded_batch_size = max(1, _safe_int(maintain.get("loaded_batch_size") or 8, 8))
-    loaded_zram_resident_mib = _safe_float(maintain.get("loaded_batch_zram_resident_mib") or 8192, 8192.0)
     summary = _nested_get(memory, ["pressure", "summary"])
     summary = summary if isinstance(summary, dict) else {}
     game_guard = memory.get("game_guard") if isinstance(memory.get("game_guard"), dict) else {}
-    recommended = _nested_get(memory, ["recommended_new_work", resource_planning.normalize_class(resource_class)])
-    recommended = recommended if isinstance(recommended, dict) else {}
     reasons: list[str] = []
     if bool(game_guard.get("active")):
         reasons.append("game_guard_active")
-    if unattended and not bool(recommended.get("unattended_allowed", True)):
-        reasons.extend(str(item) for item in recommended.get("unattended_blocked_reasons", []) or ["unattended_resource_gate_not_allowed"])
     memory_class = str(memory.get("class") or summary.get("class") or "")
     if memory_class in {"hot", "critical"}:
         reasons.append(f"memory_class_{memory_class}")
-    zram_resident_mib = _safe_float(summary.get("zram_resident_mib"), 0.0)
-    if zram_resident_mib >= loaded_zram_resident_mib:
-        reasons.append("zram_resident_high")
     psi_some = _safe_float(summary.get("psi_some_avg10"), 0.0)
     psi_full = _safe_float(summary.get("psi_full_avg10"), 0.0)
     if psi_some > 2.0 or psi_full > 0.5:
@@ -543,7 +532,6 @@ def batch_policy(
                 "psi_some_avg10": summary.get("psi_some_avg10"),
                 "psi_full_avg10": summary.get("psi_full_avg10"),
             },
-            "recommended": recommended,
         },
         "game_guard": {
             "active": game_guard.get("active"),

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
+import hashlib
 import math
+import os
 import re
 import time
 from typing import Any, Mapping
@@ -51,7 +52,7 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
         "schema": f"{schema_prefix}_resource_policy_v1",
         "version": version,
         "owner": "abyss-machine",
-        "purpose": "Unified host resource planning and systemd-run launch policy for new local work.",
+        "purpose": "Owner-cooperative host resource planning for new local work. Numeric pressure facts protect reserve but never assign workload importance.",
         "classes": ["probe", "light", "medium", "heavy", "sustained"],
         "kinds": ["ai", "agent", "benchmark", "indexing", "generic"],
         "kind_slices": {
@@ -62,11 +63,11 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
             "generic": "abyss-machine-work.slice",
         },
         "class_defaults": {
-            "probe": {"cpu_weight": 100, "io_weight": 100, "memory_high_percent_total": None, "memory_high_min_mib": None},
-            "light": {"cpu_weight": 100, "io_weight": 100, "memory_high_percent_total": None, "memory_high_min_mib": None},
-            "medium": {"cpu_weight": 85, "io_weight": 100, "memory_high_percent_total": 75, "memory_high_min_mib": 8192},
-            "heavy": {"cpu_weight": 90, "io_weight": 100, "memory_high_percent_total": 85, "memory_high_min_mib": 16384},
-            "sustained": {"cpu_weight": 65, "io_weight": 75, "memory_high_percent_total": 75, "memory_high_min_mib": 12288},
+            "probe": {"cpu_weight": 100, "io_weight": 100},
+            "light": {"cpu_weight": 100, "io_weight": 100},
+            "medium": {"cpu_weight": 85, "io_weight": 100},
+            "heavy": {"cpu_weight": 90, "io_weight": 100},
+            "sustained": {"cpu_weight": 65, "io_weight": 75},
         },
         "gates": {
             "game_guard": {
@@ -102,7 +103,14 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
             "known_demand_ttl_sec": 120,
             "unknown_demand_ttl_sec": 15,
             "unknown_wait_timeout_sec": 20,
-            "default_demand_mib": {
+            "hard_mem_available_floor_mib": 2048,
+            "unknown_mem_available_floor_mib": 4096,
+            "unknown_psi_some_avg10_at_or_above": 2.0,
+            "unknown_psi_full_avg10_at_or_above": 0.5,
+            "observed_peak_multiplier": 1.25,
+            "profile_max_entries": 64,
+            "profile_max_samples": 16,
+            "bootstrap_demand_mib": {
                 "agent": {"medium": 2048, "heavy": 4096, "sustained": 4096},
                 "indexing": {"medium": 2048, "heavy": 4096, "sustained": 6144},
                 "benchmark": {"medium": 2048, "heavy": 4096, "sustained": 8192},
@@ -114,6 +122,12 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
             "games": "Active games defer new heavy/sustained work and unattended medium-or-heavier starts.",
             "existing_processes": "Do not kill, throttle, re-affinitize, or migrate running user processes from this layer.",
             "project_roots": "Do not write resource artifacts into abyss-stack, /work, /srv/work, or game roots.",
+        },
+        "memory_orchestration": {
+            "importance_source": "stable_owner_identity_and_owner_declared_state",
+            "pressure_is_not_importance": True,
+            "swap_occupancy_is_reserve_debt_not_pressure": True,
+            "static_memory_caps": False,
         },
     }
 
@@ -127,6 +141,52 @@ def normalize_class(name: str | None) -> str:
 def normalize_kind(name: str | None) -> str:
     value = str(name or "generic").strip().lower()
     return value if value in RESOURCE_KINDS else "generic"
+
+
+def command_demand_key(command: list[str], explicit_key: str | None = None) -> str | None:
+    explicit = str(explicit_key or "").strip()
+    if explicit:
+        return explicit[:160]
+    clean = [str(item).strip() for item in command if str(item).strip() and str(item).strip() != "--"]
+    if not clean:
+        return None
+    executable = os.path.basename(clean[0]) or "command"
+    if executable == "env":
+        tail = clean[1:]
+        while tail:
+            token = tail[0]
+            if token == "--":
+                tail = tail[1:]
+                break
+            if token in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}:
+                tail = tail[2:]
+                continue
+            if token.startswith(("--unset=", "--chdir=", "--split-string=")) or token.startswith("-") or "=" in token:
+                tail = tail[1:]
+                continue
+            break
+        return command_demand_key(tail)
+    if executable in {"bash", "sh", "zsh", "fish"} and len(clean) >= 3 and clean[1] in {"-c", "-lc"}:
+        digest = hashlib.sha256(clean[2].encode("utf-8", errors="replace")).hexdigest()[:12]
+        return f"{executable}:script:{digest}"
+    route = [executable]
+    if executable.startswith("python") and len(clean) > 1:
+        if clean[1] == "-m" and len(clean) > 2:
+            route.extend(["module", clean[2]])
+        elif not clean[1].startswith("-"):
+            route.append(os.path.basename(clean[1]))
+    elif executable in {"abyss-machine", "aoa-session-memory", "aoa_session_memory"}:
+        for token in clean[1:]:
+            if token.startswith("-"):
+                break
+            route.append(os.path.basename(token) if "/" in token else token)
+            if len(route) >= 3:
+                break
+    elif len(clean) > 1:
+        digest = hashlib.sha256("\0".join(clean[1:]).encode("utf-8", errors="replace")).hexdigest()[:12]
+        route.append(f"argv-{digest}")
+    normalized = [re.sub(r"[^A-Za-z0-9_.-]+", "-", item).strip("-.") for item in route]
+    return ":".join(item for item in normalized if item)[:160] or None
 
 
 def force_effective_for_request(force: bool, unattended: bool) -> bool:
@@ -143,6 +203,7 @@ def resolve_startup_demand(
     demand_owner: str | None = None,
     estimate_source: str | None = None,
     estimate_confidence: str | None = None,
+    learned_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_class = normalize_class(workload_class)
     normalized_kind = normalize_kind(kind)
@@ -153,6 +214,9 @@ def resolve_startup_demand(
     source = str(estimate_source or "").strip()
     confidence = str(estimate_confidence or "").strip().lower()
     invalid_reason: str | None = None
+    used_explicit = False
+    used_learned = False
+    used_bootstrap = False
     if explicit_mib is not None:
         try:
             explicit_value = float(explicit_mib)
@@ -162,32 +226,49 @@ def resolve_startup_demand(
             invalid_reason = "memory_demand_mib_must_be_finite_and_nonnegative"
         else:
             demand_mib = explicit_value
+            used_explicit = True
         source = source or "explicit_owner_estimate"
         confidence = confidence or "owner_provided"
-    else:
-        defaults = startup.get("default_demand_mib") if isinstance(startup.get("default_demand_mib"), dict) else {}
+    elif isinstance(learned_profile, Mapping):
+        learned_value = _float_value(learned_profile.get("estimate_mib"), None)
+        if learned_value is not None and math.isfinite(learned_value) and learned_value >= 0.0:
+            demand_mib = learned_value
+            used_learned = True
+            source = source or "runtime_observed_unit_peak"
+            confidence = confidence or "observed"
+            reservation_required = enabled and demand_mib > 0.0
+    if explicit_mib is None and demand_mib is None:
+        defaults = startup.get("bootstrap_demand_mib") if isinstance(startup.get("bootstrap_demand_mib"), dict) else {}
         kind_defaults = defaults.get(normalized_kind) if isinstance(defaults.get(normalized_kind), dict) else {}
         default_value = kind_defaults.get(normalized_class)
         if isinstance(default_value, (int, float)) and not isinstance(default_value, bool):
             demand_mib = max(0.0, float(default_value))
-            source = source or "resource_policy_class_kind_default"
-            confidence = confidence or "conservative_default"
+            used_bootstrap = True
+            source = source or "bootstrap_class_kind_estimate"
+            confidence = confidence or "uncalibrated"
+    if enabled and demand_mib is not None and demand_mib > 0.0 and (used_explicit or used_learned):
+        reservation_required = True
     if demand_mib == 0.0:
         reservation_required = False
+    calibrated = used_explicit or used_learned
     return {
         "enabled": enabled,
         "valid": invalid_reason is None,
         "invalid_reason": invalid_reason,
         "reservation_required": reservation_required,
-        "known": demand_mib is not None,
+        "known": calibrated,
+        "estimate_available": demand_mib is not None,
         "demand_mib": None if demand_mib is None else round(demand_mib, 3),
         "key": str(demand_key or "").strip() or None,
         "owner": str(demand_owner or normalized_kind).strip() or normalized_kind,
         "estimate_source": source or "unknown",
         "estimate_confidence": confidence or "unknown",
+        "calibration": "owner" if used_explicit else ("learned" if used_learned else "bootstrap_uncalibrated" if used_bootstrap else "unknown"),
+        "calibrated": calibrated,
+        "learned_sample_count": int(_float_value(learned_profile.get("sample_count"), 0.0) or 0) if isinstance(learned_profile, Mapping) else 0,
         "class": normalized_class,
         "kind": normalized_kind,
-        "unknown_startup_lane": reservation_required and demand_mib is None,
+        "unknown_startup_lane": reservation_required and not calibrated,
     }
 
 
@@ -206,8 +287,11 @@ def startup_demand_projection(
     memory_policy: Mapping[str, Any],
     demand: Mapping[str, Any],
     reservations: Mapping[str, Any],
+    admission_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    current_available = max(0.0, _float_value(memory_summary.get("mem_available_mib"), 0.0) or 0.0)
+    raw_current_available = _float_value(memory_summary.get("mem_available_mib"), None)
+    availability_known = raw_current_available is not None
+    current_available = max(0.0, raw_current_available or 0.0)
     total_mib = max(0.0, _float_value(memory_summary.get("mem_total_mib"), 0.0) or 0.0)
     reservation_summary = reservations.get("summary") if isinstance(reservations.get("summary"), dict) else {}
     outstanding_mib = max(0.0, _float_value(reservation_summary.get("outstanding_mib"), 0.0) or 0.0)
@@ -228,6 +312,23 @@ def startup_demand_projection(
             projected_rank = max(projected_rank, _memory_pressure_rank("warm"))
         elif projected_percent < float(mem_thresholds.get("watch_below", 30)):
             projected_rank = max(projected_rank, _memory_pressure_rank("watch"))
+    startup = admission_policy if isinstance(admission_policy, Mapping) else {}
+    hard_floor_mib = max(0.0, _float_value(startup.get("hard_mem_available_floor_mib"), 2048.0) or 2048.0)
+    unknown_floor_mib = max(hard_floor_mib, _float_value(startup.get("unknown_mem_available_floor_mib"), 4096.0) or 4096.0)
+    psi_some = _float_value(memory_summary.get("psi_some_avg10"), None)
+    psi_full = _float_value(memory_summary.get("psi_full_avg10"), None)
+    unknown_some_threshold = max(0.0, _float_value(startup.get("unknown_psi_some_avg10_at_or_above"), 2.0) or 2.0)
+    unknown_full_threshold = max(0.0, _float_value(startup.get("unknown_psi_full_avg10_at_or_above"), 0.5) or 0.5)
+    safety_blocks: list[str] = []
+    estimate_available = bool(demand.get("estimate_available", demand.get("known")))
+    if availability_known and demand.get("reservation_required") and estimate_available and projected_available < hard_floor_mib:
+        safety_blocks.append("projected_mem_available_below_hard_reserve")
+    if demand.get("unknown_startup_lane"):
+        unreserved_available = max(0.0, current_available - outstanding_mib)
+        if availability_known and unreserved_available < unknown_floor_mib:
+            safety_blocks.append("unknown_demand_with_low_physical_headroom")
+        if (psi_some is not None and psi_some >= unknown_some_threshold) or (psi_full is not None and psi_full >= unknown_full_threshold):
+            safety_blocks.append("unknown_demand_during_active_memory_stall")
     return {
         "current": {
             "memory_class": current_memory_class,
@@ -247,28 +348,22 @@ def startup_demand_projection(
             "mem_available_percent": None if projected_percent is None else round(projected_percent, 3),
         },
         "unknown_startup_conflict": bool(unknown_count and demand.get("reservation_required")),
+        "admission": {
+            "allowed": not safety_blocks,
+            "blocked_reasons": safety_blocks,
+            "availability_known": availability_known,
+            "hard_mem_available_floor_mib": round(hard_floor_mib, 3),
+            "unknown_mem_available_floor_mib": round(unknown_floor_mib, 3),
+            "pressure_facts_assign_importance": False,
+        },
         "policy": {
             "zram_free_not_counted_as_ram": True,
             "materialized_memory_not_double_counted": True,
             "current_pressure_class_is_floor": True,
+            "projected_pressure_class_is_advisory": True,
+            "hard_floor_protects_host_reserve_not_workload_priority": True,
         },
     }
-
-
-def memory_high_value(policy: dict[str, Any], workload_class: str, total_mem_kib: int | None) -> str | None:
-    classes = policy.get("class_defaults", {}) if isinstance(policy.get("class_defaults"), dict) else {}
-    item = classes.get(workload_class) if isinstance(classes.get(workload_class), dict) else {}
-    percent = item.get("memory_high_percent_total")
-    if percent is None or not isinstance(total_mem_kib, int) or total_mem_kib <= 0:
-        return None
-    try:
-        mib = int((total_mem_kib / 1024) * (float(percent) / 100.0))
-    except (TypeError, ValueError):
-        return None
-    min_mib = item.get("memory_high_min_mib")
-    if isinstance(min_mib, (int, float)):
-        mib = max(mib, int(min_mib))
-    return f"{max(mib, 512)}M"
 
 
 def scope_for_kind(policy: dict[str, Any], kind: str) -> str:
@@ -290,7 +385,6 @@ def systemd_plan(
     environ: Mapping[str, str] | None = None,
     unattended: bool = False,
 ) -> dict[str, Any]:
-    source_env = os.environ if environ is None else environ
     classes = policy.get("class_defaults", {}) if isinstance(policy.get("class_defaults"), dict) else {}
     class_policy = classes.get(workload_class) if isinstance(classes.get(workload_class), dict) else {}
     cpuset = _nested_get(route, ["route", "cpuset"])
@@ -304,14 +398,6 @@ def systemd_plan(
         properties["CPUWeight"] = str(int(cpu_weight))
     if isinstance(io_weight, (int, float)):
         properties["IOWeight"] = str(int(io_weight))
-    memory_high = memory_high_value(policy, workload_class, total_mem_kib)
-    if memory_high:
-        properties["MemoryHigh"] = memory_high
-    if kind == "indexing" and workload_level(workload_class) >= workload_level("medium"):
-        properties["MemoryHigh"] = source_env.get("ABYSS_MACHINE_INDEXING_MEMORY_HIGH", "4096M")
-        indexing_memory_max = str(source_env.get("ABYSS_MACHINE_INDEXING_MEMORY_MAX") or "").strip()
-        if indexing_memory_max:
-            properties["MemoryMax"] = indexing_memory_max
     return {
         "runner": "systemd-run",
         "unit_type": unit_type if unit_type in {"service", "scope"} else "service",
@@ -319,10 +405,9 @@ def systemd_plan(
         "properties": properties,
         "env": {str(key): str(value) for key, value in env.items()} if isinstance(env, dict) else {},
         "policy": {
-            "memory_high_is_soft": "MemoryHigh" in properties,
-            "memory_max_not_set": "MemoryMax" not in properties,
-            "memory_max_set_for_indexing": "MemoryMax" in properties and kind == "indexing",
-            "generic_unattended_hard_caps_not_applied": True,
+            "static_memory_caps_applied": False,
+            "memory_high_not_set": True,
+            "memory_max_not_set": True,
             "cpu_quota_not_set": True,
             "allowed_cpus_from_ai_cpu_route": bool(cpuset),
         },
@@ -373,173 +458,6 @@ def game_guard_block_reasons(
     unattended_cap = str(gates.get("block_unattended_at_or_above") or "medium") if isinstance(gates, dict) else "medium"
     if unattended and workload_level(normalized_class) >= workload_level(unattended_cap):
         blocked.append("game_guard_unattended_medium_or_heavier")
-    return blocked
-
-
-def indexing_swap_pressure_block_reasons(
-    memory_data: dict[str, Any],
-    normalized_kind: str,
-    normalized_class: str,
-    unattended: bool,
-    force: bool,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> list[str]:
-    if force or not unattended or normalized_kind != "indexing":
-        return []
-    if workload_level(normalized_class) < workload_level("medium"):
-        return []
-    source_env = os.environ if environ is None else environ
-    summary = _nested_get(memory_data, ["pressure", "summary"])
-    if not isinstance(summary, dict):
-        summary = memory_data.get("summary") if isinstance(memory_data.get("summary"), dict) else {}
-    blocked: list[str] = []
-    max_swap_used_percent = float(source_env.get("ABYSS_MACHINE_INDEXING_MAX_SWAP_USED_PERCENT", "35"))
-    min_swap_free_mib = float(source_env.get("ABYSS_MACHINE_INDEXING_MIN_SWAP_FREE_MIB", "4096"))
-    min_mem_available_percent = float(source_env.get("ABYSS_MACHINE_INDEXING_MIN_MEM_AVAILABLE_PERCENT", "30"))
-    max_psi_some_avg10 = float(source_env.get("ABYSS_MACHINE_INDEXING_MAX_PSI_SOME_AVG10", "2"))
-    max_psi_full_avg10 = float(source_env.get("ABYSS_MACHINE_INDEXING_MAX_PSI_FULL_AVG10", "0.5"))
-    swap_used_percent = _float_value(summary.get("swap_used_percent"), None)
-    swap_free_mib = swap_free_mib_from_summary(summary)
-    mem_available_percent = _float_value(summary.get("mem_available_percent"), None)
-    psi_some_avg10 = _float_value(summary.get("psi_some_avg10"), None)
-    psi_full_avg10 = _float_value(summary.get("psi_full_avg10"), None)
-    cooled_residual_debt = residual_swap_debt_is_cooled(
-        swap_free_mib=swap_free_mib,
-        mem_available_percent=mem_available_percent,
-        psi_some_avg10=psi_some_avg10,
-        psi_full_avg10=psi_full_avg10,
-        min_swap_free_mib=min_swap_free_mib,
-        min_mem_available_percent=min_mem_available_percent,
-        max_psi_some_avg10=max_psi_some_avg10,
-        max_psi_full_avg10=max_psi_full_avg10,
-    )
-    if swap_used_percent is not None and swap_used_percent > max_swap_used_percent and not cooled_residual_debt:
-        blocked.append("indexing_unattended_swap_used_pressure")
-    if swap_free_mib is not None and swap_free_mib < min_swap_free_mib:
-        blocked.append("indexing_unattended_swap_free_below_floor")
-    if psi_some_avg10 is not None and psi_some_avg10 >= max_psi_some_avg10:
-        blocked.append("indexing_unattended_psi_some_stall")
-    if psi_full_avg10 is not None and psi_full_avg10 >= max_psi_full_avg10:
-        blocked.append("indexing_unattended_psi_full_stall")
-    return blocked
-
-
-def residual_swap_debt_is_cooled(
-    *,
-    swap_free_mib: float | None,
-    mem_available_percent: float | None,
-    psi_some_avg10: float | None,
-    psi_full_avg10: float | None,
-    min_swap_free_mib: float,
-    min_mem_available_percent: float,
-    max_psi_some_avg10: float,
-    max_psi_full_avg10: float,
-) -> bool:
-    return bool(
-        swap_free_mib is not None
-        and mem_available_percent is not None
-        and psi_some_avg10 is not None
-        and psi_full_avg10 is not None
-        and swap_free_mib >= min_swap_free_mib
-        and mem_available_percent >= min_mem_available_percent
-        and psi_some_avg10 < max_psi_some_avg10
-        and psi_full_avg10 < max_psi_full_avg10
-    )
-
-
-def swap_free_mib_from_summary(summary: Mapping[str, Any]) -> float | None:
-    swap_free_mib = _float_value(summary.get("swap_free_mib"), None)
-    if swap_free_mib is not None:
-        return swap_free_mib
-    swap_used_mib = _float_value(summary.get("swap_used_mib"), None)
-    swap_used_percent = _float_value(summary.get("swap_used_percent"), None)
-    if (
-        swap_used_mib is None
-        or swap_used_percent is None
-        or swap_used_percent <= 0.0
-        or swap_used_percent >= 100.0
-    ):
-        return None
-    swap_total_mib = swap_used_mib * 100.0 / swap_used_percent
-    return max(0.0, swap_total_mib - swap_used_mib)
-
-
-def background_ai_swap_debt_block_reasons(
-    memory_data: dict[str, Any],
-    normalized_kind: str,
-    normalized_class: str,
-    unattended: bool,
-    force: bool,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> list[str]:
-    if force or not unattended or normalized_kind != "ai":
-        return []
-    if workload_level(normalized_class) < workload_level("medium"):
-        return []
-    source_env = os.environ if environ is None else environ
-    summary = _nested_get(memory_data, ["pressure", "summary"])
-    if not isinstance(summary, dict):
-        summary = memory_data.get("summary") if isinstance(memory_data.get("summary"), dict) else {}
-    if not isinstance(summary, dict):
-        summary = {}
-    blocked: list[str] = []
-    max_swap_used_percent = float(
-        source_env.get(
-            "ABYSS_MACHINE_BACKGROUND_AI_MAX_SWAP_USED_PERCENT",
-            source_env.get("ABYSS_MACHINE_UNATTENDED_MEDIUM_MAX_SWAP_USED_PERCENT", "35"),
-        )
-    )
-    min_swap_free_mib = float(
-        source_env.get(
-            "ABYSS_MACHINE_BACKGROUND_AI_MIN_SWAP_FREE_MIB",
-            source_env.get("ABYSS_MACHINE_UNATTENDED_MEDIUM_MIN_SWAP_FREE_MIB", "2048"),
-        )
-    )
-    max_psi_some_avg10 = float(
-        source_env.get(
-            "ABYSS_MACHINE_BACKGROUND_AI_MAX_PSI_SOME_AVG10",
-            source_env.get("ABYSS_MACHINE_UNATTENDED_MEDIUM_MAX_PSI_SOME_AVG10", "1"),
-        )
-    )
-    max_psi_full_avg10 = float(
-        source_env.get(
-            "ABYSS_MACHINE_BACKGROUND_AI_MAX_PSI_FULL_AVG10",
-            source_env.get("ABYSS_MACHINE_UNATTENDED_MEDIUM_MAX_PSI_FULL_AVG10", "0.5"),
-        )
-    )
-    min_mem_available_percent = float(
-        source_env.get(
-            "ABYSS_MACHINE_BACKGROUND_AI_MIN_MEM_AVAILABLE_PERCENT",
-            source_env.get("ABYSS_MACHINE_UNATTENDED_MEDIUM_MIN_MEM_AVAILABLE_PERCENT", "30"),
-        )
-    )
-    swap_used_percent = _float_value(summary.get("swap_used_percent"), None)
-    swap_free_mib = swap_free_mib_from_summary(summary)
-    target_swap_free_mib = _float_value(summary.get("target_swap_free_mib"), min_swap_free_mib)
-    mem_available_percent = _float_value(summary.get("mem_available_percent"), None)
-    psi_some_avg10 = _float_value(summary.get("psi_some_avg10"), None)
-    psi_full_avg10 = _float_value(summary.get("psi_full_avg10"), None)
-    effective_swap_floor_mib = max(min_swap_free_mib, target_swap_free_mib or min_swap_free_mib)
-    cooled_residual_debt = residual_swap_debt_is_cooled(
-        swap_free_mib=swap_free_mib,
-        mem_available_percent=mem_available_percent,
-        psi_some_avg10=psi_some_avg10,
-        psi_full_avg10=psi_full_avg10,
-        min_swap_free_mib=effective_swap_floor_mib,
-        min_mem_available_percent=min_mem_available_percent,
-        max_psi_some_avg10=max_psi_some_avg10,
-        max_psi_full_avg10=max_psi_full_avg10,
-    )
-    if swap_used_percent is not None and swap_used_percent >= max_swap_used_percent and not cooled_residual_debt:
-        blocked.append("background_ai_unattended_swap_debt")
-    if swap_free_mib is not None and target_swap_free_mib is not None and swap_free_mib < target_swap_free_mib:
-        blocked.append("background_ai_unattended_swap_free_below_target")
-    if psi_some_avg10 is not None and psi_some_avg10 >= max_psi_some_avg10:
-        blocked.append("background_ai_unattended_psi_some_stall")
-    if psi_full_avg10 is not None and psi_full_avg10 >= max_psi_full_avg10:
-        blocked.append("background_ai_unattended_psi_full_stall")
     return blocked
 
 
@@ -631,22 +549,11 @@ def build_plan(
     active_game = bool(game_guard.get("active"))
     blocked.extend(game_guard_block_reasons(policy, normalized_class, unattended, active_game, force_effective))
 
-    memory_rec = _nested_get(memory, ["recommended_new_work", normalized_class])
-    memory_unattended_blocked = False
-    if isinstance(memory_rec, dict):
-        if not bool(memory_rec.get("allowed")) and not force_effective:
-            blocked.extend(str(item) for item in memory_rec.get("blocked_reasons", []) or ["memory_gate_denied"])
-        if unattended and not bool(memory_rec.get("unattended_allowed")) and not force_effective:
-            memory_unattended_blocked = True
-            blocked.extend(str(item) for item in memory_rec.get("unattended_blocked_reasons", []) or ["memory_gate_unattended_denied"])
     demand_data = startup_demand if isinstance(startup_demand, dict) else {}
     demand_gate = demand_data.get("gate") if isinstance(demand_data.get("gate"), dict) else {}
     blocked.extend(str(item) for item in demand_gate.get("blocked_reasons", []) or [])
     denied.extend(str(item) for item in demand_gate.get("denied_reasons", []) or [])
     warnings.extend(str(item) for item in demand_gate.get("warnings", []) or [])
-    blocked.extend(indexing_swap_pressure_block_reasons(memory, normalized_kind, normalized_class, unattended, force_effective, environ=environ))
-    if not memory_unattended_blocked:
-        blocked.extend(background_ai_swap_debt_block_reasons(memory, normalized_kind, normalized_class, unattended, force_effective, environ=environ))
 
     launch_policy = mode.get("launch_policy", {}) if isinstance(mode.get("launch_policy"), dict) else {}
     max_unattended = str(launch_policy.get("max_unattended_class") or "probe")
@@ -730,7 +637,6 @@ def build_plan(
             "memory": {
                 "class": memory.get("class"),
                 "summary": _nested_get(memory, ["pressure", "summary"]),
-                "recommended": memory_rec,
                 "latest": input_latest_paths.get("memory"),
             },
             "storage": {
@@ -765,16 +671,16 @@ def build_plan(
             "does_not_mutate_existing_processes": True,
             "does_not_mutate_games": True,
             "does_not_mutate_stack": True,
-            "memory_high_is_soft": True,
-            "memory_max_not_set_by_default": "MemoryMax" not in (systemd.get("properties") if isinstance(systemd.get("properties"), dict) else {}),
-            "memory_max_set_for_indexing": bool(_nested_get(systemd, ["policy", "memory_max_set_for_indexing"])),
-            "generic_unattended_hard_caps_not_applied": True,
+            "static_memory_caps_applied": False,
+            "memory_high_not_set": "MemoryHigh" not in (systemd.get("properties") if isinstance(systemd.get("properties"), dict) else {}),
+            "memory_max_not_set": "MemoryMax" not in (systemd.get("properties") if isinstance(systemd.get("properties"), dict) else {}),
             "cpu_quota_not_set_by_default": True,
             "force_does_not_override_storage_denials": True,
             "force_effective_only_when_unattended_false": True,
-            "unattended_indexing_blocks_on_swap_pressure": True,
-            "background_ai_unattended_blocks_on_swap_debt": True,
-            "swap_occupancy_alone_is_not_active_pressure": True,
+            "numeric_memory_class_gating": False,
+            "swap_occupancy_gating": False,
+            "pressure_facts_assign_workload_importance": False,
+            "legacy_memory_recommendations_are_advisory": True,
             "startup_demand_reservations": True,
             "startup_reservations_runtime_only": True,
             "zram_free_not_counted_as_ram": True,

@@ -16,6 +16,11 @@ Do not record every probe, sample, generated refresh, or local experiment here.
   plane with synchronous live admission, runtime-only startup reservations,
   and owner-native workload lifecycle routes; retired the older numeric
   `memory orchestrate` candidate ranking and restart executor.
+- Separated active pressure from swap reserve, removed static launch memory
+  caps, swap/class gates, and fake memory recommendations; unified host-managed
+  AI work behind resource admission, added bounded transient-unit peak learning
+  under `/run`, and exposed strict empty owner-cgroup cache reclaim offers as
+  shadow-only evidence.
 
 ### Added
 

@@ -581,7 +581,8 @@ def plan_document(
                 "policy": cpu_routed_heavy,
             },
             "ai_policy_command": "abyss-machine ai policy --json",
-            "memory_gate_command": "abyss-machine memory plan --json",
+            "memory_facts_command": "abyss-machine memory plan --json",
+            "resource_admission_command": "abyss-machine resource plan --class CLASS --kind KIND --json",
             "storage_write_gate": "abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json",
         },
         "actions_on_reconcile": [

@@ -696,13 +696,14 @@
       "heavy",
       "--json"
     ],
-    "ai_cpu_launch_heavy_dry_run_json": [
+    "resource_launch_heavy_ai_dry_run_json": [
       "abyss-machine",
-      "ai",
-      "cpu",
+      "resource",
       "launch",
       "--class",
       "heavy",
+      "--kind",
+      "ai",
       "--dry-run",
       "--",
       "COMMAND"

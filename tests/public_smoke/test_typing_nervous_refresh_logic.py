@@ -33,20 +33,20 @@ from abyss_machine.typing_nervous_refresh import (
 
 
 def test_typing_nervous_resource_gate_accepts_only_known_soft_resource_blocks() -> None:
-    assert "indexing_unattended_swap_used_pressure" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS
-    assert "indexing_unattended_swap_free_below_floor" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS
+    assert "startup_projected_mem_available_below_hard_reserve" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS
+    assert "startup_unknown_demand_with_low_physical_headroom" in TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS
 
     assert typing_nervous_index_resource_gated(
         {
             "ok": False,
-            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
             "denied_reasons": [],
         }
     )
     assert not typing_nervous_index_resource_gated(
         {
             "ok": False,
-            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
             "denied_reasons": ["storage_denied"],
         }
     )
@@ -227,7 +227,7 @@ def test_typing_nervous_refresh_index_action_records_defer_launch_and_idle_shape
         action_status="launched",
         index_launch={
             "ok": False,
-            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
             "denied_reasons": [],
             "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
             "elapsed_sec": 2.5,
@@ -247,7 +247,7 @@ def test_typing_nervous_refresh_index_action_records_defer_launch_and_idle_shape
         "debounce_bypassed_for_lag": True,
         "debounce_candidate_records_lag": 17,
         "debounce_candidate_records_lag_tolerance": 4,
-        "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+        "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
         "denied_reasons": [],
         "resource_decision": "blocked",
         "resource_sample_thermal": False,
@@ -453,7 +453,7 @@ def test_typing_nervous_refresh_final_context_accepts_soft_resource_gate() -> No
         processing_after={"ok": False, "status": "facts_ready_index_stale"},
         index_launch={
             "ok": False,
-            "blocked_reasons": ["indexing_unattended_swap_used_pressure"],
+            "blocked_reasons": ["startup_projected_mem_available_below_hard_reserve"],
             "denied_reasons": [],
             "plan": {"decision": "blocked", "request": {"sample_thermal": False}},
         },
