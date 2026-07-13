@@ -21,8 +21,9 @@ accepted
 As of 2026-07-12, `abyss-machine` owns live host memory facts, synchronous
 launch admission, and runtime-only startup reservations. It does not run a
 resident forecast, workload registry, evidence database, or generic lifecycle
-controller. Reclaim, sleep, unload, checkpoint, resume, and rollback remain
-with the workload owner.
+controller. The older numeric `memory orchestrate` candidate ranking and
+restart executor are also retired. Reclaim, sleep, unload, checkpoint, resume,
+and rollback remain with the workload owner.
 
 ## Context
 
@@ -102,6 +103,9 @@ change rather than silently reactivating the removed controller.
 ## Review Log
 
 - 2026-07-12: Initial record.
+- 2026-07-13: Removed the pre-existing numeric candidate ranking, confirmation,
+  restart executor, CLI/bridge surface, and required route card. Historical
+  host evidence remains until restore-proof cleanup.
 
 ## Source Surfaces
 

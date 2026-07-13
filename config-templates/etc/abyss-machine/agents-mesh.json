@@ -1332,14 +1332,6 @@
       "required_markers": ["## Applies to", "## Role", "## Operating Contract", "latency", "## Boundaries", "## Validation"]
     },
     {
-      "id": "memory-orchestrate",
-      "path": "{{ABYSS_MACHINE_STATE}}/memory/orchestrate/AGENTS.md",
-      "kind": "local_card",
-      "role": "memory orchestration candidate and apply gates",
-      "required": true,
-      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "operator", "## Boundaries", "## Validation"]
-    },
-    {
       "id": "memo",
       "path": "{{ABYSS_MACHINE_STATE}}/memo/AGENTS.md",
       "kind": "subsystem_card",

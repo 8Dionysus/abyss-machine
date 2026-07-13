@@ -202,12 +202,11 @@ ownership and future extensions:
   process container-health reads, and read-only desktop-compositor command/proc
   probes plus AT-SPI desktop hard-timeout capture now live in
   `process_adapters`; process thermal attribution/plan read-only orchestration
-  also lives in `process_adapters`; memory orchestration target snapshots,
-  local model HTTP probes, cgroup CPU sampling, live locks, narrow Podman
-  restart/rerank unload execution, rehydrate polling, read-only memory
-  pressure/process/cgroup collection, residency service snapshots, and hotpath
-  probe document assembly/orchestration and hotpath TTS/STT/LLM execution
-  wrappers plus memory-orchestrate safety policy live in `memory_adapters`; mode-state IO, `powerprofilesctl` get/set, recent GameMode
+  also lives in `process_adapters`; read-only memory pressure/process/cgroup
+  collection, residency service snapshots, and hotpath probe document assembly
+  plus TTS/STT/LLM execution wrappers live in `memory_adapters`; bounded local
+  HTTP JSON/status transport shared by host probes lives in `http_adapters`;
+  mode-state IO, `powerprofilesctl` get/set, recent GameMode
   journal probes, external profile-guard input collection, mode plan/status
   live input collection, and reconcile orchestration live in `mode_adapters`;
   cooling platform-profile, Lenovo fan-mode, RAPL-MMIO, package-throttle,

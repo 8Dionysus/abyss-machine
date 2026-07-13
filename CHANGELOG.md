@@ -68,6 +68,9 @@
   activation opt-in.
 - Keep materialized artifact subject-store `AGENTS.md` files out of the host
   docs mesh so promoted external evidence cannot masquerade as host route law.
+- Retire the numeric `memory orchestrate` ranking and restart executor so
+  pressure and footprint remain host facts rather than workload-importance or
+  mutation authority.
 
 ## 0.1.0
 

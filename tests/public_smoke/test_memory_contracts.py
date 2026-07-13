@@ -36,18 +36,6 @@ def _refs(root: str = "/var/lib/abyss-machine/memory") -> dict[str, str]:
         "residency_spec": f"{root}/residency/SPEC.md",
         "hotpath_root": f"{root}/hotpath",
         "hotpath_latest": f"{root}/hotpath/latest.json",
-        "orchestrate_root": f"{root}/orchestrate",
-        "orchestrate_latest": f"{root}/orchestrate/latest.json",
-        "orchestrate_apply_root": f"{root}/orchestrate/apply",
-        "orchestrate_apply_latest": f"{root}/orchestrate/apply/latest.json",
-        "orchestrate_idle_root": f"{root}/orchestrate/idle",
-        "orchestrate_idle_latest": f"{root}/orchestrate/idle/latest.json",
-        "orchestrate_confirm_root": f"{root}/orchestrate/confirm",
-        "orchestrate_confirm_latest": f"{root}/orchestrate/confirm/latest.json",
-        "orchestrate_executor_root": f"{root}/orchestrate/executor",
-        "orchestrate_executor_latest": f"{root}/orchestrate/executor/latest.json",
-        "orchestrate_live_root": f"{root}/orchestrate/live",
-        "orchestrate_live_latest": f"{root}/orchestrate/live/latest.json",
         "validate_root": f"{root}/validate",
         "validate_latest": f"{root}/validate/latest.json",
     }
@@ -73,12 +61,13 @@ def test_memory_policy_and_paths_contracts_are_module_owned() -> None:
     assert policy["actions"]["launch_gate_only"] is True
     assert loaded["config_exists"] is True
     assert loaded["defaults_applied"] == ["residency"]
-    assert paths["schema"] == "abyss_machine_memory_paths_v2"
-    for lane in ("status", "pressure", "processes", "plan", "headroom", "residency", "hotpath", "orchestrate"):
+    assert paths["schema"] == "abyss_machine_memory_paths_v3"
+    for lane in ("status", "pressure", "processes", "plan", "headroom", "residency", "hotpath"):
         assert paths[lane]["retention"] == "latest_only"
         assert "today" not in paths[lane]
         assert "daily_glob" not in paths[lane]
-    assert paths["commands"]["orchestrate_apply_live"].endswith("--json")
+    assert "orchestrate" not in paths
+    assert all("orchestrate" not in command for command in paths["commands"].values())
     assert paths["policy_contract"]["automatic_kill"] is False
     assert paths["policy_contract"]["repo_mutation"] is False
 
@@ -165,6 +154,23 @@ def test_memory_paths_cli_uses_public_contract_shape_without_live_collection() -
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["schema"] == "abyss_machine_memory_paths_v2"
+    assert payload["schema"] == "abyss_machine_memory_paths_v3"
     assert payload["commands"]["plan"] == "abyss-machine memory plan --json"
     assert payload["policy_contract"]["automatic_zram_reconfigure"] is False
+
+
+def test_memory_cli_does_not_expose_numeric_orchestrate_route() -> None:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(SRC_ROOT)
+    result = subprocess.run(
+        [sys.executable, "-m", "abyss_machine.cli", "memory", "orchestrate", "plan", "--json"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert result.returncode == 2
+    assert "invalid choice: 'orchestrate'" in result.stderr
