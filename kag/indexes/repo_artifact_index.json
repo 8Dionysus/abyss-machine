@@ -890,7 +890,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "bb4e3c8b42194a0add92cb72f5d3c06451ad8d797cf1ca15d912443614f348dd",
+      "content_hash": "8beb7be8c63eb74f2a892a364f34c277683dd29def302c04889e3a6d8fb1de68",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -2050,7 +2050,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "c1930859ccd8f04e3558daf9a626b05fbd8240445e3633a959bf17b8bd6143d2",
+      "content_hash": "954d5f8a3e9776da6bcde711ebcaa0ada79bf3f01ed0dc9216c2bc75eed78ec4",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -4450,6 +4450,14 @@
     },
     {
       "artifact_kind": "test",
+      "content_hash": "03f5f87bfa3f778d429880bfa1239f084e5bfbd1b275966e05c45d067b8df240",
+      "id": "artifact:file:tests/public_smoke/test_subsystem_validation_retention.py:90b16ad2d4",
+      "path": "tests/public_smoke/test_subsystem_validation_retention.py",
+      "source_record_id": "file:tests/public_smoke/test_subsystem_validation_retention.py:90b16ad2d4",
+      "surface_state": "authored_source"
+    },
+    {
+      "artifact_kind": "test",
       "content_hash": "6b2670d423278f1cce342465a7e8f75826058c23ef60c921326cfecdcd6e8675",
       "id": "artifact:file:tests/public_smoke/test_topology_contracts.py:351ea8bc64",
       "path": "tests/public_smoke/test_topology_contracts.py",
@@ -4803,7 +4811,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "7e0b171c5614a64bbe041d35aa012a9f8facd4c7a276a5137e7fc5f8661f374d",
+    "content_digest": "91a26ebda0589ef4c5c4ae59eee00e7f9ce038ac7f59fecd0a82f633cda5155c",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4827,12 +4835,12 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "3020c5fa29c1ce6f36a8e88879e07af7f7138d6b38aa0834a674a82ec619bce4",
+    "content_digest": "8e8d00d2f9f9407e444a32336cf4a21adaa65bb36b79f5211843cdaaaa1e7a75",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 600,
+    "entry_count": 601,
     "kind_counts": {
       "config": 31,
       "document": 190,
@@ -4848,7 +4856,7 @@
       "security": 1,
       "service_unit": 59,
       "source_code": 113,
-      "test": 139
+      "test": 140
     }
   }
 }
