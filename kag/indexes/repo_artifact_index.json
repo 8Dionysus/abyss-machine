@@ -74,7 +74,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "5265bfa67923dee8d84250bf5acec6b720fdb5994a10e80843dbd08d149490e8",
+      "content_hash": "ddddb03bcfe27b1ccc1cf8d832003fde9727b16d968946a22d78e8bec89198ed",
       "id": "artifact:file:changelog.md:06572a96a5",
       "path": "CHANGELOG.md",
       "source_record_id": "file:changelog.md:06572a96a5",
@@ -154,7 +154,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "3972f6797900146abf240723db795cb28ae70d38b9bda731011444a9c979ef49",
+      "content_hash": "85d3c4e3be6d927a69be2704a0d1e5f66c0f47a6ca04f6edc2ad446a267a2e46",
       "id": "artifact:file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3",
       "path": "config-templates/etc/abyss-machine/CHANGELOG.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3",
@@ -258,7 +258,7 @@
     },
     {
       "artifact_kind": "config",
-      "content_hash": "523ab885faf454cd5a9fab2a6d264199cff38d6468f04f79a06db20f71a00115",
+      "content_hash": "3e579599cc213e505992139b7ff8ce6b11533d3a163c45e799cf06f488c93904",
       "id": "artifact:file:config-templates/etc/abyss-machine/bridge.json:4a4a9ebbc2",
       "path": "config-templates/etc/abyss-machine/bridge.json",
       "source_record_id": "file:config-templates/etc/abyss-machine/bridge.json:4a4a9ebbc2",
@@ -266,7 +266,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "60f45d03d65554cceb72fcea44aee2252ed5d48a61c8a54917c2f4b2bce4af0b",
+      "content_hash": "088a8d43d1d743641c68f9e47d49216bc6c45ed3bb33c57739aaab15899ef925",
       "id": "artifact:file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
       "path": "config-templates/etc/abyss-machine/commands.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
@@ -450,7 +450,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "f975f2fc09a5e0dcfa427c919d900839b869d5dcce71b5c9df1e3c9100b44155",
+      "content_hash": "03defa1a1d0be3fe035c36037d255cee96842732bad0d6135e6e2bd6ce00079a",
       "id": "artifact:file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce",
       "path": "config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0022-owner-native-memory-orchestration.md:38845a35ce",
@@ -610,7 +610,7 @@
     },
     {
       "artifact_kind": "config",
-      "content_hash": "bc3a35e717b85c9a4e733adae5dedccb178122e0c425c4a3d9a66bcce0280c17",
+      "content_hash": "26ce7db7d41e34b7c0af6770efe3495b8039ef926fedc23bd7361492c9e794bc",
       "id": "artifact:file:config-templates/etc/abyss-machine/memory-policy.json:6c461971ea",
       "path": "config-templates/etc/abyss-machine/memory-policy.json",
       "source_record_id": "file:config-templates/etc/abyss-machine/memory-policy.json:6c461971ea",
@@ -682,7 +682,7 @@
     },
     {
       "artifact_kind": "config",
-      "content_hash": "2fd1374c5ef558510d893425f6f3d738c397a8244003f607d59be82e2cf3103b",
+      "content_hash": "5a36715dbd0bb5300e72bd45ddfce0390dfdec7f09006d1f0dde5a3d49f7eeee",
       "id": "artifact:file:config-templates/etc/abyss-machine/resource-policy.json:f90dc8318c",
       "path": "config-templates/etc/abyss-machine/resource-policy.json",
       "source_record_id": "file:config-templates/etc/abyss-machine/resource-policy.json:f90dc8318c",
@@ -690,7 +690,7 @@
     },
     {
       "artifact_kind": "config",
-      "content_hash": "47df05df834358481f3737582c5c6b99b3fdd762e533dc711a2c3d3a1d0a3040",
+      "content_hash": "b0751002f3055edc5b9d144f3691251de1407c1b0d4be64d9f92506e3f3ff747",
       "id": "artifact:file:config-templates/etc/abyss-machine/stack-bridge.json:af37b57072",
       "path": "config-templates/etc/abyss-machine/stack-bridge.json",
       "source_record_id": "file:config-templates/etc/abyss-machine/stack-bridge.json:af37b57072",
@@ -890,7 +890,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "1aa53126da30e9f7f5e1eac074922ed7eebf501bce9ccdc94d3d94735c26c290",
+      "content_hash": "49519e78904ba47d76c227f52adf24dade316a2146473ca613b598978eaf3240",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -1978,7 +1978,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "cc8c899739c8920d59cb208bdf02367a5d72bb3aaa1a05b7158b7e7371871da3",
+      "content_hash": "ab780a6478b17e6145a6f0ff4a895562445ef0313320ebe05e1aac5b8784a2d2",
       "id": "artifact:file:scripts/validators/typing_nervous_refresh_logic.py:7fef35c992",
       "path": "scripts/validators/typing_nervous_refresh_logic.py",
       "source_record_id": "file:scripts/validators/typing_nervous_refresh_logic.py:7fef35c992",
@@ -2050,7 +2050,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "34317c3d5b1b22bfd195e49db70ce29c9ad993bf3d30a9fb23c617e01d09fb68",
+      "content_hash": "5b1182520eb63917bc2e35732b34cda5fd56efa12465fc4f95f8d1d44ddf5b57",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -2210,7 +2210,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "91a349e758a048ccb8898e9c19e3798c735929176c5dfa04437d85bc567f9af2",
+      "content_hash": "bfa5f6ccd67e789812581bcc9d7e731188b83520b9ad9b6229f5db3d97b6a2df",
       "id": "artifact:file:src/abyss_machine/memory_adapters.py:54ff75dda2",
       "path": "src/abyss_machine/memory_adapters.py",
       "source_record_id": "file:src/abyss_machine/memory_adapters.py:54ff75dda2",
@@ -2218,7 +2218,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "b386b9a5e89f33226eadbeb854842cd53964c672ba4a57c03b58038ade090864",
+      "content_hash": "430682c7962190d80bb0b559b7edfafaae07871b7c9177493bf8fd14f4e73460",
       "id": "artifact:file:src/abyss_machine/memory_contracts.py:73e1eb706f",
       "path": "src/abyss_machine/memory_contracts.py",
       "source_record_id": "file:src/abyss_machine/memory_contracts.py:73e1eb706f",
@@ -2234,7 +2234,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "bd36d401ccec863f8be25ec8a4ba7200e94d17ebf049af247539570650b4e9c2",
+      "content_hash": "654416cbe95f883ff47f4ead16b4a950498b11b852a730305d2d7aef32605ae3",
       "id": "artifact:file:src/abyss_machine/mode_contracts.py:5f487ed25f",
       "path": "src/abyss_machine/mode_contracts.py",
       "source_record_id": "file:src/abyss_machine/mode_contracts.py:5f487ed25f",
@@ -2410,7 +2410,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "d8924712e398c2ac9eff0db0a1858da90dd920b95a1b93112bcd0ad20fbe3243",
+      "content_hash": "798b5fc376a86738dfa085b12509cbe85fe39058d34589baf0ce6510bbea8ff3",
       "id": "artifact:file:src/abyss_machine/nervous_semantic.py:b8b92e772c",
       "path": "src/abyss_machine/nervous_semantic.py",
       "source_record_id": "file:src/abyss_machine/nervous_semantic.py:b8b92e772c",
@@ -2482,7 +2482,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "b1f460ab9fd70ab338d47b4208d0749e6db1b5c7e6bb9b18b9a3bb6b1cdadc42",
+      "content_hash": "026dcc17c59f30831524538eb11b6659923363048c84159475d20010d29dbb97",
       "id": "artifact:file:src/abyss_machine/process_adapters.py:8a2eb8f465",
       "path": "src/abyss_machine/process_adapters.py",
       "source_record_id": "file:src/abyss_machine/process_adapters.py:8a2eb8f465",
@@ -2498,7 +2498,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "d4b819ebe9a3a3c60b0c3fca0cab503d40bbea95571ca8347ad0427bf7abf2d8",
+      "content_hash": "bcb08e17f6413849b332dd64e77b9d9014598e0993ae729909a4b3a34c14230b",
       "id": "artifact:file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
       "path": "src/abyss_machine/resource_adapters.py",
       "source_record_id": "file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
@@ -2506,7 +2506,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "85f170ecd8365982bb46699eb08cb0682f621e6e682cd90b7aeadba18a73172b",
+      "content_hash": "d69a77351c856f30f60d1f9f484b9c616d5a27791d20f03d1128fc421d087992",
       "id": "artifact:file:src/abyss_machine/resource_planning.py:87745a04a8",
       "path": "src/abyss_machine/resource_planning.py",
       "source_record_id": "file:src/abyss_machine/resource_planning.py:87745a04a8",
@@ -2538,7 +2538,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "b679ec4c619cbedf978f17c183341bdfbe53959e81f1bdc5ca24c22b37be3984",
+      "content_hash": "ed640b0945d1b5643cac90e0b2729473e3b1ac1ad68bc09d95afa1ff273ff98d",
       "id": "artifact:file:src/abyss_machine/self_awareness_adapters.py:e31dd120ca",
       "path": "src/abyss_machine/self_awareness_adapters.py",
       "source_record_id": "file:src/abyss_machine/self_awareness_adapters.py:e31dd120ca",
@@ -2642,7 +2642,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "6d9e893a7c238f7f0c08d8b58f5c24ae13a8718184946c2fa696d88be878fcbb",
+      "content_hash": "c2def2d3b028439108adbd95ba0728f90f16dd68c9ee7db6a99c97f233e0e38d",
       "id": "artifact:file:src/abyss_machine/self_awareness_cycle_proof_contracts.py:56668f2e09",
       "path": "src/abyss_machine/self_awareness_cycle_proof_contracts.py",
       "source_record_id": "file:src/abyss_machine/self_awareness_cycle_proof_contracts.py:56668f2e09",
@@ -2842,7 +2842,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "1b71b84c5f3b1bcbc0dcc99329cbf5f70669db8d8f4929fd16f7a12b82eacb91",
+      "content_hash": "d5b1d141cb66ec637f0cc1cf9cbcebc89678dd6f1ab115944089d0e8687fbc7e",
       "id": "artifact:file:src/abyss_machine/typing_nervous_refresh.py:d87dddda8b",
       "path": "src/abyss_machine/typing_nervous_refresh.py",
       "source_record_id": "file:src/abyss_machine/typing_nervous_refresh.py:d87dddda8b",
@@ -3466,7 +3466,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "e0312862a2168a727c7ccfa71b23f55fde6533a2b60b2212a831ca0b1b39c1a1",
+      "content_hash": "57a347e515ffab72475ee5253aec0f6dca71f3689d65bfa15e3d1ef2c30d8f47",
       "id": "artifact:file:tests/host_contract/contract/test_heartbeat_pressure_capture.py:452a3a89db",
       "path": "tests/host_contract/contract/test_heartbeat_pressure_capture.py",
       "source_record_id": "file:tests/host_contract/contract/test_heartbeat_pressure_capture.py:452a3a89db",
@@ -3506,7 +3506,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "8039d93de76a35323bd0bbdd8748831ba3628711841d4727bc56f30535f4c32a",
+      "content_hash": "a7cd47d60a08be37f15cec2560c3b3173c22add233c324ac76f33e33046a49d3",
       "id": "artifact:file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
       "path": "tests/host_contract/contract/test_resource_launch_timeout_cleanup.py",
       "source_record_id": "file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
@@ -3514,7 +3514,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "5cea57afe4368a81cf27ff7ac9934f1b93c1970ff9f48e27fe7204a7ad0884e5",
+      "content_hash": "16874c6cf89a846ae5bd6b9c7324b6e027e4d099d181ace8b80b381b3c0e0f54",
       "id": "artifact:file:tests/host_contract/contract/test_schema_output_contracts.py:41a88e9b67",
       "path": "tests/host_contract/contract/test_schema_output_contracts.py",
       "source_record_id": "file:tests/host_contract/contract/test_schema_output_contracts.py:41a88e9b67",
@@ -3522,7 +3522,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "1b5eb3e75beb4ea39259b6882e4adbe6c1827b5c4d2520e487049a32a248990c",
+      "content_hash": "566667b36dd387151e02c194daf4603a586b724001edadffb15fc48886040a6f",
       "id": "artifact:file:tests/host_contract/contract/test_self_awareness_contracts.py:c60820438c",
       "path": "tests/host_contract/contract/test_self_awareness_contracts.py",
       "source_record_id": "file:tests/host_contract/contract/test_self_awareness_contracts.py:c60820438c",
@@ -3538,7 +3538,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "4d3344859fba7f0968f95b3447932242bd375e87140c2fa985fbbed87e2d9928",
+      "content_hash": "93b82dc68865b6ffcdc44553ba0a452b14fce342abe6b63ab39c0a85f28442f3",
       "id": "artifact:file:tests/host_contract/contract/test_typing_nervous_resource_gate.py:0bdd8a3002",
       "path": "tests/host_contract/contract/test_typing_nervous_resource_gate.py",
       "source_record_id": "file:tests/host_contract/contract/test_typing_nervous_resource_gate.py:0bdd8a3002",
@@ -3586,7 +3586,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "69e2ff1146d0b131d1da85cd843ded0cc7dddaeacebea05df593147f602a11e5",
+      "content_hash": "5ab07b15cead391fb9388cfc378503021fd7042fbd9ba1c0f8564ec7b34077c3",
       "id": "artifact:file:tests/host_contract/regression/test_memory_zram_policy.py:8ba5e7a5c6",
       "path": "tests/host_contract/regression/test_memory_zram_policy.py",
       "source_record_id": "file:tests/host_contract/regression/test_memory_zram_policy.py:8ba5e7a5c6",
@@ -3874,7 +3874,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "218432e959758ee23427a514a21a60fc72a2d4be4afead3ddfdd3af1e76b7ced",
+      "content_hash": "38e534a9397dc4c09a581c960ac5d2708a9702b39658ff95183c4b0b23da47cd",
       "id": "artifact:file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b",
       "path": "tests/public_smoke/test_memory_adapters.py",
       "source_record_id": "file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b",
@@ -3882,7 +3882,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "5e14d67dd78e823be0cb97d9c724b217697bde8a0e8f519e2dc5c1be61a283f3",
+      "content_hash": "98370f24b2f39f3a5d1a9af953df33707a188c9ff6ecc64769be3af6f227ed0a",
       "id": "artifact:file:tests/public_smoke/test_memory_contracts.py:63edd4cace",
       "path": "tests/public_smoke/test_memory_contracts.py",
       "source_record_id": "file:tests/public_smoke/test_memory_contracts.py:63edd4cace",
@@ -4074,7 +4074,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "a65a22ce70f904969e59762e9ab6cb8fc387f0f58246c5306c4bce486aace427",
+      "content_hash": "f7409a05766c965b3084efb95959fb1d35899e78b50f2dc873dfd93a7449481a",
       "id": "artifact:file:tests/public_smoke/test_nervous_semantic_adapters.py:93438c0b03",
       "path": "tests/public_smoke/test_nervous_semantic_adapters.py",
       "source_record_id": "file:tests/public_smoke/test_nervous_semantic_adapters.py:93438c0b03",
@@ -4082,7 +4082,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "c96e1332096d1f13b0b17755209b69d0dd95e38def1f0cee4a6d8e35388be5b8",
+      "content_hash": "dad37d086cb36b433eccb7d54be4075defd9c5c672948e5a22f23055f6a38b9d",
       "id": "artifact:file:tests/public_smoke/test_nervous_semantic_contract.py:026f5c10c7",
       "path": "tests/public_smoke/test_nervous_semantic_contract.py",
       "source_record_id": "file:tests/public_smoke/test_nervous_semantic_contract.py:026f5c10c7",
@@ -4178,7 +4178,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "b9e2373370deb6851e7a4a5a5288c9102a4e51f4b7942a1b51821243955f68e7",
+      "content_hash": "9f223221b3568cb1f117292d98dbdf38baab742c0a4c17f26b8235aa748737ba",
       "id": "artifact:file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
       "path": "tests/public_smoke/test_resource_adapters.py",
       "source_record_id": "file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
@@ -4186,7 +4186,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "ee6910b8b18110b61834b8e450cbc87e59b267dd35ca151e45749d5838a0b41f",
+      "content_hash": "a64b718729400708ee69ea5af1a9769604f2d8053d00d289ea85f634c2d6f427",
       "id": "artifact:file:tests/public_smoke/test_resource_planning_contract.py:775bfd31dc",
       "path": "tests/public_smoke/test_resource_planning_contract.py",
       "source_record_id": "file:tests/public_smoke/test_resource_planning_contract.py:775bfd31dc",
@@ -4538,7 +4538,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "2bfeb99051c77cf819df68b1a42c7b22ccceaca0c72cf692632604e0f6e845ff",
+      "content_hash": "4f021d980ce8e0e26aed87559def1f1208ae34e6533eedf50e50d79ce7a6f1cf",
       "id": "artifact:file:tests/public_smoke/test_typing_nervous_refresh_logic.py:976674637b",
       "path": "tests/public_smoke/test_typing_nervous_refresh_logic.py",
       "source_record_id": "file:tests/public_smoke/test_typing_nervous_refresh_logic.py:976674637b",
@@ -4827,7 +4827,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "da97e151ab5a36a0ab9e8e4a2f396a4d71ac8e542f928e63d6bd3b2e2e37e548",
+    "content_digest": "f7544a914cdfbe3270fa2b2213ea2e177eb8d683ab0159e806b749da6a87da7d",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4851,7 +4851,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "7a6d0d1d9fbde8c759c5c191808a2ad9e00fd3a6984a065ab3faed63a78700df",
+    "content_digest": "38079ef04d18c147197a3ce13f317dad7c4e653c0862807621e6815aef208c2d",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },

@@ -497,11 +497,16 @@ def test_resource_launch_releases_startup_lease_after_submit(monkeypatch, tmp_pa
         ["/usr/bin/true"],
         workload_class="medium",
         kind="ai",
+        unit="explicit-fixture",
         memory_demand_mib=4096,
         write_latest=False,
     )
 
     assert result["ok"] is True
+    assert result["request"]["unit"] == "explicit-fixture"
+    assert result["request"]["launch_unit"] == "explicit-fixture.service"
+    assert result["startup_admission"]["lease"]["unit"] == "explicit-fixture.service"
+    assert result["startup_admission"]["demand_observation"]["peaks"]["unit"] == "explicit-fixture.service"
     assert result["startup_admission"]["lease"]["demand_mib"] == 4096.0
     assert result["startup_admission"]["lease_released"] is True
     assert result["startup_admission"]["demand_observation"]["recorded"] is True

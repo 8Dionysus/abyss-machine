@@ -24,7 +24,7 @@
       "heading_ref": {
         "anchor": "010",
         "level": 2,
-        "line": 75,
+        "line": 80,
         "ref": "CHANGELOG.md#010",
         "title": "0.1.0"
       },
@@ -54,7 +54,7 @@
       "heading_ref": {
         "anchor": "notes",
         "level": 2,
-        "line": 230,
+        "line": 235,
         "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#notes",
         "title": "Notes"
       },
@@ -1899,7 +1899,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_event_index",
-    "content_digest": "2a208acec5fbf404702bf104afb4d2643fcdb10de1aa68b965b7e34674189229",
+    "content_digest": "dcee2b684187f67d51d5c89aacab937c8eec08bbcf59e06dc766009438814768",
     "index_kind": "event",
     "local_id": "index:repo-local:events",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -1924,7 +1924,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "7a6d0d1d9fbde8c759c5c191808a2ad9e00fd3a6984a065ab3faed63a78700df",
+    "content_digest": "38079ef04d18c147197a3ce13f317dad7c4e653c0862807621e6815aef208c2d",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },

@@ -16597,6 +16597,9 @@ def resource_launch(
     resolved_demand_key = resource_planning.command_demand_key(clean_command, demand_key)
     generated_unit = None
     launch_unit = unit
+    if launch_unit and not str(launch_unit).endswith((".service", ".scope")):
+        suffix = "scope" if unit_type == "scope" else "service"
+        launch_unit = f"{launch_unit}.{suffix}"
     if clean_command and not unit:
         generated_unit = resource_generated_unit_name(kind, workload_class, unit_type)
         launch_unit = generated_unit
