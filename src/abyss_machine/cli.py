@@ -47341,10 +47341,10 @@ def heartbeat_pulse(
         },
     }
     if write_latest:
-        errors = write_latest_and_history(data, HEARTBEATS_LATEST_PATH, HEARTBEATS_ROOT)
-        if errors:
+        write_error = safe_atomic_write_json(HEARTBEATS_LATEST_PATH, data, 0o664)
+        if write_error:
             data["ok"] = False
-            data["write_errors"] = errors
+            data["write_errors"] = [write_error]
     return data
 
 
@@ -47762,10 +47762,10 @@ def heartbeats_validate(strict: bool = False, write_latest: bool = True) -> dict
         paths=heartbeats_paths(),
     )
     if write_latest:
-        errors = write_latest_and_history(data, HEARTBEATS_VALIDATE_LATEST_PATH, HEARTBEATS_VALIDATE_ROOT)
-        if errors:
+        write_error = safe_atomic_write_json(HEARTBEATS_VALIDATE_LATEST_PATH, data, 0o664)
+        if write_error:
             data["ok"] = False
-            data["write_errors"] = errors
+            data["write_errors"] = [write_error]
     return data
 
 

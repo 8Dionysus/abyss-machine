@@ -1,9 +1,30 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
 pytestmark = [pytest.mark.quick, pytest.mark.contract]
+
+
+def test_heartbeat_runtime_is_pressure_observer_with_latest_only_state(abyss_machine_module) -> None:
+    machine = abyss_machine_module
+    paths = machine.heartbeats_paths()
+    service = (
+        Path(__file__).resolve().parents[3]
+        / "systemd"
+        / "user"
+        / "abyss-machine-heartbeat.service"
+    ).read_text(encoding="utf-8")
+
+    assert paths["retention"] == "latest_only"
+    assert "history_daily_glob" not in paths
+    assert paths["validate"]["retention"] == "latest_only"
+    assert "daily_glob" not in paths["validate"]
+    assert "abyss-machine heartbeats pulse --compact --json" in service
+    assert "resource launch" not in service
+    assert "--success-on-block" not in service
 
 
 def test_heartbeat_freshness_class_boundaries(abyss_machine_module) -> None:

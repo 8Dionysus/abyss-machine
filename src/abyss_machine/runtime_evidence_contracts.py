@@ -543,11 +543,11 @@ def heartbeats_paths_document(
         "root": str(root),
         "agent_entrypoint": str(refs["agent_entrypoint"]),
         "latest": str(refs["latest"]),
-        "history_daily_glob": str(root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+        "retention": "latest_only",
         "validate": {
             "root": str(validate_root),
             "latest": str(refs["validate_latest"]),
-            "daily_glob": str(validate_root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
         },
         "systemd_user": {
             "service": str(refs["service_path"]),
