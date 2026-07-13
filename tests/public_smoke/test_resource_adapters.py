@@ -65,6 +65,40 @@ def test_resource_reservation_snapshot_cleans_expired_and_dead_leases(tmp_path: 
     assert list(root.glob("*.json")) == []
 
 
+def test_resource_reservation_snapshot_keeps_active_unit_after_startup_deadline(tmp_path: Path) -> None:
+    root = tmp_path / "reservations"
+    resource_adapters.atomic_write_lease(
+        root,
+        {
+            "id": "long-agent-task",
+            "launcher_pid": 4242,
+            "unit": "long-agent-task.service",
+            "demand_mib": 4096,
+            "expires_at_epoch": 99.0,
+        },
+    )
+
+    snapshot = resource_adapters.reservation_snapshot(
+        root,
+        cleanup=True,
+        now_epoch=100.0,
+        pid_alive_port=lambda _pid: False,
+        unit_state_port=lambda _unit: {
+            "exists": True,
+            "active": True,
+            "state": "active",
+            "memory_current_mib": 1536.0,
+        },
+    )
+
+    assert snapshot["summary"]["active_count"] == 1
+    assert snapshot["summary"]["removed_count"] == 0
+    assert snapshot["summary"]["outstanding_mib"] == 2560.0
+    assert snapshot["items"][0]["phase"] == "active_unit"
+    assert snapshot["items"][0]["expired"] is True
+    assert snapshot["items"][0]["stale"] is False
+
+
 def test_resource_runtime_root_prefers_xdg_and_uses_uid_scoped_fallback(tmp_path: Path) -> None:
     assert resource_adapters.runtime_root({"XDG_RUNTIME_DIR": str(tmp_path)}, uid=1234) == tmp_path
     assert resource_adapters.runtime_root({}, uid=1234, path_exists=lambda _path: False).name == "abyss-machine-1234"

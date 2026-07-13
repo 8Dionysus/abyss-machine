@@ -189,10 +189,11 @@ def lease_status(
     unit_active = bool(unit_state.get("active"))
     expired = expires_at <= 0.0 or now_epoch >= expires_at
     invalid = not lease_id or launcher_pid <= 0
-    stale = invalid or expired or (not launcher_alive and not unit_active)
+    startup_deadline_elapsed = expired and not unit_active
+    stale = invalid or startup_deadline_elapsed or (not launcher_alive and not unit_active)
     if invalid:
         stale_reason = "invalid_identity"
-    elif expired:
+    elif startup_deadline_elapsed:
         stale_reason = "startup_deadline_elapsed"
     elif not launcher_alive and not unit_active:
         stale_reason = "launcher_dead_and_unit_inactive"
@@ -204,6 +205,7 @@ def lease_status(
         **lease,
         "launcher_alive": launcher_alive,
         "unit_state": unit_state,
+        "phase": "active_unit" if unit_active else "startup",
         "expired": expired,
         "stale": stale,
         "stale_reason": stale_reason,

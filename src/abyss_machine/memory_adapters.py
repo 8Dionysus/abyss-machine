@@ -26,6 +26,7 @@ SleepPort = Callable[[float], None]
 NowIsoPort = Callable[[], str]
 PidPort = Callable[[], int]
 ProcessInfoPort = Callable[[int], dict[str, Any] | None]
+ProcessOwnerIdentityPort = Callable[[int], dict[str, Any] | None]
 SystemdPropertiesPort = Callable[[str, list[str], bool, float], dict[str, Any]]
 ControlValuePort = Callable[[Any], dict[str, Any]]
 KibToMibPort = Callable[[Any], float | None]
@@ -803,6 +804,76 @@ def process_rollup(pid: int, *, proc_root: Path = Path("/proc")) -> dict[str, An
     return result
 
 
+_CODEX_SESSION_PATH_RE = re.compile(r"/(?:sessions|archived_sessions)/", re.IGNORECASE)
+_CODEX_ROLLOUT_THREAD_RE = re.compile(
+    r"(?P<thread>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$",
+    re.IGNORECASE,
+)
+
+
+def codex_thread_identity(pid: int, *, proc_root: Path = Path("/proc")) -> dict[str, Any] | None:
+    if pid <= 0:
+        return None
+    fd_root = proc_root / str(pid) / "fd"
+    try:
+        entries = list(fd_root.iterdir())
+    except OSError:
+        return None
+    thread_ids: set[str] = set()
+    for entry in entries:
+        try:
+            target = os.readlink(entry)
+        except OSError:
+            continue
+        target = target.removesuffix(" (deleted)")
+        if not _CODEX_SESSION_PATH_RE.search(target):
+            continue
+        match = _CODEX_ROLLOUT_THREAD_RE.search(target.rsplit("/", 1)[-1])
+        if match:
+            thread_ids.add(match.group("thread").lower())
+    if not thread_ids:
+        return None
+    candidates = sorted(thread_ids)
+    return {
+        "owner": "codex",
+        "identity_scope": "thread",
+        "stable_id": candidates[0] if len(candidates) == 1 else None,
+        "candidate_ids": candidates,
+        "ambiguous": len(candidates) != 1,
+        "evidence": "open_rollout_fd",
+        "content_read": False,
+    }
+
+
+def _is_codex_process(item: dict[str, Any]) -> bool:
+    for key in ("name", "comm", "exe"):
+        value = str(item.get(key) or "").strip()
+        if value and Path(value).name.casefold() == "codex":
+            return True
+    return False
+
+
+def process_owner_identities(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    identities: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str | None, tuple[str, ...]]] = set()
+    for item in items:
+        identity = item.get("owner_identity")
+        if not isinstance(identity, dict):
+            continue
+        candidates = tuple(str(value) for value in identity.get("candidate_ids", []) if value)
+        key = (
+            str(identity.get("owner") or ""),
+            str(identity.get("identity_scope") or ""),
+            str(identity.get("stable_id")) if identity.get("stable_id") else None,
+            candidates,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        identities.append(dict(identity))
+    return identities
+
+
 def proc_cgroup_path(cgroup_lines: Any) -> str | None:
     if isinstance(cgroup_lines, str):
         lines = cgroup_lines.splitlines()
@@ -959,6 +1030,7 @@ def cgroup_swap_snapshot(
                 "processes": len(items),
                 "pids": pids[:20],
                 "names": names,
+                "owner_identities": process_owner_identities(items),
                 "workload_hint": workload,
                 "capability_role": role,
                 "protected": protected,
@@ -1033,6 +1105,7 @@ def cgroup_memory_snapshot(
                 "processes": len(items),
                 "pids": pids[:20],
                 "names": names,
+                "owner_identities": process_owner_identities(items),
                 "workload_hint": workload,
                 "capability_role": role,
                 "protected": protected,
@@ -1072,10 +1145,12 @@ def process_snapshot(
     proc_root: Path = Path("/proc"),
     cgroup_root: Path = Path("/sys/fs/cgroup"),
     process_info: ProcessInfoPort,
+    owner_identity_port: ProcessOwnerIdentityPort | None = None,
     podman_index_port: Callable[[], dict[str, Any]] = podman_container_index,
     protected_roles: set[str] | frozenset[str],
 ) -> dict[str, Any]:
     top = max(5, min(int(top), 200))
+    resolve_owner_identity = owner_identity_port or (lambda pid: codex_thread_identity(pid, proc_root=proc_root))
     processes: list[dict[str, Any]] = []
     inaccessible = 0
     try:
@@ -1089,6 +1164,10 @@ def process_snapshot(
         if info is None:
             inaccessible += 1
             continue
+        if _is_codex_process(info):
+            identity = resolve_owner_identity(int(entry.name))
+            if identity:
+                info["owner_identity"] = identity
         processes.append(info)
 
     candidates = sorted(processes, key=lambda item: int(item.get("vmrss_kib") or 0), reverse=True)[: max(top * 4, 80)]
@@ -1159,6 +1238,16 @@ def process_snapshot(
             "cgroup_swap_read": cgroup_swap.get("cgroups_read"),
             "podman_containers_indexed": podman_index.get("containers"),
             "podman_index_error": podman_index.get("error"),
+            "codex_thread_processes_identified": sum(
+                1
+                for item in processes
+                if isinstance(item.get("owner_identity"), dict) and item["owner_identity"].get("stable_id")
+            ),
+            "codex_thread_processes_ambiguous": sum(
+                1
+                for item in processes
+                if isinstance(item.get("owner_identity"), dict) and item["owner_identity"].get("ambiguous")
+            ),
             "ai_runtime_processes": sum(1 for item in processes if item.get("workload_hint") == "ai_runtime"),
             "persistent_model_processes": sum(1 for item in processes if item.get("capability_role") == "persistent_model"),
             "persistent_ai_service_processes": sum(1 for item in processes if item.get("capability_role") == "persistent_ai_service"),
