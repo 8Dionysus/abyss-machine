@@ -416,7 +416,7 @@
     "memory": {
       "index": {
         "path": "{{ABYSS_MACHINE_STATE}}/memory/index.json",
-        "schema": "abyss_machine_memory_paths_v2",
+        "schema": "abyss_machine_memory_paths_v3",
         "truth_level": "host_contract"
       },
       "status": {

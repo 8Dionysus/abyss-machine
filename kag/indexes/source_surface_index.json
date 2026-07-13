@@ -14,15 +14,15 @@
       "script": 38,
       "security": 1,
       "service_unit": 59,
-      "source_code": 113,
-      "test": 140
+      "source_code": 114,
+      "test": 141
     },
     "command_role": {
       "builder": 2,
       "lane_entrypoint": 2,
-      "none": 423,
+      "none": 424,
       "script": 34,
-      "test": 140
+      "test": 141
     },
     "document_role": {
       "agents": 57,
@@ -32,7 +32,7 @@
       "design": 2,
       "design_agents": 2,
       "mechanics_doc": 16,
-      "none": 410,
+      "none": 412,
       "parts": 8,
       "provenance": 8,
       "readme": 48,
@@ -44,37 +44,37 @@
     },
     "mechanics_role": {
       "mechanic_package": 66,
-      "none": 527,
+      "none": 529,
       "part_doc": 8
     },
     "primary_kind": {
       "artifact": 66,
-      "command": 178,
+      "command": 179,
       "document": 191,
-      "surface": 166
+      "surface": 167
     },
     "surface_state": {
-      "authored_source": 594,
+      "authored_source": 596,
       "generated_readmodel": 6,
       "receipt": 1
     }
   },
   "coverage_summary": {
-    "command_count": 178,
+    "command_count": 179,
     "document_count": 191,
     "generated_count": 6,
     "heading_count": 1008,
     "mechanics_count": 74,
-    "record_count": 601,
+    "record_count": 603,
     "schema_count": 8,
     "script_count": 38,
-    "test_count": 140,
+    "test_count": 141,
     "unknown_count": 0,
     "validator_count": 0
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "e9e45b02729575551075d78870c341333be7fbb8240680511c69a4f94f3ad540",
+    "content_digest": "d2f6697c0eb45e37b3dd8eacb620960fd9e6b08fb852c951f4cc89d996fb1f02",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -1062,13 +1062,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "2e13214aeebf15225ade347273045de0c4f0e6a4e53192be79637d7733d5f247",
+        "content_hash": "5265bfa67923dee8d84250bf5acec6b720fdb5994a10e80843dbd08d149490e8",
         "git_ref": "git-index-source-tree",
         "id": "file:changelog.md:06572a96a5",
         "mime": "text/markdown",
         "path": "CHANGELOG.md",
         "repo": "abyss-machine",
-        "size_bytes": 4418
+        "size_bytes": 4592
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -1111,7 +1111,7 @@
           {
             "anchor": "010",
             "level": 2,
-            "line": 72,
+            "line": 75,
             "ref": "CHANGELOG.md#010",
             "title": "0.1.0"
           }
@@ -1123,7 +1123,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "2e13214aeebf15225ade347273045de0c4f0e6a4e53192be79637d7733d5f247",
+        "digest": "5265bfa67923dee8d84250bf5acec6b720fdb5994a10e80843dbd08d149490e8",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -1497,13 +1497,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "bdf3b6ddeaf688adecd8b1af4ed052d2564af3b13af0bcee1f8b1854fce98008",
+        "content_hash": "67aa58d98dcdbd9aa68e950481420c2ae8633ae4f3c90774ca43cec528f48851",
         "git_ref": "git-index-source-tree",
         "id": "file:readme.md:b335630551",
         "mime": "text/markdown",
         "path": "README.md",
         "repo": "abyss-machine",
-        "size_bytes": 42124
+        "size_bytes": 41699
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -1553,21 +1553,21 @@
           {
             "anchor": "public-boundary",
             "level": 2,
-            "line": 350,
+            "line": 345,
             "ref": "README.md#public-boundary",
             "title": "Public Boundary"
           },
           {
             "anchor": "test-lanes",
             "level": 2,
-            "line": 360,
+            "line": 355,
             "ref": "README.md#test-lanes",
             "title": "Test Lanes"
           },
           {
             "anchor": "current-status",
             "level": 2,
-            "line": 393,
+            "line": 388,
             "ref": "README.md#current-status",
             "title": "Current Status"
           }
@@ -1579,7 +1579,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "bdf3b6ddeaf688adecd8b1af4ed052d2564af3b13af0bcee1f8b1854fce98008",
+        "digest": "67aa58d98dcdbd9aa68e950481420c2ae8633ae4f3c90774ca43cec528f48851",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -2200,13 +2200,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "0a7457f4d5c90dce3dab4c8460605491eec6ec8cac6c9be1721b8caab7239c52",
+        "content_hash": "3972f6797900146abf240723db795cb28ae70d38b9bda731011444a9c979ef49",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/CHANGELOG.md",
         "repo": "abyss-machine",
-        "size_bytes": 14720
+        "size_bytes": 14809
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -2256,28 +2256,28 @@
           {
             "anchor": "added",
             "level": 3,
-            "line": 19,
+            "line": 20,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#added",
             "title": "Added"
           },
           {
             "anchor": "changed-1",
             "level": 3,
-            "line": 194,
+            "line": 195,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#changed-1",
             "title": "Changed"
           },
           {
             "anchor": "ledger",
             "level": 3,
-            "line": 209,
+            "line": 210,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#ledger",
             "title": "Ledger"
           },
           {
             "anchor": "notes",
             "level": 2,
-            "line": 229,
+            "line": 230,
             "ref": "config-templates/etc/abyss-machine/CHANGELOG.md#notes",
             "title": "Notes"
           }
@@ -2289,7 +2289,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "0a7457f4d5c90dce3dab4c8460605491eec6ec8cac6c9be1721b8caab7239c52",
+        "digest": "3972f6797900146abf240723db795cb28ae70d38b9bda731011444a9c979ef49",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -3615,13 +3615,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "18b5c49184b2c6af0cd73ea2b690c2b7fd23ec629c5db2bfc15333b454ce3bf9",
+        "content_hash": "38f8a852b9c86d90d140e928c19155c37734f7a61c48734a5f59161e5c5da371",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/agents-mesh.json:233a71d891",
         "mime": "application/json",
         "path": "config-templates/etc/abyss-machine/agents-mesh.json",
         "repo": "abyss-machine",
-        "size_bytes": 64205
+        "size_bytes": 63846
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -3654,7 +3654,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "18b5c49184b2c6af0cd73ea2b690c2b7fd23ec629c5db2bfc15333b454ce3bf9",
+        "digest": "38f8a852b9c86d90d140e928c19155c37734f7a61c48734a5f59161e5c5da371",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -4019,13 +4019,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "5bfa99e8e2e240db58884b47d966657a4c8b9427aa012d9813c9523afff8e15b",
+        "content_hash": "523ab885faf454cd5a9fab2a6d264199cff38d6468f04f79a06db20f71a00115",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/bridge.json:4a4a9ebbc2",
         "mime": "application/json",
         "path": "config-templates/etc/abyss-machine/bridge.json",
         "repo": "abyss-machine",
-        "size_bytes": 81590
+        "size_bytes": 80279
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -4058,7 +4058,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "5bfa99e8e2e240db58884b47d966657a4c8b9427aa012d9813c9523afff8e15b",
+        "digest": "523ab885faf454cd5a9fab2a6d264199cff38d6468f04f79a06db20f71a00115",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -4108,13 +4108,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "1cc8cb791543f5e94277722c86b1d0ab61adbcdfab7d9c84bec6457882b9f523",
+        "content_hash": "60f45d03d65554cceb72fcea44aee2252ed5d48a61c8a54917c2f4b2bce4af0b",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/commands.md",
         "repo": "abyss-machine",
-        "size_bytes": 97561
+        "size_bytes": 92793
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -4157,98 +4157,98 @@
           {
             "anchor": "machine-entry-and-topology",
             "level": 2,
-            "line": 60,
+            "line": 54,
             "ref": "config-templates/etc/abyss-machine/commands.md#machine-entry-and-topology",
             "title": "Machine Entry And Topology"
           },
           {
             "anchor": "abyss-nervous-system",
             "level": 2,
-            "line": 323,
+            "line": 317,
             "ref": "config-templates/etc/abyss-machine/commands.md#abyss-nervous-system",
             "title": "Abyss Nervous System"
           },
           {
             "anchor": "reaction-candidates",
             "level": 2,
-            "line": 386,
+            "line": 380,
             "ref": "config-templates/etc/abyss-machine/commands.md#reaction-candidates",
             "title": "Reaction Candidates"
           },
           {
             "anchor": "os-abyss-responses",
             "level": 2,
-            "line": 396,
+            "line": 390,
             "ref": "config-templates/etc/abyss-machine/commands.md#os-abyss-responses",
             "title": "OS Abyss Responses"
           },
           {
             "anchor": "os-abyss-heartbeats",
             "level": 2,
-            "line": 406,
+            "line": 400,
             "ref": "config-templates/etc/abyss-machine/commands.md#os-abyss-heartbeats",
             "title": "OS Abyss Heartbeats"
           },
           {
             "anchor": "ai-host",
             "level": 2,
-            "line": 555,
+            "line": 549,
             "ref": "config-templates/etc/abyss-machine/commands.md#ai-host",
             "title": "AI Host"
           },
           {
             "anchor": "storage-routing",
             "level": 2,
-            "line": 739,
+            "line": 733,
             "ref": "config-templates/etc/abyss-machine/commands.md#storage-routing",
             "title": "Storage Routing"
           },
           {
             "anchor": "observability",
             "level": 2,
-            "line": 915,
+            "line": 891,
             "ref": "config-templates/etc/abyss-machine/commands.md#observability",
             "title": "Observability"
           },
           {
             "anchor": "typing",
             "level": 2,
-            "line": 951,
+            "line": 927,
             "ref": "config-templates/etc/abyss-machine/commands.md#typing",
             "title": "Typing"
           },
           {
             "anchor": "dictation",
             "level": 2,
-            "line": 1180,
+            "line": 1156,
             "ref": "config-templates/etc/abyss-machine/commands.md#dictation",
             "title": "Dictation"
           },
           {
             "anchor": "work-modes",
             "level": 2,
-            "line": 1255,
+            "line": 1231,
             "ref": "config-templates/etc/abyss-machine/commands.md#work-modes",
             "title": "Work Modes"
           },
           {
             "anchor": "cooling",
             "level": 2,
-            "line": 1295,
+            "line": 1271,
             "ref": "config-templates/etc/abyss-machine/commands.md#cooling",
             "title": "Cooling"
           },
           {
             "anchor": "snapshots",
             "level": 2,
-            "line": 1359,
+            "line": 1335,
             "ref": "config-templates/etc/abyss-machine/commands.md#snapshots",
             "title": "Snapshots"
           },
           {
             "anchor": "notes",
             "level": 2,
-            "line": 1367,
+            "line": 1343,
             "ref": "config-templates/etc/abyss-machine/commands.md#notes",
             "title": "Notes"
           }
@@ -4260,7 +4260,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "1cc8cb791543f5e94277722c86b1d0ab61adbcdfab7d9c84bec6457882b9f523",
+        "digest": "60f45d03d65554cceb72fcea44aee2252ed5d48a61c8a54917c2f4b2bce4af0b",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -8394,13 +8394,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "10de893a3bbafaf074eae9afa4d1a5707c8b9f6b32c31caf9986b24039ca8081",
+        "content_hash": "5d7864779fe1f8bff5e3c4d20c8e75c32cc1f75c21a7966a771692176761d6f8",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
         "mime": "text/markdown",
         "path": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md",
         "repo": "abyss-machine",
-        "size_bytes": 5117
+        "size_bytes": 5422
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -8464,70 +8464,70 @@
           {
             "anchor": "context",
             "level": 2,
-            "line": 27,
+            "line": 28,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#context",
             "title": "Context"
           },
           {
             "anchor": "options-considered",
             "level": 2,
-            "line": 38,
+            "line": 39,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#options-considered",
             "title": "Options Considered"
           },
           {
             "anchor": "decision",
             "level": 2,
-            "line": 47,
+            "line": 48,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#decision",
             "title": "Decision"
           },
           {
             "anchor": "rationale",
             "level": 2,
-            "line": 71,
+            "line": 72,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#rationale",
             "title": "Rationale"
           },
           {
             "anchor": "consequences",
             "level": 2,
-            "line": 80,
+            "line": 81,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#consequences",
             "title": "Consequences"
           },
           {
             "anchor": "boundaries",
             "level": 2,
-            "line": 91,
+            "line": 92,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#boundaries",
             "title": "Boundaries"
           },
           {
             "anchor": "review-log",
             "level": 2,
-            "line": 102,
+            "line": 103,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#review-log",
             "title": "Review Log"
           },
           {
             "anchor": "source-surfaces",
             "level": 2,
-            "line": 106,
+            "line": 110,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#source-surfaces",
             "title": "Source Surfaces"
           },
           {
             "anchor": "validation",
             "level": 2,
-            "line": 114,
+            "line": 118,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#validation",
             "title": "Validation"
           },
           {
             "anchor": "follow-up-route",
             "level": 2,
-            "line": 123,
+            "line": 127,
             "ref": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md#follow-up-route",
             "title": "Follow-up Route"
           }
@@ -8539,7 +8539,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "10de893a3bbafaf074eae9afa4d1a5707c8b9f6b32c31caf9986b24039ca8081",
+        "digest": "5d7864779fe1f8bff5e3c4d20c8e75c32cc1f75c21a7966a771692176761d6f8",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -11872,7 +11872,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "70d3291630ca4ecc6713c412a6af74fb96cf5b3354a665f1df3d557723a5e603",
+        "content_hash": "47df05df834358481f3737582c5c6b99b3fdd762e533dc711a2c3d3a1d0a3040",
         "git_ref": "git-index-source-tree",
         "id": "file:config-templates/etc/abyss-machine/stack-bridge.json:af37b57072",
         "mime": "application/json",
@@ -11911,7 +11911,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "70d3291630ca4ecc6713c412a6af74fb96cf5b3354a665f1df3d557723a5e603",
+        "digest": "47df05df834358481f3737582c5c6b99b3fdd762e533dc711a2c3d3a1d0a3040",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -12423,13 +12423,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "cf3741de8a8367da1684e4f402682d3bdcfbdf8d20844705e62a7dd9f7717480",
+        "content_hash": "bed4dd80836e778a926923dd414fb5246a2261285ceca93db1ebfdab731df1a5",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/live_adapters.md:42934316d8",
         "mime": "text/markdown",
         "path": "docs/host/LIVE_ADAPTERS.md",
         "repo": "abyss-machine",
-        "size_bytes": 134489
+        "size_bytes": 133100
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -12561,513 +12561,513 @@
             "title": "Extracted Process Thermal Attribution And Plan Seam"
           },
           {
-            "anchor": "extracted-memory-read-and-orchestration-seam",
+            "anchor": "extracted-memory-read-seam",
             "level": 2,
             "line": 361,
-            "ref": "docs/host/LIVE_ADAPTERS.md#extracted-memory-read-and-orchestration-seam",
-            "title": "Extracted Memory Read And Orchestration Seam"
+            "ref": "docs/host/LIVE_ADAPTERS.md#extracted-memory-read-seam",
+            "title": "Extracted Memory Read Seam"
           },
           {
             "anchor": "extracted-nervous-privacy-stateaudit-seam",
             "level": 2,
-            "line": 402,
+            "line": 384,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-privacy-stateaudit-seam",
             "title": "Extracted Nervous Privacy State/Audit Seam"
           },
           {
             "anchor": "extracted-nervous-source-policy-seam",
             "level": 2,
-            "line": 422,
+            "line": 404,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-source-policy-seam",
             "title": "Extracted Nervous Source Policy Seam"
           },
           {
             "anchor": "extracted-nervous-status-readmodel-seam",
             "level": 2,
-            "line": 443,
+            "line": 425,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-status-readmodel-seam",
             "title": "Extracted Nervous Status Readmodel Seam"
           },
           {
             "anchor": "extracted-nervous-capture-status-seam",
             "level": 2,
-            "line": 464,
+            "line": 446,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-capture-status-seam",
             "title": "Extracted Nervous Capture-Status Seam"
           },
           {
             "anchor": "extracted-nervous-lexical-index-lifecycle-seam",
             "level": 2,
-            "line": 482,
+            "line": 464,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-lexical-index-lifecycle-seam",
             "title": "Extracted Nervous Lexical Index Lifecycle Seam"
           },
           {
             "anchor": "extracted-nervous-derived-eventsepisodes-file-seam",
             "level": 2,
-            "line": 521,
+            "line": 503,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-derived-eventsepisodes-file-seam",
             "title": "Extracted Nervous Derived Events/Episodes File Seam"
           },
           {
             "anchor": "extracted-nervous-semantic-sidecar-seam",
             "level": 2,
-            "line": 544,
+            "line": 526,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-semantic-sidecar-seam",
             "title": "Extracted Nervous Semantic Sidecar Seam"
           },
           {
             "anchor": "extracted-nervous-retention-filesystemapply-seam",
             "level": 2,
-            "line": 591,
+            "line": 573,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-retention-filesystemapply-seam",
             "title": "Extracted Nervous Retention Filesystem/Apply Seam"
           },
           {
             "anchor": "extracted-nervous-screenshot-live-capture-seam",
             "level": 2,
-            "line": 612,
+            "line": 594,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-screenshot-live-capture-seam",
             "title": "Extracted Nervous Screenshot Live Capture Seam"
           },
           {
             "anchor": "extracted-nervous-clipboard-live-read-seam",
             "level": 2,
-            "line": 634,
+            "line": 616,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-clipboard-live-read-seam",
             "title": "Extracted Nervous Clipboard Live Read Seam"
           },
           {
             "anchor": "extracted-nervous-browser-content-store-at-spi-bidi-and-history-seam",
             "level": 2,
-            "line": 655,
+            "line": 637,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-browser-content-store-at-spi-bidi-and-history-seam",
             "title": "Extracted Nervous Browser-Content Store, AT-SPI, BiDi, And History Seam"
           },
           {
             "anchor": "extracted-nervous-rerank-execution-seam",
             "level": 2,
-            "line": 694,
+            "line": 676,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-rerank-execution-seam",
             "title": "Extracted Nervous Rerank Execution Seam"
           },
           {
             "anchor": "extracted-nervous-retrievalrerank-live-search-seam",
             "level": 2,
-            "line": 716,
+            "line": 698,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-retrievalrerank-live-search-seam",
             "title": "Extracted Nervous Retrieval/Rerank Live Search Seam"
           },
           {
             "anchor": "extracted-nervous-synthesiseval-file-seam",
             "level": 2,
-            "line": 742,
+            "line": 724,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-synthesiseval-file-seam",
             "title": "Extracted Nervous Synthesis/Eval File Seam"
           },
           {
             "anchor": "extracted-nervous-quality-audit-seam",
             "level": 2,
-            "line": 765,
+            "line": 747,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-nervous-quality-audit-seam",
             "title": "Extracted Nervous Quality Audit Seam"
           },
           {
             "anchor": "extracted-ai-runtime-discovery-stt-fixture-openvino-runner-and-tts-client-seam",
             "level": 2,
-            "line": 786,
+            "line": 768,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-ai-runtime-discovery-stt-fixture-openvino-runner-and-tts-client-seam",
             "title": "Extracted AI Runtime Discovery, STT Fixture, OpenVINO Runner, And TTS Client Seam"
           },
           {
             "anchor": "extracted-dictation-execution-runtime-seam",
             "level": 2,
-            "line": 888,
+            "line": 870,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-dictation-execution-runtime-seam",
             "title": "Extracted Dictation Execution Runtime Seam"
           },
           {
             "anchor": "extracted-host-lifecycle-parity-summary",
             "level": 2,
-            "line": 1007,
+            "line": 989,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-host-lifecycle-parity-summary",
             "title": "Extracted Host Lifecycle Parity Summary"
           },
           {
             "anchor": "extracted-doctor-validate-probe-seam",
             "level": 2,
-            "line": 1035,
+            "line": 1017,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-validate-probe-seam",
             "title": "Extracted Doctor Validate Probe Seam"
           },
           {
             "anchor": "extracted-doctor-core-status-probe-seam",
             "level": 2,
-            "line": 1053,
+            "line": 1035,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-core-status-probe-seam",
             "title": "Extracted Doctor Core Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-powercooling-status-probe-seam",
             "level": 2,
-            "line": 1071,
+            "line": 1053,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-powercooling-status-probe-seam",
             "title": "Extracted Doctor Power/Cooling Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-storageprocess-status-probe-seam",
             "level": 2,
-            "line": 1086,
+            "line": 1068,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-storageprocess-status-probe-seam",
             "title": "Extracted Doctor Storage/Process Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-snapshotobservability-status-probe-seam",
             "level": 2,
-            "line": 1101,
+            "line": 1083,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-snapshotobservability-status-probe-seam",
             "title": "Extracted Doctor Snapshot/Observability Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-dictation-status-probe-seam",
             "level": 2,
-            "line": 1116,
+            "line": 1098,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-dictation-status-probe-seam",
             "title": "Extracted Doctor Dictation Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-airuntime-status-probe-seam",
             "level": 2,
-            "line": 1133,
+            "line": 1115,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-airuntime-status-probe-seam",
             "title": "Extracted Doctor AI/Runtime Status Probe Seam"
           },
           {
             "anchor": "extracted-doctor-report-io-seam",
             "level": 2,
-            "line": 1151,
+            "line": 1133,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-report-io-seam",
             "title": "Extracted Doctor Report IO Seam"
           },
           {
             "anchor": "extracted-doctor-machine-report-input-seam",
             "level": 2,
-            "line": 1166,
+            "line": 1148,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-machine-report-input-seam",
             "title": "Extracted Doctor Machine Report Input Seam"
           },
           {
             "anchor": "extracted-doctor-safe-repair-orchestration-seam",
             "level": 2,
-            "line": 1184,
+            "line": 1166,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-doctor-safe-repair-orchestration-seam",
             "title": "Extracted Doctor Safe Repair Orchestration Seam"
           },
           {
             "anchor": "extracted-self-awareness-event-foundation",
             "level": 2,
-            "line": 1204,
+            "line": 1186,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-event-foundation",
             "title": "Extracted Self-Awareness Event Foundation"
           },
           {
             "anchor": "extracted-self-awareness-capabilities-seam",
             "level": 2,
-            "line": 1218,
+            "line": 1200,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-capabilities-seam",
             "title": "Extracted Self-Awareness Capabilities Seam"
           },
           {
             "anchor": "extracted-self-awareness-status-seam",
             "level": 2,
-            "line": 1245,
+            "line": 1227,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-status-seam",
             "title": "Extracted Self-Awareness Status Seam"
           },
           {
             "anchor": "extracted-self-awareness-export-seam",
             "level": 2,
-            "line": 1266,
+            "line": 1248,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-export-seam",
             "title": "Extracted Self-Awareness Export Seam"
           },
           {
             "anchor": "extracted-self-awareness-export-stack-handoff-contract",
             "level": 2,
-            "line": 1296,
+            "line": 1278,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-export-stack-handoff-contract",
             "title": "Extracted Self-Awareness Export Stack-Handoff Contract"
           },
           {
             "anchor": "extracted-self-awareness-completion-contract-core",
             "level": 2,
-            "line": 1319,
+            "line": 1301,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-contract-core",
             "title": "Extracted Self-Awareness Completion Contract Core"
           },
           {
             "anchor": "extracted-self-awareness-completion-graph-contract",
             "level": 2,
-            "line": 1348,
+            "line": 1330,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-graph-contract",
             "title": "Extracted Self-Awareness Completion Graph Contract"
           },
           {
             "anchor": "extracted-self-awareness-completion-document-contract",
             "level": 2,
-            "line": 1377,
+            "line": 1359,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-document-contract",
             "title": "Extracted Self-Awareness Completion Document Contract"
           },
           {
             "anchor": "extracted-self-awareness-completion-audit-orchestration",
             "level": 2,
-            "line": 1401,
+            "line": 1383,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-completion-audit-orchestration",
             "title": "Extracted Self-Awareness Completion Audit Orchestration"
           },
           {
             "anchor": "extracted-self-awareness-validation-intake-seam",
             "level": 2,
-            "line": 1423,
+            "line": 1405,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-validation-intake-seam",
             "title": "Extracted Self-Awareness Validation Intake Seam"
           },
           {
             "anchor": "extracted-self-awareness-validation-contract-center",
             "level": 2,
-            "line": 1447,
+            "line": 1429,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-validation-contract-center",
             "title": "Extracted Self-Awareness Validation Contract Center"
           },
           {
             "anchor": "extracted-self-awareness-causal-readmodel-pipelines",
             "level": 2,
-            "line": 1474,
+            "line": 1456,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-causal-readmodel-pipelines",
             "title": "Extracted Self-Awareness Causal Readmodel Pipelines"
           },
           {
             "anchor": "extracted-self-awareness-causal-overlay-contracts",
             "level": 2,
-            "line": 1498,
+            "line": 1480,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-causal-overlay-contracts",
             "title": "Extracted Self-Awareness Causal Overlay Contracts"
           },
           {
             "anchor": "extracted-self-awareness-query-and-correlation-readmodels",
             "level": 2,
-            "line": 1521,
+            "line": 1503,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-query-and-correlation-readmodels",
             "title": "Extracted Self-Awareness Query And Correlation Readmodels"
           },
           {
             "anchor": "extracted-self-awareness-trace-context-fallback-pipeline",
             "level": 2,
-            "line": 1545,
+            "line": 1527,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-trace-context-fallback-pipeline",
             "title": "Extracted Self-Awareness Trace-Context Fallback Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-episode-body-trace-contracts",
             "level": 2,
-            "line": 1568,
+            "line": 1550,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-episode-body-trace-contracts",
             "title": "Extracted Self-Awareness Episode Body Trace Contracts"
           },
           {
             "anchor": "extracted-self-awareness-episode-response-contracts",
             "level": 2,
-            "line": 1589,
+            "line": 1571,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-episode-response-contracts",
             "title": "Extracted Self-Awareness Episode Response Contracts"
           },
           {
             "anchor": "extracted-self-awareness-alert-pipeline",
             "level": 2,
-            "line": 1612,
+            "line": 1594,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-alert-pipeline",
             "title": "Extracted Self-Awareness Alert Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-brief-pipeline",
             "level": 2,
-            "line": 1634,
+            "line": 1616,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-brief-pipeline",
             "title": "Extracted Self-Awareness Brief Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-resident-worker-contract",
             "level": 2,
-            "line": 1654,
+            "line": 1636,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-resident-worker-contract",
             "title": "Extracted Self-Awareness Resident Worker Contract"
           },
           {
             "anchor": "extracted-self-awareness-resident-cognitive-contracts",
             "level": 2,
-            "line": 1667,
+            "line": 1649,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-resident-cognitive-contracts",
             "title": "Extracted Self-Awareness Resident Cognitive Contracts"
           },
           {
             "anchor": "extracted-self-awareness-activation-smoke-pipeline",
             "level": 2,
-            "line": 1684,
+            "line": 1666,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-activation-smoke-pipeline",
             "title": "Extracted Self-Awareness Activation Smoke Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-autolink-orchestration",
             "level": 2,
-            "line": 1697,
+            "line": 1679,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-autolink-orchestration",
             "title": "Extracted Self-Awareness Autolink Orchestration"
           },
           {
             "anchor": "extracted-self-awareness-activation-contracts",
             "level": 2,
-            "line": 1714,
+            "line": 1696,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-activation-contracts",
             "title": "Extracted Self-Awareness Activation Contracts"
           },
           {
             "anchor": "extracted-self-awareness-lineage-contracts",
             "level": 2,
-            "line": 1727,
+            "line": 1709,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-lineage-contracts",
             "title": "Extracted Self-Awareness Lineage Contracts"
           },
           {
             "anchor": "extracted-self-awareness-coverage-pipeline",
             "level": 2,
-            "line": 1740,
+            "line": 1722,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-coverage-pipeline",
             "title": "Extracted Self-Awareness Coverage Pipeline"
           },
           {
             "anchor": "extracted-self-awareness-requirement-contracts",
             "level": 2,
-            "line": 1755,
+            "line": 1737,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-requirement-contracts",
             "title": "Extracted Self-Awareness Requirement Contracts"
           },
           {
             "anchor": "extracted-self-awareness-cognitive-contracts",
             "level": 2,
-            "line": 1772,
+            "line": 1754,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cognitive-contracts",
             "title": "Extracted Self-Awareness Cognitive Contracts"
           },
           {
             "anchor": "extracted-self-awareness-entity-context-contracts",
             "level": 2,
-            "line": 1788,
+            "line": 1770,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-entity-context-contracts",
             "title": "Extracted Self-Awareness Entity Context Contracts"
           },
           {
             "anchor": "extracted-self-awareness-cycle-proof-contracts",
             "level": 2,
-            "line": 1802,
+            "line": 1784,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cycle-proof-contracts",
             "title": "Extracted Self-Awareness Cycle Proof Contracts"
           },
           {
             "anchor": "extracted-self-awareness-stack-closure-pipelines",
             "level": 2,
-            "line": 1815,
+            "line": 1797,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-stack-closure-pipelines",
             "title": "Extracted Self-Awareness Stack Closure Pipelines"
           },
           {
             "anchor": "extracted-self-awareness-stack-probe-runtime",
             "level": 2,
-            "line": 1836,
+            "line": 1818,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-stack-probe-runtime",
             "title": "Extracted Self-Awareness Stack Probe Runtime"
           },
           {
             "anchor": "extracted-self-awareness-failure-matrix",
             "level": 2,
-            "line": 1859,
+            "line": 1841,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-failure-matrix",
             "title": "Extracted Self-Awareness Failure Matrix"
           },
           {
             "anchor": "extracted-self-awareness-systemd-observation-seam",
             "level": 2,
-            "line": 1881,
+            "line": 1863,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-systemd-observation-seam",
             "title": "Extracted Self-Awareness Systemd Observation Seam"
           },
           {
             "anchor": "extracted-self-awareness-collect-seams",
             "level": 2,
-            "line": 1901,
+            "line": 1883,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-collect-seams",
             "title": "Extracted Self-Awareness Collect Seams"
           },
           {
             "anchor": "extracted-self-awareness-investigation-seam",
             "level": 2,
-            "line": 1934,
+            "line": 1916,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-investigation-seam",
             "title": "Extracted Self-Awareness Investigation Seam"
           },
           {
             "anchor": "extracted-self-awareness-replay-seam",
             "level": 2,
-            "line": 1965,
+            "line": 1947,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-replay-seam",
             "title": "Extracted Self-Awareness Replay Seam"
           },
           {
             "anchor": "extracted-self-awareness-probe-seam",
             "level": 2,
-            "line": 1986,
+            "line": 1968,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-probe-seam",
             "title": "Extracted Self-Awareness Probe Seam"
           },
           {
             "anchor": "extracted-self-awareness-cycle-seam",
             "level": 2,
-            "line": 2019,
+            "line": 2001,
             "ref": "docs/host/LIVE_ADAPTERS.md#extracted-self-awareness-cycle-seam",
             "title": "Extracted Self-Awareness Cycle Seam"
           },
           {
             "anchor": "goal-family-completion-audit",
             "level": 2,
-            "line": 2050,
+            "line": 2032,
             "ref": "docs/host/LIVE_ADAPTERS.md#goal-family-completion-audit",
             "title": "Goal-Family Completion Audit"
           },
           {
             "anchor": "distributed-memory-ownership",
             "level": 3,
-            "line": 2082,
+            "line": 2064,
             "ref": "docs/host/LIVE_ADAPTERS.md#distributed-memory-ownership",
             "title": "Distributed Memory Ownership"
           },
           {
             "anchor": "remaining-self-awareness-cli-edge-classification",
             "level": 2,
-            "line": 2098,
+            "line": 2080,
             "ref": "docs/host/LIVE_ADAPTERS.md#remaining-self-awareness-cli-edge-classification",
             "title": "Remaining Self-Awareness CLI Edge Classification"
           },
           {
             "anchor": "post-goal-extension-rule",
             "level": 2,
-            "line": 2119,
+            "line": 2101,
             "ref": "docs/host/LIVE_ADAPTERS.md#post-goal-extension-rule",
             "title": "Post-Goal Extension Rule"
           },
           {
             "anchor": "stop-lines",
             "level": 2,
-            "line": 2129,
+            "line": 2111,
             "ref": "docs/host/LIVE_ADAPTERS.md#stop-lines",
             "title": "Stop Lines"
           }
@@ -13079,7 +13079,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "cf3741de8a8367da1684e4f402682d3bdcfbdf8d20844705e62a7dd9f7717480",
+        "digest": "bed4dd80836e778a926923dd414fb5246a2261285ceca93db1ebfdab731df1a5",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13222,13 +13222,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "a3e4a63e144a3719e1cd0c7883cebee2c8684a832a38cabb529b479a9c5b2e81",
+        "content_hash": "72e9b2e949be26669f60d91d439aaf309eeba8ad09d2d8b62f9b3f5176b06775",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/host/subsystem_commands.md:c005361b7c",
         "mime": "text/markdown",
         "path": "docs/host/SUBSYSTEM_COMMANDS.md",
         "repo": "abyss-machine",
-        "size_bytes": 68877
+        "size_bytes": 68454
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -13297,7 +13297,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "a3e4a63e144a3719e1cd0c7883cebee2c8684a832a38cabb529b479a9c5b2e81",
+        "digest": "72e9b2e949be26669f60d91d439aaf309eeba8ad09d2d8b62f9b3f5176b06775",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -13978,13 +13978,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "11bde931087f24ffa5a0c06744705f27df9e2a818d7124fec3e5330d9611b56d",
+        "content_hash": "ce68e4118f9b85b6c94884ac3fdee6d1887fcf827a145010bc33029cdbad2cfe",
         "git_ref": "git-index-source-tree",
         "id": "file:docs/testing/release_check_route.md:89abf65538",
         "mime": "text/markdown",
         "path": "docs/testing/RELEASE_CHECK_ROUTE.md",
         "repo": "abyss-machine",
-        "size_bytes": 63779
+        "size_bytes": 63441
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -14055,7 +14055,7 @@
           {
             "anchor": "completion-rule",
             "level": 2,
-            "line": 1012,
+            "line": 1008,
             "ref": "docs/testing/RELEASE_CHECK_ROUTE.md#completion-rule",
             "title": "Completion Rule"
           }
@@ -14067,7 +14067,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "11bde931087f24ffa5a0c06744705f27df9e2a818d7124fec3e5330d9611b56d",
+        "digest": "ce68e4118f9b85b6c94884ac3fdee6d1887fcf827a145010bc33029cdbad2cfe",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -15012,13 +15012,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "fd180684895513a2b9980cdb6aaf983c69e08444f9bd446306ac5bef86ae8dd1",
+        "content_hash": "bdaa51e7086727652363656a8344d13e45d6c85a37e0ccf0304ec36c460a95e8",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
         "path": "generated/contract_abi_signatures.min.json",
         "repo": "abyss-machine",
-        "size_bytes": 90877
+        "size_bytes": 91270
       },
       "mechanics_role": "none",
       "observed_form": "generated_output",
@@ -15051,7 +15051,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "fd180684895513a2b9980cdb6aaf983c69e08444f9bd446306ac5bef86ae8dd1",
+        "digest": "bdaa51e7086727652363656a8344d13e45d6c85a37e0ccf0304ec36c460a95e8",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -17514,13 +17514,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "fdbc4a68d15b80f4e398072a133bd0180a96f625b7a98d88dc26f4f3851ac107",
+        "content_hash": "b54a215c60dcfd848564c711f17da7591b93ff5eb3fd1b384ab0ba8010674640",
         "git_ref": "git-index-source-tree",
         "id": "file:mechanics/readme.md:c091f898d3",
         "mime": "text/markdown",
         "path": "mechanics/README.md",
         "repo": "abyss-machine",
-        "size_bytes": 15699
+        "size_bytes": 15564
       },
       "mechanics_role": "mechanic_package",
       "observed_form": "file",
@@ -17568,7 +17568,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "fdbc4a68d15b80f4e398072a133bd0180a96f625b7a98d88dc26f4f3851ac107",
+        "digest": "b54a215c60dcfd848564c711f17da7591b93ff5eb3fd1b384ab0ba8010674640",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -29087,13 +29087,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "362c8c44936faf981b41ca20ff68922cc492ad6389e31548a466f274c20efbab",
+        "content_hash": "34317c3d5b1b22bfd195e49db70ce29c9ad993bf3d30a9fb23c617e01d09fb68",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/cli.py:3e116445b4",
         "mime": "text/x-python",
         "path": "src/abyss_machine/cli.py",
         "repo": "abyss-machine",
-        "size_bytes": 2682728
+        "size_bytes": 2603190
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -29126,7 +29126,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "362c8c44936faf981b41ca20ff68922cc492ad6389e31548a466f274c20efbab",
+        "digest": "34317c3d5b1b22bfd195e49db70ce29c9ad993bf3d30a9fb23c617e01d09fb68",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -30780,19 +30780,19 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "ecf4d4d71160384d5481fbd5347505c7bfd0552e5ca00d991d2f2719788a3269",
+        "content_hash": "562d6e71e021486c7f43eb356474561d025700b091254380752730165531748e",
         "git_ref": "git-index-source-tree",
-        "id": "file:src/abyss_machine/memory_adapters.py:54ff75dda2",
+        "id": "file:src/abyss_machine/http_adapters.py:87721be720",
         "mime": "text/x-python",
-        "path": "src/abyss_machine/memory_adapters.py",
+        "path": "src/abyss_machine/http_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 139614
+        "size_bytes": 3944
       },
       "mechanics_role": "none",
       "observed_form": "file",
       "owner_return_route": {
         "route_kind": "source_owner",
-        "surface": "src/abyss_machine/memory_adapters.py"
+        "surface": "src/abyss_machine/http_adapters.py"
       },
       "provenance": {
         "generated_by": "",
@@ -30801,7 +30801,7 @@
         "source_refs": [
           {
             "authority": "authored_source",
-            "path": "src/abyss_machine/memory_adapters.py",
+            "path": "src/abyss_machine/http_adapters.py",
             "repo": "abyss-machine",
             "role": "primary"
           }
@@ -30813,13 +30813,13 @@
       "refs": {
         "heading_refs": [],
         "line_refs": [
-          "src/abyss_machine/memory_adapters.py:1"
+          "src/abyss_machine/http_adapters.py:1"
         ],
-        "path_ref": "src/abyss_machine/memory_adapters.py"
+        "path_ref": "src/abyss_machine/http_adapters.py"
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "ecf4d4d71160384d5481fbd5347505c7bfd0552e5ca00d991d2f2719788a3269",
+        "digest": "562d6e71e021486c7f43eb356474561d025700b091254380752730165531748e",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -30869,13 +30869,102 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "06a5c1fc2c46d28f59bd4f34ab4bfcd01f11ac2b0e89cd9424e3be8414cfdd69",
+        "content_hash": "91a349e758a048ccb8898e9c19e3798c735929176c5dfa04437d85bc567f9af2",
+        "git_ref": "git-index-source-tree",
+        "id": "file:src/abyss_machine/memory_adapters.py:54ff75dda2",
+        "mime": "text/x-python",
+        "path": "src/abyss_machine/memory_adapters.py",
+        "repo": "abyss-machine",
+        "size_bytes": 63320
+      },
+      "mechanics_role": "none",
+      "observed_form": "file",
+      "owner_return_route": {
+        "route_kind": "source_owner",
+        "surface": "src/abyss_machine/memory_adapters.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "src/abyss_machine/memory_adapters.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "src/abyss_machine/memory_adapters.py:1"
+        ],
+        "path_ref": "src/abyss_machine/memory_adapters.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "91a349e758a048ccb8898e9c19e3798c735929176c5dfa04437d85bc567f9af2",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "source_code",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "source_code",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "surface"
+      },
+      "code_role": "source_module",
+      "command_role": "none",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "b386b9a5e89f33226eadbeb854842cd53964c672ba4a57c03b58038ade090864",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/memory_contracts.py:73e1eb706f",
         "mime": "text/x-python",
         "path": "src/abyss_machine/memory_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 31971
+        "size_bytes": 30577
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -30908,7 +30997,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "06a5c1fc2c46d28f59bd4f34ab4bfcd01f11ac2b0e89cd9424e3be8414cfdd69",
+        "digest": "b386b9a5e89f33226eadbeb854842cd53964c672ba4a57c03b58038ade090864",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -34429,13 +34518,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "6c0761acb9138159b79eca2d2ce5dc6d32dae3269843ba6004ec46839642dc3f",
+        "content_hash": "b679ec4c619cbedf978f17c183341bdfbe53959e81f1bdc5ca24c22b37be3984",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/self_awareness_adapters.py:e31dd120ca",
         "mime": "text/x-python",
         "path": "src/abyss_machine/self_awareness_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 601055
+        "size_bytes": 600865
       },
       "mechanics_role": "none",
       "observed_form": "file",
@@ -34468,7 +34557,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "6c0761acb9138159b79eca2d2ce5dc6d32dae3269843ba6004ec46839642dc3f",
+        "digest": "b679ec4c619cbedf978f17c183341bdfbe53959e81f1bdc5ca24c22b37be3984",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -45391,13 +45480,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "03416a1b887119ef723c6b22cc32a188f213201e8e782c03fb0e9c65af4ed99a",
+        "content_hash": "1b5eb3e75beb4ea39259b6882e4adbe6c1827b5c4d2520e487049a32a248990c",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_self_awareness_contracts.py:c60820438c",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_self_awareness_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 498057
+        "size_bytes": 497987
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -45430,7 +45519,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "03416a1b887119ef723c6b22cc32a188f213201e8e782c03fb0e9c65af4ed99a",
+        "digest": "1b5eb3e75beb4ea39259b6882e4adbe6c1827b5c4d2520e487049a32a248990c",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -46173,13 +46262,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "730a3733312c765ff0a95f5e2836ec56f7dc01420189f832d242e173aa0d9a5e",
+        "content_hash": "69e2ff1146d0b131d1da85cd843ded0cc7dddaeacebea05df593147f602a11e5",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/regression/test_memory_zram_policy.py:8ba5e7a5c6",
         "mime": "text/x-python",
         "path": "tests/host_contract/regression/test_memory_zram_policy.py",
         "repo": "abyss-machine",
-        "size_bytes": 8476
+        "size_bytes": 6590
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -46212,7 +46301,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "730a3733312c765ff0a95f5e2836ec56f7dc01420189f832d242e173aa0d9a5e",
+        "digest": "69e2ff1146d0b131d1da85cd843ded0cc7dddaeacebea05df593147f602a11e5",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -49376,19 +49465,19 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "f9bccfb115acdc113ebea5cc26eb12a4aa39bd9908acdcab870bba0abf60a23a",
+        "content_hash": "d8297043b1f93818a0ffa4bec5648d566ea9ff3273788aebbb5d8a9ed2d19747",
         "git_ref": "git-index-source-tree",
-        "id": "file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b",
+        "id": "file:tests/public_smoke/test_http_adapters.py:4e68b97815",
         "mime": "text/x-python",
-        "path": "tests/public_smoke/test_memory_adapters.py",
+        "path": "tests/public_smoke/test_http_adapters.py",
         "repo": "abyss-machine",
-        "size_bytes": 36434
+        "size_bytes": 1662
       },
       "mechanics_role": "none",
       "observed_form": "command",
       "owner_return_route": {
         "route_kind": "test_owner",
-        "surface": "tests/public_smoke/test_memory_adapters.py"
+        "surface": "tests/public_smoke/test_http_adapters.py"
       },
       "provenance": {
         "generated_by": "",
@@ -49397,7 +49486,7 @@
         "source_refs": [
           {
             "authority": "authored_source",
-            "path": "tests/public_smoke/test_memory_adapters.py",
+            "path": "tests/public_smoke/test_http_adapters.py",
             "repo": "abyss-machine",
             "role": "primary"
           }
@@ -49409,13 +49498,13 @@
       "refs": {
         "heading_refs": [],
         "line_refs": [
-          "tests/public_smoke/test_memory_adapters.py:1"
+          "tests/public_smoke/test_http_adapters.py:1"
         ],
-        "path_ref": "tests/public_smoke/test_memory_adapters.py"
+        "path_ref": "tests/public_smoke/test_http_adapters.py"
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "f9bccfb115acdc113ebea5cc26eb12a4aa39bd9908acdcab870bba0abf60a23a",
+        "digest": "d8297043b1f93818a0ffa4bec5648d566ea9ff3273788aebbb5d8a9ed2d19747",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -49467,13 +49556,104 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "379e8a94b26dcd6d2f04ea0c7526f4e757676bcf1a42728bc7df34a435e7e28a",
+        "content_hash": "218432e959758ee23427a514a21a60fc72a2d4be4afead3ddfdd3af1e76b7ced",
+        "git_ref": "git-index-source-tree",
+        "id": "file:tests/public_smoke/test_memory_adapters.py:17ff2d6e2b",
+        "mime": "text/x-python",
+        "path": "tests/public_smoke/test_memory_adapters.py",
+        "repo": "abyss-machine",
+        "size_bytes": 21852
+      },
+      "mechanics_role": "none",
+      "observed_form": "command",
+      "owner_return_route": {
+        "route_kind": "test_owner",
+        "surface": "tests/public_smoke/test_memory_adapters.py"
+      },
+      "provenance": {
+        "generated_by": "",
+        "materials": [],
+        "observed_by": "aoa-kag:scripts/generate_repo_local_kag_index.py",
+        "source_refs": [
+          {
+            "authority": "authored_source",
+            "path": "tests/public_smoke/test_memory_adapters.py",
+            "repo": "abyss-machine",
+            "role": "primary"
+          }
+        ],
+        "validated_by": [
+          "aoa-kag:scripts/validate_kag.py"
+        ]
+      },
+      "refs": {
+        "heading_refs": [],
+        "line_refs": [
+          "tests/public_smoke/test_memory_adapters.py:1"
+        ],
+        "path_ref": "tests/public_smoke/test_memory_adapters.py"
+      },
+      "signs": {
+        "attestation_ref": "",
+        "digest": "218432e959758ee23427a514a21a60fc72a2d4be4afead3ddfdd3af1e76b7ced",
+        "signature_ref": "",
+        "verification_state": "digest-only"
+      },
+      "surface_state": "authored_source",
+      "toolchain": {
+        "detected_tools": [
+          "git",
+          "python"
+        ],
+        "owner_commands": [
+          "PYTHONPATH=src python -m pytest -q"
+        ],
+        "required_tools": [
+          "python"
+        ]
+      },
+      "validator_route": {
+        "route_kind": "source_fast",
+        "surface": "aoa-kag:scripts/validate_kag.py"
+      }
+    },
+    {
+      "abi": {
+        "abi_epoch": "source",
+        "artifact_class": "test",
+        "compatibility": "stable",
+        "contract_version": "none",
+        "schema_version": "none"
+      },
+      "access": {
+        "scope": "public",
+        "secrets_risk": "none"
+      },
+      "artifact_kind": "test",
+      "classification": {
+        "confidence": "high",
+        "primary_kind": "command"
+      },
+      "code_role": "test",
+      "command_role": "test",
+      "consumer_route": {
+        "route_kind": "resource",
+        "surface": "aoa-kag-mcp"
+      },
+      "document_role": "none",
+      "freshness": {
+        "checked_ref": "git-index-source-tree",
+        "mode": "source_snapshot",
+        "state": "current"
+      },
+      "identity": {
+        "content_hash": "5e14d67dd78e823be0cb97d9c724b217697bde8a0e8f519e2dc5c1be61a283f3",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/public_smoke/test_memory_contracts.py:63edd4cace",
         "mime": "text/x-python",
         "path": "tests/public_smoke/test_memory_contracts.py",
         "repo": "abyss-machine",
-        "size_bytes": 7723
+        "size_bytes": 7421
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -49506,7 +49686,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "379e8a94b26dcd6d2f04ea0c7526f4e757676bcf1a42728bc7df34a435e7e28a",
+        "digest": "5e14d67dd78e823be0cb97d9c724b217697bde8a0e8f519e2dc5c1be61a283f3",
         "signature_ref": "",
         "verification_state": "digest-only"
       },

@@ -24,12 +24,6 @@ abyss-machine test manual --json
 abyss-machine storage status --json
 abyss-machine memory status --json
 abyss-machine memory plan --json
-abyss-machine memory orchestrate plan --json
-abyss-machine memory orchestrate idle --candidate ID --json
-abyss-machine memory orchestrate confirm --candidate ID --operator NAME --reason TEXT --acknowledge-protected --dry-run --json
-abyss-machine memory orchestrate apply --candidate ID --dry-run --json
-abyss-machine memory orchestrate apply --candidate ID --confirm --json
-abyss-machine memory orchestrate apply --candidate ID --confirm --execute-live --acknowledge-live-restart --operator NAME --reason TEXT --json
 abyss-machine resource status --json
 abyss-machine resource orchestrator --json
 abyss-machine resource plan --class heavy --kind ai --json
@@ -769,12 +763,6 @@ abyss-machine memory plan --json
 abyss-machine memory headroom --json
 abyss-machine memory residency --json
 abyss-machine memory hotpath-probe --json
-abyss-machine memory orchestrate plan --json
-abyss-machine memory orchestrate idle --candidate ID --json
-abyss-machine memory orchestrate confirm --candidate ID --operator NAME --reason TEXT --acknowledge-protected --dry-run --json
-abyss-machine memory orchestrate apply --candidate ID --dry-run --json
-abyss-machine memory orchestrate apply --candidate ID --confirm --json
-abyss-machine memory orchestrate apply --candidate ID --confirm --execute-live --acknowledge-live-restart --operator NAME --reason TEXT --json
 abyss-machine memory validate --json
 abyss-machine resource paths --json
 abyss-machine resource status --json
@@ -852,28 +840,16 @@ thermal orchestration plan: abyss-machine processes thermal-plan --seconds 3 --i
 desktop compositor route: abyss-machine processes desktop-compositor --seconds 3 --interval 0.5 --json; links GNOME Shell CPU, fd/pidfd/dmabuf stability, high-refresh display state, animations, GNOME Shell Introspect signal churn, read-only AT-SPI panel metric-label churn, AT-SPI application/window context, GNOME extension preference snapshot, Vitals settings evidence, X11 top-level windows, Wayland socket peers, GUI/process CPU candidates, screencast/remote state, and StatusNotifier context without lowering display quality, toggling extensions, changing panel preferences, closing/minimizing apps, or disabling capture
 thermal incident 2026-05-06: abyss-dictation-hotkey was found burning about one full P-core on hot CPU0; listener patched to close dead input fds and service restarted; follow-up showed no hot focus CPUs
 memory status latest: {{ABYSS_MACHINE_STATE}}/memory/latest.json
-memory state retention: latest-only atomic snapshots and action receipts under {{ABYSS_MACHINE_STATE}}/memory; ordinary status, pressure, processes, plan, headroom, residency, and plan-only orchestration commands do not write state; historical telemetry belongs to journald or the configured metrics retention
+memory state retention: latest-only atomic snapshots and action receipts under {{ABYSS_MACHINE_STATE}}/memory; ordinary status, pressure, processes, plan, headroom, and residency commands do not write state; historical telemetry belongs to journald or the configured metrics retention
 memory pressure latest: {{ABYSS_MACHINE_STATE}}/memory/pressure/latest.json
 memory process attribution: {{ABYSS_MACHINE_STATE}}/memory/processes/latest.json
 memory launch plan: {{ABYSS_MACHINE_STATE}}/memory/plan/latest.json
 memory headroom advisor: {{ABYSS_MACHINE_STATE}}/memory/headroom/latest.json
 memory residency advisor: {{ABYSS_MACHINE_STATE}}/memory/residency/latest.json
 memory hot-path probe: {{ABYSS_MACHINE_STATE}}/memory/hotpath/latest.json
-memory orchestrate plan: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/latest.json
-memory orchestrate idle gate: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/idle/latest.json
-memory orchestrate confirmation contract: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/confirm/latest.json
-memory orchestrate apply dry-run: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/apply/latest.json
-memory orchestrate confirmed executor preflight: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/executor/latest.json
-memory orchestrate live executor: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/live/latest.json
 machine report contour: {{ABYSS_MACHINE_STATE}}/doctor/machine-report/latest.json and latest.md; `abyss-machine doctor machine-report --json` joins doctor status, memory residency, zram ratio/headroom, PSI, protected TTS/dictation/resident LLM cgroup state, AI thermal policy, nervous readiness, and semantic maintenance state without stopping, restarting, disabling, throttling, re-affinitizing, or capping live services
 memory pressure route: abyss-machine memory pressure --json; combines meminfo, PSI, zram/zswap/sysctl/cgroup facts, zram resident/ratio telemetry, process PSS/RSS attribution, and cgroup swap counters; zram-only high swap is capped at hot when MemAvailable is healthy and PSI stalls are absent; resident model RSS/PSS/swap is routing evidence, not a stop/on-demand recommendation
 memory orchestration route: abyss-machine memory plan --json; gates new medium/heavy/sustained work only and does not kill, swap, reconfigure zram, enable oomd, tune sysctl, throttle, re-affinitize, stop, or demote existing processes, persistent models, warm AI services, or stack processes
-memory orchestrate plan route: abyss-machine memory orchestrate plan --json; non-mutating RAM/zram/cgroup attribution and managed dehydration/rehydration candidate ranking; separates physical zram pool from direct RAM consumers and never restarts, stops, disables, throttles, re-affinitizes, caps, swapoffs, drops caches, or tunes live services/kernel policy; apply support is separate through dry-run inspection, confirmed preflight, and a hard-interlocked podman-managed-model or registered rerank-api live executor
-memory orchestrate idle route: abyss-machine memory orchestrate idle --candidate ID --json; read-only resident-model idle gate using llama.cpp health/slots plus cgroup CPU sampling when available, registered rerank-api health with `active_requests=0`, and OVMS live/ready plus `/v1/config` available-model status; treats active slot processing/next-token as busy and ignores stale `n_remain` alone after `is_processing=false`; does not generate tokens, stop, restart, throttle, re-affinitize, cap, or tune services
-memory orchestrate confirmation route: abyss-machine memory orchestrate confirm --candidate ID --operator NAME --reason TEXT --acknowledge-protected --dry-run --json; records a dry-run protected-capability confirmation contract with operator, reason, expiry, required before/after probes, rollback/rehydrate proof, and explicit non-grant policy; it is not effective authorization for live mutation
-memory orchestrate apply dry-run route: abyss-machine memory orchestrate apply --candidate ID --dry-run --json; selects a fresh plan candidate, snapshots target cgroup/systemd/podman state, emits guard/health/executor steps, and refuses confirmed mutation until idle detection, one-heavy-at-a-time serialization, explicit operator confirmation, before/after evidence, and hot-path verification exist
-memory orchestrate confirmed executor preflight route: abyss-machine memory orchestrate apply --candidate ID --confirm --json; non-mutating preflight skeleton that rechecks confirmation freshness, target identity, idle-now, current health signal, PSI, serialization lock, and future executor command, then blocks at invocation-level live_executor_stage_disabled without restarting, stopping, disabling, throttling, re-affinitizing, capping, swapoff, cache drop, sysctl tuning, or zram reconfiguration
-memory orchestrate live executor route: abyss-machine memory orchestrate apply --candidate ID --confirm --execute-live --acknowledge-live-restart --operator NAME --reason TEXT --json; hard-interlocked managed-model-only live restart/rehydrate route; supports podman managed-model containers and registered rerank-api idle unload/recycle, requires current confirmation contract, immediate idle/health/identity rechecks, explicit live acknowledgement, one-live lock, selected-container `podman restart` or rerank `POST /admin/unload?exit_process=true`, after-health readiness, PID/container proof, and memory delta evidence; never targets TTS, dictation, browsers, games, editors, generic work containers, sysctl, zram, swapoff, cache drop, throttling, re-affinity, cgroup caps, or service disablement
 memory headroom route: abyss-machine memory headroom --json; explains zram swap headroom bottlenecks, policy shortfall to relief thresholds, protected/non-protected top swap attribution by cgroup/systemd unit, and safe next-action routes without mutating live processes or kernel/zram policy
 memory residency route: abyss-machine memory residency --json; inspects protected resident service cgroups for TTS, dictation, and resident LLM, including MemoryLow/High/SwapMax, cgroup swap, sampled PSS/swap, memory events/stat, PSI, zram ratio/headroom, latest canonical hot-path probe evidence, and runtime-only pilot candidates; facts-only and does not apply cgroup properties, restart, stop, disable, throttle, re-affinitize, or cap live services; `measure_hot_path_latency` distinguishes missing/stale/failed/fresh_ok/fresh_watch probe evidence before persistent cgroup policy
 memory hot-path route: abyss-machine memory hotpath-probe --json; runs synthetic TTS->STT latency probes and optional resident LLM micro tick, records before/after zram/PSI/protected-service cgroup state, and does not record microphone audio, stop/restart services, cap swap, throttle, re-affinitize, or apply cgroup properties

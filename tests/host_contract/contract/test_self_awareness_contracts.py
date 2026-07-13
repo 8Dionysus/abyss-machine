@@ -1659,7 +1659,7 @@ def test_self_awareness_stack_memory_space_probe_summarizes_live_routes_without_
         def __exit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_http_json", fake_http)
+    monkeypatch.setattr(abyss_machine_module, "host_http_json", fake_http)
     monkeypatch.setattr(abyss_machine_module.socket, "create_connection", lambda *args, **kwargs: FakeSocket())
 
     probe = abyss_machine_module.self_awareness_stack_memory_space_probe()
@@ -1802,7 +1802,7 @@ def test_self_awareness_langchain_probe_classifies_runtime_routes_without_payloa
         }
         return {"ok": True, "url": url, "status_code": 200, "json": payloads[url]}
 
-    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_http_json", fake_http)
+    monkeypatch.setattr(abyss_machine_module, "host_http_json", fake_http)
 
     probe = abyss_machine_module.self_awareness_langchain_api_probe()
 
@@ -1976,7 +1976,7 @@ def test_self_awareness_grafana_datasource_probe_sanitizes_inventory_and_candida
             "error": "HTTP Error 401: Unauthorized",
         }
 
-    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_http_json", fake_http)
+    monkeypatch.setattr(abyss_machine_module, "host_http_json", fake_http)
     grafana_health = {
         "ok": True,
         "url": "http://127.0.0.1:3000/api/health",
@@ -2129,7 +2129,7 @@ def test_self_awareness_trace_backend_probe_summarizes_pipeline_without_payloads
             "error": "connection refused",
         }
 
-    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_http_json", fake_http)
+    monkeypatch.setattr(abyss_machine_module, "host_http_json", fake_http)
     stack = {
         "schema": "abyss_machine_stack_observability_v1",
         "summary": {
@@ -2180,7 +2180,7 @@ def test_self_awareness_trace_backend_probe_accepts_plain_http_ready(
         assert url == "http://127.0.0.1:3200/api/search?limit=1"
         return {"ok": True, "url": url, "status_code": 200, "data": {"traces": []}}
 
-    monkeypatch.setattr(abyss_machine_module, "memory_orchestrate_http_json", fake_http)
+    monkeypatch.setattr(abyss_machine_module, "host_http_json", fake_http)
     stack = {
         "schema": "abyss_machine_stack_observability_v1",
         "summary": {"promql_jobs_up": ["prometheus", "loki", "alloy"], "logql_entries_seen": 1},

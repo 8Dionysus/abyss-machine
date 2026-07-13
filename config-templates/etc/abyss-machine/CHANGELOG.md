@@ -14,7 +14,8 @@ Do not record every probe, sample, generated refresh, or local experiment here.
 
 - Replaced the resident Memory Controller and its forecast/registry/SQLite
   plane with synchronous live admission, runtime-only startup reservations,
-  and owner-native workload lifecycle routes.
+  and owner-native workload lifecycle routes; retired the older numeric
+  `memory orchestrate` candidate ranking and restart executor.
 
 ### Added
 

@@ -1681,13 +1681,6 @@
       "semantic-eval",
       "--json"
     ],
-    "memory_orchestrate_plan_json": [
-      "abyss-machine",
-      "memory",
-      "orchestrate",
-      "plan",
-      "--json"
-    ],
     "heartbeats_pulse_json": [
       "abyss-machine",
       "heartbeats",
@@ -2194,66 +2187,6 @@
       "abyss-machine",
       "memory",
       "hotpath-probe",
-      "--json"
-    ],
-    "memory_orchestrate_idle_json": [
-      "abyss-machine",
-      "memory",
-      "orchestrate",
-      "idle",
-      "--candidate",
-      "ID",
-      "--json"
-    ],
-    "memory_orchestrate_confirm_dry_run_json": [
-      "abyss-machine",
-      "memory",
-      "orchestrate",
-      "confirm",
-      "--candidate",
-      "ID",
-      "--operator",
-      "NAME",
-      "--reason",
-      "TEXT",
-      "--acknowledge-protected",
-      "--dry-run",
-      "--json"
-    ],
-    "memory_orchestrate_apply_dry_run_json": [
-      "abyss-machine",
-      "memory",
-      "orchestrate",
-      "apply",
-      "--candidate",
-      "ID",
-      "--dry-run",
-      "--json"
-    ],
-    "memory_orchestrate_apply_confirm_json": [
-      "abyss-machine",
-      "memory",
-      "orchestrate",
-      "apply",
-      "--candidate",
-      "ID",
-      "--confirm",
-      "--json"
-    ],
-    "memory_orchestrate_apply_live_json": [
-      "abyss-machine",
-      "memory",
-      "orchestrate",
-      "apply",
-      "--candidate",
-      "ID",
-      "--confirm",
-      "--execute-live",
-      "--acknowledge-live-restart",
-      "--operator",
-      "NAME",
-      "--reason",
-      "TEXT",
       "--json"
     ],
     "self_awareness_capabilities_json": [

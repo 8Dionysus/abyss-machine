@@ -285,7 +285,7 @@ def paths_document(
     refs: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "schema": _schema(schema_prefix, "memory_paths_v2"),
+        "schema": _schema(schema_prefix, "memory_paths_v3"),
         "version": version,
         "generated_at": generated_at,
         "root": str(refs["root"]),
@@ -304,14 +304,6 @@ def paths_document(
             spec=str(refs["residency_spec"]),
         ),
         "hotpath": _latest_only(refs["hotpath_root"], refs["hotpath_latest"]),
-        "orchestrate": {
-            **_latest_only(refs["orchestrate_root"], refs["orchestrate_latest"]),
-            "apply": _latest_only(refs["orchestrate_apply_root"], refs["orchestrate_apply_latest"]),
-            "idle": _latest_only(refs["orchestrate_idle_root"], refs["orchestrate_idle_latest"]),
-            "confirm": _latest_only(refs["orchestrate_confirm_root"], refs["orchestrate_confirm_latest"]),
-            "executor": _latest_only(refs["orchestrate_executor_root"], refs["orchestrate_executor_latest"]),
-            "live": _latest_only(refs["orchestrate_live_root"], refs["orchestrate_live_latest"]),
-        },
         "validate": _latest_only(refs["validate_root"], refs["validate_latest"]),
         "commands": {
             "paths": "abyss-machine memory paths --json",
@@ -322,12 +314,6 @@ def paths_document(
             "headroom": "abyss-machine memory headroom --json",
             "residency": "abyss-machine memory residency --json",
             "hotpath_probe": "abyss-machine memory hotpath-probe --json",
-            "orchestrate_plan": "abyss-machine memory orchestrate plan --json",
-            "orchestrate_idle": "abyss-machine memory orchestrate idle --candidate ID --json",
-            "orchestrate_confirm_dry_run": "abyss-machine memory orchestrate confirm --candidate ID --operator NAME --reason TEXT --acknowledge-protected --dry-run --json",
-            "orchestrate_apply_dry_run": "abyss-machine memory orchestrate apply --candidate ID --dry-run --json",
-            "orchestrate_apply_confirm": "abyss-machine memory orchestrate apply --candidate ID --confirm --json",
-            "orchestrate_apply_live": "abyss-machine memory orchestrate apply --candidate ID --confirm --execute-live --acknowledge-live-restart --operator NAME --reason TEXT --json",
             "validate": "abyss-machine memory validate --json",
         },
         "policy_contract": {

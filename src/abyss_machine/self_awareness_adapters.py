@@ -3803,7 +3803,7 @@ def run_capabilities(
 
     stack_bridge_observability = input_port.stack_observability
     process_container_health = input_port.container_health
-    memory_orchestrate_http_json = input_port.http_json
+    http_json = input_port.http_json
     self_awareness_langchain_api_probe = input_port.langchain_api_probe
     self_awareness_stack_closure_external_evidence = input_port.stack_closure_external_evidence
     self_awareness_trace_backend_probe = input_port.trace_backend_probe
@@ -3832,15 +3832,15 @@ def run_capabilities(
 
     stack = stack_bridge_observability(write_latest=True)
     container_health = process_container_health(write_latest=True)
-    prom_targets = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/targets", timeout=2.5)
-    prom_rules = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/rules", timeout=2.5)
-    prom_alerts = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/alerts", timeout=2.5)
-    grafana_health = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_GRAFANA_URL.rstrip()}/api/health", timeout=2.0, max_bytes=65536)
-    grafana_datasources = memory_orchestrate_http_json(f"{STACK_OBSERVABILITY_GRAFANA_URL.rstrip()}/api/datasources", timeout=2.0, max_bytes=131072)
-    alertmanager_status = memory_orchestrate_http_json(f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip()}/api/v2/status", timeout=2.0)
-    alertmanager_alerts = memory_orchestrate_http_json(f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip()}/api/v2/alerts", timeout=2.0)
-    tempo_ready = memory_orchestrate_http_json(f"{SELF_AWARENESS_TEMPO_URL.rstrip()}/ready", timeout=1.2, max_bytes=65536)
-    langgraph_api = memory_orchestrate_http_json(f"{SELF_AWARENESS_LANGGRAPH_URL.rstrip()}/health", timeout=1.2, max_bytes=65536)
+    prom_targets = http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/targets", timeout=2.5)
+    prom_rules = http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/rules", timeout=2.5)
+    prom_alerts = http_json(f"{STACK_OBSERVABILITY_PROMETHEUS_URL.rstrip()}/api/v1/alerts", timeout=2.5)
+    grafana_health = http_json(f"{STACK_OBSERVABILITY_GRAFANA_URL.rstrip()}/api/health", timeout=2.0, max_bytes=65536)
+    grafana_datasources = http_json(f"{STACK_OBSERVABILITY_GRAFANA_URL.rstrip()}/api/datasources", timeout=2.0, max_bytes=131072)
+    alertmanager_status = http_json(f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip()}/api/v2/status", timeout=2.0)
+    alertmanager_alerts = http_json(f"{SELF_AWARENESS_ALERTMANAGER_URL.rstrip()}/api/v2/alerts", timeout=2.0)
+    tempo_ready = http_json(f"{SELF_AWARENESS_TEMPO_URL.rstrip()}/ready", timeout=1.2, max_bytes=65536)
+    langgraph_api = http_json(f"{SELF_AWARENESS_LANGGRAPH_URL.rstrip()}/health", timeout=1.2, max_bytes=65536)
     langchain_api = self_awareness_langchain_api_probe()
     stack_closure_external_evidence = self_awareness_stack_closure_external_evidence()
     trace_backend = self_awareness_trace_backend_probe(tempo_ready, stack, stack_closure_external_evidence)

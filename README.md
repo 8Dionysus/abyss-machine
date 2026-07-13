@@ -218,18 +218,13 @@ latest/history/markdown writes live in
 `abyss_machine.doctor_adapters`.
 Memory policy/path, pressure-classification, zram-relief, headroom attribution,
 launch-gate, and plan document contracts live in
-`abyss_machine.memory_contracts`. Memory orchestration target snapshots,
-Podman inspect/restart execution, local model HTTP probes, cgroup CPU sampling,
-live locks, rehydrate polling, read-only pressure/process/cgroup collection,
-and residency service snapshots live in `abyss_machine.memory_adapters`
-through fakeable ports; memory hotpath probe document assembly and orchestration
-plus concrete hotpath TTS/STT/LLM probe execution wrappers live there through
-fakeable synth/transcribe/LLM-runner, residency, AI-policy, path-existence, and
-monotonic ports. Memory-orchestrate candidate ranking, target identity,
-confirmation-contract, health-route, future-executor, preflight/apply guard, and
-live-authorization safety policy also live there through public-safe fakeable
-documents. CLI owns concrete live runtime/path binding, latest/history/index
-writes, and rendering. Mode policy/path/state, definitions,
+`abyss_machine.memory_contracts`. Read-only pressure/process/cgroup collection,
+residency service snapshots, memory hotpath document assembly, and concrete
+hotpath TTS/STT/LLM probe wrappers live in `abyss_machine.memory_adapters`
+through fakeable ports. Bounded local HTTP JSON/status transport shared by host
+probes lives in `abyss_machine.http_adapters`. CLI owns concrete live
+runtime/path binding, latest/history/index writes, and rendering. Mode
+policy/path/state, definitions,
 target-profile, thermal launch caps, external power-profile guard decisions,
 plan/status, validate document, and lightweight reconcile status document contracts live in
 `abyss_machine.mode_contracts`. Mode runtime state load/save,
