@@ -4422,21 +4422,6 @@ def memory_paths() -> dict[str, Any]:
             "validate_root": MEMORY_VALIDATE_ROOT,
             "validate_latest": MEMORY_VALIDATE_LATEST_PATH,
         },
-        today_paths={
-            "status": ai_daily_jsonl_path(MEMORY_STATUS_ROOT),
-            "pressure": ai_daily_jsonl_path(MEMORY_PRESSURE_ROOT),
-            "processes": ai_daily_jsonl_path(MEMORY_PROCESS_ROOT),
-            "plan": ai_daily_jsonl_path(MEMORY_PLAN_ROOT),
-            "headroom": ai_daily_jsonl_path(MEMORY_HEADROOM_ROOT),
-            "residency": ai_daily_jsonl_path(MEMORY_RESIDENCY_ROOT),
-            "hotpath": ai_daily_jsonl_path(MEMORY_HOTPATH_ROOT),
-            "orchestrate": ai_daily_jsonl_path(MEMORY_ORCHESTRATE_ROOT),
-            "orchestrate_apply": ai_daily_jsonl_path(MEMORY_ORCHESTRATE_APPLY_ROOT),
-            "orchestrate_idle": ai_daily_jsonl_path(MEMORY_ORCHESTRATE_IDLE_ROOT),
-            "orchestrate_confirm": ai_daily_jsonl_path(MEMORY_ORCHESTRATE_CONFIRM_ROOT),
-            "orchestrate_executor": ai_daily_jsonl_path(MEMORY_ORCHESTRATE_EXECUTOR_ROOT),
-            "orchestrate_live": ai_daily_jsonl_path(MEMORY_ORCHESTRATE_LIVE_ROOT),
-        },
     )
 
 
@@ -4521,7 +4506,7 @@ def memory_cgroup_memory_snapshot(processes: list[dict[str, Any]], top: int = 40
     )
 
 
-def memory_process_snapshot(top: int = 40, smaps: bool = True, write_latest: bool = True) -> dict[str, Any]:
+def memory_process_snapshot(top: int = 40, smaps: bool = True, write_latest: bool = False) -> dict[str, Any]:
     body = memory_adapters.process_snapshot(
         top=top,
         smaps=smaps,
@@ -4536,14 +4521,13 @@ def memory_process_snapshot(top: int = 40, smaps: bool = True, write_latest: boo
         **body,
         "paths": {
             "latest": str(MEMORY_PROCESS_LATEST_PATH),
-            "daily_glob": str(MEMORY_PROCESS_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
         },
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_PROCESS_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_PROCESS_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -4797,10 +4781,10 @@ def memory_hotpath_probe_route_complete(route: Any) -> bool:
     )
 
 
-def memory_residency(top: int = 40, write_latest: bool = True) -> dict[str, Any]:
+def memory_residency(top: int = 40, write_latest: bool = False) -> dict[str, Any]:
     policy = memory_policy_document()
     residency_policy = policy.get("residency", {}) if isinstance(policy.get("residency"), dict) else memory_default_residency_policy()
-    pressure = memory_pressure(top=top, write_latest=True)
+    pressure = memory_pressure(top=top, write_latest=False)
     status = pressure.get("status", {}) if isinstance(pressure.get("status"), dict) else {}
     zram_summary = nested_get(status, ["zram", "summary"]) or {}
     swap_summary = nested_get(status, ["swap", "summary"]) or {}
@@ -4934,7 +4918,7 @@ def memory_residency(top: int = 40, write_latest: bool = True) -> dict[str, Any]
         ],
         "paths": {
             "latest": str(MEMORY_RESIDENCY_LATEST_PATH),
-            "daily_glob": str(MEMORY_RESIDENCY_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "pressure_latest": str(MEMORY_PRESSURE_LATEST_PATH),
         },
         "non_claims": [
@@ -4945,9 +4929,8 @@ def memory_residency(top: int = 40, write_latest: bool = True) -> dict[str, Any]
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_RESIDENCY_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_RESIDENCY_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -5010,7 +4993,7 @@ def memory_hotpath_probe(
         llm_limit=llm_limit,
         top=top,
         monotonic=time.monotonic,
-        residency_port=lambda top_value: memory_residency(top=top_value, write_latest=True),
+        residency_port=lambda top_value: memory_residency(top=top_value, write_latest=False),
         tts_status_port=lambda: ai_tts_server_status(write_latest=True),
         ai_policy_port=lambda: ai_policy(write_latest=True),
         tts_probe_port=memory_hotpath_tts_probe,
@@ -5027,9 +5010,8 @@ def memory_hotpath_probe(
     )
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_HOTPATH_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_HOTPATH_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -5072,7 +5054,7 @@ def memory_pressure_class(mem: dict[str, Any], psi: dict[str, Any], swap: dict[s
     return memory_contracts.pressure_class(mem, psi, swap, policy)
 
 
-def memory_status(write_latest: bool = True, append_history: bool = True) -> dict[str, Any]:
+def memory_status(write_latest: bool = False) -> dict[str, Any]:
     mem = memory_meminfo_details()
     psi = memory_parse_pressure_file(Path("/proc/pressure/memory"))
     swap = memory_swap_status()
@@ -5111,18 +5093,17 @@ def memory_status(write_latest: bool = True, append_history: bool = True) -> dic
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_STATUS_ROOT), data, 0o664) if append_history else None
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
     return data
 
 
-def memory_pressure(top: int = 30, write_latest: bool = True) -> dict[str, Any]:
-    status_data = memory_status(write_latest=True)
-    processes = memory_process_snapshot(top=top, smaps=True, write_latest=True)
+def memory_pressure(top: int = 30, write_latest: bool = False) -> dict[str, Any]:
+    status_data = memory_status(write_latest=False)
+    processes = memory_process_snapshot(top=top, smaps=True, write_latest=False)
     mem_summary = nested_get(status_data, ["meminfo", "summary"]) or {}
     zram_summary = nested_get(status_data, ["zram", "summary"]) or {}
     process_summary = processes.get("summary", {}) if isinstance(processes.get("summary"), dict) else {}
@@ -5182,9 +5163,8 @@ def memory_pressure(top: int = 30, write_latest: bool = True) -> dict[str, Any]:
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_PRESSURE_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_PRESSURE_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -5199,8 +5179,8 @@ def memory_headroom_process_buckets(processes: dict[str, Any]) -> dict[str, Any]
     return memory_contracts.headroom_process_buckets(processes, PROTECTED_CAPABILITY_ROLES)
 
 
-def memory_headroom(top: int = 40, write_latest: bool = True) -> dict[str, Any]:
-    pressure = memory_pressure(top=top, write_latest=True)
+def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]:
+    pressure = memory_pressure(top=top, write_latest=False)
     policy = memory_policy_document()
     relief = policy.get("zram_swap_relief", {}) if isinstance(policy.get("zram_swap_relief"), dict) else {}
     status = pressure.get("status", {}) if isinstance(pressure.get("status"), dict) else {}
@@ -5339,7 +5319,7 @@ def memory_headroom(top: int = 40, write_latest: bool = True) -> dict[str, Any]:
         },
         "paths": {
             "latest": str(MEMORY_HEADROOM_LATEST_PATH),
-            "daily_glob": str(MEMORY_HEADROOM_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "pressure_latest": str(MEMORY_PRESSURE_LATEST_PATH),
             "processes_latest": str(MEMORY_PROCESS_LATEST_PATH),
         },
@@ -5357,9 +5337,8 @@ def memory_headroom(top: int = 40, write_latest: bool = True) -> dict[str, Any]:
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_HEADROOM_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_HEADROOM_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -5371,15 +5350,15 @@ def memory_launch_gate_for_class(memory_class: str, workload_class: str, unatten
 
 
 def memory_plan(
-    write_latest: bool = True,
+    write_latest: bool = False,
     pressure_input: dict[str, Any] | None = None,
     mode_input: dict[str, Any] | None = None,
     game_guard_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    pressure = pressure_input if isinstance(pressure_input, dict) else memory_pressure(top=30, write_latest=True)
+    pressure = pressure_input if isinstance(pressure_input, dict) else memory_pressure(top=30, write_latest=False)
     policy = memory_policy_document()
     mode = mode_input if isinstance(mode_input, dict) else mode_status()
-    game_guard = game_guard_input if isinstance(game_guard_input, dict) else process_game_guard(write_latest=True)
+    game_guard = game_guard_input if isinstance(game_guard_input, dict) else process_game_guard(write_latest=False)
     data = memory_contracts.plan_document(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
@@ -5394,9 +5373,8 @@ def memory_plan(
     )
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_PLAN_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_PLAN_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -5428,10 +5406,10 @@ def memory_orchestrate_action_candidates(
     )
 
 
-def memory_orchestrate_plan(top: int = 40, write_latest: bool = True) -> dict[str, Any]:
+def memory_orchestrate_plan(top: int = 40, write_latest: bool = False) -> dict[str, Any]:
     top = max(10, min(int(top), 120))
-    pressure = memory_pressure(top=top, write_latest=True)
-    residency = memory_residency(top=top, write_latest=True)
+    pressure = memory_pressure(top=top, write_latest=False)
+    residency = memory_residency(top=top, write_latest=False)
     policy = memory_policy_document()
     status = pressure.get("status", {}) if isinstance(pressure.get("status"), dict) else {}
     mem_summary = nested_get(status, ["meminfo", "summary"]) or {}
@@ -5604,7 +5582,7 @@ def memory_orchestrate_plan(top: int = 40, write_latest: bool = True) -> dict[st
         },
         "paths": {
             "latest": str(MEMORY_ORCHESTRATE_LATEST_PATH),
-            "daily_glob": str(MEMORY_ORCHESTRATE_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "pressure_latest": str(MEMORY_PRESSURE_LATEST_PATH),
             "processes_latest": str(MEMORY_PROCESS_LATEST_PATH),
             "residency_latest": str(MEMORY_RESIDENCY_LATEST_PATH),
@@ -5632,9 +5610,8 @@ def memory_orchestrate_plan(top: int = 40, write_latest: bool = True) -> dict[st
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -5843,7 +5820,7 @@ def memory_orchestrate_idle(
 ) -> dict[str, Any]:
     top = max(10, min(int(top), 120))
     sample_sec = max(0.1, min(float(sample_sec or 0.5), 3.0))
-    plan = memory_orchestrate_plan(top=top, write_latest=True)
+    plan = memory_orchestrate_plan(top=top, write_latest=False)
     candidate = memory_orchestrate_find_candidate(plan, candidate_id)
     if candidate is None:
         data = {
@@ -5869,9 +5846,8 @@ def memory_orchestrate_idle(
         }
         if write_latest:
             latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_IDLE_LATEST_PATH, data, 0o664)
-            daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_IDLE_ROOT), data, 0o664)
             index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-            errors = [error for error in (latest_error, daily_error, index_error) if error]
+            errors = [error for error in (latest_error, index_error) if error]
             if errors:
                 data["write_errors"] = errors
         return data
@@ -5901,7 +5877,7 @@ def memory_orchestrate_idle(
         },
         "paths": {
             "latest": str(MEMORY_ORCHESTRATE_IDLE_LATEST_PATH),
-            "daily_glob": str(MEMORY_ORCHESTRATE_IDLE_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "plan_latest": str(MEMORY_ORCHESTRATE_LATEST_PATH),
         },
         "policy": {
@@ -5916,9 +5892,8 @@ def memory_orchestrate_idle(
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_IDLE_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_IDLE_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -5991,7 +5966,7 @@ def memory_orchestrate_confirm(
     write_latest: bool = True,
 ) -> dict[str, Any]:
     top = max(10, min(int(top), 120))
-    plan = memory_orchestrate_plan(top=top, write_latest=True)
+    plan = memory_orchestrate_plan(top=top, write_latest=False)
     candidate = memory_orchestrate_find_candidate(plan, candidate_id)
     if candidate is None:
         data = {
@@ -6020,9 +5995,8 @@ def memory_orchestrate_confirm(
         }
         if write_latest:
             latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_CONFIRM_LATEST_PATH, data, 0o664)
-            daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_CONFIRM_ROOT), data, 0o664)
             index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-            errors = [error for error in (latest_error, daily_error, index_error) if error]
+            errors = [error for error in (latest_error, index_error) if error]
             if errors:
                 data["write_errors"] = errors
         return data
@@ -6086,7 +6060,7 @@ def memory_orchestrate_confirm(
         },
         "paths": {
             "latest": str(MEMORY_ORCHESTRATE_CONFIRM_LATEST_PATH),
-            "daily_glob": str(MEMORY_ORCHESTRATE_CONFIRM_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "plan_latest": str(MEMORY_ORCHESTRATE_LATEST_PATH),
             "idle_latest": str(MEMORY_ORCHESTRATE_IDLE_LATEST_PATH),
             "apply_latest": str(MEMORY_ORCHESTRATE_APPLY_LATEST_PATH),
@@ -6110,9 +6084,8 @@ def memory_orchestrate_confirm(
     }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_CONFIRM_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_CONFIRM_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -6205,7 +6178,7 @@ def memory_orchestrate_confirmed_executor_preflight(
         },
         "paths": {
             "latest": str(MEMORY_ORCHESTRATE_EXECUTOR_LATEST_PATH),
-            "daily_glob": str(MEMORY_ORCHESTRATE_EXECUTOR_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "confirm_latest": str(MEMORY_ORCHESTRATE_CONFIRM_LATEST_PATH),
             "apply_latest": str(MEMORY_ORCHESTRATE_APPLY_LATEST_PATH),
             "live_latest": str(MEMORY_ORCHESTRATE_LIVE_LATEST_PATH),
@@ -6447,7 +6420,7 @@ def memory_orchestrate_live_executor(
         },
         "paths": {
             "latest": str(MEMORY_ORCHESTRATE_LIVE_LATEST_PATH),
-            "daily_glob": str(MEMORY_ORCHESTRATE_LIVE_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "apply_latest": str(MEMORY_ORCHESTRATE_APPLY_LATEST_PATH),
             "executor_latest": str(MEMORY_ORCHESTRATE_EXECUTOR_LATEST_PATH),
         },
@@ -6498,7 +6471,7 @@ def memory_orchestrate_live_executor(
             wait_result = memory_orchestrate_live_wait_rehydrate(candidate, timeout_sec=timeout_sec)
         else:
             wait_result = memory_orchestrate_live_wait_rehydrate(candidate, timeout_sec=30)
-        after_plan = memory_orchestrate_plan(top=40, write_latest=True)
+        after_plan = memory_orchestrate_plan(top=40, write_latest=False)
     except Exception as exc:  # Preserve after-state evidence instead of crashing after a possible restart.
         exception = {"type": type(exc).__name__, "message": str(exc)}
         try:
@@ -6639,7 +6612,7 @@ def memory_orchestrate_apply(
     top = max(10, min(int(top), 120))
     timeout_sec = max(30, min(int(timeout_sec or 180), 600))
     effective_dry_run = bool(dry_run) or not bool(confirm)
-    plan = memory_orchestrate_plan(top=top, write_latest=True)
+    plan = memory_orchestrate_plan(top=top, write_latest=False)
     candidate = memory_orchestrate_find_candidate(plan, candidate_id)
     if candidate is None:
         data = {
@@ -6677,9 +6650,8 @@ def memory_orchestrate_apply(
         }
         if write_latest:
             latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_APPLY_LATEST_PATH, data, 0o664)
-            daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_APPLY_ROOT), data, 0o664)
             index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-            errors = [error for error in (latest_error, daily_error, index_error) if error]
+            errors = [error for error in (latest_error, index_error) if error]
             if errors:
                 data["write_errors"] = errors
         return data
@@ -6793,7 +6765,7 @@ def memory_orchestrate_apply(
         },
         "paths": {
             "latest": str(MEMORY_ORCHESTRATE_APPLY_LATEST_PATH),
-            "daily_glob": str(MEMORY_ORCHESTRATE_APPLY_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
             "plan_latest": str(MEMORY_ORCHESTRATE_LATEST_PATH),
             "executor_latest": str(MEMORY_ORCHESTRATE_EXECUTOR_LATEST_PATH),
             "live_latest": str(MEMORY_ORCHESTRATE_LIVE_LATEST_PATH),
@@ -6821,17 +6793,14 @@ def memory_orchestrate_apply(
         executor_errors: list[dict[str, Any]] = []
         if executor_preflight:
             executor_latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_EXECUTOR_LATEST_PATH, executor_preflight, 0o664)
-            executor_daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_EXECUTOR_ROOT), executor_preflight, 0o664)
-            executor_errors = [error for error in (executor_latest_error, executor_daily_error) if error]
+            executor_errors = [error for error in (executor_latest_error,) if error]
         live_errors: list[dict[str, Any]] = []
         if live_executor:
             live_latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_LIVE_LATEST_PATH, live_executor, 0o664)
-            live_daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_LIVE_ROOT), live_executor, 0o664)
-            live_errors = [error for error in (live_latest_error, live_daily_error) if error]
+            live_errors = [error for error in (live_latest_error,) if error]
         latest_error = safe_atomic_write_json(MEMORY_ORCHESTRATE_APPLY_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(MEMORY_ORCHESTRATE_APPLY_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error] + executor_errors + live_errors
+        errors = [error for error in (latest_error, index_error) if error] + executor_errors + live_errors
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -17050,7 +17019,7 @@ def ai_cpu_launch(
     route_env = nested_get(route, ["route", "env"]) or {}
     blocked: list[str] = []
     normalized_class = str(nested_get(route, ["requested", "normalized_class"]) or workload_class or "medium").strip().lower()
-    memory = memory_plan(write_latest=True)
+    memory = memory_plan(write_latest=False)
     memory_policy = memory_policy_document()
     memory_gate = memory_launch_gate_for_class(str(memory.get("class") or "green"), normalized_class, unattended=unattended, policy=memory_policy)
     if not clean_command:
@@ -17179,7 +17148,7 @@ def resource_policy_document() -> dict[str, Any]:
 
 def resource_paths() -> dict[str, Any]:
     return {
-        "schema": f"{SCHEMA_PREFIX}_resource_paths_v1",
+        "schema": f"{SCHEMA_PREFIX}_resource_paths_v2",
         "version": VERSION,
         "generated_at": now_iso(),
         "root": str(RESOURCE_ROOT),
@@ -17189,15 +17158,15 @@ def resource_paths() -> dict[str, Any]:
         "latest": str(RESOURCE_LATEST_PATH),
         "plans": {
             "latest": str(RESOURCE_PLAN_LATEST_PATH),
-            "daily_glob": str(RESOURCE_PLAN_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
         },
         "runs": {
             "latest": str(RESOURCE_RUN_LATEST_PATH),
-            "daily_glob": str(RESOURCE_RUN_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
         },
         "orchestrator": {
             "latest": str(RESOURCE_ORCHESTRATOR_LATEST_PATH),
-            "daily_glob": str(RESOURCE_ORCHESTRATOR_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
         },
         "validate": str(RESOURCE_VALIDATE_LATEST_PATH),
         "commands": {
@@ -17653,9 +17622,7 @@ def resource_coalesced_live_inputs(
                     compatible=lambda value: str(value.get("schema") or "").endswith("_memory_status_v1"),
                 )
             if memory_status_data is None:
-                memory_status_data, elapsed_ms = resource_timed_collect(
-                    lambda: memory_status(write_latest=write_latest, append_history=False)
-                )
+                memory_status_data, elapsed_ms = resource_timed_collect(lambda: memory_status(write_latest=False))
                 freshness["memory"] = {
                     "status": "live_refresh",
                     "collection_ms": elapsed_ms,
@@ -17889,7 +17856,7 @@ def resource_plan(
         )
         pressure = resource_pressure_from_status(current_status, attribution)
         memory = memory_plan(
-            write_latest=write_latest,
+            write_latest=False,
             pressure_input=pressure,
             mode_input=mode,
             game_guard_input=game_guard,
@@ -17997,9 +17964,8 @@ def resource_plan(
     data["policy"]["bounded_latest_reuse_for_expensive_inputs"] = True
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_PLAN_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(RESOURCE_PLAN_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(RESOURCE_INDEX_PATH, resource_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -18107,8 +18073,6 @@ def resource_launch(
     estimate_source: str | None = None,
     estimate_confidence: str | None = None,
     startup_wait_sec: float | None = None,
-    queue_priority: int | None = None,
-    queue_deadline_sec: float | None = None,
     sample_thermal: bool | None = None,
     write_latest: bool = True,
 ) -> dict[str, Any]:
@@ -18123,7 +18087,6 @@ def resource_launch(
     policy = resource_policy_document()
     startup_policy = policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {}
     reservation_root = resource_adapters.reservations_root(os.environ, uid=os.getuid())
-    controller_runtime = resource_adapters.memory_controller_runtime_root(os.environ, uid=os.getuid())
     wait_timeout = (
         float(startup_policy.get("unknown_wait_timeout_sec", 20.0))
         if startup_wait_sec is None
@@ -18135,14 +18098,6 @@ def resource_launch(
     lease: dict[str, Any] | None = None
     lease_path: Path | None = None
     lease_released = False
-    queue_request: dict[str, Any] | None = None
-    queue_request_path: Path | None = None
-    queue_grant: dict[str, Any] | None = None
-    queue_request_released = False
-    queue_grant_released = False
-    queue_wait_timeout = False
-    queue_default_priority = {"agent": 50, "ai": 40, "generic": 30, "indexing": 20, "benchmark": 10}.get(kind, 0)
-    resolved_queue_priority = queue_default_priority if queue_priority is None else int(queue_priority)
     reservation_snapshot: dict[str, Any] = resource_adapters.reservation_snapshot(reservation_root, cleanup=False)
 
     plan_kwargs = {
@@ -18186,53 +18141,7 @@ def resource_launch(
                 elif not blocked_now and not denied_now:
                     requested = nested_get(plan, ["inputs", "startup_demand", "requested"])
                     requested = requested if isinstance(requested, dict) else {}
-                    controller_admission = resource_adapters.controller_admission_snapshot(controller_runtime)
-                    queue_eligible = bool(
-                        unattended
-                        and requested.get("reservation_required")
-                        and controller_admission.get("queue_live") is True
-                    )
-                    if queue_eligible:
-                        if queue_request is None:
-                            now_epoch = time.time()
-                            queue_window = wait_timeout if queue_deadline_sec is None else max(0.0, float(queue_deadline_sec))
-                            queue_request = {
-                                "schema": f"{SCHEMA_PREFIX}_memory_controller_queue_request_v1",
-                                "id": f"{launch_unit or 'resource-launch'}:{os.getpid()}:{time.time_ns()}",
-                                "owner": requested.get("owner") or demand_owner or kind,
-                                "priority": resolved_queue_priority,
-                                "posture": "background",
-                                "created_epoch": now_epoch,
-                                "deadline_epoch": now_epoch + queue_window,
-                                "launcher_pid": os.getpid(),
-                                "unit": launch_unit,
-                                "class": requested.get("class"),
-                                "kind": requested.get("kind"),
-                                "demand_mib": requested.get("demand_mib"),
-                                "demand_key": requested.get("key") or launch_unit,
-                                "estimate_source": requested.get("estimate_source"),
-                                "estimate_confidence": requested.get("estimate_confidence"),
-                            }
-                            queue_request_path = resource_adapters.atomic_write_controller_queue_request(controller_runtime, queue_request)
-                        queue_grant = resource_adapters.controller_queue_grant(
-                            controller_runtime,
-                            str(queue_request.get("id") or ""),
-                        )
-                        if queue_grant.get("status") != "granted":
-                            if time.monotonic() < wait_deadline:
-                                should_wait = True
-                            else:
-                                queue_wait_timeout = True
-                    elif queue_request is not None:
-                        queue_request_released = resource_adapters.remove_controller_queue_request(
-                            controller_runtime,
-                            str(queue_request.get("id") or ""),
-                        )
-                        queue_grant_released = resource_adapters.remove_controller_queue_grant(
-                            controller_runtime,
-                            str(queue_request.get("id") or ""),
-                        )
-                    if requested.get("reservation_required") and not should_wait and not queue_wait_timeout:
+                    if requested.get("reservation_required") and not should_wait:
                         now_epoch = time.time()
                         known = bool(requested.get("known"))
                         ttl_key = "known_demand_ttl_sec" if known else "unknown_demand_ttl_sec"
@@ -18256,26 +18165,14 @@ def resource_launch(
                             "startup_ttl_sec": ttl_sec,
                         }
                         lease_path = resource_adapters.atomic_write_lease(reservation_root, lease)
-                        if queue_request is not None:
-                            queue_request_released = resource_adapters.remove_controller_queue_request(
-                                controller_runtime,
-                                str(queue_request.get("id") or ""),
-                            )
-                            queue_grant_released = resource_adapters.remove_controller_queue_grant(
-                                controller_runtime,
-                                str(queue_request.get("id") or ""),
-                            )
             if not should_wait:
                 break
             wait_attempts += 1
-            wait_interval = 0.05 if queue_request is not None else 0.25
-            time.sleep(min(wait_interval, max(0.0, wait_deadline - time.monotonic())))
+            time.sleep(min(0.25, max(0.0, wait_deadline - time.monotonic())))
             waited_sec += max(0.0, time.monotonic() - wait_started)
 
     blocked = list(plan.get("blocked_reasons") or [])
     denied = list(plan.get("denied_reasons") or [])
-    if queue_wait_timeout:
-        blocked.append("memory_controller_queue_wait_timeout")
     if not clean_command:
         denied.append("missing_command")
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
@@ -18335,15 +18232,6 @@ def resource_launch(
         finally:
             if lease is not None:
                 lease_released = resource_adapters.remove_lease(reservation_root, str(lease.get("id") or ""))
-    if queue_request is not None:
-        queue_request_released = resource_adapters.remove_controller_queue_request(
-            controller_runtime,
-            str(queue_request.get("id") or ""),
-        ) or queue_request_released
-        queue_grant_released = resource_adapters.remove_controller_queue_grant(
-            controller_runtime,
-            str(queue_request.get("id") or ""),
-        ) or queue_grant_released
     data = {
         "schema": f"{SCHEMA_PREFIX}_resource_launch_v1",
         "version": VERSION,
@@ -18372,8 +18260,6 @@ def resource_launch(
             "estimate_source": estimate_source,
             "estimate_confidence": estimate_confidence,
             "startup_wait_sec": wait_timeout,
-            "queue_priority": resolved_queue_priority,
-            "queue_deadline_sec": queue_deadline_sec,
             "sample_thermal": None if sample_thermal is None else bool(sample_thermal),
         },
         "blocked_reasons": blocked,
@@ -18389,19 +18275,10 @@ def resource_launch(
             "lease": lease,
             "lease_path": str(lease_path) if lease_path is not None else None,
             "lease_released": lease_released,
-            "controller_queue": {
-                "runtime_root": str(controller_runtime),
-                "request": queue_request,
-                "request_path": str(queue_request_path) if queue_request_path is not None else None,
-                "grant": queue_grant,
-                "request_released": queue_request_released,
-                "grant_released": queue_grant_released,
-                "wait_timeout": queue_wait_timeout,
-            },
         },
         "paths": {
             "latest": str(RESOURCE_RUN_LATEST_PATH),
-            "daily_glob": str(RESOURCE_RUN_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
         },
         "policy": {
             "new_processes_only": True,
@@ -18412,41 +18289,14 @@ def resource_launch(
             "known_demand_materialization_subtracted": True,
             "unknown_demand_serializes_startup_only": True,
             "no_memory_max_or_swap_max_added": True,
-            "controller_queue_new_background_starts_only": True,
-            "controller_queue_falls_back_when_missing_or_stale": True,
-            "fresh_resource_plan_and_atomic_lease_after_grant": True,
+            "fresh_resource_plan_and_atomic_lease": True,
+            "resident_memory_controller_required": False,
         },
     }
-    controller_outcome_notification: dict[str, Any] = {"sent": False, "status": "not_an_executed_launch"}
-    if not dry_run and (result is not None or queue_request is not None):
-        requested = nested_get(plan, ["inputs", "startup_demand", "requested"])
-        requested = requested if isinstance(requested, dict) else {}
-        systemd_result = result.get("systemd") if isinstance(result, dict) and isinstance(result.get("systemd"), dict) else {}
-        queue_request_id = str((queue_request or {}).get("id") or "")
-        outcome_event = {
-            "schema": f"{SCHEMA_PREFIX}_memory_controller_event_v1",
-            "kind": "resource_launch_outcome",
-            "event_id": f"resource-outcome:{queue_request_id or launch_unit or os.getpid()}:{time.time_ns()}",
-            "details": {
-                "workload_id": requested.get("key") or launch_unit,
-                "owner": requested.get("owner") or demand_owner or kind,
-                "requested_mib": requested.get("demand_mib"),
-                "observed_peak_mib": resource_adapters.parse_systemd_memory_peak_mib(systemd_result.get("memory_peak")),
-                "queue_delay_sec": round(waited_sec, 3),
-                "elapsed_sec": elapsed,
-                "ok": bool(data["ok"]),
-                "queue_granted": bool(queue_grant and queue_grant.get("status") == "granted"),
-                "blocked_reasons": list(blocked),
-                "denied_reasons": list(denied),
-            },
-        }
-        controller_outcome_notification = resource_adapters.notify_memory_controller(controller_runtime, outcome_event)
-    data["startup_admission"]["controller_outcome_notification"] = controller_outcome_notification
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_RUN_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(RESOURCE_RUN_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(RESOURCE_INDEX_PATH, resource_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -18604,7 +18454,7 @@ def resource_orchestrator(refresh_nervous: bool = False, write_latest: bool = Tr
     add("ok" if capabilities.get("systemd_run_available") else "fail", "systemd_run", "systemd-run is available for resource launches", capabilities)
 
     status_data = resource_status(write_latest=True)
-    memory = memory_plan(write_latest=True)
+    memory = memory_plan(write_latest=False)
     storage = storage_pressure(refresh_inventory=False, write_latest=True)
     game_guard = process_game_guard(write_latest=True)
     thermal = resource_orchestrator_thermal_plan(timeout_sec=18.0)
@@ -18804,7 +18654,7 @@ def resource_orchestrator(refresh_nervous: bool = False, write_latest: bool = Tr
         "recommendations": recommendations,
         "paths": {
             "latest": str(RESOURCE_ORCHESTRATOR_LATEST_PATH),
-            "daily_glob": str(RESOURCE_ORCHESTRATOR_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "retention": "latest_only",
         },
         "commands": {
             "orchestrator": "abyss-machine resource orchestrator --json",
@@ -18824,9 +18674,8 @@ def resource_orchestrator(refresh_nervous: bool = False, write_latest: bool = Tr
     }
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_ORCHESTRATOR_LATEST_PATH, data, 0o664)
-        daily_error = safe_append_jsonl(ai_daily_jsonl_path(RESOURCE_ORCHESTRATOR_ROOT), data, 0o664)
         index_error = safe_atomic_write_json(RESOURCE_INDEX_PATH, resource_paths(), 0o664)
-        errors = [error for error in (latest_error, daily_error, index_error) if error]
+        errors = [error for error in (latest_error, index_error) if error]
         if errors:
             data["ok"] = False
             data["write_errors"] = errors
@@ -22562,7 +22411,7 @@ def nervous_semantic_maintain_batch_policy(
     resource_class: str,
     unattended: bool,
 ) -> dict[str, Any]:
-    memory = memory_plan(write_latest=True)
+    memory = memory_plan(write_latest=False)
     return build_nervous_semantic_batch_policy(
         semantic_status,
         maintain,
@@ -22598,7 +22447,7 @@ def nervous_semantic_maintain(
         semantic_status=lambda: nervous_semantic_status(write_latest=False),
         lock_active=nervous_semantic_lock_active,
         resource_launch=resource_launch,
-        memory_plan=lambda: memory_plan(write_latest=True),
+        memory_plan=lambda: memory_plan(write_latest=False),
         latest_writer=nervous_semantic_maintain_write_latest,
         json_parser=parse_json_stdout,
         min_delta_chunks=min_delta_chunks,
@@ -23321,7 +23170,7 @@ def nervous_brief(scope: str = "now", limit: int = 8, refresh: bool = False, wri
     derived_refresh = nervous_derived_refresh_status()
     synthesis = nervous_synthesis_latest()
     obs = observability_status()
-    memory = memory_plan(write_latest=True)
+    memory = memory_plan(write_latest=False)
     storage = storage_status(write_latest=True, full_ai_scan=False)
     processes = process_latest()
     resource = resource_status(write_latest=True)
@@ -32966,7 +32815,7 @@ def stack_bridge_artifact_routes() -> dict[str, dict[str, dict[str, Any]]]:
             "write_preflight": {"path": str(STORAGE_WRITE_PREFLIGHT_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_storage_write_preflight_v1", "truth_level": "mutation_gate_evidence"},
         },
         "memory": {
-            "index": {"path": str(MEMORY_INDEX_PATH), "schema": f"{SCHEMA_PREFIX}_memory_paths_v1", "truth_level": "host_contract"},
+            "index": {"path": str(MEMORY_INDEX_PATH), "schema": f"{SCHEMA_PREFIX}_memory_paths_v2", "truth_level": "host_contract"},
             "status": {"path": str(MEMORY_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_memory_status_v1", "truth_level": "latest_memory_evidence"},
             "pressure": {"path": str(MEMORY_PRESSURE_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_memory_pressure_v1", "truth_level": "latest_memory_pressure_evidence"},
             "processes": {"path": str(MEMORY_PROCESS_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_memory_processes_v1", "truth_level": "latest_memory_process_evidence"},
@@ -32974,7 +32823,7 @@ def stack_bridge_artifact_routes() -> dict[str, dict[str, dict[str, Any]]]:
             "validate": {"path": str(MEMORY_VALIDATE_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_memory_validate_v1", "truth_level": "latest_memory_contract_validation"},
         },
         "resource": {
-            "index": {"path": str(RESOURCE_INDEX_PATH), "schema": f"{SCHEMA_PREFIX}_resource_paths_v1", "truth_level": "host_contract"},
+            "index": {"path": str(RESOURCE_INDEX_PATH), "schema": f"{SCHEMA_PREFIX}_resource_paths_v2", "truth_level": "host_contract"},
             "status": {"path": str(RESOURCE_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_resource_status_v1", "truth_level": "latest_resource_state"},
             "plan": {"path": str(RESOURCE_PLAN_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_resource_plan_v1", "truth_level": "latest_unified_resource_plan"},
             "run": {"path": str(RESOURCE_RUN_LATEST_PATH), "schema": f"{SCHEMA_PREFIX}_resource_launch_v1", "truth_level": "latest_resource_launch_evidence"},
@@ -40478,7 +40327,7 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
             "docs": [MEMORY_AGENTS_PATH, MEMORY_POLICY_PATH, MEMORY_RESIDENCY_SPEC_PATH],
             "dirs": [MEMORY_ROOT, MEMORY_STATUS_ROOT, MEMORY_PRESSURE_ROOT, MEMORY_PROCESS_ROOT, MEMORY_PLAN_ROOT, MEMORY_HEADROOM_ROOT, MEMORY_RESIDENCY_ROOT, MEMORY_HOTPATH_ROOT, MEMORY_ORCHESTRATE_ROOT, MEMORY_ORCHESTRATE_APPLY_ROOT, MEMORY_ORCHESTRATE_IDLE_ROOT, MEMORY_ORCHESTRATE_CONFIRM_ROOT, MEMORY_ORCHESTRATE_EXECUTOR_ROOT, MEMORY_ORCHESTRATE_LIVE_ROOT, MEMORY_VALIDATE_ROOT],
             "json": [
-                ("memory_index", MEMORY_INDEX_PATH, f"{SCHEMA_PREFIX}_memory_paths_v1", False),
+                ("memory_index", MEMORY_INDEX_PATH, f"{SCHEMA_PREFIX}_memory_paths_v2", False),
                 ("memory_policy", MEMORY_POLICY_PATH, f"{SCHEMA_PREFIX}_memory_policy_v1", True),
                 ("memory_status", MEMORY_LATEST_PATH, f"{SCHEMA_PREFIX}_memory_status_v1", False),
                 ("memory_pressure", MEMORY_PRESSURE_LATEST_PATH, f"{SCHEMA_PREFIX}_memory_pressure_v1", False),
@@ -40504,7 +40353,7 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
             "docs": [RESOURCE_AGENTS_PATH, RESOURCE_POLICY_PATH],
             "dirs": [RESOURCE_ROOT, RESOURCE_PLAN_ROOT, RESOURCE_RUN_ROOT, RESOURCE_ORCHESTRATOR_ROOT, RESOURCE_VALIDATE_ROOT],
             "json": [
-                ("resource_index", RESOURCE_INDEX_PATH, f"{SCHEMA_PREFIX}_resource_paths_v1", False),
+                ("resource_index", RESOURCE_INDEX_PATH, f"{SCHEMA_PREFIX}_resource_paths_v2", False),
                 ("resource_policy", RESOURCE_POLICY_PATH, f"{SCHEMA_PREFIX}_resource_policy_v1", True),
                 ("resource_latest", RESOURCE_LATEST_PATH, f"{SCHEMA_PREFIX}_resource_status_v1", False),
                 ("resource_plan", RESOURCE_PLAN_LATEST_PATH, f"{SCHEMA_PREFIX}_resource_plan_v1", False),
@@ -45838,7 +45687,7 @@ def doctor_machine_report_input_port(no_thermal_sample: bool) -> doctor_adapters
             no_thermal_sample=no_thermal_sample,
             write_latest=True,
         ),
-        collect_memory_residency=lambda: memory_residency(top=40, write_latest=True),
+        collect_memory_residency=lambda: memory_residency(top=40, write_latest=False),
         collect_nervous_brief=lambda: nervous_brief(scope="now", limit=6, refresh=False, write_latest=True),
         read_ai_policy_latest=lambda: load_latest_json(AI_POLICY_LATEST_PATH, f"{SCHEMA_PREFIX}_ai_policy_latest_read_v1"),
         collect_ai_policy=lambda: ai_policy(write_latest=True),
@@ -51474,8 +51323,6 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--estimate-source", default=None, help="source of the startup demand estimate")
     resource_launch_parser.add_argument("--estimate-confidence", default=None, help="confidence label for the startup demand estimate")
     resource_launch_parser.add_argument("--startup-wait", type=float, default=None, help="seconds to wait for an unknown-demand startup lane")
-    resource_launch_parser.add_argument("--queue-priority", type=int, default=None, help="owner priority for live background-start queue")
-    resource_launch_parser.add_argument("--queue-deadline", type=float, default=None, help="seconds before this queued background start expires")
     resource_launch_parser.add_argument("--no-thermal-sample", action="store_true", help="use latest thermal plan instead of taking a fresh sample")
     resource_launch_parser.add_argument("--success-on-block", action="store_true", help="return success when an overrideable gate blocks a scheduled launch")
     resource_launch_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -53763,42 +53610,42 @@ def main(argv: list[str]) -> int:
                 print(f"memory policy: exists={data.get('config_exists')} actions={data.get('actions')}")
             return 0
         if args.memory_command == "status":
-            data = memory_status(write_latest=True)
+            data = memory_status(write_latest=False)
             if args.json:
                 print_json(data)
             else:
                 print_memory_status_text(data)
             return 0 if data.get("ok") else 1
         if args.memory_command == "pressure":
-            data = memory_pressure(top=int(args.top), write_latest=True)
+            data = memory_pressure(top=int(args.top), write_latest=False)
             if args.json:
                 print_json(data)
             else:
                 print_memory_pressure_text(data)
             return 0 if data.get("ok") else 1
         if args.memory_command == "processes":
-            data = memory_process_snapshot(top=int(args.top), smaps=not bool(args.no_smaps), write_latest=True)
+            data = memory_process_snapshot(top=int(args.top), smaps=not bool(args.no_smaps), write_latest=False)
             if args.json:
                 print_json(data)
             else:
                 print_memory_pressure_text({"ok": data.get("ok"), "class": "unknown", "summary": data.get("summary"), "processes": {"top": data.get("top", {})}})
             return 0 if data.get("ok") else 1
         if args.memory_command == "plan":
-            data = memory_plan(write_latest=True)
+            data = memory_plan(write_latest=False)
             if args.json:
                 print_json(data)
             else:
                 print_memory_plan_text(data)
             return 0 if data.get("ok") else 1
         if args.memory_command == "headroom":
-            data = memory_headroom(top=int(args.top), write_latest=True)
+            data = memory_headroom(top=int(args.top), write_latest=False)
             if args.json:
                 print_json(data)
             else:
                 print_memory_headroom_text(data)
             return 0 if data.get("ok") else 1
         if args.memory_command == "residency":
-            data = memory_residency(top=int(args.top), write_latest=True)
+            data = memory_residency(top=int(args.top), write_latest=False)
             if args.json:
                 print_json(data)
             else:
@@ -53821,7 +53668,7 @@ def main(argv: list[str]) -> int:
             return 0 if data.get("ok") else 1
         if args.memory_command == "orchestrate":
             if args.memory_orchestrate_command == "plan":
-                data = memory_orchestrate_plan(top=int(getattr(args, "top", 40)), write_latest=True)
+                data = memory_orchestrate_plan(top=int(getattr(args, "top", 40)), write_latest=False)
                 if args.json:
                     print_json(data)
                 else:
@@ -53832,7 +53679,7 @@ def main(argv: list[str]) -> int:
                     candidate_id=str(getattr(args, "candidate", "")),
                     top=int(getattr(args, "top", 40)),
                     sample_sec=float(getattr(args, "sample_sec", 0.5)),
-                    write_latest=True,
+                    write_latest=False,
                 )
                 if args.json:
                     print_json(data)
@@ -53953,8 +53800,6 @@ def main(argv: list[str]) -> int:
                 estimate_source=args.estimate_source,
                 estimate_confidence=args.estimate_confidence,
                 startup_wait_sec=args.startup_wait,
-                queue_priority=args.queue_priority,
-                queue_deadline_sec=args.queue_deadline,
                 sample_thermal=False if bool(args.no_thermal_sample) else None,
                 write_latest=True,
             )

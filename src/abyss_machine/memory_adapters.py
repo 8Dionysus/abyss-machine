@@ -379,7 +379,6 @@ def hotpath_probe_document(
 
     probe_failed = any(not item.get("ok") for item in tts_runs) or any(not item.get("ok") for item in stt_runs)
     status = "failed" if probe_failed else ("watch" if issues else "ok")
-    root = Path(str(paths_refs.get("root", ""))) if paths_refs.get("root") else None
     return {
         "schema": f"{schema_prefix}_memory_hotpath_probe_v1",
         "version": version,
@@ -449,7 +448,7 @@ def hotpath_probe_document(
         },
         "paths": {
             "latest": str(paths_refs.get("latest")),
-            "daily_glob": str(root / "YYYY" / "MM" / "YYYY-MM-DD.jsonl") if root else None,
+            "retention": "latest_only",
             "memory_residency_latest": str(paths_refs.get("memory_residency_latest")),
             "tts_latest": str(paths_refs.get("tts_latest")),
             "llm_micro_latest": str(paths_refs.get("llm_micro_latest")),

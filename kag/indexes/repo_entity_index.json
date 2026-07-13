@@ -789,6 +789,20 @@
         "artifact_kind": "document",
         "code_role": "none",
         "command_role": "none",
+        "document_role": "decision",
+        "mechanics_role": "none",
+        "surface_state": "authored_source"
+      },
+      "entity_kind": "decision",
+      "id": "entity:file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
+      "label": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3"
+    },
+    {
+      "coordinates": {
+        "artifact_kind": "document",
+        "code_role": "none",
+        "command_role": "none",
         "document_role": "agents",
         "mechanics_role": "none",
         "surface_state": "authored_source"
@@ -1049,34 +1063,6 @@
       "id": "entity:file:config-templates/etc/abyss-machine/maps-policy.json:ac03469e0c",
       "label": "config-templates/etc/abyss-machine/maps-policy.json",
       "source_record_id": "file:config-templates/etc/abyss-machine/maps-policy.json:ac03469e0c"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "config",
-        "code_role": "none",
-        "command_role": "none",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "artifact",
-      "id": "entity:file:config-templates/etc/abyss-machine/memory-controller-policy.json:e29af5b16e",
-      "label": "config-templates/etc/abyss-machine/memory-controller-policy.json",
-      "source_record_id": "file:config-templates/etc/abyss-machine/memory-controller-policy.json:e29af5b16e"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "config",
-        "code_role": "none",
-        "command_role": "none",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "artifact",
-      "id": "entity:file:config-templates/etc/abyss-machine/memory-controller-registry.json:537c3bb564",
-      "label": "config-templates/etc/abyss-machine/memory-controller-registry.json",
-      "source_record_id": "file:config-templates/etc/abyss-machine/memory-controller-registry.json:537c3bb564"
     },
     {
       "coordinates": {
@@ -1357,20 +1343,6 @@
       "id": "entity:file:docs/install/readme.md:a120db8f77",
       "label": "docs/install/README.md",
       "source_record_id": "file:docs/install/readme.md:a120db8f77"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "document",
-        "code_role": "none",
-        "command_role": "none",
-        "document_role": "unknown_document",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "document",
-      "id": "entity:file:docs/operations/memory_controller.md:44676a71cc",
-      "label": "docs/operations/MEMORY_CONTROLLER.md",
-      "source_record_id": "file:docs/operations/memory_controller.md:44676a71cc"
     },
     {
       "coordinates": {
@@ -3398,20 +3370,6 @@
         "surface_state": "authored_source"
       },
       "entity_kind": "command",
-      "id": "entity:file:scripts/validators/memory_controller_upgrade_rehearsal.py:0812ad48c1",
-      "label": "scripts/validators/memory_controller_upgrade_rehearsal.py",
-      "source_record_id": "file:scripts/validators/memory_controller_upgrade_rehearsal.py:0812ad48c1"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "script",
-        "code_role": "entrypoint",
-        "command_role": "script",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "command",
       "id": "entity:file:scripts/validators/path_policy.py:f4123b5232",
       "label": "scripts/validators/path_policy.py",
       "source_record_id": "file:scripts/validators/path_policy.py:f4123b5232"
@@ -3880,20 +3838,6 @@
     },
     {
       "coordinates": {
-        "artifact_kind": "script",
-        "code_role": "entrypoint",
-        "command_role": "script",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "command",
-      "id": "entity:file:src/abyss_machine/entrypoint.py:c7714d0f37",
-      "label": "src/abyss_machine/entrypoint.py",
-      "source_record_id": "file:src/abyss_machine/entrypoint.py:c7714d0f37"
-    },
-    {
-      "coordinates": {
         "artifact_kind": "source_code",
         "code_role": "source_module",
         "command_role": "none",
@@ -3933,62 +3877,6 @@
       "id": "entity:file:src/abyss_machine/memory_contracts.py:73e1eb706f",
       "label": "src/abyss_machine/memory_contracts.py",
       "source_record_id": "file:src/abyss_machine/memory_contracts.py:73e1eb706f"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "source_code",
-        "code_role": "source_module",
-        "command_role": "none",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "code",
-      "id": "entity:file:src/abyss_machine/memory_controller_adapters.py:3e65a6b139",
-      "label": "src/abyss_machine/memory_controller_adapters.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_adapters.py:3e65a6b139"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "source_code",
-        "code_role": "source_module",
-        "command_role": "none",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "code",
-      "id": "entity:file:src/abyss_machine/memory_controller_contracts.py:3296a276d4",
-      "label": "src/abyss_machine/memory_controller_contracts.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_contracts.py:3296a276d4"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "source_code",
-        "code_role": "source_module",
-        "command_role": "none",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "code",
-      "id": "entity:file:src/abyss_machine/memory_controller_lifecycle.py:3519e059a2",
-      "label": "src/abyss_machine/memory_controller_lifecycle.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_lifecycle.py:3519e059a2"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "source_code",
-        "code_role": "source_module",
-        "command_role": "none",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "code",
-      "id": "entity:file:src/abyss_machine/memory_controller_service.py:37331316da",
-      "label": "src/abyss_machine/memory_controller_service.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_service.py:37331316da"
     },
     {
       "coordinates": {
@@ -5736,20 +5624,6 @@
         "surface_state": "authored_source"
       },
       "entity_kind": "artifact",
-      "id": "entity:file:systemd/user/abyss-memory-controller.service:89c82c093f",
-      "label": "systemd/user/abyss-memory-controller.service",
-      "source_record_id": "file:systemd/user/abyss-memory-controller.service:89c82c093f"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "service_unit",
-        "code_role": "none",
-        "command_role": "none",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "artifact",
       "id": "entity:file:systemd/user/abyss-mirror.service:d34499e5c3",
       "label": "systemd/user/abyss-mirror.service",
       "source_record_id": "file:systemd/user/abyss-mirror.service:d34499e5c3"
@@ -6901,76 +6775,6 @@
       "id": "entity:file:tests/public_smoke/test_memory_contracts.py:63edd4cace",
       "label": "tests/public_smoke/test_memory_contracts.py",
       "source_record_id": "file:tests/public_smoke/test_memory_contracts.py:63edd4cace"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "test",
-        "code_role": "test",
-        "command_role": "test",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "command",
-      "id": "entity:file:tests/public_smoke/test_memory_controller_adapters.py:eaeffa9788",
-      "label": "tests/public_smoke/test_memory_controller_adapters.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_adapters.py:eaeffa9788"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "test",
-        "code_role": "test",
-        "command_role": "test",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "command",
-      "id": "entity:file:tests/public_smoke/test_memory_controller_contracts.py:380a1b582a",
-      "label": "tests/public_smoke/test_memory_controller_contracts.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_contracts.py:380a1b582a"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "test",
-        "code_role": "test",
-        "command_role": "test",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "command",
-      "id": "entity:file:tests/public_smoke/test_memory_controller_lifecycle.py:304f9ab96c",
-      "label": "tests/public_smoke/test_memory_controller_lifecycle.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_lifecycle.py:304f9ab96c"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "test",
-        "code_role": "test",
-        "command_role": "test",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "command",
-      "id": "entity:file:tests/public_smoke/test_memory_controller_service.py:95c5854a98",
-      "label": "tests/public_smoke/test_memory_controller_service.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_service.py:95c5854a98"
-    },
-    {
-      "coordinates": {
-        "artifact_kind": "test",
-        "code_role": "test",
-        "command_role": "test",
-        "document_role": "none",
-        "mechanics_role": "none",
-        "surface_state": "authored_source"
-      },
-      "entity_kind": "command",
-      "id": "entity:file:tests/public_smoke/test_memory_controller_upgrade_rehearsal.py:32747d0e22",
-      "label": "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_upgrade_rehearsal.py:32747d0e22"
     },
     {
       "coordinates": {
@@ -8599,7 +8403,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_entity_index",
-    "content_digest": "2986af35c736b1c5fe3bda446b3ff453fd10fc9e15d1c2e76f19e4d849359e8b",
+    "content_digest": "3e448726820f82cc674d3389b70279e35b232d2f0a2e89765c74593adbad8d17",
     "index_kind": "entity",
     "local_id": "index:repo-local:entities",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -8622,20 +8426,20 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "2ec7c5dbf0131aeecce479ac485985da89f387de6df0b544d6e811655a04e470",
+    "content_digest": "3020c5fa29c1ce6f36a8e88879e07af7f7138d6b38aa0834a674a82ec619bce4",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 614,
+    "entry_count": 600,
     "kind_counts": {
       "agent_route": 48,
-      "artifact": 94,
-      "code": 117,
-      "command": 184,
+      "artifact": 91,
+      "code": 113,
+      "command": 177,
       "contract": 8,
-      "decision": 21,
-      "document": 47,
+      "decision": 22,
+      "document": 46,
       "manifest": 13,
       "mechanic_package": 66,
       "mechanic_part": 8,

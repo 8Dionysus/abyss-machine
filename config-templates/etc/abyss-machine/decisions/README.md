@@ -102,6 +102,7 @@ movement for that decision only.
 | 0018 | [Self-Awareness Observability Layer](0018-self-awareness-observability-layer.md) | `0018-self-awareness-observability-layer.md` | self-awareness, stack-bridge, observability, owner-boundary, validation-guard | active bridge rationale |
 | 0019 | [Self-Awareness Full Stack Coverage](0019-self-awareness-full-stack-coverage.md) | `0019-self-awareness-full-stack-coverage.md` | self-awareness, stack-bridge, langgraph, observability, ai-resident, rag, owner-boundary, validation-guard | active coverage rationale |
 | 0020 | [Artifact Evidence Cleanup Route](0020-artifact-evidence-cleanup-route.md) | `0020-artifact-evidence-cleanup-route.md` | artifacts, storage-topology, ai-cache, vault-restore, validation-guard | active cleanup evidence rationale |
+| 0021 | [Owner-Native Memory Orchestration](0021-owner-native-memory-orchestration.md) | `0021-owner-native-memory-orchestration.md` | memory, resource-gate, owner-boundary, runtime-lifecycle, validation-guard | active owner-boundary rationale |
 
 ## Index By Surface Class
 
@@ -138,6 +139,7 @@ movement for that decision only.
 - [0017 Stack Observability Bridge Consumer](0017-stack-observability-bridge-consumer.md)
 - [0018 Self-Awareness Observability Layer](0018-self-awareness-observability-layer.md)
 - [0019 Self-Awareness Full Stack Coverage](0019-self-awareness-full-stack-coverage.md)
+- [0021 Owner-Native Memory Orchestration](0021-owner-native-memory-orchestration.md)
 
 ### AI / Resident Selection
 
@@ -217,6 +219,7 @@ Route:
 - self-awareness full stack coverage: [0019](0019-self-awareness-full-stack-coverage.md)
 - resident stack-organ evidence: [0019](0019-self-awareness-full-stack-coverage.md)
 - artifact cleanup evidence and vault restore guard: [0020](0020-artifact-evidence-cleanup-route.md)
+- owner-native memory lifecycle and coordinator admission gate: [0021](0021-owner-native-memory-orchestration.md)
 
 ## Promotion Path
 

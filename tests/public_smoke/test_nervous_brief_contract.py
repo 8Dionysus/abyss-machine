@@ -318,7 +318,7 @@ def test_cli_nervous_brief_delegates_document_shape_to_module(monkeypatch) -> No
         ("derived",),
         ("synthesis",),
         ("observability",),
-        ("memory", {"write_latest": True}),
+        ("memory", {"write_latest": False}),
         ("storage", {"write_latest": True, "full_ai_scan": False}),
         ("processes",),
         ("resource", {"write_latest": True}),

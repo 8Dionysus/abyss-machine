@@ -106,7 +106,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "2f519ecba4ca9ee8dc07ef1cca80d1de7dcc99349d3be7b99f36e7139240afb0",
+      "content_hash": "bdf3b6ddeaf688adecd8b1af4ed052d2564af3b13af0bcee1f8b1854fce98008",
       "id": "artifact:file:readme.md:b335630551",
       "path": "README.md",
       "source_record_id": "file:readme.md:b335630551",
@@ -154,7 +154,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "a828f4d9d92cd596dbc03c65c9c288fcfaa6474cfe3c050bf80361a16a5c3a55",
+      "content_hash": "0a7457f4d5c90dce3dab4c8460605491eec6ec8cac6c9be1721b8caab7239c52",
       "id": "artifact:file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3",
       "path": "config-templates/etc/abyss-machine/CHANGELOG.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/changelog.md:5c8be2b5d3",
@@ -266,7 +266,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "f2c149df77ef0f8dc47e0b773ff4cf5087983fad772d872dac14943b603c5c41",
+      "content_hash": "af43294935f266d0ab840d56cbf4daa665c78fcbaad9716773e67953d4b31833",
       "id": "artifact:file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
       "path": "config-templates/etc/abyss-machine/commands.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/commands.md:5438f6db50",
@@ -322,7 +322,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "5459b78c6659b0c076071c5ba97d63db6fd06ffde4c094851c1543ab0fda620c",
+      "content_hash": "d668b2f9226ada407f59e93a3844ab3585e68cc79790907c2621ce3e15fe115e",
       "id": "artifact:file:config-templates/etc/abyss-machine/decisions/0005-zram-headroom-routing.md:ef2a059c2b",
       "path": "config-templates/etc/abyss-machine/decisions/0005-zram-headroom-routing.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0005-zram-headroom-routing.md:ef2a059c2b",
@@ -450,6 +450,14 @@
     },
     {
       "artifact_kind": "document",
+      "content_hash": "10de893a3bbafaf074eae9afa4d1a5707c8b9f6b32c31caf9986b24039ca8081",
+      "id": "artifact:file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
+      "path": "config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md",
+      "source_record_id": "file:config-templates/etc/abyss-machine/decisions/0021-owner-native-memory-orchestration.md:f2c13c54f3",
+      "surface_state": "authored_source"
+    },
+    {
+      "artifact_kind": "document",
       "content_hash": "71ef20982513f2c7b096bd3c00559e7bc880e8e0b926a7ae56d7e19f8e8a2524",
       "id": "artifact:file:config-templates/etc/abyss-machine/decisions/agents.md:1133be7f95",
       "path": "config-templates/etc/abyss-machine/decisions/AGENTS.md",
@@ -458,7 +466,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "5f73afa454980e69acbed84d3d68c3451dc04b7ad97cbc197dcff865416e7030",
+      "content_hash": "f4299cafb0a626ec9c628e7f0514a1bab6ccdf1b59016dd8469a148d87a45263",
       "id": "artifact:file:config-templates/etc/abyss-machine/decisions/readme.md:1dc9bda5ca",
       "path": "config-templates/etc/abyss-machine/decisions/README.md",
       "source_record_id": "file:config-templates/etc/abyss-machine/decisions/readme.md:1dc9bda5ca",
@@ -602,22 +610,6 @@
     },
     {
       "artifact_kind": "config",
-      "content_hash": "bd57b3a9bbc44a7a51fa4fdc1fb87eb8cbea38d630d594c90a737cc01ad377a5",
-      "id": "artifact:file:config-templates/etc/abyss-machine/memory-controller-policy.json:e29af5b16e",
-      "path": "config-templates/etc/abyss-machine/memory-controller-policy.json",
-      "source_record_id": "file:config-templates/etc/abyss-machine/memory-controller-policy.json:e29af5b16e",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "config",
-      "content_hash": "b3b8f366516c45c943be1eca8863692b15f18a58c7065fecb313145ba6e6de2e",
-      "id": "artifact:file:config-templates/etc/abyss-machine/memory-controller-registry.json:537c3bb564",
-      "path": "config-templates/etc/abyss-machine/memory-controller-registry.json",
-      "source_record_id": "file:config-templates/etc/abyss-machine/memory-controller-registry.json:537c3bb564",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "config",
       "content_hash": "bc3a35e717b85c9a4e733adae5dedccb178122e0c425c4a3d9a66bcce0280c17",
       "id": "artifact:file:config-templates/etc/abyss-machine/memory-policy.json:6c461971ea",
       "path": "config-templates/etc/abyss-machine/memory-policy.json",
@@ -698,7 +690,7 @@
     },
     {
       "artifact_kind": "config",
-      "content_hash": "eeaf2ec32087f543613c2c29b1fa196af8e8c9a5eb886344fdac0f8dfa66a4a9",
+      "content_hash": "70d3291630ca4ecc6713c412a6af74fb96cf5b3354a665f1df3d557723a5e603",
       "id": "artifact:file:config-templates/etc/abyss-machine/stack-bridge.json:af37b57072",
       "path": "config-templates/etc/abyss-machine/stack-bridge.json",
       "source_record_id": "file:config-templates/etc/abyss-machine/stack-bridge.json:af37b57072",
@@ -746,7 +738,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "75d07bc5bad4232ffead5a45ab4430dfe934df4e7de262db82ccb43d964cf8e8",
+      "content_hash": "cf3741de8a8367da1684e4f402682d3bdcfbdf8d20844705e62a7dd9f7717480",
       "id": "artifact:file:docs/host/live_adapters.md:42934316d8",
       "path": "docs/host/LIVE_ADAPTERS.md",
       "source_record_id": "file:docs/host/live_adapters.md:42934316d8",
@@ -762,7 +754,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "9d7df52c841dd0f2831a2e477897dacec1f80c06be115de0e96f22342733a458",
+      "content_hash": "a3e4a63e144a3719e1cd0c7883cebee2c8684a832a38cabb529b479a9c5b2e81",
       "id": "artifact:file:docs/host/subsystem_commands.md:c005361b7c",
       "path": "docs/host/SUBSYSTEM_COMMANDS.md",
       "source_record_id": "file:docs/host/subsystem_commands.md:c005361b7c",
@@ -770,7 +762,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "3f5e34d53ced994efcc3a6942cc3bb5a23004db641e14c6ffda354755460b1a4",
+      "content_hash": "1b0d67417d9994752fbe510b1727c4c6ced926587b2bbe90a6fcbd52a33ddeb6",
       "id": "artifact:file:docs/install/readme.md:a120db8f77",
       "path": "docs/install/README.md",
       "source_record_id": "file:docs/install/readme.md:a120db8f77",
@@ -778,15 +770,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "ee4ec32e4c03809b6294327b94cc1af364510234507b68c31c5aaee4ad48d2f1",
-      "id": "artifact:file:docs/operations/memory_controller.md:44676a71cc",
-      "path": "docs/operations/MEMORY_CONTROLLER.md",
-      "source_record_id": "file:docs/operations/memory_controller.md:44676a71cc",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "document",
-      "content_hash": "65e6b05ea98fe70147dc62533a253d3a8b0c63c0e94f2b97beb14d860720e2ef",
+      "content_hash": "e01e24adc690e29886bf82b3a416a601197058cddb27f724527678aff05ecae6",
       "id": "artifact:file:docs/operations/readme.md:3492caf43a",
       "path": "docs/operations/README.md",
       "source_record_id": "file:docs/operations/readme.md:3492caf43a",
@@ -802,7 +786,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "beee7985b4ddabefcb3c250f8d931ef04f285f684a2344181887a43281e15460",
+      "content_hash": "9f1ccc0776c96187b41c07cf24edc90aa2916170e899fc731ffb813b1dd37cac",
       "id": "artifact:file:docs/publication/publication_boundary.md:ab5fe111b3",
       "path": "docs/publication/PUBLICATION_BOUNDARY.md",
       "source_record_id": "file:docs/publication/publication_boundary.md:ab5fe111b3",
@@ -906,7 +890,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "c083f505329ee3631999fec3a617d2e13cda8d40d76ac63e12165279e59091ad",
+      "content_hash": "bb4e3c8b42194a0add92cb72f5d3c06451ad8d797cf1ca15d912443614f348dd",
       "id": "artifact:file:generated/contract_abi_signatures.min.json:81b23f676a",
       "path": "generated/contract_abi_signatures.min.json",
       "source_record_id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
@@ -914,7 +898,7 @@
     },
     {
       "artifact_kind": "generated_readmodel",
-      "content_hash": "9f26698ab3efacd5308ac4cb0422c3921adee0c35f80422c8335a011c1543c54",
+      "content_hash": "5cb177b16c9a4e9b2cbb50ea6cf45d6831758f0795a586d04feb3a013630da3a",
       "id": "artifact:file:generated/scaffold_index.min.json:0527a4f31c",
       "path": "generated/scaffold_index.min.json",
       "source_record_id": "file:generated/scaffold_index.min.json:0527a4f31c",
@@ -1082,7 +1066,7 @@
     },
     {
       "artifact_kind": "manifest",
-      "content_hash": "bb0290792a910c27383ea141fb3abcc7af540296a0675bf4240844311535b809",
+      "content_hash": "1d3a48da3c8d8c3af0f73da6cd62b59f6a95669c19debc90c236ea410289c97e",
       "id": "artifact:file:manifests/bootstrap_profiles.manifest.json:0bda5b50fd",
       "path": "manifests/bootstrap_profiles.manifest.json",
       "source_record_id": "file:manifests/bootstrap_profiles.manifest.json:0bda5b50fd",
@@ -1706,7 +1690,7 @@
     },
     {
       "artifact_kind": "manifest",
-      "content_hash": "e6de97efb6789a35ad6cedffb350b22218ea02c2641ad6fe1778f31801464e00",
+      "content_hash": "5ddd6f48f305282a20d00c6ed8579cef5b4e38645c89810fc75d5b257e8d56aa",
       "id": "artifact:file:pyproject.toml:50c86b7ed8",
       "path": "pyproject.toml",
       "source_record_id": "file:pyproject.toml:50c86b7ed8",
@@ -1818,7 +1802,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "d7699f7779fb12ca81a4097fa79ff05207221b53237ac7254b11426569bb31c8",
+      "content_hash": "f4009eb7ad2fb033a53dbd476efee9f6930e4073f1a4bcfd2eab677c4a444a76",
       "id": "artifact:file:scripts/abyss-machine-bootstrap:2dc6fb84c6",
       "path": "scripts/abyss-machine-bootstrap",
       "source_record_id": "file:scripts/abyss-machine-bootstrap:2dc6fb84c6",
@@ -1874,7 +1858,7 @@
     },
     {
       "artifact_kind": "document",
-      "content_hash": "b47f67c45b27076cc530c168d20170b79312b9ba4650f150550230b1e265ef77",
+      "content_hash": "3defe5850f20cabeeba1708f3049b3c7ca360f635caa305d213a0cebd8d70ce7",
       "id": "artifact:file:scripts/validators/readme.md:32de82cda8",
       "path": "scripts/validators/README.md",
       "source_record_id": "file:scripts/validators/readme.md:32de82cda8",
@@ -1914,7 +1898,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "f6c9807b4e8a0ed9ddef0fb3e15d83d2faa8d6b3023dc583dfb8ecb412df1fa6",
+      "content_hash": "9f1503bfa7a709f02ba6824583bb35b7f368cb68367236a8dfb8b372f8975149",
       "id": "artifact:file:scripts/validators/first_run_installed_projection.py:a72880428c",
       "path": "scripts/validators/first_run_installed_projection.py",
       "source_record_id": "file:scripts/validators/first_run_installed_projection.py:a72880428c",
@@ -1934,14 +1918,6 @@
       "id": "artifact:file:scripts/validators/mechanics_topology.py:8a17eb090b",
       "path": "scripts/validators/mechanics_topology.py",
       "source_record_id": "file:scripts/validators/mechanics_topology.py:8a17eb090b",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "script",
-      "content_hash": "5ead579e35071e18d35ed299625ad0b0fc1f739813962a0c48ed2ba6024e9c90",
-      "id": "artifact:file:scripts/validators/memory_controller_upgrade_rehearsal.py:0812ad48c1",
-      "path": "scripts/validators/memory_controller_upgrade_rehearsal.py",
-      "source_record_id": "file:scripts/validators/memory_controller_upgrade_rehearsal.py:0812ad48c1",
       "surface_state": "authored_source"
     },
     {
@@ -2074,7 +2050,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "6e3f6922d67cd34b7d618d290c831fc2895136f6863a337c7e57390e14b8aaa6",
+      "content_hash": "c1930859ccd8f04e3558daf9a626b05fbd8240445e3633a959bf17b8bd6143d2",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -2217,16 +2193,8 @@
       "surface_state": "authored_source"
     },
     {
-      "artifact_kind": "script",
-      "content_hash": "1dbec1f56da3591038811c834b1198e2f0ce95d02324933007f2a70d9b6984d3",
-      "id": "artifact:file:src/abyss_machine/entrypoint.py:c7714d0f37",
-      "path": "src/abyss_machine/entrypoint.py",
-      "source_record_id": "file:src/abyss_machine/entrypoint.py:c7714d0f37",
-      "surface_state": "authored_source"
-    },
-    {
       "artifact_kind": "source_code",
-      "content_hash": "1ade26128862b1d5e7e16b6356af91f315dc563b682053ae78675b2763b13afb",
+      "content_hash": "718dbe2a566b95057eb66f7cd0214f740e5b275a56f148fcf91c84d93ded2ce7",
       "id": "artifact:file:src/abyss_machine/host_lifecycle_parity.py:7a252f7bd4",
       "path": "src/abyss_machine/host_lifecycle_parity.py",
       "source_record_id": "file:src/abyss_machine/host_lifecycle_parity.py:7a252f7bd4",
@@ -2234,7 +2202,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "e7ea3bc188704c5ff7b5fe8f829d3905a40aaa06e8cbfa2eecc85ab04f7d1ebf",
+      "content_hash": "68b011f084ce90567aa2c514c0eead3141f6e1fb27e13dada50ded84571fb716",
       "id": "artifact:file:src/abyss_machine/memory_adapters.py:54ff75dda2",
       "path": "src/abyss_machine/memory_adapters.py",
       "source_record_id": "file:src/abyss_machine/memory_adapters.py:54ff75dda2",
@@ -2242,42 +2210,10 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "d3a947911a86148d2518333da590fcf0b75122dda55f81c85a5344b356c487ef",
+      "content_hash": "06a5c1fc2c46d28f59bd4f34ab4bfcd01f11ac2b0e89cd9424e3be8414cfdd69",
       "id": "artifact:file:src/abyss_machine/memory_contracts.py:73e1eb706f",
       "path": "src/abyss_machine/memory_contracts.py",
       "source_record_id": "file:src/abyss_machine/memory_contracts.py:73e1eb706f",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "source_code",
-      "content_hash": "7ef2b7aa782bdf3a008680be077f142fba0d078e62ab16e056dfa64ac1ed6603",
-      "id": "artifact:file:src/abyss_machine/memory_controller_adapters.py:3e65a6b139",
-      "path": "src/abyss_machine/memory_controller_adapters.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_adapters.py:3e65a6b139",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "source_code",
-      "content_hash": "383a3daeb54c7acdf7335b364506a6c307827d48f292dfae3b52a71b3473a240",
-      "id": "artifact:file:src/abyss_machine/memory_controller_contracts.py:3296a276d4",
-      "path": "src/abyss_machine/memory_controller_contracts.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_contracts.py:3296a276d4",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "source_code",
-      "content_hash": "0c97614044f9db36951462374714dcb79247466fc7555ba159c68e40a07d9fd7",
-      "id": "artifact:file:src/abyss_machine/memory_controller_lifecycle.py:3519e059a2",
-      "path": "src/abyss_machine/memory_controller_lifecycle.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_lifecycle.py:3519e059a2",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "source_code",
-      "content_hash": "ed515f692c0ba6c6af9b03eb5ff460b7b03a25af5f98006ba688027a59846c97",
-      "id": "artifact:file:src/abyss_machine/memory_controller_service.py:37331316da",
-      "path": "src/abyss_machine/memory_controller_service.py",
-      "source_record_id": "file:src/abyss_machine/memory_controller_service.py:37331316da",
       "surface_state": "authored_source"
     },
     {
@@ -2554,7 +2490,7 @@
     },
     {
       "artifact_kind": "source_code",
-      "content_hash": "00773b82fcf2eee6ccb9260eea7cadc9bf20112d8f8cc787aa3102c73d86240a",
+      "content_hash": "66b233553f55a0f406b36bae357d53ad61d69ca103087445664f695fcbc72ce1",
       "id": "artifact:file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
       "path": "src/abyss_machine/resource_adapters.py",
       "source_record_id": "file:src/abyss_machine/resource_adapters.py:7fe0ab5050",
@@ -3274,14 +3210,6 @@
     },
     {
       "artifact_kind": "service_unit",
-      "content_hash": "b159eece443e831edcc54d1fba020353f93e617ea04d88275fab852d6cc0c3b8",
-      "id": "artifact:file:systemd/user/abyss-memory-controller.service:89c82c093f",
-      "path": "systemd/user/abyss-memory-controller.service",
-      "source_record_id": "file:systemd/user/abyss-memory-controller.service:89c82c093f",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "service_unit",
       "content_hash": "31630e1e12927a67ec425032fed0800bb866a0befab63b1948b8ebdd279fc322",
       "id": "artifact:file:systemd/user/abyss-mirror.service:d34499e5c3",
       "path": "systemd/user/abyss-mirror.service",
@@ -3570,7 +3498,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "39adb1313cdf4cdc3833f10f6dad9619b38326be1d0462e5d99cd2c2c711a9e1",
+      "content_hash": "8039d93de76a35323bd0bbdd8748831ba3628711841d4727bc56f30535f4c32a",
       "id": "artifact:file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
       "path": "tests/host_contract/contract/test_resource_launch_timeout_cleanup.py",
       "source_record_id": "file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
@@ -3650,7 +3578,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "5d04226545e0dfcc214df9c472abc589930e57bedc2709de81ca05fa246bc397",
+      "content_hash": "730a3733312c765ff0a95f5e2836ec56f7dc01420189f832d242e173aa0d9a5e",
       "id": "artifact:file:tests/host_contract/regression/test_memory_zram_policy.py:8ba5e7a5c6",
       "path": "tests/host_contract/regression/test_memory_zram_policy.py",
       "source_record_id": "file:tests/host_contract/regression/test_memory_zram_policy.py:8ba5e7a5c6",
@@ -3738,7 +3666,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "a04fa97792ed2ab7e9082b95090e138e55a874e2eff20483c3b665daf662fe16",
+      "content_hash": "fca91d6b0da9c978a44bd49cc901b4bf458c7d0df94fa2964932cc0f4177bc1c",
       "id": "artifact:file:tests/public_smoke/test_bootstrap.py:79b98a725b",
       "path": "tests/public_smoke/test_bootstrap.py",
       "source_record_id": "file:tests/public_smoke/test_bootstrap.py:79b98a725b",
@@ -3906,7 +3834,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "484d79a5499bf8f130410b9495944a19f9f95fae52f5207cc3330075a0fd9c80",
+      "content_hash": "83f635ce72aa49fa80797bc0287331bd94c2b763bf2b165b9fd7a1f4b1e184ba",
       "id": "artifact:file:tests/public_smoke/test_first_run_installed_projection.py:6749811818",
       "path": "tests/public_smoke/test_first_run_installed_projection.py",
       "source_record_id": "file:tests/public_smoke/test_first_run_installed_projection.py:6749811818",
@@ -3922,7 +3850,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "640dda285ad0e020f125a2913e53c643c8d8c95583b21b78e75ccce14b168b10",
+      "content_hash": "92199799085cab14e161b1bd7166cf6a5f81cae272a06844cb5456a834fae5c6",
       "id": "artifact:file:tests/public_smoke/test_host_lifecycle_parity.py:8f032809d7",
       "path": "tests/public_smoke/test_host_lifecycle_parity.py",
       "source_record_id": "file:tests/public_smoke/test_host_lifecycle_parity.py:8f032809d7",
@@ -3938,50 +3866,10 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "387f0cbdc38d110bb7fa47ed9cf1a72a9b069f2f95798a7eb19212e2b0db4355",
+      "content_hash": "379e8a94b26dcd6d2f04ea0c7526f4e757676bcf1a42728bc7df34a435e7e28a",
       "id": "artifact:file:tests/public_smoke/test_memory_contracts.py:63edd4cace",
       "path": "tests/public_smoke/test_memory_contracts.py",
       "source_record_id": "file:tests/public_smoke/test_memory_contracts.py:63edd4cace",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "test",
-      "content_hash": "83d03dfe0abab9c5d0e342a242dcdeef7b860639f0a6b61fb3881720c2339ac8",
-      "id": "artifact:file:tests/public_smoke/test_memory_controller_adapters.py:eaeffa9788",
-      "path": "tests/public_smoke/test_memory_controller_adapters.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_adapters.py:eaeffa9788",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "test",
-      "content_hash": "ae62fb4cd7eef8c6e639b68f4deab895971493b99231059c78242345e732782a",
-      "id": "artifact:file:tests/public_smoke/test_memory_controller_contracts.py:380a1b582a",
-      "path": "tests/public_smoke/test_memory_controller_contracts.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_contracts.py:380a1b582a",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "test",
-      "content_hash": "2d42dcc39de48475e3f742f8ed25d2d3e75febbae87d7b352b7eb0edbdb51426",
-      "id": "artifact:file:tests/public_smoke/test_memory_controller_lifecycle.py:304f9ab96c",
-      "path": "tests/public_smoke/test_memory_controller_lifecycle.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_lifecycle.py:304f9ab96c",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "test",
-      "content_hash": "5ab7e5879a86ff71989de6e6bf51271c3ded7aec43d7725dcff9d072b8ee69ea",
-      "id": "artifact:file:tests/public_smoke/test_memory_controller_service.py:95c5854a98",
-      "path": "tests/public_smoke/test_memory_controller_service.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_service.py:95c5854a98",
-      "surface_state": "authored_source"
-    },
-    {
-      "artifact_kind": "test",
-      "content_hash": "2d07b49255bc6b12c3017e07212d20220fac5782fccc451042518653100bf4cf",
-      "id": "artifact:file:tests/public_smoke/test_memory_controller_upgrade_rehearsal.py:32747d0e22",
-      "path": "tests/public_smoke/test_memory_controller_upgrade_rehearsal.py",
-      "source_record_id": "file:tests/public_smoke/test_memory_controller_upgrade_rehearsal.py:32747d0e22",
       "surface_state": "authored_source"
     },
     {
@@ -4002,7 +3890,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "7a6938695645cffca4668b92e96cda30acff6712ce938348ef3ab7cc8e402bf1",
+      "content_hash": "bde03efb88602c9e60223d8cb57d983ca180f39f5e4c2c4f5a5ecd9b97365779",
       "id": "artifact:file:tests/public_smoke/test_nervous_brief_contract.py:b5644cf29e",
       "path": "tests/public_smoke/test_nervous_brief_contract.py",
       "source_record_id": "file:tests/public_smoke/test_nervous_brief_contract.py:b5644cf29e",
@@ -4274,7 +4162,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "f53b81327611d6cd5112ac3ade2dedf998323d10f64cadb693a1df42d844495e",
+      "content_hash": "e2d291b82f6d77219ae6a253b3711bcb6f9c308eabcd71739f0e19765c152dbc",
       "id": "artifact:file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
       "path": "tests/public_smoke/test_resource_adapters.py",
       "source_record_id": "file:tests/public_smoke/test_resource_adapters.py:c8fcf9733a",
@@ -4915,7 +4803,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "aa5105b90a1e191c5abe46e294b14e7efa464af87ae8a14737d081e6e4acf940",
+    "content_digest": "7e0b171c5614a64bbe041d35aa012a9f8facd4c7a276a5137e7fc5f8661f374d",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4939,14 +4827,14 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "2ec7c5dbf0131aeecce479ac485985da89f387de6df0b544d6e811655a04e470",
+    "content_digest": "3020c5fa29c1ce6f36a8e88879e07af7f7138d6b38aa0834a674a82ec619bce4",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 614,
+    "entry_count": 600,
     "kind_counts": {
-      "config": 33,
+      "config": 31,
       "document": 190,
       "generated_readmodel": 2,
       "index": 1,
@@ -4956,11 +4844,11 @@
       "projection": 1,
       "receipt": 1,
       "schema": 8,
-      "script": 40,
+      "script": 38,
       "security": 1,
-      "service_unit": 60,
-      "source_code": 117,
-      "test": 144
+      "service_unit": 59,
+      "source_code": 113,
+      "test": 139
     }
   }
 }

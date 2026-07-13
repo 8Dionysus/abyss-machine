@@ -16,13 +16,6 @@ present, and keeps profile activation dry-run/opt-in. The live installed CLI
 comparison is advisory unless `--require-host-installed` is passed for host
 closeout.
 
-`memory_controller_upgrade_rehearsal.py` exercises the other installation
-direction: an existing controller-overlay host. Synthetic mode is the public
-regression lane; host mode copies the current installed projection into temp
-roots. Both modes run refresh, controller validation, byte-exact rollback, and
-reapply while proving policy, registry, evidence, and service enablement remain
-outside the code mutation scope.
-
 `source_install_runtime_parity.py` emits the compact closeout summary for a
 source checkout, the installed host projection, and bounded runtime commands.
 The document shape lives in `abyss_machine.host_lifecycle_parity`; runtime

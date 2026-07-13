@@ -134,9 +134,6 @@ abyss-machine changes record --id ID --title TITLE --intent TEXT --surface SURFA
 abyss-machine changes close --id ID --decision-review existing --decision-ref DECISION --note "validated and complete" --json
 abyss-machine storage validate --json
 abyss-machine memory validate --json
-abyss-machine memory controller validate --json
-abyss-machine memory controller status --json
-abyss-machine memory controller evidence --json
 abyss-machine resource validate --json
 abyss-machine heartbeats pulse --json
 abyss-machine heartbeats paths --json
@@ -306,12 +303,9 @@ work mode validation: `abyss-machine mode validate --json`
 memory pressure plan: `abyss-machine memory plan --json`
 memory headroom advisor: `abyss-machine memory headroom --json`
 memory validation: `abyss-machine memory validate --json`
-memory controller: `abyss-machine memory controller status --json`, event-driven observer/queue/lifecycle service; fresh public installs start in `shadow` with an empty registry
-memory controller validation: `abyss-machine memory controller validate --json`
-memory controller registration: `abyss-machine memory controller register --contract-file CONTRACT.json --json`; runtime registrations remain under the user runtime root
 resource plan: `abyss-machine resource plan --class CLASS --kind KIND --memory-demand-mib MIB --demand-key ID --demand-owner OWNER --json`, unified host pre-launch decision with runtime-only startup demand projection
 resource orchestrator: `abyss-machine resource orchestrator --json`, broad read-only matrix audit for future agents and stack bridges
-resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; unattended medium-or-larger starts may use the controller queue with `--memory-demand-mib`, `--queue-priority`, and `--queue-deadline`; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
+resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; medium-or-larger starts use a fresh live decision plus an atomic runtime-only startup reservation, without a resident controller; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
 resource validation: `abyss-machine resource validate --json`
 OS Abyss heartbeats: `abyss-machine heartbeats pulse --json`, recurring compact pulse over current machine evidence and reaction candidates; writes heartbeat facts only and keeps `automatic_action=false`
 reaction candidates: `abyss-machine reactions --json`, non-executing evidence-to-action-candidate read model over nervous, doctor, resource, and selected systemd facts; candidates are suggestions only and keep `automatic=false`
@@ -858,18 +852,19 @@ thermal orchestration plan: abyss-machine processes thermal-plan --seconds 3 --i
 desktop compositor route: abyss-machine processes desktop-compositor --seconds 3 --interval 0.5 --json; links GNOME Shell CPU, fd/pidfd/dmabuf stability, high-refresh display state, animations, GNOME Shell Introspect signal churn, read-only AT-SPI panel metric-label churn, AT-SPI application/window context, GNOME extension preference snapshot, Vitals settings evidence, X11 top-level windows, Wayland socket peers, GUI/process CPU candidates, screencast/remote state, and StatusNotifier context without lowering display quality, toggling extensions, changing panel preferences, closing/minimizing apps, or disabling capture
 thermal incident 2026-05-06: abyss-dictation-hotkey was found burning about one full P-core on hot CPU0; listener patched to close dead input fds and service restarted; follow-up showed no hot focus CPUs
 memory status latest: {{ABYSS_MACHINE_STATE}}/memory/latest.json
-memory pressure latest: {{ABYSS_MACHINE_STATE}}/memory/pressure/latest.json and {{ABYSS_MACHINE_STATE}}/memory/pressure/YYYY/MM/YYYY-MM-DD.jsonl
-memory process attribution: {{ABYSS_MACHINE_STATE}}/memory/processes/latest.json and {{ABYSS_MACHINE_STATE}}/memory/processes/YYYY/MM/YYYY-MM-DD.jsonl
-memory launch plan: {{ABYSS_MACHINE_STATE}}/memory/plan/latest.json and {{ABYSS_MACHINE_STATE}}/memory/plan/YYYY/MM/YYYY-MM-DD.jsonl
-memory headroom advisor: {{ABYSS_MACHINE_STATE}}/memory/headroom/latest.json and {{ABYSS_MACHINE_STATE}}/memory/headroom/YYYY/MM/YYYY-MM-DD.jsonl
-memory residency advisor: {{ABYSS_MACHINE_STATE}}/memory/residency/latest.json and {{ABYSS_MACHINE_STATE}}/memory/residency/YYYY/MM/YYYY-MM-DD.jsonl
-memory hot-path probe: {{ABYSS_MACHINE_STATE}}/memory/hotpath/latest.json and {{ABYSS_MACHINE_STATE}}/memory/hotpath/YYYY/MM/YYYY-MM-DD.jsonl
-memory orchestrate plan: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/latest.json and {{ABYSS_MACHINE_STATE}}/memory/orchestrate/YYYY/MM/YYYY-MM-DD.jsonl
-memory orchestrate idle gate: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/idle/latest.json and {{ABYSS_MACHINE_STATE}}/memory/orchestrate/idle/YYYY/MM/YYYY-MM-DD.jsonl
-memory orchestrate confirmation contract: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/confirm/latest.json and {{ABYSS_MACHINE_STATE}}/memory/orchestrate/confirm/YYYY/MM/YYYY-MM-DD.jsonl
-memory orchestrate apply dry-run: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/apply/latest.json and {{ABYSS_MACHINE_STATE}}/memory/orchestrate/apply/YYYY/MM/YYYY-MM-DD.jsonl
-memory orchestrate confirmed executor preflight: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/executor/latest.json and {{ABYSS_MACHINE_STATE}}/memory/orchestrate/executor/YYYY/MM/YYYY-MM-DD.jsonl
-memory orchestrate live executor: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/live/latest.json and {{ABYSS_MACHINE_STATE}}/memory/orchestrate/live/YYYY/MM/YYYY-MM-DD.jsonl
+memory state retention: latest-only atomic snapshots and action receipts under {{ABYSS_MACHINE_STATE}}/memory; ordinary status, pressure, processes, plan, headroom, residency, and plan-only orchestration commands do not write state; historical telemetry belongs to journald or the configured metrics retention
+memory pressure latest: {{ABYSS_MACHINE_STATE}}/memory/pressure/latest.json
+memory process attribution: {{ABYSS_MACHINE_STATE}}/memory/processes/latest.json
+memory launch plan: {{ABYSS_MACHINE_STATE}}/memory/plan/latest.json
+memory headroom advisor: {{ABYSS_MACHINE_STATE}}/memory/headroom/latest.json
+memory residency advisor: {{ABYSS_MACHINE_STATE}}/memory/residency/latest.json
+memory hot-path probe: {{ABYSS_MACHINE_STATE}}/memory/hotpath/latest.json
+memory orchestrate plan: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/latest.json
+memory orchestrate idle gate: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/idle/latest.json
+memory orchestrate confirmation contract: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/confirm/latest.json
+memory orchestrate apply dry-run: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/apply/latest.json
+memory orchestrate confirmed executor preflight: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/executor/latest.json
+memory orchestrate live executor: {{ABYSS_MACHINE_STATE}}/memory/orchestrate/live/latest.json
 machine report contour: {{ABYSS_MACHINE_STATE}}/doctor/machine-report/latest.json and latest.md; `abyss-machine doctor machine-report --json` joins doctor status, memory residency, zram ratio/headroom, PSI, protected TTS/dictation/resident LLM cgroup state, AI thermal policy, nervous readiness, and semantic maintenance state without stopping, restarting, disabling, throttling, re-affinitizing, or capping live services
 memory pressure route: abyss-machine memory pressure --json; combines meminfo, PSI, zram/zswap/sysctl/cgroup facts, zram resident/ratio telemetry, process PSS/RSS attribution, and cgroup swap counters; zram-only high swap is capped at hot when MemAvailable is healthy and PSI stalls are absent; resident model RSS/PSS/swap is routing evidence, not a stop/on-demand recommendation
 memory orchestration route: abyss-machine memory plan --json; gates new medium/heavy/sustained work only and does not kill, swap, reconfigure zram, enable oomd, tune sysctl, throttle, re-affinitize, stop, or demote existing processes, persistent models, warm AI services, or stack processes
@@ -884,9 +879,10 @@ memory residency route: abyss-machine memory residency --json; inspects protecte
 memory hot-path route: abyss-machine memory hotpath-probe --json; runs synthetic TTS->STT latency probes and optional resident LLM micro tick, records before/after zram/PSI/protected-service cgroup state, and does not record microphone audio, stop/restart services, cap swap, throttle, re-affinitize, or apply cgroup properties
 memory launch integration: abyss-machine ai cpu launch consumes memory plan alongside game guard and thermal route; use --force only for explicit operator override
 resource status latest: {{ABYSS_MACHINE_STATE}}/resource/latest.json
-resource plan latest: {{ABYSS_MACHINE_STATE}}/resource/plans/latest.json and {{ABYSS_MACHINE_STATE}}/resource/plans/YYYY/MM/YYYY-MM-DD.jsonl
-resource launch latest: {{ABYSS_MACHINE_STATE}}/resource/runs/latest.json and {{ABYSS_MACHINE_STATE}}/resource/runs/YYYY/MM/YYYY-MM-DD.jsonl
-resource orchestrator latest: {{ABYSS_MACHINE_STATE}}/resource/orchestrator/latest.json and {{ABYSS_MACHINE_STATE}}/resource/orchestrator/YYYY/MM/YYYY-MM-DD.jsonl
+resource state retention: latest-only admission plans, launch receipts, and orchestrator audits; historical execution evidence belongs to journald or configured metrics retention
+resource plan latest: {{ABYSS_MACHINE_STATE}}/resource/plans/latest.json
+resource launch latest: {{ABYSS_MACHINE_STATE}}/resource/runs/latest.json
+resource orchestrator latest: {{ABYSS_MACHINE_STATE}}/resource/orchestrator/latest.json
 OS Abyss heartbeat latest: {{ABYSS_MACHINE_STATE}}/heartbeats/latest.json and {{ABYSS_MACHINE_STATE}}/heartbeats/YYYY/MM/YYYY-MM-DD.jsonl
 OS Abyss heartbeat route: abyss-machine heartbeats pulse --json; recurring compact pulse over current nervous, doctor, resource, E2B breath, reaction, response-route, and change-ledger evidence; non-executing and `automatic_action=false`
 reaction candidates latest: {{ABYSS_MACHINE_STATE}}/reactions/latest.json and {{ABYSS_MACHINE_STATE}}/reactions/YYYY/MM/YYYY-MM-DD.jsonl

@@ -72,7 +72,7 @@ def test_content_parity_report_detects_installed_cli_digest_drift(tmp_path: Path
     libexec = tmp_path / "libexec"
     share_root = tmp_path / "share" / "abyss-machine"
     libexec.mkdir(parents=True)
-    shutil.copy2(ROOT / "src" / "abyss_machine" / "entrypoint.py", libexec / "abyss-machine")
+    shutil.copy2(ROOT / "src" / "abyss_machine" / "cli.py", libexec / "abyss-machine")
     shutil.copytree(ROOT / "src" / "abyss_machine", libexec / "abyss_machine")
     shutil.copytree(ROOT / "manifests", share_root / "manifests")
     shutil.copytree(ROOT / "generated", share_root / "generated")
@@ -165,7 +165,6 @@ def test_first_run_projection_keeps_cli_surfaces_in_parity(projection_payload: d
     assert payload["source_cli"]["surfaces"]["maps"] == payload["temp_installed_cli"]["surfaces"]["maps"]
     assert payload["source_cli"]["surfaces"]["rag"] == payload["temp_installed_cli"]["surfaces"]["rag"]
     assert payload["source_cli"]["surfaces"]["stack-bridge"] == payload["temp_installed_cli"]["surfaces"]["stack-bridge"]
-    assert payload["source_cli"]["surfaces"]["memory controller"] == payload["temp_installed_cli"]["surfaces"]["memory controller"]
     assert payload["source_cli"]["surfaces"]["storage"] == payload["temp_installed_cli"]["surfaces"]["storage"]
     assert payload["source_cli"]["surfaces"]["typing"] == payload["temp_installed_cli"]["surfaces"]["typing"]
     assert payload["source_cli"]["surfaces"]["nervous"] == payload["temp_installed_cli"]["surfaces"]["nervous"]
@@ -253,7 +252,6 @@ def test_first_run_projection_checks_resource_and_synthesis_option_surfaces(proj
         semantic_search = commands["nervous semantic-search"]
         resource_plan = commands["resource plan"]
         resource_launch = commands["resource launch"]
-        memory_controller = commands["memory controller"]
         ai_cpu_route = commands["ai cpu route"]
 
         assert "--scope" in synthesis["required_options"]
@@ -284,14 +282,7 @@ def test_first_run_projection_checks_resource_and_synthesis_option_surfaces(proj
         assert "--dry-run" in resource_launch["required_options"]
         assert "--success-on-block" in resource_launch["required_options"]
         assert "--timeout" in resource_launch["required_options"]
-        assert "--queue-priority" in resource_launch["required_options"]
-        assert "--queue-deadline" in resource_launch["required_options"]
         assert resource_launch["missing_options"] == []
-
-        assert "--policy" in memory_controller["required_options"]
-        assert "--registry" in memory_controller["required_options"]
-        assert "--runtime-root" in memory_controller["required_options"]
-        assert memory_controller["missing_options"] == []
 
         assert "--class" in ai_cpu_route["required_options"]
         assert "--latency" in ai_cpu_route["required_options"]

@@ -15,8 +15,8 @@ if str(SRC_ROOT) not in sys.path:
 from abyss_machine import memory_contracts
 
 
-def _refs(root: str = "/var/lib/abyss-machine/memory") -> tuple[dict[str, str], dict[str, str]]:
-    refs = {
+def _refs(root: str = "/var/lib/abyss-machine/memory") -> dict[str, str]:
+    return {
         "root": root,
         "agent_entrypoint": f"{root}/AGENTS.md",
         "index": f"{root}/index.json",
@@ -51,22 +51,6 @@ def _refs(root: str = "/var/lib/abyss-machine/memory") -> tuple[dict[str, str], 
         "validate_root": f"{root}/validate",
         "validate_latest": f"{root}/validate/latest.json",
     }
-    today = {
-        "status": f"{root}/status/2026/06/2026-06-25.jsonl",
-        "pressure": f"{root}/pressure/2026/06/2026-06-25.jsonl",
-        "processes": f"{root}/processes/2026/06/2026-06-25.jsonl",
-        "plan": f"{root}/plan/2026/06/2026-06-25.jsonl",
-        "headroom": f"{root}/headroom/2026/06/2026-06-25.jsonl",
-        "residency": f"{root}/residency/2026/06/2026-06-25.jsonl",
-        "hotpath": f"{root}/hotpath/2026/06/2026-06-25.jsonl",
-        "orchestrate": f"{root}/orchestrate/2026/06/2026-06-25.jsonl",
-        "orchestrate_apply": f"{root}/orchestrate/apply/2026/06/2026-06-25.jsonl",
-        "orchestrate_idle": f"{root}/orchestrate/idle/2026/06/2026-06-25.jsonl",
-        "orchestrate_confirm": f"{root}/orchestrate/confirm/2026/06/2026-06-25.jsonl",
-        "orchestrate_executor": f"{root}/orchestrate/executor/2026/06/2026-06-25.jsonl",
-        "orchestrate_live": f"{root}/orchestrate/live/2026/06/2026-06-25.jsonl",
-    }
-    return refs, today
 
 
 def test_memory_policy_and_paths_contracts_are_module_owned() -> None:
@@ -77,20 +61,23 @@ def test_memory_policy_and_paths_contracts_are_module_owned() -> None:
         loaded={"thresholds": {}, "actions": {"automatic_kill": False}},
         config_error=None,
     )
-    refs, today = _refs()
+    refs = _refs()
     paths = memory_contracts.paths_document(
         schema_prefix="abyss_machine",
         version="0.8.test",
         generated_at="2026-06-25T12:00:00+00:00",
         refs=refs,
-        today_paths=today,
     )
 
     assert policy["schema"] == "abyss_machine_memory_policy_v1"
     assert policy["actions"]["launch_gate_only"] is True
     assert loaded["config_exists"] is True
     assert loaded["defaults_applied"] == ["residency"]
-    assert paths["schema"] == "abyss_machine_memory_paths_v1"
+    assert paths["schema"] == "abyss_machine_memory_paths_v2"
+    for lane in ("status", "pressure", "processes", "plan", "headroom", "residency", "hotpath", "orchestrate"):
+        assert paths[lane]["retention"] == "latest_only"
+        assert "today" not in paths[lane]
+        assert "daily_glob" not in paths[lane]
     assert paths["commands"]["orchestrate_apply_live"].endswith("--json")
     assert paths["policy_contract"]["automatic_kill"] is False
     assert paths["policy_contract"]["repo_mutation"] is False
@@ -178,6 +165,6 @@ def test_memory_paths_cli_uses_public_contract_shape_without_live_collection() -
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["schema"] == "abyss_machine_memory_paths_v1"
+    assert payload["schema"] == "abyss_machine_memory_paths_v2"
     assert payload["commands"]["plan"] == "abyss-machine memory plan --json"
     assert payload["policy_contract"]["automatic_zram_reconfigure"] is False

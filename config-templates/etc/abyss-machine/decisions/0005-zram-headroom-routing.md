@@ -67,14 +67,19 @@ resource policy, and live PSI/swap evidence still gate launches.
 
 ## Current Applicability
 
-As of 2026-05-21, this decision remains active. Memory routing should still
-consider PSI, real swap headroom, game guard, and user-visible latency together
-instead of treating swap percentage alone as a hard truth.
+As of 2026-07-12, the PSI/headroom rationale remains active. The current host
+candidate is `zram-size = min(ram * 5 / 8, 20480)` with `lzo-rle` and
+`vm.page-cluster = 0`; zram occupancy is still not pressure by itself. Decision
+`0021` moves workload relief to owner-native lifecycle and removes the resident
+host controller. Further zram/cold-tier movement requires natural-load evidence
+and one operator-approved reboot boundary.
 
 ## Review Log
 
 - 2026-05-21: Added the standard applicability/review-log surface required by
   decision `0009`; no substantive rationale change.
+- 2026-07-12: Recorded the live 20 GiB candidate and linked owner-native memory
+  orchestration in decision `0021`; the original PSI/headroom rationale remains.
 
 ## Source Surfaces
 

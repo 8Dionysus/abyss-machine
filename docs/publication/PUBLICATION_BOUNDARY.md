@@ -10,8 +10,8 @@ workstation.
 - systemd unit skeletons for Linux/systemd targets.
 - typing and nervous-system machinery: adapters, capture gate, redaction,
   privacy controls, retention policy, validators, and opt-in unit templates.
-- Memory Controller code, a `shadow` policy template, an empty workload
-  registry, resource-admission adapters, and an opt-in user service skeleton.
+- Memory/resource facts, synchronous admission contracts, runtime-only startup
+  reservation adapters, and owner-boundary policy templates.
 - Bootstrap scripts that render host-local paths and create empty local roots.
 - Public smoke tests and host contract tests.
 - Route docs, permissive v1 schemas, and mechanics package contracts.
@@ -72,11 +72,6 @@ Typing and nervous-system collection are not removed for safety. They are
 installed as opt-in organs: the code, policies, units, state roots, and
 validators exist, while real collectors stay disabled until the operator enables
 the corresponding profile and the selftests pass.
-
-The Memory Controller follows the same source/install boundary. A new machine
-receives the controller in non-actuating `shadow` mode with no registered
-workloads. Live activation, runtime workload registrations, queue/grant state,
-calibration, and evidence are created and retained only on that host.
 
 ## Cold-Start Proof Route
 
