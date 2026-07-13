@@ -7,8 +7,6 @@ import json
 import os
 from pathlib import Path
 import re
-import socket
-import stat
 import subprocess
 import tempfile
 import time
@@ -42,59 +40,6 @@ def reservations_root(
     uid: int | None = None,
 ) -> Path:
     return runtime_root(environ, uid=uid) / "abyss-machine" / "resource" / "reservations"
-
-
-def memory_controller_runtime_root(environ: Mapping[str, str] | None = None, *, uid: int | None = None) -> Path:
-    source = os.environ if environ is None else environ
-    configured = source.get("ABYSS_MEMORY_CONTROLLER_RUNTIME")
-    if configured:
-        return Path(configured)
-    return runtime_root(source, uid=uid) / "abyss-machine" / "memory-controller"
-
-
-def controller_queue_root(root: Path) -> Path:
-    return root / "queue"
-
-
-def controller_grants_root(root: Path) -> Path:
-    return root / "grants"
-
-
-def controller_admission_path(root: Path) -> Path:
-    return root / "admission.json"
-
-
-def parse_systemd_memory_peak_mib(value: Any) -> float | None:
-    text = str(value or "").partition("(")[0].strip()
-    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?)(?:i?B)?", text, flags=re.IGNORECASE)
-    if not match:
-        return None
-    number = float(match.group(1))
-    power = {"": 0, "K": 1, "M": 2, "G": 3, "T": 4, "P": 5, "E": 6}[match.group(2).upper()]
-    bytes_value = number * (1024.0**power)
-    return round(bytes_value / 1024.0 / 1024.0, 3)
-
-
-def notify_memory_controller(root: Path, event: Mapping[str, Any]) -> dict[str, Any]:
-    path = root / "events.sock"
-    try:
-        metadata = path.lstat()
-    except FileNotFoundError:
-        return {"sent": False, "status": "controller_not_running"}
-    if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != os.getuid():
-        return {"sent": False, "status": "controller_socket_not_owned"}
-    payload = json.dumps(dict(event), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    if len(payload) > 16_384:
-        return {"sent": False, "status": "event_too_large"}
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    try:
-        client.connect(str(path))
-        sent = client.send(payload)
-    except OSError as exc:
-        return {"sent": False, "status": "notify_failed", "error": str(exc)}
-    finally:
-        client.close()
-    return {"sent": sent == len(payload), "status": "event_sent" if sent == len(payload) else "partial_event_send"}
 
 
 def admission_lock_path(root: Path) -> Path:
@@ -152,123 +97,6 @@ def atomic_write_lease(root: Path, lease: dict[str, Any]) -> Path:
             pass
         raise
     return destination
-
-
-def _atomic_write_runtime_document(destination: Path, document: Mapping[str, Any]) -> Path:
-    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent))
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(dict(document), handle, sort_keys=True, separators=(",", ":"), allow_nan=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, destination)
-    except Exception:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
-    return destination
-
-
-def controller_queue_request_path(root: Path, request_id: str) -> Path:
-    return controller_queue_root(root) / lease_filename(request_id)
-
-
-def controller_queue_grant_path(root: Path, request_id: str) -> Path:
-    return controller_grants_root(root) / lease_filename(request_id)
-
-
-def atomic_write_controller_queue_request(root: Path, request: Mapping[str, Any]) -> Path:
-    request_id = str(request.get("id") or "")
-    if not request_id:
-        raise ValueError("queue request id is required")
-    return _atomic_write_runtime_document(controller_queue_request_path(root, request_id), request)
-
-
-def atomic_write_controller_queue_grant(root: Path, grant: Mapping[str, Any]) -> Path:
-    request_id = str(grant.get("request_id") or "")
-    if not request_id:
-        raise ValueError("queue grant request_id is required")
-    return _atomic_write_runtime_document(controller_queue_grant_path(root, request_id), grant)
-
-
-def atomic_write_controller_admission(root: Path, admission: Mapping[str, Any]) -> Path:
-    return _atomic_write_runtime_document(controller_admission_path(root), admission)
-
-
-def remove_controller_queue_request(root: Path, request_id: str) -> bool:
-    try:
-        controller_queue_request_path(root, request_id).unlink()
-        return True
-    except FileNotFoundError:
-        return False
-
-
-def remove_controller_queue_grant(root: Path, request_id: str) -> bool:
-    try:
-        controller_queue_grant_path(root, request_id).unlink()
-        return True
-    except FileNotFoundError:
-        return False
-
-
-def controller_queue_grant(root: Path, request_id: str, *, now_epoch: float | None = None) -> dict[str, Any]:
-    resolved_now = time.time() if now_epoch is None else float(now_epoch)
-    path = controller_queue_grant_path(root, request_id)
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {"status": "missing", "request_id": request_id, "path": str(path)}
-    except (OSError, json.JSONDecodeError) as exc:
-        return {"status": "invalid", "request_id": request_id, "path": str(path), "error": str(exc)}
-    if not isinstance(document, dict) or str(document.get("request_id") or "") != str(request_id):
-        return {"status": "invalid", "request_id": request_id, "path": str(path), "error": "grant_identity_mismatch"}
-    try:
-        expires_epoch = float(document.get("expires_epoch") or 0.0)
-    except (TypeError, ValueError):
-        expires_epoch = 0.0
-    status = "granted" if expires_epoch > resolved_now else "expired"
-    return {**document, "status": status, "path": str(path)}
-
-
-def controller_admission_snapshot(root: Path, *, now_epoch: float | None = None) -> dict[str, Any]:
-    resolved_now = time.time() if now_epoch is None else float(now_epoch)
-    path = controller_admission_path(root)
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {"ok": False, "status": "missing", "path": str(path), "queue_live": False}
-    except (OSError, json.JSONDecodeError) as exc:
-        return {"ok": False, "status": "invalid", "path": str(path), "queue_live": False, "error": str(exc)}
-    if not isinstance(document, dict):
-        return {"ok": False, "status": "invalid", "path": str(path), "queue_live": False, "error": "document_not_object"}
-    fresh_until = float(document.get("fresh_until_epoch") or 0.0)
-    fresh = fresh_until > resolved_now
-    socket_path = root / "events.sock"
-    try:
-        socket_metadata = socket_path.lstat()
-        controller_available = stat.S_ISSOCK(socket_metadata.st_mode) and socket_metadata.st_uid == os.getuid()
-    except FileNotFoundError:
-        controller_available = False
-    queue_declared = bool(document.get("queue_live"))
-    queue_live = queue_declared and fresh and controller_available
-    return {
-        **document,
-        "ok": bool(document.get("ok")) and fresh and (not queue_declared or controller_available),
-        "status": "controller_unavailable" if queue_declared and fresh and not controller_available else ("fresh" if fresh else "stale"),
-        "queue_live": queue_live,
-        "controller_socket": str(socket_path),
-        "controller_available": controller_available,
-        "path": str(path),
-    }
 
 
 def remove_lease(root: Path, lease_id: str) -> bool:

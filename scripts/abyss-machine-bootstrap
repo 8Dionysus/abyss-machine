@@ -38,7 +38,6 @@ PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
             "abyss-power-profile-auto.timer",
         ],
         "user": [
-            "abyss-memory-controller.service",
             "abyss-machine-heartbeat.timer",
             "abyss-machine-context-refresh.timer",
             "abyss-topology-audit.timer",
@@ -232,7 +231,7 @@ def ensure_roots(values: dict[str, str], *, apply: bool, actions: list[dict[str,
 
 
 def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
-    source = REPO_ROOT / "src" / "abyss_machine" / "entrypoint.py"
+    source = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
     libexec = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss-machine"
     package_target = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss_machine"
     bin_path = Path(values["ABYSS_LOCAL_BIN_DIR"]) / "abyss-machine"
@@ -464,7 +463,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     values = default_vars(args)
     checks = {
         "repo_root_exists": REPO_ROOT.exists(),
-        "entrypoint_source_exists": (REPO_ROOT / "src" / "abyss_machine" / "entrypoint.py").exists(),
         "cli_source_exists": (REPO_ROOT / "src" / "abyss_machine" / "cli.py").exists(),
         "package_source_exists": SOURCE_PACKAGE_ROOT.is_dir(),
         "config_templates_exist": CONFIG_TEMPLATE_ROOT.exists(),

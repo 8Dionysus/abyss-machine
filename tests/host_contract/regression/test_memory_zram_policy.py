@@ -89,6 +89,109 @@ def test_memory_plan_is_not_a_zram_or_sysctl_mutation_plan(abyss_machine_module)
     assert "recommended_new_work" in plan
 
 
+def test_memory_pressure_read_only_does_not_promote_child_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    abyss_machine_module,
+) -> None:
+    calls: dict[str, list[dict[str, object]]] = {"status": [], "processes": []}
+
+    def status(**kwargs):
+        calls["status"].append(dict(kwargs))
+        return {
+            "ok": True,
+            "class": "green",
+            "reasons": [],
+            "meminfo": {"summary": {}},
+            "psi": {"some": {"avg10": 0.0}, "full": {"avg10": 0.0}},
+            "swap": {},
+            "zram": {"summary": {}},
+            "zswap": {},
+            "oomd": {},
+        }
+
+    def processes(**kwargs):
+        calls["processes"].append(dict(kwargs))
+        return {"ok": True, "summary": {}, "top": {}}
+
+    monkeypatch.setattr(abyss_machine_module, "memory_status", status)
+    monkeypatch.setattr(abyss_machine_module, "memory_process_snapshot", processes)
+
+    result = abyss_machine_module.memory_pressure(top=7, write_latest=False)
+
+    assert result["ok"] is True
+    assert calls == {
+        "status": [{"write_latest": False}],
+        "processes": [{"top": 7, "smaps": True, "write_latest": False}],
+    }
+
+
+def test_memory_plan_read_only_keeps_live_pressure_and_game_guard_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    abyss_machine_module,
+) -> None:
+    calls: dict[str, list[dict[str, object]]] = {"pressure": [], "game_guard": []}
+
+    def pressure(**kwargs):
+        calls["pressure"].append(dict(kwargs))
+        return {"ok": True, "class": "green", "reasons": [], "summary": {"class": "green"}}
+
+    def game_guard(**kwargs):
+        calls["game_guard"].append(dict(kwargs))
+        return {"active": False, "platform_present": False, "summary": {"games": 0}}
+
+    monkeypatch.setattr(abyss_machine_module, "memory_pressure", pressure)
+    monkeypatch.setattr(abyss_machine_module, "process_game_guard", game_guard)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "mode_status",
+        lambda: {"selected_mode": "balanced", "effective_mode": "balanced"},
+    )
+
+    result = abyss_machine_module.memory_plan(write_latest=False)
+
+    assert result["ok"] is True
+    assert calls == {
+        "pressure": [{"top": 30, "write_latest": False}],
+        "game_guard": [{"write_latest": False}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("argv", "target", "expected"),
+    [
+        (["memory", "status", "--json"], "memory_status", {"write_latest": False}),
+        (["memory", "pressure", "--json"], "memory_pressure", {"top": 30, "write_latest": False}),
+        (
+            ["memory", "processes", "--json"],
+            "memory_process_snapshot",
+            {"top": 40, "smaps": True, "write_latest": False},
+        ),
+        (["memory", "plan", "--json"], "memory_plan", {"write_latest": False}),
+        (["memory", "headroom", "--json"], "memory_headroom", {"top": 40, "write_latest": False}),
+        (["memory", "residency", "--json"], "memory_residency", {"top": 40, "write_latest": False}),
+    ],
+)
+def test_memory_read_commands_do_not_write_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    abyss_machine_module,
+    argv: list[str],
+    target: str,
+    expected: dict[str, object],
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def read_model(**kwargs):
+        calls.append(dict(kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr(abyss_machine_module, target, read_model)
+
+    assert abyss_machine_module.main(argv) == 0
+    assert calls == [expected]
+    assert '"ok": true' in capsys.readouterr().out
+
+
 def test_memory_orchestrate_apply_carries_zram_sysctl_no_mutation_policy(
     monkeypatch: pytest.MonkeyPatch,
     abyss_machine_module,

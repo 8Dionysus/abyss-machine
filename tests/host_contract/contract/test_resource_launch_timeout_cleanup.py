@@ -440,7 +440,19 @@ def test_resource_launch_releases_startup_lease_after_submit(monkeypatch, tmp_pa
     assert list(reservation_root.glob("*.json")) == []
 
 
-def test_resource_launch_consumes_live_controller_queue_grant_before_lease(monkeypatch, tmp_path, abyss_machine_module):
+def test_resource_control_plane_paths_are_latest_only(abyss_machine_module) -> None:
+    paths = abyss_machine_module.resource_paths()
+
+    for lane in ("plans", "runs", "orchestrator"):
+        assert paths[lane]["retention"] == "latest_only"
+        assert "daily_glob" not in paths[lane]
+
+
+def test_unattended_resource_launch_uses_direct_reservation_without_resident_controller(
+    monkeypatch,
+    tmp_path,
+    abyss_machine_module,
+):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     policy = abyss_machine_module.resource_planning.default_policy(version="test")
     monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
@@ -466,27 +478,6 @@ def test_resource_launch_consumes_live_controller_queue_grant_before_lease(monke
 
     monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
     monkeypatch.setattr(
-        abyss_machine_module.resource_adapters,
-        "controller_admission_snapshot",
-        lambda _root: {"ok": True, "status": "fresh", "queue_live": True},
-    )
-    real_grant = abyss_machine_module.resource_adapters.controller_queue_grant
-
-    def grant_after_request(root, request_id, **_kwargs):
-        abyss_machine_module.resource_adapters.atomic_write_controller_queue_grant(
-            root,
-            {
-                "schema": "abyss_machine_memory_controller_queue_grant_v1",
-                "request_id": request_id,
-                "expires_epoch": time.time() + 5,
-                "controller_sequence": 7,
-                "nonce": "fixture-nonce",
-            },
-        )
-        return real_grant(root, request_id)
-
-    monkeypatch.setattr(abyss_machine_module.resource_adapters, "controller_queue_grant", grant_after_request)
-    monkeypatch.setattr(
         abyss_machine_module.subprocess,
         "run",
         lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "Finished with result: success\n", ""),
@@ -503,63 +494,9 @@ def test_resource_launch_consumes_live_controller_queue_grant_before_lease(monke
         write_latest=False,
     )
 
-    queue = result["startup_admission"]["controller_queue"]
     assert result["ok"] is True
-    assert queue["request"]["owner"] == "agent-owner"
-    assert queue["grant"]["status"] == "granted"
-    assert queue["request_released"] is True
-    assert queue["grant_released"] is True
-    assert list((tmp_path / "run" / "abyss-machine" / "memory-controller" / "queue").glob("*.json")) == []
-    assert list((tmp_path / "run" / "abyss-machine" / "memory-controller" / "grants").glob("*.json")) == []
-
-
-def test_resource_launch_never_queues_operator_visible_start(monkeypatch, tmp_path, abyss_machine_module):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-    policy = abyss_machine_module.resource_planning.default_policy(version="test")
-    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
-
-    def fake_plan(**kwargs):
-        requested = abyss_machine_module.resource_planning.resolve_startup_demand(
-            policy,
-            workload_class=kwargs["workload_class"],
-            kind=kwargs["kind"],
-            explicit_mib=kwargs.get("memory_demand_mib"),
-        )
-        return {
-            "ok": True,
-            "decision": "allow",
-            "blocked_reasons": [],
-            "denied_reasons": [],
-            "request": {"normalized_class": "medium", "normalized_kind": "agent"},
-            "inputs": {"startup_demand": {"requested": requested}},
-            "systemd": {"unit_type": "service", "slice": "abyss-machine-agents.slice", "properties": {}, "env": {}},
-        }
-
-    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
-    monkeypatch.setattr(
-        abyss_machine_module.resource_adapters,
-        "controller_admission_snapshot",
-        lambda _root: {"ok": True, "status": "fresh", "queue_live": True},
-    )
-    monkeypatch.setattr(
-        abyss_machine_module.resource_adapters,
-        "atomic_write_controller_queue_request",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("interactive start must not queue")),
-    )
-    monkeypatch.setattr(
-        abyss_machine_module.subprocess,
-        "run",
-        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, "Finished with result: success\n", ""),
-    )
-
-    result = abyss_machine_module.resource_launch(
-        ["/usr/bin/true"],
-        workload_class="medium",
-        kind="agent",
-        unattended=False,
-        memory_demand_mib=2048,
-        write_latest=False,
-    )
-
-    assert result["ok"] is True
-    assert result["startup_admission"]["controller_queue"]["request"] is None
+    assert result["startup_admission"]["lease"]["demand_owner"] == "agent-owner"
+    assert result["startup_admission"]["lease_released"] is True
+    assert "controller_queue" not in result["startup_admission"]
+    assert result["policy"]["resident_memory_controller_required"] is False
+    assert not (tmp_path / "run" / "abyss-machine" / "memory-controller").exists()

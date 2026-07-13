@@ -10,12 +10,14 @@ Do not record every probe, sample, generated refresh, or local experiment here.
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the resident Memory Controller and its forecast/registry/SQLite
+  plane with synchronous live admission, runtime-only startup reservations,
+  and owner-native workload lifecycle routes.
+
 ### Added
 
-- Portable resident Memory Controller ownership: event-driven pressure
-  forecasting, runtime workload contracts, background-start queue admission,
-  evidence storage, a dedicated installed entrypoint, `shadow` first-install
-  defaults, and an isolated overlay-to-package upgrade/rollback rehearsal.
 - `abyss-machine self-awareness` full-stack resident coverage over active
   stack services, local AI modalities, warm-E2B/gemma4 resident evidence,
   RAG/memory, nervous freshness gates, governed reactions/responses, and

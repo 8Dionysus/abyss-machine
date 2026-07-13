@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any, Iterable
 
 
@@ -269,8 +268,13 @@ def policy_document(
     return data
 
 
-def _daily_glob(root: Any) -> str:
-    return str(Path(str(root)) / "YYYY" / "MM" / "YYYY-MM-DD.jsonl")
+def _latest_only(root: Any, latest: Any, **extra: Any) -> dict[str, Any]:
+    return {
+        "root": str(root),
+        "latest": str(latest),
+        "retention": "latest_only",
+        **extra,
+    }
 
 
 def paths_document(
@@ -279,10 +283,9 @@ def paths_document(
     version: str,
     generated_at: str,
     refs: dict[str, Any],
-    today_paths: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "schema": _schema(schema_prefix, "memory_paths_v1"),
+        "schema": _schema(schema_prefix, "memory_paths_v2"),
         "version": version,
         "generated_at": generated_at,
         "root": str(refs["root"]),
@@ -290,90 +293,26 @@ def paths_document(
         "index": str(refs["index"]),
         "latest": str(refs["latest"]),
         "policy": str(refs["policy"]),
-        "status": {
-            "root": str(refs["status_root"]),
-            "latest": str(refs["latest"]),
-            "today": str(today_paths["status"]),
-            "daily_glob": _daily_glob(refs["status_root"]),
-        },
-        "pressure": {
-            "root": str(refs["pressure_root"]),
-            "latest": str(refs["pressure_latest"]),
-            "today": str(today_paths["pressure"]),
-            "daily_glob": _daily_glob(refs["pressure_root"]),
-        },
-        "processes": {
-            "root": str(refs["process_root"]),
-            "latest": str(refs["process_latest"]),
-            "today": str(today_paths["processes"]),
-            "daily_glob": _daily_glob(refs["process_root"]),
-        },
-        "plan": {
-            "root": str(refs["plan_root"]),
-            "latest": str(refs["plan_latest"]),
-            "today": str(today_paths["plan"]),
-            "daily_glob": _daily_glob(refs["plan_root"]),
-        },
-        "headroom": {
-            "root": str(refs["headroom_root"]),
-            "latest": str(refs["headroom_latest"]),
-            "today": str(today_paths["headroom"]),
-            "daily_glob": _daily_glob(refs["headroom_root"]),
-        },
-        "residency": {
-            "root": str(refs["residency_root"]),
-            "latest": str(refs["residency_latest"]),
-            "spec": str(refs["residency_spec"]),
-            "today": str(today_paths["residency"]),
-            "daily_glob": _daily_glob(refs["residency_root"]),
-        },
-        "hotpath": {
-            "root": str(refs["hotpath_root"]),
-            "latest": str(refs["hotpath_latest"]),
-            "today": str(today_paths["hotpath"]),
-            "daily_glob": _daily_glob(refs["hotpath_root"]),
-        },
+        "status": _latest_only(refs["status_root"], refs["latest"]),
+        "pressure": _latest_only(refs["pressure_root"], refs["pressure_latest"]),
+        "processes": _latest_only(refs["process_root"], refs["process_latest"]),
+        "plan": _latest_only(refs["plan_root"], refs["plan_latest"]),
+        "headroom": _latest_only(refs["headroom_root"], refs["headroom_latest"]),
+        "residency": _latest_only(
+            refs["residency_root"],
+            refs["residency_latest"],
+            spec=str(refs["residency_spec"]),
+        ),
+        "hotpath": _latest_only(refs["hotpath_root"], refs["hotpath_latest"]),
         "orchestrate": {
-            "root": str(refs["orchestrate_root"]),
-            "latest": str(refs["orchestrate_latest"]),
-            "today": str(today_paths["orchestrate"]),
-            "daily_glob": _daily_glob(refs["orchestrate_root"]),
-            "apply": {
-                "root": str(refs["orchestrate_apply_root"]),
-                "latest": str(refs["orchestrate_apply_latest"]),
-                "today": str(today_paths["orchestrate_apply"]),
-                "daily_glob": _daily_glob(refs["orchestrate_apply_root"]),
-            },
-            "idle": {
-                "root": str(refs["orchestrate_idle_root"]),
-                "latest": str(refs["orchestrate_idle_latest"]),
-                "today": str(today_paths["orchestrate_idle"]),
-                "daily_glob": _daily_glob(refs["orchestrate_idle_root"]),
-            },
-            "confirm": {
-                "root": str(refs["orchestrate_confirm_root"]),
-                "latest": str(refs["orchestrate_confirm_latest"]),
-                "today": str(today_paths["orchestrate_confirm"]),
-                "daily_glob": _daily_glob(refs["orchestrate_confirm_root"]),
-            },
-            "executor": {
-                "root": str(refs["orchestrate_executor_root"]),
-                "latest": str(refs["orchestrate_executor_latest"]),
-                "today": str(today_paths["orchestrate_executor"]),
-                "daily_glob": _daily_glob(refs["orchestrate_executor_root"]),
-            },
-            "live": {
-                "root": str(refs["orchestrate_live_root"]),
-                "latest": str(refs["orchestrate_live_latest"]),
-                "today": str(today_paths["orchestrate_live"]),
-                "daily_glob": _daily_glob(refs["orchestrate_live_root"]),
-            },
+            **_latest_only(refs["orchestrate_root"], refs["orchestrate_latest"]),
+            "apply": _latest_only(refs["orchestrate_apply_root"], refs["orchestrate_apply_latest"]),
+            "idle": _latest_only(refs["orchestrate_idle_root"], refs["orchestrate_idle_latest"]),
+            "confirm": _latest_only(refs["orchestrate_confirm_root"], refs["orchestrate_confirm_latest"]),
+            "executor": _latest_only(refs["orchestrate_executor_root"], refs["orchestrate_executor_latest"]),
+            "live": _latest_only(refs["orchestrate_live_root"], refs["orchestrate_live_latest"]),
         },
-        "validate": {
-            "root": str(refs["validate_root"]),
-            "latest": str(refs["validate_latest"]),
-            "daily_glob": _daily_glob(refs["validate_root"]),
-        },
+        "validate": _latest_only(refs["validate_root"], refs["validate_latest"]),
         "commands": {
             "paths": "abyss-machine memory paths --json",
             "status": "abyss-machine memory status --json",

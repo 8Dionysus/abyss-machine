@@ -44,7 +44,3 @@ requires change-ledger preflight before live `/usr/local` mutation and a closeou
 with rollback notes after parity and touched-organ smoke checks. Live-root
 refresh uses the same admitted install-bundle selector as full install; the
 artifact-gate skip remains limited to isolated projection rehearsals.
-
-For the resident memory-governance service, including fresh-machine `shadow`
-activation, queue admission, exact host-overlay rehearsal, rollback, and live
-continuity gates, use [Memory Controller](MEMORY_CONTROLLER.md).

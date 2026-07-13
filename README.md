@@ -191,15 +191,10 @@ audit JSONL append routing, latest writes, status input assembly, and
 privacy-set orchestration live in `abyss_machine.nervous_privacy_adapters`.
 Resource policy normalization, gate decisions,
 systemd-run plan shapes, and launch argv contracts live in
-`abyss_machine.resource_planning`. Runtime demand reservations, controller
-queue/grant exchange, admission snapshots, startup leases, and launch-outcome
-notifications live in `abyss_machine.resource_adapters`. Event-driven memory
-forecast, policy, queue, lifecycle, Linux probes, evidence storage, and service
-execution live in the `abyss_machine.memory_controller_*` modules. The
-installed `abyss_machine.entrypoint` routes the resident controller without
-loading the ordinary CLI path; fresh machines start from the public `shadow`
-policy and empty registry described in
-`docs/operations/MEMORY_CONTROLLER.md`. AI CPU route selection, routed-heavy policy,
+`abyss_machine.resource_planning`. Runtime demand reservations, startup leases,
+and process/unit liveness checks live in `abyss_machine.resource_adapters`.
+Memory admission is evaluated synchronously from fresh host facts; reclaim and
+sleep remain with workload owners instead of a resident host controller. AI CPU route selection, routed-heavy policy,
 thread/env hints, and route contract assembly live in
 `abyss_machine.ai_cpu_routing`. AI runtime env/cache/resource-profile, model inventory, LLM
 paths/registry/validate/runtime/profile status, OpenVINO benchmark-plan/probe/eval command/result contracts, AI eval
