@@ -2050,7 +2050,7 @@
     },
     {
       "artifact_kind": "script",
-      "content_hash": "5b1182520eb63917bc2e35732b34cda5fd56efa12465fc4f95f8d1d44ddf5b57",
+      "content_hash": "302b75ca8f7a65a9592dc5758691735e210b72280eaeaef4877493d9dc288e04",
       "id": "artifact:file:src/abyss_machine/cli.py:3e116445b4",
       "path": "src/abyss_machine/cli.py",
       "source_record_id": "file:src/abyss_machine/cli.py:3e116445b4",
@@ -3506,7 +3506,7 @@
     },
     {
       "artifact_kind": "test",
-      "content_hash": "a7cd47d60a08be37f15cec2560c3b3173c22add233c324ac76f33e33046a49d3",
+      "content_hash": "57f3c0ba389dbdf227033d3a41a765909ccfa6e9519a26e89783dff5840a86b9",
       "id": "artifact:file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
       "path": "tests/host_contract/contract/test_resource_launch_timeout_cleanup.py",
       "source_record_id": "file:tests/host_contract/contract/test_resource_launch_timeout_cleanup.py:a20df40932",
@@ -4827,7 +4827,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "f7544a914cdfbe3270fa2b2213ea2e177eb8d683ab0159e806b749da6a87da7d",
+    "content_digest": "bc103606d2d9e1630e7e5e135f5259244897a3fc8093e51a207b30cbcaf800df",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -4851,7 +4851,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v1",
   "source_index": {
-    "content_digest": "38079ef04d18c147197a3ce13f317dad7c4e653c0862807621e6815aef208c2d",
+    "content_digest": "1272541adaa0a48d806045405d07d9de30c6543877d48c197b5b4b2dfef24fab",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
