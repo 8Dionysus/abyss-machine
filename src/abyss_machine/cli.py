@@ -46267,6 +46267,79 @@ def heartbeat_psi_snapshot() -> dict[str, Any]:
     }
 
 
+def heartbeat_live_memory_pressure_from_status(status: dict[str, Any]) -> dict[str, Any]:
+    mem_summary = nested_get(status, ["meminfo", "summary"]) or {}
+    zram_summary = nested_get(status, ["zram", "summary"]) or {}
+    return {
+        "schema": f"{SCHEMA_PREFIX}_heartbeat_live_memory_pressure_v1",
+        "version": VERSION,
+        "generated_at": status.get("generated_at"),
+        "ok": bool(status.get("ok")),
+        "class": status.get("class"),
+        "reasons": status.get("reasons"),
+        "summary": {
+            "class": status.get("class"),
+            "mem_available_mib": mem_summary.get("mem_available_mib"),
+            "mem_available_percent": mem_summary.get("mem_available_percent"),
+            "swap_used_mib": mem_summary.get("swap_used_mib"),
+            "swap_used_percent": mem_summary.get("swap_used_percent"),
+            "psi_some_avg10": nested_get(status, ["psi", "some", "avg10"]),
+            "psi_full_avg10": nested_get(status, ["psi", "full", "avg10"]),
+            "zram_data_mib": zram_summary.get("data_mib"),
+            "zram_resident_mib": zram_summary.get("total_memory_mib"),
+            "zram_logical_to_memory_ratio": zram_summary.get("logical_to_memory_ratio"),
+        },
+        "status": {
+            "class": status.get("class"),
+            "meminfo": status.get("meminfo"),
+            "psi": status.get("psi"),
+            "swap": status.get("swap"),
+            "zram": status.get("zram"),
+            "zswap": status.get("zswap"),
+            "oomd": status.get("oomd"),
+        },
+        "processes": {
+            "attribution_available": False,
+            "unavailable_reason": "not_collected",
+            "top": {},
+        },
+        "source": {
+            "kind": "live_readonly_memory_status",
+            "primary_path": "/proc/meminfo",
+            "paths": [
+                "/proc/meminfo",
+                "/proc/pressure/memory",
+                "/proc/swaps",
+                "/sys/block/zram*",
+            ],
+            "process_attribution": "not_collected",
+            "writes_memory_state": False,
+        },
+        "policy": {
+            "facts_only": True,
+            "does_not_scan_process_smaps": True,
+            "does_not_write_memory_state": True,
+            "does_not_kill_or_tune_from_this_result": True,
+        },
+    }
+
+
+def heartbeat_live_memory_inputs(game_guard: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    pressure = heartbeat_live_memory_pressure_from_status(memory_status(write_latest=False))
+    plan = memory_plan(
+        write_latest=False,
+        pressure_input=pressure,
+        game_guard_input=game_guard,
+    )
+    plan["source"] = {
+        "kind": "derived_live_readonly_memory_plan",
+        "primary_path": "/proc/meminfo",
+        "memory_pressure_generated_at": pressure.get("generated_at"),
+        "writes_memory_state": False,
+    }
+    return pressure, plan
+
+
 def heartbeat_pressure_rank(memory_class: Any, psi: dict[str, Any]) -> tuple[int, list[str]]:
     rank = memory_class_rank(str(memory_class or "green"))
     reasons: list[str] = []
@@ -46364,6 +46437,10 @@ def heartbeat_pressure_context_from(
     desktop = nested_get(thermal_input, ["desktop_compositor", "summary"])
     process_top = memory_pressure.get("processes") if isinstance(memory_pressure.get("processes"), dict) else {}
     process_top = process_top.get("top") if isinstance(process_top.get("top"), dict) else {}
+    memory_source = memory_pressure.get("source") if isinstance(memory_pressure.get("source"), dict) else {}
+    memory_plan_source = memory_plan.get("source") if isinstance(memory_plan.get("source"), dict) else {}
+    process_attribution = memory_source.get("process_attribution")
+    attribution_available = process_attribution != "not_collected"
     return {
         "schema": f"{SCHEMA_PREFIX}_heartbeat_pressure_context_v1",
         "generated_at": generated_at,
@@ -46385,6 +46462,8 @@ def heartbeat_pressure_context_from(
             "occupied_swap_without_stall": occupied_swap_without_stall,
         },
         "attribution": {
+            "available": attribution_available,
+            "unavailable_reason": process_attribution if not attribution_available else None,
             "top_cgroup_memory": heartbeat_compact_cgroup_entries(process_top.get("cgroup_memory")),
             "top_cgroup_swap": heartbeat_compact_cgroup_entries(process_top.get("cgroup_swap")),
             "top_cgroup_memory_total_mib": memory_summary.get("top_cgroup_memory_total_mib"),
@@ -46403,13 +46482,13 @@ def heartbeat_pressure_context_from(
             },
         },
         "sources": {
-            "memory_pressure": {"path": str(MEMORY_PRESSURE_LATEST_PATH), "generated_at": memory_pressure.get("generated_at"), "age_sec": heartbeat_age_seconds(memory_pressure.get("generated_at"))},
-            "memory_plan": {"path": str(MEMORY_PLAN_LATEST_PATH), "generated_at": memory_plan.get("generated_at"), "age_sec": heartbeat_age_seconds(memory_plan.get("generated_at"))},
+            "memory_pressure": {"path": str(memory_source.get("primary_path") or MEMORY_PRESSURE_LATEST_PATH), "generated_at": memory_pressure.get("generated_at"), "age_sec": heartbeat_age_seconds(memory_pressure.get("generated_at"))},
+            "memory_plan": {"path": str(memory_plan_source.get("primary_path") or MEMORY_PLAN_LATEST_PATH), "generated_at": memory_plan.get("generated_at"), "age_sec": heartbeat_age_seconds(memory_plan.get("generated_at"))},
             "resource_orchestrator": {"path": str(RESOURCE_ORCHESTRATOR_LATEST_PATH), "generated_at": resource_orchestrator.get("generated_at"), "age_sec": heartbeat_age_seconds(resource_orchestrator.get("generated_at"))},
             "processes_game_guard": {"path": str(PROCESS_GAME_GUARD_LATEST_PATH), "generated_at": game_guard.get("generated_at"), "age_sec": heartbeat_age_seconds(game_guard.get("generated_at"))},
         },
         "classification_evidence": {
-            "memory_class_source": "memory_pressure_latest",
+            "memory_class_source": memory_source.get("kind") or "memory_pressure_latest",
             "psi_source": "live_proc_pressure",
             "psi_citation": "cpu,memory,io /proc/pressure avg10/avg60/avg300 totals",
             "psi_absent_reason": "missing:" + ",".join(psi_missing) if psi_missing else None,
@@ -47046,9 +47125,8 @@ def heartbeat_pulse(
     doctor_latest = load_latest_json(DOCTOR_LATEST_PATH, f"{SCHEMA_PREFIX}_doctor_v1")
     machine_report = load_latest_json(DOCTOR_MACHINE_REPORT_LATEST_PATH, f"{SCHEMA_PREFIX}_doctor_machine_report_v1")
     resource_orch = load_latest_json(RESOURCE_ORCHESTRATOR_LATEST_PATH, f"{SCHEMA_PREFIX}_resource_orchestrator_v2_v1")
-    memory_pressure_latest = load_latest_json(MEMORY_PRESSURE_LATEST_PATH, f"{SCHEMA_PREFIX}_memory_pressure_v1")
-    memory_plan_latest = load_latest_json(MEMORY_PLAN_LATEST_PATH, f"{SCHEMA_PREFIX}_memory_plan_v1")
     game_guard_latest = load_latest_json(PROCESS_GAME_GUARD_LATEST_PATH, f"{SCHEMA_PREFIX}_process_game_guard_v1")
+    memory_pressure_current, memory_plan_current = heartbeat_live_memory_inputs(game_guard_latest)
     capture_status = (
         heartbeat_compact_capture_status(previous_latest, generated_at)
         if compact
@@ -47094,8 +47172,8 @@ def heartbeat_pulse(
         "doctor": heartbeat_input_ref("doctor", DOCTOR_LATEST_PATH, doctor_latest),
         "doctor_machine_report": heartbeat_input_ref("doctor_machine_report", DOCTOR_MACHINE_REPORT_LATEST_PATH, machine_report),
         "resource_orchestrator": heartbeat_input_ref("resource_orchestrator", RESOURCE_ORCHESTRATOR_LATEST_PATH, resource_orch),
-        "memory_pressure": heartbeat_input_ref("memory_pressure", MEMORY_PRESSURE_LATEST_PATH, memory_pressure_latest),
-        "memory_plan": heartbeat_input_ref("memory_plan", MEMORY_PLAN_LATEST_PATH, memory_plan_latest),
+        "memory_pressure": heartbeat_input_ref("memory_pressure", "/proc/meminfo", memory_pressure_current),
+        "memory_plan": heartbeat_input_ref("memory_plan", "/proc/meminfo", memory_plan_current),
         "processes_game_guard": heartbeat_input_ref("processes_game_guard", PROCESS_GAME_GUARD_LATEST_PATH, game_guard_latest),
         "nervous_capture": heartbeat_input_ref("nervous_capture", NERVOUS_CAPTURE_LATEST_PATH, capture_latest, nested_get(capture_latest, ["summary", "facts"])),
         "nervous_browser_content": heartbeat_input_ref("nervous_browser_content", NERVOUS_BROWSER_CONTENT_LATEST_PATH, browser_content_latest, nested_get(browser_content_latest, ["summary", "text_records"])),
@@ -47129,7 +47207,7 @@ def heartbeat_pulse(
     job_causality = heartbeat_systemd_job_causality(heartbeat_jobs)
     rhythm = heartbeat_rhythm(previous_latest, heartbeat_timer, heartbeat_jobs, generated_at)
     candidate_lifecycle = heartbeat_candidate_lifecycle(reaction_candidates, previous_latest, generated_at)
-    pressure_context = heartbeat_pressure_context(memory_pressure_latest, memory_plan_latest, resource_orch, game_guard_latest, generated_at)
+    pressure_context = heartbeat_pressure_context(memory_pressure_current, memory_plan_current, resource_orch, game_guard_latest, generated_at)
     capture_health = heartbeat_capture_health_from(
         capture_status=capture_status,
         retention_plan=retention_latest,

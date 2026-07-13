@@ -74,7 +74,7 @@
   },
   "index_identity": {
     "artifact_kind": "source_surface_index",
-    "content_digest": "8e8d00d2f9f9407e444a32336cf4a21adaa65bb36b79f5211843cdaaaa1e7a75",
+    "content_digest": "6a4395e29fc9a554037450baf5482e3bbae3cfa7581bcf33900f6f5d732f4ee0",
     "local_id": "index:repo-local:source-surfaces",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-index.schema.json"
   },
@@ -15012,7 +15012,7 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "8beb7be8c63eb74f2a892a364f34c277683dd29def302c04889e3a6d8fb1de68",
+        "content_hash": "9ab37b223390d9c07a1855043d8b80874168bd431f3422bb8aea29735e2b6d5d",
         "git_ref": "git-index-source-tree",
         "id": "file:generated/contract_abi_signatures.min.json:81b23f676a",
         "mime": "application/json",
@@ -15051,7 +15051,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "8beb7be8c63eb74f2a892a364f34c277683dd29def302c04889e3a6d8fb1de68",
+        "digest": "9ab37b223390d9c07a1855043d8b80874168bd431f3422bb8aea29735e2b6d5d",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -29087,13 +29087,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "954d5f8a3e9776da6bcde711ebcaa0ada79bf3f01ed0dc9216c2bc75eed78ec4",
+        "content_hash": "3181d660502b22441d322b8f807113226f3a3869f0beb4d647bff733fcc9e166",
         "git_ref": "git-index-source-tree",
         "id": "file:src/abyss_machine/cli.py:3e116445b4",
         "mime": "text/x-python",
         "path": "src/abyss_machine/cli.py",
         "repo": "abyss-machine",
-        "size_bytes": 2679344
+        "size_bytes": 2682727
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -29126,7 +29126,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "954d5f8a3e9776da6bcde711ebcaa0ada79bf3f01ed0dc9216c2bc75eed78ec4",
+        "digest": "3181d660502b22441d322b8f807113226f3a3869f0beb4d647bff733fcc9e166",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
@@ -44754,13 +44754,13 @@
         "state": "current"
       },
       "identity": {
-        "content_hash": "18e205c5c08349928e2360cb610f41b79aff2cce378001874531a73cfd244c03",
+        "content_hash": "e0312862a2168a727c7ccfa71b23f55fde6533a2b60b2212a831ca0b1b39c1a1",
         "git_ref": "git-index-source-tree",
         "id": "file:tests/host_contract/contract/test_heartbeat_pressure_capture.py:452a3a89db",
         "mime": "text/x-python",
         "path": "tests/host_contract/contract/test_heartbeat_pressure_capture.py",
         "repo": "abyss-machine",
-        "size_bytes": 5490
+        "size_bytes": 9576
       },
       "mechanics_role": "none",
       "observed_form": "command",
@@ -44793,7 +44793,7 @@
       },
       "signs": {
         "attestation_ref": "",
-        "digest": "18e205c5c08349928e2360cb610f41b79aff2cce378001874531a73cfd244c03",
+        "digest": "e0312862a2168a727c7ccfa71b23f55fde6533a2b60b2212a831ca0b1b39c1a1",
         "signature_ref": "",
         "verification_state": "digest-only"
       },
