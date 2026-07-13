@@ -384,6 +384,28 @@ def test_resource_plan_keeps_storage_denial_authoritative_even_when_forced() -> 
     assert data["policy"]["force_does_not_override_storage_denials"] is True
 
 
+def test_resource_plan_accepts_storage_owner_allow_contract() -> None:
+    blocked, denied, warnings = resource_planning.storage_gate(
+        {"summary": {"root_pressure_class": "green", "srv_pressure_class": "green"}},
+        {"ok": True, "decision": "allow", "reasons": ["target_matches_policy"]},
+    )
+
+    assert blocked == []
+    assert denied == []
+    assert warnings == []
+
+
+def test_resource_plan_blocks_failed_storage_owner_allow_contract() -> None:
+    blocked, denied, warnings = resource_planning.storage_gate(
+        {"summary": {"root_pressure_class": "green", "srv_pressure_class": "green"}},
+        {"ok": False, "decision": "allow", "reasons": ["target_matches_policy"]},
+    )
+
+    assert blocked == ["storage_write_preflight_allow"]
+    assert denied == []
+    assert warnings == []
+
+
 def test_resource_plan_does_not_treat_unattended_force_as_background_permission() -> None:
     data = resource_planning.build_plan(
         workload_class="medium",

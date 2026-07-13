@@ -440,7 +440,12 @@ def storage_gate(storage_data: dict[str, Any], write_preflight: dict[str, Any] |
     warnings: list[str] = []
     if isinstance(write_preflight, dict):
         decision = str(write_preflight.get("decision") or "")
-        allowed = bool(write_preflight.get("allowed"))
+        explicit_allowed = write_preflight.get("allowed")
+        allowed = (
+            explicit_allowed
+            if isinstance(explicit_allowed, bool)
+            else bool(write_preflight.get("ok")) and decision == "allow"
+        )
         if not allowed:
             reason = f"storage_write_preflight_{decision or 'blocked'}"
             if decision == "deny":
