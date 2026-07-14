@@ -93,7 +93,6 @@ When card shape, route order, or validation authority moves, update
 
 ## Validation
 
-- `abyss-machine docs mesh --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine topology validate --json`
+- Acceptance covered documentation mesh generation and validation, the docs
+  audit, and topology validation. Current invocations are owned by
+  [commands.md](../commands.md#machine-entry-and-topology).

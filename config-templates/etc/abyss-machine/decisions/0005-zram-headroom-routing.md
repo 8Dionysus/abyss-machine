@@ -92,15 +92,13 @@ and one operator-approved reboot boundary.
 
 ## Follow-up Route
 
-Use `abyss-machine memory status --json`, `abyss-machine memory plan --json`,
-`abyss-machine resource plan --class CLASS --kind KIND --json`, and system logs
-after the next heavy game/resident-agent session. If zram headroom again
-collapses under low PSI, tune cgroup/resident workload policy before adding
-more blunt restrictions.
+Inspect memory status, memory planning, resource planning, and system-log
+evidence through [commands.md](../commands.md) after the next heavy
+game/resident-agent session. If zram headroom again collapses under low PSI,
+tune cgroup/resident workload policy before adding more blunt restrictions.
 
 ## Validation
 
-- `abyss-machine memory status --json`
-- `abyss-machine memory plan --json`
-- `abyss-machine resource plan --class CLASS --kind KIND --json`
-- `abyss-machine topology validate --json`
+- Acceptance covered memory status and planning, resource planning, and
+  topology validation. Current invocations are owned by
+  [commands.md](../commands.md).

@@ -86,18 +86,9 @@ large host-owned mutable plane subordinate to source authority under
 
 ## Follow-up Route
 
-Validate through:
-
-```bash
-abyss-machine docs mesh-validate --json
-abyss-machine docs audit --json
-abyss-machine storage validate --json
-abyss-machine topology validate --json
-```
+Use the documentation, storage, and topology sequence owned by
+[commands.md](../commands.md).
 
 ## Validation
 
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine storage validate --json`
-- `abyss-machine topology validate --json`
+- Canonical route: [commands.md](../commands.md).

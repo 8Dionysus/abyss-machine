@@ -93,18 +93,9 @@ model only.
 
 ## Follow-up Route
 
-Validate through:
-
-```bash
-abyss-machine docs decisions-index --json
-abyss-machine docs audit --json
-abyss-machine docs mesh-validate --json
-abyss-machine topology validate --json
-```
+Use the decision-index, documentation, and topology sequence owned by
+[commands.md](../commands.md#machine-entry-and-topology).
 
 ## Validation
 
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine topology validate --json`
+- Canonical route: [commands.md](../commands.md#machine-entry-and-topology).

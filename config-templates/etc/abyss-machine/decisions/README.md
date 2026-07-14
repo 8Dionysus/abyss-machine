@@ -15,7 +15,7 @@ history can support a decision, but they do not replace source contracts.
 | output | numbered decision record, README index row, generated compact index, and validation evidence |
 | owner | `AGENTS.md` for lane law; this README for human and agent indexing; numbered records for rationale |
 | next route | source surface first, then local route card, generated read model, memo receipt, or owning validator |
-| validation | `abyss-machine docs decisions-index --json`, `abyss-machine docs audit --json`, `abyss-machine docs mesh-validate --json` |
+| validation | decision-index and documentation checks owned by [commands.md](../commands.md#machine-entry-and-topology) |
 
 Generated quick index:
 
@@ -23,11 +23,7 @@ Generated quick index:
 {{ABYSS_MACHINE_STATE}}/docs/decisions-index.min.json
 ```
 
-Rebuild it with:
-
-```bash
-abyss-machine docs decisions-index --json
-```
+The rebuild command is owned by [commands.md](../commands.md#machine-entry-and-topology).
 
 The generated index is for fast access to what changed when and why. It does
 not replace the source records in this directory.
@@ -72,8 +68,8 @@ When a later change affects an existing decision:
    dated applicability/review entry and state the replacement source route.
 5. If the route or rationale is replaced, create a new numbered record, mark the
    old record `superseded`, and point both records at each other.
-6. Rebuild `abyss-machine docs decisions-index --json` and validate the docs
-   mesh.
+6. Rebuild the decision index and validate the docs mesh through
+   [commands.md](../commands.md#machine-entry-and-topology).
 
 The review log is not a changelog. It records material reviews and applicability
 movement for that decision only.
@@ -239,12 +235,5 @@ After promotion, rebuild and validate the relevant generated surfaces.
 
 ## Validation
 
-```bash
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs decisions-index --json
-abyss-machine docs audit --json
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine stack-bridge validate --json
-```
+Use the documentation, decision-index, topology, graph, and bridge sequence in
+[commands.md](../commands.md#machine-entry-and-topology).

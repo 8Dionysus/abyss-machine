@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add the owner-local `stats/` port and measured-duration coverage statistic to
+  the existing AI workload stats read model without publishing live host data.
+- Consolidate duplicated runnable command and validation lists into their
+  executable owner routes while retaining architecture and decision context.
 - Establish the full public host-organ skeleton with route docs, mechanics,
   explicit config/systemd source roots, schemas, and validation districts.
 - Add artifact signature policy and generated contract ABI signatures for

@@ -15,3 +15,5 @@ Current public entrypoint:
   class requirements and public-repo artifact boundaries.
 - `release_check.py`: run public or local-full release gates.
 - `generate_scaffold_index.py`: regenerate the committed scaffold read model.
+- `validate_local_stats_port.py`: delegate the owner-local stats contract to
+  the `aoa-stats` protocol validator selected by the validation environment.

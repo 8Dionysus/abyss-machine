@@ -91,20 +91,13 @@ privileged daemon or broad executor.
 
 ## Follow-up Route
 
-Validate through:
-
-- `abyss-machine doctor validate --json`
-- `abyss-machine doctor report --markdown`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine topology validate --json`
+Use the doctor, decision-index, documentation, and topology routes owned by
+[commands.md](../commands.md).
 
 Future changes to doctor automation, policy boundaries, or action authority should open a host-layer change record under `{{ABYSS_MACHINE_STATE}}/changes/` and either update this decision or add a new superseding decision.
 
 ## Validation
 
-- `abyss-machine doctor validate --json`
-- `abyss-machine doctor report --markdown`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine topology validate --json`
+- Acceptance covered doctor validation/reporting, the decision index, docs
+  audit, and topology validation. Current invocations are owned by
+  [commands.md](../commands.md).

@@ -123,13 +123,10 @@ repositories from the host bridge.
 
 ## Validation
 
-- `PYTHONPYCACHEPREFIX={{ABYSS_MACHINE_SRV}}/tmp/pycache python -m py_compile {{ABYSS_LOCAL_LIBEXEC_DIR}}/abyss-machine`
-- `abyss-machine typing validate --json`
-- `abyss-machine nervous quality-audit --refresh --refresh-index --json`
-- `abyss-machine nervous brief --scope now --json`
-- `abyss-machine heartbeats validate --json`
-- `abyss-machine stack-bridge validate --json`
-- `python -m pytest -q {{ABYSS_MACHINE_SRV}}/tests/contract/test_typing_intake.py {{ABYSS_MACHINE_SRV}}/tests/contract/test_heartbeat_bridge_phase5.py {{ABYSS_MACHINE_SRV}}/tests/contract/test_heartbeat_readmodel_core.py {{ABYSS_MACHINE_SRV}}/tests/contract/test_heartbeat_pressure_capture.py {{ABYSS_MACHINE_SRV}}/tests/contract/test_heartbeat_ai_hygiene_phase4.py {{ABYSS_MACHINE_SRV}}/tests/contract/test_cli_json_contracts.py {{ABYSS_MACHINE_SRV}}/tests/contract/test_schema_output_contracts.py`
+- Acceptance covered installed-source compilation, typing and nervous quality,
+  heartbeat and stack-bridge validation, plus focused typing/heartbeat/CLI/
+  schema contract tests. Current invocations are owned by
+  [commands.md](../commands.md) and the canonical test route.
 
 ## Follow-up Route
 

@@ -70,6 +70,7 @@
       {"label": "repo topology", "command": ["python", "scripts/validators/repo_topology.py"]},
       {"label": "mechanics topology", "command": ["python", "scripts/validators/mechanics_topology.py"]},
       {"label": "manifest integrity", "command": ["python", "scripts/validators/manifest_integrity.py"]},
+      {"label": "owner-local stats protocol", "command": ["python", "scripts/validate_local_stats_port.py"]},
       {"label": "schema integrity", "command": ["python", "scripts/validators/schema_integrity.py"]},
       {"label": "bootstrap contract", "command": ["python", "scripts/validators/bootstrap_contract.py"]},
       {"label": "first-run installed projection", "command": ["python", "scripts/validators/first_run_installed_projection.py"]},

@@ -1028,6 +1028,7 @@
         "docs/validation/validation_lanes.json",
         "manifests",
         "schemas",
+        "stats",
         "src/abyss_machine",
         "scripts/generate_contract_abi_signatures.py",
         "scripts/generate_scaffold_index.py",

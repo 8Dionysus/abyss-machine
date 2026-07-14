@@ -92,19 +92,12 @@ exact host mutation history.
 
 ## Follow-up Route
 
-Validate through:
-
-```bash
-abyss-machine docs audit --json
-abyss-machine docs mesh-validate --json
-abyss-machine topology validate --json
-```
+Use the documentation and topology sequence owned by
+[commands.md](../commands.md#machine-entry-and-topology).
 
 Add subsystem-local roadmaps only when repeated subsystem future pressure becomes
 too narrow for the root roadmap and too broad for a single change record.
 
 ## Validation
 
-- `abyss-machine docs audit --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine topology validate --json`
+- Canonical route: [commands.md](../commands.md#machine-entry-and-topology).

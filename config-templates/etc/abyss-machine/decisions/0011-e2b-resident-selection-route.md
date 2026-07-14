@@ -135,16 +135,10 @@ or workhorse lanes cleaner review inputs instead of noisy resident artifacts.
 
 ## Validation
 
-- `python3 -m py_compile {{ABYSS_MACHINE_SRV}}/tools/abyss-gemma4-spark-resident`
-- `abyss-machine ai llm resident validate --json`
-- `abyss-machine ai llm resident jobs-validate --json`
-- `abyss-machine ai llm resident candidates-validate --json`
-- `abyss-machine ai llm resident evals --json`
-- `abyss-machine ai llm resident evals-validate --json`
-- `abyss-machine ai llm resident smoke --json`
-- `abyss-machine typing validate --json`
-- `abyss-machine nervous brief --scope now --json`
-- `abyss-machine heartbeats pulse --json`
+- Acceptance covered resident-runner compilation, resident registry/job/
+  candidate/eval validation, resident smoke, typing validation, nervous
+  briefing, and heartbeat projection. Current invocations are owned by
+  [commands.md](../commands.md).
 
 ## Follow-up Route
 

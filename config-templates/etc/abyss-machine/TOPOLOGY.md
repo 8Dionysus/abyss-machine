@@ -25,26 +25,8 @@ abyss-machine must not import or mutate abyss-stack.
 
 ## First Commands
 
-```bash
-abyss-machine enter --json
-abyss-machine docs mesh-validate --json
-abyss-machine topology --json
-abyss-machine topology validate --json
-abyss-machine topology audit --json
-abyss-machine graph --json
-abyss-machine graph validate --json
-abyss-machine bridge --json
-abyss-machine stack-bridge --json
-abyss-machine stack-bridge validate --json
-abyss-machine doctor --json
-abyss-machine heartbeats pulse --json
-abyss-machine reactions --json
-abyss-machine responses --json
-abyss-machine changes status --json
-abyss-machine changes preflight --intent TEXT --surface SURFACE --json
-abyss-machine storage pressure --json
-abyss-machine nervous status --json
-```
+Use the machine-entry and topology sequence in
+[commands.md](commands.md#machine-entry-and-topology).
 
 ## Root Classes
 
@@ -88,16 +70,8 @@ Host-layer changes are recorded under:
 {{ABYSS_MACHINE_STATE}}/changes/
 ```
 
-Use:
-
-```bash
-abyss-machine changes record --id ID --title TITLE --intent TEXT --surface SURFACE --json
-abyss-machine changes close --id ID --decision-review existing --decision-ref DECISION --note "validated and complete" --json
-abyss-machine changes status --json
-abyss-machine changes latest --json
-abyss-machine changes preflight --intent TEXT --surface SURFACE --json
-abyss-machine topology validate --json
-```
+The change-ledger and topology commands are owned by
+[commands.md](commands.md#machine-entry-and-topology).
 
 The ledger is for machine-side changes only. It must not become a hidden issue
 tracker for AoA, ToS, `abyss-stack`, work projects, or private notes.
@@ -151,41 +125,17 @@ Stable machine-readable entry points:
 {{ABYSS_MACHINE_STATE}}/stack-bridge/validate/latest.json
 ```
 
-Bridge consumers should start with:
-
-```bash
-abyss-machine enter --json
-abyss-machine docs mesh-validate --json
-abyss-machine stack-bridge --json
-abyss-machine topology validate --json
-abyss-machine stack-bridge validate --json
-abyss-machine graph validate --json
-abyss-machine mode plan --json
-abyss-machine mode validate --json
-```
+Bridge consumers should start with the entry, documentation mesh, bridge,
+topology, graph, and mode routes in
+[commands.md](commands.md#machine-entry-and-topology).
 
 Then follow the specific owner command for storage, AI, dictation, cooling, mode,
 processes, observability, or nervous-system facts.
 
 ## Growth Guards
 
-Use these before expanding the host layer:
-
-```bash
-abyss-machine changes preflight --intent TEXT --surface SURFACE --json
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs audit --json
-abyss-machine storage validate --json
-abyss-machine ai validate --json
-abyss-machine cooling validate --json
-abyss-machine mode validate --json
-abyss-machine processes validate --json
-abyss-machine nervous validate --json
-abyss-machine stack-bridge validate --json
-abyss-machine dictation validate --json
-abyss-machine graph query --node ai --json
-```
+Before expanding the host layer, use the preflight, documentation, subsystem,
+bridge, and graph guards owned by [commands.md](commands.md).
 
 Preflight is a mutation gate, not a bureaucracy gate: it hard-denies protected
 boundaries by default, but warnings are allowed for stale or optional evidence

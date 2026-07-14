@@ -661,33 +661,16 @@ evidence-cited candidates.
 
 ## Validation
 
-- `PYTHONPYCACHEPREFIX={{ABYSS_MACHINE_SRV}}/tmp/pycache python3 -m py_compile {{ABYSS_LOCAL_LIBEXEC_DIR}}/abyss-machine`
-- `abyss-machine self-awareness requirements --json`
-- `abyss-machine self-awareness requirement-probes --json`
-- `abyss-machine self-awareness failure-matrix --json`
-- `abyss-machine self-awareness investigate --query TEXT --json`
-- `abyss-machine self-awareness replay --thread-id THREAD_ID --json`
-- `abyss-machine self-awareness cycle --json`
-- `abyss-machine self-awareness probe --json`
-- `abyss-machine self-awareness validate --json`
-- `pytest -q {{ABYSS_MACHINE_SRV}}/tests/contract/test_self_awareness_contracts.py`
-- `pytest -q {{ABYSS_MACHINE_SRV}}/tests/live/test_self_awareness_live_readonly.py`
-- `abyss-machine ai validate --json`
-- `abyss-machine rag validate --json`
-- `abyss-machine nervous validate --json`
-- `abyss-machine stack-bridge sync-static --dry-run --json`
-- `abyss-machine stack-bridge validate --json`
-- `abyss-machine test quick --json`
-- `pytest -q {{ABYSS_MACHINE_SRV}}/tests/contract/test_self_awareness_contracts.py`
-- `pytest -q {{ABYSS_MACHINE_SRV}}/tests/live/test_self_awareness_live_readonly.py`
-- `abyss-machine test live --json`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine docs mesh-validate --json`
+- Acceptance covered installed-source compilation; self-awareness requirements,
+  probes, failure analysis, investigation, replay, cycle, and validation;
+  focused contract and live-readonly tests; AI, RAG, nervous, stack-bridge, and
+  documentation gates; and the quick/live test lanes. Current invocations are
+  owned by [commands.md](../commands.md) and the canonical test route.
 
 ## Follow-up Route
 
-When the operator authorizes privileged `/etc` writes, run
-`abyss-machine stack-bridge sync-static --json` and re-run stack-bridge
-validation. Stack-owned capability gaps must be closed in `abyss-stack`, then
-refreshed here through `abyss-machine self-awareness capabilities --json`.
+When the operator authorizes privileged `/etc` writes, use the static
+stack-bridge synchronization route and re-run stack-bridge validation.
+Stack-owned capability gaps must be closed in `abyss-stack`, then refreshed
+through the self-awareness capability route. Current invocations are owned by
+[commands.md](../commands.md).

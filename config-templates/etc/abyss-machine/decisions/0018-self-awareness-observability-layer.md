@@ -97,21 +97,14 @@ prove cause, and every derived brief claim must carry evidence refs.
 
 ## Validation
 
-- `PYTHONPYCACHEPREFIX={{ABYSS_MACHINE_SRV}}/tmp/pycache python3 -m py_compile {{ABYSS_LOCAL_LIBEXEC_DIR}}/abyss-machine`
-- `abyss-machine self-awareness probe --json`
-- `abyss-machine self-awareness validate --json`
-- `abyss-machine stack-bridge validate --json`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine topology validate --json`
-- `abyss-machine graph validate --json`
-- `abyss-machine heartbeats validate --json`
-- `abyss-machine reactions validate --json`
-- `abyss-machine responses validate --json`
+- Acceptance covered installed-source compilation, self-awareness probing and
+  validation, stack-bridge, documentation, topology, graph, heartbeat,
+  reaction, and response validation. Current invocations are owned by
+  [commands.md](../commands.md).
 
 ## Follow-up Route
 
-The source route is `abyss-machine self-awareness validate --json`. If stack
-ownership later adds a trace backend, update this route through a new decision
-or a dated review entry after the stack-owned source surface changes.
+The source route is the self-awareness validator owned by
+[commands.md](../commands.md). If stack ownership later adds a trace backend,
+update this route through a new decision or a dated review entry after the
+stack-owned source surface changes.

@@ -113,18 +113,13 @@ Do not use this bridge to start, stop, restart, reload, or reconfigure
 
 ## Validation
 
-- `PYTHONPYCACHEPREFIX={{ABYSS_MACHINE_SRV}}/tmp/pycache python3 -m py_compile {{ABYSS_LOCAL_LIBEXEC_DIR}}/abyss-machine`
-- `abyss-machine stack-bridge observability --json`
-- `abyss-machine stack-bridge --json`
-- `abyss-machine stack-bridge validate --json`
-- `abyss-machine processes containers --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine topology validate --json`
-- `abyss-machine graph validate --json`
+- Acceptance covered installed-source compilation, stack-observability and
+  container read models, stack-bridge, docs-mesh, topology, and graph
+  validation. Current invocations are owned by [commands.md](../commands.md).
 
 ## Follow-up Route
 
-Use `abyss-machine stack-bridge observability --json` for live stack
-observability evidence. Use `abyss-machine stack-bridge sync-static --json`
-only through a privileged operator route when `/etc` static bridge manifests
-need to be synchronized with the dynamic route.
+Use the stack-bridge observability read model for live stack evidence. Static
+bridge synchronization belongs only to the privileged operator route when
+`/etc` manifests must be synchronized with the dynamic route; current
+invocations live in [commands.md](../commands.md).

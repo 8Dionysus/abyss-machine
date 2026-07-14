@@ -87,6 +87,7 @@ from abyss_machine.ai_runtime_contracts import (
     workload_measurements_from_eval,
     workload_measurements_from_resident_audit,
     workload_measurements_from_tts_eval,
+    workload_measured_duration_coverage,
     workload_metric_stats,
     workload_numeric,
     workload_refresh_document,
@@ -1420,6 +1421,19 @@ def test_ai_workload_stats_document_is_module_owned_aggregation() -> None:
     assert data["summary"]["groups"] == 2
     assert data["summary"]["by_declared_class"] == {"heavy": 1, "medium": 2}
     assert data["summary"]["by_capability"] == {"embeddings": 2, "llm_text": 1}
+    assert data["summary"]["measured_duration_coverage"] == {
+        "measurement_id": "abyss-machine/ai-workload-measured-duration-coverage-ratio",
+        "status": "observed",
+        "numerator": 3,
+        "denominator": 3,
+        "ratio": 1.0,
+        "unit": "1",
+        "population": "accepted_ai_workload_measurement_records",
+        "window": "selected_workload_runs",
+        "reporting_rule": "finite_non_negative_measured_duration_sec_over_all_accepted_records",
+        "missing_count": 0,
+        "invalid_count": 0,
+    }
     embedding = next(item for item in data["groups"] if item["workload_id"] == "embedding_eval")
     assert embedding["count"] == 2
     assert embedding["ok_count"] == 1
@@ -1429,6 +1443,31 @@ def test_ai_workload_stats_document_is_module_owned_aggregation() -> None:
     assert embedding["latest_duration_band"] == "medium"
     assert embedding["latest_seen_at"] == "2026-06-25T12:01:00+00:00"
     assert data["policy"]["absent_metrics_mean_unmeasured"] is True
+
+
+def test_ai_workload_measured_duration_coverage_preserves_missingness() -> None:
+    coverage = workload_measured_duration_coverage([
+        {"measured_duration_sec": 0},
+        {"measured_duration_sec": 2.5},
+        {},
+        {"measured_duration_sec": True},
+        {"measured_duration_sec": -1},
+        {"measured_duration_sec": float("nan")},
+        {"measured_duration_sec": float("inf")},
+    ])
+
+    assert coverage["status"] == "observed"
+    assert coverage["numerator"] == 2
+    assert coverage["denominator"] == 7
+    assert coverage["ratio"] == 0.285714
+    assert coverage["missing_count"] == 1
+    assert coverage["invalid_count"] == 4
+
+    empty = workload_measured_duration_coverage([])
+    assert empty["status"] == "unknown"
+    assert empty["numerator"] == 0
+    assert empty["denominator"] == 0
+    assert empty["ratio"] is None
 
 
 def test_ai_workload_stats_cli_delegates_to_module(monkeypatch) -> None:

@@ -10,8 +10,9 @@ publishing the private life of a workstation.
 2. `DESIGN.md`
 3. `BOUNDARIES.md`
 4. `docs/publication/PUBLICATION_BOUNDARY.md`
-5. `mechanics/README.md`
-6. the nearest local `AGENTS.md`
+5. `stats/README.md` when owner-local statistical questions or contracts move
+6. `mechanics/README.md`
+7. the nearest local `AGENTS.md`
 
 ## Owns
 

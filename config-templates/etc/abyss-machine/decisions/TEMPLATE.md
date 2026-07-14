@@ -56,7 +56,7 @@ What must future agents not infer from this decision?
 
 ## Validation
 
-- `abyss-machine ... --json`
+- Name the acceptance evidence and its current executable owner surface.
 
 ## Follow-up Route
 

@@ -128,20 +128,13 @@ truth and may be regenerated.
 
 ## Validation
 
-- `abyss-machine artifacts validate --json`
-- `abyss-machine artifacts usage PATH --json`
-- `abyss-machine artifacts timeline PATH --json`
-- `abyss-machine storage validate --json`
-- `abyss-machine topology validate --json`
-- `abyss-machine graph validate --json`
-- `abyss-machine test quick --json`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
+- Acceptance covered artifact validation/usage/timeline evidence, storage,
+  topology, graph, the quick test lane, and decision/docs consistency. Current
+  invocations are owned by [commands.md](../commands.md).
 
 ## Follow-up Route
 
-Future cleanup/offload work should start with
-`abyss-machine artifacts inventory --scope ai-cache --with-usage --json` or
-`abyss-machine artifacts usage PATH --json`, then use `abyss-machine artifacts
-quarantine --path PATH --verify-workload NAME --json` for reversible dry-run
-planning before any mutation-specific change record.
+Future cleanup/offload work should start with artifact inventory or usage
+evidence, then use the artifact quarantine dry-run route for reversible
+planning before any mutation-specific change record. Current invocations are
+owned by [commands.md](../commands.md).

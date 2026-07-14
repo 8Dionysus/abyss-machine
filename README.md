@@ -18,20 +18,17 @@ Start with:
 1. [AGENTS.md](AGENTS.md)
 2. [DESIGN.md](DESIGN.md)
 3. [BOUNDARIES.md](BOUNDARIES.md)
-4. [mechanics/README.md](mechanics/README.md)
-5. [docs/publication/PUBLICATION_BOUNDARY.md](docs/publication/PUBLICATION_BOUNDARY.md)
-6. [kag/README.md](kag/README.md)
+4. [stats/README.md](stats/README.md)
+5. [mechanics/README.md](mechanics/README.md)
+6. [docs/publication/PUBLICATION_BOUNDARY.md](docs/publication/PUBLICATION_BOUNDARY.md)
+7. [kag/README.md](kag/README.md)
 
 ## Bootstrap Shape
 
-```bash
-python -m pip install -e .
-scripts/abyss-machine-bootstrap doctor --dry-run --json
-scripts/abyss-machine-bootstrap render --profile linux-systemd-core --dry-run --json
-scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json
-scripts/abyss-machine-bootstrap refresh-code --dry-run --json
-python scripts/validators/first_run_installed_projection.py --json
-```
+The bootstrap, isolated first-run projection, and installed-code refresh routes
+live in [docs/install/README.md](docs/install/README.md). Repository validation
+and release commands live in [docs/validation/README.md](docs/validation/README.md)
+and [docs/testing/RELEASE_CHECK_ROUTE.md](docs/testing/RELEASE_CHECK_ROUTE.md).
 
 The bootstrap CLI and installed `abyss-machine` CLI share
 `abyss_machine.path_policy` for root defaults and environment overrides.
@@ -335,12 +332,9 @@ temporary roots and compares the source CLI against the temp-installed CLI
 without relying on a live source checkout.
 
 Typing and nervous-system collectors are installed as a first-class organ, but
-real collection is opt-in:
-
-```bash
-scripts/abyss-machine-bootstrap enable-profile typing-intake --dry-run --json
-scripts/abyss-machine-bootstrap enable-profile nervous-local --dry-run --json
-```
+real collection is opt-in. The profile commands remain in the
+[installed-host command catalog](config-templates/etc/abyss-machine/commands.md)
+rather than this orientation page.
 
 ## Public Boundary
 
@@ -354,30 +348,18 @@ before adding files. The short rule is:
 
 ## Test Lanes
 
-Default public smoke:
-
-```bash
-python scripts/ci_gate.py --mode source-fast
-```
+The manifest-backed public smoke and release lanes are defined in
+[docs/validation/validation_lanes.json](docs/validation/validation_lanes.json)
+and explained by [docs/validation/README.md](docs/validation/README.md).
 
 Validation lanes are OS Abyss CLI contracts. GitHub Actions, local host
 schedulers, release pipelines, and agent goal loops use the same
 `scripts/ci_gate.py` entrypoints.
 
 Host contract tests imported from the current workstation are kept for
-development and migration work, but they are not the bootstrap smoke lane:
-
-```bash
-python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"
-```
-
-Release checks:
-
-```bash
-python scripts/ci_gate.py --mode release-artifact
-python scripts/release_check.py
-python scripts/release_check.py --include-host-contracts
-```
+development and migration work, but they are not the bootstrap smoke lane.
+Their canonical route and the complete release sequence live in
+[docs/testing/RELEASE_CHECK_ROUTE.md](docs/testing/RELEASE_CHECK_ROUTE.md).
 
 Artifact and release-trust command routes are real, but they are not the primary
 orientation path for this repo. Use

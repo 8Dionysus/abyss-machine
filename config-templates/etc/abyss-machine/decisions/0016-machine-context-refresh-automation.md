@@ -46,11 +46,8 @@ verdicts, mutate repositories, or deliver evidence into AoA organs.
 Replace the maps-only automatic refresh route with
 `abyss-machine-context-refresh.timer`.
 
-The timer runs:
-
-```bash
-abyss-machine rag refresh --query scheduled-machine-context-refresh --json
-```
+The timer runs the canonical `rag refresh` route with the
+`scheduled-machine-context-refresh` query declared by the installed unit.
 
 `rag refresh` rebuilds maps, validates maps, writes a RAG trace/eval, writes a
 RAG refresh record, validates RAG, and updates the RAG status/index.
@@ -100,17 +97,14 @@ organs.
 
 ## Validation
 
-- `PYTHONPYCACHEPREFIX={{ABYSS_MACHINE_SRV}}/tmp/pycache-check python -m py_compile {{ABYSS_LOCAL_LIBEXEC_DIR}}/abyss-machine`
-- `abyss-machine rag refresh --query "manual post-install context refresh" --json`
-- `abyss-machine maps validate --json`
-- `abyss-machine rag validate --json`
-- `systemctl --user status abyss-machine-context-refresh.timer --no-pager`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs mesh-validate --json`
+- Acceptance covered installed-source compilation, one manual context refresh,
+  maps/RAG validation, user-timer state, and decision/docs consistency. Current
+  invocations are owned by [commands.md](../commands.md) and the installed unit.
 
 ## Follow-up Route
 
 Use `{{ABYSS_MACHINE_STATE}}/rag/refresh/latest.json` to inspect the latest
 automatic refresh result. Change timer cadence or refresh scope through
 `{{ABYSS_MACHINE_ETC}}/maps-policy.json`, `{{ABYSS_MACHINE_ETC}}/MAPS.md`, and the
-user unit files, then rerun the validators above.
+user unit files, then use the current validation sequence from
+[commands.md](../commands.md).

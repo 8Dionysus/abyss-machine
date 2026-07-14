@@ -43,6 +43,7 @@ def build_index() -> dict[str, Any]:
             "systemd_user": "systemd/user",
             "mechanics": "mechanics",
             "schemas": "schemas",
+            "stats": "stats",
             "validation_lanes": "docs/validation/validation_lanes.json"
         },
         "counts": {
