@@ -183,3 +183,19 @@ def test_storage_paths_cli_surface_is_json_read_only() -> None:
     assert payload["policy"].endswith("storage-policy.json")
     assert payload["large_roots"]["machine"].startswith("/srv/")
     assert payload["apply"]["dry_run_command"] == "abyss-machine storage apply --action-id ID --dry-run --json"
+
+
+def test_storage_monitor_timer_reserves_measured_startup_memory() -> None:
+    unit = (ROOT / "systemd" / "user" / "abyss-storage-monitor.service").read_text(encoding="utf-8")
+    exec_start = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+
+    assert " resource launch --class medium --kind indexing --unattended " in exec_start
+    assert " --memory-demand-mib 2048 " in exec_start
+    assert " --demand-key abyss-machine:storage-monitor:hourly " in exec_start
+    assert " --demand-owner abyss-machine-storage " in exec_start
+    assert " --estimate-source measured-systemd-unit-p99 " in exec_start
+    assert " --estimate-confidence high " in exec_start
+    assert " --success-on-block " in exec_start
+    assert exec_start.endswith("/abyss-machine storage monitor --json")
+    assert "MemoryHigh=" not in unit
+    assert "MemoryMax=" not in unit
