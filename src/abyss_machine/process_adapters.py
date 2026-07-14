@@ -936,6 +936,8 @@ def process_thermal_plan_document(
         recommended_new_work[workload] = {
             "allowed": bool(route.get("allowed")),
             "unattended_allowed": bool(route.get("unattended_allowed")),
+            "foreground_allowed": bool(route.get("foreground_allowed")),
+            "foreground_blocked_reasons": list(route.get("foreground_blocked_reasons") or []),
             "cpuset": _nested_get(route, ["route", "cpuset"]),
             "thread_limit": _nested_get(route, ["route", "thread_limit"]),
         }

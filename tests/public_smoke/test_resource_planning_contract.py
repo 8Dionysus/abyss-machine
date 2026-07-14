@@ -11,6 +11,59 @@ if str(SRC_ROOT) not in sys.path:
 from abyss_machine import resource_planning
 
 
+def test_resource_owner_activity_requires_explicit_foreground_and_rejects_conflicts() -> None:
+    unspecified = resource_planning.owner_activity(None, unattended=False)
+    legacy_background = resource_planning.owner_activity(None, unattended=True)
+    foreground = resource_planning.owner_activity("foreground", unattended=False)
+    conflict = resource_planning.owner_activity("foreground", unattended=True)
+
+    assert unspecified["normalized"] == "unspecified"
+    assert unspecified["foreground"] is False
+    assert legacy_background["normalized"] == "background"
+    assert legacy_background["background"] is True
+    assert foreground["valid"] is True
+    assert foreground["explicit"] is True
+    assert foreground["foreground"] is True
+    assert conflict["valid"] is False
+    assert conflict["errors"] == ["owner_activity_conflicts_with_unattended"]
+
+
+def test_resource_runtime_admission_request_is_owner_explicit_and_secret_safe() -> None:
+    request = resource_planning.runtime_admission_request(
+        {
+            "operation": "cold_load",
+            "owner": "abyss-stack",
+            "workload_id": "llama-cpp:gemma4-e2b",
+            "request_id": "req-123",
+            "release_token": "fixture-release-token-1234567890",
+            "activity": "foreground",
+            "class": "heavy",
+            "kind": "ai",
+            "memory_demand_mib": 4096,
+        }
+    )
+
+    assert request["valid"] is True
+    assert request["request"]["activity"] == "foreground"
+    assert request["request"]["unattended"] is False
+    assert request["request"]["latency"] == "interactive"
+    assert request["lease_id"].startswith("runtime-cold-load:")
+    assert request["release_token_sha256"] != "fixture-release-token-1234567890"
+    assert "release_token" not in request["request"]
+
+    missing_activity = resource_planning.runtime_admission_request(
+        {
+            "owner": "abyss-stack",
+            "workload_id": "llama-cpp:gemma4-e2b",
+            "request_id": "req-124",
+            "release_token": "fixture-release-token-1234567890",
+            "memory_demand_mib": 4096,
+        }
+    )
+    assert missing_activity["valid"] is False
+    assert missing_activity["errors"] == ["owner_activity_required"]
+
+
 def test_resource_startup_demand_resolution_keeps_model_owner_authoritative() -> None:
     policy = resource_planning.default_policy(version="test")
 
@@ -172,6 +225,79 @@ def test_resource_startup_projection_defers_only_new_unattended_work_during_acti
     assert foreground_active_stall["admission"]["unattended_start"] is False
     assert quiet_unattended["admission"]["allowed"] is True
     assert quiet_unattended["admission"]["active_stall"] is False
+
+
+def test_runtime_cold_load_plan_preserves_reserve_and_uses_owner_activity() -> None:
+    policy = resource_planning.default_policy(version="test")
+    memory_policy = {
+        "thresholds": {
+            "mem_available_percent": {"watch_below": 30, "warm_below": 22, "hot_below": 14, "critical_below": 8},
+            "psi_some_avg10": {"hot_above": 8.0},
+            "psi_full_avg10": {"hot_above": 2.0},
+        }
+    }
+    common = {
+        "memory_summary": {
+            "mem_total_mib": 32000,
+            "mem_available_mib": 12000,
+            "psi_some_avg10": 0.0,
+            "psi_full_avg10": 3.0,
+        },
+        "current_memory_class": "hot",
+        "memory_policy": memory_policy,
+        "resource_policy": policy,
+        "reservations": {"summary": {"active_count": 0, "known_count": 0, "unknown_count": 0, "outstanding_mib": 0}},
+        "thermal_safety": {"available": True, "emergency": False, "temperature_c_max": 55.0},
+        "generated_at": "2026-07-13T12:00:00Z",
+    }
+    request = {
+        "owner": "abyss-stack",
+        "workload_id": "llama-cpp:gemma4-e2b",
+        "request_id": "request-123",
+        "class": "heavy",
+        "kind": "ai",
+        "memory_demand_mib": 4096,
+        "estimate_source": "explicit_owner_estimate",
+        "estimate_confidence": "owner_provided",
+    }
+
+    foreground = resource_planning.runtime_cold_load_plan(
+        request={**request, "activity": "foreground", "unattended": False},
+        **common,
+    )
+    background = resource_planning.runtime_cold_load_plan(
+        request={**request, "request_id": "request-124", "activity": "background", "unattended": True},
+        **common,
+    )
+    reserve_blocked = resource_planning.runtime_cold_load_plan(
+        request={**request, "request_id": "request-125", "activity": "foreground", "unattended": False, "memory_demand_mib": 11200},
+        **common,
+    )
+    thermal_blocked = resource_planning.runtime_cold_load_plan(
+        request={**request, "request_id": "request-126", "activity": "foreground", "unattended": False},
+        **{**common, "thermal_safety": {"available": True, "emergency": True, "temperature_c_max": 109.5}},
+    )
+    corrupt_state = resource_planning.runtime_cold_load_plan(
+        request={**request, "request_id": "request-127", "activity": "foreground", "unattended": False},
+        **{
+            **common,
+            "reservations": {
+                "ok": False,
+                "summary": {"active_count": 0, "known_count": 0, "unknown_count": 0, "outstanding_mib": 0},
+            },
+        },
+    )
+
+    assert foreground["decision"] == "allow"
+    assert foreground["policy"]["battery_and_power_mode_are_advisory_not_admission_authority"] is True
+    assert background["decision"] == "force_required"
+    assert background["blocked_reasons"] == ["runtime_new_unattended_work_during_active_memory_stall"]
+    assert reserve_blocked["decision"] == "force_required"
+    assert reserve_blocked["blocked_reasons"] == ["runtime_projected_mem_available_below_hard_reserve"]
+    assert thermal_blocked["decision"] == "force_required"
+    assert thermal_blocked["blocked_reasons"] == ["thermal_emergency"]
+    assert corrupt_state["decision"] == "deny"
+    assert corrupt_state["denied_reasons"] == ["runtime_reservation_state_invalid"]
 
 
 def test_resource_planning_builds_indexing_systemd_contract_without_cli_state() -> None:
@@ -382,6 +508,78 @@ def test_resource_plan_keeps_storage_denial_authoritative_even_when_forced() -> 
     assert "cpu_route_denied" in data["overridden_reasons"]
     assert data["denied_reasons"] == ["storage_write_preflight_deny"]
     assert data["policy"]["force_does_not_override_storage_denials"] is True
+
+
+def test_resource_plan_owner_foreground_bypasses_only_advisory_power_defer() -> None:
+    common = {
+        "workload_class": "heavy",
+        "kind": "ai",
+        "latency": "interactive",
+        "unattended": False,
+        "force": False,
+        "bytes_required": None,
+        "target": None,
+        "unit_type": "service",
+        "sample_thermal": False,
+        "policy": resource_planning.default_policy(version="test"),
+        "mode": {"launch_policy": {"max_unattended_class": "probe"}},
+        "memory": {"pressure": {"summary": {}}},
+        "storage": {"summary": {"root_pressure_class": "green", "srv_pressure_class": "green"}},
+        "game_guard": {"active": False},
+        "thermal_plan": {
+            "thermal": {"class": "warm"},
+            "recommended_new_work": {
+                "heavy": {
+                    "allowed": False,
+                    "unattended_allowed": False,
+                    "foreground_allowed": True,
+                }
+            },
+        },
+        "write_preflight": None,
+        "paths": {"latest": "/state/resource/latest.json"},
+        "input_latest_paths": {},
+        "thermal_unattended_cap": "probe",
+        "total_mem_kib": 32 * 1024 * 1024,
+        "environ": {},
+        "version": "test",
+        "generated_at": "2026-07-13T12:00:00+00:00",
+        "activity": "foreground",
+    }
+
+    advisory = resource_planning.build_plan(
+        route={
+            "ok": True,
+            "allowed": False,
+            "unattended_allowed": False,
+            "foreground_allowed": True,
+            "foreground_blocked_reasons": [],
+            "reasons": ["battery_discharging", "heavy_cpu_start_deferred_on_battery"],
+            "route": {"cpuset": "4-11", "env": {}},
+        },
+        **common,
+    )
+    emergency = resource_planning.build_plan(
+        route={
+            "ok": True,
+            "allowed": False,
+            "unattended_allowed": False,
+            "foreground_allowed": False,
+            "foreground_blocked_reasons": ["package_critical"],
+            "route": {"cpuset": "4-11", "env": {}},
+        },
+        **common,
+    )
+
+    assert advisory["decision"] == "allow"
+    assert advisory["warnings"] == [
+        "cpu_route_owner_foreground_advisory_defer",
+        "thermal_plan_owner_foreground_advisory_defer",
+    ]
+    assert advisory["request"]["activity"]["foreground"] is True
+    assert emergency["decision"] == "force_required"
+    assert emergency["blocked_reasons"] == ["cpu_route_denied"]
+    assert emergency["policy"]["foreground_never_bypasses_memory_reserve_or_emergency_route_denial"] is True
 
 
 def test_resource_plan_accepts_storage_owner_allow_contract() -> None:

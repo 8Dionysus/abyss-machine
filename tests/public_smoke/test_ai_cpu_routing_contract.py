@@ -70,6 +70,8 @@ def test_ai_cpu_route_contract_defers_heavy_on_battery_and_preserves_hints() -> 
     assert data["ok"] is True
     assert data["allowed"] is False
     assert data["unattended_allowed"] is False
+    assert data["foreground_allowed"] is True
+    assert data["foreground_blocked_reasons"] == []
     assert "heavy_cpu_start_deferred_on_battery" in data["reasons"]
     assert data["route"]["thread_limit"] == 6
     assert data["route"]["env"]["OMP_NUM_THREADS"] == "6"
@@ -98,5 +100,7 @@ def test_ai_cpu_routed_heavy_policy_blocks_broad_heat() -> None:
     )
 
     assert policy["allowed"] is False
+    assert policy["foreground_allowed"] is False
+    assert policy["foreground_blocked_reasons"] == ["broad_heat"]
     assert policy["decision"] == "defer_broad_heat"
     assert policy["distribution"]["broad_heat"] is True

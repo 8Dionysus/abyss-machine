@@ -27,6 +27,7 @@ import os
 import platform
 import re
 import resource
+import secrets
 import signal
 import shlex
 import shutil
@@ -106,6 +107,7 @@ try:
     from . import nervous_synthesis_adapters
     from . import process_contracts
     from . import resource_adapters
+    from . import resource_admission_adapters
     from . import resource_planning
     from . import runtime_evidence_contracts
     from . import self_awareness_adapters
@@ -300,6 +302,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import process_adapters
     from abyss_machine import process_contracts
     from abyss_machine import resource_adapters
+    from abyss_machine import resource_admission_adapters
     from abyss_machine import resource_planning
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import self_awareness_adapters
@@ -15691,6 +15694,11 @@ def resource_paths() -> dict[str, Any]:
             "latest": str(RESOURCE_ORCHESTRATOR_LATEST_PATH),
             "retention": "latest_only",
         },
+        "runtime_admission": {
+            "socket": str(resource_admission_socket_path()),
+            "reservations": str(resource_adapters.reservations_root(os.environ, uid=os.getuid())),
+            "retention": "runtime_only",
+        },
         "validate": str(RESOURCE_VALIDATE_LATEST_PATH),
         "commands": {
             "paths": "abyss-machine resource paths --json",
@@ -15699,6 +15707,8 @@ def resource_paths() -> dict[str, Any]:
             "plan": "abyss-machine resource plan --class CLASS --kind KIND --json",
             "orchestrator": "abyss-machine resource orchestrator --json",
             "launch": "abyss-machine resource launch --class CLASS --kind KIND --dry-run -- COMMAND...",
+            "admission_status": "abyss-machine resource admission status --json",
+            "admission_serve": "abyss-machine resource admission serve --json",
             "validate": "abyss-machine resource validate --json",
         },
         "upstream_inputs": {
@@ -16180,6 +16190,7 @@ def resource_plan(
     kind: str = "generic",
     latency: str = "balanced",
     unattended: bool = False,
+    activity: str | None = None,
     force: bool = False,
     bytes_required: int | None = None,
     target: str | None = None,
@@ -16203,6 +16214,8 @@ def resource_plan(
 ) -> dict[str, Any]:
     normalized_class = resource_valid_class(workload_class)
     normalized_kind = resource_valid_kind(kind)
+    activity_data = resource_planning.owner_activity(activity, unattended=unattended)
+    effective_unattended = bool(activity_data.get("background"))
     policy = policy_data if isinstance(policy_data, dict) else resource_policy_document()
     demand_profile_path = resource_adapters.demand_profiles_path(os.environ, uid=os.getuid())
     demand_profiles = resource_adapters.load_demand_profiles(demand_profile_path)
@@ -16222,7 +16235,7 @@ def resource_plan(
         resource_adapters.reservations_root(os.environ, uid=os.getuid()),
         cleanup=False,
     )
-    route_force = resource_planning.force_effective_for_request(force, unattended)
+    route_force = resource_planning.force_effective_for_request(force, effective_unattended)
     input_freshness: dict[str, Any] = {}
 
     mode = mode_data if isinstance(mode_data, dict) else None
@@ -16389,13 +16402,13 @@ def resource_plan(
         memory_policy=memory_policy,
         demand=demand,
         reservations=reservations,
-        unattended=unattended,
+        unattended=effective_unattended,
         admission_policy=policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {},
     )
     projected_class = str(nested_get(demand_projection, ["projected", "memory_class"]) or memory.get("class") or "green")
     admission = demand_projection.get("admission") if isinstance(demand_projection.get("admission"), dict) else {}
     demand_blocked = [f"startup_{item}" for item in admission.get("blocked_reasons", [])]
-    demand_denied: list[str] = []
+    demand_denied = [f"startup_{item}" for item in admission.get("denied_reasons", [])]
     demand_warnings: list[str] = []
     if demand.get("valid") is False:
         demand_denied.append("startup_demand_invalid")
@@ -16426,7 +16439,7 @@ def resource_plan(
         thermal_policy = policy.get("gates", {}).get("thermal", {}) if isinstance(policy.get("gates"), dict) else {}
         seconds = float(thermal_policy.get("sample_seconds_for_medium_or_above", 2.0)) if isinstance(thermal_policy, dict) else 2.0
         interval = float(thermal_policy.get("sample_interval_sec", 0.5)) if isinstance(thermal_policy, dict) else 0.5
-        thermal_plan = process_thermal_plan(seconds=seconds, interval=interval, top=20, write_latest=True)
+        thermal_plan = process_thermal_plan(seconds=seconds, interval=interval, top=20, write_latest=write_latest)
     else:
         if isinstance(thermal_plan_data, dict):
             thermal_plan = thermal_plan_data
@@ -16471,6 +16484,7 @@ def resource_plan(
         version=VERSION,
         generated_at=now_iso(),
         startup_demand=demand_projection,
+        activity=activity,
     )
     data["input_freshness"] = input_freshness
     data["policy"]["live_memory_status_per_plan"] = memory_data is None
@@ -16567,6 +16581,7 @@ def resource_launch(
     kind: str = "generic",
     latency: str = "balanced",
     unattended: bool = False,
+    activity: str | None = None,
     force: bool = False,
     dry_run: bool = False,
     unit_type: str = "service",
@@ -16586,6 +16601,8 @@ def resource_launch(
     execution_delegate: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     clean_command = [str(item) for item in command if str(item)]
+    activity_data = resource_planning.owner_activity(activity, unattended=unattended)
+    effective_unattended = bool(activity_data.get("background"))
     if clean_command and clean_command[0] == "--":
         clean_command = clean_command[1:]
     resolved_demand_key = resource_planning.command_demand_key(clean_command, demand_key)
@@ -16619,6 +16636,7 @@ def resource_launch(
         "kind": kind,
         "latency": latency,
         "unattended": unattended,
+        "activity": activity,
         "force": force,
         "bytes_required": bytes_required,
         "target": target,
@@ -16640,7 +16658,11 @@ def resource_launch(
             should_wait = False
             wait_started = time.monotonic()
             with resource_adapters.admission_lock(reservation_root):
-                reservation_snapshot = resource_adapters.reservation_snapshot(reservation_root, cleanup=True)
+                reservation_snapshot = resource_adapters.reservation_snapshot(
+                    reservation_root,
+                    cleanup=True,
+                    cleanup_invalid=False,
+                )
                 plan = resource_plan(
                     **plan_kwargs,
                     reservation_data=reservation_snapshot,
@@ -16682,6 +16704,7 @@ def resource_launch(
                             "estimate_source": requested.get("estimate_source"),
                             "estimate_confidence": requested.get("estimate_confidence"),
                             "calibration": requested.get("calibration"),
+                            "activity": nested_get(plan, ["request", "activity", "normalized"]),
                             "unknown_demand": not known,
                             "startup_ttl_sec": ttl_sec,
                         }
@@ -16718,7 +16741,8 @@ def resource_launch(
                 "class": workload_class,
                 "kind": kind,
                 "latency": latency,
-                "unattended": bool(unattended),
+                "unattended": effective_unattended,
+                "activity": activity,
                 "force": bool(force),
                 "unit_type": unit_type,
                 "unit": unit,
@@ -16859,6 +16883,42 @@ def resource_launch(
             data["ok"] = False
             data["write_errors"] = errors
     return data
+
+
+def resource_admission_socket_path(explicit: str | None = None) -> Path:
+    if explicit:
+        return Path(explicit).expanduser()
+    return resource_admission_adapters.socket_path(os.environ, uid=os.getuid())
+
+
+def resource_admission_client_request(
+    payload: Mapping[str, Any],
+    *,
+    socket: str | None = None,
+    timeout_sec: float = 5.0,
+) -> dict[str, Any]:
+    return resource_admission_adapters.client_request(
+        payload,
+        path=resource_admission_socket_path(socket),
+        timeout_sec=timeout_sec,
+    )
+
+
+def resource_admission_server_run(
+    *,
+    socket: str | None = None,
+    allow_shutdown: bool = False,
+    output_json: bool = False,
+) -> dict[str, Any]:
+    command = [sys.executable, "-m", "abyss_machine.resource_admission_server"]
+    if socket:
+        command.extend(["--socket", str(resource_admission_socket_path(socket))])
+    if allow_shutdown:
+        command.append("--allow-shutdown")
+    if output_json:
+        command.append("--json")
+    os.execve(sys.executable, command, dict(os.environ))
+    raise RuntimeError("resource admission server exec returned unexpectedly")
 
 
 def resource_status(write_latest: bool = True) -> dict[str, Any]:
@@ -49812,6 +49872,7 @@ def main(argv: list[str]) -> int:
     resource_plan_parser.add_argument("--kind", default="generic", choices=["ai", "agent", "benchmark", "indexing", "generic"])
     resource_plan_parser.add_argument("--latency", default="balanced", choices=["low", "balanced", "interactive"])
     resource_plan_parser.add_argument("--unattended", action="store_true", help="plan as unattended/background work")
+    resource_plan_parser.add_argument("--activity", choices=["foreground", "background", "maintenance"], default=None, help="explicit owner-declared workload activity")
     resource_plan_parser.add_argument("--force", action="store_true", help="operator override for overrideable gates")
     resource_plan_parser.add_argument("--scope", action="store_true", help="plan systemd scope instead of service")
     resource_plan_parser.add_argument("--bytes", dest="bytes_required", type=int, default=None, help="optional generated-write byte estimate")
@@ -49822,6 +49883,7 @@ def main(argv: list[str]) -> int:
     resource_plan_parser.add_argument("--estimate-source", default=None, help="source of the startup demand estimate")
     resource_plan_parser.add_argument("--estimate-confidence", default=None, help="confidence label for the startup demand estimate")
     resource_plan_parser.add_argument("--no-thermal-sample", action="store_true", help="use latest thermal plan instead of taking a fresh sample")
+    resource_plan_parser.add_argument("--no-write", action="store_true", help="do not update bounded latest plan files")
     resource_plan_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     resource_orchestrator_parser = resource_sub.add_parser("orchestrator")
     resource_orchestrator_parser.add_argument("--refresh-nervous", action="store_true", help="refresh nervous derived quality records during the orchestrator audit")
@@ -49831,6 +49893,7 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--kind", default="generic", choices=["ai", "agent", "benchmark", "indexing", "generic"])
     resource_launch_parser.add_argument("--latency", default="balanced", choices=["low", "balanced", "interactive"])
     resource_launch_parser.add_argument("--unattended", action="store_true", help="launch as unattended/background work")
+    resource_launch_parser.add_argument("--activity", choices=["foreground", "background", "maintenance"], default=None, help="explicit owner-declared workload activity")
     resource_launch_parser.add_argument("--force", action="store_true", help="operator override for overrideable gates")
     resource_launch_parser.add_argument("--dry-run", action="store_true", help="plan and show systemd-run argv without executing")
     resource_launch_parser.add_argument("--scope", action="store_true", help="launch as systemd scope instead of transient service")
@@ -49849,6 +49912,38 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--success-on-block", action="store_true", help="return success when an overrideable gate blocks a scheduled launch")
     resource_launch_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     resource_launch_parser.add_argument("cmd", nargs=argparse.REMAINDER)
+    resource_admission_parser = resource_sub.add_parser("admission", help="reserve host memory before owner-managed cold loads")
+    resource_admission_sub = resource_admission_parser.add_subparsers(dest="resource_admission_command", required=True)
+    resource_admission_serve_parser = resource_admission_sub.add_parser("serve")
+    resource_admission_serve_parser.add_argument("--socket", default=None, help="override the runtime Unix socket path")
+    resource_admission_serve_parser.add_argument("--allow-shutdown", action="store_true", help="allow same-user shutdown requests for bounded canaries")
+    resource_admission_serve_parser.add_argument("--json", action="store_true", help="emit the stop receipt as JSON")
+    for name in ("ping", "status", "shutdown"):
+        admission_probe_parser = resource_admission_sub.add_parser(name)
+        admission_probe_parser.add_argument("--socket", default=None, help="override the runtime Unix socket path")
+        admission_probe_parser.add_argument("--timeout", type=float, default=5.0, help="Unix socket request timeout")
+        admission_probe_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    resource_admission_reserve_parser = resource_admission_sub.add_parser("reserve")
+    resource_admission_reserve_parser.add_argument("--socket", default=None, help="override the runtime Unix socket path")
+    resource_admission_reserve_parser.add_argument("--timeout", type=float, default=15.0, help="Unix socket request timeout")
+    resource_admission_reserve_parser.add_argument("--owner", required=True, help="stable owner identity")
+    resource_admission_reserve_parser.add_argument("--workload-id", required=True, help="stable owner-local workload identity")
+    resource_admission_reserve_parser.add_argument("--request-id", default=None, help="idempotency identity; generated when omitted")
+    resource_admission_reserve_parser.add_argument("--release-token", default=None, help="release capability; generated when omitted")
+    resource_admission_reserve_parser.add_argument("--activity", required=True, choices=["foreground", "background", "maintenance"], help="owner-declared current activity")
+    resource_admission_reserve_parser.add_argument("--class", dest="workload_class", default="heavy", choices=["probe", "light", "medium", "heavy", "sustained"])
+    resource_admission_reserve_parser.add_argument("--kind", default="ai", choices=["ai", "agent", "benchmark", "indexing", "generic"])
+    resource_admission_reserve_parser.add_argument("--latency", default=None, choices=["low", "balanced", "interactive"])
+    resource_admission_reserve_parser.add_argument("--memory-demand-mib", required=True, type=float, help="expected incremental resident demand in MiB")
+    resource_admission_reserve_parser.add_argument("--estimate-source", default="explicit_owner_estimate")
+    resource_admission_reserve_parser.add_argument("--estimate-confidence", default="owner_provided")
+    resource_admission_reserve_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    resource_admission_release_parser = resource_admission_sub.add_parser("release")
+    resource_admission_release_parser.add_argument("--socket", default=None, help="override the runtime Unix socket path")
+    resource_admission_release_parser.add_argument("--timeout", type=float, default=5.0, help="Unix socket request timeout")
+    resource_admission_release_parser.add_argument("--lease-id", required=True)
+    resource_admission_release_parser.add_argument("--release-token", required=True)
+    resource_admission_release_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
     heartbeats_parser = sub.add_parser("heartbeats", help="write and inspect recurring OS Abyss heartbeat pulses")
     heartbeats_parser.add_argument("heartbeats_command", nargs="?", choices=["pulse", "status", "paths", "validate"], default="pulse")
@@ -52203,6 +52298,84 @@ def main(argv: list[str]) -> int:
         parser.error("unknown memory command")
 
     if args.command == "resource":
+        if args.resource_command == "admission":
+            admission_command = str(args.resource_admission_command)
+            if admission_command == "serve":
+                data = resource_admission_server_run(
+                    socket=args.socket,
+                    allow_shutdown=bool(args.allow_shutdown),
+                    output_json=bool(args.json),
+                )
+                if args.json:
+                    print_json(data)
+                else:
+                    print(f"resource admission server: stopped socket={data.get('socket')}")
+                return 0 if data.get("ok") else 1
+            if admission_command == "reserve":
+                request_id = str(args.request_id or f"cli-{secrets.token_hex(16)}")
+                release_token = str(args.release_token or secrets.token_urlsafe(32))
+                request = {
+                    "operation": "cold_load",
+                    "owner": str(args.owner),
+                    "workload_id": str(args.workload_id),
+                    "request_id": request_id,
+                    "release_token": release_token,
+                    "activity": str(args.activity),
+                    "class": str(args.workload_class),
+                    "kind": str(args.kind),
+                    "memory_demand_mib": float(args.memory_demand_mib),
+                    "estimate_source": str(args.estimate_source),
+                    "estimate_confidence": str(args.estimate_confidence),
+                }
+                if args.latency:
+                    request["latency"] = str(args.latency)
+                data = resource_admission_client_request(
+                    {"command": "reserve", "request": request},
+                    socket=args.socket,
+                    timeout_sec=float(args.timeout),
+                )
+                if data.get("ok"):
+                    data["client_capability"] = {
+                        "request_id": request_id,
+                        "release_token": release_token,
+                        "runtime_only": True,
+                    }
+                if args.json:
+                    print_json(data)
+                else:
+                    print(
+                        "resource admission reserve: "
+                        f"decision={data.get('decision')} lease={nested_get(data, ['lease', 'id'])}"
+                    )
+                    if data.get("ok"):
+                        print(f"release token: {release_token}")
+                return 0 if data.get("ok") else 2 if data.get("decision") == "force_required" else 1
+            if admission_command == "release":
+                data = resource_admission_client_request(
+                    {
+                        "command": "release",
+                        "request": {
+                            "lease_id": str(args.lease_id),
+                            "release_token": str(args.release_token),
+                        },
+                    },
+                    socket=args.socket,
+                    timeout_sec=float(args.timeout),
+                )
+            else:
+                data = resource_admission_client_request(
+                    {"command": admission_command},
+                    socket=args.socket,
+                    timeout_sec=float(args.timeout),
+                )
+            if args.json:
+                print_json(data)
+            else:
+                print(
+                    f"resource admission {admission_command}: "
+                    f"ok={data.get('ok')} decision={data.get('decision')}"
+                )
+            return 0 if data.get("ok") else 1
         if args.resource_command == "paths":
             data = resource_paths()
             print_json(data)
@@ -52227,6 +52400,7 @@ def main(argv: list[str]) -> int:
                 kind=str(args.kind),
                 latency=str(args.latency),
                 unattended=bool(args.unattended),
+                activity=args.activity,
                 force=bool(args.force),
                 bytes_required=args.bytes_required,
                 target=args.target,
@@ -52237,7 +52411,7 @@ def main(argv: list[str]) -> int:
                 estimate_confidence=args.estimate_confidence,
                 unit_type="scope" if bool(args.scope) else "service",
                 sample_thermal=False if bool(args.no_thermal_sample) else None,
-                write_latest=True,
+                write_latest=not bool(args.no_write),
             )
             if args.json:
                 print_json(data)
@@ -52251,6 +52425,7 @@ def main(argv: list[str]) -> int:
                 kind=str(args.kind),
                 latency=str(args.latency),
                 unattended=bool(args.unattended),
+                activity=args.activity,
                 force=bool(args.force),
                 dry_run=bool(args.dry_run),
                 unit_type="scope" if bool(args.scope) else "service",

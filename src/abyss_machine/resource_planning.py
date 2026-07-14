@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import re
@@ -10,6 +11,8 @@ from typing import Any, Mapping
 
 RESOURCE_CLASSES = {"probe", "light", "medium", "heavy", "sustained"}
 RESOURCE_KINDS = {"ai", "agent", "benchmark", "indexing", "generic"}
+OWNER_ACTIVITIES = {"foreground", "background", "maintenance", "unspecified"}
+_OWNER_IDENTITY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@+~-]*$")
 
 
 def _nested_get(data: Any, path: list[str]) -> Any:
@@ -118,6 +121,17 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
             },
             "explicit_demand_expected_for": {"ai": ["medium", "heavy", "sustained"]},
         },
+        "runtime_admission": {
+            "enabled": True,
+            "runtime_only": True,
+            "cold_load_lease_ttl_sec": 120,
+            "cold_load_lease_max_ttl_sec": 300,
+            "socket_mode": "0600",
+            "max_request_bytes": 65536,
+            "thermal_emergency_c": 109.0,
+            "require_explicit_owner_activity": True,
+            "fail_closed_when_unavailable": True,
+        },
         "protected_contexts": {
             "games": "Active games defer new heavy/sustained work and unattended medium-or-heavier starts.",
             "existing_processes": "Do not kill, throttle, re-affinitize, or migrate running user processes from this layer.",
@@ -141,6 +155,114 @@ def normalize_class(name: str | None) -> str:
 def normalize_kind(name: str | None) -> str:
     value = str(name or "generic").strip().lower()
     return value if value in RESOURCE_KINDS else "generic"
+
+
+def owner_activity(activity: str | None, *, unattended: bool = False) -> dict[str, Any]:
+    raw = str(activity or "").strip().lower()
+    explicit = bool(raw)
+    normalized = raw if raw in OWNER_ACTIVITIES else "unspecified"
+    errors: list[str] = []
+    if explicit and raw not in OWNER_ACTIVITIES:
+        errors.append("owner_activity_invalid")
+    if not explicit and unattended:
+        normalized = "background"
+    if normalized == "foreground" and unattended:
+        errors.append("owner_activity_conflicts_with_unattended")
+    background = bool(unattended) or normalized in {"background", "maintenance"}
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "explicit": explicit,
+        "requested": raw or None,
+        "normalized": normalized,
+        "foreground": normalized == "foreground" and not bool(unattended),
+        "background": background,
+        "importance_source": "owner_declared_state",
+        "pressure_facts_assign_importance": False,
+    }
+
+
+def runtime_admission_request(request: Mapping[str, Any]) -> dict[str, Any]:
+    errors: list[str] = []
+
+    def identity(name: str, max_length: int) -> str:
+        value = str(request.get(name) or "").strip()
+        if not value:
+            errors.append(f"{name}_required")
+        elif len(value) > max_length or not _OWNER_IDENTITY_RE.fullmatch(value):
+            errors.append(f"{name}_invalid")
+        return value
+
+    owner = identity("owner", 160)
+    workload_id = identity("workload_id", 240)
+    request_id = identity("request_id", 160)
+    release_token = str(request.get("release_token") or "")
+    if len(release_token) < 24 or len(release_token) > 512:
+        errors.append("release_token_invalid")
+
+    operation = str(request.get("operation") or "cold_load").strip().lower()
+    if operation != "cold_load":
+        errors.append("operation_unsupported")
+
+    activity_data = owner_activity(str(request.get("activity") or ""), unattended=False)
+    if not activity_data.get("valid"):
+        errors.extend(str(item) for item in activity_data.get("errors", []))
+    if not activity_data.get("explicit") or activity_data.get("normalized") == "unspecified":
+        errors.append("owner_activity_required")
+
+    raw_class = str(request.get("class") or "heavy").strip().lower()
+    if raw_class not in RESOURCE_CLASSES:
+        errors.append("class_invalid")
+    workload_class = normalize_class(raw_class)
+    raw_kind = str(request.get("kind") or "ai").strip().lower()
+    if raw_kind not in RESOURCE_KINDS:
+        errors.append("kind_invalid")
+    kind = normalize_kind(raw_kind)
+    latency = str(request.get("latency") or ("interactive" if activity_data.get("foreground") else "balanced")).strip().lower()
+    if latency not in {"low", "balanced", "interactive"}:
+        errors.append("latency_invalid")
+
+    try:
+        demand_mib = float(request.get("memory_demand_mib"))
+    except (TypeError, ValueError):
+        demand_mib = float("nan")
+    if not math.isfinite(demand_mib) or demand_mib <= 0.0:
+        errors.append("memory_demand_mib_must_be_finite_and_positive")
+
+    normalized = {
+        "operation": operation,
+        "owner": owner,
+        "workload_id": workload_id,
+        "request_id": request_id,
+        "activity": str(activity_data.get("normalized") or "unspecified"),
+        "unattended": bool(activity_data.get("background")),
+        "class": workload_class,
+        "kind": kind,
+        "latency": latency,
+        "memory_demand_mib": None if not math.isfinite(demand_mib) else round(demand_mib, 3),
+        "estimate_source": str(request.get("estimate_source") or "explicit_owner_estimate").strip()[:160],
+        "estimate_confidence": str(request.get("estimate_confidence") or "owner_provided").strip()[:80],
+    }
+    identity_material = "\0".join((owner, workload_id, request_id))
+    lease_id = f"runtime-cold-load:{hashlib.sha256(identity_material.encode('utf-8')).hexdigest()[:32]}" if all((owner, workload_id, request_id)) else None
+    digest = hashlib.sha256(
+        json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    token_sha256 = hashlib.sha256(release_token.encode("utf-8")).hexdigest() if release_token else None
+    return {
+        "valid": not errors,
+        "errors": list(dict.fromkeys(errors)),
+        "request": normalized,
+        "activity": activity_data,
+        "lease_id": lease_id,
+        "request_digest": digest,
+        "release_token_sha256": token_sha256,
+        "policy": {
+            "explicit_owner_activity_required": True,
+            "release_token_not_returned": True,
+            "pressure_facts_assign_importance": False,
+        },
+    }
 
 
 def command_demand_key(command: list[str], explicit_key: str | None = None) -> str | None:
@@ -329,6 +451,10 @@ def startup_demand_projection(
     unknown_some_threshold = max(0.0, _float_value(startup.get("unknown_psi_some_avg10_at_or_above"), 2.0) or 2.0)
     unknown_full_threshold = max(0.0, _float_value(startup.get("unknown_psi_full_avg10_at_or_above"), 0.5) or 0.5)
     safety_blocks: list[str] = []
+    safety_denials: list[str] = []
+    reservation_state_ok = reservations.get("ok") is not False
+    if not reservation_state_ok:
+        safety_denials.append("reservation_state_invalid")
     estimate_available = bool(demand.get("estimate_available", demand.get("known")))
     if availability_known and demand.get("reservation_required") and estimate_available and projected_available < hard_floor_mib:
         safety_blocks.append("projected_mem_available_below_hard_reserve")
@@ -363,8 +489,9 @@ def startup_demand_projection(
         },
         "unknown_startup_conflict": bool(unknown_count and demand.get("reservation_required")),
         "admission": {
-            "allowed": not safety_blocks,
+            "allowed": not safety_blocks and not safety_denials,
             "blocked_reasons": safety_blocks,
+            "denied_reasons": safety_denials,
             "availability_known": availability_known,
             "active_stall": active_stall,
             "psi_some_avg10": psi_some,
@@ -375,6 +502,7 @@ def startup_demand_projection(
             "hard_mem_available_floor_mib": round(hard_floor_mib, 3),
             "unknown_mem_available_floor_mib": round(unknown_floor_mib, 3),
             "pressure_facts_assign_importance": False,
+            "reservation_state_ok": reservation_state_ok,
         },
         "policy": {
             "zram_free_not_counted_as_ram": True,
@@ -382,6 +510,98 @@ def startup_demand_projection(
             "current_pressure_class_is_floor": True,
             "projected_pressure_class_is_advisory": True,
             "hard_floor_protects_host_reserve_not_workload_priority": True,
+        },
+    }
+
+
+def runtime_cold_load_plan(
+    *,
+    request: Mapping[str, Any],
+    memory_summary: Mapping[str, Any],
+    current_memory_class: str,
+    memory_policy: Mapping[str, Any],
+    resource_policy: dict[str, Any],
+    reservations: Mapping[str, Any],
+    thermal_safety: Mapping[str, Any],
+    generated_at: str,
+    schema_prefix: str = "abyss_machine",
+    version: str = "",
+) -> dict[str, Any]:
+    activity_data = owner_activity(
+        str(request.get("activity") or ""),
+        unattended=bool(request.get("unattended")),
+    )
+    demand = resolve_startup_demand(
+        resource_policy,
+        workload_class=str(request.get("class") or "heavy"),
+        kind=str(request.get("kind") or "ai"),
+        explicit_mib=request.get("memory_demand_mib"),
+        demand_key=f"{request.get('owner')}:{request.get('workload_id')}",
+        demand_owner=str(request.get("owner") or ""),
+        estimate_source=str(request.get("estimate_source") or "explicit_owner_estimate"),
+        estimate_confidence=str(request.get("estimate_confidence") or "owner_provided"),
+    )
+    startup_policy = resource_policy.get("startup_admission") if isinstance(resource_policy.get("startup_admission"), dict) else {}
+    projection = startup_demand_projection(
+        memory_summary=memory_summary,
+        current_memory_class=current_memory_class,
+        memory_policy=memory_policy,
+        demand=demand,
+        reservations=reservations,
+        unattended=bool(activity_data.get("background")),
+        admission_policy=startup_policy,
+    )
+    admission = projection.get("admission") if isinstance(projection.get("admission"), dict) else {}
+    blocked = [f"runtime_{item}" for item in admission.get("blocked_reasons", [])]
+    denied = [f"runtime_{item}" for item in admission.get("denied_reasons", [])]
+    denied.extend(activity_data.get("errors") or [])
+    if demand.get("valid") is False:
+        denied.append("runtime_demand_invalid")
+    if projection.get("unknown_startup_conflict"):
+        blocked.append("runtime_unknown_demand_in_progress")
+    if thermal_safety.get("available") is not True:
+        denied.append("thermal_safety_unavailable")
+    elif thermal_safety.get("emergency") is True:
+        blocked.append("thermal_emergency")
+    blocked = list(dict.fromkeys(str(item) for item in blocked))
+    denied = list(dict.fromkeys(str(item) for item in denied))
+    if denied:
+        decision = "deny"
+    elif blocked:
+        decision = "force_required"
+    else:
+        decision = "allow"
+    return {
+        "schema": f"{schema_prefix}_resource_runtime_cold_load_plan_v1",
+        "version": version,
+        "generated_at": generated_at,
+        "ok": decision == "allow",
+        "decision": decision,
+        "request": {
+            "owner": request.get("owner"),
+            "workload_id": request.get("workload_id"),
+            "request_id": request.get("request_id"),
+            "class": demand.get("class"),
+            "kind": demand.get("kind"),
+            "activity": activity_data,
+            "memory_demand_mib": demand.get("demand_mib"),
+        },
+        "blocked_reasons": blocked,
+        "denied_reasons": denied,
+        "warnings": [],
+        "inputs": {
+            "startup_demand": {**projection, "requested": demand},
+            "thermal_safety": dict(thermal_safety),
+        },
+        "policy": {
+            "fresh_physical_memory_and_psi_per_request": True,
+            "zram_free_not_counted_as_ram": True,
+            "outstanding_runtime_leases_counted": True,
+            "battery_and_power_mode_are_advisory_not_admission_authority": True,
+            "thermal_emergency_is_authoritative": True,
+            "pressure_facts_assign_workload_importance": False,
+            "existing_processes_mutated": False,
+            "resident_memory_controller_required": False,
         },
     }
 
@@ -495,11 +715,14 @@ def thermal_plan_gate_reasons(
     sample_thermal: bool,
     *,
     thermal_unattended_cap: str,
+    activity: str | None = None,
 ) -> tuple[list[str], list[str]]:
     if not isinstance(thermal_plan, dict):
         return [], []
     blocked: list[str] = []
     warnings: list[str] = []
+    activity_data = owner_activity(activity, unattended=unattended)
+    foreground = bool(activity_data.get("foreground"))
     thermal_class = str(_nested_get(thermal_plan, ["thermal", "class"]) or "")
     thermal_rec = _nested_get(thermal_plan, ["recommended_new_work", normalized_class])
     if isinstance(thermal_rec, dict):
@@ -511,8 +734,12 @@ def thermal_plan_gate_reasons(
         )
         if thermal_rec_game_only_denial and not active_game and not bool(sample_thermal):
             warnings.append("ignored_stale_thermal_plan_game_guard")
+        foreground_allowed = thermal_rec.get("foreground_allowed") is True
         if not thermal_rec_allowed and not force and not thermal_rec_game_only_denial:
-            blocked.append("thermal_plan_denied")
+            if foreground and foreground_allowed:
+                warnings.append("thermal_plan_owner_foreground_advisory_defer")
+            else:
+                blocked.append("thermal_plan_denied")
         if (
             unattended
             and not bool(thermal_rec.get("unattended_allowed", thermal_rec.get("allowed")))
@@ -557,22 +784,35 @@ def build_plan(
     version: str = "",
     generated_at: str,
     startup_demand: dict[str, Any] | None = None,
+    activity: str | None = None,
 ) -> dict[str, Any]:
     normalized_class = normalize_class(workload_class)
     normalized_kind = normalize_kind(kind)
-    force_effective = force_effective_for_request(force, unattended)
+    activity_data = owner_activity(activity, unattended=unattended)
+    effective_unattended = bool(activity_data.get("background"))
+    foreground = bool(activity_data.get("foreground"))
+    force_effective = force_effective_for_request(force, effective_unattended)
     blocked: list[str] = []
     denied: list[str] = []
     warnings: list[str] = []
+    denied.extend(str(item) for item in activity_data.get("errors", []))
     if bool(force) and not force_effective:
         warnings.append("unattended_force_not_operator_effective")
-    if not bool(route.get("ok")) or (not bool(route.get("allowed")) and not force_effective):
+    route_available = bool(route.get("ok"))
+    route_allowed = bool(route.get("allowed"))
+    route_foreground_allowed = route.get("foreground_allowed") is True
+    if not route_available:
         blocked.append("cpu_route_denied")
-    if unattended and not bool(route.get("unattended_allowed")) and not force_effective:
+    elif not route_allowed and not force_effective:
+        if foreground and route_foreground_allowed:
+            warnings.append("cpu_route_owner_foreground_advisory_defer")
+        else:
+            blocked.append("cpu_route_denied")
+    if effective_unattended and not bool(route.get("unattended_allowed")) and not force_effective:
         blocked.append("cpu_route_unattended_denied")
 
     active_game = bool(game_guard.get("active"))
-    blocked.extend(game_guard_block_reasons(policy, normalized_class, unattended, active_game, force_effective))
+    blocked.extend(game_guard_block_reasons(policy, normalized_class, effective_unattended, active_game, force_effective))
 
     demand_data = startup_demand if isinstance(startup_demand, dict) else {}
     demand_gate = demand_data.get("gate") if isinstance(demand_data.get("gate"), dict) else {}
@@ -582,17 +822,18 @@ def build_plan(
 
     launch_policy = mode.get("launch_policy", {}) if isinstance(mode.get("launch_policy"), dict) else {}
     max_unattended = str(launch_policy.get("max_unattended_class") or "probe")
-    if unattended and workload_level(normalized_class) > workload_level(max_unattended) and not force_effective:
+    if effective_unattended and workload_level(normalized_class) > workload_level(max_unattended) and not force_effective:
         blocked.append(f"mode_unattended_cap_{max_unattended}")
 
     thermal_blocked, thermal_warnings = thermal_plan_gate_reasons(
         thermal_plan,
         normalized_class,
-        unattended,
+        effective_unattended,
         force_effective,
         active_game,
         bool(sample_thermal),
         thermal_unattended_cap=thermal_unattended_cap,
+        activity=str(activity_data.get("normalized") or "unspecified"),
     )
     blocked.extend(thermal_blocked)
     warnings.extend(thermal_warnings)
@@ -622,7 +863,7 @@ def build_plan(
         unit_type,
         total_mem_kib=total_mem_kib,
         environ=environ,
-        unattended=unattended,
+        unattended=effective_unattended,
     )
     return {
         "schema": f"{schema_prefix}_resource_plan_v1",
@@ -632,7 +873,7 @@ def build_plan(
         "decision": decision,
         "forced": bool(force),
         "force_effective": bool(force_effective),
-        "unattended": bool(unattended),
+        "unattended": effective_unattended,
         "request": {
             "class": workload_class,
             "normalized_class": normalized_class,
@@ -643,6 +884,7 @@ def build_plan(
             "bytes_required": bytes_required,
             "target": target,
             "sample_thermal": bool(sample_thermal),
+            "activity": activity_data,
             "memory_demand_mib": _nested_get(demand_data, ["requested", "demand_mib"]),
             "demand_key": _nested_get(demand_data, ["requested", "key"]),
             "demand_owner": _nested_get(demand_data, ["requested", "owner"]),
@@ -705,6 +947,8 @@ def build_plan(
             "numeric_memory_class_gating": False,
             "swap_occupancy_gating": False,
             "pressure_facts_assign_workload_importance": False,
+            "owner_declared_foreground_can_bypass_advisory_power_defer_only": True,
+            "foreground_never_bypasses_memory_reserve_or_emergency_route_denial": True,
             "legacy_memory_recommendations_are_advisory": True,
             "startup_demand_reservations": True,
             "startup_reservations_runtime_only": True,

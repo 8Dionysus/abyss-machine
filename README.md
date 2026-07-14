@@ -189,7 +189,11 @@ privacy-set orchestration live in `abyss_machine.nervous_privacy_adapters`.
 Resource policy normalization, gate decisions,
 systemd-run plan shapes, and launch argv contracts live in
 `abyss_machine.resource_planning`. Runtime demand reservations, startup leases,
-and process/unit liveness checks live in `abyss_machine.resource_adapters`.
+and process/unit liveness checks live in `abyss_machine.resource_adapters`;
+owner-declared cold-load lease transactions and their runtime-only Unix socket
+transport live in `abyss_machine.resource_admission_adapters`; the lightweight
+server entrypoint lives in `abyss_machine.resource_admission_server` and does
+not import the monolithic CLI while resident.
 Memory admission is evaluated synchronously from fresh host facts; reclaim and
 sleep remain with workload owners instead of a resident host controller. AI CPU route selection, routed-heavy policy,
 thread/env hints, and route contract assembly live in

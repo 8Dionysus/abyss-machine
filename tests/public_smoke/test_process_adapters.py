@@ -789,6 +789,8 @@ def test_process_thermal_plan_document_routes_new_work_without_mutation() -> Non
         return {
             "allowed": True,
             "unattended_allowed": True,
+            "foreground_allowed": True,
+            "foreground_blocked_reasons": [],
             "route": {"cpuset": "0-6", "thread_limit": 2},
         }
 
@@ -833,5 +835,6 @@ def test_process_thermal_plan_document_routes_new_work_without_mutation() -> Non
     assert data["recommended_new_work"]["medium"]["game_guarded"] is True
     assert data["recommended_new_work"]["heavy"]["allowed"] is False
     assert data["recommended_new_work"]["heavy"]["route_would_allow"] is True
+    assert data["recommended_new_work"]["heavy"]["foreground_allowed"] is True
     assert data["attribution"]["top_focus_cpu_candidates"][0]["pid"] == 321
     assert data["desktop_compositor"]["source"] == "fake"
