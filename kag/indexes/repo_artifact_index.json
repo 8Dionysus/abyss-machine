@@ -211,7 +211,7 @@
     {"anchor_id":"aoa:abyss-machine:anchor:ba6fdf0ca9c2932ed0c9a8bd","artifact_kind":"document","content_hash":"fd60e2d0fe9e03a58da756eb0ebc812779c7f5f55f16823d4ef26c2069673c75","id":"aoa:abyss-machine:artifact:ac165a5bc941f61c03b22022","lineage_path":"mechanics/typing-intake/ROADMAP.md","mime":"text/markdown","path":"mechanics/typing-intake/ROADMAP.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:9d0ba0528cf5a4f25997babe"},
     {"anchor_id":"aoa:abyss-machine:anchor:4ac55b5e3c4a694026af559e","artifact_kind":"document","content_hash":"3ab6b0f31e825c036719497d540dbb185660b73a2bddf02b297471bf0d8efe4b","id":"aoa:abyss-machine:artifact:3526067eb0525c1d220a168a","lineage_path":"mechanics/typing-intake/docs/README.md","mime":"text/markdown","path":"mechanics/typing-intake/docs/README.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:1a1edf4472a3c0b8a434c3a9"},
     {"anchor_id":"aoa:abyss-machine:anchor:c368cbe045e7356a7dc46688","artifact_kind":"document","content_hash":"d2904bb4b70b292272854e50238c17bc706c858eedbad1564d8877d70c90758a","id":"aoa:abyss-machine:artifact:ebd262c705fc89f6e989d5c2","lineage_path":"mechanics/typing-intake/parts/README.md","mime":"text/markdown","path":"mechanics/typing-intake/parts/README.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:31664f76960d10ecd1da3738"},
-    {"anchor_id":"aoa:abyss-machine:anchor:19d0a7285e597c747f718a3b","artifact_kind":"manifest","content_hash":"5ddd6f48f305282a20d00c6ed8579cef5b4e38645c89810fc75d5b257e8d56aa","id":"aoa:abyss-machine:artifact:50c86b7ed8ac2cf95bd48334","lineage_path":"pyproject.toml","mime":"application/toml","path":"pyproject.toml","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:9021fb7f35b20609de0dcd3f"},
+    {"anchor_id":"aoa:abyss-machine:anchor:19d0a7285e597c747f718a3b","artifact_kind":"manifest","content_hash":"ee0354f27c1f46844200390247c0ae6eb30f8fff9c5310ff95dccb9e93c09c81","id":"aoa:abyss-machine:artifact:50c86b7ed8ac2cf95bd48334","lineage_path":"pyproject.toml","mime":"application/toml","path":"pyproject.toml","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:230eab0c61b775d7575fe1a9"},
     {"anchor_id":"aoa:abyss-machine:anchor:9efb81f793f79a685a1128eb","artifact_kind":"config","content_hash":"ccdc47a36eb8d64d1b57764dbcfa266ea386159d737fb56b8f242df441b4bb37","id":"aoa:abyss-machine:artifact:fb6a686182f16eb54af3c628","lineage_path":"pytest.ini","mime":"text/plain","path":"pytest.ini","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:a6a82c8eeb9974eb543f23e7"},
     {"anchor_id":"aoa:abyss-machine:anchor:b669f0d1c505ab7525f9867d","artifact_kind":"document","content_hash":"f2ad57836e7e5a87abc5ca35dd85e2102d2d43ee03693ef98162b2d949806c31","id":"aoa:abyss-machine:artifact:1c6fbd98c4a0f88f7d8bfb6c","lineage_path":"schemas/AGENTS.md","mime":"text/markdown","path":"schemas/AGENTS.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:4012524a6e060bbb45e64d52"},
     {"anchor_id":"aoa:abyss-machine:anchor:49bb8dcd02f1ac51bd82bd6a","artifact_kind":"document","content_hash":"8758bf2231972134ff81e0e5b0729fd1e503225a1dfaf658c7512249eb2308a1","id":"aoa:abyss-machine:artifact:b0566199e40770510d3d5ab8","lineage_path":"schemas/README.md","mime":"text/markdown","path":"schemas/README.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:36493284dfd065be88a33f07"},
@@ -610,7 +610,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "0e18c13e552d5e7338635b0bd36f7e596f3e87bf7451416defe1d4c2c85b8b45",
+    "content_digest": "5917a2baaa64c7a81f8690af910dd76c3ea54a0d1493122e063cb5dbaab5ec0d",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -696,7 +696,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v2",
   "source_index": {
-    "content_digest": "2e4cdf0adb36df1264725b5030193fe5c65b87ee0d12738644b5992be0b38f2d",
+    "content_digest": "5ae285356c5a3db1f6475ee4d68905b2e9f25dd8d65f310f9753548b6dc01ead",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
