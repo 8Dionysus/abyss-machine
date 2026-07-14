@@ -16505,68 +16505,60 @@ def resource_generated_unit_name(kind: str, workload_class: str, unit_type: str)
 
 
 def resource_systemd_unit_cleanup(unit: str | None) -> dict[str, Any]:
-    data: dict[str, Any] = {
-        "attempted": False,
-        "unit": unit,
-        "stop": None,
-        "state": None,
-        "kill": None,
-        "error": None,
-    }
-    if not unit:
-        data["error"] = "missing_unit"
-        return data
-    if not command_exists("systemctl"):
-        data["error"] = "systemctl_not_found"
-        return data
+    return resource_adapters.systemd_user_unit_cleanup(unit)
 
-    data["attempted"] = True
+
+def resource_launch_exec_handoff(
+    payload: dict[str, Any],
+    *,
+    output_json: bool,
+    success_on_block: bool,
+) -> None:
+    helper_root = Path(__file__).resolve().parent
+    helper = (
+        helper_root / "resource_runner.py"
+        if Path(__file__).name == "cli.py"
+        else helper_root / "abyss_machine" / "resource_runner.py"
+    )
+    if not helper.is_file():
+        raise FileNotFoundError(f"resource launch helper not found: {helper}")
+    if not hasattr(os, "memfd_create"):
+        raise RuntimeError("resource launch memfd handoff is unavailable")
+
+    handoff = {
+        **payload,
+        "output": {
+            "json": bool(output_json),
+            "success_on_block": bool(success_on_block),
+        },
+    }
+    encoded = json.dumps(handoff, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > 16 * 1024 * 1024:
+        raise RuntimeError("resource launch handoff exceeds 16 MiB")
+
+    flags = int(getattr(os, "MFD_ALLOW_SEALING", 0))
+    fd = os.memfd_create("abyss-resource-launch", flags=flags)
     try:
-        stop_proc = subprocess.run(
-            ["systemctl", "--user", "stop", unit],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=10,
-            check=False,
+        offset = 0
+        while offset < len(encoded):
+            offset += os.write(fd, encoded[offset:])
+        os.lseek(fd, 0, os.SEEK_SET)
+        add_seals = getattr(fcntl, "F_ADD_SEALS", None)
+        seals = (
+            int(getattr(fcntl, "F_SEAL_SEAL", 0))
+            | int(getattr(fcntl, "F_SEAL_SHRINK", 0))
+            | int(getattr(fcntl, "F_SEAL_GROW", 0))
+            | int(getattr(fcntl, "F_SEAL_WRITE", 0))
         )
-        data["stop"] = {
-            "returncode": stop_proc.returncode,
-            "stdout_tail": stop_proc.stdout[-1000:],
-            "stderr_tail": stop_proc.stderr[-1000:],
-        }
-        state_proc = subprocess.run(
-            ["systemctl", "--user", "is-active", unit],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=5,
-            check=False,
-        )
-        state = state_proc.stdout.strip() or state_proc.stderr.strip()
-        data["state"] = {
-            "returncode": state_proc.returncode,
-            "value": state,
-            "stdout_tail": state_proc.stdout[-1000:],
-            "stderr_tail": state_proc.stderr[-1000:],
-        }
-        if state in {"active", "activating", "deactivating"}:
-            kill_proc = subprocess.run(
-                ["systemctl", "--user", "kill", "--kill-whom=all", "--signal=KILL", unit],
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5,
-                check=False,
-            )
-            data["kill"] = {
-                "returncode": kill_proc.returncode,
-                "stdout_tail": kill_proc.stdout[-1000:],
-                "stderr_tail": kill_proc.stderr[-1000:],
-            }
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        data["error"] = str(exc)
-    return data
+        if add_seals is None or not seals:
+            raise RuntimeError("sealed resource launch handoff is unavailable")
+        fcntl.fcntl(fd, add_seals, seals)
+        os.set_inheritable(fd, True)
+        environ = dict(os.environ)
+        environ["ABYSS_RESOURCE_LAUNCH_HANDOFF_FD"] = str(fd)
+        os.execve(sys.executable, [sys.executable, str(helper)], environ)
+    finally:
+        os.close(fd)
 
 
 def resource_launch(
@@ -16591,6 +16583,7 @@ def resource_launch(
     startup_wait_sec: float | None = None,
     sample_thermal: bool | None = None,
     write_latest: bool = True,
+    execution_delegate: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     clean_command = [str(item) for item in command if str(item)]
     if clean_command and clean_command[0] == "--":
@@ -16704,155 +16697,160 @@ def resource_launch(
     if not clean_command:
         denied.append("missing_command")
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
+
+    def build_launch_document(
+        execution: dict[str, Any] | None,
+        *,
+        elapsed_sec: float,
+        released: bool,
+        observation: dict[str, Any] | None,
+        waiter: str,
+    ) -> dict[str, Any]:
+        return {
+            "schema": f"{SCHEMA_PREFIX}_resource_launch_v1",
+            "version": VERSION,
+            "generated_at": now_iso(),
+            "ok": not denied and not blocked and (dry_run or bool(execution and execution.get("ok"))),
+            "dry_run": bool(dry_run),
+            "started_at": started_at,
+            "elapsed_sec": elapsed_sec,
+            "request": {
+                "class": workload_class,
+                "kind": kind,
+                "latency": latency,
+                "unattended": bool(unattended),
+                "force": bool(force),
+                "unit_type": unit_type,
+                "unit": unit,
+                "launch_unit": launch_unit,
+                "same_dir": bool(same_dir),
+                "timeout_sec": timeout_sec,
+                "command": clean_command,
+                "bytes_required": bytes_required,
+                "target": target,
+                "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
+                "demand_key": resolved_demand_key,
+                "demand_owner": demand_owner,
+                "estimate_source": estimate_source,
+                "estimate_confidence": estimate_confidence,
+                "startup_wait_sec": wait_timeout,
+                "sample_thermal": None if sample_thermal is None else bool(sample_thermal),
+            },
+            "blocked_reasons": blocked,
+            "denied_reasons": denied,
+            "plan": plan,
+            "argv": systemd_cmd,
+            "execution": execution,
+            "startup_admission": {
+                "reservation_root": str(reservation_root),
+                "snapshot": reservation_snapshot,
+                "waited_sec": round(waited_sec, 3),
+                "wait_attempts": wait_attempts,
+                "lease": lease,
+                "lease_path": str(lease_path) if lease_path is not None else None,
+                "lease_released": released,
+                "demand_profile_path": str(demand_profile_path),
+                "demand_observation": observation,
+            },
+            "paths": {
+                "latest": str(RESOURCE_RUN_LATEST_PATH),
+                "retention": "latest_only",
+            },
+            "policy": {
+                "new_processes_only": True,
+                "runner": "systemd-run --user",
+                "does_not_mutate_existing_processes": True,
+                "does_not_mutate_stack": True,
+                "startup_reservations_runtime_only": True,
+                "known_demand_materialization_subtracted": True,
+                "unknown_demand_serializes_startup_only": True,
+                "no_memory_max_or_swap_max_added": True,
+                "fresh_resource_plan_and_atomic_lease": True,
+                "resident_memory_controller_required": False,
+                "runtime_peak_learning": True,
+                "runtime_profile_is_bounded_and_ephemeral": True,
+                "static_memory_caps_applied": False,
+                "long_waiter": waiter,
+            },
+        }
+
     result: dict[str, Any] | None = None
     demand_observation: dict[str, Any] | None = None
     started_at = now_iso()
     elapsed = 0.0
     if not dry_run and not denied and not blocked and clean_command:
-        launch_started_epoch = time.time()
-        started = time.monotonic()
-        timeout_value = None if timeout_sec <= 0 else max(0.1, float(timeout_sec))
-        if timeout_value is not None and unit_type != "scope":
-            timeout_value += 5.0
-        try:
-            proc = subprocess.run(
-                systemd_cmd,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=timeout_value,
-                check=False,
-            )
-            elapsed = round(time.monotonic() - started, 3)
-            combined = f"{proc.stdout}\n{proc.stderr}"
-            systemd_info = resource_parse_systemd_run_output(combined)
-            if launch_unit and not systemd_info.get("unit"):
-                systemd_info["unit"] = launch_unit
-            if generated_unit:
-                systemd_info["generated_unit"] = generated_unit
-            result = {
-                "ok": proc.returncode == 0,
-                "returncode": proc.returncode,
-                "stdout_tail": proc.stdout[-4000:],
-                "stderr_tail": proc.stderr[-4000:],
-                "systemd": systemd_info,
+        if execution_delegate is not None:
+            handoff = {
+                "schema": f"{SCHEMA_PREFIX}_resource_launch_handoff_v1",
+                "document": build_launch_document(
+                    None,
+                    elapsed_sec=0.0,
+                    released=False,
+                    observation=None,
+                    waiter="lightweight_exec_handoff",
+                ),
+                "execution": {
+                    "systemd_command": systemd_cmd,
+                    "launch_unit": launch_unit,
+                    "generated_unit": generated_unit,
+                    "unit_type": unit_type,
+                    "timeout_sec": timeout_sec,
+                    "lease": lease,
+                    "reservation_root": str(reservation_root),
+                    "demand_profile_path": str(demand_profile_path),
+                    "demand_key": resolved_demand_key,
+                    "demand_owner": demand_owner,
+                    "kind": resource_valid_kind(kind),
+                    "observed_peak_multiplier": float(startup_policy.get("observed_peak_multiplier", 1.25)),
+                    "profile_max_entries": int(startup_policy.get("profile_max_entries", 64)),
+                    "profile_max_samples": int(startup_policy.get("profile_max_samples", 16)),
+                },
+                "write_latest": bool(write_latest),
+                "latest_path": str(RESOURCE_RUN_LATEST_PATH),
+                "index_path": str(RESOURCE_INDEX_PATH),
+                "index_document": resource_paths(),
             }
-        except FileNotFoundError:
-            elapsed = round(time.monotonic() - started, 3)
-            result = {"ok": False, "returncode": 127, "stdout_tail": "", "stderr_tail": "systemd-run not found", "systemd": {}}
-        except subprocess.TimeoutExpired as exc:
-            elapsed = round(time.monotonic() - started, 3)
-            stdout_tail = (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else ""
-            stderr_tail = (exc.stderr or "")[-4000:] if isinstance(exc.stderr, str) else "timeout"
-            parsed = resource_parse_systemd_run_output(f"{stdout_tail}\n{stderr_tail}")
-            cleanup_unit = parsed.get("unit") or launch_unit
-            cleanup = resource_systemd_unit_cleanup(cleanup_unit)
-            if cleanup_unit and not parsed.get("unit"):
-                parsed["unit"] = cleanup_unit
-            if generated_unit:
-                parsed["generated_unit"] = generated_unit
-            result = {
-                "ok": False,
-                "returncode": 124,
-                "stdout_tail": stdout_tail,
-                "stderr_tail": stderr_tail,
-                "systemd": parsed,
-                "timeout_cleanup": cleanup,
-            }
-        finally:
-            if lease is not None:
+            try:
+                execution_delegate(handoff)
+            except Exception:
+                if isinstance(lease, dict):
+                    lease_id = str(lease.get("id") or "")
+                    if lease_id:
+                        resource_adapters.remove_lease(reservation_root, lease_id)
+                raise
+            if isinstance(lease, dict):
                 lease_id = str(lease.get("id") or "")
-                lease_released = (
+                if lease_id:
                     resource_adapters.remove_lease(reservation_root, lease_id)
-                    or not resource_adapters.lease_path(reservation_root, lease_id).exists()
-                )
-        if launch_unit and unit_type == "service" and result is not None and result.get("ok") is True:
-            peaks = resource_adapters.journal_unit_resource_peaks(launch_unit, since_epoch=launch_started_epoch)
-            observation: dict[str, Any] = {"peaks": peaks, "recorded": False}
-            if peaks.get("ok") and resolved_demand_key:
-                try:
-                    recorded = resource_adapters.record_demand_observation(
-                        demand_profile_path,
-                        key=resolved_demand_key,
-                        owner=str(demand_owner or resource_valid_kind(kind)),
-                        kind=resource_valid_kind(kind),
-                        memory_peak_mib=float(peaks.get("memory_peak_mib") or 0.0),
-                        memory_swap_peak_mib=float(peaks.get("memory_swap_peak_mib") or 0.0),
-                        observed_at_epoch=time.time(),
-                        multiplier=float(startup_policy.get("observed_peak_multiplier", 1.25)),
-                        max_entries=int(startup_policy.get("profile_max_entries", 64)),
-                        max_samples=int(startup_policy.get("profile_max_samples", 16)),
-                    )
-                    observation.update({"recorded": True, "record": recorded})
-                except (OSError, TypeError, ValueError) as exc:
-                    observation["error"] = str(exc)
-            demand_observation = observation
-    data = {
-        "schema": f"{SCHEMA_PREFIX}_resource_launch_v1",
-        "version": VERSION,
-        "generated_at": now_iso(),
-        "ok": not denied and not blocked and (dry_run or bool(result and result.get("ok"))),
-        "dry_run": bool(dry_run),
-        "started_at": started_at,
-        "elapsed_sec": elapsed,
-        "request": {
-            "class": workload_class,
-            "kind": kind,
-            "latency": latency,
-            "unattended": bool(unattended),
-            "force": bool(force),
-            "unit_type": unit_type,
-            "unit": unit,
-            "launch_unit": launch_unit,
-            "same_dir": bool(same_dir),
-            "timeout_sec": timeout_sec,
-            "command": clean_command,
-            "bytes_required": bytes_required,
-            "target": target,
-            "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
-            "demand_key": resolved_demand_key,
-            "demand_owner": demand_owner,
-            "estimate_source": estimate_source,
-            "estimate_confidence": estimate_confidence,
-            "startup_wait_sec": wait_timeout,
-            "sample_thermal": None if sample_thermal is None else bool(sample_thermal),
-        },
-        "blocked_reasons": blocked,
-        "denied_reasons": denied,
-        "plan": plan,
-        "argv": systemd_cmd,
-        "execution": result,
-        "startup_admission": {
-            "reservation_root": str(reservation_root),
-            "snapshot": reservation_snapshot,
-            "waited_sec": round(waited_sec, 3),
-            "wait_attempts": wait_attempts,
-            "lease": lease,
-            "lease_path": str(lease_path) if lease_path is not None else None,
-            "lease_released": lease_released,
-            "demand_profile_path": str(demand_profile_path),
-            "demand_observation": demand_observation,
-        },
-        "paths": {
-            "latest": str(RESOURCE_RUN_LATEST_PATH),
-            "retention": "latest_only",
-        },
-        "policy": {
-            "new_processes_only": True,
-            "runner": "systemd-run --user",
-            "does_not_mutate_existing_processes": True,
-            "does_not_mutate_stack": True,
-            "startup_reservations_runtime_only": True,
-            "known_demand_materialization_subtracted": True,
-            "unknown_demand_serializes_startup_only": True,
-            "no_memory_max_or_swap_max_added": True,
-            "fresh_resource_plan_and_atomic_lease": True,
-            "resident_memory_controller_required": False,
-            "runtime_peak_learning": True,
-            "runtime_profile_is_bounded_and_ephemeral": True,
-            "static_memory_caps_applied": False,
-        },
-    }
+            raise RuntimeError("resource launch execution delegate returned unexpectedly")
+        outcome = resource_adapters.execute_systemd_launch(
+            systemd_command=systemd_cmd,
+            launch_unit=launch_unit,
+            generated_unit=generated_unit,
+            unit_type=unit_type,
+            timeout_sec=timeout_sec,
+            lease=lease,
+            reservation_root=reservation_root,
+            demand_profile_path=demand_profile_path,
+            demand_key=resolved_demand_key,
+            demand_owner=demand_owner,
+            kind=resource_valid_kind(kind),
+            observed_peak_multiplier=float(startup_policy.get("observed_peak_multiplier", 1.25)),
+            profile_max_entries=int(startup_policy.get("profile_max_entries", 64)),
+            profile_max_samples=int(startup_policy.get("profile_max_samples", 16)),
+            parse_output=resource_parse_systemd_run_output,
+        )
+        result = outcome["execution"]
+        elapsed = float(outcome["elapsed_sec"])
+        lease_released = bool(outcome["lease_released"])
+        demand_observation = outcome.get("demand_observation")
+    data = build_launch_document(
+        result,
+        elapsed_sec=elapsed,
+        released=lease_released,
+        observation=demand_observation,
+        waiter="inline_cli" if result is not None else "none",
+    )
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_RUN_LATEST_PATH, data, 0o664)
         index_error = safe_atomic_write_json(RESOURCE_INDEX_PATH, resource_paths(), 0o664)
@@ -52269,6 +52267,15 @@ def main(argv: list[str]) -> int:
                 startup_wait_sec=args.startup_wait,
                 sample_thermal=False if bool(args.no_thermal_sample) else None,
                 write_latest=True,
+                execution_delegate=(
+                    lambda payload: resource_launch_exec_handoff(
+                        payload,
+                        output_json=bool(args.json),
+                        success_on_block=bool(getattr(args, "success_on_block", False)),
+                    )
+                )
+                if not bool(args.dry_run)
+                else None,
             )
             if args.json:
                 print_json(data)

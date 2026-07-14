@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from pathlib import Path
 import subprocess
 import time
+
+import pytest
 
 
 def test_ai_cpu_launch_is_only_a_resource_launch_compatibility_wrapper(abyss_machine_module, monkeypatch):
@@ -653,3 +656,170 @@ def test_unattended_resource_launch_uses_direct_reservation_without_resident_con
     assert "controller_queue" not in result["startup_admission"]
     assert result["policy"]["resident_memory_controller_required"] is False
     assert not (tmp_path / "run" / "abyss-machine" / "memory-controller").exists()
+
+
+def test_resource_launch_exec_handoff_uses_memfd_without_runtime_file(abyss_machine_module, monkeypatch):
+    captured: dict[str, object] = {}
+
+    class ExecCalled(Exception):
+        pass
+
+    def fake_execve(executable, argv, environ):
+        fd = int(environ["ABYSS_RESOURCE_LAUNCH_HANDOFF_FD"])
+        seals = fcntl.fcntl(fd, fcntl.F_GET_SEALS)
+        expected_seals = fcntl.F_SEAL_SEAL | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW | fcntl.F_SEAL_WRITE
+        captured["sealed"] = seals & expected_seals == expected_seals
+        os.lseek(fd, 0, os.SEEK_SET)
+        captured["payload"] = json.loads(os.read(fd, 1024 * 1024).decode("utf-8"))
+        captured["executable"] = executable
+        captured["argv"] = argv
+        raise ExecCalled
+
+    monkeypatch.setattr(abyss_machine_module.os, "execve", fake_execve)
+
+    with pytest.raises(ExecCalled):
+        abyss_machine_module.resource_launch_exec_handoff(
+            {"schema": "abyss_machine_resource_launch_handoff_v1", "document": {}},
+            output_json=True,
+            success_on_block=False,
+        )
+
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert payload["output"] == {"json": True, "success_on_block": False}
+    assert captured["sealed"] is True
+    assert str(captured["argv"][1]).endswith("resource_runner.py")
+
+
+def test_lightweight_resource_runner_finishes_receipt_and_bounded_writes(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    from abyss_machine import resource_runner
+
+    monkeypatch.setattr(
+        resource_runner.resource_adapters,
+        "execute_systemd_launch",
+        lambda **_kwargs: {
+            "elapsed_sec": 3.25,
+            "execution": {"ok": True, "returncode": 0, "systemd": {"unit": "fixture.service"}},
+            "lease_released": True,
+            "demand_observation": {"recorded": True},
+        },
+    )
+    latest = tmp_path / "runs" / "latest.json"
+    index = tmp_path / "index.json"
+    handoff = {
+        "document": {
+            "ok": False,
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "startup_admission": {"lease_released": False},
+            "policy": {"long_waiter": "inline_cli"},
+        },
+        "execution": {
+            "systemd_command": ["systemd-run", "--user", "/usr/bin/true"],
+            "launch_unit": "fixture.service",
+            "generated_unit": None,
+            "unit_type": "service",
+            "timeout_sec": 5,
+            "lease": None,
+            "reservation_root": str(tmp_path / "reservations"),
+            "demand_profile_path": str(tmp_path / "profiles.json"),
+            "demand_key": "fixture",
+            "demand_owner": "fixture-owner",
+            "kind": "generic",
+            "observed_peak_multiplier": 1.25,
+            "profile_max_entries": 64,
+            "profile_max_samples": 16,
+        },
+        "write_latest": True,
+        "latest_path": str(latest),
+        "index_path": str(index),
+        "index_document": {"schema": "fixture_index_v1"},
+    }
+
+    result = resource_runner.finish_document(handoff)
+
+    assert result["ok"] is True
+    assert result["elapsed_sec"] == 3.25
+    assert result["startup_admission"]["lease_released"] is True
+    assert result["startup_admission"]["demand_observation"] == {"recorded": True}
+    assert result["policy"]["long_waiter"] == "lightweight_exec_handoff"
+    assert json.loads(latest.read_text(encoding="utf-8"))["execution"]["returncode"] == 0
+    assert json.loads(index.read_text(encoding="utf-8"))["schema"] == "fixture_index_v1"
+
+
+def test_resource_launch_releases_lease_when_exec_handoff_fails(abyss_machine_module, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(version="test")
+    monkeypatch.setattr(abyss_machine_module, "resource_policy_document", lambda: policy)
+
+    def fake_plan(**kwargs):
+        requested = abyss_machine_module.resource_planning.resolve_startup_demand(
+            policy,
+            workload_class=kwargs["workload_class"],
+            kind=kwargs["kind"],
+            explicit_mib=kwargs.get("memory_demand_mib"),
+            demand_key=kwargs.get("demand_key"),
+            demand_owner=kwargs.get("demand_owner"),
+        )
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {"normalized_class": "medium", "normalized_kind": "agent"},
+            "inputs": {"startup_demand": {"requested": requested}},
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-agents.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+
+    class HandoffFailed(Exception):
+        pass
+
+    def fail_handoff(_payload):
+        raise HandoffFailed
+
+    with pytest.raises(HandoffFailed):
+        abyss_machine_module.resource_launch(
+            ["/usr/bin/true"],
+            workload_class="medium",
+            kind="agent",
+            unattended=True,
+            memory_demand_mib=512,
+            demand_owner="fixture-owner",
+            startup_wait_sec=0,
+            write_latest=False,
+            execution_delegate=fail_handoff,
+        )
+
+    reservation_root = tmp_path / "run" / "abyss-machine" / "resource" / "reservations"
+    assert list(reservation_root.glob("*.json")) == []
+
+
+def test_lightweight_resource_runner_releases_lease_on_failure(monkeypatch, tmp_path):
+    from abyss_machine import resource_runner
+
+    root = tmp_path / "reservations"
+    lease = {"id": "fixture-lease"}
+    resource_runner.resource_adapters.atomic_write_lease(root, lease)
+    handoff = {
+        "document": {},
+        "execution": {
+            "lease": lease,
+            "reservation_root": str(root),
+        },
+    }
+    monkeypatch.setattr(resource_runner, "read_handoff", lambda: handoff)
+    monkeypatch.setattr(resource_runner, "finish_document", lambda _handoff: (_ for _ in ()).throw(RuntimeError("fixture")))
+
+    assert resource_runner.main() == 1
+    assert not resource_runner.resource_adapters.lease_path(root, "fixture-lease").exists()

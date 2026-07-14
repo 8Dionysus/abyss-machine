@@ -138,6 +138,9 @@ change rather than silently reactivating the removed controller.
   compatibility launcher behind resource admission, added bounded transient-
   unit peak learning, and exposed strict empty-cgroup cache reclaim as shadow
   evidence only.
+- 2026-07-13: Replaced the long-lived resource-launch CLI waiter with a sealed
+  in-memory handoff to a lightweight execution adapter while preserving lease,
+  timeout cleanup, peak learning, and latest-only receipts.
 
 ## Source Surfaces
 
