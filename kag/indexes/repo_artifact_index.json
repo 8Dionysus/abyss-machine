@@ -111,7 +111,7 @@
     {"anchor_id":"aoa:abyss-machine:anchor:22cf4c4cb381e44774a05be4","artifact_kind":"document","content_hash":"f7b0f6768d69d8eb5ea8d90848d99a0666b17bb02a188f64be362b5ae136e40d","id":"aoa:abyss-machine:artifact:0d0f5db752fb3705f124fe28","lineage_path":"env/README.md","mime":"text/markdown","path":"env/README.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:c234ce0f739aa54691677341"},
     {"anchor_id":"aoa:abyss-machine:anchor:aa5f94cddb8d7fb191fe01e1","artifact_kind":"document","content_hash":"cdf9729f53f98ed09261f9b685988315f52353e0d4182cfd6f3cec862f7fbf81","id":"aoa:abyss-machine:artifact:73de061b3989ed8c40a36b86","lineage_path":"generated/AGENTS.md","mime":"text/markdown","path":"generated/AGENTS.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:2e7d436ed183d9116e0b739d"},
     {"anchor_id":"aoa:abyss-machine:anchor:6c88878ed7b977f97b3af5e6","artifact_kind":"document","content_hash":"37bdf899a9d592bb758f67b705ae2c34cc99414ee2b05f2737edb4ed7c0649a6","id":"aoa:abyss-machine:artifact:adf9d46a0edb3b41a12e03c2","lineage_path":"generated/README.md","mime":"text/markdown","path":"generated/README.md","provenance_ref":"deterministic","surface_state":"generated_readmodel","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:9345626a4ae183f608c4be07"},
-    {"anchor_id":"aoa:abyss-machine:anchor:3596a960776f824463e31776","artifact_kind":"generated_readmodel","content_hash":"be9154d97314a3f89a8231115ba57e1c3a6bf0a32a30cfd6772b162dd5b287f6","id":"aoa:abyss-machine:artifact:81b23f676a9c42688e97baa1","lineage_path":"generated/contract_abi_signatures.min.json","mime":"application/json","path":"generated/contract_abi_signatures.min.json","provenance_ref":"deterministic","surface_state":"generated_readmodel","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:4ca161ad0a7e30f1b52eb5ad"},
+    {"anchor_id":"aoa:abyss-machine:anchor:3596a960776f824463e31776","artifact_kind":"generated_readmodel","content_hash":"2d3b88b30b1cf4249fa4be448e7b10d4857ab563c04c1e78c20a095fe52682eb","id":"aoa:abyss-machine:artifact:81b23f676a9c42688e97baa1","lineage_path":"generated/contract_abi_signatures.min.json","mime":"application/json","path":"generated/contract_abi_signatures.min.json","provenance_ref":"deterministic","surface_state":"generated_readmodel","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:bfa2b52885bb8215a3d93465"},
     {"anchor_id":"aoa:abyss-machine:anchor:a57c49ba7f4c8cd24036bc17","artifact_kind":"generated_readmodel","content_hash":"891fc128c227dcca30506c28ff42a1acefd327cef2430cd8f7b83610a5d14d52","id":"aoa:abyss-machine:artifact:0527a4f31c8e8f08124fbf6a","lineage_path":"generated/scaffold_index.min.json","mime":"application/json","path":"generated/scaffold_index.min.json","provenance_ref":"deterministic","surface_state":"generated_readmodel","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:b53a19e3d9ce8dacb63be6ec"},
     {"anchor_id":"aoa:abyss-machine:anchor:90bc3bfa92b72607b13d237a","artifact_kind":"document","content_hash":"520da809efb4a41565927214a9c046deaebe59af09cb5651d4b5ce839eec249f","id":"aoa:abyss-machine:artifact:f80d68b85bc445f7b8bc4a73","lineage_path":"kag/AGENTS.md","mime":"text/markdown","path":"kag/AGENTS.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:b473d956722eccd680e36a26"},
     {"anchor_id":"aoa:abyss-machine:anchor:e11e7506a08d8e16f0889c35","artifact_kind":"document","content_hash":"ca0ec93f4b787a08df1e90e90a4748e8d941cac4cd6164b7c63b0fd477d8d172","id":"aoa:abyss-machine:artifact:213631cc86c1c0c7bdb579f5","lineage_path":"kag/README.md","mime":"text/markdown","path":"kag/README.md","provenance_ref":"deterministic","surface_state":"authored_source","temporal_ref":"current","trust_ref":"deterministic","version_id":"aoa:abyss-machine:artifact-version:6c97a6e89c698748c8046c03"},
@@ -614,7 +614,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_artifact_index",
-    "content_digest": "1e370ae49e8588507b2d1fd4da019e524d254b39a8b0a843b5e6a40a7ac6c7ba",
+    "content_digest": "be60bb11e2abd6464e2b1d47fe0b01f206c57c0fbbb49940881019f60d731591",
     "index_kind": "artifact",
     "local_id": "index:repo-local:artifacts",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -700,7 +700,7 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v2",
   "source_index": {
-    "content_digest": "9c8b86dd643f1301f36de99178a355b5f75d86cc46c17c47931cc13e73c5dc7f",
+    "content_digest": "e574fe42b29512590eeffb46ae0b999abd97f5fc6f14cee99f2aa4f6ad67d1f2",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
