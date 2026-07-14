@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -108,11 +109,11 @@ def atomic_write_lease(root: Path, lease: dict[str, Any]) -> Path:
     return destination
 
 
-def atomic_write_json(path: Path, document: dict[str, Any]) -> None:
+def atomic_write_json(path: Path, document: dict[str, Any], *, mode: int = 0o600) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
-        os.fchmod(fd, 0o600)
+        os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(document, handle, sort_keys=True, separators=(",", ":"))
             handle.write("\n")
@@ -314,6 +315,188 @@ def remove_lease(root: Path, lease_id: str) -> bool:
         return True
     except FileNotFoundError:
         return False
+
+
+def systemd_user_unit_cleanup(
+    unit: str | None,
+    *,
+    run_port: RunPort | None = None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "attempted": False,
+        "unit": unit,
+        "stop": None,
+        "state": None,
+        "kill": None,
+        "error": None,
+    }
+    if not unit:
+        data["error"] = "missing_unit"
+        return data
+    if shutil.which("systemctl") is None:
+        data["error"] = "systemctl_not_found"
+        return data
+
+    runner = run_port or subprocess.run
+    data["attempted"] = True
+    try:
+        stop_proc = runner(
+            ["systemctl", "--user", "stop", unit],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            check=False,
+        )
+        data["stop"] = {
+            "returncode": stop_proc.returncode,
+            "stdout_tail": stop_proc.stdout[-1000:],
+            "stderr_tail": stop_proc.stderr[-1000:],
+        }
+        state_proc = runner(
+            ["systemctl", "--user", "is-active", unit],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+        state = state_proc.stdout.strip() or state_proc.stderr.strip()
+        data["state"] = {
+            "returncode": state_proc.returncode,
+            "value": state,
+            "stdout_tail": state_proc.stdout[-1000:],
+            "stderr_tail": state_proc.stderr[-1000:],
+        }
+        if state in {"active", "activating", "deactivating"}:
+            kill_proc = runner(
+                ["systemctl", "--user", "kill", "--kill-whom=all", "--signal=KILL", unit],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+                check=False,
+            )
+            data["kill"] = {
+                "returncode": kill_proc.returncode,
+                "stdout_tail": kill_proc.stdout[-1000:],
+                "stderr_tail": kill_proc.stderr[-1000:],
+            }
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        data["error"] = str(exc)
+    return data
+
+
+def execute_systemd_launch(
+    *,
+    systemd_command: list[str],
+    launch_unit: str | None,
+    generated_unit: str | None,
+    unit_type: str,
+    timeout_sec: float,
+    lease: Mapping[str, Any] | None,
+    reservation_root: Path,
+    demand_profile_path: Path,
+    demand_key: str | None,
+    demand_owner: str | None,
+    kind: str,
+    observed_peak_multiplier: float,
+    profile_max_entries: int,
+    profile_max_samples: int,
+    parse_output: Callable[[str], dict[str, Any]],
+    run_port: RunPort | None = None,
+) -> dict[str, Any]:
+    runner = run_port or subprocess.run
+    launch_started_epoch = time.time()
+    started = time.monotonic()
+    timeout_value = None if timeout_sec <= 0 else max(0.1, float(timeout_sec))
+    if timeout_value is not None and unit_type != "scope":
+        timeout_value += 5.0
+
+    result: dict[str, Any]
+    lease_released = False
+    try:
+        proc = runner(
+            systemd_command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout_value,
+            check=False,
+        )
+        combined = f"{proc.stdout}\n{proc.stderr}"
+        systemd_info = parse_output(combined)
+        if launch_unit and not systemd_info.get("unit"):
+            systemd_info["unit"] = launch_unit
+        if generated_unit:
+            systemd_info["generated_unit"] = generated_unit
+        result = {
+            "ok": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "stdout_tail": proc.stdout[-4000:],
+            "stderr_tail": proc.stderr[-4000:],
+            "systemd": systemd_info,
+        }
+    except FileNotFoundError:
+        result = {
+            "ok": False,
+            "returncode": 127,
+            "stdout_tail": "",
+            "stderr_tail": "systemd-run not found",
+            "systemd": {},
+        }
+    except subprocess.TimeoutExpired as exc:
+        stdout_tail = (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else ""
+        stderr_tail = (exc.stderr or "")[-4000:] if isinstance(exc.stderr, str) else "timeout"
+        parsed = parse_output(f"{stdout_tail}\n{stderr_tail}")
+        cleanup_unit = parsed.get("unit") or launch_unit
+        cleanup = systemd_user_unit_cleanup(cleanup_unit, run_port=runner)
+        if cleanup_unit and not parsed.get("unit"):
+            parsed["unit"] = cleanup_unit
+        if generated_unit:
+            parsed["generated_unit"] = generated_unit
+        result = {
+            "ok": False,
+            "returncode": 124,
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+            "systemd": parsed,
+            "timeout_cleanup": cleanup,
+        }
+    finally:
+        if isinstance(lease, Mapping):
+            lease_id = str(lease.get("id") or "")
+            lease_released = remove_lease(reservation_root, lease_id) or not lease_path(reservation_root, lease_id).exists()
+
+    demand_observation: dict[str, Any] | None = None
+    if launch_unit and unit_type == "service" and result.get("ok") is True:
+        peaks = journal_unit_resource_peaks(launch_unit, since_epoch=launch_started_epoch)
+        observation: dict[str, Any] = {"peaks": peaks, "recorded": False}
+        if peaks.get("ok") and demand_key:
+            try:
+                recorded = record_demand_observation(
+                    demand_profile_path,
+                    key=demand_key,
+                    owner=str(demand_owner or kind),
+                    kind=kind,
+                    memory_peak_mib=float(peaks.get("memory_peak_mib") or 0.0),
+                    memory_swap_peak_mib=float(peaks.get("memory_swap_peak_mib") or 0.0),
+                    observed_at_epoch=time.time(),
+                    multiplier=observed_peak_multiplier,
+                    max_entries=profile_max_entries,
+                    max_samples=profile_max_samples,
+                )
+                observation.update({"recorded": True, "record": recorded})
+            except (OSError, TypeError, ValueError) as exc:
+                observation["error"] = str(exc)
+        demand_observation = observation
+
+    return {
+        "elapsed_sec": round(time.monotonic() - started, 3),
+        "execution": result,
+        "lease_released": lease_released,
+        "demand_observation": demand_observation,
+    }
 
 
 def pid_alive(pid: int) -> bool:

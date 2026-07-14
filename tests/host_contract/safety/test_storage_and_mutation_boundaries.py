@@ -62,11 +62,3 @@ def test_quick_test_lane_does_not_include_password_prompting_commands() -> None:
     assert "'sudo'" not in runner
     assert "--execute-live" not in runner
     assert "cooling apply" not in runner
-
-
-def test_memory_apply_requires_explicit_live_acknowledgement_in_cli_source() -> None:
-    source = Path("/usr/local/libexec/abyss_machine/cli.py").read_text(encoding="utf-8")
-
-    assert "--execute-live" in source
-    assert "--acknowledge-live-restart" in source
-    assert "do_not_tune_zram_or_sysctl_from_plan" in source

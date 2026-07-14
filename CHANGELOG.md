@@ -80,6 +80,9 @@
   through canonical resource admission, learn bounded demand from exact
   transient-unit peaks, and expose only strict empty owner-cgroup cache reclaim
   offers in shadow mode.
+- Replace the long-lived resource-launch CLI waiter with a sealed in-memory
+  handoff to a lightweight execution adapter while retaining deterministic
+  lease cleanup, timeout handling, peak learning, and latest-only receipts.
 
 ## 0.1.0
 
