@@ -229,3 +229,73 @@ def test_resource_journal_peak_parser_uses_exact_unit_and_memory_plus_swap() -> 
     assert peaks["footprint_peak_mib"] == 640.0
     assert peaks["matched_records"] == 1
     assert commands[0][commands[0].index("--since") + 1] == "@123.500000"
+
+
+def test_resource_systemd_summary_peak_parser_includes_swap() -> None:
+    peaks = resource_adapters._systemd_run_summary_resource_peaks(
+        "abyss-machine-indexing-probe-fixture.service",
+        "1.7M (swap: 32K)",
+    )
+
+    assert peaks["ok"] is True
+    assert peaks["source"] == "systemd_run_summary"
+    assert peaks["memory_peak_mib"] == 1.7
+    assert peaks["memory_swap_peak_mib"] == 0.031
+    assert peaks["footprint_peak_mib"] == 1.731
+
+    invalid = resource_adapters._systemd_run_summary_resource_peaks(
+        "abyss-machine-indexing-probe-fixture.service",
+        "approximately 2M",
+    )
+    assert invalid["ok"] is False
+    assert invalid["error"] == "systemd_run_summary_peak_invalid"
+
+
+def test_resource_launch_uses_systemd_summary_when_collected_unit_has_no_journal_peak(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    unit = "abyss-machine-indexing-probe-fixture.service"
+    monkeypatch.setattr(
+        resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda _unit, **_kwargs: {
+            "ok": False,
+            "unit": unit,
+            "error": "resource_peak_not_found",
+        },
+    )
+
+    outcome = resource_adapters.execute_systemd_launch(
+        systemd_command=["systemd-run", "--user", "/usr/bin/true"],
+        launch_unit=unit,
+        generated_unit=None,
+        unit_type="service",
+        timeout_sec=30.0,
+        lease=None,
+        reservation_root=tmp_path / "reservations",
+        demand_profile_path=tmp_path / "demand-profiles.json",
+        demand_key="fixture:true",
+        demand_owner="fixture",
+        kind="indexing",
+        observed_peak_multiplier=1.25,
+        profile_max_entries=64,
+        profile_max_samples=16,
+        parse_output=lambda _text: {
+            "unit": unit,
+            "result": "success",
+            "memory_peak": "1.7M (swap: 32K)",
+        },
+        run_port=lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="",
+            stderr="Finished with result: success\nMemory peak: 1.7M (swap: 32K)\n",
+        ),
+    )
+
+    observation = outcome["demand_observation"]
+    assert observation["recorded"] is True
+    assert observation["peaks"]["source"] == "systemd_run_summary"
+    assert observation["peaks"]["journal_fallback"]["error"] == "resource_peak_not_found"
+    assert observation["record"]["profile"]["estimate_mib"] == 2.164
