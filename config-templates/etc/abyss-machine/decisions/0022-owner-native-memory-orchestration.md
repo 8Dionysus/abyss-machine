@@ -149,12 +149,10 @@ change rather than silently reactivating the removed controller.
 
 ## Validation
 
-- `abyss-machine memory validate --json`
-- `abyss-machine resource validate --json`
-- `abyss-machine resource launch --class medium --kind agent --unattended --dry-run --json -- /usr/bin/true`
-- `python -m pytest -q tests/host_contract/regression/test_memory_zram_policy.py`
-- `python -m pytest -q tests/host_contract/contract/test_resource_launch_timeout_cleanup.py`
-- `python scripts/ci_gate.py --mode source-fast`
+- Acceptance covered memory/resource validation, dry-run resource admission,
+  focused zram and launch-cleanup regressions, and the public source-fast lane.
+  Current invocations are owned by [commands.md](../commands.md) and the
+  canonical test/validation routes.
 
 ## Follow-up Route
 

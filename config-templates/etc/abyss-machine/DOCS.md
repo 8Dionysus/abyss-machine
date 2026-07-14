@@ -93,20 +93,11 @@ Update documentation in the same change as behavior when:
 - a curated milestone contour changes, in which case update `CHANGELOG.md`.
 - a decision record changes, in which case rebuild the generated decision index.
 
-After documentation changes, run:
+After documentation changes, use the documentation and topology validation
+sequence in [commands.md](commands.md#machine-entry-and-topology).
 
-```bash
-abyss-machine docs audit --json
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs decisions-index --json
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine stack-bridge validate --json
-```
-
-Use `abyss-machine docs audit --strict --json` when closing a documentation
-cleanup pass and all warnings are expected to be resolved.
+Use the strict docs-audit route from [commands.md](commands.md) when closing a
+documentation cleanup pass and all warnings are expected to be resolved.
 
 ## Generated Evidence
 

@@ -22,6 +22,7 @@ collapse into one public mirror.
 - `systemd/`: installable Linux/systemd unit skeletons.
 - `env/`: public-safe environment examples.
 - `schemas/`: permissive v1 data-shape anchors.
+- `stats/`: host-owned statistical questions and their shared-protocol port.
 - `scripts/`: stable operator entrypoints and validators.
 - `tools/`: helper probes and migration tools not yet mechanic-owned.
 - `mechanics/`: durable host movement packages.

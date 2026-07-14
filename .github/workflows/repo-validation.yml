@@ -14,6 +14,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  AOA_STATS_ROOT: ${{ github.workspace }}/.deps/aoa-stats
 
 jobs:
   release_audit:
@@ -28,6 +29,14 @@ jobs:
         with:
           history-ref: ${{ github.event.pull_request.base.sha || github.event.before || format('{0}^', github.sha) }}
           event-history-ref: ${{ github.event.pull_request.base.sha || github.event.before || format('{0}^', github.sha) }}
+
+      - name: Checkout aoa-stats protocol owner
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: 8Dionysus/aoa-stats
+          ref: fb984e66f88abf772fce6aa29587337e2e8efcdc
+          path: .deps/aoa-stats
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405

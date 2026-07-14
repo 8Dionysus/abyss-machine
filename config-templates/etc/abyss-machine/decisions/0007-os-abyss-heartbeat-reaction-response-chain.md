@@ -86,7 +86,5 @@ The change ledger records are `{{ABYSS_MACHINE_STATE}}/changes/closed/responses-
 
 ## Validation
 
-- `abyss-machine heartbeats validate --json`
-- `abyss-machine reactions validate --json`
-- `abyss-machine responses validate --json`
-- `abyss-machine topology validate --json`
+- Acceptance covered heartbeat, reaction, response, and topology validation.
+  Current invocations are owned by [commands.md](../commands.md).

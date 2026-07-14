@@ -84,11 +84,9 @@ This decision does not grant `abyss-machine` authority over `aoa-evals`,
 
 ## Validation
 
-- `abyss-machine maps validate --json`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `python mcp/services/abyss-machine-mcp/scripts/validate_machine_mcp.py`
-- `python -m pytest mcp/services/abyss-machine-mcp/tests -q`
+- Acceptance covered maps and documentation validation plus the owning
+  `abyss-machine-mcp` validator and test suite. Current invocations remain with
+  [commands.md](../commands.md) and the MCP owner.
 
 ## Follow-up Route
 

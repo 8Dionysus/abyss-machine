@@ -85,20 +85,8 @@ existing axes.
 
 ## Commands
 
-```bash
-abyss-machine maps --json
-abyss-machine maps paths --json
-abyss-machine maps policy --json
-abyss-machine maps build --json
-abyss-machine maps query --axis by-freshness --query semantic --json
-abyss-machine maps packet --axis by-eval-packet --reader-profile proof-context --json
-abyss-machine maps validate --json
-abyss-machine rag refresh --query TEXT --json
-abyss-machine rag trace --query TEXT --json
-abyss-machine rag latest --json
-abyss-machine rag eval --json
-abyss-machine rag validate --json
-```
+The canonical maps and RAG command surface lives in
+[commands.md](commands.md#machine-entry-and-topology).
 
 `maps packet` returns a bounded boundary-context packet for an agent reader
 profile such as `agent`, `retrieval-context`, `graph-context`,
@@ -152,14 +140,5 @@ proof verdicts, KAG publication, or AoA organ delivery.
 ## Validation
 
 After changing this contract, policy, CLI behavior, or generated atlas route,
-run:
-
-```bash
-abyss-machine maps validate --json
-abyss-machine rag validate --json
-abyss-machine graph validate --json
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs audit --json
-abyss-machine stack-bridge validate --json
-```
+use the maps, RAG, graph, documentation, and bridge checks owned by
+[commands.md](commands.md#machine-entry-and-topology).

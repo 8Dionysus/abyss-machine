@@ -1,0 +1,111 @@
+{
+  "schema_version": "aoa_stats_local_port_v1",
+  "contract_version": "1.0.0",
+  "owner_repo": "abyss-machine",
+  "status": "active",
+  "owner_boundary_ref": "BOUNDARIES.md",
+  "central_contract_refs": [
+    "aoa-stats:stats/measurement-contract/measurement-contract.schema.json",
+    "aoa-stats:stats/measurement-contract/measurement-packet.schema.json"
+  ],
+  "evidence_posture": {
+    "live_state": "live_capable",
+    "privacy": "internal",
+    "raw_content_allowed": false
+  },
+  "questions": [
+    {
+      "id": "question:ai-workload-measured-duration-coverage-ratio",
+      "question": "What fraction of accepted AI workload measurement records in the selected owner window carry a finite non-negative measured_duration_sec observation?",
+      "consumer_refs": [
+        "src/abyss_machine/ai_runtime_contracts.py",
+        "config-templates/etc/abyss-machine/commands.md"
+      ]
+    }
+  ],
+  "measurements": [
+    {
+      "schema_version": "aoa_stats_measurement_contract_v1",
+      "measurement_id": "abyss-machine/ai-workload-measured-duration-coverage-ratio",
+      "contract_version": "1.0.0",
+      "owner_repo": "abyss-machine",
+      "question_ref": "question:ai-workload-measured-duration-coverage-ratio",
+      "semantic_class": "statistic",
+      "statistic": "ratio",
+      "object_kind": "accepted-ai-workload-measurement-record",
+      "unit": {
+        "symbol": "1",
+        "quantity": "proportion"
+      },
+      "population": {
+        "subject": "accepted AI workload measurement records selected by one workload stats invocation",
+        "definition": "one mapping in the records consumed by workload_stats_document for the selected owner window",
+        "inclusion_rule": "every accepted record in the invocation regardless of workload outcome or measured_duration_sec presence",
+        "exclusion_rule": "blank lines, invalid JSON, non-object JSON, unreadable source files, and source eval or benchmark objects not yet converted into accepted workload records",
+        "sampling": "census"
+      },
+      "window": {
+        "temporality": "cumulative",
+        "clock": "owner_defined"
+      },
+      "dimensions": {
+        "allowed": [],
+        "prohibited": [
+          "record_id",
+          "source_path",
+          "model_dir",
+          "workload_id",
+          "device",
+          "profile"
+        ]
+      },
+      "aggregation": {
+        "operator": "none",
+        "across": []
+      },
+      "missingness": {
+        "states": [
+          "missing",
+          "unknown",
+          "stale"
+        ],
+        "zero_is_observation": true
+      },
+      "uncertainty": {
+        "required": false,
+        "methods": [
+          "not_applicable"
+        ]
+      },
+      "provenance": {
+        "evidence_refs_required": true,
+        "source_revision_required": false
+      },
+      "lifecycle": {
+        "status": "active",
+        "compatible_with": []
+      },
+      "privacy": {
+        "classification": "internal",
+        "raw_content_allowed": false,
+        "sensitive_dimensions_allowed": false
+      },
+      "live_state": {
+        "capability": "live_capable"
+      },
+      "authority_ceiling": "Reports valid measured-duration field coverage over the records selected by the owner workload-stats invocation only; it does not establish workload success, performance, quality, efficiency, readiness, user value, host policy, or stack promotion decisions."
+    }
+  ],
+  "exports": [
+    {
+      "measurement_id": "abyss-machine/ai-workload-measured-duration-coverage-ratio",
+      "posture": "declaration_only",
+      "packet_refs": [],
+      "evidence_refs": [
+        "src/abyss_machine/ai_runtime_contracts.py",
+        "src/abyss_machine/ai_runtime_adapters.py",
+        "config-templates/etc/abyss-machine/commands.md"
+      ]
+    }
+  ]
+}

@@ -106,14 +106,6 @@ source contracts.
 
 ## Validation
 
-Use these checks after changing host design, documentation topology, bridge
-contracts, or agent routes:
-
-```bash
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs audit --json
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine stack-bridge validate --json
-```
+After changing host design, documentation topology, bridge contracts, or agent
+routes, use the canonical validation sequence in
+[commands.md](commands.md#machine-entry-and-topology).

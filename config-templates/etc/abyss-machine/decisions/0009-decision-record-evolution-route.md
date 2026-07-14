@@ -117,17 +117,14 @@ applicability/review layer or a superseding record.
 
 ## Validation
 
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine topology validate --json`
-- `abyss-machine graph validate --json`
-- `abyss-machine stack-bridge validate --json`
-- `abyss-machine test quick --json`
+- Acceptance covered decision-index, docs-mesh, topology, graph, stack-bridge,
+  and quick-lane validation. Current invocations are owned by
+  [commands.md](../commands.md).
 
 ## Follow-up Route
 
 Future changes to decision-lane structure should update this record when the
 same evolution route still applies, or create a new superseding record when the
 record model itself changes. Always rebuild
-`abyss-machine docs decisions-index --json` after decision source changes.
+the generated decision index through [commands.md](../commands.md) after
+decision source changes.

@@ -380,56 +380,13 @@ whole OS Abyss stack potential is fully exhausted.
 
 ## Commands
 
-```bash
-abyss-machine self-awareness paths --json
-abyss-machine self-awareness status --json
-abyss-machine self-awareness capabilities --json
-abyss-machine self-awareness requirements --json
-abyss-machine self-awareness requirement-probes --json
-abyss-machine self-awareness stack-closure-dossier --json
-abyss-machine self-awareness collect --json
-abyss-machine self-awareness query --query TEXT --json
-abyss-machine self-awareness correlate --json
-abyss-machine self-awareness timeline --json
-abyss-machine self-awareness spatial-graph --json
-abyss-machine self-awareness context --json
-abyss-machine self-awareness episodes --json
-abyss-machine self-awareness alerts --json
-abyss-machine self-awareness investigate --query TEXT --json
-abyss-machine self-awareness replay --json
-abyss-machine self-awareness brief --json
-abyss-machine self-awareness failure-matrix --json
-abyss-machine self-awareness probe --json
-abyss-machine self-awareness cycle --json
-abyss-machine self-awareness export --json
-abyss-machine self-awareness validate --json
-```
+The canonical self-awareness command surface lives in
+[commands.md](commands.md#machine-entry-and-topology).
 
 ## Validation
 
-Run the narrow validator first:
-
-```bash
-abyss-machine self-awareness probe --json
-abyss-machine self-awareness requirement-probes --json
-abyss-machine self-awareness stack-closure-dossier --json
-abyss-machine self-awareness failure-matrix --json
-abyss-machine self-awareness cycle --json
-abyss-machine self-awareness validate --json
-```
-
-Then run the host-layer gates:
-
-```bash
-abyss-machine stack-bridge validate --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs audit --json
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine heartbeats validate --json
-abyss-machine reactions validate --json
-abyss-machine responses validate --json
-```
+Run the narrow self-awareness checks and then the surrounding host-layer gates
+from [commands.md](commands.md#machine-entry-and-topology).
 
 ## Non-Claims
 

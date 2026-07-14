@@ -135,16 +135,10 @@ and regenerable noise.
 
 ## Validation
 
-- `PYTHONPYCACHEPREFIX=/tmp/abyss-machine-pycache python3 -m py_compile {{ABYSS_LOCAL_LIBEXEC_DIR}}/abyss-machine`
-- `abyss-machine typing browser-atspi-selftest --json`
-- `abyss-machine typing validate --json`
-- `abyss-machine typing coverage --json`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine topology validate --json`
-- `abyss-machine graph validate --json`
-- `abyss-machine stack-bridge validate --json`
+- Acceptance covered installed-source compilation, typing AT-SPI behavior,
+  typing validation and coverage, decision/docs consistency, topology, graph,
+  and stack-bridge validation. Current invocations are owned by
+  [commands.md](../commands.md).
 
 ## Follow-up Route
 

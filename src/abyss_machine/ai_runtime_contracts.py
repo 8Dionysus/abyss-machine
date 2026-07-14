@@ -5,6 +5,7 @@ import datetime as dt
 import difflib
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -2143,6 +2144,37 @@ def workload_metric_stats(values: list[float]) -> dict[str, Any]:
     }
 
 
+def workload_measured_duration_coverage(records: list[dict[str, Any]]) -> dict[str, Any]:
+    denominator = len(records)
+    numerator = 0
+    missing_count = 0
+    invalid_count = 0
+    for record in records:
+        raw_value = record.get("measured_duration_sec")
+        if raw_value is None:
+            missing_count += 1
+            continue
+        measured = workload_numeric(raw_value)
+        if measured is None or not math.isfinite(measured) or measured < 0:
+            invalid_count += 1
+            continue
+        numerator += 1
+
+    return {
+        "measurement_id": "abyss-machine/ai-workload-measured-duration-coverage-ratio",
+        "status": "observed" if denominator else "unknown",
+        "numerator": numerator,
+        "denominator": denominator,
+        "ratio": round(numerator / denominator, 6) if denominator else None,
+        "unit": "1",
+        "population": "accepted_ai_workload_measurement_records",
+        "window": "selected_workload_runs",
+        "reporting_rule": "finite_non_negative_measured_duration_sec_over_all_accepted_records",
+        "missing_count": missing_count,
+        "invalid_count": invalid_count,
+    }
+
+
 def workload_stats_document(
     *,
     schema_prefix: str,
@@ -2227,6 +2259,7 @@ def workload_stats_document(
             "groups": len(aggregated),
             "by_declared_class": dict(sorted(by_class.items())),
             "by_capability": dict(sorted(by_capability.items())),
+            "measured_duration_coverage": workload_measured_duration_coverage(records),
         },
         "groups": aggregated,
         "paths": {

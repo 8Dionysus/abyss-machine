@@ -90,12 +90,9 @@ Protected project roots remain read-only from the host layer.
 
 ## Validation
 
-- `abyss-machine maps validate --json`
-- `abyss-machine graph validate --json`
-- `abyss-machine docs mesh --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine stack-bridge validate --json`
+- Acceptance covered maps, graph, documentation mesh/audit, and stack-bridge
+  validation. Current invocations are owned by
+  [commands.md](../commands.md#machine-entry-and-topology).
 
 ## Follow-up Route
 

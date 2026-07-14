@@ -22,22 +22,8 @@ This is the host-machine handoff contract for future `abyss-stack` integration.
 
 ## First Commands
 
-```bash
-abyss-machine stack-bridge --json
-abyss-machine stack-bridge validate --json
-abyss-machine bridge --json
-abyss-machine graph --json
-abyss-machine mode plan --json
-abyss-machine mode validate --json
-abyss-machine nervous status --json
-abyss-machine nervous recall --query TEXT --json
-abyss-machine ai capabilities --json
-abyss-machine ai llm registry --json
-abyss-machine ai llm validate --json
-abyss-machine storage pressure --json
-abyss-machine heartbeats pulse --json
-abyss-machine heartbeats validate --json
-```
+Start from the bridge, topology, nervous, AI, storage, and heartbeat routes in
+[commands.md](commands.md).
 
 ## Artifact Classes
 

@@ -91,15 +91,9 @@ evidence into AoA organs.
 
 ## Validation
 
-- `abyss-machine rag validate --json`
-- `abyss-machine maps validate --json`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine docs mesh --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine topology validate --json`
-- `abyss-machine graph validate --json`
-- `abyss-machine stack-bridge validate --json`
+- Acceptance covered RAG/maps, decision/docs, topology, graph, and stack-bridge
+  validation. Current invocations are owned by
+  [commands.md](../commands.md#machine-entry-and-topology).
 
 ## Follow-up Route
 

@@ -101,12 +101,9 @@ how existing accepted decision records should evolve after that review.
 
 ## Validation
 
-- `abyss-machine changes close --help`
-- `abyss-machine docs decisions-index --json`
-- `abyss-machine docs audit --json`
-- `abyss-machine docs mesh-validate --json`
-- `abyss-machine topology validate --json`
-- `abyss-machine test quick --json`
+- Acceptance covered the close interface, decision-index and docs-mesh
+  consistency, topology validation, and the quick test lane. Current
+  invocations are owned by [commands.md](../commands.md).
 
 ## Follow-up Route
 
