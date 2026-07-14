@@ -297,6 +297,7 @@ def journal_unit_resource_peaks(
             matched_records += 1
     return {
         "ok": proc.returncode == 0 and bool(memory_peak or memory_swap_peak),
+        "source": "journal",
         "unit": unit,
         "memory_peak_bytes": memory_peak,
         "memory_swap_peak_bytes": memory_swap_peak,
@@ -306,6 +307,43 @@ def journal_unit_resource_peaks(
         "matched_records": matched_records,
         "returncode": proc.returncode,
         "error": proc.stderr.strip() or (None if memory_peak or memory_swap_peak else "resource_peak_not_found"),
+    }
+
+
+_SYSTEMD_SIZE_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[KMGTPE]?)(?:i?B)?", re.IGNORECASE)
+
+
+def _systemd_size_bytes(raw: str) -> int | None:
+    match = _SYSTEMD_SIZE_RE.fullmatch(str(raw or "").strip())
+    if match is None:
+        return None
+    exponent = {"": 0, "K": 1, "M": 2, "G": 3, "T": 4, "P": 5, "E": 6}[match.group("unit").upper()]
+    return max(0, int(round(float(match.group("value")) * (1024**exponent))))
+
+
+def _systemd_run_summary_resource_peaks(unit: str, summary: str | None) -> dict[str, Any]:
+    size = r"\d+(?:\.\d+)?\s*[KMGTPE]?(?:i?B)?"
+    match = re.fullmatch(
+        rf"\s*(?P<memory>{size})(?:\s+\(swap:\s*(?P<swap>{size})\))?\s*",
+        str(summary or ""),
+        re.IGNORECASE,
+    )
+    memory_peak = _systemd_size_bytes(match.group("memory")) if match else None
+    memory_swap_peak = _systemd_size_bytes(match.group("swap") or "0B") if match else None
+    valid = memory_peak is not None and memory_swap_peak is not None
+    memory_bytes = int(memory_peak or 0)
+    swap_bytes = int(memory_swap_peak or 0)
+    return {
+        "ok": bool(valid and (memory_bytes or swap_bytes)),
+        "source": "systemd_run_summary",
+        "unit": unit,
+        "memory_peak_bytes": memory_bytes,
+        "memory_swap_peak_bytes": swap_bytes,
+        "memory_peak_mib": round(memory_bytes / 1024.0 / 1024.0, 3),
+        "memory_swap_peak_mib": round(swap_bytes / 1024.0 / 1024.0, 3),
+        "footprint_peak_mib": round((memory_bytes + swap_bytes) / 1024.0 / 1024.0, 3),
+        "raw": summary,
+        "error": None if valid and (memory_bytes or swap_bytes) else "systemd_run_summary_peak_invalid",
     }
 
 
@@ -471,6 +509,17 @@ def execute_systemd_launch(
     demand_observation: dict[str, Any] | None = None
     if launch_unit and unit_type == "service" and result.get("ok") is True:
         peaks = journal_unit_resource_peaks(launch_unit, since_epoch=launch_started_epoch)
+        if not peaks.get("ok"):
+            systemd_info = result.get("systemd") if isinstance(result.get("systemd"), Mapping) else {}
+            summary_peaks = _systemd_run_summary_resource_peaks(
+                launch_unit,
+                str(systemd_info.get("memory_peak") or ""),
+            )
+            if summary_peaks.get("ok"):
+                summary_peaks["journal_fallback"] = peaks
+                peaks = summary_peaks
+            else:
+                peaks["summary_fallback"] = summary_peaks
         observation: dict[str, Any] = {"peaks": peaks, "recorded": False}
         if peaks.get("ok") and demand_key:
             try:
