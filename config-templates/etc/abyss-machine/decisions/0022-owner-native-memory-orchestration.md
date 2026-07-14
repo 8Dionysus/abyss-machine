@@ -18,11 +18,14 @@ accepted
 
 ## Current Applicability
 
-As of 2026-07-13, `abyss-machine` owns live pressure and swap-reserve facts,
+As of 2026-07-14, `abyss-machine` owns live pressure and swap-reserve facts,
 synchronous launch admission, runtime-only startup reservations, bounded
-runtime peak learning, one canonical resource-launch path, and shadow-only
-owner-cgroup reclaim offers. The older AI CPU launch command is only a
-compatibility wrapper over that path. It does not
+runtime peak learning, one canonical resource-launch path, a narrow runtime
+cold-load admission lease for existing owner processes, and shadow-only
+owner-cgroup reclaim offers. The cold-load route accepts explicit owner
+activity and demand through a private same-user Unix socket; it does not import
+the monolithic CLI while idle or gain model lifecycle authority. The older AI
+CPU launch command is only a compatibility wrapper over that path. It does not
 run a resident forecast, workload registry, evidence database, or generic
 lifecycle controller. The older numeric `memory orchestrate` candidate ranking
 and restart executor are retired. Reclaim, sleep, unload, checkpoint, resume,
@@ -80,6 +83,17 @@ or the configured metrics retention instead of daily control-plane JSONL.
 Owner-native lifecycle is preferred; unknown, active, protected, or
 data-at-risk work is preserved.
 
+An owner that needs to materialize a model inside an already-running process
+may atomically request a short runtime-only cold-load lease. The request must
+name a stable owner/workload/request identity, explicit owner activity, and
+incremental physical-memory demand. Admission reads fresh
+MemAvailable and memory PSI, counts outstanding leases, preserves the hard
+physical-RAM floor, and checks direct CPU thermal emergency evidence. Battery
+and power mode remain routing advice rather than workload-importance authority.
+The owner releases the capability-protected lease immediately after load or
+failure; broker restart preserves it only until its bounded TTL. This endpoint
+does not load, unload, restart, cap, or rank any workload.
+
 A future coordinator is admissible only when all of these are true:
 
 - at least one owner publishes a stable identity and reversible pressure offer;
@@ -103,14 +117,19 @@ understand.
 
 ## Consequences
 
-The always-resident memory-plane cost becomes zero. Known starts reserve their
-learned or owner-declared incremental footprint atomically and may proceed
+The always-resident lifecycle-controller cost becomes zero. Known starts
+reserve their learned or owner-declared incremental footprint atomically and
+may proceed
 concurrently while the hard floor remains intact. Unknown starts serialize only
 through their bounded startup window and are held during active stalls or low
 physical headroom. There is no host queue fairness layer; owner schedulers may
 add ordering before calling the launch route when they have a real scheduling
 need. Unregistered starts remain an explicit integration gap for shadow and
 owner-contract work, never an inferred permission to constrain them.
+When the optional cold-load endpoint is active, its lightweight server is the
+only resident admission transport; the 2026-07-14 canary held about 15 MiB at
+idle and during reserve/release, with no swap. A monolithic-CLI server candidate
+measured about 70 MiB and was rejected before deployment.
 
 Existing host-only controller state remains migration evidence until backup and
 restore-proof cleanup. A future pressure offer requires a new reviewed source
@@ -141,6 +160,11 @@ change rather than silently reactivating the removed controller.
 - 2026-07-13: Replaced the long-lived resource-launch CLI waiter with a sealed
   in-memory handoff to a lightweight execution adapter while preserving lease,
   timeout cleanup, peak learning, and latest-only receipts.
+- 2026-07-14: Added explicit owner activity and a private runtime cold-load
+  lease for models materialized inside existing processes. The accepted server
+  reads fresh memory/PSI and direct thermal emergency facts without a resident
+  CLI, stores only bounded `/run` leases with hashed release capabilities, and
+  passed an isolated reserve/replay/release canary below the 32 MiB RSS limit.
 
 ## Source Surfaces
 
@@ -152,10 +176,18 @@ change rather than silently reactivating the removed controller.
 
 ## Validation
 
-- Acceptance covered memory/resource validation, dry-run resource admission,
-  focused zram and launch-cleanup regressions, and the public source-fast lane.
-  Current invocations are owned by [commands.md](../commands.md) and the
-  canonical test/validation routes.
+```bash
+abyss-machine memory validate --json
+abyss-machine resource validate --json
+abyss-machine docs decisions-index --json
+python -m pytest -q
+PYTHONDONTWRITEBYTECODE=1 tools/abyss-machine-test quick --json
+scripts/abyss-machine-bootstrap doctor --dry-run --json
+scripts/abyss-machine-bootstrap render --profile linux-systemd-core --dry-run --json
+```
+
+Current invocations are owned by [commands.md](../commands.md) and the
+canonical test/validation routes.
 
 ## Follow-up Route
 

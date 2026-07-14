@@ -605,6 +605,7 @@ def lease_status(
     unit_state_port: UnitStatePort = systemd_user_unit_state,
 ) -> dict[str, Any]:
     lease_id = str(lease.get("id") or "")
+    lease_kind = str(lease.get("lease_kind") or "startup")
     try:
         launcher_pid = int(lease.get("launcher_pid") or 0)
     except (TypeError, ValueError):
@@ -619,7 +620,7 @@ def lease_status(
         demand_mib = None if raw_demand is None else max(0.0, float(raw_demand))
     except (TypeError, ValueError):
         demand_mib = None
-    launcher_alive = pid_alive_port(launcher_pid)
+    launcher_alive = pid_alive_port(launcher_pid) if launcher_pid > 0 else False
     unit = str(lease.get("unit") or "")
     unit_state = unit_state_port(unit) if unit else {
         "exists": False,
@@ -629,15 +630,28 @@ def lease_status(
     }
     unit_active = bool(unit_state.get("active"))
     expired = expires_at <= 0.0 or now_epoch >= expires_at
-    invalid = not lease_id or launcher_pid <= 0
+    runtime_cold_load = lease_kind == "runtime_cold_load"
+    runtime_identity_valid = bool(
+        lease.get("owner")
+        and lease.get("workload_id")
+        and lease.get("request_id")
+        and lease.get("request_digest")
+        and lease.get("release_token_sha256")
+    )
+    invalid = not lease_id or (not runtime_cold_load and launcher_pid <= 0) or (runtime_cold_load and not runtime_identity_valid)
     unknown_demand = bool(lease.get("unknown_demand")) or demand_mib is None
-    startup_deadline_elapsed = expired and (unknown_demand or not unit_active)
-    stale = invalid or startup_deadline_elapsed or (not launcher_alive and not unit_active)
+    startup_deadline_elapsed = not runtime_cold_load and expired and (unknown_demand or not unit_active)
+    runtime_deadline_elapsed = runtime_cold_load and expired
+    stale = invalid or runtime_deadline_elapsed or startup_deadline_elapsed or (
+        not runtime_cold_load and not launcher_alive and not unit_active
+    )
     if invalid:
         stale_reason = "invalid_identity"
+    elif runtime_deadline_elapsed:
+        stale_reason = "runtime_lease_deadline_elapsed"
     elif startup_deadline_elapsed:
         stale_reason = "startup_deadline_elapsed"
-    elif not launcher_alive and not unit_active:
+    elif not runtime_cold_load and not launcher_alive and not unit_active:
         stale_reason = "launcher_dead_and_unit_inactive"
     else:
         stale_reason = None
@@ -647,7 +661,7 @@ def lease_status(
         **lease,
         "launcher_alive": launcher_alive,
         "unit_state": unit_state,
-        "phase": "active_unit" if unit_active else "startup",
+        "phase": "cold_load" if runtime_cold_load else ("active_unit" if unit_active else "startup"),
         "expired": expired,
         "stale": stale,
         "stale_reason": stale_reason,
@@ -662,6 +676,7 @@ def reservation_snapshot(
     root: Path,
     *,
     cleanup: bool = False,
+    cleanup_invalid: bool = True,
     now_epoch: float | None = None,
     pid_alive_port: PidAlivePort = pid_alive,
     unit_state_port: UnitStatePort = systemd_user_unit_state,
@@ -676,7 +691,7 @@ def reservation_snapshot(
                 document = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 errors.append({"path": str(path), "error": str(exc)})
-                if cleanup:
+                if cleanup and cleanup_invalid:
                     try:
                         path.unlink()
                         removed.append({"path": str(path), "reason": "invalid_json"})

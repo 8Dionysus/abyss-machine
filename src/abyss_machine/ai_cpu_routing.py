@@ -261,6 +261,20 @@ def routed_heavy_policy(
         and policy_value in {"green", "warm"}
         and trend_value in {"falling", "stable", "unknown"}
     )
+    foreground_blocked_reasons: list[str] = []
+    if not telemetry_ok:
+        foreground_blocked_reasons.append("thermal_telemetry_unavailable")
+    if not enough_cpus:
+        foreground_blocked_reasons.append("insufficient_safe_cpus")
+    if package_critical:
+        foreground_blocked_reasons.append("package_critical")
+    if broad_heat:
+        foreground_blocked_reasons.append("broad_heat")
+    if too_many_hot:
+        foreground_blocked_reasons.append("too_many_hot_cpus")
+    if too_many_critical:
+        foreground_blocked_reasons.append("too_many_critical_cpus")
+    foreground_allowed = not foreground_blocked_reasons
 
     if not telemetry_ok:
         reasons.append("telemetry_missing_or_unmapped")
@@ -302,6 +316,8 @@ def routed_heavy_policy(
     return {
         "allowed": allowed,
         "unattended_allowed": unattended_allowed,
+        "foreground_allowed": foreground_allowed,
+        "foreground_blocked_reasons": foreground_blocked_reasons,
         "requires_routing": allowed,
         "decision": decision,
         "route": {
@@ -399,6 +415,15 @@ def build_route(
     routed_heavy_allowed = bool(policy.get("can_run_routed_heavy")) and bool(routed_heavy.get("allowed"))
     routed_heavy_unattended_allowed = bool(policy.get("can_run_routed_heavy_unattended")) and bool(routed_heavy.get("unattended_allowed"))
     routing_required = heavy_like and routed_heavy_allowed and not bool(policy.get("can_run_heavy"))
+    foreground_route = routed_heavy_policy(
+        thermal_map,
+        str(policy.get("class") or "unknown"),
+        str(mode.get("effective_mode") or "unknown"),
+        ac_online,
+        config=config,
+        capacity_percent=battery.get("capacity_percent") if isinstance(battery, dict) else None,
+        trend=str(policy.get("trend") or "unknown"),
+    ) if heavy_like else None
     if heavy_like and not ac_online and not force:
         allowed = False
         unattended_allowed = False
@@ -439,6 +464,16 @@ def build_route(
         "allowed": allowed or bool(force and cpus),
         "forced": bool(force and not allowed and cpus),
         "unattended_allowed": unattended_allowed,
+        "foreground_allowed": (
+            bool(foreground_route.get("foreground_allowed"))
+            if isinstance(foreground_route, dict)
+            else bool(cpus)
+        ),
+        "foreground_blocked_reasons": (
+            list(foreground_route.get("foreground_blocked_reasons") or [])
+            if isinstance(foreground_route, dict)
+            else ([] if cpus else ["no_safe_cpu_route"])
+        ),
         "requested": {
             "class": workload_class,
             "normalized_class": workload,

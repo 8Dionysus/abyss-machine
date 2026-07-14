@@ -164,6 +164,45 @@ def test_resource_uncalibrated_estimate_lease_is_still_startup_bounded(tmp_path:
     assert snapshot["removed"][0]["reason"] == "startup_deadline_elapsed"
 
 
+def test_resource_runtime_cold_load_lease_survives_broker_restart_until_deadline(tmp_path: Path) -> None:
+    root = tmp_path / "reservations"
+    resource_adapters.atomic_write_lease(
+        root,
+        {
+            "id": "runtime-cold-load:fixture",
+            "lease_kind": "runtime_cold_load",
+            "owner": "abyss-stack",
+            "workload_id": "llama-cpp:gemma4-e2b",
+            "request_id": "request-123",
+            "request_digest": "a" * 64,
+            "release_token_sha256": "b" * 64,
+            "demand_mib": 4096,
+            "expires_at_epoch": 200.0,
+        },
+    )
+
+    active = resource_adapters.reservation_snapshot(
+        root,
+        cleanup=True,
+        now_epoch=100.0,
+        pid_alive_port=lambda _pid: False,
+        unit_state_port=lambda _unit: {"exists": False, "active": False, "memory_current_mib": 0.0},
+    )
+    expired = resource_adapters.reservation_snapshot(
+        root,
+        cleanup=True,
+        now_epoch=201.0,
+        pid_alive_port=lambda _pid: False,
+        unit_state_port=lambda _unit: {"exists": False, "active": False, "memory_current_mib": 0.0},
+    )
+
+    assert active["summary"]["active_count"] == 1
+    assert active["items"][0]["phase"] == "cold_load"
+    assert active["summary"]["outstanding_mib"] == 4096.0
+    assert expired["summary"]["active_count"] == 0
+    assert expired["removed"][0]["reason"] == "runtime_lease_deadline_elapsed"
+
+
 def test_resource_runtime_root_prefers_xdg_and_uses_uid_scoped_fallback(tmp_path: Path) -> None:
     assert resource_adapters.runtime_root({"XDG_RUNTIME_DIR": str(tmp_path)}, uid=1234) == tmp_path
     assert resource_adapters.runtime_root({}, uid=1234, path_exists=lambda _path: False).name == "abyss-machine-1234"
