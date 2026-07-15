@@ -240,6 +240,10 @@ def test_runtime_cold_load_plan_preserves_reserve_and_uses_owner_activity() -> N
         "memory_summary": {
             "mem_total_mib": 32000,
             "mem_available_mib": 12000,
+            "swap_free_mib": 4096,
+            "target_swap_free_mib": 2048,
+            "swap_free_shortfall_mib": 0,
+            "swap_reserve_state": "within_target",
             "psi_some_avg10": 0.0,
             "psi_full_avg10": 3.0,
         },
@@ -260,6 +264,32 @@ def test_runtime_cold_load_plan_preserves_reserve_and_uses_owner_activity() -> N
         "estimate_source": "explicit_owner_estimate",
         "estimate_confidence": "owner_provided",
     }
+
+    def reserve_plan(*, activity: str, state: str, request_id: str) -> dict[str, object]:
+        reserve_facts = (
+            {}
+            if state == "unavailable"
+            else {
+                "swap_free_mib": 64,
+                "target_swap_free_mib": 2048,
+                "swap_free_shortfall_mib": 1984,
+                "swap_reserve_state": state,
+            }
+        )
+        return resource_planning.runtime_cold_load_plan(
+            request={**request, "request_id": request_id, "activity": activity, "unattended": False},
+            **{
+                **common,
+                "memory_summary": {
+                    "mem_total_mib": 32000,
+                    "mem_available_mib": 12000,
+                    "psi_some_avg10": 0.0,
+                    "psi_full_avg10": 0.0,
+                    **reserve_facts,
+                },
+                "current_memory_class": "green",
+            },
+        )
 
     foreground = resource_planning.runtime_cold_load_plan(
         request={**request, "activity": "foreground", "unattended": False},
@@ -287,6 +317,10 @@ def test_runtime_cold_load_plan_preserves_reserve_and_uses_owner_activity() -> N
             },
         },
     )
+    reserve_debt_background = reserve_plan(activity="maintenance", state="below_target", request_id="request-128")
+    reserve_debt_foreground = reserve_plan(activity="foreground", state="below_target", request_id="request-129")
+    reserve_unavailable_background = reserve_plan(activity="background", state="unavailable", request_id="request-130")
+    reserve_unavailable_foreground = reserve_plan(activity="foreground", state="unavailable", request_id="request-131")
 
     assert foreground["decision"] == "allow"
     assert foreground["policy"]["battery_and_power_mode_are_advisory_not_admission_authority"] is True
@@ -298,6 +332,22 @@ def test_runtime_cold_load_plan_preserves_reserve_and_uses_owner_activity() -> N
     assert thermal_blocked["blocked_reasons"] == ["thermal_emergency"]
     assert corrupt_state["decision"] == "deny"
     assert corrupt_state["denied_reasons"] == ["runtime_reservation_state_invalid"]
+    assert reserve_debt_background["decision"] == "force_required"
+    assert reserve_debt_background["blocked_reasons"] == [
+        "runtime_swap_reserve_below_target_for_background_cold_load"
+    ]
+    assert reserve_debt_foreground["decision"] == "allow"
+    assert reserve_debt_foreground["warnings"] == ["swap_reserve_below_target_foreground_owner_activity"]
+    assert reserve_debt_background["policy"]["swap_reserve_gates_only_background_cold_loads"] is True
+    assert reserve_debt_background["policy"]["swap_reserve_assigns_workload_importance"] is False
+    assert reserve_unavailable_background["decision"] == "deny"
+    assert reserve_unavailable_background["denied_reasons"] == [
+        "runtime_swap_reserve_unavailable_for_background_cold_load"
+    ]
+    assert reserve_unavailable_foreground["decision"] == "allow"
+    assert reserve_unavailable_foreground["warnings"] == [
+        "swap_reserve_unavailable_foreground_owner_activity"
+    ]
 
 
 def test_resource_planning_builds_indexing_systemd_contract_without_cli_state() -> None:

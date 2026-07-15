@@ -67,6 +67,20 @@ def fresh_memory_facts(
     psi = memory_adapters.parse_pressure_file(pressure_path)
     current_class, _reasons = memory_contracts.pressure_class(mem, psi, {}, dict(policy))
     summary = dict(mem.get("summary") or {})
+    reserve = memory_contracts.swap_reserve_status(
+        {
+            "summary": {
+                "total_mib": summary.get("swap_total_mib"),
+                "used_mib": summary.get("swap_used_mib"),
+                "used_percent": summary.get("swap_used_percent"),
+                "free_mib": summary.get("swap_free_mib"),
+            }
+        },
+        dict(policy),
+    )
+    summary["swap_reserve_state"] = reserve["state"]
+    summary["target_swap_free_mib"] = reserve["target_free_mib"]
+    summary["swap_free_shortfall_mib"] = reserve["shortfall_mib"]
     summary["psi_some_avg10"] = psi.get("some", {}).get("avg10") if isinstance(psi.get("some"), dict) else None
     summary["psi_full_avg10"] = psi.get("full", {}).get("avg10") if isinstance(psi.get("full"), dict) else None
     return summary, current_class

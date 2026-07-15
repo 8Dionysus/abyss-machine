@@ -117,7 +117,8 @@
     "max_request_bytes": 65536,
     "thermal_emergency_c": 109.0,
     "require_explicit_owner_activity": true,
-    "fail_closed_when_unavailable": true
+    "fail_closed_when_unavailable": true,
+    "gate_background_when_swap_reserve_below_target": true
   },
   "memory_orchestration": {
     "importance_source": "stable_owner_identity_and_owner_declared_state",
