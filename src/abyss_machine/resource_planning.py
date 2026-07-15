@@ -131,6 +131,7 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
             "thermal_emergency_c": 109.0,
             "require_explicit_owner_activity": True,
             "fail_closed_when_unavailable": True,
+            "gate_background_when_swap_reserve_below_target": True,
         },
         "protected_contexts": {
             "games": "Active games defer new heavy/sustained work and unattended medium-or-heavier starts.",
@@ -554,17 +555,44 @@ def runtime_cold_load_plan(
     admission = projection.get("admission") if isinstance(projection.get("admission"), dict) else {}
     blocked = [f"runtime_{item}" for item in admission.get("blocked_reasons", [])]
     denied = [f"runtime_{item}" for item in admission.get("denied_reasons", [])]
+    warnings: list[str] = []
     denied.extend(activity_data.get("errors") or [])
     if demand.get("valid") is False:
         denied.append("runtime_demand_invalid")
     if projection.get("unknown_startup_conflict"):
         blocked.append("runtime_unknown_demand_in_progress")
+    runtime_policy = (
+        resource_policy.get("runtime_admission")
+        if isinstance(resource_policy.get("runtime_admission"), dict)
+        else {}
+    )
+    gate_background_reserve = bool(
+        runtime_policy.get("gate_background_when_swap_reserve_below_target", True)
+    )
+    fail_closed_reserve_unavailable = bool(runtime_policy.get("fail_closed_when_unavailable", True))
+    swap_reserve_state = str(memory_summary.get("swap_reserve_state") or "unavailable").strip()
+    if swap_reserve_state not in {"within_target", "below_target", "unavailable"}:
+        swap_reserve_state = "unavailable"
+    if gate_background_reserve and activity_data.get("background"):
+        if swap_reserve_state == "below_target":
+            blocked.append("runtime_swap_reserve_below_target_for_background_cold_load")
+        elif swap_reserve_state == "unavailable":
+            if fail_closed_reserve_unavailable:
+                denied.append("runtime_swap_reserve_unavailable_for_background_cold_load")
+            else:
+                warnings.append("swap_reserve_unavailable_background_cold_load")
+    elif activity_data.get("foreground"):
+        if swap_reserve_state == "below_target":
+            warnings.append("swap_reserve_below_target_foreground_owner_activity")
+        elif swap_reserve_state == "unavailable":
+            warnings.append("swap_reserve_unavailable_foreground_owner_activity")
     if thermal_safety.get("available") is not True:
         denied.append("thermal_safety_unavailable")
     elif thermal_safety.get("emergency") is True:
         blocked.append("thermal_emergency")
     blocked = list(dict.fromkeys(str(item) for item in blocked))
     denied = list(dict.fromkeys(str(item) for item in denied))
+    warnings = list(dict.fromkeys(str(item) for item in warnings))
     if denied:
         decision = "deny"
     elif blocked:
@@ -588,9 +616,15 @@ def runtime_cold_load_plan(
         },
         "blocked_reasons": blocked,
         "denied_reasons": denied,
-        "warnings": [],
+        "warnings": warnings,
         "inputs": {
             "startup_demand": {**projection, "requested": demand},
+            "swap_reserve": {
+                "state": swap_reserve_state,
+                "free_mib": _float_value(memory_summary.get("swap_free_mib"), None),
+                "target_free_mib": _float_value(memory_summary.get("target_swap_free_mib"), None),
+                "shortfall_mib": _float_value(memory_summary.get("swap_free_shortfall_mib"), None),
+            },
             "thermal_safety": dict(thermal_safety),
         },
         "policy": {
@@ -600,6 +634,10 @@ def runtime_cold_load_plan(
             "battery_and_power_mode_are_advisory_not_admission_authority": True,
             "thermal_emergency_is_authoritative": True,
             "pressure_facts_assign_workload_importance": False,
+            "swap_reserve_gates_only_background_cold_loads": gate_background_reserve,
+            "swap_reserve_unavailable_fails_closed": fail_closed_reserve_unavailable,
+            "swap_reserve_assigns_workload_importance": False,
+            "foreground_owner_activity_may_proceed_under_physical_headroom": True,
             "existing_processes_mutated": False,
             "resident_memory_controller_required": False,
         },

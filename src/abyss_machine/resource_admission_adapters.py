@@ -107,8 +107,10 @@ def _lease_receipt(lease: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _plan_receipt(plan: Mapping[str, Any]) -> dict[str, Any]:
-    demand = plan.get("inputs", {}).get("startup_demand", {}) if isinstance(plan.get("inputs"), dict) else {}
+    inputs = plan.get("inputs") if isinstance(plan.get("inputs"), dict) else {}
+    demand = inputs.get("startup_demand", {})
     projected = demand.get("projected") if isinstance(demand, dict) and isinstance(demand.get("projected"), dict) else {}
+    swap_reserve = inputs.get("swap_reserve") if isinstance(inputs.get("swap_reserve"), dict) else {}
     activity = plan.get("request", {}).get("activity", {}) if isinstance(plan.get("request"), dict) else {}
     return {
         "decision": plan.get("decision"),
@@ -118,6 +120,12 @@ def _plan_receipt(plan: Mapping[str, Any]) -> dict[str, Any]:
         "projected_memory": {
             "class": projected.get("memory_class"),
             "mem_available_mib": projected.get("mem_available_mib"),
+        },
+        "swap_reserve": {
+            "state": swap_reserve.get("state"),
+            "free_mib": swap_reserve.get("free_mib"),
+            "target_free_mib": swap_reserve.get("target_free_mib"),
+            "shortfall_mib": swap_reserve.get("shortfall_mib"),
         },
         "activity": activity,
     }

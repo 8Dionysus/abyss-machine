@@ -49,7 +49,13 @@ def allowed_plan(_request: object, snapshot: dict[str, object]) -> dict[str, obj
         "inputs": {
             "startup_demand": {
                 "projected": {"memory_class": "watch", "mem_available_mib": 7168.0}
-            }
+            },
+            "swap_reserve": {
+                "state": "within_target",
+                "free_mib": 4096.0,
+                "target_free_mib": 2048.0,
+                "shortfall_mib": 0.0,
+            },
         },
     }
 
@@ -78,6 +84,7 @@ def test_runtime_admission_reserve_is_atomic_idempotent_and_secret_safe(tmp_path
     assert first["idempotent_replay"] is False
     assert first["lease"]["runtime_only"] is True
     assert first["plan"]["projected_memory"]["mem_available_mib"] == 7168.0
+    assert first["plan"]["swap_reserve"]["state"] == "within_target"
     assert "release_token" not in repr(first)
     assert TOKEN not in repr(first)
     assert replay["ok"] is True
@@ -308,6 +315,10 @@ def test_lightweight_server_reads_fresh_memory_and_cpu_emergency_facts(tmp_path:
 
     assert summary["mem_total_mib"] == 32000.0
     assert summary["mem_available_mib"] == 16000.0
+    assert summary["swap_free_mib"] == 8192.0
+    assert summary["target_swap_free_mib"] == 2048.0
+    assert summary["swap_reserve_state"] == "within_target"
+    assert summary["swap_free_shortfall_mib"] == 0.0
     assert summary["psi_full_avg10"] == 0.0
     assert current_class == "green"
     assert thermal["available"] is True
