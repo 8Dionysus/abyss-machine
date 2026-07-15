@@ -83,6 +83,9 @@
 - Replace the long-lived resource-launch CLI waiter with a sealed in-memory
   handoff to a lightweight execution adapter while retaining deterministic
   lease cleanup, timeout handling, peak learning, and latest-only receipts.
+- Activate the existing lightweight owner cold-load admission server through
+  one hardened unprivileged user unit in the core profile, with a private
+  Unix-only transport and no resident memory controller or workload caps.
 
 ## 0.1.0
 

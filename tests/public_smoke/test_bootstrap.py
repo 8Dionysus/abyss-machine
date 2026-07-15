@@ -1279,3 +1279,17 @@ def test_linux_systemd_core_profile_has_no_resident_memory_controller() -> None:
     payload = run_bootstrap("enable-profile", "--profile", "linux-systemd-core", "--dry-run")
     units = {(action["scope"], action["unit"]) for action in payload["actions"]}
     assert ("user", "abyss-memory-controller.service") not in units
+    assert ("user", "abyss-resource-admission.service") in units
+
+
+def test_resource_admission_user_unit_is_unprivileged_and_uncapped() -> None:
+    unit = (ROOT / "systemd" / "user" / "abyss-resource-admission.service").read_text(encoding="utf-8")
+
+    assert "ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine resource admission serve" in unit
+    assert "UMask=0077" in unit
+    assert "NoNewPrivileges=yes" in unit
+    assert "RestrictAddressFamilies=AF_UNIX" in unit
+    assert "ProtectSystem=strict" in unit
+    assert "MemoryMax=" not in unit
+    assert "MemoryHigh=" not in unit
+    assert "MemoryLimit=" not in unit

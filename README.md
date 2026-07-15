@@ -193,7 +193,9 @@ and process/unit liveness checks live in `abyss_machine.resource_adapters`;
 owner-declared cold-load lease transactions and their runtime-only Unix socket
 transport live in `abyss_machine.resource_admission_adapters`; the lightweight
 server entrypoint lives in `abyss_machine.resource_admission_server` and does
-not import the monolithic CLI while resident.
+not import the monolithic CLI while resident. The core systemd profile starts
+that endpoint as the unprivileged `abyss-resource-admission.service`; the CLI
+execs into the lightweight module, so the monolithic process is not retained.
 Memory admission is evaluated synchronously from fresh host facts; reclaim and
 sleep remain with workload owners instead of a resident host controller. AI CPU route selection, routed-heavy policy,
 thread/env hints, and route contract assembly live in

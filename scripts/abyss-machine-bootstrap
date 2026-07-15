@@ -38,6 +38,7 @@ PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
             "abyss-power-profile-auto.timer",
         ],
         "user": [
+            "abyss-resource-admission.service",
             "abyss-machine-heartbeat.timer",
             "abyss-machine-context-refresh.timer",
             "abyss-topology-audit.timer",
