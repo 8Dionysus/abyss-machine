@@ -165,6 +165,10 @@ change rather than silently reactivating the removed controller.
   reads fresh memory/PSI and direct thermal emergency facts without a resident
   CLI, stores only bounded `/run` leases with hashed release capabilities, and
   passed an isolated reserve/replay/release canary below the 32 MiB RSS limit.
+- 2026-07-15: Wired the accepted server into the core profile as a hardened
+  unprivileged user service. The launcher execs into the lightweight server;
+  the unit is Unix-only, has no memory cap, and gains no process-lifecycle
+  authority.
 
 ## Source Surfaces
 

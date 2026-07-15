@@ -1,0 +1,26 @@
+[Unit]
+Description=Abyss Machine owner cold-load admission
+
+[Service]
+Type=simple
+UMask=0077
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine resource admission serve
+Restart=on-failure
+RestartSec=2s
+CPUWeight=20
+IOWeight=20
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=yes
+LockPersonality=yes
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -6,6 +6,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -317,6 +318,72 @@ def test_bootstrap_refresh_code_skip_checks_only_refresh_mutation_targets(tmp_pa
     assert (bin_dir / "abyss-machine").is_symlink()
     assert (libexec_dir / "abyss-machine").is_file()
     assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
+
+
+def test_refreshed_cli_execs_admission_server_from_installed_package(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    libexec_dir = tmp_path / "libexec"
+    socket_suffix = hashlib.sha256(str(tmp_path).encode()).hexdigest()[:10]
+    socket_path = Path("/tmp") / f"abyss-admission-{os.getpid()}-{socket_suffix}.sock"
+    runtime_dir = tmp_path / "runtime"
+    run_bootstrap(
+        "refresh-code",
+        "--apply",
+        "--skip-artifact-trust-gate",
+        "--local-bin-dir",
+        str(bin_dir),
+        "--local-libexec-dir",
+        str(libexec_dir),
+    )
+    runtime_dir.mkdir()
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    env["XDG_RUNTIME_DIR"] = str(runtime_dir)
+    server = subprocess.Popen(
+        [
+            str(bin_dir / "abyss-machine"),
+            "resource",
+            "admission",
+            "serve",
+            "--socket",
+            str(socket_path),
+            "--allow-shutdown",
+        ],
+        cwd="/",
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not socket_path.exists() and server.poll() is None:
+            time.sleep(0.05)
+        assert socket_path.is_socket(), server.communicate(timeout=1)[1]
+        shutdown = subprocess.run(
+            [
+                str(bin_dir / "abyss-machine"),
+                "resource",
+                "admission",
+                "shutdown",
+                "--socket",
+                str(socket_path),
+                "--json",
+            ],
+            cwd="/",
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        assert shutdown.returncode == 0, shutdown.stderr
+        assert json.loads(shutdown.stdout)["decision"] == "allow"
+        assert server.wait(timeout=5) == 0
+    finally:
+        if server.poll() is None:
+            server.terminate()
+            server.wait(timeout=5)
+        socket_path.unlink(missing_ok=True)
 
 
 def test_bootstrap_install_allows_trust_gate_skip_for_tmp_projection_apply(tmp_path: Path) -> None:
@@ -1279,3 +1346,17 @@ def test_linux_systemd_core_profile_has_no_resident_memory_controller() -> None:
     payload = run_bootstrap("enable-profile", "--profile", "linux-systemd-core", "--dry-run")
     units = {(action["scope"], action["unit"]) for action in payload["actions"]}
     assert ("user", "abyss-memory-controller.service") not in units
+    assert ("user", "abyss-resource-admission.service") in units
+
+
+def test_resource_admission_user_unit_is_unprivileged_and_uncapped() -> None:
+    unit = (ROOT / "systemd" / "user" / "abyss-resource-admission.service").read_text(encoding="utf-8")
+
+    assert "ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine resource admission serve" in unit
+    assert "UMask=0077" in unit
+    assert "NoNewPrivileges=yes" in unit
+    assert "RestrictAddressFamilies=AF_UNIX" in unit
+    assert "ProtectSystem=strict" in unit
+    assert "MemoryMax=" not in unit
+    assert "MemoryHigh=" not in unit
+    assert "MemoryLimit=" not in unit
