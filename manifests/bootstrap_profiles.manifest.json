@@ -6,9 +6,10 @@
         "abyss-ai-workload-refresh.timer",
         "abyss-observability-collect.timer",
         "abyss-power-profile-auto.timer"
-      ],
-      "user": [
-        "abyss-machine-heartbeat.timer",
+    ],
+    "user": [
+      "abyss-resource-admission.service",
+      "abyss-machine-heartbeat.timer",
         "abyss-machine-context-refresh.timer",
         "abyss-topology-audit.timer",
         "abyss-storage-monitor.timer",
