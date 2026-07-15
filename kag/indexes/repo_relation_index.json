@@ -12163,6 +12163,7 @@
     {"confidence":1.0,"evidence_anchor_ids":["aoa:abyss-machine:anchor:d6553db9c8c8c7333da4a50d"],"evidence_class":"deterministic","from_id":"aoa:abyss-machine:artifact:79b98a725b8ea97a5cd5485b","id":"aoa:abyss-machine:relation:b139664cd075767395fed92a","provenance_ref":"deterministic","relation_kind":"defines","temporal_ref":"current","to_id":"aoa:abyss-machine:entity:57ef76803209601071b294eb","trust_ref":"deterministic"},
     {"confidence":1.0,"evidence_anchor_ids":["aoa:abyss-machine:anchor:a1776afdf778e5fbd75f9f9f"],"evidence_class":"deterministic","from_id":"aoa:abyss-machine:artifact:79b98a725b8ea97a5cd5485b","id":"aoa:abyss-machine:relation:48211b91c8bc5badee34df08","provenance_ref":"deterministic","relation_kind":"defines","temporal_ref":"current","to_id":"aoa:abyss-machine:entity:5e1ef6eac39572b3bff76ae6","trust_ref":"deterministic"},
     {"confidence":1.0,"evidence_anchor_ids":["aoa:abyss-machine:anchor:6c162c4fbdcd0aea3d9cf6e8"],"evidence_class":"deterministic","from_id":"aoa:abyss-machine:artifact:79b98a725b8ea97a5cd5485b","id":"aoa:abyss-machine:relation:d340cef63115e10a6bf20e9a","provenance_ref":"deterministic","relation_kind":"defines","temporal_ref":"current","to_id":"aoa:abyss-machine:entity:6328fd7fbf6bee8ff05713af","trust_ref":"deterministic"},
+    {"confidence":1.0,"evidence_anchor_ids":["aoa:abyss-machine:anchor:ed7284f9a141914e4a3b7acc"],"evidence_class":"deterministic","from_id":"aoa:abyss-machine:artifact:79b98a725b8ea97a5cd5485b","id":"aoa:abyss-machine:relation:0a849fef7c5f1662bfdf678c","provenance_ref":"deterministic","relation_kind":"defines","temporal_ref":"current","to_id":"aoa:abyss-machine:entity:68358ea60fa2e321ddbeaf08","trust_ref":"deterministic"},
     {"confidence":1.0,"evidence_anchor_ids":["aoa:abyss-machine:anchor:db28baf053ee2cb222cd6d1c"],"evidence_class":"deterministic","from_id":"aoa:abyss-machine:artifact:79b98a725b8ea97a5cd5485b","id":"aoa:abyss-machine:relation:aecff26dc4e4f9ac8e5f8c92","provenance_ref":"deterministic","relation_kind":"defines","temporal_ref":"current","to_id":"aoa:abyss-machine:entity:732ad90ced21b52b25b9cad2","trust_ref":"deterministic"},
     {"confidence":1.0,"evidence_anchor_ids":["aoa:abyss-machine:anchor:0ce92dcd5a7c7a5ee294ce8b"],"evidence_class":"deterministic","from_id":"aoa:abyss-machine:artifact:79b98a725b8ea97a5cd5485b","id":"aoa:abyss-machine:relation:5aa3e6559b21cf1ff7cc6469","provenance_ref":"deterministic","relation_kind":"defines","temporal_ref":"current","to_id":"aoa:abyss-machine:entity:79048312fa7ebe01eadadf3c","trust_ref":"deterministic"},
     {"confidence":1.0,"evidence_anchor_ids":["aoa:abyss-machine:anchor:d3b766cefc37ee716bf6610c"],"evidence_class":"deterministic","from_id":"aoa:abyss-machine:artifact:79b98a725b8ea97a5cd5485b","id":"aoa:abyss-machine:relation:c0ecee2888906888e413152a","provenance_ref":"deterministic","relation_kind":"defines","temporal_ref":"current","to_id":"aoa:abyss-machine:entity:7f0309e69fe627feec222084","trust_ref":"deterministic"},
@@ -15662,7 +15663,7 @@
   ],
   "index_identity": {
     "artifact_kind": "repository_relation_index",
-    "content_digest": "c3bad459a5ee82ec76692fb00f6fcfb5dc9f0652290a8fb54c2b6ded64869752",
+    "content_digest": "4cc862fdf473408a8fe5443aa47e354e6846e37c83fb3f67bf5892c596f24a3e",
     "index_kind": "relation",
     "local_id": "index:repo-local:relations",
     "schema_ref": "aoa-kag:schemas/repo-local-kag-repository-index.schema.json"
@@ -15748,16 +15749,16 @@
   },
   "schema_version": "aoa-repo-local-kag-repository-index-v2",
   "source_index": {
-    "content_digest": "e9b6c592134b0dc81956b2a04ee77960b137451b8edb303222a74275c6e49f7f",
+    "content_digest": "82302a649a1a42f09d1772ff2965620e00f637df202a9b8c4f2d92b0643a14d5",
     "local_id": "index:repo-local:source-surfaces",
     "path": "kag/indexes/source_surface_index.json"
   },
   "summary": {
-    "entry_count": 15659,
+    "entry_count": 15660,
     "kind_counts": {
       "calls": 6318,
       "contains": 717,
-      "defines": 8057,
+      "defines": 8058,
       "references": 165,
       "represents": 402
     }
