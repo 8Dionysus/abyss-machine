@@ -16917,7 +16917,14 @@ def resource_admission_server_run(
         command.append("--allow-shutdown")
     if output_json:
         command.append("--json")
-    os.execve(sys.executable, command, dict(os.environ))
+    environ = dict(os.environ)
+    cli_path = Path(__file__).resolve()
+    package_parent = cli_path.parent.parent if cli_path.name == "cli.py" else cli_path.parent
+    python_path = [part for part in environ.get("PYTHONPATH", "").split(os.pathsep) if part]
+    if str(package_parent) not in python_path:
+        python_path.insert(0, str(package_parent))
+    environ["PYTHONPATH"] = os.pathsep.join(python_path)
+    os.execve(sys.executable, command, environ)
     raise RuntimeError("resource admission server exec returned unexpectedly")
 
 
