@@ -36,6 +36,9 @@ dist/
 *.tar
 *.tar.*
 *.jsonl
+!kag/indexes/shards/
+!kag/indexes/shards/**/
+!kag/indexes/shards/**/*.jsonl
 *.sqlite
 *.db
 *.db-shm
