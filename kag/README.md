@@ -20,9 +20,10 @@
 | --- | --- |
 | node | public host source and contract routes |
 | edge | host source routes to its contract surface |
-| index | repository source, entity, artifact, and event indexes |
+| index | content-addressed manifest plus bounded repository knowledge shards |
 | projection | MCP-readable source-return packet |
 | receipt | validation receipt for the current owner route |
 
-Git holds public source records and generated repository readmodels. Installed
-host evidence and runtime indexes remain outside the repository.
+Git holds public source records and the portable manifest/shard family. Exact
+legacy JSON views are assembled on demand; installed host evidence, runtime
+indexes, and other materializations remain outside the repository.
