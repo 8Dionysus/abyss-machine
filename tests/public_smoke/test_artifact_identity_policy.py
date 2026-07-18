@@ -115,6 +115,8 @@ def test_every_artifact_class_has_identity_posture() -> None:
             "role_contract_registry",
             "source_owned_kag_export_capsule",
             "derived_kag_registry_readmodel_bundle",
+            "kag_owner_family_release",
+            "kag_os_composition",
             "derived_memory_object_readmodel_family",
             "thin_routing_readmodel_bundle",
             "playbook_registry_bundle",
@@ -131,6 +133,8 @@ def test_every_artifact_class_has_identity_posture() -> None:
                 "role_contract_registry": "aoa-agents",
                 "source_owned_kag_export_capsule": "aoa-techniques",
                 "derived_kag_registry_readmodel_bundle": "aoa-kag",
+                "kag_owner_family_release": "aoa-kag",
+                "kag_os_composition": "aoa-kag",
                 "derived_memory_object_readmodel_family": "aoa-memo",
                 "thin_routing_readmodel_bundle": "aoa-routing",
                 "playbook_registry_bundle": "aoa-playbooks",
@@ -366,6 +370,49 @@ def test_aoa_kag_registry_readmodel_requires_abi_sbom_and_slsa_without_premature
     kag_release = release_rules["aoa-kag-registry-readmodel-release"]
     assert kag_release["artifact_class"] == "derived_kag_registry_readmodel_bundle"
     assert kag_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
+
+
+def test_kag_owner_family_and_os_composition_require_signed_fail_closed_artifacts() -> None:
+    policy = load_policy()
+    owner = policy["artifact_classes"]["kag_owner_family_release"]
+    composition = policy["artifact_classes"]["kag_os_composition"]
+
+    assert owner["identity"]["abi_epoch"] == "aoa-kag-owner-family-release-v1"
+    assert owner["identity"]["trust_layer"] == [
+        "abi_contract_signature",
+        "sbom",
+        "slsa_in_toto",
+        "sigstore_cosign",
+    ]
+    assert owner["sigstore_cosign"]["required"] is True
+    assert (
+        owner["identity"]["action"]
+        == "ADD_SIGNED_CONTENT_ADDRESSED_RELEASE"
+    )
+    assert composition["identity"]["abi_epoch"] == "aoa-kag-os-composition-v1"
+    assert composition["identity"]["trust_layer"] == [
+        "abi_contract_signature",
+        "slsa_in_toto",
+        "sigstore_cosign",
+    ]
+    assert composition["sigstore_cosign"]["required"] is True
+    assert (
+        composition["identity"]["action"]
+        == "ADD_SIGNED_FEDERATION_COMPOSITION"
+    )
+
+    release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
+    assert release_rules["kag-owner-family-release"]["required_controls"] == [
+        "abi_signature",
+        "sbom",
+        "slsa_in_toto",
+        "sigstore_cosign",
+    ]
+    assert release_rules["kag-os-composition-release"]["required_controls"] == [
+        "abi_signature",
+        "slsa_in_toto",
+        "sigstore_cosign",
+    ]
 
 
 def test_aoa_memo_memory_object_readmodels_require_abi_and_slsa_without_premature_sbom_or_cosign() -> None:

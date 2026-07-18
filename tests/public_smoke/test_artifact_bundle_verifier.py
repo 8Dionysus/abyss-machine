@@ -268,6 +268,7 @@ def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
         artifact_class = str(manifest.get("artifact_class") or "")
         expected_trust_root_mode = production_trust_root_modes.get(artifact_class, "host_managed")
 
+        runtime_owner_override = manifest.get("runtime_owner_override_required") is True
         assert manifest.get("owner_repo") == "abyss-machine", manifest_path
         assert manifest.get("consumer_contract", {}).get("registry_required") is True, manifest_path
         assert (
@@ -281,7 +282,11 @@ def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
         assert "bundle-registry --artifact-class" not in command_text, manifest_path
         assert "evidence-promote BUNDLE_DIR" in command_text, manifest_path
         assert "--registry-dir REGISTRY_DIR" in command_text, manifest_path
-        assert "--source-repo abyss-machine" in command_text, manifest_path
+        expected_source_repo = "OWNER_REPO" if runtime_owner_override else "abyss-machine"
+        assert f"--source-repo {expected_source_repo}" in command_text, manifest_path
+        if runtime_owner_override:
+            assert "--subject-root " in command_text, manifest_path
+            assert "--source-ref SOURCE_REF" in command_text, manifest_path
         assert f"--trust-root-mode {expected_trust_root_mode}" in command_text, manifest_path
         if expected_trust_root_mode in artifact_bundles.PRODUCTION_RELEASE_TRUST_ROOT_MODES:
             assert "--trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON" in command_text, manifest_path
@@ -2710,7 +2715,7 @@ def test_artifact_producer_profiles_cover_os_abyss_owner_repos() -> None:
         "Dionysus",
         "Tree-of-Sophia",
     } <= owners
-    assert profiles["summary"]["artifact_class_count"] == 21
+    assert profiles["summary"]["artifact_class_count"] == 23
     assert profiles["summary"]["automation_status_counts"] == {"owner_local_producer_declared": len(rows)}
     assert profiles["summary"]["incomplete_profiles"] == []
     assert "producer_profiles" in profiles["agent_loop"]
@@ -3067,8 +3072,8 @@ def test_artifact_affected_policy_change_requires_all_classes_to_reverify() -> N
     affected = artifact_bundles.artifact_affected(["manifests/artifact_signature_policy.manifest.json"])
 
     assert affected["ok"] is True
-    assert affected["summary"]["artifact_classes"] == 21
-    assert affected["summary"]["status_counts"] == {"needs_reverify": 21}
+    assert affected["summary"]["artifact_classes"] == 23
+    assert affected["summary"]["status_counts"] == {"needs_reverify": 23}
     assert all(row["freshness"] == "stale" for row in affected["rows"])
     assert all(row["reasons"] == ["policy_manifest_changed"] for row in affected["rows"])
 

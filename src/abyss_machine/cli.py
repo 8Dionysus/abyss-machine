@@ -54,6 +54,7 @@ try:
     from . import ai_tts_adapters
     from . import ai_tts_contracts
     from . import artifact_bundles
+    from . import kag_artifacts
     from . import changes_contracts
     from . import context_contracts
     from . import cooling_adapters
@@ -249,6 +250,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import ai_tts_adapters
     from abyss_machine import ai_tts_contracts
     from abyss_machine import artifact_bundles
+    from abyss_machine import kag_artifacts
     from abyss_machine import changes_contracts
     from abyss_machine import context_contracts
     from abyss_machine import cooling_adapters
@@ -11088,18 +11090,39 @@ def artifacts_registry_latest(
     consumer_intent: str = "agent",
     subject_digest: str = "",
     expected_source_repo: str = "",
+    expected_source_ref: str = "",
+    expected_access_policy: str = "",
     expected_trust_root_mode: str = "",
 ) -> dict[str, Any]:
     registry_root = registry_dir if registry_dir is not None else ARTIFACTS_BUNDLE_REGISTRY_ROOT
     registry = artifact_bundles.read_bundle_registry(registry_root, artifact_class=artifact_class)
     latest_by_class = registry.get("latest_by_artifact_class") if isinstance(registry.get("latest_by_artifact_class"), dict) else {}
-    latest = latest_by_class.get(artifact_class) if isinstance(latest_by_class.get(artifact_class), dict) else None
+    scoped_latest = (
+        registry.get("latest_by_artifact_class_and_source_repo", {}).get(
+            artifact_class,
+            {},
+        )
+        if isinstance(
+            registry.get("latest_by_artifact_class_and_source_repo"),
+            dict,
+        )
+        else {}
+    )
+    latest = (
+        scoped_latest.get(expected_source_repo) or latest_by_class.get(artifact_class)
+        if expected_source_repo and isinstance(scoped_latest, dict)
+        else latest_by_class.get(artifact_class)
+    )
+    if not isinstance(latest, dict):
+        latest = None
     gate = artifact_bundles.trust_gate(
         registry_root,
         artifact_class=artifact_class,
         subject_digest=subject_digest,
         consumer_intent=consumer_intent,
         expected_source_repo=expected_source_repo,
+        expected_source_ref=expected_source_ref,
+        expected_access_policy=expected_access_policy,
         expected_trust_root_mode=expected_trust_root_mode,
         require_latest=True,
     )
@@ -49655,22 +49678,48 @@ def main(argv: list[str]) -> int:
     artifacts_build_sidecars_parser.add_argument("--artifact-class", default="public_source_seed")
     artifacts_build_sidecars_parser.add_argument("--contract-surface-id", default="")
     artifacts_build_sidecars_parser.add_argument("--manifest", default="", help="repo-local artifact bundle manifest")
+    artifacts_build_sidecars_parser.add_argument("--subject-root", default="", help="runtime artifact subject root; never embedded as an absolute public ref")
+    artifacts_build_sidecars_parser.add_argument("--owner-repo", default="", help="runtime source owner override for shared artifact manifests")
+    artifacts_build_sidecars_parser.add_argument("--source-ref", default="", help="exact runtime source revision bound into the signed artifact identity")
+    artifacts_build_sidecars_parser.add_argument("--access-policy", default="", help="expected artifact access policy identity")
     artifacts_build_sidecars_parser.add_argument("--mode", default="os_abyss_local", choices=["os_abyss_local", "github_release"])
     artifacts_build_sidecars_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     artifacts_sign_parser = artifacts_sub.add_parser("sign")
     artifacts_sign_parser.add_argument("bundle_dir")
     artifacts_sign_parser.add_argument("--backend", default="policy-decision")
     artifacts_sign_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    artifacts_kag_sign_parser = artifacts_sub.add_parser("kag-sign-identity")
+    artifacts_kag_sign_parser.add_argument("payload")
+    artifacts_kag_sign_parser.add_argument("--backend", default="cosign-local-key")
+    artifacts_kag_sign_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    artifacts_kag_verify_parser = artifacts_sub.add_parser("kag-verify-identity")
+    artifacts_kag_verify_parser.add_argument("payload")
+    artifacts_kag_verify_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     artifacts_verify_parser = artifacts_sub.add_parser("verify")
     artifacts_verify_parser.add_argument("bundle_dir")
+    artifacts_verify_parser.add_argument("--subject-root", default="", help="runtime artifact subject root for byte verification")
     artifacts_verify_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    artifacts_kag_retention_plan_parser = artifacts_sub.add_parser("kag-retention-plan")
+    artifacts_kag_retention_plan_parser.add_argument("--cas-root", required=True)
+    artifacts_kag_retention_plan_parser.add_argument("--registry-dir", required=True)
+    artifacts_kag_retention_plan_parser.add_argument("--output", required=True)
+    artifacts_kag_retention_plan_parser.add_argument("--pin-record-id", action="append", default=[])
+    artifacts_kag_retention_plan_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    artifacts_kag_retention_apply_parser = artifacts_sub.add_parser("kag-retention-apply")
+    artifacts_kag_retention_apply_parser.add_argument("plan")
+    artifacts_kag_retention_apply_parser.add_argument("--receipt", required=True)
+    artifacts_kag_retention_apply_parser.add_argument("--confirm", action="store_true")
+    artifacts_kag_retention_apply_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     artifacts_materialize_subjects_parser = artifacts_sub.add_parser("materialize-subjects")
     artifacts_materialize_subjects_parser.add_argument("bundle_dir")
     artifacts_materialize_subjects_parser.add_argument("--store-root", default="", help="local artifact subject store root")
     artifacts_materialize_subjects_parser.add_argument("--registry-dir", default="", help="local artifact bundle registry root for consumer trust-gate")
     artifacts_materialize_subjects_parser.add_argument("--manifest", default="", help="explicit owner artifact bundle manifest for external subject materialization")
+    artifacts_materialize_subjects_parser.add_argument("--subject-root", default="", help="runtime artifact subject root")
     artifacts_materialize_subjects_parser.add_argument("--consumer-intent", default="", help="consumer intent; defaults from artifact class")
     artifacts_materialize_subjects_parser.add_argument("--source-repo", default="", help="expected source repository")
+    artifacts_materialize_subjects_parser.add_argument("--source-ref", default="", help="expected source snapshot or revision")
+    artifacts_materialize_subjects_parser.add_argument("--access-policy", default="", help="expected access policy")
     artifacts_materialize_subjects_parser.add_argument(
         "--trust-root-mode",
         default="",
@@ -49682,6 +49731,7 @@ def main(argv: list[str]) -> int:
     artifacts_materialize_subjects_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     artifacts_release_check_parser = artifacts_sub.add_parser("release-check")
     artifacts_release_check_parser.add_argument("bundle_dir")
+    artifacts_release_check_parser.add_argument("--subject-root", default="", help="runtime artifact subject root for byte verification")
     artifacts_release_check_parser.add_argument(
         "--enforcement",
         default="blocking",
@@ -49702,6 +49752,7 @@ def main(argv: list[str]) -> int:
     artifacts_bundle_register_parser.add_argument("--revocation-reason", default="")
     artifacts_bundle_register_parser.add_argument("--source-repo", default="", help="source repository that produced the artifact")
     artifacts_bundle_register_parser.add_argument("--source-ref", default="", help="source ref, manifest, or revision used for the promoted artifact")
+    artifacts_bundle_register_parser.add_argument("--subject-root", default="", help="runtime artifact subject root for verification before registration")
     artifacts_bundle_register_parser.add_argument("--producer", default="", help="producer identity for the promoted artifact")
     artifacts_bundle_register_parser.add_argument(
         "--trust-root-mode",
@@ -49729,6 +49780,7 @@ def main(argv: list[str]) -> int:
     artifacts_evidence_promote_parser.add_argument("--revocation-reason", default="")
     artifacts_evidence_promote_parser.add_argument("--source-repo", default="", help="source repository that produced the artifact")
     artifacts_evidence_promote_parser.add_argument("--source-ref", default="", help="source ref, manifest, or revision used for the promoted artifact")
+    artifacts_evidence_promote_parser.add_argument("--subject-root", default="", help="runtime artifact subject root for verification before promotion")
     artifacts_evidence_promote_parser.add_argument("--producer", default="", help="producer identity for the promoted artifact")
     artifacts_evidence_promote_parser.add_argument(
         "--trust-root-mode",
@@ -49752,6 +49804,8 @@ def main(argv: list[str]) -> int:
     artifacts_registry_latest_parser.add_argument("--consumer-intent", default="agent")
     artifacts_registry_latest_parser.add_argument("--subject-digest", default="", help="expected subject, aggregate, ABI, or record digest")
     artifacts_registry_latest_parser.add_argument("--source-repo", default="", help="expected source repository")
+    artifacts_registry_latest_parser.add_argument("--source-ref", default="", help="expected source snapshot or revision")
+    artifacts_registry_latest_parser.add_argument("--access-policy", default="", help="expected access policy")
     artifacts_registry_latest_parser.add_argument(
         "--trust-root-mode",
         default="",
@@ -49794,6 +49848,8 @@ def main(argv: list[str]) -> int:
     artifacts_trust_gate_parser.add_argument("--record-id", default="", help="specific registry record id")
     artifacts_trust_gate_parser.add_argument("--consumer-intent", default="agent")
     artifacts_trust_gate_parser.add_argument("--source-repo", default="", help="expected source repository")
+    artifacts_trust_gate_parser.add_argument("--source-ref", default="", help="expected source snapshot or revision")
+    artifacts_trust_gate_parser.add_argument("--access-policy", default="", help="expected access policy")
     artifacts_trust_gate_parser.add_argument(
         "--trust-root-mode",
         default="",
@@ -51876,6 +51932,10 @@ def main(argv: list[str]) -> int:
                 contract_surface_id=str(args.contract_surface_id or "") or None,
                 manifest_ref=str(args.manifest or "") or None,
                 mode=str(args.mode),
+                subject_root=str(args.subject_root or "") or None,
+                owner_repo=str(args.owner_repo or ""),
+                source_ref=str(args.source_ref or ""),
+                access_policy=str(args.access_policy or ""),
             )
             if args.json:
                 print_json(data)
@@ -51890,14 +51950,88 @@ def main(argv: list[str]) -> int:
             else:
                 print(f"artifact bundle sign: {data.get('status')} required={data.get('required')} reason={data.get('reason')}")
             return 0 if data.get("ok") else 1
+        if args.artifacts_command == "kag-sign-identity":
+            data = kag_artifacts.sign_kag_identity(
+                str(args.payload),
+                backend=str(args.backend),
+            )
+            if args.json:
+                print_json(data)
+            else:
+                print(
+                    "KAG identity sign: "
+                    f"ok={data.get('ok')} "
+                    f"class={data.get('artifact_class')} "
+                    f"digest={data.get('identity_digest')}"
+                )
+                for item in data.get("errors", []):
+                    print(f"error: {item}")
+            return 0 if data.get("ok") else 1
+        if args.artifacts_command == "kag-verify-identity":
+            data = kag_artifacts.verify_kag_identity_signature(str(args.payload))
+            if args.json:
+                print_json(data)
+            else:
+                print(
+                    "KAG identity verify: "
+                    f"ok={data.get('ok')} "
+                    f"class={data.get('artifact_class')} "
+                    f"digest={data.get('identity_digest')}"
+                )
+                for item in data.get("errors", []):
+                    print(f"error: {item}")
+            return 0 if data.get("ok") else 1
         if args.artifacts_command == "verify":
-            data = artifact_bundles.verify_bundle(str(args.bundle_dir), write=True)
+            data = artifact_bundles.verify_bundle(
+                str(args.bundle_dir),
+                subject_root=str(args.subject_root or "") or None,
+                write=True,
+            )
             if args.json:
                 print_json(data)
             else:
                 print(f"artifact bundle verify: ok={data.get('ok')} class={data.get('artifact_class')} required={','.join(data.get('required_controls', [])) or 'none'}")
                 for item in data.get("missing", []):
                     print(f"missing: {item}")
+                for item in data.get("errors", []):
+                    print(f"error: {item}")
+            return 0 if data.get("ok") else 1
+        if args.artifacts_command == "kag-retention-plan":
+            data = kag_artifacts.write_kag_retention_plan(
+                str(args.cas_root),
+                str(args.registry_dir),
+                str(args.output),
+                pinned_record_ids=[str(item) for item in args.pin_record_id],
+            )
+            if args.json:
+                print_json(data)
+            else:
+                summary = data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}
+                print(
+                    "KAG retention plan: "
+                    f"allowed={data.get('deletion_allowed')} "
+                    f"candidates={summary.get('candidate_files')} "
+                    f"bytes={summary.get('candidate_bytes')}"
+                )
+                for item in data.get("blockers", []):
+                    print(f"blocker: {item}")
+            return 0 if data.get("deletion_allowed") else 1
+        if args.artifacts_command == "kag-retention-apply":
+            data = kag_artifacts.apply_kag_retention_plan(
+                str(args.plan),
+                str(args.receipt),
+                confirm=bool(args.confirm),
+            )
+            if args.json:
+                print_json(data)
+            else:
+                summary = data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}
+                print(
+                    "KAG retention apply: "
+                    f"ok={data.get('ok')} "
+                    f"deleted={summary.get('deleted_files')} "
+                    f"bytes={summary.get('deleted_bytes')}"
+                )
                 for item in data.get("errors", []):
                     print(f"error: {item}")
             return 0 if data.get("ok") else 1
@@ -51909,8 +52043,11 @@ def main(argv: list[str]) -> int:
                 store_root=store_root,
                 registry_dir=registry_dir,
                 manifest_ref=str(args.manifest or "") or None,
+                subject_root=str(args.subject_root or "") or None,
                 consumer_intent=str(args.consumer_intent or ""),
                 expected_source_repo=str(args.source_repo or ""),
+                expected_source_ref=str(args.source_ref or ""),
+                expected_access_policy=str(args.access_policy or ""),
                 expected_trust_root_mode=str(args.trust_root_mode or ""),
                 record_id=str(args.record_id or ""),
                 require_latest=not bool(args.allow_non_latest),
@@ -51929,7 +52066,11 @@ def main(argv: list[str]) -> int:
                     print(f"error: {item}")
             return 0 if data.get("ok") else 1
         if args.artifacts_command == "release-check":
-            data = artifact_bundles.release_check(str(args.bundle_dir), enforcement=str(args.enforcement))
+            data = artifact_bundles.release_check(
+                str(args.bundle_dir),
+                enforcement=str(args.enforcement),
+                subject_root=str(args.subject_root or "") or None,
+            )
             if args.json:
                 print_json(data)
             else:
@@ -51967,6 +52108,7 @@ def main(argv: list[str]) -> int:
                 producer=str(args.producer or ""),
                 trust_root_mode=str(args.trust_root_mode),
                 trust_root_evidence=trust_root_evidence,
+                subject_root=str(args.subject_root or "") or None,
             )
             if args.json:
                 print_json(data)
@@ -52003,6 +52145,7 @@ def main(argv: list[str]) -> int:
                 producer=str(args.producer or ""),
                 trust_root_mode=str(args.trust_root_mode),
                 trust_root_evidence=trust_root_evidence,
+                subject_root=str(args.subject_root or "") or None,
             )
             if args.json:
                 print_json(data)
@@ -52039,6 +52182,8 @@ def main(argv: list[str]) -> int:
                 consumer_intent=str(args.consumer_intent or "agent"),
                 subject_digest=str(args.subject_digest or ""),
                 expected_source_repo=str(args.source_repo or ""),
+                expected_source_ref=str(args.source_ref or ""),
+                expected_access_policy=str(args.access_policy or ""),
                 expected_trust_root_mode=str(args.trust_root_mode or ""),
             )
             if args.json:
@@ -52110,6 +52255,8 @@ def main(argv: list[str]) -> int:
                 record_id=str(args.record_id or ""),
                 consumer_intent=str(args.consumer_intent or "agent"),
                 expected_source_repo=str(args.source_repo or ""),
+                expected_source_ref=str(args.source_ref or ""),
+                expected_access_policy=str(args.access_policy or ""),
                 expected_trust_root_mode=str(args.trust_root_mode or ""),
                 require_latest=not bool(args.allow_non_latest),
             )

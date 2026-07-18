@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add fail-closed KAG owner-family and 24-owner composition trust routes with
+  inner identity signatures, outer source-bound ABI envelopes, owner-scoped
+  registry latest selection, revocation, and reachability-rechecked CAS
+  retention.
 - Add the owner-local `stats/` port and measured-duration coverage statistic to
   the existing AI workload stats read model without publishing live host data.
 - Consolidate duplicated runnable command and validation lists into their

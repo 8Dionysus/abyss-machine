@@ -27,6 +27,17 @@ verify. They do not define signing doctrine; controls come from
   separate external boundary.
 - `public_media_export.bundle.json`: local release-candidate route for public
   media/content exports that carry C2PA asset binding before publication.
+- `kag_owner_family_release.bundle.json`: shared runtime-root template for a
+  complete public content-addressed owner KAG family. The source owner and
+  exact source commit plus exported family root are supplied explicitly at
+  build/verify time; absolute host paths are never embedded in public
+  sidecars. The inner KAG identity signature is verified before the outer
+  bundle can be built.
+- `kag_os_composition.bundle.json`: signed 24-owner federation composition
+  contract. It carries only verified owner coordinates and measurements, not
+  a replacement OS-wide corpus monolith. Its outer signature binds the ABI
+  envelope containing the exact builder ref, inner identity claims, and full
+  subject-inventory digest.
 
 Bundle manifests may declare lifecycle and consumer-contract fields. The
 registry read-model is local state: verified, latest-eligible records can be
@@ -44,6 +55,10 @@ omitting the lane.
 Registries created before the durable evidence fields use
 `bundle-registry-upgrade` as an explicit host-managed migration; the trust gate
 does not silently allow those legacy records.
+KAG retention is reachability-based. `kag-retention-apply` recomputes current
+registry, composition, pin, and subject-store reachability after reading the
+signed plan and before deleting bytes; a candidate that became reachable is
+rejected rather than deleted.
 Use `requirements` before producing a bundle to inspect producer profile,
 required controls, trust-root expectations, and owner/source route. Use
 `affected` before consuming or landing changes to detect stale source,
