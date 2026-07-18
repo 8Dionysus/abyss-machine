@@ -326,6 +326,18 @@ BUNDLE_REGISTRY_RECORDS_DIR = "records"
 DEFAULT_ARTIFACT_SUBJECT_STORE_ROOT = Path("/var/lib/abyss-machine/artifacts/subjects")
 LOCAL_PROVENANCE_CONTENT_ROOT = PurePosixPath("/var/lib/abyss-machine")
 ARTIFACT_SUBJECT_STORE_META = "subject-store.json"
+KAG_IDENTITY_ARTIFACT_CLASSES = frozenset(
+    {"kag_owner_family_release", "kag_os_composition"}
+)
+KAG_SOURCE_BOUND_LIFECYCLE_STATES = frozenset(
+    {
+        "manually-verified",
+        "release-ready",
+        "published",
+        "superseded",
+        "revoked",
+    }
+)
 
 
 def _root_has_artifact_policy(root: Path) -> bool:
@@ -4226,6 +4238,9 @@ def _json_pointer_get(payload: Any, pointer: str) -> Any:
 
 
 def _subject_repo_root(manifest: dict[str, Any]) -> Path:
+    runtime_override = str(manifest.get("_subject_root_override") or "")
+    if runtime_override:
+        return Path(runtime_override).expanduser().resolve()
     manifest_path = Path(str(manifest.get("_manifest_path") or ""))
     subject_root = Path(str(manifest.get("subject_repo_root") or "."))
     if not subject_root.is_absolute():
@@ -4234,6 +4249,8 @@ def _subject_repo_root(manifest: dict[str, Any]) -> Path:
 
 
 def _public_subject_root_ref(manifest: dict[str, Any]) -> str:
+    if manifest.get("_subject_root_override"):
+        return "runtime-supplied-subject-root"
     subject_root_ref = str(manifest.get("subject_repo_root") or ".")
     if Path(subject_root_ref).is_absolute():
         return "absolute-subject-root"
@@ -4371,6 +4388,99 @@ def build_external_abi_subject(manifest: dict[str, Any]) -> dict[str, Any] | Non
         external["artifact_identity_pointer"] = pointer
         external["artifact_identity"] = artifact_identity
     return external
+
+
+def _is_exact_git_commit_ref(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(
+        r"commit:[0-9a-f]{40}(?:[0-9a-f]{24})?",
+        value,
+    ) is not None
+
+
+def _kag_external_identity_evidence(
+    *,
+    artifact_class: str,
+    external_subject: Mapping[str, Any],
+    subject_root: str | Path | None,
+    expected_owner_repo: str,
+    expected_source_ref: str,
+) -> dict[str, Any]:
+    if artifact_class not in KAG_IDENTITY_ARTIFACT_CLASSES:
+        return {}
+    errors: list[str] = []
+    if subject_root is None:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_kag_external_identity_evidence_v1",
+            "artifact_class": artifact_class,
+            "claims": {},
+            "verification": {},
+            "errors": ["KAG artifact verification requires an explicit runtime subject root"],
+        }
+    root = Path(subject_root).expanduser().resolve()
+    relative = Path(str(external_subject.get("path") or ""))
+    if relative.is_absolute() or ".." in relative.parts:
+        return {
+            "ok": False,
+            "schema": "abyss_machine_kag_external_identity_evidence_v1",
+            "artifact_class": artifact_class,
+            "claims": {},
+            "verification": {},
+            "errors": ["KAG external identity path must be safe and subject-root relative"],
+        }
+    payload_path = (root / relative).resolve()
+    try:
+        payload_path.relative_to(root)
+    except ValueError:
+        errors.append("KAG external identity path escapes the runtime subject root")
+    claims: dict[str, Any] = {}
+    verification: dict[str, Any] = {}
+    if not errors:
+        try:
+            from . import kag_artifacts
+
+            payload = _read_json(payload_path)
+            claims = dict(kag_artifacts.kag_identity_signature_subject(payload))
+            verification = kag_artifacts.verify_kag_identity_signature(
+                payload_path,
+                write_receipt=False,
+            )
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(f"KAG identity verification failed: {exc}")
+    if verification and verification.get("ok") is not True:
+        details = [
+            str(item)
+            for item in verification.get("errors", [])
+            if str(item)
+        ]
+        errors.append(
+            "KAG identity signature verification failed"
+            + (": " + "; ".join(details) if details else "")
+        )
+    claims_owner = str(claims.get("owner") or "")
+    if expected_owner_repo and claims_owner != expected_owner_repo:
+        errors.append(
+            "KAG signed owner does not match the bundle owner_repo: "
+            f"{claims_owner or '<missing>'} != {expected_owner_repo}"
+        )
+    claims_source_ref = str(claims.get("source_ref") or "")
+    if (
+        artifact_class == "kag_owner_family_release"
+        and expected_source_ref
+        and claims_source_ref != expected_source_ref
+    ):
+        errors.append(
+            "KAG signed source_ref does not match the bundle source_ref: "
+            f"{claims_source_ref or '<missing>'} != {expected_source_ref}"
+        )
+    return {
+        "ok": not errors,
+        "schema": "abyss_machine_kag_external_identity_evidence_v1",
+        "artifact_class": artifact_class,
+        "claims": claims,
+        "verification": verification,
+        "errors": errors,
+    }
 
 
 def build_artifact_subjects(manifest: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -4567,8 +4677,11 @@ def materialize_artifact_subjects(
     store_root: Path | None = None,
     registry_dir: str | Path | None = None,
     manifest_ref: str | Path | None = None,
+    subject_root: str | Path | None = None,
     consumer_intent: str = "",
     expected_source_repo: str = "",
+    expected_source_ref: str = "",
+    expected_access_policy: str = "",
     expected_trust_root_mode: str = "",
     record_id: str = "",
     require_latest: bool = True,
@@ -4587,6 +4700,11 @@ def materialize_artifact_subjects(
             errors.append(f"explicit bundle manifest did not resolve: {exc}")
     else:
         manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
+    if manifest and subject_root is not None:
+        manifest = dict(manifest)
+        manifest["_subject_root_override"] = str(
+            Path(subject_root).expanduser().resolve()
+        )
     if not subject_files:
         errors.append("artifact.subjects.json must define files before materialization")
     if not manifest:
@@ -4660,6 +4778,8 @@ def materialize_artifact_subjects(
             record_id=str(record_id or ""),
             consumer_intent=gate_consumer_intent,
             expected_source_repo=gate_expected_source_repo,
+            expected_source_ref=str(expected_source_ref or ""),
+            expected_access_policy=str(expected_access_policy or ""),
             expected_trust_root_mode=str(expected_trust_root_mode or ""),
             require_latest=require_latest,
         )
@@ -5091,6 +5211,10 @@ def build_sidecars(
     contract_surface_id: str | None = None,
     manifest_ref: str | Path | None = None,
     mode: str = "os_abyss_local",
+    subject_root: str | Path | None = None,
+    owner_repo: str = "",
+    source_ref: str = "",
+    access_policy: str = "",
     repo_root: Path = REPO_ROOT,
     producer_command: str = "abyss-machine artifacts build-sidecars",
 ) -> dict[str, Any]:
@@ -5108,6 +5232,45 @@ def build_sidecars(
             artifact_class = str(manifest["artifact_class"])
             contract_surface_id = str(manifest.get("contract_surface_id") or contract_surface_id or "") or None
             mode = str(manifest.get("mode") or mode)
+    runtime_owner_override_required = bool(
+        isinstance(manifest, dict)
+        and manifest.get("runtime_owner_override_required") is True
+    )
+    if runtime_owner_override_required:
+        missing_runtime_overrides = [
+            name
+            for name, value in (
+                ("subject_root", subject_root),
+                ("owner_repo", owner_repo),
+                ("source_ref", source_ref),
+            )
+            if not value
+        ]
+        if missing_runtime_overrides:
+            raise ValueError(
+                "shared artifact manifest requires explicit runtime overrides: "
+                + ", ".join(missing_runtime_overrides)
+            )
+    if subject_root is not None:
+        if manifest is None:
+            raise ValueError("subject_root requires a bundle manifest")
+        manifest = dict(manifest)
+        manifest["_subject_root_override"] = str(Path(subject_root).expanduser().resolve())
+    if owner_repo:
+        if manifest is None:
+            raise ValueError("owner_repo override requires a bundle manifest")
+        manifest = dict(manifest)
+        manifest["owner_repo"] = owner_repo
+    if access_policy:
+        if manifest is None:
+            raise ValueError("access_policy override requires a bundle manifest")
+        manifest = dict(manifest)
+        manifest["access_policy"] = access_policy
+    if artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES:
+        if not _is_exact_git_commit_ref(source_ref):
+            raise ValueError(
+                "KAG artifact source_ref must be an exact commit:<40-or-64-lowercase-hex> ref"
+            )
     rule = artifact_class_rule(artifact_class, repo_root=repo_root)
     required = required_controls_for_rule(rule)
     deferred = deferred_controls_for_rule(rule)
@@ -5125,11 +5288,51 @@ def build_sidecars(
             external_subject = build_external_abi_subject(manifest)
             if external_subject is None:
                 raise
+    kag_identity_evidence: dict[str, Any] = {}
+    if artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES:
+        kag_identity_evidence = _kag_external_identity_evidence(
+            artifact_class=artifact_class,
+            external_subject=external_subject or {},
+            subject_root=subject_root,
+            expected_owner_repo=owner_repo,
+            expected_source_ref=source_ref,
+        )
+        if kag_identity_evidence.get("ok") is not True:
+            raise ValueError(
+                "KAG external identity admission failed: "
+                + "; ".join(
+                    str(item)
+                    for item in kag_identity_evidence.get("errors", [])
+                    if str(item)
+                )
+            )
+        external_subject["source_ref"] = source_ref
+        external_subject["artifact_subjects_digest"] = (
+            artifact_subjects.get("aggregate_digest")
+            if isinstance(artifact_subjects, dict)
+            else None
+        )
+        external_subject["kag_identity_claims"] = kag_identity_evidence.get(
+            "claims",
+            {},
+        )
+        external_subject["kag_identity_verification"] = kag_identity_evidence.get(
+            "verification",
+            {},
+        )
     bundle = Path(bundle_dir)
     bundle.mkdir(parents=True, exist_ok=True)
     bundle_manifest_public_ref = _public_manifest_ref(manifest, manifest_ref)
 
     identity = dict(rule["identity"])
+    if isinstance(manifest, dict) and manifest.get("owner_repo"):
+        identity["owner_repo"] = str(manifest["owner_repo"])
+    if isinstance(manifest, dict) and manifest.get("access_policy"):
+        identity["access_policy"] = str(manifest["access_policy"])
+    if isinstance(manifest, dict) and manifest.get("trust_domain"):
+        identity["trust_domain"] = str(manifest["trust_domain"])
+    if source_ref:
+        identity["source_ref"] = source_ref
     identity.update(
         {
             "schema": "abyss_machine_artifact_identity_sidecar_v1",
@@ -5264,18 +5467,38 @@ def build_sidecars_from_manifest(
     bundle_dir: str | Path,
     manifest_ref: str | Path = DEFAULT_BUNDLE_MANIFEST_REF,
     *,
+    subject_root: str | Path | None = None,
+    owner_repo: str = "",
+    source_ref: str = "",
+    access_policy: str = "",
     repo_root: Path = REPO_ROOT,
     producer_command: str = "abyss-machine artifacts build-sidecars",
 ) -> dict[str, Any]:
     return build_sidecars(
         bundle_dir,
         manifest_ref=manifest_ref,
+        subject_root=subject_root,
+        owner_repo=owner_repo,
+        source_ref=source_ref,
+        access_policy=access_policy,
         repo_root=repo_root,
         producer_command=producer_command,
     )
 
 
 def _signature_subject_path(bundle: Path) -> Path:
+    identity_path = bundle / IDENTITY_SIDECAR
+    if identity_path.is_file():
+        try:
+            identity = _read_json(identity_path)
+        except (OSError, json.JSONDecodeError, ValueError):
+            identity = {}
+        if (
+            str(identity.get("artifact_class") or "")
+            in KAG_IDENTITY_ARTIFACT_CLASSES
+            and (bundle / ABI_SIDECAR).is_file()
+        ):
+            return bundle / ABI_SIDECAR
     for sidecar in (SUBJECTS_SIDECAR, ABI_SIDECAR, LOCAL_PROVENANCE_SIDECAR, IDENTITY_SIDECAR):
         candidate = bundle / sidecar
         if candidate.is_file():
@@ -6298,6 +6521,7 @@ def _validate_artifact_subject_files(
     identity: dict[str, Any],
     subjects: dict[str, Any],
     repo_root: Path,
+    subject_root_override: str | Path | None,
     errors: list[str],
     resolutions: list[dict[str, Any]],
 ) -> None:
@@ -6305,7 +6529,13 @@ def _validate_artifact_subject_files(
     if not subject_files:
         return
     manifest = _bundle_manifest_for_identity(identity, repo_root=repo_root)
-    subject_root = _subject_repo_root(manifest) if manifest else None
+    subject_root = (
+        Path(subject_root_override).expanduser().resolve()
+        if subject_root_override is not None
+        else _subject_repo_root(manifest)
+        if manifest
+        else None
+    )
     for idx, item in enumerate(subject_files):
         if not isinstance(item, dict):
             continue
@@ -6590,7 +6820,13 @@ def _validate_cosign_signature(
         errors.append("cosign verify-blob failed for required sigstore_cosign signature")
 
 
-def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write: bool = True) -> dict[str, Any]:
+def verify_bundle(
+    bundle_dir: str | Path,
+    *,
+    subject_root: str | Path | None = None,
+    repo_root: Path = REPO_ROOT,
+    write: bool = True,
+) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     missing: list[str] = []
     errors: list[str] = []
@@ -6659,6 +6895,73 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
         errors.append("artifact.abi.json must define contract_surface or external_subject when abi_signature is required")
     elif not provenance.get("subject", {}).get("digest"):
         errors.append("artifact.provenance.json subject digest is required")
+    if artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES:
+        identity_owner_repo = str(identity.get("owner_repo") or "")
+        identity_source_ref = str(identity.get("source_ref") or "")
+        if not identity_owner_repo:
+            errors.append("KAG artifact identity must define owner_repo")
+        if not _is_exact_git_commit_ref(identity_source_ref):
+            errors.append(
+                "KAG artifact identity source_ref must be an exact "
+                "commit:<40-or-64-lowercase-hex> ref"
+            )
+        if subject_root is None:
+            errors.append("KAG artifact verification requires an explicit runtime subject root")
+        if str(external_subject.get("owner_repo") or "") != identity_owner_repo:
+            errors.append(
+                "artifact.abi.json KAG external_subject owner_repo does not "
+                "match artifact.identity.json"
+            )
+        if str(external_subject.get("source_ref") or "") != identity_source_ref:
+            errors.append(
+                "artifact.abi.json KAG external_subject source_ref does not "
+                "match artifact.identity.json"
+            )
+        stored_subjects_digest = str(
+            external_subject.get("artifact_subjects_digest") or ""
+        )
+        actual_subjects_digest = str(subjects.get("aggregate_digest") or "")
+        if (
+            not stored_subjects_digest
+            or stored_subjects_digest != actual_subjects_digest
+        ):
+            errors.append(
+                "artifact.abi.json KAG artifact_subjects_digest does not "
+                "match artifact.subjects.json"
+            )
+        kag_identity_evidence = _kag_external_identity_evidence(
+            artifact_class=artifact_class,
+            external_subject=external_subject,
+            subject_root=subject_root,
+            expected_owner_repo=identity_owner_repo,
+            expected_source_ref=identity_source_ref,
+        )
+        control_evidence["kag_identity_signature"] = kag_identity_evidence
+        if kag_identity_evidence.get("ok") is not True:
+            errors.extend(
+                str(item)
+                for item in kag_identity_evidence.get("errors", [])
+                if str(item)
+            )
+        stored_claims = external_subject.get("kag_identity_claims")
+        recomputed_claims = kag_identity_evidence.get("claims")
+        if (
+            not isinstance(stored_claims, dict)
+            or stored_claims != recomputed_claims
+        ):
+            errors.append(
+                "artifact.abi.json stored KAG identity claims do not match "
+                "the signed external identity"
+            )
+        stored_verification = external_subject.get("kag_identity_verification")
+        if (
+            not isinstance(stored_verification, dict)
+            or stored_verification.get("ok") is not True
+        ):
+            errors.append(
+                "artifact.abi.json must record successful inner KAG identity "
+                "signature verification"
+            )
     if "local_provenance" in required_controls:
         _validate_local_provenance_packet(local_provenance, identity, policy, errors)
     if "sbom" in required_controls:
@@ -6682,6 +6985,7 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
         identity=identity,
         subjects=subjects,
         repo_root=repo_root,
+        subject_root_override=subject_root,
         errors=errors,
         resolutions=subject_resolutions,
     )
@@ -6690,6 +6994,14 @@ def verify_bundle(bundle_dir: str | Path, *, repo_root: Path = REPO_ROOT, write:
     if signature.get("required") is True and signature.get("ok") is not True:
         errors.append("required cryptographic signature was not produced")
     if "sigstore_cosign" in required_controls:
+        if (
+            artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES
+            and str(signature.get("subject_ref") or "") != ABI_SIDECAR
+        ):
+            errors.append(
+                "KAG outer signature must bind artifact.abi.json, including "
+                "the external identity, source ref, and subject aggregate"
+            )
         _validate_cosign_signature(bundle, signature, missing, errors)
     _validate_subject_aggregate_binding(subjects, provenance, errors)
 
@@ -6791,6 +7103,9 @@ def _source_ref_from_evidence(
 ) -> str:
     if explicit:
         return explicit
+    identity_source_ref = str(identity.get("source_ref") or "")
+    if identity_source_ref:
+        return identity_source_ref
     bundle_manifest_ref = str(identity.get("bundle_manifest_ref") or "")
     if bundle_manifest_ref:
         return bundle_manifest_ref
@@ -6871,6 +7186,7 @@ def bundle_registry_record(
     trust_root_mode: str = "local_dev",
     trust_root_evidence: dict[str, Any] | None = None,
     verifier_versions: dict[str, Any] | None = None,
+    subject_root: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     if lifecycle_state not in BUNDLE_LIFECYCLE_STATES:
@@ -6878,11 +7194,17 @@ def bundle_registry_record(
     if trust_root_mode not in TRUST_ROOT_MODES:
         raise ValueError(f"unknown trust_root_mode: {trust_root_mode}")
     bundle = Path(bundle_dir)
-    verification = verify_bundle(bundle, repo_root=repo_root, write=True)
+    verification = verify_bundle(
+        bundle,
+        subject_root=subject_root,
+        repo_root=repo_root,
+        write=True,
+    )
     control_evidence = verification.get("control_evidence") if isinstance(verification.get("control_evidence"), dict) else {}
     c2pa_evidence = control_evidence.get("c2pa") if isinstance(control_evidence.get("c2pa"), dict) else {}
     c2pa_trust = c2pa_evidence.get("trust") if isinstance(c2pa_evidence.get("trust"), dict) else {}
     identity = _read_json(bundle / IDENTITY_SIDECAR) if (bundle / IDENTITY_SIDECAR).is_file() else {}
+    abi_sidecar = _read_json(bundle / ABI_SIDECAR) if (bundle / ABI_SIDECAR).is_file() else {}
     provenance = _read_json(bundle / PROVENANCE_SIDECAR) if (bundle / PROVENANCE_SIDECAR).is_file() else {}
     signature = _read_json(bundle / SIGNATURE_DECISION_SIDECAR) if (bundle / SIGNATURE_DECISION_SIDECAR).is_file() else {}
     subjects = _read_json(bundle / SUBJECTS_SIDECAR) if (bundle / SUBJECTS_SIDECAR).is_file() else {}
@@ -6890,6 +7212,16 @@ def bundle_registry_record(
     consumer_contract = manifest.get("consumer_contract") if isinstance(manifest.get("consumer_contract"), dict) else {}
     if not consumer_contract and isinstance(identity.get("consumer_contract"), dict):
         consumer_contract = identity["consumer_contract"]
+    external_subject = (
+        abi_sidecar.get("external_subject")
+        if isinstance(abi_sidecar.get("external_subject"), dict)
+        else {}
+    )
+    external_artifact_identity = (
+        external_subject.get("artifact_identity")
+        if isinstance(external_subject.get("artifact_identity"), dict)
+        else {}
+    )
 
     artifact_class = str(identity.get("artifact_class") or verification.get("artifact_class") or "")
     bundle_manifest_ref = str(identity.get("bundle_manifest_ref") or "")
@@ -6907,6 +7239,43 @@ def bundle_registry_record(
     source_refs = [str(item) for item in provenance.get("source_refs", []) if str(item)] if isinstance(provenance.get("source_refs"), list) else []
 
     errors: list[str] = []
+    identity_source_repo = str(identity.get("owner_repo") or "")
+    identity_source_ref = str(identity.get("source_ref") or "")
+    resolved_source_repo = str(
+        source_repo
+        or identity_source_repo
+        or manifest.get("owner_repo")
+        or ""
+    )
+    resolved_source_ref = _source_ref_from_evidence(
+        explicit=str(source_ref or ""),
+        identity=identity,
+        provenance=provenance,
+        manifest=manifest,
+    )
+    if artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES:
+        if not identity_source_repo:
+            errors.append(
+                "KAG registry promotion requires signed bundle owner_repo"
+            )
+        if source_repo and str(source_repo) != identity_source_repo:
+            errors.append(
+                "KAG promotion source_repo does not match the signed bundle identity"
+            )
+        if source_ref and str(source_ref) != identity_source_ref:
+            errors.append(
+                "KAG promotion source_ref does not match the signed bundle identity"
+            )
+        resolved_source_repo = identity_source_repo
+        resolved_source_ref = identity_source_ref
+        if (
+            lifecycle_state in KAG_SOURCE_BOUND_LIFECYCLE_STATES
+            and not _is_exact_git_commit_ref(resolved_source_ref)
+        ):
+            errors.append(
+                "KAG source-bound lifecycle state requires an exact "
+                "commit:<40-or-64-lowercase-hex> source_ref"
+            )
     if not artifact_class:
         errors.append("artifact.identity.json must define artifact_class before registry registration")
     if not subject_digest:
@@ -6942,13 +7311,8 @@ def bundle_registry_record(
         "bundle_manifest_ref": bundle_manifest_ref,
         "contract_surface_id": identity.get("contract_surface_id"),
         "subject_digest": subject_digest,
-        "source_repo": str(source_repo or identity.get("owner_repo") or manifest.get("owner_repo") or ""),
-        "source_ref": _source_ref_from_evidence(
-            explicit=str(source_ref or ""),
-            identity=identity,
-            provenance=provenance,
-            manifest=manifest,
-        ),
+        "source_repo": resolved_source_repo,
+        "source_ref": resolved_source_ref,
         "source_refs": source_refs,
         "producer": str(producer or identity.get("producer") or provenance.get("agent_or_tool") or ""),
         "producer_command": str(provenance.get("producer_command") or ""),
@@ -6956,9 +7320,12 @@ def bundle_registry_record(
         "trust_root_evidence": trust_root_evidence if isinstance(trust_root_evidence, dict) else {},
         "verifier_versions": _verifier_versions(verification, verifier_versions),
         "privacy_boundary": identity.get("privacy_boundary"),
+        "access_policy": identity.get("access_policy"),
+        "trust_domain": identity.get("trust_domain"),
         "artifact_subjects_digest": provenance.get("artifact_subjects_digest") or subjects.get("aggregate_digest"),
         "artifact_subject_store": _artifact_subject_store_status(subjects),
         "abi_subject_digest": subject.get("digest"),
+        "external_artifact_identity": external_artifact_identity,
         "consumer_expectation": identity.get("consumer_expectation"),
         "consumer_contract": consumer_contract,
         "consumer_refs": [str(item) for item in consumer_refs or [] if str(item)],
@@ -7053,6 +7420,7 @@ def read_bundle_registry(
             records.append(record)
 
     latest_by_artifact_class: dict[str, dict[str, Any]] = {}
+    latest_by_artifact_class_and_source_repo: dict[str, dict[str, dict[str, Any]]] = {}
     state_counts: dict[str, int] = {}
     for record in records:
         state = str(record.get("lifecycle_state") or "unknown")
@@ -7065,6 +7433,17 @@ def read_bundle_registry(
         current = latest_by_artifact_class.get(class_id)
         if current is None or _latest_sort_key(record) > _latest_sort_key(current):
             latest_by_artifact_class[class_id] = record
+        source_repo = str(record.get("source_repo") or "")
+        if source_repo:
+            by_source = latest_by_artifact_class_and_source_repo.setdefault(
+                class_id,
+                {},
+            )
+            current_source = by_source.get(source_repo)
+            if current_source is None or _latest_sort_key(record) > _latest_sort_key(
+                current_source
+            ):
+                by_source[source_repo] = record
 
     return {
         "ok": True,
@@ -7078,10 +7457,15 @@ def read_bundle_registry(
         "summary": {
             "records": len(records),
             "latest": len(latest_by_artifact_class),
+            "source_scoped_latest": sum(
+                len(rows)
+                for rows in latest_by_artifact_class_and_source_repo.values()
+            ),
             "state_counts": state_counts,
             "registry_path_warnings": len(path_status.get("warnings", [])),
         },
         "latest_by_artifact_class": latest_by_artifact_class,
+        "latest_by_artifact_class_and_source_repo": latest_by_artifact_class_and_source_repo,
         "records": records,
     }
 
@@ -7101,6 +7485,7 @@ def write_bundle_registry_record(
     trust_root_mode: str = "local_dev",
     trust_root_evidence: dict[str, Any] | None = None,
     verifier_versions: dict[str, Any] | None = None,
+    subject_root: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     root = Path(registry_dir)
@@ -7117,6 +7502,7 @@ def write_bundle_registry_record(
         trust_root_mode=trust_root_mode,
         trust_root_evidence=trust_root_evidence,
         verifier_versions=verifier_versions,
+        subject_root=subject_root,
         repo_root=repo_root,
     )
     if not payload.get("ok"):
@@ -7464,6 +7850,7 @@ def promote_bundle_evidence(
     producer: str = "",
     trust_root_mode: str = "local_dev",
     trust_root_evidence: dict[str, Any] | None = None,
+    subject_root: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     registry_write = write_bundle_registry_record(
@@ -7479,6 +7866,7 @@ def promote_bundle_evidence(
         producer=producer,
         trust_root_mode=trust_root_mode,
         trust_root_evidence=trust_root_evidence,
+        subject_root=subject_root,
         repo_root=repo_root,
     )
     record = registry_write.get("record") if isinstance(registry_write.get("record"), dict) else {}
@@ -7738,6 +8126,8 @@ def _trust_gate_inspected_claims(
     subject_digest: str,
     record_id: str,
     expected_source_repo: str,
+    expected_source_ref: str,
+    expected_access_policy: str,
     expected_trust_root_mode: str,
     require_latest: bool,
 ) -> dict[str, Any]:
@@ -7807,8 +8197,23 @@ def _trust_gate_inspected_claims(
             "source_repo_expected": expected_source_repo or None,
             "source_repo_actual": selected.get("source_repo"),
             "source_repo_matched": bool(not expected_source_repo or str(selected.get("source_repo") or "") == expected_source_repo),
-            "source_ref": selected.get("source_ref"),
+            "source_ref_expected": expected_source_ref or None,
+            "source_ref_actual": selected.get("source_ref"),
+            "source_ref_matched": bool(
+                not expected_source_ref
+                or str(selected.get("source_ref") or "") == expected_source_ref
+            ),
             "producer": selected.get("producer"),
+        },
+        "access": {
+            "access_policy_expected": expected_access_policy or None,
+            "access_policy_actual": selected.get("access_policy"),
+            "access_policy_matched": bool(
+                not expected_access_policy
+                or str(selected.get("access_policy") or "")
+                == expected_access_policy
+            ),
+            "trust_domain": selected.get("trust_domain"),
         },
         "trust_root": {
             "trust_root_mode_expected": expected_trust_root_mode or None,
@@ -7845,14 +8250,33 @@ def trust_gate(
     record_id: str = "",
     consumer_intent: str = "agent",
     expected_source_repo: str = "",
+    expected_source_ref: str = "",
+    expected_access_policy: str = "",
     expected_trust_root_mode: str = "",
     require_latest: bool = True,
 ) -> dict[str, Any]:
     registry = read_bundle_registry(registry_dir, artifact_class=artifact_class)
     records = [record for record in registry.get("records", []) if isinstance(record, dict)]
-    latest = registry.get("latest_by_artifact_class", {}).get(artifact_class)
+    global_latest = registry.get("latest_by_artifact_class", {}).get(artifact_class)
+    scoped_latest_by_repo = registry.get(
+        "latest_by_artifact_class_and_source_repo",
+        {},
+    ).get(artifact_class, {})
+    latest = (
+        scoped_latest_by_repo.get(expected_source_repo) or global_latest
+        if expected_source_repo and isinstance(scoped_latest_by_repo, dict)
+        else global_latest
+    )
     selected = _find_registry_record(records, record_id=record_id, subject_digest=subject_digest)
     explicit_record_selector = bool(record_id or subject_digest)
+    if (
+        selected is not None
+        and not expected_source_repo
+        and isinstance(scoped_latest_by_repo, dict)
+    ):
+        selected_source_repo = str(selected.get("source_repo") or "")
+        if selected_source_repo:
+            latest = scoped_latest_by_repo.get(selected_source_repo) or latest
     if selected is None and isinstance(latest, dict) and not explicit_record_selector:
         selected = latest
 
@@ -7902,6 +8326,13 @@ def trust_gate(
                     "record_id_expected": record_id or None,
                     "record_id_actual": None,
                     "record_id_matched": False if record_id else None,
+                },
+                "source": {
+                    "source_repo_expected": expected_source_repo or None,
+                    "source_ref_expected": expected_source_ref or None,
+                },
+                "access": {
+                    "access_policy_expected": expected_access_policy or None,
                 },
                 "subject_identity": {
                     "subject_digest_expected": subject_digest or None,
@@ -7960,6 +8391,10 @@ def trust_gate(
         blockers.append(f"unknown_trust_root_mode:{trust_root_mode}")
     if expected_source_repo and str(selected.get("source_repo") or "") != expected_source_repo:
         blockers.append("source_repo_mismatch")
+    if expected_source_ref and str(selected.get("source_ref") or "") != expected_source_ref:
+        blockers.append("source_ref_mismatch")
+    if expected_access_policy and str(selected.get("access_policy") or "") != expected_access_policy:
+        blockers.append("access_policy_mismatch")
     if expected_trust_root_mode and trust_root_mode != expected_trust_root_mode:
         blockers.append("trust_root_mode_mismatch")
 
@@ -8049,6 +8484,8 @@ def trust_gate(
             subject_digest=subject_digest,
             record_id=record_id,
             expected_source_repo=expected_source_repo,
+            expected_source_ref=expected_source_ref,
+            expected_access_policy=expected_access_policy,
             expected_trust_root_mode=expected_trust_root_mode,
             require_latest=require_latest,
         ),
@@ -8061,11 +8498,17 @@ def release_check(
     bundle_dir: str | Path,
     *,
     enforcement: str = "blocking",
+    subject_root: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     if enforcement not in RELEASE_ENFORCEMENT_LEVELS:
         raise ValueError(f"unknown enforcement level: {enforcement}")
-    verification = verify_bundle(bundle_dir, repo_root=repo_root, write=True)
+    verification = verify_bundle(
+        bundle_dir,
+        subject_root=subject_root,
+        repo_root=repo_root,
+        write=True,
+    )
     allowed_by_enforcement = bool(verification.get("ok")) or enforcement == "warn"
     return {
         "ok": allowed_by_enforcement,

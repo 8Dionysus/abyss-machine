@@ -1,0 +1,75 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "kag-os-composition",
+  "artifact_class": "kag_os_composition",
+  "owner_repo": "abyss-machine",
+  "runtime_owner_override_required": true,
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "subject_repo_root": ".",
+  "access_policy": "public-kag",
+  "trust_domain": "public-kag",
+  "artifact_source": {
+    "kind": "external_kag_os_composition",
+    "content_identity_ref": "os-kag-composition.json#/composition_identity/content_digest",
+    "source_paths_ref": "os-kag-composition.json#/owners",
+    "private_payload_included": false
+  },
+  "lifecycle": {
+    "initial_state": "built-local",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "published",
+      "superseded",
+      "revoked"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready",
+      "published"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "aoa-kag-os-composition-v1",
+    "consumer_expectation": "verify all 24 owner digests, aggregate Git-hot budget, unresolved-reference state, signature, lifecycle, public-kag access policy, and revocation before federation or runtime use",
+    "registry_required": true,
+    "subject_store_required": true,
+    "admission_gate": "fail_closed_consumer_admission",
+    "consumer_verdict": "allow_or_deny_required_before_use",
+    "access_policy": "public-kag"
+  },
+  "abi_subject": {
+    "path": "os-kag-composition.json",
+    "artifact_identity_pointer": "/composition_identity"
+  },
+  "artifact_subjects": [
+    {
+      "path": "os-kag-composition.json",
+      "role": "kag_os_composition"
+    },
+    {
+      "glob": "trust/*",
+      "role": "kag_identity_signature"
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:kag-os-composition:v1",
+  "package": {
+    "ecosystem": "content-addressed-kag",
+    "name": "kag-os-composition",
+    "purl": "pkg:generic/kag-os-composition@1"
+  },
+  "consumer_command": [
+    "abyss-machine artifacts kag-sign-identity COMPOSITION_EXPORT/os-kag-composition.json --backend cosign-local-key --json",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/kag_os_composition.bundle.json --bundle-dir BUNDLE_DIR --subject-root COMPOSITION_EXPORT --owner-repo OWNER_REPO --source-ref SOURCE_REF --access-policy public-kag --json",
+    "abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key --json",
+    "abyss-machine artifacts verify BUNDLE_DIR --subject-root COMPOSITION_EXPORT --json",
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-stack:kag-federation --evidence-ref owner-validator:aoa-kag:os-composition --source-repo OWNER_REPO --source-ref SOURCE_REF --subject-root COMPOSITION_EXPORT --producer aoa-kag-federation-builder --trust-root-mode host_managed --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/kag_os_composition.bundle.json --subject-root COMPOSITION_EXPORT --consumer-intent agent --source-repo OWNER_REPO --source-ref SOURCE_REF --access-policy public-kag --trust-root-mode host_managed --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class kag_os_composition --consumer-intent agent --source-repo OWNER_REPO --source-ref SOURCE_REF --access-policy public-kag --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class kag_os_composition --consumer-intent agent --source-repo OWNER_REPO --source-ref SOURCE_REF --access-policy public-kag --trust-root-mode host_managed --json"
+  ]
+}
