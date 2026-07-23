@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 1424085,
+  "allowed_tracked_bytes": 25018653,
+  "approved_by": "repository-owner",
+  "base_ref": "160e13b291ab200e7267c6de4bfdae138b79994a",
+  "changed_generated_bytes": 1424085,
+  "changed_generated_files": 16,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "e547f67b0f9a1acdb6d1c8b7267924e20e00137799056b87c976acb0cd49d63c",
+  "reason": "Owner-reviewed receipt-v2 and fail-closed graph identity changes were rebased over the current host source, then the ABI was regenerated; this receipt authorizes only the deterministic KAG delta while the tracked family remains below its repository cap.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25018653,
+  "tracked_bytes_max": 27262976
+}
