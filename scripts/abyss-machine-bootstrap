@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
+import fcntl
 import importlib.util
 import json
+import os
 import py_compile
+import pwd
+import secrets
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +36,21 @@ PUBLIC_SEED_SOURCE_ROOTS = (
     REPO_ROOT / "manifests",
     REPO_ROOT / "generated",
 )
+CLI_LAUNCHER = """#!/usr/bin/env python3
+import fcntl
+import os
+from pathlib import Path
+import runpy
+import sys
+
+libexec = Path(__file__).resolve().parent
+lock_fd = os.open(libexec / ".abyss-machine-code-refresh.lock", os.O_RDWR | os.O_CLOEXEC)
+fcntl.flock(lock_fd, fcntl.LOCK_SH)
+if str(libexec) not in sys.path:
+    sys.path.insert(0, str(libexec))
+runpy.run_module("abyss_machine.cli", run_name="__main__")
+"""
+LEGACY_ENTRYPOINT_DRAIN_TIMEOUT_SEC = 300.0
 
 PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
     "linux-systemd-core": {
@@ -231,33 +253,277 @@ def ensure_roots(values: dict[str, str], *, apply: bool, actions: list[dict[str,
         actions.append({"action": "ensure_root", "path": root})
 
 
-def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
+def _path_lexists(path: Path) -> bool:
+    return os.path.lexists(path)
+
+
+def _remove_projection_path(path: Path) -> None:
+    if not _path_lexists(path):
+        return
+    if path.is_symlink() or not path.is_dir():
+        path.unlink()
+        return
+    shutil.rmtree(path)
+
+
+def _projection_stage_path(target: Path) -> Path:
+    return target.with_name(
+        f".{target.name}.abyss-stage-{os.getpid()}-{secrets.token_hex(8)}"
+    )
+
+
+def _stage_projection_tree(source: Path, target: Path) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if _path_lexists(target) and (target.is_symlink() or not target.is_dir()):
+        raise OSError(errno.ENOTDIR, "tree projection target is not a directory", target)
+    stage = _projection_stage_path(target)
+    shutil.copytree(
+        source,
+        stage,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    return stage
+
+
+def _stage_projection_symlink(link_target: Path, target: Path) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if _path_lexists(target) and target.is_dir() and not target.is_symlink():
+        raise OSError(errno.EISDIR, "symlink projection target is a directory", target)
+    stage = _projection_stage_path(target)
+    stage.symlink_to(link_target)
+    return stage
+
+
+def _stage_projection_file(content: str, target: Path, *, mode: int) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if _path_lexists(target) and target.is_dir() and not target.is_symlink():
+        raise OSError(errno.EISDIR, "file projection target is a directory", target)
+    stage = _projection_stage_path(target)
+    stage.write_text(content, encoding="utf-8")
+    stage.chmod(mode)
+    return stage
+
+
+def _rename_exchange(left: Path, right: Path) -> None:
+    renameat2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+    if renameat2 is None:
+        raise OSError(errno.ENOSYS, "renameat2 is required for atomic code refresh")
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        -100,
+        os.fsencode(left),
+        -100,
+        os.fsencode(right),
+        2,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(
+            error_number,
+            os.strerror(error_number),
+            f"{left} <-> {right}",
+        )
+
+
+def _commit_projection(staged: list[tuple[Path, Path]]) -> None:
+    committed: list[tuple[Path, Path, bool]] = []
+    try:
+        for stage, target in staged:
+            target_existed = _path_lexists(target)
+            if target_existed:
+                _rename_exchange(stage, target)
+            else:
+                os.replace(stage, target)
+            committed.append((stage, target, target_existed))
+    except Exception:
+        for stage, target, target_existed in reversed(committed):
+            if target_existed:
+                _rename_exchange(stage, target)
+            elif _path_lexists(target):
+                os.replace(target, stage)
+        raise
+    else:
+        for stage, _, _ in committed:
+            _remove_projection_path(stage)
+
+
+def _open_code_refresh_lock(path: Path, *, user: str) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        if os.geteuid() == 0:
+            account = pwd.getpwnam(user)
+            os.fchown(fd, account.pw_uid, account.pw_gid)
+        os.fchmod(fd, 0o600)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _entrypoint_uses_managed_launcher(path: Path) -> bool:
+    if not path.is_file() or path.is_symlink():
+        return False
+    try:
+        return path.read_text(encoding="utf-8") == CLI_LAUNCHER
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _process_holds_lock(pid: int, lock_identity: tuple[int, int]) -> bool:
+    fd_root = Path("/proc") / str(pid) / "fd"
+    try:
+        descriptors = tuple(fd_root.iterdir())
+    except (FileNotFoundError, PermissionError, OSError):
+        return False
+    for descriptor in descriptors:
+        try:
+            info = descriptor.stat()
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        if (info.st_dev, info.st_ino) == lock_identity:
+            return True
+    return False
+
+
+def _legacy_entrypoint_processes(
+    entrypoints: tuple[Path, ...],
+    *,
+    lock_fd: int,
+) -> list[int]:
+    expected = {os.fsencode(str(path)) for path in entrypoints}
+    lock_info = os.fstat(lock_fd)
+    lock_identity = (lock_info.st_dev, lock_info.st_ino)
+    legacy: list[int] = []
+    for proc_path in Path("/proc").glob("[0-9]*"):
+        pid = int(proc_path.name)
+        if pid == os.getpid():
+            continue
+        try:
+            argv = {
+                item
+                for item in (proc_path / "cmdline").read_bytes().split(b"\0")
+                if item
+            }
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        if not argv.intersection(expected):
+            continue
+        if not _process_holds_lock(pid, lock_identity):
+            legacy.append(pid)
+    return sorted(legacy)
+
+
+def _wait_for_legacy_entrypoints(
+    entrypoints: tuple[Path, ...],
+    *,
+    lock_fd: int,
+    timeout_sec: float,
+) -> tuple[float, int]:
+    started = time.monotonic()
+    observed: set[int] = set()
+    while True:
+        legacy = _legacy_entrypoint_processes(entrypoints, lock_fd=lock_fd)
+        observed.update(legacy)
+        if not legacy:
+            return round(time.monotonic() - started, 3), len(observed)
+        if time.monotonic() - started >= timeout_sec:
+            raise TimeoutError(
+                "legacy abyss-machine entrypoints did not drain before atomic refresh: "
+                + ",".join(str(pid) for pid in legacy)
+            )
+        time.sleep(0.05)
+
+
+def install_code_projection(
+    values: dict[str, str],
+    *,
+    apply: bool,
+    actions: list[dict[str, Any]],
+) -> None:
     source = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
     libexec = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss-machine"
     package_target = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss_machine"
     bin_path = Path(values["ABYSS_LOCAL_BIN_DIR"]) / "abyss-machine"
     compiled_cli = Path(importlib.util.cache_from_source(str(package_target / "cli.py")))
     compiled_module_count = 0
+    share_root = public_seed_share_root(values)
+    installed_roots = [str(share_root / source_root.name) for source_root in PUBLIC_SEED_SOURCE_ROOTS]
+    refresh_lock = libexec.parent / ".abyss-machine-code-refresh.lock"
+    legacy_entrypoint_drain_sec = 0.0
+    legacy_entrypoint_processes_observed = 0
     if apply:
-        libexec.parent.mkdir(parents=True, exist_ok=True)
-        bin_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, libexec)
-        libexec.chmod(0o755)
-        if package_target.exists():
-            shutil.rmtree(package_target)
-        shutil.copytree(
-            SOURCE_PACKAGE_ROOT,
-            package_target,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
-        for module_path in sorted(package_target.glob("*.py")):
-            compiled_path = Path(importlib.util.cache_from_source(str(module_path)))
-            compiled_path.parent.mkdir(parents=True, exist_ok=True)
-            py_compile.compile(str(module_path), cfile=str(compiled_path), doraise=True)
-            compiled_module_count += 1
-        if bin_path.exists() or bin_path.is_symlink():
-            bin_path.unlink()
-        bin_path.symlink_to(libexec)
+        staged: list[tuple[Path, Path]] = []
+        lock_fd: int | None = None
+        try:
+            package_existed = _path_lexists(package_target)
+            managed_launcher_existed = _entrypoint_uses_managed_launcher(libexec)
+            package_stage = _stage_projection_tree(SOURCE_PACKAGE_ROOT, package_target)
+            staged.append((package_stage, package_target))
+            for module_path in sorted(package_stage.glob("*.py")):
+                compiled_path = Path(importlib.util.cache_from_source(str(module_path)))
+                compiled_path.parent.mkdir(parents=True, exist_ok=True)
+                py_compile.compile(str(module_path), cfile=str(compiled_path), doraise=True)
+                compiled_module_count += 1
+
+            for source_root in PUBLIC_SEED_SOURCE_ROOTS:
+                target_root = share_root / source_root.name
+                staged.append((_stage_projection_tree(source_root, target_root), target_root))
+
+            libexec_stage = _stage_projection_file(CLI_LAUNCHER, libexec, mode=0o755)
+            bin_stage = _stage_projection_symlink(libexec, bin_path)
+            staged.extend(((libexec_stage, libexec), (bin_stage, bin_path)))
+
+            lock_fd = _open_code_refresh_lock(refresh_lock, user=values["ABYSS_USER"])
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            package_projection = staged[:1]
+            seed_projections = staged[1:-2]
+            launcher_projection = staged[-2:-1]
+            bin_projection = staged[-1:]
+            if package_existed and not managed_launcher_existed:
+                _commit_projection(launcher_projection)
+                staged.remove(launcher_projection[0])
+                (
+                    legacy_entrypoint_drain_sec,
+                    legacy_entrypoint_processes_observed,
+                ) = _wait_for_legacy_entrypoints(
+                    (bin_path, libexec),
+                    lock_fd=lock_fd,
+                    timeout_sec=LEGACY_ENTRYPOINT_DRAIN_TIMEOUT_SEC,
+                )
+                launcher_projection = []
+            elif package_existed:
+                _remove_projection_path(launcher_projection[0][0])
+                staged.remove(launcher_projection[0])
+                launcher_projection = []
+
+            if package_existed:
+                commit_order = [
+                    *seed_projections,
+                    *launcher_projection,
+                    *bin_projection,
+                    *package_projection,
+                ]
+            else:
+                commit_order = [
+                    *package_projection,
+                    *launcher_projection,
+                    *bin_projection,
+                    *seed_projections,
+                ]
+            _commit_projection(commit_order)
+        finally:
+            if lock_fd is not None:
+                os.close(lock_fd)
+            for stage, _ in staged:
+                _remove_projection_path(stage)
     modules = sorted(path.name for path in SOURCE_PACKAGE_ROOT.glob("*.py"))
     actions.append({
         "action": "install_cli",
@@ -270,35 +536,25 @@ def install_cli(values: dict[str, str], *, apply: bool, actions: list[dict[str, 
         "compiled_module_count": compiled_module_count if apply else len(modules),
         "bytecode_policy": "compile_installed_package_once",
         "symlink": str(bin_path),
+        "libexec_entrypoint": "stable_python_module_launcher",
+        "projection_strategy": "sibling_stage_then_rename_exchange",
+        "atomic_visibility": True,
+        "refresh_lock": str(refresh_lock),
+        "legacy_entrypoint_drain_sec": legacy_entrypoint_drain_sec,
+        "legacy_entrypoint_processes_observed": legacy_entrypoint_processes_observed,
     })
-
-
-def public_seed_share_root(values: dict[str, str]) -> Path:
-    return Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]).parent / "share" / "abyss-machine"
-
-
-def install_public_seed(values: dict[str, str], *, apply: bool, actions: list[dict[str, Any]]) -> None:
-    share_root = public_seed_share_root(values)
-    installed_roots: list[str] = []
-    if apply:
-        share_root.mkdir(parents=True, exist_ok=True)
-    for source_root in PUBLIC_SEED_SOURCE_ROOTS:
-        target_root = share_root / source_root.name
-        if apply:
-            if target_root.exists():
-                shutil.rmtree(target_root)
-            shutil.copytree(
-                source_root,
-                target_root,
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-            )
-        installed_roots.append(str(target_root))
     actions.append({
         "action": "install_public_seed",
         "source_roots": [str(path) for path in PUBLIC_SEED_SOURCE_ROOTS],
         "target": str(share_root),
         "installed_roots": installed_roots,
+        "projection_strategy": "sibling_stage_then_rename_exchange",
+        "atomic_visibility": True,
     })
+
+
+def public_seed_share_root(values: dict[str, str]) -> Path:
+    return Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]).parent / "share" / "abyss-machine"
 
 
 def command_payload(command: str, ok: bool, actions: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -523,8 +779,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     copy_tree(CONFIG_TEMPLATE_ROOT, Path(args.etc_root), values=values, apply=apply, actions=actions)
     copy_tree(SYSTEMD_TEMPLATE_ROOT / "system", policy.systemd_system_dir, values=values, apply=apply, actions=actions)
     copy_tree(SYSTEMD_TEMPLATE_ROOT / "user", policy.systemd_user_dir or policy.home / ".config/systemd/user", values=values, apply=apply, actions=actions)
-    install_cli(values, apply=apply, actions=actions)
-    install_public_seed(values, apply=apply, actions=actions)
+    install_code_projection(values, apply=apply, actions=actions)
     payload = command_payload("install", True, actions, profile=args.profile, dry_run=not apply, artifact_admission=artifact_admission)
     emit(payload, json_output=args.json)
     return 0
@@ -567,8 +822,7 @@ def cmd_refresh_code(args: argparse.Namespace) -> int:
         )
         emit(payload, json_output=args.json)
         return 1
-    install_cli(values, apply=apply, actions=actions)
-    install_public_seed(values, apply=apply, actions=actions)
+    install_code_projection(values, apply=apply, actions=actions)
     payload = command_payload(
         "refresh-code",
         True,

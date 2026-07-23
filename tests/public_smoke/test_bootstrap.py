@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import runpy
 import shlex
 import subprocess
 import sys
@@ -827,11 +828,17 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "install_cli" in actions
     assert "install_public_seed" in actions
     assert (libexec_dir / "abyss-machine").is_file()
-    assert (libexec_dir / "abyss-machine").read_bytes() == (
-        ROOT / "src" / "abyss_machine" / "cli.py"
-    ).read_bytes()
+    assert 'runpy.run_module("abyss_machine.cli", run_name="__main__")' in (
+        libexec_dir / "abyss-machine"
+    ).read_text(encoding="utf-8")
     assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
     assert Path(actions["install_cli"]["compiled_cli"]).is_file()
+    assert actions["install_cli"]["atomic_visibility"] is True
+    assert actions["install_public_seed"]["atomic_visibility"] is True
+    refresh_lock = Path(actions["install_cli"]["refresh_lock"])
+    assert refresh_lock.is_file()
+    assert refresh_lock.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.rglob(".*.abyss-stage-*"))
     assert run_root.is_dir()
     assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
     assert (tmp_path / "share" / "abyss-machine" / "generated" / "contract_abi_signatures.min.json").is_file()
@@ -1332,6 +1339,9 @@ def test_bootstrap_refresh_code_projects_only_cli_modules_and_public_seed(tmp_pa
     assert (libexec_dir / "abyss-machine").is_file()
     assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
     assert (bin_dir / "abyss-machine").is_symlink()
+    assert actions["install_cli"]["atomic_visibility"] is True
+    assert actions["install_public_seed"]["atomic_visibility"] is True
+    assert not list(tmp_path.rglob(".*.abyss-stage-*"))
     assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
     assert (tmp_path / "share" / "abyss-machine" / "generated" / "contract_abi_signatures.min.json").is_file()
     assert not etc_root.exists()
@@ -1340,6 +1350,75 @@ def test_bootstrap_refresh_code_projects_only_cli_modules_and_public_seed(tmp_pa
     assert not run_root.exists()
     assert not systemd_system_dir.exists()
     assert not systemd_user_dir.exists()
+
+
+def test_bootstrap_refresh_code_atomically_replaces_existing_projection(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    libexec_dir = tmp_path / "libexec"
+    args = (
+        "refresh-code",
+        "--apply",
+        "--skip-artifact-trust-gate",
+        "--local-bin-dir",
+        str(bin_dir),
+        "--local-libexec-dir",
+        str(libexec_dir),
+    )
+    run_bootstrap(*args)
+    package_target = libexec_dir / "abyss_machine"
+    first_inode = package_target.stat().st_ino
+    obsolete = package_target / "obsolete-projection.py"
+    obsolete.write_text("old = True\n", encoding="utf-8")
+
+    payload = run_bootstrap(*args)
+
+    actions = {action["action"]: action for action in payload["actions"]}
+    assert package_target.stat().st_ino != first_inode
+    assert not obsolete.exists()
+    assert actions["install_cli"]["projection_strategy"] == "sibling_stage_then_rename_exchange"
+    assert actions["install_cli"]["legacy_entrypoint_drain_sec"] == 0.0
+    assert actions["install_public_seed"]["projection_strategy"] == "sibling_stage_then_rename_exchange"
+    assert not list(tmp_path.rglob(".*.abyss-stage-*"))
+
+
+def test_bootstrap_atomic_projection_rolls_back_prior_exchange(tmp_path: Path) -> None:
+    namespace = runpy.run_path(str(BOOTSTRAP), run_name="abyss_machine_bootstrap_atomic_test")
+    commit_projection = namespace["_commit_projection"]
+    real_exchange = namespace["_rename_exchange"]
+    calls = 0
+
+    def fail_second_exchange(left: Path, right: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected second exchange failure")
+        real_exchange(left, right)
+
+    commit_projection.__globals__["_rename_exchange"] = fail_second_exchange
+    target_a = tmp_path / "target-a"
+    target_b = tmp_path / "target-b"
+    stage_a = tmp_path / "stage-a"
+    stage_b = tmp_path / "stage-b"
+    for path, marker in (
+        (target_a, "old-a"),
+        (target_b, "old-b"),
+        (stage_a, "new-a"),
+        (stage_b, "new-b"),
+    ):
+        path.mkdir()
+        (path / "marker").write_text(marker, encoding="utf-8")
+
+    try:
+        commit_projection([(stage_a, target_a), (stage_b, target_b)])
+    except OSError as exc:
+        assert str(exc) == "injected second exchange failure"
+    else:
+        raise AssertionError("injected projection failure was not raised")
+
+    assert (target_a / "marker").read_text(encoding="utf-8") == "old-a"
+    assert (target_b / "marker").read_text(encoding="utf-8") == "old-b"
+    assert (stage_a / "marker").read_text(encoding="utf-8") == "new-a"
+    assert (stage_b / "marker").read_text(encoding="utf-8") == "new-b"
 
 
 def test_linux_systemd_core_profile_has_no_resident_memory_controller() -> None:
