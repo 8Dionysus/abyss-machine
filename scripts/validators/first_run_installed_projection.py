@@ -24,6 +24,7 @@ SRC_ROOT = REPO_ROOT / "src"
 PROFILE_MANIFEST = REPO_ROOT / "manifests" / "bootstrap_profiles.manifest.json"
 SOURCE_PACKAGE_ROOT = SRC_ROOT / "abyss_machine"
 CLI_REFRESH_LOCK_NAME = ".abyss-machine-code-refresh.lock"
+CLI_CURRENT_GENERATION_NAME = ".abyss-machine-code-current"
 SOURCE_PUBLIC_SEED_ROOTS = {
     "manifests": REPO_ROOT / "manifests",
     "generated": REPO_ROOT / "generated",
@@ -906,6 +907,20 @@ def relative_file_digests(root: Path) -> dict[str, str]:
     return rows
 
 
+def active_installed_package_root(libexec_dir: Path) -> Path:
+    current = libexec_dir / CLI_CURRENT_GENERATION_NAME
+    if current.is_symlink():
+        try:
+            generation = current.resolve(strict=True)
+        except OSError:
+            pass
+        else:
+            package = generation / "abyss_machine"
+            if package.is_dir():
+                return package
+    return libexec_dir / "abyss_machine"
+
+
 def compare_digest_maps(
     source: dict[str, str],
     installed: dict[str, str],
@@ -1051,7 +1066,7 @@ def module_import_report(paths: dict[str, Path]) -> dict[str, Any]:
     )
     payload = run_json([sys.executable, "-c", code], cwd=paths["root"], env=env)
     cli_file = Path(str(payload["cli_file"]))
-    package_root = paths["local_libexec_dir"] / "abyss_machine"
+    package_root = active_installed_package_root(paths["local_libexec_dir"])
     ok_path = cli_file.is_relative_to(package_root)
     return {
         "status": "ok" if ok_path else "failed",
@@ -1354,7 +1369,9 @@ def host_installed_report(args: argparse.Namespace, paths: dict[str, Path]) -> d
     report["content_parity"] = content_parity_report(
         label="host-installed",
         installed_cli=host_cli,
-        installed_package_root=Path(args.host_libexec_dir) / "abyss_machine",
+        installed_package_root=active_installed_package_root(
+            Path(args.host_libexec_dir)
+        ),
         installed_share_root=Path(args.host_share_root),
     )
     report["required"] = bool(args.require_host_installed)
@@ -1376,7 +1393,9 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
     temp_content_parity = content_parity_report(
         label="temp-installed",
         installed_cli=paths["local_libexec_dir"] / "abyss-machine",
-        installed_package_root=paths["local_libexec_dir"] / "abyss_machine",
+        installed_package_root=active_installed_package_root(
+            paths["local_libexec_dir"]
+        ),
         installed_share_root=paths["share_root"],
     )
     host_installed = host_installed_report(args, paths)

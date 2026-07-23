@@ -12,6 +12,7 @@ MAX_SAMPLE_ITEMS = 20
 RuntimeCheckRunner = Callable[[str, Sequence[str], float], Mapping[str, Any]]
 FAILED_PROJECTION_STATUSES = frozenset({"blocked", "error", "fail", "failed"})
 WARNING_PROJECTION_STATUSES = frozenset({"warn", "warning"})
+CODE_CURRENT_LINK_NAME = ".abyss-machine-code-current"
 
 
 RUNTIME_COMMANDS: dict[str, tuple[str, ...]] = {
@@ -94,6 +95,20 @@ def relative_file_digests(root: Path) -> dict[str, str]:
             continue
         rows[path.relative_to(root).as_posix()] = file_sha256(path)
     return rows
+
+
+def active_installed_package_root(installed_libexec_dir: Path) -> Path:
+    current = installed_libexec_dir / CODE_CURRENT_LINK_NAME
+    if current.is_symlink():
+        try:
+            generation = current.resolve(strict=True)
+        except OSError:
+            pass
+        else:
+            package = generation / "abyss_machine"
+            if package.is_dir():
+                return package
+    return installed_libexec_dir / "abyss_machine"
 
 
 def _sample(items: Sequence[str], limit: int = MAX_SAMPLE_ITEMS) -> list[str]:
@@ -231,15 +246,29 @@ def content_parity_summary(
         "generated": repo_root / "generated",
         "manifests": repo_root / "manifests",
     }
-    cli = compare_cli_file(repo_root / "src" / "abyss_machine" / "cli.py", installed_cli)
+    installed_package_root = active_installed_package_root(installed_libexec_dir)
+    if (installed_libexec_dir / CODE_CURRENT_LINK_NAME).is_symlink():
+        cli = compare_cli_file(
+            repo_root / "src" / "abyss_machine" / "cli.py",
+            installed_package_root / "cli.py",
+        )
+        cli["launcher"] = path_state(installed_cli)
+        if not installed_cli.is_file():
+            cli["status"] = "failed"
+            cli["failures"].append(f"installed launcher missing: {installed_cli}")
+    else:
+        cli = compare_cli_file(
+            repo_root / "src" / "abyss_machine" / "cli.py",
+            installed_cli,
+        )
     package = compare_digest_maps(
         relative_file_digests(source_package_root),
-        relative_file_digests(installed_libexec_dir / "abyss_machine"),
+        relative_file_digests(installed_package_root),
         label="installed package",
         sample_limit=sample_limit,
     )
     package["source"] = str(source_package_root)
-    package["installed"] = str(installed_libexec_dir / "abyss_machine")
+    package["installed"] = str(installed_package_root)
     public_seed: dict[str, Any] = {}
     for root_id, source_root in source_seed_roots.items():
         row = compare_digest_maps(

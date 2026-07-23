@@ -5,6 +5,7 @@ import argparse
 import ctypes
 import errno
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -14,7 +15,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -44,13 +44,26 @@ import runpy
 import sys
 
 libexec = Path(__file__).resolve().parent
-lock_fd = os.open(libexec / ".abyss-machine-code-refresh.lock", os.O_RDWR | os.O_CLOEXEC)
-fcntl.flock(lock_fd, fcntl.LOCK_SH)
-if str(libexec) not in sys.path:
-    sys.path.insert(0, str(libexec))
+generations = libexec / ".abyss-machine-code-generations"
+refresh_fd = os.open(libexec / ".abyss-machine-code-refresh.lock", os.O_RDWR | os.O_CLOEXEC)
+fcntl.flock(refresh_fd, fcntl.LOCK_SH)
+try:
+    generation = (libexec / ".abyss-machine-code-current").resolve(strict=True)
+    if generation.parent != generations.resolve(strict=True):
+        raise RuntimeError(f"invalid abyss-machine code generation: {generation}")
+    generation_fd = os.open(generation / ".active.lock", os.O_RDWR | os.O_CLOEXEC)
+    fcntl.flock(generation_fd, fcntl.LOCK_SH)
+finally:
+    fcntl.flock(refresh_fd, fcntl.LOCK_UN)
+    os.close(refresh_fd)
+if str(generation) not in sys.path:
+    sys.path.insert(0, str(generation))
 runpy.run_module("abyss_machine.cli", run_name="__main__")
 """
-LEGACY_ENTRYPOINT_DRAIN_TIMEOUT_SEC = 300.0
+CODE_GENERATIONS_DIR_NAME = ".abyss-machine-code-generations"
+CODE_CURRENT_LINK_NAME = ".abyss-machine-code-current"
+CODE_GENERATION_ACTIVE_LOCK_NAME = ".active.lock"
+CODE_GENERATIONS_TO_KEEP = 2
 
 PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
     "linux-systemd-core": {
@@ -377,30 +390,10 @@ def _entrypoint_uses_managed_launcher(path: Path) -> bool:
         return False
 
 
-def _process_holds_lock(pid: int, lock_identity: tuple[int, int]) -> bool:
-    fd_root = Path("/proc") / str(pid) / "fd"
-    try:
-        descriptors = tuple(fd_root.iterdir())
-    except (FileNotFoundError, PermissionError, OSError):
-        return False
-    for descriptor in descriptors:
-        try:
-            info = descriptor.stat()
-        except (FileNotFoundError, PermissionError, OSError):
-            continue
-        if (info.st_dev, info.st_ino) == lock_identity:
-            return True
-    return False
-
-
 def _legacy_entrypoint_processes(
     entrypoints: tuple[Path, ...],
-    *,
-    lock_fd: int,
 ) -> list[int]:
     expected = {os.fsencode(str(path)) for path in entrypoints}
-    lock_info = os.fstat(lock_fd)
-    lock_identity = (lock_info.st_dev, lock_info.st_ino)
     legacy: list[int] = []
     for proc_path in Path("/proc").glob("[0-9]*"):
         pid = int(proc_path.name)
@@ -416,30 +409,110 @@ def _legacy_entrypoint_processes(
             continue
         if not argv.intersection(expected):
             continue
-        if not _process_holds_lock(pid, lock_identity):
-            legacy.append(pid)
+        legacy.append(pid)
     return sorted(legacy)
 
 
-def _wait_for_legacy_entrypoints(
-    entrypoints: tuple[Path, ...],
+def _tree_content_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+            continue
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        digest.update(relative)
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _prepare_code_generation(
+    generations_root: Path,
     *,
-    lock_fd: int,
-    timeout_sec: float,
-) -> tuple[float, int]:
-    started = time.monotonic()
-    observed: set[int] = set()
-    while True:
-        legacy = _legacy_entrypoint_processes(entrypoints, lock_fd=lock_fd)
-        observed.update(legacy)
-        if not legacy:
-            return round(time.monotonic() - started, 3), len(observed)
-        if time.monotonic() - started >= timeout_sec:
-            raise TimeoutError(
-                "legacy abyss-machine entrypoints did not drain before atomic refresh: "
-                + ",".join(str(pid) for pid in legacy)
-            )
-        time.sleep(0.05)
+    user: str,
+) -> tuple[Path, int, bool]:
+    generation_id = _tree_content_digest(SOURCE_PACKAGE_ROOT)
+    generation_root = generations_root / generation_id
+    package_root = generation_root / "abyss_machine"
+    modules = sorted(SOURCE_PACKAGE_ROOT.glob("*.py"))
+    if generation_root.exists():
+        if (
+            generation_root.is_symlink()
+            or not package_root.is_dir()
+            or _tree_content_digest(package_root) != generation_id
+        ):
+            raise RuntimeError(f"code generation digest mismatch: {generation_root}")
+        lock_fd = _open_code_refresh_lock(
+            generation_root / CODE_GENERATION_ACTIVE_LOCK_NAME,
+            user=user,
+        )
+        os.close(lock_fd)
+        return generation_root, len(modules), False
+
+    generations_root.mkdir(parents=True, exist_ok=True)
+    stage = _projection_stage_path(generation_root)
+    try:
+        shutil.copytree(
+            SOURCE_PACKAGE_ROOT,
+            stage / "abyss_machine",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+        compiled_module_count = 0
+        for module_path in sorted((stage / "abyss_machine").glob("*.py")):
+            compiled_path = Path(importlib.util.cache_from_source(str(module_path)))
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            py_compile.compile(str(module_path), cfile=str(compiled_path), doraise=True)
+            compiled_module_count += 1
+        lock_fd = _open_code_refresh_lock(
+            stage / CODE_GENERATION_ACTIVE_LOCK_NAME,
+            user=user,
+        )
+        os.close(lock_fd)
+        if _tree_content_digest(stage / "abyss_machine") != generation_id:
+            raise RuntimeError(f"staged code generation digest mismatch: {stage}")
+        os.replace(stage, generation_root)
+        return generation_root, compiled_module_count, True
+    finally:
+        _remove_projection_path(stage)
+
+
+def _prune_inactive_code_generations(
+    generations_root: Path,
+    *,
+    current_generation: Path,
+) -> tuple[list[str], list[str]]:
+    generations = sorted(
+        (
+            path
+            for path in generations_root.iterdir()
+            if path.is_dir() and not path.is_symlink() and path != current_generation
+        ),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    keep_inactive = max(0, CODE_GENERATIONS_TO_KEEP - 1)
+    removed: list[str] = []
+    deferred: list[str] = []
+    for generation in generations[keep_inactive:]:
+        lock_path = generation / CODE_GENERATION_ACTIVE_LOCK_NAME
+        try:
+            lock_fd = os.open(lock_path, os.O_RDWR | os.O_CLOEXEC)
+        except OSError:
+            deferred.append(str(generation))
+            continue
+        try:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                deferred.append(str(generation))
+                continue
+            shutil.rmtree(generation)
+            removed.append(str(generation))
+        finally:
+            os.close(lock_fd)
+    return removed, deferred
 
 
 def install_code_projection(
@@ -449,76 +522,92 @@ def install_code_projection(
     actions: list[dict[str, Any]],
 ) -> None:
     source = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
-    libexec = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss-machine"
-    package_target = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"]) / "abyss_machine"
+    libexec_dir = Path(values["ABYSS_LOCAL_LIBEXEC_DIR"])
+    libexec = libexec_dir / "abyss-machine"
+    compatibility_package_target = libexec_dir / "abyss_machine"
+    generations_root = libexec_dir / CODE_GENERATIONS_DIR_NAME
+    generation_id = _tree_content_digest(SOURCE_PACKAGE_ROOT)
+    current_generation = generations_root / generation_id
+    current_link = libexec_dir / CODE_CURRENT_LINK_NAME
+    package_target = current_generation / "abyss_machine"
     bin_path = Path(values["ABYSS_LOCAL_BIN_DIR"]) / "abyss-machine"
     compiled_cli = Path(importlib.util.cache_from_source(str(package_target / "cli.py")))
     compiled_module_count = 0
     share_root = public_seed_share_root(values)
     installed_roots = [str(share_root / source_root.name) for source_root in PUBLIC_SEED_SOURCE_ROOTS]
     refresh_lock = libexec.parent / ".abyss-machine-code-refresh.lock"
-    legacy_entrypoint_drain_sec = 0.0
     legacy_entrypoint_processes_observed = 0
+    legacy_package_preserved = False
+    generation_created = False
+    generations_removed: list[str] = []
+    generations_deferred: list[str] = []
     if apply:
         staged: list[tuple[Path, Path]] = []
         lock_fd: int | None = None
         try:
-            package_existed = _path_lexists(package_target)
             managed_launcher_existed = _entrypoint_uses_managed_launcher(libexec)
-            package_stage = _stage_projection_tree(SOURCE_PACKAGE_ROOT, package_target)
-            staged.append((package_stage, package_target))
-            for module_path in sorted(package_stage.glob("*.py")):
-                compiled_path = Path(importlib.util.cache_from_source(str(module_path)))
-                compiled_path.parent.mkdir(parents=True, exist_ok=True)
-                py_compile.compile(str(module_path), cfile=str(compiled_path), doraise=True)
-                compiled_module_count += 1
+            if not managed_launcher_existed:
+                legacy_entrypoint_processes_observed = len(
+                    _legacy_entrypoint_processes((bin_path, libexec))
+                )
 
             for source_root in PUBLIC_SEED_SOURCE_ROOTS:
                 target_root = share_root / source_root.name
                 staged.append((_stage_projection_tree(source_root, target_root), target_root))
 
+            current_stage = _stage_projection_symlink(
+                Path(CODE_GENERATIONS_DIR_NAME) / generation_id,
+                current_link,
+            )
             libexec_stage = _stage_projection_file(CLI_LAUNCHER, libexec, mode=0o755)
             bin_stage = _stage_projection_symlink(libexec, bin_path)
-            staged.extend(((libexec_stage, libexec), (bin_stage, bin_path)))
+            staged.extend(
+                (
+                    (current_stage, current_link),
+                    (libexec_stage, libexec),
+                    (bin_stage, bin_path),
+                )
+            )
+            if (
+                not _path_lexists(compatibility_package_target)
+                or compatibility_package_target.is_symlink()
+            ):
+                compatibility_stage = _stage_projection_symlink(
+                    Path(CODE_CURRENT_LINK_NAME) / "abyss_machine",
+                    compatibility_package_target,
+                )
+                staged.append((compatibility_stage, compatibility_package_target))
+            else:
+                legacy_package_preserved = True
 
             lock_fd = _open_code_refresh_lock(refresh_lock, user=values["ABYSS_USER"])
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            package_projection = staged[:1]
-            seed_projections = staged[1:-2]
-            launcher_projection = staged[-2:-1]
-            bin_projection = staged[-1:]
-            if package_existed and not managed_launcher_existed:
-                _commit_projection(launcher_projection)
-                staged.remove(launcher_projection[0])
-                (
-                    legacy_entrypoint_drain_sec,
-                    legacy_entrypoint_processes_observed,
-                ) = _wait_for_legacy_entrypoints(
-                    (bin_path, libexec),
-                    lock_fd=lock_fd,
-                    timeout_sec=LEGACY_ENTRYPOINT_DRAIN_TIMEOUT_SEC,
+            (
+                prepared_generation,
+                compiled_module_count,
+                generation_created,
+            ) = _prepare_code_generation(
+                generations_root,
+                user=values["ABYSS_USER"],
+            )
+            if prepared_generation != current_generation:
+                raise RuntimeError(
+                    f"prepared code generation mismatch: {prepared_generation}"
                 )
-                launcher_projection = []
-            elif package_existed:
-                _remove_projection_path(launcher_projection[0][0])
-                staged.remove(launcher_projection[0])
-                launcher_projection = []
-
-            if package_existed:
-                commit_order = [
-                    *seed_projections,
-                    *launcher_projection,
-                    *bin_projection,
-                    *package_projection,
-                ]
-            else:
-                commit_order = [
-                    *package_projection,
-                    *launcher_projection,
-                    *bin_projection,
-                    *seed_projections,
-                ]
-            _commit_projection(commit_order)
+            _commit_projection(staged)
+            generations_removed, generations_deferred = _prune_inactive_code_generations(
+                generations_root,
+                current_generation=current_generation,
+            )
+        except Exception:
+            if generation_created:
+                try:
+                    selected_generation = current_link.resolve(strict=True)
+                except (FileNotFoundError, OSError):
+                    selected_generation = None
+                if selected_generation != current_generation:
+                    _remove_projection_path(current_generation)
+            raise
         finally:
             if lock_fd is not None:
                 os.close(lock_fd)
@@ -536,12 +625,25 @@ def install_code_projection(
         "compiled_module_count": compiled_module_count if apply else len(modules),
         "bytecode_policy": "compile_installed_package_once",
         "symlink": str(bin_path),
-        "libexec_entrypoint": "stable_python_module_launcher",
-        "projection_strategy": "sibling_stage_then_rename_exchange",
+        "libexec_entrypoint": "stable_generation_python_module_launcher",
+        "projection_strategy": "immutable_generation_then_atomic_current_switch",
         "atomic_visibility": True,
         "refresh_lock": str(refresh_lock),
-        "legacy_entrypoint_drain_sec": legacy_entrypoint_drain_sec,
+        "generation_id": generation_id,
+        "generation_root": str(current_generation),
+        "current_generation": str(current_link),
+        "generation_active_lock": str(
+            current_generation / CODE_GENERATION_ACTIVE_LOCK_NAME
+        ),
+        "compatibility_package_target": str(compatibility_package_target),
+        "legacy_package_preserved": legacy_package_preserved,
         "legacy_entrypoint_processes_observed": legacy_entrypoint_processes_observed,
+        "legacy_entrypoint_drain_required": False,
+        "generation_gc": {
+            "keep": CODE_GENERATIONS_TO_KEEP,
+            "removed": generations_removed,
+            "deferred_active": generations_deferred,
+        },
     })
     actions.append({
         "action": "install_public_seed",
