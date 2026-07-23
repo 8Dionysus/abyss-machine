@@ -43,8 +43,9 @@ Use the skill directory reported by the host as the initial bundle root.
    `name=os-abyss-artifact-trust-loop`, `owner_repo=abyss-machine`,
    `source_path=skills/os-abyss-artifact-trust-loop`, and `version=0.1.1`.
    For v2 also require non-empty `digest`, `source_fingerprint`,
-   `source_fingerprint_scope`, and `prompt_description_sha256`; preserve
-   `capability_graph_hash` when present.
+   `source_fingerprint_scope`, and `prompt_description_sha256`. When
+   `capability_graph_hash` is present, require it to be a non-empty string and
+   preserve it.
 4. Follow the exact `owner_root` and `source_path` from the receipt. Require
    the owner contract to repeat the same identity, version, and admitted
    lifecycle.
