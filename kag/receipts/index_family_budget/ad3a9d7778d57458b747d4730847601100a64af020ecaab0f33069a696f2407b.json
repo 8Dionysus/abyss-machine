@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 8200113,
+  "allowed_tracked_bytes": 25050151,
+  "approved_by": "repository-owner",
+  "base_ref": "2faa6c6ccfc1309f6c3b6a36ddf04c3334c4547b",
+  "changed_generated_bytes": 8200113,
+  "changed_generated_files": 106,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "ad3a9d7778d57458b747d4730847601100a64af020ecaab0f33069a696f2407b",
+  "reason": "Atomic bootstrap refresh changes the launcher, coordinated projection transaction, first-run validator, and focused proof; complete owner KAG lineage refresh is required.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25050151,
+  "tracked_bytes_max": 27262976
+}

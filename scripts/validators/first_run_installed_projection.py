@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import shutil
 import signal
 import subprocess
@@ -22,6 +23,7 @@ BOOTSTRAP = REPO_ROOT / "scripts" / "abyss-machine-bootstrap"
 SRC_ROOT = REPO_ROOT / "src"
 PROFILE_MANIFEST = REPO_ROOT / "manifests" / "bootstrap_profiles.manifest.json"
 SOURCE_PACKAGE_ROOT = SRC_ROOT / "abyss_machine"
+CLI_REFRESH_LOCK_NAME = ".abyss-machine-code-refresh.lock"
 SOURCE_PUBLIC_SEED_ROOTS = {
     "manifests": REPO_ROOT / "manifests",
     "generated": REPO_ROOT / "generated",
@@ -882,6 +884,17 @@ def public_file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def expected_cli_launcher() -> str:
+    namespace = runpy.run_path(
+        str(BOOTSTRAP),
+        run_name="abyss_machine_bootstrap_projection_contract",
+    )
+    launcher = namespace.get("CLI_LAUNCHER")
+    if not isinstance(launcher, str) or not launcher:
+        raise RuntimeError("bootstrap CLI_LAUNCHER contract is unavailable")
+    return launcher
+
+
 def relative_file_digests(root: Path) -> dict[str, str]:
     if not root.is_dir():
         return {}
@@ -931,22 +944,40 @@ def content_parity_report(
 ) -> dict[str, Any]:
     failures: list[str] = []
     cli_row = {
-        "source": str(REPO_ROOT / "src" / "abyss_machine" / "cli.py"),
+        "source": f"{BOOTSTRAP}#CLI_LAUNCHER",
         "installed": str(installed_cli),
         "status": "ok",
     }
-    source_cli = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
+    launcher = expected_cli_launcher()
     if not installed_cli.is_file():
         cli_row["status"] = "missing"
         failures.append(f"{label} CLI missing: {installed_cli}")
     else:
-        source_digest = public_file_digest(source_cli)
+        source_digest = hashlib.sha256(launcher.encode("utf-8")).hexdigest()
         installed_digest = public_file_digest(installed_cli)
         cli_row["source_sha256"] = source_digest
         cli_row["installed_sha256"] = installed_digest
         if source_digest != installed_digest:
             cli_row["status"] = "digest_mismatch"
             failures.append(f"{label} CLI digest mismatch: {installed_cli}")
+    refresh_lock = installed_cli.parent / CLI_REFRESH_LOCK_NAME
+    lock_row = {
+        "path": str(refresh_lock),
+        "status": "ok",
+        "required_mode": "0600",
+    }
+    if not refresh_lock.is_file():
+        lock_row["status"] = "missing"
+        failures.append(f"{label} CLI refresh lock missing: {refresh_lock}")
+    else:
+        mode = refresh_lock.stat().st_mode & 0o777
+        lock_row["mode"] = f"{mode:04o}"
+        if mode != 0o600:
+            lock_row["status"] = "mode_mismatch"
+            failures.append(
+                f"{label} CLI refresh lock mode mismatch: {refresh_lock} mode={mode:04o}"
+            )
+    cli_row["refresh_lock"] = lock_row
 
     package_row = compare_digest_maps(
         relative_file_digests(SOURCE_PACKAGE_ROOT),

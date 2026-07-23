@@ -72,7 +72,9 @@ def test_content_parity_report_detects_installed_cli_digest_drift(tmp_path: Path
     libexec = tmp_path / "libexec"
     share_root = tmp_path / "share" / "abyss-machine"
     libexec.mkdir(parents=True)
-    shutil.copy2(ROOT / "src" / "abyss_machine" / "cli.py", libexec / "abyss-machine")
+    (libexec / "abyss-machine").write_text(module.expected_cli_launcher(), encoding="utf-8")
+    refresh_lock = libexec / module.CLI_REFRESH_LOCK_NAME
+    refresh_lock.touch(mode=0o600)
     shutil.copytree(ROOT / "src" / "abyss_machine", libexec / "abyss_machine")
     shutil.copytree(ROOT / "manifests", share_root / "manifests")
     shutil.copytree(ROOT / "generated", share_root / "generated")
