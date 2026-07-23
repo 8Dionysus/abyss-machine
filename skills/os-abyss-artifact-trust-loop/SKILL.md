@@ -38,9 +38,13 @@ Use the skill directory reported by the host as the initial bundle root.
 1. If it is `<owner-root>/skills/os-abyss-artifact-trust-loop/`, require the
    adjacent owner root to be the `abyss-machine` source checkout and use it.
 2. Otherwise read only `.aoa-skill-source.json` beside this `SKILL.md`.
-3. Require `schema_version=aoa_skill_source_receipt_v1`,
+3. Require `schema_version` to be `aoa_skill_source_receipt_v1` or
+   `aoa_skill_source_receipt_v2`,
    `name=os-abyss-artifact-trust-loop`, `owner_repo=abyss-machine`,
-   `source_path=skills/os-abyss-artifact-trust-loop`, and `version=0.1.0`.
+   `source_path=skills/os-abyss-artifact-trust-loop`, and `version=0.1.1`.
+   For v2 also require non-empty `digest`, `source_fingerprint`,
+   `source_fingerprint_scope`, and `prompt_description_sha256`; preserve
+   `capability_graph_hash` when present.
 4. Follow the exact `owner_root` and `source_path` from the receipt. Require
    the owner contract to repeat the same identity, version, and admitted
    lifecycle.
@@ -48,7 +52,8 @@ Use the skill directory reported by the host as the initial bundle root.
    missing, ambiguous, or version-stale. Do not search sibling repositories
    for a plausible copy.
 
-The receipt locates source; it does not prove current policy, evidence,
+Report the receipt schema and v2 identity dimensions when present. The receipt
+locates and identifies source; it does not prove current policy, evidence,
 runtime parity, or consumer admission.
 
 ## Start
