@@ -23,6 +23,7 @@
     "mechanics": ["AGENTS.md", "README.md"],
     "schemas": ["AGENTS.md", "README.md"],
     "scripts": ["AGENTS.md", "README.md", "validation_lanes.py", "ci_gate.py", "release_check.py", "generate_contract_abi_signatures.py", "validate_local_stats_port.py", "validators/path_policy.py", "validators/first_run_installed_projection.py", "validators/typing_nervous_policy.py", "validators/typing_nervous_refresh_logic.py"],
+    "skills": ["AGENTS.md", "README.md", "port.manifest.json", "os-abyss-artifact-trust-loop/SKILL.md", "os-abyss-artifact-trust-loop/agents/openai.yaml", "os-abyss-artifact-trust-loop/references/contract.yaml", "os-abyss-artifact-trust-loop/references/trust-loop.md"],
     "src": ["abyss_machine/__init__.py", "abyss_machine/cli.py", "abyss_machine/path_policy.py", "abyss_machine/typing_nervous_policy.py", "abyss_machine/typing_nervous_refresh.py"],
     "stats": ["AGENTS.md", "README.md", "port.manifest.json"],
     "systemd": ["AGENTS.md", "README.md"],

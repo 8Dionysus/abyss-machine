@@ -10,7 +10,7 @@
 | role | local KAG provider for host source, contracts, manifests, mechanics, and validation surfaces |
 | records | `nodes/`, `edges/`, `indexes/`, `projections/`, `receipts/` |
 | manifest | `manifest.json` |
-| source route | `README.md`, `DESIGN.md`, `manifests/`, `mechanics/`, and `schemas/` |
+| source route | `README.md`, `DESIGN.md`, `manifests/`, `mechanics/`, `schemas/`, and `skills/` |
 | consumer route | `aoa-kag` registry/composition, `abyss-stack`, MCP resources |
 | owner return | `README.md` |
 

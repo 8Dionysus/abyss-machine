@@ -1,0 +1,25 @@
+{
+  "schema_version": "aoa_skill_home_port_v2",
+  "contract_ref": "aoa-skills:schemas/skill-home-port.schema.json",
+  "owner_repo": "abyss-machine",
+  "owner_ref": "AGENTS.md",
+  "bundles": [
+    {
+      "name": "os-abyss-artifact-trust-loop",
+      "path": "skills/os-abyss-artifact-trust-loop",
+      "version": "0.1.0",
+      "lifecycle": "admitted",
+      "visibility": "advertised",
+      "admission_ref": "skills/README.md"
+    }
+  ],
+  "exposure": {
+    "runtime": "codex",
+    "scope": "user",
+    "profile": "os-user-default",
+    "mode": "profile-selected",
+    "skills": [
+      "os-abyss-artifact-trust-loop"
+    ]
+  }
+}

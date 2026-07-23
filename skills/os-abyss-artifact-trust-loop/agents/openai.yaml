@@ -1,0 +1,7 @@
+interface:
+  display_name: "OS Abyss Artifact Trust"
+  short_description: "Route artifact evidence and consumer admission"
+  default_prompt: "Use $os-abyss-artifact-trust-loop to classify this artifact, inspect owner evidence, and preserve the exact trust-gate verdict before consumption."
+
+policy:
+  allow_implicit_invocation: true

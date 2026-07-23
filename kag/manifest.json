@@ -33,6 +33,13 @@
     },
     {
       "repo": "abyss-machine",
+      "path": "skills/port.manifest.json",
+      "source_class": "runtime_source",
+      "role": "supporting",
+      "authority": "authored_source"
+    },
+    {
+      "repo": "abyss-machine",
       "path": "generated/contract_abi_signatures.min.json",
       "source_class": "generated_readmodel",
       "role": "supporting",

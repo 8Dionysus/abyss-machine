@@ -1,6 +1,6 @@
 {
   "schema": "abyss_machine_artifact_signature_policy_manifest_v1",
-  "policy_version": "0.2.5",
+  "policy_version": "0.2.6",
   "purpose": "Declare how abyss-machine public seed contracts, release bundles, runtime artifacts, local evidence, and public media exports are fingerprinted, attested, or signed without publishing private host state.",
   "primary_standard_refs": {
     "sbom": [
@@ -518,7 +518,7 @@
         "privacy_boundary": "public; must not include live host facts, private captures, secrets, caches, models, or local indexes",
         "content_identity": "git tree plus generated contract ABI sha256-tree-v1",
         "abi_epoch": "v1 via public-seed-scaffold",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#public_source_seed",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#public_source_seed",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/ci_gate.py --mode source-fast"],
         "action": "KEEP"
@@ -542,7 +542,7 @@
         "privacy_boundary": "public-derived; rendered host-local values stay outside the repo",
         "content_identity": "release artifact digest plus ABI source tree hash",
         "abi_epoch": "v1 via bootstrap-install-seed",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#bootstrap_install_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#bootstrap_install_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact", "scripts/abyss-machine-bootstrap doctor --dry-run --json"],
         "action": "KEEP"
@@ -566,7 +566,7 @@
         "privacy_boundary": "publishable only after excluding local model caches, compile blobs, private benchmarks, and /srv runtime state; no private material from host evidence is included",
         "content_identity": "artifact digest plus release sidecar digests",
         "abi_epoch": "v1 via host-runtime-artifact-route",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#runtime_or_container_artifact",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#runtime_or_container_artifact",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -590,7 +590,7 @@
         "privacy_boundary": "publishable only after excluding local prompts, private traces, benchmark scratch, compile caches, and host-specific /srv state; no private material from host evidence is included",
         "content_identity": "model/runtime bundle digest plus model, dataset, conversion, and framework-config identities",
         "abi_epoch": "v1 via host-ai-runtime-route",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#ai_model_or_runtime_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#ai_model_or_runtime_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "ADD_ML_BOM"
@@ -614,7 +614,7 @@
         "privacy_boundary": "package contains code only; no private typed text, browser captures, local histories, or host evidence is included",
         "content_identity": "zip/xpi digest plus ABI source tree hash",
         "abi_epoch": "v1 via typing-extension-package",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#browser_extension_package",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#browser_extension_package",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -638,7 +638,7 @@
         "privacy_boundary": "public-safe generated export metadata and digests only; no private workspace evidence, no secrets, no host runtime state, and no downstream adoption truth",
         "content_identity": "generated/release_manifest.json digest plus artifact_identity from the owning aoa-skills repository",
         "abi_epoch": "aoa_skills_release_manifest_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#aoa_skills_release_manifest",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#aoa_skills_release_manifest",
         "trust_layer": ["abi_contract_signature", "local_release_provenance", "w3c_prov_lineage"],
         "verification": ["abyss-machine artifacts verify BUNDLE_DIR --json", "python scripts/validation/validate_abyss_machine_artifact_bundle.py", "python scripts/lanes/ci_gate.py --mode release"],
         "action": "KEEP"
@@ -662,7 +662,7 @@
         "privacy_boundary": "public-safe portable kernel, route docs, schemas, scripts, skills, hook examples, tests, and compact export metadata only; no private workspace evidence, raw transcripts, session archives, hook receipts, diagnostics payloads, search databases, graph sidecars, or secrets",
         "content_identity": "clean portable export bundle digest plus aoa-session-memory portable kernel subject inventory",
         "abi_epoch": "aoa_session_memory_portable_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#aoa_session_memory_portable_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#aoa_session_memory_portable_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python3 scripts/aoa_session_memory.py audit --workspace-root /srv/AbyssOS --aoa-root /srv/AbyssOS/bundles/aoa-session-memory --portable-bundle", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -686,7 +686,7 @@
         "privacy_boundary": "public source-authored agent-layer metadata only; no private prompts, session transcripts, secrets, live runtime state, hidden operator traces, or role authority beyond aoa-agents source objects",
         "content_identity": "generated/agent_registry.min.json digest plus repo-local aoa-agents artifact identity",
         "abi_epoch": "aoa_agents_role_registry_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#role_contract_registry",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#role_contract_registry",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/build_published_surfaces.py", "python scripts/validate_agents.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -710,7 +710,7 @@
         "privacy_boundary": "public technique metadata and source refs only; no private project residue, hidden transcripts, source payload bodies, secrets, machine-local runtime state, or KAG substrate authority",
         "content_identity": "generated/kag_export.min.json digest plus repo-local aoa-techniques artifact identity",
         "abi_epoch": "aoa_techniques_kag_export_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#source_owned_kag_export_capsule",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#source_owned_kag_export_capsule",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/build_kag_export.py", "python scripts/validate_repo.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -734,7 +734,7 @@
         "privacy_boundary": "public KAG surface refs and compact summaries only; no private session payloads, memo payload bodies, source corpus bodies, secrets, live runtime state, or local host evidence",
         "content_identity": "generated/kag_registry.min.json digest plus repo-local aoa-kag artifact identity",
         "abi_epoch": "aoa_kag_registry_readmodel_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#derived_kag_registry_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#derived_kag_registry_readmodel_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/validate_kag.py", "python scripts/ci_gate.py --mode generated", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -758,7 +758,7 @@
         "privacy_boundary": "public-safe KAG records and source-return coordinates only; no private sessions, memory payloads, secrets, host runtime state, query caches, embeddings, graph stores, or vector stores",
         "content_identity": "owner release digest plus byte-exact portable family subject aggregate; mirrors and cache locations are delivery coordinates only",
         "abi_epoch": "aoa-kag-owner-family-release-v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#kag_owner_family_release",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#kag_owner_family_release",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/validate_repo_local_kag_release.py --repo-root OWNER_ROOT --artifact-root ARTIFACT_ROOT", "abyss-machine artifacts verify BUNDLE_DIR --subject-root FAMILY_EXPORT --json", "abyss-machine artifacts trust-gate --artifact-class kag_owner_family_release --json"],
         "action": "ADD_SIGNED_CONTENT_ADDRESSED_RELEASE"
@@ -782,7 +782,7 @@
         "privacy_boundary": "public-safe owner identities, source refs, digests, aggregate measurements, and unresolved-reference state only; no owner record bodies or private runtime material",
         "content_identity": "deterministic OS composition digest over 24 verified owner releases; transport locations remain separate",
         "abi_epoch": "aoa-kag-os-composition-v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#kag_os_composition",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#kag_os_composition",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["aoa-kag OS composition validator", "abyss-machine artifacts verify BUNDLE_DIR --subject-root COMPOSITION_EXPORT --json", "abyss-machine artifacts trust-gate --artifact-class kag_os_composition --json"],
         "action": "ADD_SIGNED_FEDERATION_COMPOSITION"
@@ -806,7 +806,7 @@
         "privacy_boundary": "public reviewed corpus and teaching fixture refs only; no private session payloads, unreviewed local-port candidates, secrets, live access-plane state, or proof/identity claims",
         "content_identity": "generated memory-object catalog, compact catalog, capsules, and sections digests plus repo-local aoa-memo artifact identity",
         "abi_epoch": "aoa_memo_memory_object_surfaces_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#derived_memory_object_readmodel_family",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#derived_memory_object_readmodel_family",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/memory/generate_memory_object_surfaces.py --check", "python scripts/memory/validate_memory_object_surfaces.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -830,7 +830,7 @@
         "privacy_boundary": "public routing refs and compact generated navigation summaries only; no private payloads, secrets, live runtime state, copied owner corpora, or sibling source authority",
         "content_identity": "generated aoa router, route hints, recommended paths, and routing schemas digests plus repo-local aoa-routing artifact identity",
         "abi_epoch": "aoa_routing_thin_router_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#thin_routing_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#thin_routing_readmodel_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/build_router.py --check", "python scripts/validate_router.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -854,7 +854,7 @@
         "privacy_boundary": "public playbook metadata and generated playbook-owned composition/readout refs only; no private run logs, secrets, live runtime state, memo truth, proof verdicts, or routing authority",
         "content_identity": "generated playbook registry and playbook-owned composition, activation, review, and federation readout digests plus repo-local aoa-playbooks artifact identity",
         "abi_epoch": "aoa_playbooks_registry_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#playbook_registry_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#playbook_registry_bundle",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/validate_playbooks.py", "python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -878,7 +878,7 @@
         "privacy_boundary": "public package artifacts only; no private workspace evidence, host runtime state, session traces, caches, or local /srv data",
         "content_identity": "wheel and sdist digests plus repo-local aoa-sdk artifact identity manifest",
         "abi_epoch": "aoa_sdk_python_distribution_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#aoa_sdk_python_distribution",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#aoa_sdk_python_distribution",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -902,7 +902,7 @@
         "privacy_boundary": "public-safe rendered runtime config only; no Secrets, Logs, Models, stack.env values, private host captures, local databases, or deployed /srv mutable state",
         "content_identity": "rendered runtime config digests plus repo-local abyss-stack artifact identity manifest",
         "abi_epoch": "abyss_stack_runtime_config_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#abyss_stack_runtime_config_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#abyss_stack_runtime_config_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -926,7 +926,7 @@
         "privacy_boundary": "public-safe generated proof reader only; no private datasets, hidden telemetry, raw operator traces, secret-bearing fixtures, or unreviewed runtime evidence",
         "content_identity": "generated report-index digest plus repo-local aoa-evals artifact identity manifest",
         "abi_epoch": "aoa_evals_generated_report_index_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#aoa_evals_generated_report_index_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#aoa_evals_generated_report_index_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -950,7 +950,7 @@
         "privacy_boundary": "public derived summary refs only; no raw private receipts, session captures, owner payload bodies, runtime-local evidence, or owner-truth claims",
         "content_identity": "generated summary surface catalog digest plus repo-local aoa-stats artifact identity",
         "abi_epoch": "aoa_stats_summary_surface_catalog_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#derived_observability_readmodel_catalog",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#derived_observability_readmodel_catalog",
         "trust_layer": ["abi_contract_signature", "sbom"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_BOM"
@@ -974,7 +974,7 @@
         "privacy_boundary": "public-safe generated JSON readmodels only; no private host/runtime/session evidence, unreviewed source expansion, local graph cache, or media credential material",
         "content_identity": "root_entry_map, KAG export, and ToS corpus index digests plus repo-local Tree-of-Sophia artifact identity",
         "abi_epoch": "tree_of_sophia_generated_readmodel_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#tree_of_sophia_generated_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#tree_of_sophia_generated_readmodel_bundle",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "DEFINE_ABI"
@@ -998,7 +998,7 @@
         "privacy_boundary": "public-safe generated seed navigation only; no private host/runtime/session evidence, unpublished owner evidence, seed-pack media credentials, or canonical seed meaning",
         "content_identity": "generated seed route map digest plus repo-local Dionysus artifact identity",
         "abi_epoch": "dionysus_seed_route_map_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#dionysus_seed_route_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#dionysus_seed_route_readmodel_bundle",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "DEFINE_ABI"
@@ -1022,7 +1022,7 @@
         "privacy_boundary": "private host evidence; not public repo content and not release-signed by default",
         "content_identity": "local packet path, sha256 or tree_hash, size, mtime, and producer refs",
         "abi_epoch": "local packet schema v1",
-        "contract_version": "abyss_machine_local_provenance_packet_v1@artifact_signature_policy.manifest.json@0.2.5",
+        "contract_version": "abyss_machine_local_provenance_packet_v1@artifact_signature_policy.manifest.json@0.2.6",
         "trust_layer": ["local_provenance", "w3c_prov_lineage"],
         "verification": ["abyss-machine artifacts validate --json", "subsystem-specific local validator"],
         "action": "ADD_LOCAL_PROVENANCE"
@@ -1047,7 +1047,7 @@
         "privacy_boundary": "public only after review; no private material from host evidence is included in public exports, and source evidence keeps its local provenance",
         "content_identity": "media digest plus C2PA manifest or sidecar",
         "abi_epoch": "not_applicable_content_credential",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.5#public_media_export",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.6#public_media_export",
         "trust_layer": ["c2pa"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -1076,6 +1076,7 @@
         "docs/validation/validation_lanes.json",
         "manifests",
         "schemas",
+        "skills",
         "stats",
         "src/abyss_machine",
         "scripts/generate_contract_abi_signatures.py",
