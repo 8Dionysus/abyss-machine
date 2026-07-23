@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 9289123,
+  "allowed_tracked_bytes": 25076365,
+  "approved_by": "repository-owner",
+  "base_ref": "4cb3c4a59ce1f1f97cc3618a2c5c296bfb4133ff",
+  "changed_generated_bytes": 9289123,
+  "changed_generated_files": 126,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "36d95a89f12151544bc46229f8a650b3cd5b9299f39e2c9aab0a913f457392e3",
+  "reason": "Regenerate the portable KAG family for the bootstrap code-generation lifecycle change under the workflow-pinned owner revision.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25076365,
+  "tracked_bytes_max": 27262976
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -9,6 +10,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1352,7 +1355,7 @@ def test_bootstrap_refresh_code_projects_only_cli_modules_and_public_seed(tmp_pa
     assert not systemd_user_dir.exists()
 
 
-def test_bootstrap_refresh_code_atomically_replaces_existing_projection(tmp_path: Path) -> None:
+def test_bootstrap_refresh_code_reuses_immutable_generation(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     libexec_dir = tmp_path / "libexec"
     args = (
@@ -1364,21 +1367,188 @@ def test_bootstrap_refresh_code_atomically_replaces_existing_projection(tmp_path
         "--local-libexec-dir",
         str(libexec_dir),
     )
-    run_bootstrap(*args)
+    first_payload = run_bootstrap(*args)
     package_target = libexec_dir / "abyss_machine"
     first_inode = package_target.stat().st_ino
-    obsolete = package_target / "obsolete-projection.py"
-    obsolete.write_text("old = True\n", encoding="utf-8")
+    first_action = {
+        action["action"]: action for action in first_payload["actions"]
+    }["install_cli"]
+    first_generation = Path(first_action["generation_root"])
 
     payload = run_bootstrap(*args)
 
     actions = {action["action"]: action for action in payload["actions"]}
-    assert package_target.stat().st_ino != first_inode
-    assert not obsolete.exists()
-    assert actions["install_cli"]["projection_strategy"] == "sibling_stage_then_rename_exchange"
-    assert actions["install_cli"]["legacy_entrypoint_drain_sec"] == 0.0
+    assert package_target.stat().st_ino == first_inode
+    assert (
+        libexec_dir / ".abyss-machine-code-current"
+    ).resolve() == first_generation
+    assert len(list((libexec_dir / ".abyss-machine-code-generations").iterdir())) == 1
+    assert (
+        actions["install_cli"]["projection_strategy"]
+        == "immutable_generation_then_atomic_current_switch"
+    )
+    assert actions["install_cli"]["legacy_entrypoint_drain_required"] is False
+    assert actions["install_cli"]["legacy_package_preserved"] is False
     assert actions["install_public_seed"]["projection_strategy"] == "sibling_stage_then_rename_exchange"
     assert not list(tmp_path.rglob(".*.abyss-stage-*"))
+
+
+def test_bootstrap_refresh_code_preserves_running_legacy_generation(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    libexec_dir = tmp_path / "libexec"
+    bin_dir.mkdir()
+    libexec_dir.mkdir()
+    legacy_entrypoint = libexec_dir / "abyss-machine"
+    legacy_entrypoint.write_text(
+        "#!/usr/bin/env python3\nimport time\ntime.sleep(30)\n",
+        encoding="utf-8",
+    )
+    legacy_entrypoint.chmod(0o755)
+    installed = bin_dir / "abyss-machine"
+    installed.symlink_to(legacy_entrypoint)
+    legacy_package = libexec_dir / "abyss_machine"
+    legacy_package.mkdir()
+    legacy_marker = legacy_package / "legacy-marker"
+    legacy_marker.write_text("legacy generation remains readable\n", encoding="utf-8")
+    process = subprocess.Popen(
+        [sys.executable, str(installed)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        payload = run_bootstrap(
+            "refresh-code",
+            "--apply",
+            "--skip-artifact-trust-gate",
+            "--local-bin-dir",
+            str(bin_dir),
+            "--local-libexec-dir",
+            str(libexec_dir),
+        )
+        assert process.poll() is None
+        assert legacy_marker.read_text(encoding="utf-8") == "legacy generation remains readable\n"
+        action = {
+            row["action"]: row for row in payload["actions"]
+        }["install_cli"]
+        assert action["legacy_package_preserved"] is True
+        assert action["legacy_entrypoint_processes_observed"] >= 1
+        assert action["legacy_entrypoint_drain_required"] is False
+        assert Path(action["package_target"]).is_dir()
+        assert Path(action["current_generation"]).resolve() == Path(action["generation_root"])
+        help_result = subprocess.run(
+            [str(installed), "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+        assert help_result.returncode == 0, help_result.stderr[-1000:]
+        assert "usage: abyss-machine" in help_result.stdout
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+
+def test_bootstrap_generation_gc_defers_active_process_generation(tmp_path: Path) -> None:
+    namespace = runpy.run_path(
+        str(BOOTSTRAP),
+        run_name="abyss_machine_bootstrap_generation_gc_test",
+    )
+    prune = namespace["_prune_inactive_code_generations"]
+    generations = tmp_path / ".abyss-machine-code-generations"
+    current = generations / "current"
+    recent = generations / "recent"
+    active = generations / "active"
+    for index, generation in enumerate((active, recent, current), start=1):
+        generation.mkdir(parents=True)
+        (generation / ".active.lock").touch(mode=0o600)
+        os.utime(generation, ns=(index, index))
+
+    active_fd = os.open(active / ".active.lock", os.O_RDWR | os.O_CLOEXEC)
+    fcntl.flock(active_fd, fcntl.LOCK_SH)
+    try:
+        removed, deferred = prune(
+            generations,
+            current_generation=current,
+        )
+        assert removed == []
+        assert deferred == [str(active)]
+        assert active.is_dir()
+        assert recent.is_dir()
+        assert current.is_dir()
+    finally:
+        os.close(active_fd)
+
+    removed, deferred = prune(
+        generations,
+        current_generation=current,
+    )
+    assert removed == [str(active)]
+    assert deferred == []
+    assert not active.exists()
+    assert recent.is_dir()
+    assert current.is_dir()
+
+
+def test_managed_launcher_holds_only_its_generation_lock(tmp_path: Path) -> None:
+    namespace = runpy.run_path(
+        str(BOOTSTRAP),
+        run_name="abyss_machine_bootstrap_launcher_lock_test",
+    )
+    libexec = tmp_path / "libexec"
+    generation = (
+        libexec
+        / namespace["CODE_GENERATIONS_DIR_NAME"]
+        / ("a" * 64)
+    )
+    package = generation / "abyss_machine"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "cli.py").write_text(
+        "import time\ntime.sleep(30)\n",
+        encoding="utf-8",
+    )
+    refresh_lock = libexec / ".abyss-machine-code-refresh.lock"
+    refresh_lock.touch(mode=0o600)
+    active_lock = generation / namespace["CODE_GENERATION_ACTIVE_LOCK_NAME"]
+    active_lock.touch(mode=0o600)
+    current = libexec / namespace["CODE_CURRENT_LINK_NAME"]
+    current.symlink_to(
+        Path(namespace["CODE_GENERATIONS_DIR_NAME"]) / generation.name
+    )
+    launcher = libexec / "abyss-machine"
+    launcher.write_text(namespace["CLI_LAUNCHER"], encoding="utf-8")
+    launcher.chmod(0o755)
+
+    process = subprocess.Popen(
+        [str(launcher)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    refresh_fd = os.open(refresh_lock, os.O_RDWR | os.O_CLOEXEC)
+    active_fd = os.open(active_lock, os.O_RDWR | os.O_CLOEXEC)
+    try:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                fcntl.flock(active_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                break
+            fcntl.flock(active_fd, fcntl.LOCK_UN)
+            assert process.poll() is None
+            if time.monotonic() >= deadline:
+                raise AssertionError("managed launcher did not acquire generation lock")
+            time.sleep(0.01)
+
+        fcntl.flock(refresh_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(refresh_fd, fcntl.LOCK_UN)
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(active_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(active_fd)
+        os.close(refresh_fd)
+        process.terminate()
+        process.wait(timeout=10)
 
 
 def test_bootstrap_atomic_projection_rolls_back_prior_exchange(tmp_path: Path) -> None:
