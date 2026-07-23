@@ -356,7 +356,11 @@ def test_resource_planning_builds_indexing_systemd_contract_without_cli_state() 
         "ok": True,
         "allowed": True,
         "unattended_allowed": True,
-        "route": {"cpuset": "2-5", "env": {"OMP_NUM_THREADS": "4"}},
+        "route": {
+            "cpuset": "2-5",
+            "env": {"OMP_NUM_THREADS": "4"},
+            "routing_required": True,
+        },
     }
 
     plan = resource_planning.systemd_plan(
@@ -486,6 +490,148 @@ def test_resource_planning_keeps_unattended_medium_ai_free_of_generic_hard_caps(
     assert "MemoryMax" not in props
     assert "MemorySwapMax" not in props
     assert plan["systemd"]["policy"]["static_memory_caps_applied"] is False
+
+
+def test_resource_plan_honors_owner_routed_heavy_over_base_mode_cap() -> None:
+    common = {
+        "workload_class": "heavy",
+        "kind": "agent",
+        "latency": "balanced",
+        "unattended": True,
+        "force": False,
+        "bytes_required": None,
+        "target": None,
+        "unit_type": "service",
+        "sample_thermal": False,
+        "policy": resource_planning.default_policy(version="test"),
+        "memory": {"class": "green"},
+        "storage": {"summary": {"root_pressure_class": "green", "srv_pressure_class": "green"}},
+        "game_guard": {"active": False},
+        "thermal_plan": {"thermal": {"class": "warm"}},
+        "write_preflight": None,
+        "paths": {"latest": "/state/resource/latest.json"},
+        "input_latest_paths": {},
+        "thermal_unattended_cap": "heavy",
+        "total_mem_kib": 32 * 1024 * 1024,
+        "environ": {},
+        "version": "test",
+        "generated_at": "2026-07-23T12:00:00+00:00",
+    }
+    route = {
+        "ok": True,
+        "allowed": True,
+        "unattended_allowed": True,
+        "route": {
+            "cpuset": "0-1,6-11,14-15",
+            "env": {},
+            "routing_required": True,
+        },
+    }
+    authorized = resource_planning.build_plan(
+        mode={
+            "launch_policy": {
+                "max_unattended_class": "medium",
+                "cpu_routed_heavy": {
+                    "can_start_unattended": True,
+                    "requires_route_application": True,
+                },
+            }
+        },
+        route=route,
+        **common,
+    )
+    missing_owner_authority = resource_planning.build_plan(
+        mode={
+            "launch_policy": {
+                "max_unattended_class": "medium",
+                "cpu_routed_heavy": {
+                    "can_start_unattended": False,
+                    "requires_route_application": True,
+                },
+            }
+        },
+        route=route,
+        **common,
+    )
+    malformed_owner_route = resource_planning.build_plan(
+        mode={
+            "launch_policy": {
+                "max_unattended_class": "medium",
+                "cpu_routed_heavy": {
+                    "can_start_unattended": True,
+                    "requires_route_application": True,
+                },
+            }
+        },
+        route={
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-1,6-11,14-15", "env": {}},
+        },
+        **common,
+    )
+
+    assert authorized["decision"] == "allow"
+    assert authorized["systemd"]["properties"]["AllowedCPUs"] == "0-1,6-11,14-15"
+    assert authorized["policy"]["owner_routed_heavy_can_satisfy_base_mode_unattended_cap"] is True
+    assert missing_owner_authority["decision"] == "force_required"
+    assert missing_owner_authority["blocked_reasons"] == ["mode_unattended_cap_medium"]
+    assert malformed_owner_route["decision"] == "force_required"
+    assert malformed_owner_route["blocked_reasons"] == ["mode_unattended_cap_medium"]
+
+
+def test_resource_planning_keeps_advisory_cpu_route_uncapped_when_placement_is_not_required() -> None:
+    plan = resource_planning.systemd_plan(
+        resource_planning.default_policy(version="test"),
+        "benchmark",
+        "heavy",
+        {
+            "route": {
+                "cpuset": "0-1,6-11,14-15",
+                "env": {"OMP_NUM_THREADS": "6"},
+                "routing_required": False,
+                "avoid_cpus": [],
+                "hard_avoid_cpus": [],
+            }
+        },
+        "service",
+        total_mem_kib=32 * 1024 * 1024,
+        environ={},
+        unattended=True,
+    )
+
+    assert "AllowedCPUs" not in plan["properties"]
+    assert plan["env"] == {}
+    assert plan["policy"]["cpu_placement_required"] is False
+    assert plan["policy"]["advisory_cpuset_not_applied"] is True
+    assert plan["policy"]["thread_env_from_ai_cpu_route"] is False
+
+
+def test_resource_planning_applies_cpu_route_when_live_thermal_avoidance_requires_it() -> None:
+    plan = resource_planning.systemd_plan(
+        resource_planning.default_policy(version="test"),
+        "benchmark",
+        "medium",
+        {
+            "route": {
+                "cpuset": "6-15",
+                "env": {"OMP_NUM_THREADS": "4"},
+                "routing_required": False,
+                "avoid_cpus": [0, 1],
+                "hard_avoid_cpus": [],
+            }
+        },
+        "service",
+        total_mem_kib=32 * 1024 * 1024,
+        environ={},
+        unattended=True,
+    )
+
+    assert plan["properties"]["AllowedCPUs"] == "6-15"
+    assert plan["env"] == {"OMP_NUM_THREADS": "4"}
+    assert plan["policy"]["cpu_placement_required"] is True
+    assert plan["policy"]["cpu_placement_reasons"] == ["thermal_route_avoid_cpus"]
 
 
 def test_resource_planning_keeps_operator_visible_medium_agent_uncapped_by_swap_budget() -> None:

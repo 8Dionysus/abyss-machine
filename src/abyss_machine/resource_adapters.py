@@ -162,6 +162,9 @@ def update_demand_profiles(
     memory_peak_mib: float,
     memory_swap_peak_mib: float,
     observed_at_epoch: float,
+    execution_succeeded: bool | None = None,
+    execution_returncode: int | None = None,
+    requested_demand_mib: float | None = None,
     multiplier: float = 1.25,
     max_entries: int = 64,
     max_samples: int = 16,
@@ -177,9 +180,29 @@ def update_demand_profiles(
         "memory_swap_peak_mib": round(max(0.0, float(memory_swap_peak_mib)), 3),
         "footprint_peak_mib": round(footprint_mib, 3),
     }
+    if execution_succeeded is not None:
+        sample["execution_succeeded"] = bool(execution_succeeded)
+    if execution_returncode is not None:
+        sample["execution_returncode"] = int(execution_returncode)
+    if requested_demand_mib is not None:
+        sample["requested_demand_mib"] = round(max(0.0, float(requested_demand_mib)), 3)
     samples = [dict(item) for item in old_samples if isinstance(item, dict)] + [sample]
     samples = samples[-max(1, min(int(max_samples), 64)):]
     observed_max = max(float(item.get("footprint_peak_mib") or 0.0) for item in samples)
+    failed_demand_floor = max(
+        (
+            float(item.get("requested_demand_mib") or 0.0)
+            for item in samples
+            if item.get("execution_succeeded") is False
+        ),
+        default=0.0,
+    )
+    observed_estimate = observed_max * max(1.0, float(multiplier))
+    estimate_source = (
+        "failed_execution_request_floor"
+        if failed_demand_floor > observed_estimate
+        else "runtime_observed_unit_peak"
+    )
     profile.update(
         {
             "key": key,
@@ -188,8 +211,9 @@ def update_demand_profiles(
             "updated_at_epoch": round(float(observed_at_epoch), 3),
             "sample_count": len(samples),
             "observed_max_mib": round(observed_max, 3),
-            "estimate_mib": round(observed_max * max(1.0, float(multiplier)), 3),
-            "estimate_source": "runtime_observed_unit_peak",
+            "failed_demand_floor_mib": round(failed_demand_floor, 3),
+            "estimate_mib": round(max(observed_estimate, failed_demand_floor), 3),
+            "estimate_source": estimate_source,
             "samples": samples,
         }
     )
@@ -214,6 +238,9 @@ def record_demand_observation(
     memory_peak_mib: float,
     memory_swap_peak_mib: float,
     observed_at_epoch: float,
+    execution_succeeded: bool | None = None,
+    execution_returncode: int | None = None,
+    requested_demand_mib: float | None = None,
     multiplier: float = 1.25,
     max_entries: int = 64,
     max_samples: int = 16,
@@ -231,6 +258,9 @@ def record_demand_observation(
             memory_peak_mib=memory_peak_mib,
             memory_swap_peak_mib=memory_swap_peak_mib,
             observed_at_epoch=observed_at_epoch,
+            execution_succeeded=execution_succeeded,
+            execution_returncode=execution_returncode,
+            requested_demand_mib=requested_demand_mib,
             multiplier=multiplier,
             max_entries=max_entries,
             max_samples=max_samples,
@@ -453,6 +483,7 @@ def execute_systemd_launch(
 
     result: dict[str, Any]
     lease_released = False
+    launch_completed = False
     try:
         proc = runner(
             systemd_command,
@@ -463,6 +494,7 @@ def execute_systemd_launch(
             check=False,
         )
         combined = f"{proc.stdout}\n{proc.stderr}"
+        launch_completed = True
         systemd_info = parse_output(combined)
         if launch_unit and not systemd_info.get("unit"):
             systemd_info["unit"] = launch_unit
@@ -507,7 +539,7 @@ def execute_systemd_launch(
             lease_released = remove_lease(reservation_root, lease_id) or not lease_path(reservation_root, lease_id).exists()
 
     demand_observation: dict[str, Any] | None = None
-    if launch_unit and unit_type == "service" and result.get("ok") is True:
+    if launch_unit and unit_type == "service" and launch_completed:
         peaks = journal_unit_resource_peaks(launch_unit, since_epoch=launch_started_epoch)
         if not peaks.get("ok"):
             systemd_info = result.get("systemd") if isinstance(result.get("systemd"), Mapping) else {}
@@ -520,7 +552,13 @@ def execute_systemd_launch(
                 peaks = summary_peaks
             else:
                 peaks["summary_fallback"] = summary_peaks
-        observation: dict[str, Any] = {"peaks": peaks, "recorded": False}
+        observation: dict[str, Any] = {
+            "peaks": peaks,
+            "recorded": False,
+            "execution_succeeded": result.get("ok") is True,
+            "execution_returncode": result.get("returncode"),
+            "requested_demand_mib": lease.get("demand_mib") if isinstance(lease, Mapping) else None,
+        }
         if peaks.get("ok") and demand_key:
             try:
                 recorded = record_demand_observation(
@@ -531,6 +569,13 @@ def execute_systemd_launch(
                     memory_peak_mib=float(peaks.get("memory_peak_mib") or 0.0),
                     memory_swap_peak_mib=float(peaks.get("memory_swap_peak_mib") or 0.0),
                     observed_at_epoch=time.time(),
+                    execution_succeeded=result.get("ok") is True,
+                    execution_returncode=int(result.get("returncode") or 0),
+                    requested_demand_mib=(
+                        float(lease.get("demand_mib"))
+                        if isinstance(lease, Mapping) and lease.get("demand_mib") is not None
+                        else None
+                    ),
                     multiplier=observed_peak_multiplier,
                     max_entries=profile_max_entries,
                     max_samples=profile_max_samples,

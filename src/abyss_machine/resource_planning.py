@@ -50,6 +50,32 @@ def workload_level(name: str | None) -> int:
     return values.get(str(name or "light").strip().lower(), 1)
 
 
+def routed_heavy_unattended_authorized(
+    launch_policy: Mapping[str, Any],
+    route: Mapping[str, Any],
+    *,
+    workload_class: str,
+) -> bool:
+    if workload_class != "heavy":
+        return False
+    routed = launch_policy.get("cpu_routed_heavy")
+    if not isinstance(routed, Mapping) or routed.get("can_start_unattended") is not True:
+        return False
+    if route.get("ok") is not True or route.get("allowed") is not True or route.get("unattended_allowed") is not True:
+        return False
+    route_data = route.get("route")
+    if routed.get("requires_route_application") is True:
+        if not isinstance(route_data, Mapping):
+            return False
+        routing_required = route_data.get("routing_required")
+        if not isinstance(routing_required, bool):
+            return False
+        cpuset = str(route_data.get("cpuset") or "").strip()
+        if routing_required and not cpuset:
+            return False
+    return True
+
+
 def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -> dict[str, Any]:
     return {
         "schema": f"{schema_prefix}_resource_policy_v1",
@@ -665,10 +691,19 @@ def systemd_plan(
 ) -> dict[str, Any]:
     classes = policy.get("class_defaults", {}) if isinstance(policy.get("class_defaults"), dict) else {}
     class_policy = classes.get(workload_class) if isinstance(classes.get(workload_class), dict) else {}
-    cpuset = _nested_get(route, ["route", "cpuset"])
-    env = _nested_get(route, ["route", "env"])
+    route_data = route.get("route") if isinstance(route.get("route"), dict) else {}
+    cpuset = route_data.get("cpuset")
+    route_env = route_data.get("env")
+    placement_reasons: list[str] = []
+    if route_data.get("routing_required") is True:
+        placement_reasons.append("owner_route_required")
+    if route_data.get("avoid_cpus"):
+        placement_reasons.append("thermal_route_avoid_cpus")
+    if route_data.get("hard_avoid_cpus"):
+        placement_reasons.append("thermal_hard_avoid_cpus")
+    placement_required = bool(placement_reasons)
     properties: dict[str, str] = {}
-    if cpuset:
+    if cpuset and placement_required:
         properties["AllowedCPUs"] = str(cpuset)
     cpu_weight = class_policy.get("cpu_weight")
     io_weight = class_policy.get("io_weight")
@@ -681,13 +716,23 @@ def systemd_plan(
         "unit_type": unit_type if unit_type in {"service", "scope"} else "service",
         "slice": scope_for_kind(policy, kind),
         "properties": properties,
-        "env": {str(key): str(value) for key, value in env.items()} if isinstance(env, dict) else {},
+        "env": (
+            {str(key): str(value) for key, value in route_env.items()}
+            if placement_required and isinstance(route_env, dict)
+            else {}
+        ),
         "policy": {
             "static_memory_caps_applied": False,
             "memory_high_not_set": True,
             "memory_max_not_set": True,
             "cpu_quota_not_set": True,
-            "allowed_cpus_from_ai_cpu_route": bool(cpuset),
+            "cpu_placement_required": placement_required,
+            "cpu_placement_reasons": placement_reasons,
+            "allowed_cpus_from_ai_cpu_route": bool(cpuset and placement_required),
+            "advisory_cpuset_not_applied": bool(cpuset and not placement_required),
+            "thread_env_from_ai_cpu_route": bool(
+                placement_required and isinstance(route_env, dict) and route_env
+            ),
         },
     }
 
@@ -860,7 +905,17 @@ def build_plan(
 
     launch_policy = mode.get("launch_policy", {}) if isinstance(mode.get("launch_policy"), dict) else {}
     max_unattended = str(launch_policy.get("max_unattended_class") or "probe")
-    if effective_unattended and workload_level(normalized_class) > workload_level(max_unattended) and not force_effective:
+    routed_heavy_authorized = routed_heavy_unattended_authorized(
+        launch_policy,
+        route,
+        workload_class=normalized_class,
+    )
+    if (
+        effective_unattended
+        and workload_level(normalized_class) > workload_level(max_unattended)
+        and not routed_heavy_authorized
+        and not force_effective
+    ):
         blocked.append(f"mode_unattended_cap_{max_unattended}")
 
     thermal_blocked, thermal_warnings = thermal_plan_gate_reasons(
@@ -987,6 +1042,7 @@ def build_plan(
             "pressure_facts_assign_workload_importance": False,
             "owner_declared_foreground_can_bypass_advisory_power_defer_only": True,
             "foreground_never_bypasses_memory_reserve_or_emergency_route_denial": True,
+            "owner_routed_heavy_can_satisfy_base_mode_unattended_cap": routed_heavy_authorized,
             "legacy_memory_recommendations_are_advisory": True,
             "startup_demand_reservations": True,
             "startup_reservations_runtime_only": True,

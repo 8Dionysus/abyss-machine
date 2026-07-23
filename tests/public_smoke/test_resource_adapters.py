@@ -338,3 +338,61 @@ def test_resource_launch_uses_systemd_summary_when_collected_unit_has_no_journal
     assert observation["peaks"]["source"] == "systemd_run_summary"
     assert observation["peaks"]["journal_fallback"]["error"] == "resource_peak_not_found"
     assert observation["record"]["profile"]["estimate_mib"] == 2.164
+
+
+def test_resource_launch_learns_peak_from_completed_failed_unit(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    unit = "codex-owner-unload-focused-fixture.service"
+    monkeypatch.setattr(
+        resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda _unit, **_kwargs: {
+            "ok": False,
+            "unit": unit,
+            "error": "resource_peak_not_found",
+        },
+    )
+
+    outcome = resource_adapters.execute_systemd_launch(
+        systemd_command=["systemd-run", "--user", "/usr/bin/false"],
+        launch_unit=unit,
+        generated_unit=None,
+        unit_type="service",
+        timeout_sec=30.0,
+        lease={"id": "failed-unit-fixture", "demand_mib": 16384.0},
+        reservation_root=tmp_path / "reservations",
+        demand_profile_path=tmp_path / "demand-profiles.json",
+        demand_key="codex-owner-unload-focused-tests",
+        demand_owner="codex-memory-owner-goal",
+        kind="agent",
+        observed_peak_multiplier=1.25,
+        profile_max_entries=64,
+        profile_max_samples=16,
+        parse_output=lambda _text: {
+            "unit": unit,
+            "result": "exit-code",
+            "memory_peak": "11.2G (swap: 247.9M)",
+        },
+        run_port=lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            101,
+            stdout="",
+            stderr="Finished with result: exit-code\nMemory peak: 11.2G (swap: 247.9M)\n",
+        ),
+    )
+
+    observation = outcome["demand_observation"]
+    sample = observation["record"]["profile"]["samples"][-1]
+    assert outcome["execution"]["ok"] is False
+    assert observation["recorded"] is True
+    assert observation["execution_succeeded"] is False
+    assert observation["execution_returncode"] == 101
+    assert sample["execution_succeeded"] is False
+    assert sample["execution_returncode"] == 101
+    assert sample["requested_demand_mib"] == 16384.0
+    assert observation["record"]["profile"]["observed_max_mib"] > 11400
+    assert observation["record"]["profile"]["failed_demand_floor_mib"] == 16384.0
+    assert observation["record"]["profile"]["estimate_mib"] == 16384.0
+    assert observation["record"]["profile"]["estimate_source"] == "failed_execution_request_floor"

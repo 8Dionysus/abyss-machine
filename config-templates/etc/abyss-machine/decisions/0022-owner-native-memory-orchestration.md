@@ -169,6 +169,10 @@ change rather than silently reactivating the removed controller.
   unprivileged user service. The launcher execs into the lightweight server;
   the unit is Unix-only, has no memory cap, and gains no process-lifecycle
   authority.
+- 2026-07-23: Made power-mode class caps explicitly advisory to live CPU-owner
+  authorization. Normal green/warm routes no longer impose cpuset or thread
+  caps; placement is applied only when the owner requires it or reports CPUs to
+  avoid, while physical-memory reserve and emergency gates remain authoritative.
 
 ## Source Surfaces
 

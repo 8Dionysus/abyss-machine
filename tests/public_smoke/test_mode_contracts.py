@@ -149,11 +149,101 @@ def test_mode_plan_status_and_external_guard_contracts_are_module_owned() -> Non
     assert plan["schema"] == "abyss_machine_mode_plan_v1"
     assert "power_profile_external_boost:performance->balanced" in plan["reasons"]
     assert "storage_pressure_unavailable" in plan["reasons"]
-    assert plan["launch_policy"]["max_unattended_class"] == "medium"
-    assert plan["launch_policy"]["can_start_heavy_unattended"] is False
+    assert plan["launch_policy"]["base_max_unattended_class"] == "medium"
+    assert plan["launch_policy"]["max_unattended_class"] == "heavy"
+    assert plan["launch_policy"]["can_start_heavy_unattended"] is True
+    assert plan["launch_policy"]["owner_route_promoted_heavy"] is True
+    assert plan["launch_policy"]["authority"] == "mode_and_cpu_route_input_not_final_resource_admission"
     assert status["schema"] == "abyss_machine_mode_status_v1"
     assert status["power_profile_external_boost"] is True
     assert status["degraded"] is False
+
+
+def test_mode_plan_keeps_base_cap_when_cpu_owner_does_not_allow_unattended_heavy() -> None:
+    policy = mode_contracts.default_policy(
+        schema_prefix="abyss_machine",
+        version="0.8.test",
+        generated_at="2026-07-23T12:00:00+00:00",
+    )
+    plan = mode_contracts.plan_document(
+        schema_prefix="abyss_machine",
+        version="0.8.test",
+        generated_at="2026-07-23T12:00:00+00:00",
+        selected="balanced",
+        effective="balanced",
+        state_file="/var/lib/abyss-machine/mode-state.json",
+        policy_path="/etc/abyss-machine/mode-policy.json",
+        profile=mode_contracts.profile_policy(policy, "balanced"),
+        target_profile_name="balanced",
+        current_profile="balanced",
+        current_mode="balanced",
+        external_profile_guard={},
+        cooling={"recommended_profile": "balanced", "reasons": [], "current": {}},
+        cooling_normalized="balanced",
+        cooling_target={"platform_profile": "balanced", "fan_mode": 1},
+        temperature={"temperature_c_max": 88.0},
+        thermal_class="warm",
+        battery={"ac_online": True, "capacity_percent": 80},
+        cpu_routed_heavy={
+            "allowed": True,
+            "unattended_allowed": False,
+            "requires_routing": True,
+            "route": {"cpuset": "0-3"},
+        },
+        degraded_reason=None,
+        storage_pressure_latest={},
+        memory_plan_latest={},
+        process_latest={},
+        policy=policy,
+    )
+
+    assert plan["launch_policy"]["base_max_unattended_class"] == "medium"
+    assert plan["launch_policy"]["max_unattended_class"] == "medium"
+    assert plan["launch_policy"]["can_start_heavy_unattended"] is False
+    assert plan["launch_policy"]["owner_route_promoted_heavy"] is False
+
+
+def test_mode_plan_keeps_base_cap_for_malformed_routed_heavy_owner_contract() -> None:
+    policy = mode_contracts.default_policy(
+        schema_prefix="abyss_machine",
+        version="0.8.test",
+        generated_at="2026-07-23T12:00:00+00:00",
+    )
+    plan = mode_contracts.plan_document(
+        schema_prefix="abyss_machine",
+        version="0.8.test",
+        generated_at="2026-07-23T12:00:00+00:00",
+        selected="balanced",
+        effective="balanced",
+        state_file="/var/lib/abyss-machine/mode-state.json",
+        policy_path="/etc/abyss-machine/mode-policy.json",
+        profile=mode_contracts.profile_policy(policy, "balanced"),
+        target_profile_name="balanced",
+        current_profile="balanced",
+        current_mode="balanced",
+        external_profile_guard={},
+        cooling={"recommended_profile": "balanced", "reasons": [], "current": {}},
+        cooling_normalized="balanced",
+        cooling_target={"platform_profile": "balanced", "fan_mode": 1},
+        temperature={"temperature_c_max": 88.0},
+        thermal_class="warm",
+        battery={"ac_online": True, "capacity_percent": 80},
+        cpu_routed_heavy={
+            "allowed": True,
+            "unattended_allowed": True,
+            "requires_routing": True,
+            "route": {},
+        },
+        degraded_reason=None,
+        storage_pressure_latest={},
+        memory_plan_latest={},
+        process_latest={},
+        policy=policy,
+    )
+
+    assert plan["launch_policy"]["max_unattended_class"] == "medium"
+    assert plan["launch_policy"]["can_start_heavy_unattended"] is False
+    assert plan["launch_policy"]["owner_route_promoted_heavy"] is False
 
 
 def test_mode_validate_document_is_module_owned_with_cli_adapter(monkeypatch) -> None:

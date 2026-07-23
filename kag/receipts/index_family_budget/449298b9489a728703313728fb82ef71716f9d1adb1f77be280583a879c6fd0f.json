@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 20425839,
+  "allowed_tracked_bytes": 24897693,
+  "approved_by": "repository-owner",
+  "base_ref": "b5462a4cd98dda3f2f8a94950f44ad611f99f355",
+  "changed_generated_bytes": 20425839,
+  "changed_generated_files": 319,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "449298b9489a728703313728fb82ef71716f9d1adb1f77be280583a879c6fd0f",
+  "reason": "Refresh the derived KAG family for owner-elastic resource admission, ABI, and live CPU route contract changes.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 24897693,
+  "tracked_bytes_max": 27262976
+}
