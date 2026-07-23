@@ -1490,7 +1490,9 @@ def test_bootstrap_generation_gc_defers_active_process_generation(tmp_path: Path
     assert current.is_dir()
 
 
-def test_managed_launcher_holds_only_its_generation_lock(tmp_path: Path) -> None:
+def test_managed_launcher_holds_only_its_generation_lock_from_read_only_files(
+    tmp_path: Path,
+) -> None:
     namespace = runpy.run_path(
         str(BOOTSTRAP),
         run_name="abyss_machine_bootstrap_launcher_lock_test",
@@ -1519,14 +1521,16 @@ def test_managed_launcher_holds_only_its_generation_lock(tmp_path: Path) -> None
     launcher = libexec / "abyss-machine"
     launcher.write_text(namespace["CLI_LAUNCHER"], encoding="utf-8")
     launcher.chmod(0o755)
+    refresh_lock.chmod(0o444)
+    active_lock.chmod(0o444)
 
     process = subprocess.Popen(
         [str(launcher)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    refresh_fd = os.open(refresh_lock, os.O_RDWR | os.O_CLOEXEC)
-    active_fd = os.open(active_lock, os.O_RDWR | os.O_CLOEXEC)
+    refresh_fd = os.open(refresh_lock, os.O_RDONLY | os.O_CLOEXEC)
+    active_fd = os.open(active_lock, os.O_RDONLY | os.O_CLOEXEC)
     try:
         deadline = time.monotonic() + 5
         while True:

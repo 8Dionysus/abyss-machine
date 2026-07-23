@@ -45,13 +45,13 @@ import sys
 
 libexec = Path(__file__).resolve().parent
 generations = libexec / ".abyss-machine-code-generations"
-refresh_fd = os.open(libexec / ".abyss-machine-code-refresh.lock", os.O_RDWR | os.O_CLOEXEC)
+refresh_fd = os.open(libexec / ".abyss-machine-code-refresh.lock", os.O_RDONLY | os.O_CLOEXEC)
 fcntl.flock(refresh_fd, fcntl.LOCK_SH)
 try:
     generation = (libexec / ".abyss-machine-code-current").resolve(strict=True)
     if generation.parent != generations.resolve(strict=True):
         raise RuntimeError(f"invalid abyss-machine code generation: {generation}")
-    generation_fd = os.open(generation / ".active.lock", os.O_RDWR | os.O_CLOEXEC)
+    generation_fd = os.open(generation / ".active.lock", os.O_RDONLY | os.O_CLOEXEC)
     fcntl.flock(generation_fd, fcntl.LOCK_SH)
 finally:
     fcntl.flock(refresh_fd, fcntl.LOCK_UN)
