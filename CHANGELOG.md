@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add the owner-local Artifact Trust skill bundle and OS-user exposure port,
+  keeping artifact policy, registry, producer, and consumer-gate authority with
+  their existing owners while adding the canonical skill package to the signed
+  public-source surface.
 - Add fail-closed KAG owner-family and 24-owner composition trust routes with
   inner identity signatures, outer source-bound ABI envelopes, owner-scoped
   registry latest selection, revocation, and reachability-rechecked CAS

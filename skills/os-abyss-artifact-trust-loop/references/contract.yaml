@@ -1,0 +1,127 @@
+schema_version: aoa_owner_skill_contract_v1
+
+identity:
+  name: os-abyss-artifact-trust-loop
+  owner: abyss-machine
+  canonical_source: skills/os-abyss-artifact-trust-loop
+  version: 0.1.0
+  lifecycle: admitted
+  health: active
+
+purpose: Route one OS Abyss artifact through owner classification, producer evidence, durable selection, and an exact fail-closed consumer verdict.
+
+applicability:
+  use_when:
+    - An artifact class, producer profile, provenance or sidecar control, source-ref drift, durable registry record, or consumer trust gate is material.
+    - A bundle, package, container, model/runtime, generated read model, portable export, browser extension, update target, or public media artifact may be produced or consumed.
+  do_not_use_when:
+    - The task is an ordinary source edit, test, Git operation, generic supply-chain explanation, raw session retrieval, or source-authority dispute with no artifact boundary.
+
+authority:
+  policy_registry_and_gate: abyss-machine
+  artifact_source_and_producer: the artifact owner repository
+  access_plane: abyss-machine MCP read-only allowlisted surfaces
+  proof_owner: aoa-evals only when a separate durable proof claim is required
+  rule: No skill, MCP response, registry record, generated graph, or successful producer command can replace the stronger owner or silently authorize the next effect.
+
+phases:
+  inspect:
+    freedom: bounded-observation
+    effects: [MCP none, source CLI may refresh generated read-model state and must use isolated roots when live writes are not authorized]
+  prepare:
+    freedom: owner-routed
+    effects: [only the explicitly requested owner build, sidecar, signature, verification, or evidence effect]
+  admit:
+    freedom: deterministic-read-only-gate
+    effects: []
+  audit:
+    freedom: bounded-observation
+    effects: [MCP none, source CLI may refresh generated read-model state and must use isolated roots when live writes are not authorized]
+
+input_abi:
+  required:
+    - concrete artifact, candidate, class, or classifying context
+    - consumer intent or explicit pre-consumption phase
+    - requested effect boundary
+  conditional:
+    - source repository and source ref when identity or drift matters
+    - subject digest, access policy, record id, and trust-root mode when the consumer binds them
+    - registry or bundle path when supplied by the owner route
+
+output_abi:
+  type: os-abyss-artifact-trust-result
+  required:
+    - selected phases
+    - artifact identity and resolved or unknown class
+    - consumer intent
+    - source owner and source ref posture
+    - policy and observation source
+    - required, verified, missing, stale, and deferred controls
+    - producer route
+    - registry and latest posture
+    - exact gate verdict
+    - actual effects
+    - blockers, warnings, manual review, and skipped checks
+    - next owner and claim limit
+  verdicts: [allow, warn, deny, manual_review_required, unknown, not_applicable, blocked]
+
+tool_requirements:
+  source_cli: PYTHONPATH=src python -m abyss_machine.cli
+  installed_cli: abyss-machine
+  mcp: optional read-only orientation or bounded observation
+  techniques_runtime_dependency: false
+
+verification:
+  - Resolve the canonical package and current artifact owner before owner-dependent action.
+  - Require artifact class and consumer intent to be explicit or marked unknown.
+  - For MCP, inspect wrapper ok, payload_ok, policy/source posture, and the actual command; do not assume requested identity constraints were forwarded.
+  - Use the source-owned CLI when MCP is stale, degraded, incomplete, or does not bind requested source, digest, record, access, or trust-root fields.
+  - Run CLI read models that share generated latest or index state sequentially, and pass one explicit registry consistently to every registry-aware command.
+  - Preserve the exact gate verdict and reasons; unknown, warn, and manual review are not green.
+  - Compare actual effects with the selected phase and requested authority.
+
+termination:
+  success: One artifact reaches one exact consumer verdict or an explicit pre-consumption handoff.
+  blocked: The owner, class, artifact identity, policy, required evidence, source constraint, registry, gate, or effect authority is unavailable.
+  failure: Stop on invalid output, unexpected mutation, owner-route widening, MCP/CLI mismatch without fallback, or a gate result that cannot be tied to the requested identity.
+
+relations:
+  primary-capability-parent: projects.abyss.artifact-trust
+  invokes: [tool.abyss-machine.artifacts, mcp.abyss-machine.read-only]
+  consumes: [owner artifact identity, producer profile, sidecar evidence, registry record]
+  produces: [os-abyss-artifact-trust-result]
+  composes-with: [owner release procedure, owner installer or runtime consumer, aoa-evals]
+  hands-off-to: [artifact owner, abyss-machine operator route, consumer owner, aoa-evals]
+  conflicts-with: [MCP-as-writer, generated-as-authority, warn-as-green, unknown-as-allow, build-as-promotion, gate-without-identity]
+
+trust:
+  source_authority: true
+  mutation_authority: false
+  release_authority: false
+  proof_authority: false
+  public_safe_default: true
+
+provenance:
+  legacy_baseline: aoa-skills skills/project/abyss/os-abyss-artifact-trust-loop
+  owner_surfaces:
+    - manifests/artifact_signature_policy.manifest.json
+    - manifests/artifact_bundles/README.md
+    - src/abyss_machine/artifact_bundles.py
+  techniques_runtime_dependency: false
+
+health:
+  recheck_after:
+    - material artifact policy, registry, producer-profile, or trust-gate change
+    - material MCP wrapper or source-install parity change
+    - material Codex host or model change
+    - global catalog or source-return change
+  manual_cases:
+    - natural pre-consumption selection
+    - authorized owner production path
+    - positive local agent admission
+    - empty registry unknown
+    - source-ref mismatch deny
+    - production consumer with local-only trust manual review
+    - stale or degraded MCP fallback
+    - ordinary code-edit negative
+    - coexistence with owner release and eval procedures

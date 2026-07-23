@@ -23,6 +23,8 @@ collapse into one public mirror.
 - `env/`: public-safe environment examples.
 - `schemas/`: permissive v1 data-shape anchors.
 - `stats/`: host-owned statistical questions and their shared-protocol port.
+- `skills/`: admitted host-owned callable procedures; global runtime copies are
+  derived OS-user projections rather than source truth.
 - `scripts/`: stable operator entrypoints and validators.
 - `tools/`: helper probes and migration tools not yet mechanic-owned.
 - `mechanics/`: durable host movement packages.

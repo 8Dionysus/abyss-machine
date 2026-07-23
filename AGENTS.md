@@ -12,7 +12,8 @@ publishing the private life of a workstation.
 4. `docs/publication/PUBLICATION_BOUNDARY.md`
 5. `stats/README.md` when owner-local statistical questions or contracts move
 6. `mechanics/README.md`
-7. the nearest local `AGENTS.md`
+7. `skills/README.md` when an owner-callable agent procedure moves
+8. the nearest local `AGENTS.md`
 
 ## Owns
 
@@ -20,6 +21,8 @@ publishing the private life of a workstation.
 - host facts, diagnostic routes, and machine-readable evidence shapes
 - typing and nervous-system intake machinery as opt-in host organs
 - local AI runtime helpers when they are host-managed rather than stack-owned
+- callable procedures whose meaning belongs specifically to the host-machine
+  owner, with global exposure remaining a derived OS projection
 - validators and smoke tests that prove the public seed can be rendered safely
 
 ## Does Not Own

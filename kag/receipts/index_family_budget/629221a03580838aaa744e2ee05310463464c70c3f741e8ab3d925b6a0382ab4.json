@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 11436630,
+  "allowed_tracked_bytes": 25015024,
+  "approved_by": "repository-owner",
+  "base_ref": "0c60e8ae10ef370d2c8c09df9ef2a57bd6ef8a51",
+  "changed_generated_bytes": 11436630,
+  "changed_generated_files": 158,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "629221a03580838aaa744e2ee05310463464c70c3f741e8ab3d925b6a0382ab4",
+  "reason": "owner skill home and Artifact Trust contract added",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25015024,
+  "tracked_bytes_max": 27262976
+}

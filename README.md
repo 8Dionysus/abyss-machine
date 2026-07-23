@@ -20,8 +20,9 @@ Start with:
 3. [BOUNDARIES.md](BOUNDARIES.md)
 4. [stats/README.md](stats/README.md)
 5. [mechanics/README.md](mechanics/README.md)
-6. [docs/publication/PUBLICATION_BOUNDARY.md](docs/publication/PUBLICATION_BOUNDARY.md)
-7. [kag/README.md](kag/README.md)
+6. [skills/README.md](skills/README.md)
+7. [docs/publication/PUBLICATION_BOUNDARY.md](docs/publication/PUBLICATION_BOUNDARY.md)
+8. [kag/README.md](kag/README.md)
 
 ## Bootstrap Shape
 
