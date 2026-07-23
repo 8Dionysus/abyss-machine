@@ -75,6 +75,7 @@ def test_ai_cpu_route_contract_defers_heavy_on_battery_and_preserves_hints() -> 
     assert "heavy_cpu_start_deferred_on_battery" in data["reasons"]
     assert data["route"]["thread_limit"] == 6
     assert data["route"]["env"]["OMP_NUM_THREADS"] == "6"
+    assert data["route"]["avoid_cpus"] == [0, 1]
     assert data["policy"]["application_rule"].startswith("Route returns taskset")
 
 

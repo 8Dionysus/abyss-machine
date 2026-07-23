@@ -8316,12 +8316,23 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
     return data
 
 
-def storage_inventory_latest_or_refresh(refresh: bool = False) -> tuple[dict[str, Any], str | None]:
+def storage_inventory_latest_or_refresh(
+    refresh: bool = False,
+    write_latest: bool = True,
+) -> tuple[dict[str, Any], str | None]:
     if refresh:
-        return storage_inventory(full=False, include_home_review=False, write_latest=True), None
+        return storage_inventory(
+            full=False,
+            include_home_review=False,
+            write_latest=write_latest,
+        ), None
     latest, error = load_json_document(STORAGE_INVENTORY_LATEST_PATH)
     if latest is None:
-        latest = storage_inventory(full=False, include_home_review=False, write_latest=True)
+        latest = storage_inventory(
+            full=False,
+            include_home_review=False,
+            write_latest=write_latest,
+        )
         return latest, error
     return latest, None
 
@@ -8364,7 +8375,10 @@ def storage_pressure_recommendations(
 
 
 def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True) -> dict[str, Any]:
-    inventory, inventory_load_error = storage_inventory_latest_or_refresh(refresh=refresh_inventory)
+    inventory, inventory_load_error = storage_inventory_latest_or_refresh(
+        refresh=refresh_inventory,
+        write_latest=write_latest,
+    )
     status = storage_status(write_latest=False, full_ai_scan=False)
     thresholds = storage_policy_thresholds()
     root_usage = status.get("roots", {}).get("system", {}) if isinstance(status.get("roots"), dict) else {}
@@ -8489,13 +8503,18 @@ def storage_match_path_text(candidate: str, text: str | None) -> bool:
     return storage_adapters.path_text_matches(candidate, text)
 
 
-def storage_process_path_usage(paths: list[str], interval: float = 0.5, top: int = 30) -> dict[str, Any]:
+def storage_process_path_usage(
+    paths: list[str],
+    interval: float = 0.5,
+    top: int = 30,
+    write_latest: bool = True,
+) -> dict[str, Any]:
     return storage_adapters.process_path_usage_document(
         paths=paths,
         process_snapshot=lambda snapshot_top, snapshot_interval: process_snapshot(
             top=snapshot_top,
             interval=snapshot_interval,
-            write_latest=True,
+            write_latest=write_latest,
         ),
         generated_at=now_iso(),
         schema_prefix=SCHEMA_PREFIX,
@@ -8529,13 +8548,28 @@ def storage_cleanup_plan(
 ) -> dict[str, Any]:
     interval = max(0.0, min(float(interval), 5.0))
     top = max(5, min(int(top), 200))
-    pressure = pressure_input if isinstance(pressure_input, dict) else storage_pressure(refresh_inventory=refresh_inventory, write_latest=True)
-    inventory, inventory_load_error = storage_inventory_latest_or_refresh(refresh=False)
+    pressure = (
+        pressure_input
+        if isinstance(pressure_input, dict)
+        else storage_pressure(
+            refresh_inventory=refresh_inventory,
+            write_latest=write_latest,
+        )
+    )
+    inventory, inventory_load_error = storage_inventory_latest_or_refresh(
+        refresh=False,
+        write_latest=write_latest,
+    )
     items = [item for item in inventory.get("items", []) if isinstance(item, dict)]
     candidates = [item for item in items if storage_item_is_pressure_candidate(item)]
     candidate_paths = [str(item.get("path")) for item in candidates if item.get("path") and item.get("exists")]
     if process_guard:
-        guard = storage_process_path_usage(candidate_paths, interval=interval, top=top)
+        guard = storage_process_path_usage(
+            candidate_paths,
+            interval=interval,
+            top=top,
+            write_latest=write_latest,
+        )
         guard_by_path = {str(item.get("path")): item for item in guard.get("paths", []) if isinstance(item, dict)}
     else:
         guard = {
@@ -8662,11 +8696,11 @@ def storage_monitor(
         })
 
     step_started = time.monotonic()
-    inventory = storage_inventory(full=False, include_home_review=False, write_latest=True)
+    inventory = storage_inventory(full=False, include_home_review=False, write_latest=write_latest)
     step_summary("inventory_light", ["abyss-machine", "storage", "inventory", "--json"], step_started, inventory)
 
     step_started = time.monotonic()
-    pressure = storage_pressure(refresh_inventory=False, write_latest=True)
+    pressure = storage_pressure(refresh_inventory=False, write_latest=write_latest)
     step_summary("pressure", ["abyss-machine", "storage", "pressure", "--json"], step_started, pressure)
 
     step_started = time.monotonic()
@@ -8675,17 +8709,17 @@ def storage_monitor(
         process_guard=process_guard,
         interval=interval,
         top=top,
-        write_latest=True,
+        write_latest=write_latest,
         pressure_input=pressure,
     )
     step_summary("cleanup_plan", ["abyss-machine", "storage", "cleanup-plan", "--json"], step_started, cleanup)
 
     step_started = time.monotonic()
-    status = storage_status(write_latest=True, full_ai_scan=False)
+    status = storage_status(write_latest=write_latest, full_ai_scan=False)
     step_summary("status", ["abyss-machine", "storage", "status", "--json"], step_started, status)
 
     step_started = time.monotonic()
-    artifact_snapshot = artifacts_snapshot(scope="ai-cache", history_days=14, write_latest=True)
+    artifact_snapshot = artifacts_snapshot(scope="ai-cache", history_days=14, write_latest=write_latest)
     step_summary(
         "artifacts_snapshot_ai_cache",
         ["abyss-machine", "artifacts", "snapshot", "--scope", "ai-cache", "--history-days", "14", "--json"],
@@ -14502,7 +14536,7 @@ def storage_write_preflight(
 ) -> dict[str, Any]:
     target_path = Path(target).expanduser()
     requested_bytes = max(0, int(bytes_required))
-    monitor = storage_monitor(process_guard=True, interval=0.0, top=30, write_latest=True)
+    monitor = storage_monitor(process_guard=True, interval=0.0, top=30, write_latest=write_latest)
     pressure_summary = monitor.get("summary", {}) if isinstance(monitor.get("summary"), dict) else {}
     protection = storage_path_protection(target_path)
     recommended = storage_preflight_recommended_target(kind, target_path)
@@ -16471,7 +16505,12 @@ def resource_plan(
             thermal_plan = latest if isinstance(latest, dict) else None
     write_preflight = None
     if bytes_required is not None and target:
-        write_preflight = storage_write_preflight(kind="artifact", bytes_required=int(bytes_required), target=str(target), write_latest=True)
+        write_preflight = storage_write_preflight(
+            kind="artifact",
+            bytes_required=int(bytes_required),
+            target=str(target),
+            write_latest=write_latest,
+        )
 
     thermal_class = str(nested_get(thermal_plan, ["thermal", "class"]) or "") if isinstance(thermal_plan, dict) else ""
     data = resource_planning.build_plan(

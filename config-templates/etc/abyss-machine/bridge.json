@@ -2728,7 +2728,8 @@
     "thermal_policy": "hot/critical escalates cooling target and gates new unattended heavy work without killing running operator tasks; CPU-backed operator work can use launch_policy.cpu_routed_heavy when the hotspot is narrow and package heat is safe",
     "non_claims": [
       "ai is a host overlay, not a fourth GNOME panel power-profile entry",
-      "mode plan does not start workloads; callers must consume the launch policy explicitly",
+      "mode plan exposes base power-mode advice plus live CPU-owner promotion; resource plan remains final host admission",
+      "taskset and thread-count hints apply only when the live CPU owner requires placement; advisory routes leave scheduler capacity available",
       "mode routes do not mutate abyss-stack or project repositories",
       "cpu_routed_heavy is an explicit route bridge, not permission to run unrestricted GPU/NPU heavy work"
     ]

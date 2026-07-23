@@ -86,7 +86,8 @@
   },
   "non_claims": [
     "The GNOME panel exposes power-saver/balanced/performance; ai is a host overlay selected through abyss-machine mode set ai.",
-    "Mode policy returns launch gates and routes; callers must apply taskset/env hints explicitly.",
+    "Profile class caps are base power-mode advice; mode plan may promote the effective class through a live CPU-owner route, while resource plan remains final admission.",
+    "Callers apply taskset/env only when the live route marks CPU placement required; advisory route hints do not cap available CPUs or threads.",
     "Thermal policy watches trend and duration through the central thermal episode classifier: 100-105C is monitored active range, above 105C is watch/routing range, and 109-110C is the hard emergency gate for new work."
   ]
 }

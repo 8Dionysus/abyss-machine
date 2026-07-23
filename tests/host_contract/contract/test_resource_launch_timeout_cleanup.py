@@ -99,6 +99,346 @@ def test_resource_plan_keeps_unattended_medium_indexing_without_static_memory_ca
     assert plan["policy"]["memory_max_not_set"] is True
 
 
+def test_storage_write_preflight_no_write_is_transitive(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    calls: dict[str, object] = {}
+    target = tmp_path / "artifact.bin"
+    usage = {
+        "total_bytes": 40 * 1024**3,
+        "used_bytes": 10 * 1024**3,
+        "free_bytes": 30 * 1024**3,
+        "used_percent": 25.0,
+    }
+
+    def fake_storage_monitor(**kwargs):
+        calls["monitor"] = kwargs
+        return {
+            "ok": True,
+            "summary": {
+                "root_pressure_class": "green",
+                "srv_pressure_class": "green",
+            },
+        }
+
+    def unexpected_write(*_args, **_kwargs):
+        pytest.fail("write_latest=False must not persist storage state")
+
+    monkeypatch.setattr(abyss_machine_module, "storage_monitor", fake_storage_monitor)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_path_protection",
+        lambda _path: {"class": "host_owned_allowed", "decision": "allow_candidate"},
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_preflight_recommended_target",
+        lambda _kind, _target: str(target),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_preflight_recommended_base",
+        lambda _kind: str(tmp_path),
+    )
+    monkeypatch.setattr(abyss_machine_module, "disk_usage_summary", lambda _path: usage)
+    monkeypatch.setattr(abyss_machine_module, "storage_protected_roots", lambda: [])
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "run_storage_hooks",
+        lambda *_args, **_kwargs: {"ok": True},
+    )
+    monkeypatch.setattr(abyss_machine_module, "safe_atomic_write_json", unexpected_write)
+    monkeypatch.setattr(abyss_machine_module, "safe_append_jsonl", unexpected_write)
+
+    result = abyss_machine_module.storage_write_preflight(
+        kind="artifact",
+        bytes_required=1024,
+        target=str(target),
+        write_latest=False,
+    )
+
+    assert calls["monitor"] == {
+        "process_guard": True,
+        "interval": 0.0,
+        "top": 30,
+        "write_latest": False,
+    }
+    assert result["ok"] is True
+    assert result["decision"] == "allow"
+
+
+def test_storage_monitor_no_write_is_transitive(
+    abyss_machine_module,
+    monkeypatch,
+):
+    calls: dict[str, dict[str, object]] = {}
+
+    def fake_collector(name, result):
+        def collect(**kwargs):
+            calls[name] = kwargs
+            return result
+
+        return collect
+
+    def unexpected_write(*_args, **_kwargs):
+        pytest.fail("write_latest=False must not persist nested storage state")
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_inventory",
+        fake_collector("inventory", {"ok": True, "summary": {}}),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_pressure",
+        fake_collector(
+            "pressure",
+            {
+                "ok": True,
+                "summary": {
+                    "root_pressure_class": "green",
+                    "srv_pressure_class": "green",
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_cleanup_plan",
+        fake_collector("cleanup", {"ok": True, "summary": {}, "guard": {}}),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_status",
+        fake_collector("status", {"ok": True, "summary": {}}),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "artifacts_snapshot",
+        fake_collector("artifacts", {"ok": True, "summary": {}}),
+    )
+    monkeypatch.setattr(abyss_machine_module, "safe_atomic_write_json", unexpected_write)
+    monkeypatch.setattr(abyss_machine_module, "safe_append_jsonl", unexpected_write)
+
+    result = abyss_machine_module.storage_monitor(write_latest=False)
+
+    assert calls["inventory"]["write_latest"] is False
+    assert calls["pressure"]["write_latest"] is False
+    assert calls["cleanup"]["write_latest"] is False
+    assert calls["status"]["write_latest"] is False
+    assert calls["artifacts"]["write_latest"] is False
+    assert result["ok"] is True
+
+
+@pytest.mark.parametrize("refresh", [False, True])
+def test_storage_inventory_refresh_honors_no_write(
+    abyss_machine_module,
+    monkeypatch,
+    refresh,
+):
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "load_json_document",
+        lambda _path: (None, "missing"),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_inventory",
+        lambda **kwargs: calls.append(kwargs) or {"ok": True, "items": []},
+    )
+
+    inventory, _error = abyss_machine_module.storage_inventory_latest_or_refresh(
+        refresh=refresh,
+        write_latest=False,
+    )
+
+    assert inventory["ok"] is True
+    assert calls == [
+        {
+            "full": False,
+            "include_home_review": False,
+            "write_latest": False,
+        }
+    ]
+
+
+def test_storage_pressure_no_write_propagates_to_inventory(
+    abyss_machine_module,
+    monkeypatch,
+):
+    calls: dict[str, object] = {}
+
+    def fake_inventory(**kwargs):
+        calls["inventory"] = kwargs
+        return {"ok": True, "items": []}, None
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_inventory_latest_or_refresh",
+        fake_inventory,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_status",
+        lambda **_kwargs: {
+            "ok": True,
+            "roots": {
+                "system": {
+                    "total_bytes": 100,
+                    "used_bytes": 10,
+                    "free_bytes": 90,
+                    "used_percent": 10.0,
+                },
+                "srv": {
+                    "total_bytes": 100,
+                    "used_bytes": 10,
+                    "free_bytes": 90,
+                    "used_percent": 10.0,
+                },
+            },
+        },
+    )
+
+    result = abyss_machine_module.storage_pressure(write_latest=False)
+
+    assert calls["inventory"] == {
+        "refresh": False,
+        "write_latest": False,
+    }
+    assert result["ok"] is True
+
+
+def test_storage_cleanup_plan_no_write_propagates_to_process_guard(
+    abyss_machine_module,
+    monkeypatch,
+):
+    calls: dict[str, object] = {}
+
+    def fake_process_guard(paths, **kwargs):
+        calls["paths"] = paths
+        calls["guard"] = kwargs
+        return {
+            "ok": True,
+            "paths": [],
+            "summary": {
+                "paths": 0,
+                "active_paths": 0,
+                "active_process_refs": 0,
+            },
+        }
+
+    def unexpected_write(*_args, **_kwargs):
+        pytest.fail("write_latest=False must not persist process-guard state")
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_inventory_latest_or_refresh",
+        lambda **_kwargs: ({"ok": True, "items": []}, None),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_pressure",
+        lambda **kwargs: calls.setdefault("pressure", kwargs)
+        and {
+            "ok": True,
+            "summary": {
+                "root_pressure_class": "green",
+                "srv_pressure_class": "green",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_process_path_usage",
+        fake_process_guard,
+    )
+    monkeypatch.setattr(abyss_machine_module, "safe_atomic_write_json", unexpected_write)
+    monkeypatch.setattr(abyss_machine_module, "safe_append_jsonl", unexpected_write)
+
+    result = abyss_machine_module.storage_cleanup_plan(
+        process_guard=True,
+        write_latest=False,
+    )
+
+    assert calls["paths"] == []
+    assert calls["pressure"] == {
+        "refresh_inventory": False,
+        "write_latest": False,
+    }
+    assert calls["guard"] == {
+        "interval": 0.5,
+        "top": 30,
+        "write_latest": False,
+    }
+    assert result["ok"] is True
+
+
+def test_resource_plan_no_write_propagates_to_storage_preflight(
+    abyss_machine_module,
+    monkeypatch,
+):
+    calls: dict[str, object] = {}
+    target = "/srv/abyss-machine/tmp/no-write-probe"
+
+    def fake_storage_write_preflight(**kwargs):
+        calls["preflight"] = kwargs
+        return {"ok": True, "decision": "allow", "reasons": []}
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_write_preflight",
+        fake_storage_write_preflight,
+    )
+
+    plan = abyss_machine_module.resource_plan(
+        workload_class="medium",
+        kind="agent",
+        unattended=False,
+        bytes_required=1024,
+        target=target,
+        sample_thermal=False,
+        write_latest=False,
+        mode_data={"effective_mode": "balanced", "launch_policy": {"max_unattended_class": "medium"}},
+        memory_data={
+            "class": "green",
+            "recommended_new_work": {
+                "medium": {
+                    "allowed": True,
+                    "unattended_allowed": True,
+                    "blocked_reasons": [],
+                    "unattended_blocked_reasons": [],
+                }
+            },
+        },
+        storage_data={
+            "summary": {
+                "root_pressure_class": "green",
+                "srv_pressure_class": "green",
+            }
+        },
+        game_guard_data={"active": False},
+        route_data={
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-1", "env": {}},
+        },
+        thermal_plan_data={"thermal": {"class": "green"}},
+    )
+
+    assert calls["preflight"] == {
+        "kind": "artifact",
+        "bytes_required": 1024,
+        "target": target,
+        "write_latest": False,
+    }
+    assert plan["decision"] == "allow"
+
+
 def test_resource_plan_reuses_bounded_inputs_but_refreshes_memory_and_game_guard(
     monkeypatch,
     tmp_path,

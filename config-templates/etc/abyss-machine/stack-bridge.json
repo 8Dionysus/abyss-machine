@@ -871,7 +871,7 @@
       "orchestrator_refresh_nervous": "abyss-machine resource orchestrator --refresh-nervous --json"
     },
     "contract": "Future stack-side launchers may consume resource plan as the unified host decision over mode, memory, storage, game guard, thermal plan, and CPU route.",
-    "execution": "Resource launch uses user systemd transient services/scopes with AllowedCPUs, CPUWeight, IOWeight, cooperative startup reserve, and bounded runtime peak learning for new processes only.",
+    "execution": "Resource launch uses user systemd transient services/scopes with relative CPUWeight/IOWeight, cooperative startup reserve, and bounded runtime peak learning for new processes only; AllowedCPUs and thread-count environment are applied only when the live CPU owner requires placement or reports CPUs to avoid.",
     "orchestrator_latest": "{{ABYSS_MACHINE_STATE}}/resource/orchestrator/latest.json"
   },
   "generated_at": "2026-05-07T12:53:48-06:00",

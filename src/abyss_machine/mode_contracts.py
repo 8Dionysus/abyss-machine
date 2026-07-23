@@ -170,7 +170,8 @@ def default_policy(*, schema_prefix: str, version: str, generated_at: str) -> di
         },
         "non_claims": [
             "The GNOME panel exposes power-saver/balanced/performance; ai is a host overlay selected through abyss-machine mode set ai.",
-            "Mode policy returns launch gates and routes; callers must apply taskset/env hints explicitly.",
+            "Profile class caps are base power-mode advice; mode plan may promote the effective class through a live CPU-owner route, while resource plan remains final admission.",
+            "Callers apply taskset/env only when the live route marks CPU placement required; advisory route hints do not cap available CPUs or threads.",
             "Thermal policy watches trend and duration: 100-105C is monitored active range, above 105C is watch/routing range, and 109-110C is the hard emergency gate for new work.",
         ],
     }
@@ -494,12 +495,33 @@ def plan_document(
     policy: dict[str, Any],
 ) -> dict[str, Any]:
     ac_online = bool(battery.get("ac_online"))
-    max_unattended = max_unattended_class(
+    base_max_unattended = max_unattended_class(
         profile=profile,
         thermal_class=thermal_class,
         effective_mode=effective,
         ac_online=ac_online,
         policy=policy,
+    )
+    routed_heavy_route = (
+        cpu_routed_heavy.get("route")
+        if isinstance(cpu_routed_heavy.get("route"), dict)
+        else {}
+    )
+    routed_heavy_requires_placement = cpu_routed_heavy.get("requires_routing")
+    routed_heavy_unattended = bool(
+        cpu_routed_heavy.get("allowed") is True
+        and cpu_routed_heavy.get("unattended_allowed") is True
+        and isinstance(routed_heavy_requires_placement, bool)
+        and (
+            not routed_heavy_requires_placement
+            or str(routed_heavy_route.get("cpuset") or "").strip()
+        )
+    )
+    max_unattended = (
+        "heavy"
+        if routed_heavy_unattended
+        and workload_level(base_max_unattended) < workload_level("heavy")
+        else base_max_unattended
     )
     max_level = workload_level(max_unattended)
     heavy_allowed = max_level >= workload_level("heavy")
@@ -560,9 +582,12 @@ def plan_document(
             "process_latest": process_latest,
         },
         "launch_policy": {
+            "base_max_unattended_class": base_max_unattended,
             "max_unattended_class": max_unattended,
             "can_start_heavy_unattended": heavy_allowed,
             "can_start_sustained_unattended": sustained_allowed,
+            "owner_route_promoted_heavy": max_unattended != base_max_unattended,
+            "authority": "mode_and_cpu_route_input_not_final_resource_admission",
             "operator_force_supported": True,
             "do_not_kill_running_tasks": True,
             "gate_new_unattended_tasks": True,
