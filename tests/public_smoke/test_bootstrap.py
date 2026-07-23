@@ -1351,12 +1351,18 @@ def test_linux_systemd_core_profile_has_no_resident_memory_controller() -> None:
 
 def test_resource_admission_user_unit_is_unprivileged_and_uncapped() -> None:
     unit = (ROOT / "systemd" / "user" / "abyss-resource-admission.service").read_text(encoding="utf-8")
+    unit_lines = unit.splitlines()
 
     assert "ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine resource admission serve" in unit
     assert "UMask=0077" in unit
     assert "NoNewPrivileges=yes" in unit
     assert "RestrictAddressFamilies=AF_UNIX" in unit
     assert "ProtectSystem=strict" in unit
+    assert "RuntimeDirectory=abyss-machine/resource" in unit_lines
+    assert "RuntimeDirectoryMode=0700" in unit_lines
+    assert "RuntimeDirectoryPreserve=yes" in unit_lines
+    assert "ReadWritePaths=%t/abyss-machine/resource" in unit_lines
+    assert "ReadWritePaths=%t/abyss-machine" not in unit_lines
     assert "MemoryMax=" not in unit
     assert "MemoryHigh=" not in unit
     assert "MemoryLimit=" not in unit
