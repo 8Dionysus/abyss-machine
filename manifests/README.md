@@ -28,15 +28,17 @@ checks.
   `aoa_evals_generated_report_index_bundle`, clean portable session-memory
   exports such as `aoa_session_memory_portable_bundle`, and OS Abyss local
   provenance bundle roundtrips. Artifact-class `producer_admission` records
-  preserve one canonical producer while admitting an explicitly bounded
-  non-publishing candidate only after its owner profile, exact source ref,
-  provenance subject, trust posture, and false authority flags agree. The
-  candidate admission is copied into the durable registry record and enforced
-  again by `trust-gate`: SDK routing candidates are limited to
-  `manually-verified` as the only active state, with `superseded` and
-  `revoked` terminal exits, local or host-managed trust roots, and agent or
-  runtime-canary consumers. Release lifecycle states, production trust roots,
-  normal runtime consumers, and missing or damaged admission records fail
-  closed. External repo bundle manifests may use the
+  preserve one canonical producer while admitting explicitly bounded
+  candidates only after their selected profile, exact source ref, provenance
+  subject, trust posture, and false authority flags agree. The admission is
+  copied into the durable registry record and enforced again by `trust-gate`.
+  The legacy SDK routing canary remains limited to `manually-verified`, local
+  or host-managed trust, and agent/runtime-canary use. A separately and
+  explicitly selected public release-candidate profile may use
+  `release-ready` or `published` plus `public_release` trust for
+  `release_consumer` and `runtime_canary`; it still denies normal `runtime`.
+  Unknown profiles, unauthorized lifecycle/trust/intent expansion, missing or
+  damaged admission records, and any true G5 authority flag fail closed.
+  External repo bundle manifests may use the
   repo-qualified policy reference
   `repo:abyss-machine/manifests/artifact_signature_policy.manifest.json`.

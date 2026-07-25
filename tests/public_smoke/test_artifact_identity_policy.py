@@ -465,6 +465,14 @@ def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_co
             "owner_repo": "aoa-sdk",
             "manifest_mode": "os_abyss_local",
             "lifecycle_initial_state": "candidate",
+            "manifest_promotion_path": [
+                "candidate",
+                "built-local",
+                "manually-verified",
+                "superseded",
+                "revoked",
+            ],
+            "manifest_latest_eligible_states": ["manually-verified"],
             "artifact_source_kind": "generated_thin_routing_readmodel_family",
             "provenance_subject_ref": "succession/routing-g5-candidate-provenance.json",
             "provenance_state": "sdk_g5_candidate",
@@ -488,7 +496,56 @@ def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_co
                 "compatibility_window_started",
                 "archive_authorized",
             ],
-        }
+        },
+        {
+            "profile_id": "aoa-sdk-g5-release-candidate",
+            "owner_repo": "aoa-sdk",
+            "manifest_mode": "github_release",
+            "lifecycle_initial_state": "release-ready",
+            "manifest_promotion_path": [
+                "release-ready",
+                "published",
+                "superseded",
+                "revoked",
+            ],
+            "manifest_latest_eligible_states": [
+                "release-ready",
+                "published",
+            ],
+            "artifact_source_kind": (
+                "generated_thin_routing_readmodel_release_candidate"
+            ),
+            "provenance_subject_ref": (
+                "succession/routing-g5-release-candidate-provenance.json"
+            ),
+            "provenance_state": "sdk_g5_release_candidate",
+            "publication_posture": "public_release_candidate",
+            "current_canonical_owner_repo": "aoa-routing",
+            "stronger_owner": "abyss-machine",
+            "trust_admission_status": (
+                "pending_public_release_verification"
+            ),
+            "runtime_consumer": "abyss-stack",
+            "allowed_registry_lifecycle_states": [
+                "release-ready",
+                "published",
+                "superseded",
+                "revoked",
+            ],
+            "allowed_trust_root_modes": ["public_release"],
+            "allowed_consumer_intents": [
+                "release_consumer",
+                "runtime_canary",
+            ],
+            "required_false_authority_flags": [
+                "canonical_producer_switch_authorized",
+                "sdk_canonical",
+                "live_runtime_mutation_authorized",
+                "predecessor_maintenance_only",
+                "compatibility_window_started",
+                "archive_authorized",
+            ],
+        },
     ]
     routing_profiles = {
         profile_id

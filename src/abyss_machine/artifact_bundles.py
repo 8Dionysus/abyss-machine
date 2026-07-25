@@ -4410,6 +4410,37 @@ def _is_exact_git_object_id(value: object) -> bool:
     ) is not None
 
 
+def _candidate_producer_profile(
+    admission: Mapping[str, Any],
+    *,
+    owner_repo: str,
+    profile_id: str = "",
+) -> Mapping[str, Any] | None:
+    candidates = admission.get("candidate_profiles")
+    owner_candidates = [
+        item
+        for item in candidates
+        if isinstance(item, Mapping) and item.get("owner_repo") == owner_repo
+    ] if isinstance(candidates, list) else []
+    if profile_id:
+        return next(
+            (
+                item
+                for item in owner_candidates
+                if item.get("profile_id") == profile_id
+            ),
+            None,
+        )
+    if len(owner_candidates) == 1:
+        return owner_candidates[0]
+    legacy = [
+        item
+        for item in owner_candidates
+        if item.get("profile_id") == owner_repo
+    ]
+    return legacy[0] if len(legacy) == 1 else None
+
+
 def _producer_admission_for_manifest(
     *,
     rule: Mapping[str, Any],
@@ -4447,18 +4478,21 @@ def _producer_admission_for_manifest(
             "canonical_switch_authorized": False,
         }
 
-    candidates = admission.get("candidate_profiles")
-    candidate = next(
-        (
-            item
-            for item in candidates
-            if isinstance(item, Mapping) and item.get("owner_repo") == manifest_owner
-        ),
-        None,
-    ) if isinstance(candidates, list) else None
+    manifest_profile_id = (
+        str(manifest.get("producer_admission_profile_id") or "")
+        if isinstance(manifest, Mapping)
+        else ""
+    )
+    candidate = _candidate_producer_profile(
+        admission,
+        owner_repo=manifest_owner,
+        profile_id=manifest_profile_id,
+    )
     if not isinstance(candidate, Mapping):
         raise ValueError(
-            f"artifact producer owner is not admitted by policy: {manifest_owner}"
+            "artifact producer owner is not admitted by policy or profile is "
+            "unknown: "
+            f"{manifest_owner}/{manifest_profile_id or '<legacy>'}"
         )
     if not isinstance(manifest, Mapping):
         raise ValueError("candidate producer admission requires a bundle manifest")
@@ -4474,6 +4508,10 @@ def _producer_admission_for_manifest(
         raise ValueError("candidate producer admission lifecycle state mismatch")
     promotion_path = lifecycle.get("promotion_path")
     latest_eligible_states = lifecycle.get("latest_eligible_states")
+    expected_promotion_path = candidate.get("manifest_promotion_path")
+    expected_latest_states = candidate.get(
+        "manifest_latest_eligible_states"
+    )
     allowed_registry_states = candidate.get(
         "allowed_registry_lifecycle_states"
     )
@@ -4487,15 +4525,14 @@ def _producer_admission_for_manifest(
         else []
     )
     if (
-        not isinstance(promotion_path, list)
-        or any(
-            state in {"release-ready", "published"}
-            for state in promotion_path
-        )
-        or latest_eligible_states != allowed_latest_states
+        not isinstance(expected_promotion_path, list)
+        or promotion_path != expected_promotion_path
+        or not isinstance(expected_latest_states, list)
+        or latest_eligible_states != expected_latest_states
+        or expected_latest_states != allowed_latest_states
     ):
         raise ValueError(
-            "candidate producer admission non-publishing lifecycle mismatch"
+            "candidate producer admission manifest lifecycle mismatch"
         )
     artifact_source = manifest.get("artifact_source")
     if (
@@ -4666,15 +4703,11 @@ def _validate_producer_admission_sidecars(
             )
         return
 
-    candidates = admission.get("candidate_profiles")
-    candidate = next(
-        (
-            item
-            for item in candidates
-            if isinstance(item, Mapping) and item.get("owner_repo") == identity_owner
-        ),
-        None,
-    ) if isinstance(candidates, list) else None
+    candidate = _candidate_producer_profile(
+        admission,
+        owner_repo=identity_owner,
+        profile_id=str(record.get("profile_id") or ""),
+    )
     if not isinstance(candidate, Mapping):
         errors.append(
             f"artifact identity owner is not admitted by policy: {identity_owner}"
@@ -7636,7 +7669,6 @@ def _candidate_producer_admission_boundary_errors(
     if (
         admission.get("schema")
         != "abyss_machine_artifact_producer_admission_v1"
-        or admission.get("publication_posture") != "non_publishing_canary"
         or admission.get("single_canonical_owner") is not True
         or admission.get("canonical_switch_authorized") is not False
         or not isinstance(authority, Mapping)
@@ -7654,17 +7686,11 @@ def _candidate_producer_admission_boundary_errors(
         if isinstance(rule.get("producer_admission"), Mapping)
         else {}
     )
-    candidate_profiles = producer_policy.get("candidate_profiles")
-    candidate = next(
-        (
-            item
-            for item in candidate_profiles
-            if isinstance(item, Mapping)
-            and item.get("profile_id") == admission.get("profile_id")
-            and item.get("owner_repo") == admission.get("owner_repo")
-        ),
-        None,
-    ) if isinstance(candidate_profiles, list) else None
+    candidate = _candidate_producer_profile(
+        producer_policy,
+        owner_repo=str(admission.get("owner_repo") or ""),
+        profile_id=str(admission.get("profile_id") or ""),
+    )
     if not isinstance(candidate, Mapping):
         errors.append("candidate_producer_policy_profile_missing")
     else:
@@ -7724,8 +7750,7 @@ def _candidate_producer_admission_boundary_errors(
         "allowed_registry_lifecycle_states"
     )
     if (
-        lifecycle_state in {"release-ready", "published"}
-        or not isinstance(allowed_lifecycle_states, list)
+        not isinstance(allowed_lifecycle_states, list)
         or lifecycle_state not in allowed_lifecycle_states
     ):
         errors.append(
@@ -7734,8 +7759,7 @@ def _candidate_producer_admission_boundary_errors(
 
     allowed_trust_root_modes = admission.get("allowed_trust_root_modes")
     if (
-        trust_root_mode in PRODUCTION_RELEASE_TRUST_ROOT_MODES
-        or not isinstance(allowed_trust_root_modes, list)
+        not isinstance(allowed_trust_root_modes, list)
         or trust_root_mode not in allowed_trust_root_modes
     ):
         errors.append(
@@ -7745,8 +7769,7 @@ def _candidate_producer_admission_boundary_errors(
     if consumer_intent:
         allowed_consumer_intents = admission.get("allowed_consumer_intents")
         if (
-            consumer_intent in PRODUCTION_CONSUMER_INTENTS
-            or not isinstance(allowed_consumer_intents, list)
+            not isinstance(allowed_consumer_intents, list)
             or consumer_intent not in allowed_consumer_intents
         ):
             errors.append(
