@@ -143,7 +143,16 @@ paths before pushing public changes.
 
 The policy validator keeps artifact identity posture, ABI, local provenance,
 SBOM, ML-BOM, SLSA/in-toto, Sigstore/Cosign, C2PA, and deferred TUF/SCITT
-posture explicit by artifact class. The ABI signature generator publishes a
+posture explicit by artifact class. Where producer succession is open, it also
+requires one canonical owner and validates every candidate profile against the
+same artifact class without treating admission as an authority switch. Runtime
+sidecar construction then fails closed unless the candidate manifest,
+provenance subject, exact source refs, non-publishing posture, stronger-owner
+status, and all false switch-authority flags agree. Registry promotion
+persists that candidate admission and rejects release lifecycle states or
+production trust roots while preserving explicit superseded and revoked
+terminal exits; consumer admission checks it again and admits only the
+policy-bounded agent and runtime-canary intents. The ABI signature generator publishes a
 deterministic compatibility read model for public contract surfaces. It is not a
 release signature and does not sign live host evidence. The bundle roundtrip is
 the first executable consumer route: it creates ABI/provenance/signature-decision

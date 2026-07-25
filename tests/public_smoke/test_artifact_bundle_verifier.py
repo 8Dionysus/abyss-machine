@@ -2688,7 +2688,29 @@ def test_artifact_requirements_reports_sibling_producer_profile() -> None:
     assert row["trust_roots"]["local_dev"]["production_consumer_result"] == "manual_review_required"
     assert "producer_profiles" in row["agent_loop"]
     assert "affected" in row["agent_loop"]
-    assert "GitHub OIDC is one producer adapter" in row["claim_limits"][2]
+    assert "GitHub OIDC is one producer adapter" in row["claim_limits"][3]
+
+
+def test_artifact_requirements_exposes_bounded_routing_candidate_admission() -> None:
+    requirements = artifact_bundles.artifact_requirements(
+        "thin_routing_readmodel_bundle"
+    )
+    row = requirements["rows"][0]
+
+    assert requirements["ok"] is True
+    assert row["owner_repo"] == "aoa-routing"
+    assert row["producer_profile"]["automation_profile_ids"] == [
+        "aoa-routing",
+        "aoa-sdk",
+    ]
+    admission = row["producer_admission"]
+    assert admission["canonical_owner_repo"] == "aoa-routing"
+    assert admission["single_canonical_owner"] is True
+    assert admission["canonical_switch_requires_explicit_policy_update"] is True
+    assert [item["owner_repo"] for item in admission["candidate_profiles"]] == [
+        "aoa-sdk"
+    ]
+    assert "does not authorize an owner switch" in row["claim_limits"][2]
 
 
 def test_artifact_producer_profiles_cover_os_abyss_owner_repos() -> None:
@@ -7873,6 +7895,9 @@ def test_aoa_routing_thin_router_generates_abi_sbom_and_slsa_controls(tmp_path: 
     verify_sidecar = json.loads((bundle / artifact_bundles.VERIFY_SIDECAR).read_text(encoding="utf-8"))
 
     assert build["ok"] is True
+    assert build["producer_admission"]["status"] == "canonical_producer"
+    assert build["producer_admission"]["owner_repo"] == "aoa-routing"
+    assert build["producer_admission"]["canonical_switch_authorized"] is False
     assert sign["status"] == "not_required"
     assert verify["ok"] is True
     assert identity["bundle_manifest_ref"] == "docs/artifact-bundles/thin_router.bundle.json"
@@ -7891,6 +7916,517 @@ def test_aoa_routing_thin_router_generates_abi_sbom_and_slsa_controls(tmp_path: 
     )
     assert str(sibling) not in public_payload
     assert str(bundle) not in public_payload
+
+
+def _write_sdk_routing_candidate_fixture(
+    root: Path,
+    *,
+    owner_repo: str = "aoa-sdk",
+    abi_owner_repo: str = "aoa-sdk",
+    publication_posture: str = "non_publishing_canary",
+    sdk_canonical: bool = False,
+    runtime_consumer: str = "abyss-stack",
+) -> tuple[Path, str]:
+    candidate_root = root / "candidate"
+    generated = candidate_root / "generated"
+    succession = candidate_root / "succession"
+    generated.mkdir(parents=True)
+    succession.mkdir()
+    sdk_source_ref = "a" * 40
+    predecessor_source_ref = "b" * 40
+    router = {
+        "version": "aoa-router-v1",
+        "artifact_identity": {
+            "artifact_class": "thin_routing_readmodel_bundle",
+            "owner_repo": abi_owner_repo,
+            "abi_epoch": "aoa_routing_thin_router_v1",
+        },
+        "entries": [],
+    }
+    (generated / "aoa_router.min.json").write_text(
+        json.dumps(router, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    authority = {
+        "canonical_producer_switch_authorized": False,
+        "sdk_canonical": sdk_canonical,
+        "live_runtime_mutation_authorized": False,
+        "predecessor_maintenance_only": False,
+        "compatibility_window_started": False,
+        "archive_authorized": False,
+    }
+    provenance = {
+        "schema_version": "aoa_sdk_routing_g5_candidate_provenance_v1",
+        "state": "sdk_g5_candidate",
+        "publication_posture": publication_posture,
+        "current_canonical_producer": {
+            "owner_repo": "aoa-routing",
+            "source_ref": predecessor_source_ref,
+        },
+        "candidate_producer": {
+            "owner_repo": owner_repo,
+            "source_ref": sdk_source_ref,
+            "implementation": "aoa_sdk.control_plane.routing",
+        },
+        "candidate_artifact_identity": {
+            "artifact_class": "thin_routing_readmodel_bundle",
+            "owner_repo": owner_repo,
+            "abi_epoch": "aoa_routing_thin_router_v1",
+        },
+        "trust_posture": {
+            "artifact_class": "thin_routing_readmodel_bundle",
+            "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
+            "stronger_owner": "abyss-machine",
+            "admission_status": "pending_stronger_owner",
+            "runtime_consumer": runtime_consumer,
+        },
+        "g5_authority": authority,
+    }
+    provenance_ref = "succession/routing-g5-candidate-provenance.json"
+    (candidate_root / provenance_ref).write_text(
+        json.dumps(provenance, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": f"aoa-sdk-routing-g5-candidate-{sdk_source_ref[:16]}",
+        "artifact_class": "thin_routing_readmodel_bundle",
+        "owner_repo": owner_repo,
+        "policy_ref": (
+            "repo:abyss-machine/manifests/artifact_signature_policy.manifest.json"
+        ),
+        "mode": "os_abyss_local",
+        "public_safe": True,
+        "subject_repo_root": ".",
+        "artifact_source": {
+            "kind": "generated_thin_routing_readmodel_family",
+            "content_identity_ref": "generated/aoa_router.min.json",
+            "artifact_identity_ref": (
+                "generated/aoa_router.min.json#/artifact_identity"
+            ),
+            "producer_source_ref": sdk_source_ref,
+        },
+        "artifact_identity": {
+            "artifact_class": "thin_routing_readmodel_bundle",
+            "abi_epoch": "aoa_routing_thin_router_v1",
+        },
+        "abi_subject": {
+            "path": "generated/aoa_router.min.json",
+            "artifact_identity_pointer": "/artifact_identity",
+        },
+        "artifact_subjects": [
+            {
+                "path": "generated/aoa_router.min.json",
+                "role": "routing_readmodel",
+            },
+            {
+                "path": provenance_ref,
+                "role": "owner_succession_candidate_provenance",
+            },
+        ],
+        "build_type": "urn:abyssos:buildtype:aoa-sdk-routing-readmodel:v1",
+        "package": {
+            "ecosystem": "generated-readmodel",
+            "name": "aoa-sdk-routing-readmodel",
+            "purl": f"pkg:generic/aoa-sdk-routing-readmodel@{sdk_source_ref}",
+        },
+        "lifecycle": {
+            "initial_state": "candidate",
+            "promotion_path": [
+                "candidate",
+                "built-local",
+                "manually-verified",
+            ],
+            "latest_eligible_states": ["manually-verified"],
+        },
+        "consumer_command": ["pytest candidate producer admission"],
+    }
+    manifest_path = candidate_root / "artifact.bundle.json"
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path, sdk_source_ref
+
+
+def test_sdk_routing_candidate_is_admitted_without_switching_canonical_owner(
+    tmp_path: Path,
+) -> None:
+    manifest_path, sdk_source_ref = _write_sdk_routing_candidate_fixture(tmp_path)
+    bundle = tmp_path / "bundle"
+
+    build = artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=manifest_path,
+    )
+    sign = artifact_bundles.sign_bundle(bundle)
+    verify = artifact_bundles.verify_bundle(bundle)
+    identity = json.loads(
+        (bundle / artifact_bundles.IDENTITY_SIDECAR).read_text(encoding="utf-8")
+    )
+    minimal_provenance = json.loads(
+        (bundle / artifact_bundles.PROVENANCE_SIDECAR).read_text(encoding="utf-8")
+    )
+
+    assert build["ok"] is True
+    assert sign["status"] == "not_required"
+    assert verify["ok"] is True
+    assert identity["owner_repo"] == "aoa-sdk"
+    assert identity["source_ref"] == sdk_source_ref
+    assert identity["producer_admission"] == build["producer_admission"]
+    assert identity["producer_admission"]["status"] == "candidate_admitted"
+    assert identity["producer_admission"]["canonical_owner_repo"] == "aoa-routing"
+    assert identity["producer_admission"]["single_canonical_owner"] is True
+    assert identity["producer_admission"]["canonical_switch_authorized"] is False
+    assert identity["producer_admission"]["required_controls"] == [
+        "abi_signature",
+        "sbom",
+        "slsa_in_toto",
+    ]
+    assert identity["producer_admission"]["stronger_owner"] == "abyss-machine"
+    assert (
+        identity["producer_admission"]["trust_admission_status"]
+        == "pending_stronger_owner"
+    )
+    assert identity["producer_admission"]["runtime_consumer"] == "abyss-stack"
+    assert identity["producer_admission"]["allowed_registry_lifecycle_states"] == [
+        "manually-verified",
+        "superseded",
+        "revoked",
+    ]
+    assert identity["producer_admission"]["allowed_trust_root_modes"] == [
+        "local_dev",
+        "host_managed",
+    ]
+    assert identity["producer_admission"]["allowed_consumer_intents"] == [
+        "agent",
+        "runtime_canary",
+    ]
+    assert set(identity["producer_admission"]["g5_authority"].values()) == {False}
+    assert (
+        minimal_provenance["producer_admission"]
+        == identity["producer_admission"]
+    )
+
+
+def _promote_sdk_routing_candidate(
+    tmp_path: Path,
+    *,
+    lifecycle_state: str = "manually-verified",
+    trust_root_mode: str = "local_dev",
+) -> tuple[dict[str, Any], Path, str]:
+    manifest_path, sdk_source_ref = _write_sdk_routing_candidate_fixture(
+        tmp_path
+    )
+    bundle = tmp_path / "bundle"
+    registry = tmp_path / "registry"
+    artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state=lifecycle_state,
+        trust_root_mode=trust_root_mode,
+    )
+    return promoted, registry, sdk_source_ref
+
+
+def test_sdk_routing_candidate_registry_and_trust_gate_preserve_nonpublishing_admission(
+    tmp_path: Path,
+) -> None:
+    promoted, registry, sdk_source_ref = _promote_sdk_routing_candidate(
+        tmp_path
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime_canary",
+        expected_source_repo="aoa-sdk",
+        expected_source_ref=sdk_source_ref,
+        expected_trust_root_mode="local_dev",
+    )
+
+    assert promoted["ok"] is True
+    assert promoted["written"]
+    assert promoted["record"]["lifecycle_state"] == "manually-verified"
+    assert promoted["record"]["source_repo"] == "aoa-sdk"
+    assert promoted["record"]["source_ref"] == sdk_source_ref
+    assert (
+        promoted["record"]["producer_admission"]["publication_posture"]
+        == "non_publishing_canary"
+    )
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert (
+        gate["inspected_claims"]["producer_admission"]
+        == promoted["record"]["producer_admission"]
+    )
+
+
+@pytest.mark.parametrize("lifecycle_state", ["release-ready", "published"])
+def test_sdk_routing_candidate_registry_rejects_release_lifecycle(
+    tmp_path: Path,
+    lifecycle_state: str,
+) -> None:
+    promoted, _, _ = _promote_sdk_routing_candidate(
+        tmp_path,
+        lifecycle_state=lifecycle_state,
+    )
+
+    assert promoted["ok"] is False
+    assert promoted["written"] == []
+    assert (
+        f"candidate_registry_lifecycle_not_admitted:{lifecycle_state}"
+        in promoted["errors"]
+    )
+
+
+@pytest.mark.parametrize("trust_root_mode", ["oci_registry", "public_release"])
+def test_sdk_routing_candidate_registry_rejects_release_trust_roots(
+    tmp_path: Path,
+    trust_root_mode: str,
+) -> None:
+    promoted, _, _ = _promote_sdk_routing_candidate(
+        tmp_path,
+        trust_root_mode=trust_root_mode,
+    )
+
+    assert promoted["ok"] is False
+    assert promoted["written"] == []
+    assert (
+        f"candidate_trust_root_mode_not_admitted:{trust_root_mode}"
+        in promoted["errors"]
+    )
+
+
+def test_sdk_routing_candidate_trust_gate_rejects_production_runtime_intent(
+    tmp_path: Path,
+) -> None:
+    promoted, registry, _ = _promote_sdk_routing_candidate(tmp_path)
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime",
+        expected_source_repo="aoa-sdk",
+    )
+
+    assert promoted["ok"] is True
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "candidate_consumer_intent_not_admitted:runtime" in gate["blockers"]
+
+
+def test_sdk_routing_candidate_can_be_revoked_and_is_then_denied(
+    tmp_path: Path,
+) -> None:
+    promoted, registry, _ = _promote_sdk_routing_candidate(tmp_path)
+    bundle = tmp_path / "bundle"
+
+    revoked = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="revoked",
+        revocation_reason="pytest candidate withdrawal",
+        trust_root_mode="local_dev",
+    )
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime_canary",
+        expected_source_repo="aoa-sdk",
+    )
+
+    assert revoked["ok"] is True
+    assert revoked["record"]["lifecycle_state"] == "revoked"
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "terminal_lifecycle_state:revoked" in gate["blockers"]
+
+
+@pytest.mark.parametrize(
+    ("tamper", "blocker"),
+    [
+        (
+            "published",
+            "candidate_registry_lifecycle_not_admitted:published",
+        ),
+        (
+            "missing_admission",
+            "routing_sdk_producer_admission_missing",
+        ),
+        (
+            "authority_flag_removed",
+            "candidate_producer_admission_policy_mismatch:g5_authority",
+        ),
+        (
+            "consumer_policy_expanded",
+            "candidate_producer_admission_policy_mismatch:allowed_consumer_intents",
+        ),
+    ],
+)
+def test_sdk_routing_candidate_trust_gate_rejects_registry_boundary_tamper(
+    tmp_path: Path,
+    tamper: str,
+    blocker: str,
+) -> None:
+    promoted, registry, _ = _promote_sdk_routing_candidate(tmp_path)
+    record_path = (
+        registry
+        / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+        / (
+            promoted["record"]["record_id"].removeprefix("sha256:")
+            + ".json"
+        )
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if tamper == "published":
+        record["lifecycle_state"] = "published"
+    elif tamper == "missing_admission":
+        record.pop("producer_admission")
+    elif tamper == "authority_flag_removed":
+        record["producer_admission"]["g5_authority"].pop("sdk_canonical")
+    else:
+        record["producer_admission"]["allowed_consumer_intents"].append(
+            "unreviewed_canary"
+        )
+    record_path.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime_canary",
+        expected_source_repo="aoa-sdk",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert blocker in gate["blockers"]
+
+
+@pytest.mark.parametrize(
+    ("fixture_kwargs", "error"),
+    [
+        (
+            {"publication_posture": "publishing"},
+            "publication posture mismatch",
+        ),
+        (
+            {"sdk_canonical": True},
+            "requires every G5 authority flag false",
+        ),
+        (
+            {"owner_repo": "unadmitted-routing-producer"},
+            "producer owner is not admitted",
+        ),
+        (
+            {"abi_owner_repo": "aoa-routing"},
+            "ABI subject owner mismatch",
+        ),
+        (
+            {"runtime_consumer": "unadmitted-runtime"},
+            "trust posture mismatch",
+        ),
+    ],
+)
+def test_sdk_routing_candidate_admission_fails_closed(
+    tmp_path: Path,
+    fixture_kwargs: dict[str, Any],
+    error: str,
+) -> None:
+    manifest_path, _ = _write_sdk_routing_candidate_fixture(
+        tmp_path,
+        **fixture_kwargs,
+    )
+
+    with pytest.raises(ValueError, match=error):
+        artifact_bundles.build_sidecars(
+            tmp_path / "bundle",
+            manifest_ref=manifest_path,
+        )
+
+
+def test_sdk_routing_candidate_source_ref_override_must_match_manifest(
+    tmp_path: Path,
+) -> None:
+    manifest_path, _ = _write_sdk_routing_candidate_fixture(tmp_path)
+
+    with pytest.raises(ValueError, match="source_ref does not match"):
+        artifact_bundles.build_sidecars(
+            tmp_path / "bundle",
+            manifest_ref=manifest_path,
+            source_ref="c" * 40,
+        )
+
+
+def test_sdk_routing_candidate_verification_rejects_authority_sidecar_tamper(
+    tmp_path: Path,
+) -> None:
+    manifest_path, _ = _write_sdk_routing_candidate_fixture(tmp_path)
+    bundle = tmp_path / "bundle"
+    artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    identity_path = bundle / artifact_bundles.IDENTITY_SIDECAR
+    provenance_path = bundle / artifact_bundles.PROVENANCE_SIDECAR
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    minimal_provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    identity["producer_admission"]["g5_authority"]["sdk_canonical"] = True
+    minimal_provenance["producer_admission"] = identity["producer_admission"]
+    identity_path.write_text(
+        json.dumps(identity, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    provenance_path.write_text(
+        json.dumps(minimal_provenance, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    artifact_bundles.sign_bundle(bundle)
+
+    verification = artifact_bundles.verify_bundle(bundle)
+
+    assert verification["ok"] is False
+    assert (
+        "candidate producer admission sidecar requires every G5 authority flag false"
+        in verification["errors"]
+    )
+
+
+def test_sdk_routing_candidate_verification_rejects_trust_posture_sidecar_tamper(
+    tmp_path: Path,
+) -> None:
+    manifest_path, _ = _write_sdk_routing_candidate_fixture(tmp_path)
+    bundle = tmp_path / "bundle"
+    artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    identity_path = bundle / artifact_bundles.IDENTITY_SIDECAR
+    provenance_path = bundle / artifact_bundles.PROVENANCE_SIDECAR
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    minimal_provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    identity["producer_admission"]["runtime_consumer"] = "unadmitted-runtime"
+    minimal_provenance["producer_admission"] = identity["producer_admission"]
+    identity_path.write_text(
+        json.dumps(identity, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    provenance_path.write_text(
+        json.dumps(minimal_provenance, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    artifact_bundles.sign_bundle(bundle)
+
+    verification = artifact_bundles.verify_bundle(bundle)
+
+    assert verification["ok"] is False
+    assert (
+        "candidate producer admission runtime consumer does not match policy"
+        in verification["errors"]
+    )
 
 
 def test_aoa_playbooks_registry_bundle_generates_abi_and_slsa_provenance(tmp_path: Path) -> None:

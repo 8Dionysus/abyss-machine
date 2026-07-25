@@ -113,6 +113,139 @@
                 "items": {"type": "string"}
               }
             }
+          },
+          "producer_admission": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "canonical_profile_id",
+              "canonical_owner_repo",
+              "single_canonical_owner",
+              "canonical_switch_requires_explicit_policy_update",
+              "candidate_profiles"
+            ],
+            "properties": {
+              "canonical_profile_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "canonical_owner_repo": {
+                "type": "string",
+                "minLength": 1
+              },
+              "single_canonical_owner": {
+                "const": true
+              },
+              "canonical_switch_requires_explicit_policy_update": {
+                "const": true
+              },
+              "candidate_profiles": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "profile_id",
+                    "owner_repo",
+                    "manifest_mode",
+                    "lifecycle_initial_state",
+                    "artifact_source_kind",
+                    "provenance_subject_ref",
+                    "provenance_state",
+                    "publication_posture",
+                    "current_canonical_owner_repo",
+                    "stronger_owner",
+                    "trust_admission_status",
+                    "runtime_consumer",
+                    "allowed_registry_lifecycle_states",
+                    "allowed_trust_root_modes",
+                    "allowed_consumer_intents",
+                    "required_false_authority_flags"
+                  ],
+                  "properties": {
+                    "profile_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "owner_repo": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "manifest_mode": {
+                      "enum": ["os_abyss_local"]
+                    },
+                    "lifecycle_initial_state": {
+                      "enum": ["candidate"]
+                    },
+                    "artifact_source_kind": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "provenance_subject_ref": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "provenance_state": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "publication_posture": {
+                      "enum": ["non_publishing_canary"]
+                    },
+                    "current_canonical_owner_repo": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "stronger_owner": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "trust_admission_status": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "runtime_consumer": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "allowed_registry_lifecycle_states": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "enum": ["manually-verified", "superseded", "revoked"]
+                      }
+                    },
+                    "allowed_trust_root_modes": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "enum": ["local_dev", "host_managed"]
+                      }
+                    },
+                    "allowed_consumer_intents": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "enum": ["agent", "runtime_canary"]
+                      }
+                    },
+                    "required_false_authority_flags": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
