@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 14025258,
+  "allowed_tracked_bytes": 25167650,
+  "approved_by": "repository-owner",
+  "base_ref": "4a70f4b0d80a78d4a3269158ab23b5c32592a454",
+  "changed_generated_bytes": 14025258,
+  "changed_generated_files": 188,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "771064ccad4b9ee2016f39308bc39ad2cf9e21d841a3012bf261752c1b025bcf",
+  "reason": "The stronger-owner SDK routing candidate admission adds policy, schema, sidecar, durable registry, trust-gate, terminal revocation, and adversarial tamper proof; portable v3 shard churn exceeds the per-change delta while the complete tracked family remains below its standing cap, with artifact-source meaning and KAG authority unchanged.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25167650,
+  "tracked_bytes_max": 27262976
+}
