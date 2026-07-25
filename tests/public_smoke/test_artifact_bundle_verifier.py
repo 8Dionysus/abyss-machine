@@ -8036,9 +8036,8 @@ def _write_sdk_routing_candidate_fixture(
                 "candidate",
                 "built-local",
                 "manually-verified",
-                "release-ready",
             ],
-            "latest_eligible_states": ["manually-verified", "release-ready"],
+            "latest_eligible_states": ["manually-verified"],
         },
         "consumer_command": ["pytest candidate producer admission"],
     }
@@ -8090,11 +8089,227 @@ def test_sdk_routing_candidate_is_admitted_without_switching_canonical_owner(
         == "pending_stronger_owner"
     )
     assert identity["producer_admission"]["runtime_consumer"] == "abyss-stack"
+    assert identity["producer_admission"]["allowed_registry_lifecycle_states"] == [
+        "manually-verified",
+        "superseded",
+        "revoked",
+    ]
+    assert identity["producer_admission"]["allowed_trust_root_modes"] == [
+        "local_dev",
+        "host_managed",
+    ]
+    assert identity["producer_admission"]["allowed_consumer_intents"] == [
+        "agent",
+        "runtime_canary",
+    ]
     assert set(identity["producer_admission"]["g5_authority"].values()) == {False}
     assert (
         minimal_provenance["producer_admission"]
         == identity["producer_admission"]
     )
+
+
+def _promote_sdk_routing_candidate(
+    tmp_path: Path,
+    *,
+    lifecycle_state: str = "manually-verified",
+    trust_root_mode: str = "local_dev",
+) -> tuple[dict[str, Any], Path, str]:
+    manifest_path, sdk_source_ref = _write_sdk_routing_candidate_fixture(
+        tmp_path
+    )
+    bundle = tmp_path / "bundle"
+    registry = tmp_path / "registry"
+    artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    artifact_bundles.sign_bundle(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state=lifecycle_state,
+        trust_root_mode=trust_root_mode,
+    )
+    return promoted, registry, sdk_source_ref
+
+
+def test_sdk_routing_candidate_registry_and_trust_gate_preserve_nonpublishing_admission(
+    tmp_path: Path,
+) -> None:
+    promoted, registry, sdk_source_ref = _promote_sdk_routing_candidate(
+        tmp_path
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime_canary",
+        expected_source_repo="aoa-sdk",
+        expected_source_ref=sdk_source_ref,
+        expected_trust_root_mode="local_dev",
+    )
+
+    assert promoted["ok"] is True
+    assert promoted["written"]
+    assert promoted["record"]["lifecycle_state"] == "manually-verified"
+    assert promoted["record"]["source_repo"] == "aoa-sdk"
+    assert promoted["record"]["source_ref"] == sdk_source_ref
+    assert (
+        promoted["record"]["producer_admission"]["publication_posture"]
+        == "non_publishing_canary"
+    )
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert (
+        gate["inspected_claims"]["producer_admission"]
+        == promoted["record"]["producer_admission"]
+    )
+
+
+@pytest.mark.parametrize("lifecycle_state", ["release-ready", "published"])
+def test_sdk_routing_candidate_registry_rejects_release_lifecycle(
+    tmp_path: Path,
+    lifecycle_state: str,
+) -> None:
+    promoted, _, _ = _promote_sdk_routing_candidate(
+        tmp_path,
+        lifecycle_state=lifecycle_state,
+    )
+
+    assert promoted["ok"] is False
+    assert promoted["written"] == []
+    assert (
+        f"candidate_registry_lifecycle_not_admitted:{lifecycle_state}"
+        in promoted["errors"]
+    )
+
+
+@pytest.mark.parametrize("trust_root_mode", ["oci_registry", "public_release"])
+def test_sdk_routing_candidate_registry_rejects_release_trust_roots(
+    tmp_path: Path,
+    trust_root_mode: str,
+) -> None:
+    promoted, _, _ = _promote_sdk_routing_candidate(
+        tmp_path,
+        trust_root_mode=trust_root_mode,
+    )
+
+    assert promoted["ok"] is False
+    assert promoted["written"] == []
+    assert (
+        f"candidate_trust_root_mode_not_admitted:{trust_root_mode}"
+        in promoted["errors"]
+    )
+
+
+def test_sdk_routing_candidate_trust_gate_rejects_production_runtime_intent(
+    tmp_path: Path,
+) -> None:
+    promoted, registry, _ = _promote_sdk_routing_candidate(tmp_path)
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime",
+        expected_source_repo="aoa-sdk",
+    )
+
+    assert promoted["ok"] is True
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "candidate_consumer_intent_not_admitted:runtime" in gate["blockers"]
+
+
+def test_sdk_routing_candidate_can_be_revoked_and_is_then_denied(
+    tmp_path: Path,
+) -> None:
+    promoted, registry, _ = _promote_sdk_routing_candidate(tmp_path)
+    bundle = tmp_path / "bundle"
+
+    revoked = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="revoked",
+        revocation_reason="pytest candidate withdrawal",
+        trust_root_mode="local_dev",
+    )
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime_canary",
+        expected_source_repo="aoa-sdk",
+    )
+
+    assert revoked["ok"] is True
+    assert revoked["record"]["lifecycle_state"] == "revoked"
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert "terminal_lifecycle_state:revoked" in gate["blockers"]
+
+
+@pytest.mark.parametrize(
+    ("tamper", "blocker"),
+    [
+        (
+            "published",
+            "candidate_registry_lifecycle_not_admitted:published",
+        ),
+        (
+            "missing_admission",
+            "routing_sdk_producer_admission_missing",
+        ),
+        (
+            "authority_flag_removed",
+            "candidate_producer_admission_policy_mismatch:g5_authority",
+        ),
+        (
+            "consumer_policy_expanded",
+            "candidate_producer_admission_policy_mismatch:allowed_consumer_intents",
+        ),
+    ],
+)
+def test_sdk_routing_candidate_trust_gate_rejects_registry_boundary_tamper(
+    tmp_path: Path,
+    tamper: str,
+    blocker: str,
+) -> None:
+    promoted, registry, _ = _promote_sdk_routing_candidate(tmp_path)
+    record_path = (
+        registry
+        / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+        / (
+            promoted["record"]["record_id"].removeprefix("sha256:")
+            + ".json"
+        )
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if tamper == "published":
+        record["lifecycle_state"] = "published"
+    elif tamper == "missing_admission":
+        record.pop("producer_admission")
+    elif tamper == "authority_flag_removed":
+        record["producer_admission"]["g5_authority"].pop("sdk_canonical")
+    else:
+        record["producer_admission"]["allowed_consumer_intents"].append(
+            "unreviewed_canary"
+        )
+    record_path.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=promoted["record"]["subject_digest"],
+        consumer_intent="runtime_canary",
+        expected_source_repo="aoa-sdk",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert blocker in gate["blockers"]
 
 
 @pytest.mark.parametrize(

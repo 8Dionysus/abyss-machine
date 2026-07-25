@@ -158,6 +158,9 @@
                     "stronger_owner",
                     "trust_admission_status",
                     "runtime_consumer",
+                    "allowed_registry_lifecycle_states",
+                    "allowed_trust_root_modes",
+                    "allowed_consumer_intents",
                     "required_false_authority_flags"
                   ],
                   "properties": {
@@ -205,6 +208,30 @@
                     "runtime_consumer": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "allowed_registry_lifecycle_states": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "enum": ["manually-verified", "superseded", "revoked"]
+                      }
+                    },
+                    "allowed_trust_root_modes": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "enum": ["local_dev", "host_managed"]
+                      }
+                    },
+                    "allowed_consumer_intents": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "enum": ["agent", "runtime_canary"]
+                      }
                     },
                     "required_false_authority_flags": {
                       "type": "array",

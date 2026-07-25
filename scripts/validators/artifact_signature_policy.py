@@ -47,6 +47,9 @@ REQUIRED_CANDIDATE_PROFILE_KEYS = (
     "stronger_owner",
     "trust_admission_status",
     "runtime_consumer",
+    "allowed_registry_lifecycle_states",
+    "allowed_trust_root_modes",
+    "allowed_consumer_intents",
     "required_false_authority_flags",
 )
 REQUIRED_LOCAL_PROVENANCE_FIELDS = (
@@ -546,6 +549,50 @@ def main() -> int:
                     failures.append(
                         f"{label}.current_canonical_owner_repo must match the "
                         "canonical owner"
+                    )
+                for key in (
+                    "allowed_registry_lifecycle_states",
+                    "allowed_trust_root_modes",
+                    "allowed_consumer_intents",
+                ):
+                    values = candidate.get(key)
+                    if (
+                        not isinstance(values, list)
+                        or not values
+                        or not all(isinstance(value, str) and value for value in values)
+                        or len(set(values)) != len(values)
+                    ):
+                        failures.append(
+                            f"{label}.{key} must be a unique non-empty string list"
+                        )
+                if candidate.get("allowed_registry_lifecycle_states") != [
+                    "manually-verified",
+                    "superseded",
+                    "revoked",
+                ]:
+                    failures.append(
+                        f"{label}.allowed_registry_lifecycle_states must keep "
+                        "manually-verified as the only active state while "
+                        "preserving superseded and revoked terminal exits"
+                    )
+                if set(candidate.get("allowed_trust_root_modes") or []) - {
+                    "local_dev",
+                    "host_managed",
+                }:
+                    failures.append(
+                        f"{label}.allowed_trust_root_modes must not admit a release "
+                        "trust root"
+                    )
+                if set(candidate.get("allowed_consumer_intents") or []) & {
+                    "installer",
+                    "runtime",
+                    "release_consumer",
+                    "update_client",
+                    "public_release",
+                }:
+                    failures.append(
+                        f"{label}.allowed_consumer_intents must not admit production "
+                        "consumption"
                     )
                 provenance_ref = candidate.get("provenance_subject_ref")
                 if isinstance(provenance_ref, str):

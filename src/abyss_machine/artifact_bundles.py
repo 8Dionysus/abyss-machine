@@ -4472,6 +4472,31 @@ def _producer_admission_for_manifest(
         or lifecycle.get("initial_state") != candidate.get("lifecycle_initial_state")
     ):
         raise ValueError("candidate producer admission lifecycle state mismatch")
+    promotion_path = lifecycle.get("promotion_path")
+    latest_eligible_states = lifecycle.get("latest_eligible_states")
+    allowed_registry_states = candidate.get(
+        "allowed_registry_lifecycle_states"
+    )
+    allowed_latest_states = (
+        [
+            state
+            for state in allowed_registry_states
+            if state in BUNDLE_LATEST_ELIGIBLE_STATES
+        ]
+        if isinstance(allowed_registry_states, list)
+        else []
+    )
+    if (
+        not isinstance(promotion_path, list)
+        or any(
+            state in {"release-ready", "published"}
+            for state in promotion_path
+        )
+        or latest_eligible_states != allowed_latest_states
+    ):
+        raise ValueError(
+            "candidate producer admission non-publishing lifecycle mismatch"
+        )
     artifact_source = manifest.get("artifact_source")
     if (
         not isinstance(artifact_source, Mapping)
@@ -4589,6 +4614,11 @@ def _producer_admission_for_manifest(
         "stronger_owner": candidate.get("stronger_owner"),
         "trust_admission_status": candidate.get("trust_admission_status"),
         "runtime_consumer": candidate.get("runtime_consumer"),
+        "allowed_registry_lifecycle_states": candidate.get(
+            "allowed_registry_lifecycle_states"
+        ),
+        "allowed_trust_root_modes": candidate.get("allowed_trust_root_modes"),
+        "allowed_consumer_intents": candidate.get("allowed_consumer_intents"),
         "single_canonical_owner": True,
         "canonical_switch_authorized": False,
         "g5_authority": {
@@ -4694,6 +4724,15 @@ def _validate_producer_admission_sidecars(
         errors.append(
             "candidate producer admission runtime consumer does not match policy"
         )
+    for field in (
+        "allowed_registry_lifecycle_states",
+        "allowed_trust_root_modes",
+        "allowed_consumer_intents",
+    ):
+        if record.get(field) != candidate.get(field):
+            errors.append(
+                f"candidate producer admission {field} does not match policy"
+            )
     if (
         record.get("single_canonical_owner") is not True
         or record.get("canonical_switch_authorized") is not False
@@ -4741,6 +4780,9 @@ def _validate_producer_admission_sidecars(
         "stronger_owner",
         "trust_admission_status",
         "runtime_consumer",
+        "allowed_registry_lifecycle_states",
+        "allowed_trust_root_modes",
+        "allowed_consumer_intents",
         "single_canonical_owner",
         "canonical_switch_authorized",
         "g5_authority",
@@ -7574,6 +7616,145 @@ def _update_registry_record_subject_store(
     return {"ok": True, "errors": [], "written": [str(record_path), str(index_path)]}
 
 
+def _candidate_producer_admission_boundary_errors(
+    admission: Mapping[str, Any],
+    *,
+    artifact_class: str,
+    lifecycle_state: str,
+    trust_root_mode: str,
+    consumer_intent: str = "",
+    repo_root: Path = REPO_ROOT,
+) -> list[str]:
+    status = str(admission.get("status") or "")
+    if status == "canonical_producer":
+        return []
+    if status != "candidate_admitted":
+        return ["producer_admission_status_invalid"]
+
+    errors: list[str] = []
+    authority = admission.get("g5_authority")
+    if (
+        admission.get("schema")
+        != "abyss_machine_artifact_producer_admission_v1"
+        or admission.get("publication_posture") != "non_publishing_canary"
+        or admission.get("single_canonical_owner") is not True
+        or admission.get("canonical_switch_authorized") is not False
+        or not isinstance(authority, Mapping)
+        or not authority
+        or any(value is not False for value in authority.values())
+    ):
+        errors.append("candidate_producer_admission_boundary_invalid")
+
+    try:
+        rule = artifact_class_rule(artifact_class, repo_root=repo_root)
+    except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
+        rule = {}
+    producer_policy = (
+        rule.get("producer_admission")
+        if isinstance(rule.get("producer_admission"), Mapping)
+        else {}
+    )
+    candidate_profiles = producer_policy.get("candidate_profiles")
+    candidate = next(
+        (
+            item
+            for item in candidate_profiles
+            if isinstance(item, Mapping)
+            and item.get("profile_id") == admission.get("profile_id")
+            and item.get("owner_repo") == admission.get("owner_repo")
+        ),
+        None,
+    ) if isinstance(candidate_profiles, list) else None
+    if not isinstance(candidate, Mapping):
+        errors.append("candidate_producer_policy_profile_missing")
+    else:
+        expected_policy_fields = {
+            "profile_id": candidate.get("profile_id"),
+            "owner_repo": candidate.get("owner_repo"),
+            "canonical_owner_repo": candidate.get(
+                "current_canonical_owner_repo"
+            ),
+            "provenance_subject_ref": candidate.get(
+                "provenance_subject_ref"
+            ),
+            "provenance_state": candidate.get("provenance_state"),
+            "publication_posture": candidate.get("publication_posture"),
+            "required_controls": required_controls_for_rule(rule),
+            "stronger_owner": candidate.get("stronger_owner"),
+            "trust_admission_status": candidate.get(
+                "trust_admission_status"
+            ),
+            "runtime_consumer": candidate.get("runtime_consumer"),
+            "allowed_registry_lifecycle_states": candidate.get(
+                "allowed_registry_lifecycle_states"
+            ),
+            "allowed_trust_root_modes": candidate.get(
+                "allowed_trust_root_modes"
+            ),
+            "allowed_consumer_intents": candidate.get(
+                "allowed_consumer_intents"
+            ),
+        }
+        for field, expected in expected_policy_fields.items():
+            if admission.get(field) != expected:
+                errors.append(
+                    f"candidate_producer_admission_policy_mismatch:{field}"
+                )
+        required_false_flags = candidate.get(
+            "required_false_authority_flags"
+        )
+        expected_authority = (
+            {str(flag): False for flag in required_false_flags}
+            if isinstance(required_false_flags, list)
+            else {}
+        )
+        if authority != expected_authority:
+            errors.append(
+                "candidate_producer_admission_policy_mismatch:g5_authority"
+            )
+    if (
+        not _is_exact_git_object_id(admission.get("source_ref"))
+        or not _is_exact_git_object_id(
+            admission.get("canonical_predecessor_source_ref")
+        )
+    ):
+        errors.append("candidate_producer_admission_source_binding_invalid")
+
+    allowed_lifecycle_states = admission.get(
+        "allowed_registry_lifecycle_states"
+    )
+    if (
+        lifecycle_state in {"release-ready", "published"}
+        or not isinstance(allowed_lifecycle_states, list)
+        or lifecycle_state not in allowed_lifecycle_states
+    ):
+        errors.append(
+            f"candidate_registry_lifecycle_not_admitted:{lifecycle_state}"
+        )
+
+    allowed_trust_root_modes = admission.get("allowed_trust_root_modes")
+    if (
+        trust_root_mode in PRODUCTION_RELEASE_TRUST_ROOT_MODES
+        or not isinstance(allowed_trust_root_modes, list)
+        or trust_root_mode not in allowed_trust_root_modes
+    ):
+        errors.append(
+            f"candidate_trust_root_mode_not_admitted:{trust_root_mode}"
+        )
+
+    if consumer_intent:
+        allowed_consumer_intents = admission.get("allowed_consumer_intents")
+        if (
+            consumer_intent in PRODUCTION_CONSUMER_INTENTS
+            or not isinstance(allowed_consumer_intents, list)
+            or consumer_intent not in allowed_consumer_intents
+        ):
+            errors.append(
+                f"candidate_consumer_intent_not_admitted:{consumer_intent}"
+            )
+    return errors
+
+
 def bundle_registry_record(
     bundle_dir: str | Path,
     *,
@@ -7639,6 +7820,11 @@ def bundle_registry_record(
     terminal_state = lifecycle_state in BUNDLE_TERMINAL_STATES
     latest_eligible = lifecycle_state in BUNDLE_LATEST_ELIGIBLE_STATES and bool(verification.get("ok"))
     source_refs = [str(item) for item in provenance.get("source_refs", []) if str(item)] if isinstance(provenance.get("source_refs"), list) else []
+    producer_admission = (
+        json.loads(json.dumps(identity["producer_admission"], ensure_ascii=False))
+        if isinstance(identity.get("producer_admission"), dict)
+        else {}
+    )
 
     errors: list[str] = []
     identity_source_repo = str(identity.get("owner_repo") or "")
@@ -7655,6 +7841,26 @@ def bundle_registry_record(
         provenance=provenance,
         manifest=manifest,
     )
+    if producer_admission.get("status") == "candidate_admitted":
+        if source_repo and str(source_repo) != identity_source_repo:
+            errors.append(
+                "candidate promotion source_repo does not match the signed bundle identity"
+            )
+        if source_ref and str(source_ref) != identity_source_ref:
+            errors.append(
+                "candidate promotion source_ref does not match the signed bundle identity"
+            )
+        resolved_source_repo = identity_source_repo
+        resolved_source_ref = identity_source_ref
+        errors.extend(
+            _candidate_producer_admission_boundary_errors(
+                producer_admission,
+                artifact_class=artifact_class,
+                lifecycle_state=lifecycle_state,
+                trust_root_mode=trust_root_mode,
+                repo_root=repo_root,
+            )
+        )
     if artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES:
         if not identity_source_repo:
             errors.append(
@@ -7738,6 +7944,8 @@ def bundle_registry_record(
         "policy_ref": POLICY_REF,
         "abi_ref": ABI_REF,
     }
+    if producer_admission:
+        record["producer_admission"] = producer_admission
     if control_evidence:
         record["control_evidence"] = control_evidence
     if c2pa_trust:
@@ -8640,6 +8848,7 @@ def _trust_gate_inspected_claims(
         },
         "artifact_subject_store": selected.get("artifact_subject_store"),
         "consumer_contract": selected.get("consumer_contract"),
+        "producer_admission": selected.get("producer_admission"),
         "c2pa_trust": _record_c2pa_trust(selected) or None,
     }
 
@@ -8769,6 +8978,22 @@ def trust_gate(
         blockers.append("verification_errors_present")
     if selected.get("verification_missing"):
         blockers.append("verification_missing_required_sidecars")
+    producer_admission = selected.get("producer_admission")
+    if isinstance(producer_admission, dict):
+        blockers.extend(
+            _candidate_producer_admission_boundary_errors(
+                producer_admission,
+                artifact_class=artifact_class,
+                lifecycle_state=str(selected.get("lifecycle_state") or ""),
+                trust_root_mode=str(selected.get("trust_root_mode") or ""),
+                consumer_intent=consumer_intent,
+            )
+        )
+    elif (
+        artifact_class == "thin_routing_readmodel_bundle"
+        and str(selected.get("source_repo") or "") == "aoa-sdk"
+    ):
+        blockers.append("routing_sdk_producer_admission_missing")
     evidence_ref_hygiene = _evidence_ref_hygiene(selected)
     if evidence_ref_hygiene.get("ephemeral_refs"):
         blockers.append(EPHEMERAL_EVIDENCE_REFS_BLOCKER)

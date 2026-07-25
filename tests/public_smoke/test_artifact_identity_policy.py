@@ -473,6 +473,13 @@ def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_co
             "stronger_owner": "abyss-machine",
             "trust_admission_status": "pending_stronger_owner",
             "runtime_consumer": "abyss-stack",
+            "allowed_registry_lifecycle_states": [
+                "manually-verified",
+                "superseded",
+                "revoked",
+            ],
+            "allowed_trust_root_modes": ["local_dev", "host_managed"],
+            "allowed_consumer_intents": ["agent", "runtime_canary"],
             "required_false_authority_flags": [
                 "canonical_producer_switch_authorized",
                 "sdk_canonical",
