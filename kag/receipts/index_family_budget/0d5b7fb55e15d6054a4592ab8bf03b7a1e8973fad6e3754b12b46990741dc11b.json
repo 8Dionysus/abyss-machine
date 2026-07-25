@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 13873456,
+  "allowed_tracked_bytes": 25140442,
+  "approved_by": "repository-owner",
+  "base_ref": "4a70f4b0d80a78d4a3269158ab23b5c32592a454",
+  "changed_generated_bytes": 13873456,
+  "changed_generated_files": 186,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "0d5b7fb55e15d6054a4592ab8bf03b7a1e8973fad6e3754b12b46990741dc11b",
+  "reason": "Stronger-owner routing candidate admission adds policy, schema, validator, bundle-sidecar, and fail-closed proof surfaces; deterministic portable family refresh is required while tracked bytes remain below the standing cap and KAG authority is unchanged.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25140442,
+  "tracked_bytes_max": 27262976
+}
