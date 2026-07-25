@@ -454,6 +454,43 @@ def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_co
     assert routing_release["artifact_class"] == "thin_routing_readmodel_bundle"
     assert routing_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
 
+    admission = routing_rule["producer_admission"]
+    assert admission["canonical_profile_id"] == "aoa-routing"
+    assert admission["canonical_owner_repo"] == "aoa-routing"
+    assert admission["single_canonical_owner"] is True
+    assert admission["canonical_switch_requires_explicit_policy_update"] is True
+    assert admission["candidate_profiles"] == [
+        {
+            "profile_id": "aoa-sdk",
+            "owner_repo": "aoa-sdk",
+            "manifest_mode": "os_abyss_local",
+            "lifecycle_initial_state": "candidate",
+            "artifact_source_kind": "generated_thin_routing_readmodel_family",
+            "provenance_subject_ref": "succession/routing-g5-candidate-provenance.json",
+            "provenance_state": "sdk_g5_candidate",
+            "publication_posture": "non_publishing_canary",
+            "current_canonical_owner_repo": "aoa-routing",
+            "stronger_owner": "abyss-machine",
+            "trust_admission_status": "pending_stronger_owner",
+            "runtime_consumer": "abyss-stack",
+            "required_false_authority_flags": [
+                "canonical_producer_switch_authorized",
+                "sdk_canonical",
+                "live_runtime_mutation_authorized",
+                "predecessor_maintenance_only",
+                "compatibility_window_started",
+                "archive_authorized",
+            ],
+        }
+    ]
+    routing_profiles = {
+        profile_id
+        for profile_id, profile in policy["producer_profiles"].items()
+        if "thin_routing_readmodel_bundle" in profile["artifact_classes"]
+    }
+    assert routing_profiles == {"aoa-routing", "aoa-sdk"}
+    assert routing_rule["identity"]["owner_repo"] == "aoa-routing"
+
 
 def test_aoa_playbooks_registry_requires_abi_and_slsa_without_premature_sbom_or_cosign() -> None:
     policy = load_policy()

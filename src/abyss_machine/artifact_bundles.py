@@ -3560,6 +3560,11 @@ def artifact_requirement_row(
             "automation_profile_ids": [profile.get("profile_id") for profile in automation_profiles],
         },
         "producer_profiles": automation_profiles,
+        "producer_admission": (
+            rule.get("producer_admission")
+            if isinstance(rule.get("producer_admission"), dict)
+            else {}
+        ),
         "consumer": {
             "intent": consumer_intent,
             "trust_gate": f"abyss-machine artifacts trust-gate --artifact-class {artifact_class} --consumer-intent {consumer_intent} --json",
@@ -3595,6 +3600,7 @@ def artifact_requirement_row(
         "claim_limits": [
             "Requirements are a policy/read-model projection; they do not produce evidence or prove an artifact is safe.",
             "Sibling-owned producer profiles name owner expectations but do not replace owner-repo validators or release decisions.",
+            "Candidate producer admission preserves the named canonical owner and does not authorize an owner switch.",
             "GitHub OIDC is one producer adapter, not the OS Abyss trust plane itself.",
         ],
     }
@@ -4395,6 +4401,366 @@ def _is_exact_git_commit_ref(value: object) -> bool:
         r"commit:[0-9a-f]{40}(?:[0-9a-f]{24})?",
         value,
     ) is not None
+
+
+def _is_exact_git_object_id(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(
+        r"[0-9a-f]{40}(?:[0-9a-f]{24})?",
+        value,
+    ) is not None
+
+
+def _producer_admission_for_manifest(
+    *,
+    rule: Mapping[str, Any],
+    manifest: Mapping[str, Any] | None,
+    explicit_source_ref: str,
+) -> dict[str, Any]:
+    admission = rule.get("producer_admission")
+    if not isinstance(admission, Mapping):
+        return {}
+
+    identity = rule.get("identity")
+    canonical_owner = str(admission.get("canonical_owner_repo") or "")
+    identity_owner = (
+        str(identity.get("owner_repo") or "")
+        if isinstance(identity, Mapping)
+        else ""
+    )
+    if not canonical_owner or canonical_owner != identity_owner:
+        raise ValueError(
+            "producer admission canonical owner must match artifact identity owner"
+        )
+    manifest_owner = (
+        str(manifest.get("owner_repo") or canonical_owner)
+        if isinstance(manifest, Mapping)
+        else canonical_owner
+    )
+    if manifest_owner == canonical_owner:
+        return {
+            "schema": "abyss_machine_artifact_producer_admission_v1",
+            "status": "canonical_producer",
+            "profile_id": str(admission.get("canonical_profile_id") or ""),
+            "owner_repo": canonical_owner,
+            "canonical_owner_repo": canonical_owner,
+            "single_canonical_owner": True,
+            "canonical_switch_authorized": False,
+        }
+
+    candidates = admission.get("candidate_profiles")
+    candidate = next(
+        (
+            item
+            for item in candidates
+            if isinstance(item, Mapping) and item.get("owner_repo") == manifest_owner
+        ),
+        None,
+    ) if isinstance(candidates, list) else None
+    if not isinstance(candidate, Mapping):
+        raise ValueError(
+            f"artifact producer owner is not admitted by policy: {manifest_owner}"
+        )
+    if not isinstance(manifest, Mapping):
+        raise ValueError("candidate producer admission requires a bundle manifest")
+    if manifest.get("public_safe") is not True:
+        raise ValueError("candidate producer admission requires public_safe=true")
+    if manifest.get("mode") != candidate.get("manifest_mode"):
+        raise ValueError("candidate producer admission manifest mode mismatch")
+    lifecycle = manifest.get("lifecycle")
+    if (
+        not isinstance(lifecycle, Mapping)
+        or lifecycle.get("initial_state") != candidate.get("lifecycle_initial_state")
+    ):
+        raise ValueError("candidate producer admission lifecycle state mismatch")
+    artifact_source = manifest.get("artifact_source")
+    if (
+        not isinstance(artifact_source, Mapping)
+        or artifact_source.get("kind") != candidate.get("artifact_source_kind")
+    ):
+        raise ValueError("candidate producer admission artifact source mismatch")
+    candidate_source_ref = (
+        artifact_source.get("producer_source_ref")
+        if isinstance(artifact_source, Mapping)
+        else None
+    )
+    if not _is_exact_git_object_id(candidate_source_ref):
+        raise ValueError(
+            "candidate producer admission requires an exact producer Git object ID"
+        )
+    if explicit_source_ref and explicit_source_ref != candidate_source_ref:
+        raise ValueError(
+            "candidate producer admission source_ref does not match the manifest"
+        )
+
+    provenance_ref = str(candidate.get("provenance_subject_ref") or "")
+    safe_provenance_ref = _safe_repo_relative_path(
+        provenance_ref,
+        field="producer_admission.provenance_subject_ref",
+    )
+    subject_specs = manifest.get("artifact_subjects")
+    if not isinstance(subject_specs, list) or not any(
+        isinstance(item, Mapping) and item.get("path") == provenance_ref
+        for item in subject_specs
+    ):
+        raise ValueError(
+            "candidate producer admission provenance must be an artifact subject"
+        )
+    provenance_path = (_subject_repo_root(dict(manifest)) / safe_provenance_ref)
+    if provenance_path.is_symlink() or not provenance_path.is_file():
+        raise ValueError(
+            "candidate producer admission provenance must be a regular file"
+        )
+    provenance = _read_json(provenance_path)
+    if provenance.get("state") != candidate.get("provenance_state"):
+        raise ValueError("candidate producer admission provenance state mismatch")
+    if provenance.get("publication_posture") != candidate.get(
+        "publication_posture"
+    ):
+        raise ValueError(
+            "candidate producer admission publication posture mismatch"
+        )
+
+    current_canonical = provenance.get("current_canonical_producer")
+    if (
+        not isinstance(current_canonical, Mapping)
+        or current_canonical.get("owner_repo")
+        != candidate.get("current_canonical_owner_repo")
+        or not _is_exact_git_object_id(current_canonical.get("source_ref"))
+    ):
+        raise ValueError(
+            "candidate producer admission canonical predecessor evidence mismatch"
+        )
+    candidate_producer = provenance.get("candidate_producer")
+    if (
+        not isinstance(candidate_producer, Mapping)
+        or candidate_producer.get("owner_repo") != manifest_owner
+        or candidate_producer.get("source_ref") != candidate_source_ref
+    ):
+        raise ValueError(
+            "candidate producer admission candidate source evidence mismatch"
+        )
+    candidate_identity = provenance.get("candidate_artifact_identity")
+    if (
+        not isinstance(candidate_identity, Mapping)
+        or candidate_identity.get("artifact_class") != manifest.get("artifact_class")
+        or candidate_identity.get("owner_repo") != manifest_owner
+    ):
+        raise ValueError(
+            "candidate producer admission artifact identity evidence mismatch"
+        )
+    trust_posture = provenance.get("trust_posture")
+    required_controls = required_controls_for_rule(dict(rule))
+    if (
+        not isinstance(trust_posture, Mapping)
+        or trust_posture.get("artifact_class") != manifest.get("artifact_class")
+        or trust_posture.get("required_controls") != required_controls
+        or trust_posture.get("stronger_owner") != candidate.get("stronger_owner")
+        or trust_posture.get("admission_status")
+        != candidate.get("trust_admission_status")
+        or trust_posture.get("runtime_consumer")
+        != candidate.get("runtime_consumer")
+    ):
+        raise ValueError("candidate producer admission trust posture mismatch")
+
+    required_false_flags = candidate.get("required_false_authority_flags")
+    authority = provenance.get("g5_authority")
+    if (
+        not isinstance(required_false_flags, list)
+        or not isinstance(authority, Mapping)
+        or set(authority) != set(required_false_flags)
+        or any(authority.get(flag) is not False for flag in required_false_flags)
+    ):
+        raise ValueError(
+            "candidate producer admission requires every G5 authority flag false"
+        )
+
+    return {
+        "schema": "abyss_machine_artifact_producer_admission_v1",
+        "status": "candidate_admitted",
+        "profile_id": str(candidate.get("profile_id") or ""),
+        "owner_repo": manifest_owner,
+        "source_ref": candidate_source_ref,
+        "canonical_owner_repo": canonical_owner,
+        "canonical_predecessor_source_ref": current_canonical.get("source_ref"),
+        "provenance_subject_ref": provenance_ref,
+        "provenance_state": candidate.get("provenance_state"),
+        "publication_posture": candidate.get("publication_posture"),
+        "required_controls": required_controls,
+        "stronger_owner": candidate.get("stronger_owner"),
+        "trust_admission_status": candidate.get("trust_admission_status"),
+        "runtime_consumer": candidate.get("runtime_consumer"),
+        "single_canonical_owner": True,
+        "canonical_switch_authorized": False,
+        "g5_authority": {
+            str(flag): False for flag in required_false_flags
+        },
+    }
+
+
+def _validate_producer_admission_sidecars(
+    *,
+    rule: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    provenance: Mapping[str, Any],
+    external_subject: Mapping[str, Any],
+    errors: list[str],
+) -> None:
+    admission = rule.get("producer_admission")
+    if not isinstance(admission, Mapping):
+        return
+    record = identity.get("producer_admission")
+    if not isinstance(record, Mapping):
+        errors.append(
+            "artifact.identity.json must record policy producer admission"
+        )
+        return
+    if provenance.get("producer_admission") != record:
+        errors.append(
+            "artifact.provenance.json producer admission does not match identity"
+        )
+    canonical_owner = str(admission.get("canonical_owner_repo") or "")
+    identity_owner = str(identity.get("owner_repo") or "")
+    if identity_owner == canonical_owner:
+        expected = {
+            "schema": "abyss_machine_artifact_producer_admission_v1",
+            "status": "canonical_producer",
+            "profile_id": str(admission.get("canonical_profile_id") or ""),
+            "owner_repo": canonical_owner,
+            "canonical_owner_repo": canonical_owner,
+            "single_canonical_owner": True,
+            "canonical_switch_authorized": False,
+        }
+        if record != expected:
+            errors.append(
+                "canonical producer admission record does not match policy"
+            )
+        return
+
+    candidates = admission.get("candidate_profiles")
+    candidate = next(
+        (
+            item
+            for item in candidates
+            if isinstance(item, Mapping) and item.get("owner_repo") == identity_owner
+        ),
+        None,
+    ) if isinstance(candidates, list) else None
+    if not isinstance(candidate, Mapping):
+        errors.append(
+            f"artifact identity owner is not admitted by policy: {identity_owner}"
+        )
+        return
+    if record.get("status") != "candidate_admitted":
+        errors.append("candidate producer admission status must be candidate_admitted")
+    if record.get("profile_id") != candidate.get("profile_id"):
+        errors.append("candidate producer admission profile does not match policy")
+    if record.get("owner_repo") != identity_owner:
+        errors.append("candidate producer admission owner does not match identity")
+    if record.get("canonical_owner_repo") != canonical_owner:
+        errors.append(
+            "candidate producer admission canonical owner does not match policy"
+        )
+    if record.get("provenance_subject_ref") != candidate.get(
+        "provenance_subject_ref"
+    ):
+        errors.append(
+            "candidate producer admission provenance subject does not match policy"
+        )
+    if record.get("provenance_state") != candidate.get("provenance_state"):
+        errors.append(
+            "candidate producer admission provenance state does not match policy"
+        )
+    if record.get("publication_posture") != candidate.get(
+        "publication_posture"
+    ):
+        errors.append(
+            "candidate producer admission publication posture does not match policy"
+        )
+    if record.get("required_controls") != required_controls_for_rule(dict(rule)):
+        errors.append(
+            "candidate producer admission required controls do not match policy"
+        )
+    if record.get("stronger_owner") != candidate.get("stronger_owner"):
+        errors.append(
+            "candidate producer admission stronger owner does not match policy"
+        )
+    if record.get("trust_admission_status") != candidate.get(
+        "trust_admission_status"
+    ):
+        errors.append(
+            "candidate producer admission trust status does not match policy"
+        )
+    if record.get("runtime_consumer") != candidate.get("runtime_consumer"):
+        errors.append(
+            "candidate producer admission runtime consumer does not match policy"
+        )
+    if (
+        record.get("single_canonical_owner") is not True
+        or record.get("canonical_switch_authorized") is not False
+    ):
+        errors.append(
+            "candidate producer admission must preserve one unswitched canonical owner"
+        )
+    source_ref = record.get("source_ref")
+    if (
+        not _is_exact_git_object_id(source_ref)
+        or source_ref != identity.get("source_ref")
+    ):
+        errors.append(
+            "candidate producer admission source ref must match exact identity ref"
+        )
+    if not _is_exact_git_object_id(
+        record.get("canonical_predecessor_source_ref")
+    ):
+        errors.append(
+            "candidate producer admission predecessor ref must be an exact Git object ID"
+        )
+    required_false_flags = candidate.get("required_false_authority_flags")
+    authority = record.get("g5_authority")
+    if (
+        not isinstance(required_false_flags, list)
+        or not isinstance(authority, Mapping)
+        or set(authority) != set(required_false_flags)
+        or any(authority.get(flag) is not False for flag in required_false_flags)
+    ):
+        errors.append(
+            "candidate producer admission sidecar requires every G5 authority flag false"
+        )
+    expected_record_keys = {
+        "schema",
+        "status",
+        "profile_id",
+        "owner_repo",
+        "source_ref",
+        "canonical_owner_repo",
+        "canonical_predecessor_source_ref",
+        "provenance_subject_ref",
+        "provenance_state",
+        "publication_posture",
+        "required_controls",
+        "stronger_owner",
+        "trust_admission_status",
+        "runtime_consumer",
+        "single_canonical_owner",
+        "canonical_switch_authorized",
+        "g5_authority",
+    }
+    if set(record) != expected_record_keys:
+        errors.append(
+            "candidate producer admission sidecar fields do not match the contract"
+        )
+    if record.get("schema") != "abyss_machine_artifact_producer_admission_v1":
+        errors.append(
+            "candidate producer admission sidecar schema does not match the contract"
+        )
+    external_identity = external_subject.get("artifact_identity")
+    if (
+        not isinstance(external_identity, Mapping)
+        or external_identity.get("owner_repo") != identity_owner
+    ):
+        errors.append(
+            "candidate producer admission external ABI owner does not match identity"
+        )
 
 
 def _kag_external_identity_evidence(
@@ -5272,6 +5638,14 @@ def build_sidecars(
                 "KAG artifact source_ref must be an exact commit:<40-or-64-lowercase-hex> ref"
             )
     rule = artifact_class_rule(artifact_class, repo_root=repo_root)
+    producer_admission = _producer_admission_for_manifest(
+        rule=rule,
+        manifest=manifest,
+        explicit_source_ref=source_ref,
+    )
+    effective_source_ref = str(
+        producer_admission.get("source_ref") or source_ref
+    )
     required = required_controls_for_rule(rule)
     deferred = deferred_controls_for_rule(rule)
     artifact_subjects = build_artifact_subjects(manifest)
@@ -5288,6 +5662,20 @@ def build_sidecars(
             external_subject = build_external_abi_subject(manifest)
             if external_subject is None:
                 raise
+    if producer_admission.get("status") == "candidate_admitted":
+        external_identity = (
+            external_subject.get("artifact_identity")
+            if isinstance(external_subject, dict)
+            else None
+        )
+        if (
+            not isinstance(external_identity, dict)
+            or external_identity.get("owner_repo")
+            != producer_admission.get("owner_repo")
+        ):
+            raise ValueError(
+                "candidate producer admission ABI subject owner mismatch"
+            )
     kag_identity_evidence: dict[str, Any] = {}
     if artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES:
         kag_identity_evidence = _kag_external_identity_evidence(
@@ -5331,8 +5719,10 @@ def build_sidecars(
         identity["access_policy"] = str(manifest["access_policy"])
     if isinstance(manifest, dict) and manifest.get("trust_domain"):
         identity["trust_domain"] = str(manifest["trust_domain"])
-    if source_ref:
-        identity["source_ref"] = source_ref
+    if effective_source_ref:
+        identity["source_ref"] = effective_source_ref
+    if producer_admission:
+        identity["producer_admission"] = producer_admission
     identity.update(
         {
             "schema": "abyss_machine_artifact_identity_sidecar_v1",
@@ -5386,6 +5776,8 @@ def build_sidecars(
     if artifact_subjects is not None:
         provenance["artifact_subjects_ref"] = SUBJECTS_SIDECAR
         provenance["artifact_subjects_digest"] = artifact_subjects.get("aggregate_digest")
+    if producer_admission:
+        provenance["producer_admission"] = producer_admission
 
     written = [IDENTITY_SIDECAR, PROVENANCE_SIDECAR]
     _write_json(bundle / IDENTITY_SIDECAR, identity)
@@ -5460,6 +5852,7 @@ def build_sidecars(
         "written": written,
         "required_controls": required,
         "deferred_controls": deferred,
+        "producer_admission": producer_admission,
     }
 
 
@@ -6846,6 +7239,7 @@ def verify_bundle(
 
     required_controls: list[str] = []
     policy_controls: set[str] = set()
+    rule: dict[str, Any] = {}
     policy = load_policy(repo_root)
     if artifact_class:
         try:
@@ -6895,6 +7289,14 @@ def verify_bundle(
         errors.append("artifact.abi.json must define contract_surface or external_subject when abi_signature is required")
     elif not provenance.get("subject", {}).get("digest"):
         errors.append("artifact.provenance.json subject digest is required")
+    if rule:
+        _validate_producer_admission_sidecars(
+            rule=rule,
+            identity=identity,
+            provenance=provenance,
+            external_subject=external_subject,
+            errors=errors,
+        )
     if artifact_class in KAG_IDENTITY_ARTIFACT_CLASSES:
         identity_owner_repo = str(identity.get("owner_repo") or "")
         identity_source_ref = str(identity.get("source_ref") or "")

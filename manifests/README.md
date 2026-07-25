@@ -27,6 +27,10 @@ checks.
   generated proof reader subjects such as
   `aoa_evals_generated_report_index_bundle`, clean portable session-memory
   exports such as `aoa_session_memory_portable_bundle`, and OS Abyss local
-  provenance bundle roundtrips. External repo bundle manifests may use the
+  provenance bundle roundtrips. Artifact-class `producer_admission` records
+  preserve one canonical producer while admitting an explicitly bounded
+  non-publishing candidate only after its owner profile, exact source ref,
+  provenance subject, trust posture, and false authority flags agree. External
+  repo bundle manifests may use the
   repo-qualified policy reference
   `repo:abyss-machine/manifests/artifact_signature_policy.manifest.json`.

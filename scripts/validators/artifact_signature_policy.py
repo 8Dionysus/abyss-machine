@@ -27,6 +27,28 @@ REQUIRED_IDENTITY_KEYS = (
     "verification",
     "action",
 )
+REQUIRED_PRODUCER_ADMISSION_KEYS = (
+    "canonical_profile_id",
+    "canonical_owner_repo",
+    "single_canonical_owner",
+    "canonical_switch_requires_explicit_policy_update",
+    "candidate_profiles",
+)
+REQUIRED_CANDIDATE_PROFILE_KEYS = (
+    "profile_id",
+    "owner_repo",
+    "manifest_mode",
+    "lifecycle_initial_state",
+    "artifact_source_kind",
+    "provenance_subject_ref",
+    "provenance_state",
+    "publication_posture",
+    "current_canonical_owner_repo",
+    "stronger_owner",
+    "trust_admission_status",
+    "runtime_consumer",
+    "required_false_authority_flags",
+)
 REQUIRED_LOCAL_PROVENANCE_FIELDS = (
     "schema",
     "schema_ref",
@@ -363,6 +385,187 @@ def main() -> int:
             uncovered = sorted(set(classes) - set(profile_class_refs))
             if uncovered:
                 failures.append(f"producer_profiles do not cover artifact classes: {', '.join(uncovered)}")
+
+    if isinstance(classes, dict):
+        routing_admission = classes.get("thin_routing_readmodel_bundle", {}).get(
+            "producer_admission"
+        )
+        if not isinstance(routing_admission, dict):
+            failures.append(
+                "thin_routing_readmodel_bundle must define producer_admission "
+                "while routing succession is open"
+            )
+        for class_id, item in sorted(classes.items()):
+            if not isinstance(item, dict) or "producer_admission" not in item:
+                continue
+            admission = item.get("producer_admission")
+            if not isinstance(admission, dict):
+                failures.append(
+                    f"artifact class {class_id}.producer_admission must be an object"
+                )
+                continue
+            missing_admission = [
+                key for key in REQUIRED_PRODUCER_ADMISSION_KEYS if key not in admission
+            ]
+            if missing_admission:
+                failures.append(
+                    f"artifact class {class_id}.producer_admission missing keys: "
+                    + ", ".join(missing_admission)
+                )
+            canonical_profile_id = admission.get("canonical_profile_id")
+            canonical_owner_repo = admission.get("canonical_owner_repo")
+            identity_owner = str(item.get("identity", {}).get("owner_repo") or "")
+            if canonical_owner_repo != identity_owner:
+                failures.append(
+                    f"artifact class {class_id}.producer_admission canonical owner "
+                    "must match identity.owner_repo"
+                )
+            if admission.get("single_canonical_owner") is not True:
+                failures.append(
+                    f"artifact class {class_id}.producer_admission must keep one "
+                    "canonical owner"
+                )
+            if (
+                admission.get("canonical_switch_requires_explicit_policy_update")
+                is not True
+            ):
+                failures.append(
+                    f"artifact class {class_id}.producer_admission must require an "
+                    "explicit policy update for canonical switch"
+                )
+            canonical_profile = (
+                producer_profiles.get(canonical_profile_id)
+                if isinstance(producer_profiles, dict)
+                and isinstance(canonical_profile_id, str)
+                else None
+            )
+            if not isinstance(canonical_profile, dict):
+                failures.append(
+                    f"artifact class {class_id}.producer_admission references unknown "
+                    f"canonical profile: {canonical_profile_id}"
+                )
+            else:
+                if canonical_profile.get("owner_repo") != canonical_owner_repo:
+                    failures.append(
+                        f"artifact class {class_id}.producer_admission canonical "
+                        "profile owner mismatch"
+                    )
+                canonical_classes = canonical_profile.get("artifact_classes")
+                if not isinstance(canonical_classes, list) or class_id not in canonical_classes:
+                    failures.append(
+                        f"artifact class {class_id}.producer_admission canonical "
+                        "profile does not produce the class"
+                    )
+
+            candidate_profiles = admission.get("candidate_profiles")
+            if not isinstance(candidate_profiles, list) or not candidate_profiles:
+                failures.append(
+                    f"artifact class {class_id}.producer_admission candidate_profiles "
+                    "must be a non-empty list"
+                )
+                continue
+            seen_candidate_profiles: set[str] = set()
+            seen_candidate_owners: set[str] = set()
+            for index, candidate in enumerate(candidate_profiles):
+                label = (
+                    f"artifact class {class_id}.producer_admission."
+                    f"candidate_profiles[{index}]"
+                )
+                if not isinstance(candidate, dict):
+                    failures.append(f"{label} must be an object")
+                    continue
+                missing_candidate = [
+                    key
+                    for key in REQUIRED_CANDIDATE_PROFILE_KEYS
+                    if key not in candidate
+                ]
+                if missing_candidate:
+                    failures.append(
+                        f"{label} missing keys: " + ", ".join(missing_candidate)
+                    )
+                candidate_profile_id = candidate.get("profile_id")
+                candidate_owner = candidate.get("owner_repo")
+                if (
+                    not isinstance(candidate_profile_id, str)
+                    or not candidate_profile_id
+                ):
+                    failures.append(f"{label}.profile_id must be a non-empty string")
+                elif candidate_profile_id in seen_candidate_profiles:
+                    failures.append(f"{label}.profile_id must be unique")
+                else:
+                    seen_candidate_profiles.add(candidate_profile_id)
+                if not isinstance(candidate_owner, str) or not candidate_owner:
+                    failures.append(f"{label}.owner_repo must be a non-empty string")
+                elif candidate_owner == canonical_owner_repo:
+                    failures.append(f"{label}.owner_repo must not be canonical")
+                elif candidate_owner in seen_candidate_owners:
+                    failures.append(f"{label}.owner_repo must be unique")
+                else:
+                    seen_candidate_owners.add(candidate_owner)
+                profile = (
+                    producer_profiles.get(candidate_profile_id)
+                    if isinstance(producer_profiles, dict)
+                    and isinstance(candidate_profile_id, str)
+                    else None
+                )
+                if not isinstance(profile, dict):
+                    failures.append(
+                        f"{label} references unknown producer profile: "
+                        f"{candidate_profile_id}"
+                    )
+                else:
+                    if profile.get("owner_repo") != candidate_owner:
+                        failures.append(f"{label} producer profile owner mismatch")
+                    profile_classes = profile.get("artifact_classes")
+                    if (
+                        not isinstance(profile_classes, list)
+                        or class_id not in profile_classes
+                    ):
+                        failures.append(
+                            f"{label} producer profile does not produce the class"
+                        )
+                for key in (
+                    "manifest_mode",
+                    "lifecycle_initial_state",
+                    "artifact_source_kind",
+                    "provenance_subject_ref",
+                    "provenance_state",
+                    "publication_posture",
+                    "current_canonical_owner_repo",
+                    "stronger_owner",
+                    "trust_admission_status",
+                    "runtime_consumer",
+                ):
+                    value = candidate.get(key)
+                    if not isinstance(value, str) or not value:
+                        failures.append(f"{label}.{key} must be a non-empty string")
+                if (
+                    candidate.get("current_canonical_owner_repo")
+                    != canonical_owner_repo
+                ):
+                    failures.append(
+                        f"{label}.current_canonical_owner_repo must match the "
+                        "canonical owner"
+                    )
+                provenance_ref = candidate.get("provenance_subject_ref")
+                if isinstance(provenance_ref, str):
+                    provenance_path = Path(provenance_ref)
+                    if provenance_path.is_absolute() or ".." in provenance_path.parts:
+                        failures.append(
+                            f"{label}.provenance_subject_ref must be a safe "
+                            "repo-relative path"
+                        )
+                flags = candidate.get("required_false_authority_flags")
+                if (
+                    not isinstance(flags, list)
+                    or not flags
+                    or not all(isinstance(flag, str) and flag for flag in flags)
+                    or len(set(flags)) != len(flags)
+                ):
+                    failures.append(
+                        f"{label}.required_false_authority_flags must be a unique "
+                        "non-empty string list"
+                    )
 
     identity_fields = policy.get("identity_fields")
     if not isinstance(identity_fields, list) or not all(isinstance(item, str) and item for item in identity_fields):
