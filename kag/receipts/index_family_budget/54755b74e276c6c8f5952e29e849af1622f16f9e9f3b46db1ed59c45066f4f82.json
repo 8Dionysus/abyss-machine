@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 16254842,
+  "allowed_tracked_bytes": 25195613,
+  "approved_by": "repository-owner",
+  "base_ref": "125caf0f237c7c888934c7669e8dd22d33efb3e6",
+  "changed_generated_bytes": 16254842,
+  "changed_generated_files": 222,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "54755b74e276c6c8f5952e29e849af1622f16f9e9f3b46db1ed59c45066f4f82",
+  "reason": "Separate SDK routing release trust from G5 owner-switch authority; refresh the deterministic portable KAG family and ABI companion for the new policy profile, decision, verifier contract, and regression surfaces while preserving the existing tracked-byte cap and KAG authority boundary.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25195613,
+  "tracked_bytes_max": 27262976
+}
