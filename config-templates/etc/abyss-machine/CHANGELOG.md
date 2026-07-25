@@ -12,6 +12,11 @@ Do not record every probe, sample, generated refresh, or local experiment here.
 
 ### Changed
 
+- Split pre-G5 `aoa-sdk` routing admission into an unchanged local
+  non-publishing candidate and an explicitly selected public release
+  candidate. The latter may carry `release-ready`/`public_release` evidence
+  for release consumers and canaries while normal runtime and every canonical
+  switch flag remain denied.
 - Replaced the resident Memory Controller and its forecast/registry/SQLite
   plane with synchronous live admission, runtime-only startup reservations,
   and owner-native workload lifecycle routes; retired the older numeric

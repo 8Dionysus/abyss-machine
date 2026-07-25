@@ -39,6 +39,8 @@ REQUIRED_CANDIDATE_PROFILE_KEYS = (
     "owner_repo",
     "manifest_mode",
     "lifecycle_initial_state",
+    "manifest_promotion_path",
+    "manifest_latest_eligible_states",
     "artifact_source_kind",
     "provenance_subject_ref",
     "provenance_state",
@@ -151,6 +153,50 @@ ALLOWED_TRUST_ROOT_MODES = {
     "github_oidc",
     "oci_registry",
     "public_release",
+}
+CANDIDATE_ADMISSION_CONTRACTS = {
+    "aoa-sdk": {
+        "owner_repo": "aoa-sdk",
+        "manifest_mode": "os_abyss_local",
+        "lifecycle_initial_state": "candidate",
+        "manifest_promotion_path": [
+            "candidate",
+            "built-local",
+            "manually-verified",
+            "superseded",
+            "revoked",
+        ],
+        "manifest_latest_eligible_states": ["manually-verified"],
+        "publication_posture": "non_publishing_canary",
+        "allowed_registry_lifecycle_states": [
+            "manually-verified",
+            "superseded",
+            "revoked",
+        ],
+        "allowed_trust_root_modes": ["local_dev", "host_managed"],
+        "allowed_consumer_intents": ["agent", "runtime_canary"],
+    },
+    "aoa-sdk-g5-release-candidate": {
+        "owner_repo": "aoa-sdk",
+        "manifest_mode": "github_release",
+        "lifecycle_initial_state": "release-ready",
+        "manifest_promotion_path": [
+            "release-ready",
+            "published",
+            "superseded",
+            "revoked",
+        ],
+        "manifest_latest_eligible_states": ["release-ready", "published"],
+        "publication_posture": "public_release_candidate",
+        "allowed_registry_lifecycle_states": [
+            "release-ready",
+            "published",
+            "superseded",
+            "revoked",
+        ],
+        "allowed_trust_root_modes": ["public_release"],
+        "allowed_consumer_intents": ["release_consumer", "runtime_canary"],
+    },
 }
 FORBIDDEN_SOURCE_PREFIXES = (
     "/var/lib/abyss-machine",
@@ -468,7 +514,6 @@ def main() -> int:
                 )
                 continue
             seen_candidate_profiles: set[str] = set()
-            seen_candidate_owners: set[str] = set()
             for index, candidate in enumerate(candidate_profiles):
                 label = (
                     f"artifact class {class_id}.producer_admission."
@@ -501,22 +546,23 @@ def main() -> int:
                     failures.append(f"{label}.owner_repo must be a non-empty string")
                 elif candidate_owner == canonical_owner_repo:
                     failures.append(f"{label}.owner_repo must not be canonical")
-                elif candidate_owner in seen_candidate_owners:
-                    failures.append(f"{label}.owner_repo must be unique")
-                else:
-                    seen_candidate_owners.add(candidate_owner)
-                profile = (
-                    producer_profiles.get(candidate_profile_id)
-                    if isinstance(producer_profiles, dict)
-                    and isinstance(candidate_profile_id, str)
-                    else None
-                )
-                if not isinstance(profile, dict):
+                owner_profiles = [
+                    profile
+                    for profile in (
+                        producer_profiles.values()
+                        if isinstance(producer_profiles, dict)
+                        else []
+                    )
+                    if isinstance(profile, dict)
+                    and profile.get("owner_repo") == candidate_owner
+                ]
+                if len(owner_profiles) != 1:
                     failures.append(
-                        f"{label} references unknown producer profile: "
-                        f"{candidate_profile_id}"
+                        f"{label} must resolve exactly one producer owner profile: "
+                        f"{candidate_owner}"
                     )
                 else:
+                    profile = owner_profiles[0]
                     if profile.get("owner_repo") != candidate_owner:
                         failures.append(f"{label} producer profile owner mismatch")
                     profile_classes = profile.get("artifact_classes")
@@ -565,35 +611,23 @@ def main() -> int:
                         failures.append(
                             f"{label}.{key} must be a unique non-empty string list"
                         )
-                if candidate.get("allowed_registry_lifecycle_states") != [
-                    "manually-verified",
-                    "superseded",
-                    "revoked",
-                ]:
+                expected_contract = (
+                    CANDIDATE_ADMISSION_CONTRACTS.get(candidate_profile_id)
+                    if isinstance(candidate_profile_id, str)
+                    else None
+                )
+                if not isinstance(expected_contract, dict):
                     failures.append(
-                        f"{label}.allowed_registry_lifecycle_states must keep "
-                        "manually-verified as the only active state while "
-                        "preserving superseded and revoked terminal exits"
+                        f"{label}.profile_id has no exact admission contract: "
+                        f"{candidate_profile_id}"
                     )
-                if set(candidate.get("allowed_trust_root_modes") or []) - {
-                    "local_dev",
-                    "host_managed",
-                }:
-                    failures.append(
-                        f"{label}.allowed_trust_root_modes must not admit a release "
-                        "trust root"
-                    )
-                if set(candidate.get("allowed_consumer_intents") or []) & {
-                    "installer",
-                    "runtime",
-                    "release_consumer",
-                    "update_client",
-                    "public_release",
-                }:
-                    failures.append(
-                        f"{label}.allowed_consumer_intents must not admit production "
-                        "consumption"
-                    )
+                else:
+                    for key, expected_value in expected_contract.items():
+                        if candidate.get(key) != expected_value:
+                            failures.append(
+                                f"{label}.{key} must match the exact "
+                                f"{candidate_profile_id} admission contract"
+                            )
                 provenance_ref = candidate.get("provenance_subject_ref")
                 if isinstance(provenance_ref, str):
                     provenance_path = Path(provenance_ref)
