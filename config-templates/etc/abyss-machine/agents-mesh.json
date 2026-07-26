@@ -440,6 +440,22 @@
       "required_markers": ["## Operating Contract", "## Rules", "abyss-machine ... --json"]
     },
     {
+      "id": "srv-tools-browser-bidi-enablerr",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/browser/bidi-enablerr/AGENTS.md",
+      "kind": "local_card",
+      "role": "ChatGPT Chromium Bidi helper",
+      "required": true,
+      "required_markers": ["## Contract", "## Source", "Abyss Chromium"]
+    },
+    {
+      "id": "srv-tools-memory-steward",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/memory-steward/AGENTS.md",
+      "kind": "local_card",
+      "role": "Abyss Memory Steward evidence wrappers",
+      "required": true,
+      "required_markers": ["## Contract", "## Boundaries", "## Validation", "no zram or swap mutation"]
+    },
+    {
       "id": "srv-tools-ai",
       "path": "{{ABYSS_MACHINE_SRV}}/tools/ai/AGENTS.md",
       "kind": "local_card",
@@ -502,6 +518,14 @@
       "role": "Firefox typing extension source and package route",
       "required": true,
       "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Validation", "manifest.json"]
+    },
+    {
+      "id": "srv-tools-typing-chromium-extension",
+      "path": "{{ABYSS_MACHINE_SRV}}/tools/typing/chromium-extension/AGENTS.md",
+      "kind": "local_card",
+      "role": "Chromium typing extension source and package route",
+      "required": true,
+      "required_markers": ["## Applies to", "## Role", "## Operating Contract", "## Boundaries", "## Closeout", "manifest.json"]
     },
     {
       "id": "srv-tools-testing",

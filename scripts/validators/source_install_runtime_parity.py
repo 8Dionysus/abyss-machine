@@ -48,6 +48,15 @@ def run_runtime_check(name: str, command: list[str], timeout: float) -> dict[str
             stderr=exc.stderr if isinstance(exc.stderr, str) else f"timed out after {timeout}s",
             timed_out=True,
         )
+    except FileNotFoundError:
+        return host_lifecycle_parity.compact_command_result(
+            name=name,
+            command=command,
+            returncode=127,
+            stdout="",
+            stderr="",
+            error_kind="missing_runtime_command",
+        )
 
 
 def build_report(args: argparse.Namespace, selected_runtime_checks: list[str]) -> dict[str, Any]:

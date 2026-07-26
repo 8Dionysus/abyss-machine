@@ -1937,8 +1937,6 @@ def browser_context_selftest_document(
                     break
             if matched_capture:
                 break
-            if proc.poll() is not None:
-                break
             sleep(1.0)
         if isinstance(matched_capture, dict):
             record = matched_capture.get("record") if isinstance(matched_capture.get("record"), dict) else {}

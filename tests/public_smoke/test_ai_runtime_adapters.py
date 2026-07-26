@@ -844,6 +844,17 @@ def test_llm_controller_result_projection_parses_json_and_bounds_invalid_output(
         empty_error="controller produced no output",
         invalid_json_error="controller produced invalid JSON",
     )
+    invalid_success = ai_runtime_adapters.llm_controller_result_projection(
+        {
+            "returncode": 0,
+            "command": ["/tool", "status"],
+            "stdout": "not-json",
+            "stderr": "",
+        },
+        json_output=True,
+        empty_error="controller produced no output",
+        invalid_json_error="controller produced invalid JSON",
+    )
     text = ai_runtime_adapters.llm_controller_result_projection(
         {"returncode": 1, "stdout": "", "stderr": "plain failure"},
         json_output=False,
@@ -858,6 +869,9 @@ def test_llm_controller_result_projection_parses_json_and_bounds_invalid_output(
     assert invalid["data"]["command"] == ["/tool", "status"]
     assert len(invalid["data"]["stdout_tail"]) == 1000
     assert len(invalid["data"]["stderr_tail"]) == 1000
+    assert invalid_success["returncode"] == 1
+    assert invalid_success["data"]["returncode"] == 1
+    assert invalid_success["data"]["error"] == "controller produced invalid JSON"
     assert text == {"format": "text", "text": "plain failure", "returncode": 1}
 
 
@@ -1657,19 +1671,40 @@ def test_policy_readmodel_from_live_inputs_uses_fake_ports(tmp_path: Path) -> No
         latest_path=tmp_path / "policy.json",
         write_json=write_json,
     )
+    empty_battery = ai_runtime_adapters.policy_readmodel_from_live_inputs(
+        schema_prefix="abyss_machine",
+        version="test",
+        now_iso=lambda: STAMP,
+        config=config,
+        observability_status=lambda: {"latest": {"age_sec": 20, "battery": {}}},
+        observability_latest=lambda: {"latest": "thermal-source-3"},
+        mode_status=lambda: mode,
+        battery_summary=fallback_battery,
+        thermal_policy_snapshot=thermal_policy_snapshot,
+        cpu_thermal_map=lambda **kwargs: (_ for _ in ()).throw(AssertionError("cpu port should not run")),
+        cpu_thermal_map_input={"ok": True, "summary": {"provided": "empty-battery"}},
+        observability_latest_path="/var/lib/abyss-machine/observability/thermal-battery/latest.json",
+        cpu_thermal_map_latest_path="/var/lib/abyss-machine/ai/cpu/thermal-map/latest.json",
+        write_latest=False,
+        latest_path=tmp_path / "policy.json",
+        write_json=write_json,
+    )
 
     assert collected["schema"] == "abyss_machine_ai_policy_v1"
     assert collected["generated_at"] == STAMP
     assert collected["current"]["battery"]["capacity_percent"] == 90
     assert collected["current"]["telemetry_age_sec"] == 12
     assert cpu_calls == [{"write_latest": True}]
-    assert fallback_battery_calls == 1
+    assert fallback_battery_calls == 2
     assert provided["current"]["battery"]["capacity_percent"] == 77
     assert provided["current"]["telemetry_age_sec"] == 18
+    assert empty_battery["current"]["battery"]["capacity_percent"] == 77
+    assert empty_battery["current"]["telemetry_age_sec"] == 20
     assert provided["current"]["cpu_thermal_map"]["summary"] == {"provided": True}
     assert thermal_calls == [
         ({"latest": "thermal-source"}, config["thermal_policy"]),
         ({"latest": "thermal-source-2"}, config["thermal_policy"]),
+        ({"latest": "thermal-source-3"}, config["thermal_policy"]),
     ]
     assert writes == [(tmp_path / "policy.json", "abyss_machine_ai_policy_v1", 0o664)]
 

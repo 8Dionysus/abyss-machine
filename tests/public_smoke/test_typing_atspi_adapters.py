@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from abyss_machine import typing_atspi_adapters
 
@@ -955,7 +956,11 @@ def test_atspi_focus_text_by_url_reads_hash_and_focuses_without_live_pyatspi() -
     assert data["matched"]["text_sha256"] == text_sha
     assert data["matched"]["expected_text_match"] is True
     assert data["matched"]["focus"]["states_after"]["focused"] is True
-    assert data["matched"]["_text"] == text
+    assert "_text" not in data["matched"]
+    assert "_caret_offset" not in data["matched"]
+    assert "_document_attrs" not in data["matched"]
+    assert all(not str(key).startswith("_") for key in data["attempts"][0])
+    assert text not in json.dumps(data)
 
 
 def test_controlled_browser_selftest_override_stays_public_safe() -> None:

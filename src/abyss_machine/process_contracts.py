@@ -5,7 +5,43 @@ from pathlib import Path
 from typing import Any
 
 
-PROTECTED_CAPABILITY_ROLES = {"persistent_model", "persistent_ai_service", "operator_dictation"}
+STACK_STATE_SERVICE_NAMES = {
+    "chroma",
+    "minio",
+    "neo4j",
+    "postgres",
+    "postgresql",
+    "qdrant",
+    "redis",
+    "redis-stack",
+}
+STACK_RUNTIME_SERVICE_NAMES = {
+    "agent-api",
+    "agent-api-intel",
+    "browser-tools",
+    "federation-api",
+    "federation-router",
+    "rag-api",
+    "route-api",
+}
+STACK_OBSERVABILITY_SERVICE_NAMES = {
+    "alertmanager",
+    "grafana",
+    "loki",
+    "prometheus",
+    "tempo",
+}
+STACK_SERVICE_ROLES = {
+    "stack_state_service",
+    "stack_runtime_service",
+    "stack_observability_service",
+}
+PROTECTED_CAPABILITY_ROLES = {
+    "persistent_model",
+    "persistent_ai_service",
+    "operator_dictation",
+    *STACK_SERVICE_ROLES,
+}
 GAME_TEXT_MATCH_INSPECTION_COMMS = {
     "abyss-machine",
     "awk",
@@ -94,6 +130,69 @@ def text_matches_any(patterns: list[str], text: str) -> bool:
         if compiled.search(match_text):
             return True
     return False
+
+
+def normalized_service_tokens(*parts: Any) -> set[str]:
+    tokens: set[str] = set()
+    for part in parts:
+        text = str(part or "").strip().lower()
+        if not text:
+            continue
+        tokens.add(text)
+        tokens.add(text.removeprefix("abyss_").removesuffix("_1"))
+        tokens.add(text.removeprefix("abyss-").removesuffix("-1"))
+        tokens.update(token for token in re.split(r"[^a-z0-9]+", text) if token)
+    return tokens
+
+
+def stack_service_role(*parts: Any) -> str:
+    tokens = normalized_service_tokens(*parts)
+    if tokens & STACK_STATE_SERVICE_NAMES:
+        return "stack_state_service"
+    if tokens & STACK_RUNTIME_SERVICE_NAMES:
+        return "stack_runtime_service"
+    if tokens & STACK_OBSERVABILITY_SERVICE_NAMES:
+        return "stack_observability_service"
+    return "none"
+
+
+def process_importance(workload_hint: Any, capability_role: Any, protected: bool = False) -> dict[str, str]:
+    workload = str(workload_hint or "normal")
+    role = str(capability_role or "none")
+    if role == "stack_state_service":
+        return {
+            "class": "stack_state_service",
+            "reason": "Stateful stack service such as database, graph store, or vector store needs owner-route review and backup/health context before any lifecycle action.",
+        }
+    if role == "stack_runtime_service":
+        return {
+            "class": "stack_runtime_service",
+            "reason": "Stack runtime/control service may be part of active agent routing and needs service-owner review before restart or unload.",
+        }
+    if role == "stack_observability_service":
+        return {
+            "class": "stack_observability_service",
+            "reason": "Observability service is useful infrastructure; restart-loop or memory pressure is fix-route evidence, not a generic unload target.",
+        }
+    if protected or role in PROTECTED_CAPABILITY_ROLES:
+        return {
+            "class": "protected_capability",
+            "reason": "Resident AI, dictation, TTS, game, or other protected capability must remain available unless its owner route approves a lifecycle action.",
+        }
+    if workload in {"development", "browser", "game_platform"}:
+        return {
+            "class": "operator_interactive_session",
+            "reason": "Interactive operator/session work can contain active agents, shells, editors, or browser state.",
+        }
+    if workload == "abyss_machine":
+        return {
+            "class": "host_automation",
+            "reason": "Host automation should be bounded through launch gates and service-specific routes, not generic process stops.",
+        }
+    return {
+        "class": "unclassified_material_workload",
+        "reason": "The workload is material in RAM/zram but lacks enough route evidence for a safe unload decision.",
+    }
 
 
 def path_text_under_game_root(value: Any, game_roots: list[Any]) -> bool:

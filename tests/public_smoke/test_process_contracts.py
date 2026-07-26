@@ -92,6 +92,10 @@ def test_process_role_and_workload_classification_are_module_owned() -> None:
         "/home/agent/.local/share/bottles/runners/wine/bin/wine-preloader",
         game_roots=roots,
     ) == "none"
+    assert process_contracts.process_importance("ai_runtime", "persistent_model", True)["class"] == "protected_capability"
+    assert process_contracts.process_importance("development", "none", False)["class"] == "operator_interactive_session"
+    assert process_contracts.process_importance("normal", "stack_state_service", True)["class"] == "stack_state_service"
+    assert process_contracts.process_importance("normal", "none", False)["class"] == "unclassified_material_workload"
 
 
 def test_process_game_guard_document_is_module_owned() -> None:

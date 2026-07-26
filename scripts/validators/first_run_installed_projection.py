@@ -38,6 +38,7 @@ PORTABILITY_SCAN_EXCLUDED_PARTS = {
 }
 PORTABILITY_NEEDLES = {
     "operator_home_path": b"/home/" + b"dionysus",
+    "operator_runtime_home_path": b"home/" + b"dionysus",
     "current_checkout_path": str(REPO_ROOT).encode("utf-8"),
 }
 
@@ -1282,41 +1283,47 @@ def portability_scan_report(paths: dict[str, Path]) -> dict[str, Any]:
     }
     findings: list[dict[str, Any]] = []
     for root_id, root in roots.items():
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.is_symlink():
-                continue
-            if any(part in PORTABILITY_SCAN_EXCLUDED_PARTS for part in path.parts):
-                continue
-            try:
-                data = path.read_bytes()
-            except OSError as exc:
-                findings.append({
-                    "root": root_id,
-                    "path": str(path),
-                    "needle": "read_error",
-                    "detail": str(exc),
-                })
-                continue
-            for needle_id, needle in PORTABILITY_NEEDLES.items():
-                if needle not in data:
+        for dirpath, dirnames, filenames in os.walk(root, topdown=True, onerror=None):
+            dirnames[:] = sorted(
+                name for name in dirnames if name not in PORTABILITY_SCAN_EXCLUDED_PARTS
+            )
+            current = Path(dirpath)
+            for name in sorted(filenames):
+                path = current / name
+                if any(part in PORTABILITY_SCAN_EXCLUDED_PARTS for part in path.relative_to(root).parts):
                     continue
-                finding: dict[str, Any] = {
-                    "root": root_id,
-                    "path": str(path),
-                    "needle": needle_id,
-                }
+                if not path.is_file() or path.is_symlink():
+                    continue
                 try:
-                    text = data.decode("utf-8")
-                except UnicodeDecodeError:
-                    finding["binary_match"] = True
-                else:
-                    needle_text = needle.decode("utf-8")
-                    finding["lines"] = [
-                        lineno
-                        for lineno, line in enumerate(text.splitlines(), 1)
-                        if needle_text in line
-                    ][:20]
-                findings.append(finding)
+                    data = path.read_bytes()
+                except OSError as exc:
+                    findings.append({
+                        "root": root_id,
+                        "path": str(path),
+                        "needle": "read_error",
+                        "detail": str(exc),
+                    })
+                    continue
+                for needle_id, needle in PORTABILITY_NEEDLES.items():
+                    if needle not in data:
+                        continue
+                    finding: dict[str, Any] = {
+                        "root": root_id,
+                        "path": str(path),
+                        "needle": needle_id,
+                    }
+                    try:
+                        text = data.decode("utf-8")
+                    except UnicodeDecodeError:
+                        finding["binary_match"] = True
+                    else:
+                        needle_text = needle.decode("utf-8")
+                        finding["lines"] = [
+                            lineno
+                            for lineno, line in enumerate(text.splitlines(), 1)
+                            if needle_text in line
+                        ][:20]
+                    findings.append(finding)
     failures = [
         f"{finding['needle']} found in {finding['root']}:{finding['path']}"
         for finding in findings
