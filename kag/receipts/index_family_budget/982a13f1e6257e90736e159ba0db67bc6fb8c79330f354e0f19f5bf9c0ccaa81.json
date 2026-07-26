@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 20980731,
+  "allowed_tracked_bytes": 25357880,
+  "approved_by": "repository-owner",
+  "base_ref": "7f1b9fcf6f5beca7203f49ffb7ec53d765d1db86",
+  "changed_generated_bytes": 20980731,
+  "changed_generated_files": 288,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "982a13f1e6257e90736e159ba0db67bc6fb8c79330f354e0f19f5bf9c0ccaa81",
+  "reason": "Bind canonical promotion to the authenticated release manifest and named abyss-stack consumer, and require the artifact-subject aggregate for normal runtime admission.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25357880,
+  "tracked_bytes_max": 27262976
+}
