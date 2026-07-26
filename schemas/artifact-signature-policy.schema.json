@@ -122,6 +122,7 @@
               "canonical_owner_repo",
               "single_canonical_owner",
               "canonical_switch_requires_explicit_policy_update",
+              "canonical_profile",
               "candidate_profiles"
             ],
             "properties": {
@@ -139,6 +140,139 @@
               "canonical_switch_requires_explicit_policy_update": {
                 "const": true
               },
+              "canonical_profile": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "profile_id",
+                  "owner_repo",
+                  "source_ref",
+                  "manifest_mode",
+                  "lifecycle_initial_state",
+                  "manifest_promotion_path",
+                  "manifest_latest_eligible_states",
+                  "artifact_source_kind",
+                  "provenance_subject_ref",
+                  "provenance_schema",
+                  "provenance_state",
+                  "publication_posture",
+                  "predecessor_owner_repo",
+                  "predecessor_source_ref",
+                  "predecessor_posture",
+                  "owner_switch_receipt_ref",
+                  "owner_switch_receipt_schema",
+                  "owner_switch_receipt_digest",
+                  "owner_switch_receipt_status",
+                  "sdk_version",
+                  "abi_epoch",
+                  "public_release_source_ref",
+                  "public_release_ref",
+                  "public_release_asset_name",
+                  "public_release_asset_digest",
+                  "canonical_release_ref",
+                  "canonical_release_asset_name",
+                  "canonical_release_asset_digest",
+                  "canonical_release_archive_prefix",
+                  "canonical_release_manifest_ref",
+                  "canonical_release_manifest_digest",
+                  "canonical_release_member_set_digest",
+                  "canonical_release_subject_count",
+                  "canonical_release_artifact_subjects_digest",
+                  "canonical_release_evidence_schema",
+                  "canonical_release_evidence_ref",
+                  "canonical_release_verifier",
+                  "stronger_owner",
+                  "trust_admission_status",
+                  "runtime_consumer",
+                  "required_consumer_ref",
+                  "runtime_consumer_source_ref",
+                  "runtime_consumer_decision_id",
+                  "allowed_registry_lifecycle_states",
+                  "allowed_trust_root_modes",
+                  "allowed_consumer_intents",
+                  "required_g5_authority",
+                  "archive_stop_line"
+                ],
+                "properties": {
+                  "profile_id": {"type": "string", "minLength": 1},
+                  "owner_repo": {"type": "string", "minLength": 1},
+                  "source_ref": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+                  "manifest_mode": {"const": "github_release"},
+                  "lifecycle_initial_state": {"const": "release-ready"},
+                  "manifest_promotion_path": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                  },
+                  "manifest_latest_eligible_states": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                  },
+                  "artifact_source_kind": {"type": "string", "minLength": 1},
+                  "provenance_subject_ref": {"type": "string", "minLength": 1},
+                  "provenance_schema": {"type": "string", "minLength": 1},
+                  "provenance_state": {"type": "string", "minLength": 1},
+                  "publication_posture": {"const": "public_release_canonical"},
+                  "predecessor_owner_repo": {"type": "string", "minLength": 1},
+                  "predecessor_source_ref": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+                  "predecessor_posture": {"type": "string", "minLength": 1},
+                  "owner_switch_receipt_ref": {"type": "string", "minLength": 1},
+                  "owner_switch_receipt_schema": {"type": "string", "minLength": 1},
+                  "owner_switch_receipt_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                  "owner_switch_receipt_status": {"type": "string", "minLength": 1},
+                  "sdk_version": {"type": "string", "minLength": 1},
+                  "abi_epoch": {"type": "string", "minLength": 1},
+                  "public_release_source_ref": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+                  "public_release_ref": {"type": "string", "minLength": 1},
+                  "public_release_asset_name": {"type": "string", "minLength": 1},
+                  "public_release_asset_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                  "canonical_release_ref": {"type": "string", "minLength": 1},
+                  "canonical_release_asset_name": {"type": "string", "minLength": 1},
+                  "canonical_release_asset_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                  "canonical_release_archive_prefix": {"type": "string", "minLength": 1},
+                  "canonical_release_manifest_ref": {"type": "string", "minLength": 1},
+                  "canonical_release_manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                  "canonical_release_member_set_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                  "canonical_release_subject_count": {"type": "integer", "minimum": 1},
+                  "canonical_release_artifact_subjects_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                  "canonical_release_evidence_schema": {"type": "string", "minLength": 1},
+                  "canonical_release_evidence_ref": {"type": "string", "minLength": 1},
+                  "canonical_release_verifier": {"type": "string", "minLength": 1},
+                  "stronger_owner": {"type": "string", "minLength": 1},
+                  "trust_admission_status": {"type": "string", "minLength": 1},
+                  "runtime_consumer": {"type": "string", "minLength": 1},
+                  "required_consumer_ref": {"type": "string", "minLength": 1},
+                  "runtime_consumer_source_ref": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+                  "runtime_consumer_decision_id": {"type": "string", "minLength": 1},
+                  "allowed_registry_lifecycle_states": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"enum": ["release-ready", "published", "superseded", "revoked"]}
+                  },
+                  "allowed_trust_root_modes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"const": "public_release"}
+                  },
+                  "allowed_consumer_intents": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"enum": ["release_consumer", "runtime_canary", "runtime"]}
+                  },
+                  "required_g5_authority": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {"type": "boolean"}
+                  },
+                  "archive_stop_line": {"type": "string", "minLength": 1}
+                }
+              },
               "candidate_profiles": {
                 "type": "array",
                 "minItems": 1,
@@ -150,6 +284,8 @@
                     "owner_repo",
                     "manifest_mode",
                     "lifecycle_initial_state",
+                    "manifest_promotion_path",
+                    "manifest_latest_eligible_states",
                     "artifact_source_kind",
                     "provenance_subject_ref",
                     "provenance_state",
@@ -173,10 +309,22 @@
                       "minLength": 1
                     },
                     "manifest_mode": {
-                      "enum": ["os_abyss_local"]
+                      "enum": ["os_abyss_local", "github_release"]
                     },
                     "lifecycle_initial_state": {
-                      "enum": ["candidate"]
+                      "enum": ["candidate", "release-ready"]
+                    },
+                    "manifest_promotion_path": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {"type": "string", "minLength": 1}
+                    },
+                    "manifest_latest_eligible_states": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {"type": "string", "minLength": 1}
                     },
                     "artifact_source_kind": {
                       "type": "string",
@@ -191,7 +339,7 @@
                       "minLength": 1
                     },
                     "publication_posture": {
-                      "enum": ["non_publishing_canary"]
+                      "enum": ["non_publishing_canary", "public_release_candidate"]
                     },
                     "current_canonical_owner_repo": {
                       "type": "string",
@@ -214,7 +362,7 @@
                       "minItems": 1,
                       "uniqueItems": true,
                       "items": {
-                        "enum": ["manually-verified", "superseded", "revoked"]
+                        "enum": ["manually-verified", "release-ready", "published", "superseded", "revoked"]
                       }
                     },
                     "allowed_trust_root_modes": {
@@ -222,7 +370,7 @@
                       "minItems": 1,
                       "uniqueItems": true,
                       "items": {
-                        "enum": ["local_dev", "host_managed"]
+                        "enum": ["local_dev", "host_managed", "public_release"]
                       }
                     },
                     "allowed_consumer_intents": {
@@ -230,7 +378,7 @@
                       "minItems": 1,
                       "uniqueItems": true,
                       "items": {
-                        "enum": ["agent", "runtime_canary"]
+                        "enum": ["agent", "release_consumer", "runtime_canary"]
                       }
                     },
                     "required_false_authority_flags": {

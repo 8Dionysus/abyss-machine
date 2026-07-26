@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 20368699,
+  "allowed_tracked_bytes": 25329823,
+  "approved_by": "repository-owner",
+  "base_ref": "7f1b9fcf6f5beca7203f49ffb7ec53d765d1db86",
+  "changed_generated_bytes": 20368699,
+  "changed_generated_files": 280,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "20f14870e8c96667e810393e85daa7c4b317cba23f08d860352ecd8329598b91",
+  "reason": "Bind the canonical runtime consumer and distinguish the release-evidence record subject from the D-0086 artifact-subject aggregate.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25329823,
+  "tracked_bytes_max": 27262976
+}

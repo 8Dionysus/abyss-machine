@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 20671162,
+  "allowed_tracked_bytes": 25446225,
+  "approved_by": "repository-owner",
+  "base_ref": "df65f765268735c59c5ebd1a5c7f3e7f5fbb1c75",
+  "changed_generated_bytes": 20671162,
+  "changed_generated_files": 281,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "1a8af3c2d743072d9665d5ad56b9d658d339ae0015f6a7e52c895e841d8fe248",
+  "reason": "Combine the merged host-portability source state with receipt-bound SDK routing admission and normal-runtime handoff boundaries.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25446225,
+  "tracked_bytes_max": 27262976
+}
