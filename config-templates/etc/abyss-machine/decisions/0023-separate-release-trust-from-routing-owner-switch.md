@@ -17,12 +17,14 @@ accepted
 
 ## Current Applicability
 
-As of 2026-07-25, `thin_routing_readmodel_bundle` admits two distinct
-pre-G5 `aoa-sdk` profiles: a local non-publishing canary candidate and an
-exact public release candidate. Both keep `aoa-routing` canonical and require
-every G5 authority flag to remain false. Current behavior is owned by
-`manifests/artifact_signature_policy.manifest.json` and enforced by
-`abyss_machine.artifact_bundles`.
+As of 2026-07-26, the separation remains active, but its pre-G5 operational
+posture has moved. The two candidate profiles remain bounded historical
+admission contracts and do not inherit later authority.
+~~Both keep `aoa-routing` canonical and require every G5 authority flag to
+remain false.~~ The current canonical route is the receipt-bound `aoa-sdk`
+profile in decision 0024 and
+`manifests/artifact_signature_policy.manifest.json`; release trust still does
+not create owner authority by itself.
 
 ## Context
 
@@ -74,6 +76,9 @@ policy update and live runtime evidence.
 ## Review Log
 
 - 2026-07-25: Initial accepted record.
+- 2026-07-26: Reviewed after the G5 switch. The release-trust/owner-authority
+  separation remains active; decision 0024 now owns the exact canonical
+  profile, while both profiles defined here remain bounded pre-G5 history.
 
 ## Source Surfaces
 
@@ -91,6 +96,6 @@ policy update and live runtime evidence.
 
 ## Follow-up Route
 
-The exact G5 owner-switch receipt must update canonical producer policy in a
-separate landing after the public SDK asset, durable trust record, runtime
-cutover, and rollback evidence agree.
+Decision 0024 owns the completed canonical policy transition and its
+registry/subject-store/runtime admission sequence. This decision continues to
+guard against treating release evidence alone as owner authority.

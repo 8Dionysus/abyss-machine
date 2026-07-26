@@ -12,6 +12,13 @@ Do not record every probe, sample, generated refresh, or local experiment here.
 
 ### Changed
 
+- Switched `thin_routing_readmodel_bundle` canonical generation from
+  `aoa-routing` to the exact receipt-bound `aoa-sdk` v0.8.0 source and public
+  archive. Normal runtime admission now requires matching G5 authority,
+  owner-switch receipt, canonical provenance, release digest, durable registry
+  record, materialized subject store, and a public-release trust-gate allow;
+  `aoa-routing` remains a maintenance-only compatibility/rollback predecessor,
+  and archival remains separately forbidden.
 - Split pre-G5 `aoa-sdk` routing admission into an unchanged local
   non-publishing candidate and an explicitly selected public release
   candidate. The latter may carry `release-ready`/`public_release` evidence

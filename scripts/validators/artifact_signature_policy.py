@@ -32,7 +32,48 @@ REQUIRED_PRODUCER_ADMISSION_KEYS = (
     "canonical_owner_repo",
     "single_canonical_owner",
     "canonical_switch_requires_explicit_policy_update",
+    "canonical_profile",
     "candidate_profiles",
+)
+REQUIRED_CANONICAL_PROFILE_KEYS = (
+    "profile_id",
+    "owner_repo",
+    "source_ref",
+    "manifest_mode",
+    "lifecycle_initial_state",
+    "manifest_promotion_path",
+    "manifest_latest_eligible_states",
+    "artifact_source_kind",
+    "provenance_subject_ref",
+    "provenance_schema",
+    "provenance_state",
+    "publication_posture",
+    "predecessor_owner_repo",
+    "predecessor_source_ref",
+    "predecessor_posture",
+    "owner_switch_receipt_ref",
+    "owner_switch_receipt_schema",
+    "owner_switch_receipt_digest",
+    "owner_switch_receipt_status",
+    "sdk_version",
+    "abi_epoch",
+    "public_release_source_ref",
+    "public_release_ref",
+    "public_release_asset_name",
+    "public_release_asset_digest",
+    "canonical_release_ref",
+    "canonical_release_asset_name",
+    "canonical_release_asset_digest",
+    "stronger_owner",
+    "trust_admission_status",
+    "runtime_consumer",
+    "runtime_consumer_source_ref",
+    "runtime_consumer_decision_id",
+    "allowed_registry_lifecycle_states",
+    "allowed_trust_root_modes",
+    "allowed_consumer_intents",
+    "required_g5_authority",
+    "archive_stop_line",
 )
 REQUIRED_CANDIDATE_PROFILE_KEYS = (
     "profile_id",
@@ -197,6 +238,94 @@ CANDIDATE_ADMISSION_CONTRACTS = {
         "allowed_trust_root_modes": ["public_release"],
         "allowed_consumer_intents": ["release_consumer", "runtime_canary"],
     },
+}
+CANONICAL_ROUTING_ADMISSION_CONTRACT = {
+    "profile_id": "aoa-sdk-g5-canonical",
+    "owner_repo": "aoa-sdk",
+    "source_ref": "e4ffd26ed9e50125be584c00839ee6a8f7016a0d",
+    "manifest_mode": "github_release",
+    "lifecycle_initial_state": "release-ready",
+    "manifest_promotion_path": [
+        "release-ready",
+        "published",
+        "superseded",
+        "revoked",
+    ],
+    "manifest_latest_eligible_states": ["release-ready", "published"],
+    "artifact_source_kind": "generated_thin_routing_readmodel_canonical",
+    "provenance_subject_ref": (
+        "succession/routing-g5-canonical-provenance.json"
+    ),
+    "provenance_schema": "aoa_sdk_routing_g5_canonical_provenance_v1",
+    "provenance_state": "sdk_canonical",
+    "publication_posture": "public_release_canonical",
+    "predecessor_owner_repo": "aoa-routing",
+    "predecessor_source_ref": "97f60de1b5992ef6bf5ff0f051bd452d940d9a85",
+    "predecessor_posture": (
+        "compatibility_security_rollback_deprecation_only"
+    ),
+    "owner_switch_receipt_ref": "succession/routing-g5-owner-switch.json",
+    "owner_switch_receipt_schema": (
+        "aoa_sdk_routing_g5_owner_switch_receipt_v1"
+    ),
+    "owner_switch_receipt_digest": (
+        "sha256:d2b9272dacd1cd04d3bf200c4e9b8c7bce301c1b0a2bcb36e0c8a16064ea6645"
+    ),
+    "owner_switch_receipt_status": "g5_switch_authorized",
+    "sdk_version": "0.8.0",
+    "abi_epoch": "aoa_routing_thin_router_v1",
+    "public_release_source_ref": (
+        "15f8239c6467ee99da0f6f9615bcb9a44270b574"
+    ),
+    "public_release_ref": (
+        "https://github.com/8Dionysus/aoa-sdk/releases/tag/v0.7.0"
+    ),
+    "public_release_asset_name": (
+        "aoa-sdk-routing-g5-release-candidate-v0.7.0.tar.gz"
+    ),
+    "public_release_asset_digest": (
+        "sha256:adf38173306baef7fc47595fc7f44b46bb107fbc48b493adf4b665a22520bee2"
+    ),
+    "canonical_release_ref": (
+        "https://github.com/8Dionysus/aoa-sdk/releases/tag/v0.8.0"
+    ),
+    "canonical_release_asset_name": (
+        "aoa-sdk-routing-g5-canonical-v0.8.0.tar.gz"
+    ),
+    "canonical_release_asset_digest": (
+        "sha256:e72b6f5c26bc815fe349c6cc8ac31e595b4cf6842d1538b4e0ef15caf97c1b6d"
+    ),
+    "stronger_owner": "abyss-machine",
+    "trust_admission_status": "canonical_receipt_verified",
+    "runtime_consumer": "abyss-stack",
+    "runtime_consumer_source_ref": (
+        "fac82c75d860dd2433cfc1e391f4b6ba117425d7"
+    ),
+    "runtime_consumer_decision_id": "ABYSS-STACK-D-0086",
+    "allowed_registry_lifecycle_states": [
+        "release-ready",
+        "published",
+        "superseded",
+        "revoked",
+    ],
+    "allowed_trust_root_modes": ["public_release"],
+    "allowed_consumer_intents": [
+        "release_consumer",
+        "runtime_canary",
+        "runtime",
+    ],
+    "required_g5_authority": {
+        "archive_authorized": False,
+        "canonical_producer_switch_authorized": True,
+        "compatibility_window_started": True,
+        "live_runtime_mutation_authorized": True,
+        "predecessor_maintenance_only": True,
+        "sdk_canonical": True,
+    },
+    "archive_stop_line": (
+        "Repository archival remains forbidden without consumer-zero, "
+        "compatibility exit, and separate exact operator approval."
+    ),
 }
 FORBIDDEN_SOURCE_PREFIXES = (
     "/var/lib/abyss-machine",
@@ -506,6 +635,63 @@ def main() -> int:
                         "profile does not produce the class"
                     )
 
+            canonical_admission_profile = admission.get("canonical_profile")
+            if not isinstance(canonical_admission_profile, dict):
+                failures.append(
+                    f"artifact class {class_id}.producer_admission canonical_profile "
+                    "must be an object"
+                )
+            else:
+                missing_canonical = [
+                    key
+                    for key in REQUIRED_CANONICAL_PROFILE_KEYS
+                    if key not in canonical_admission_profile
+                ]
+                if missing_canonical:
+                    failures.append(
+                        f"artifact class {class_id}.producer_admission."
+                        "canonical_profile missing keys: "
+                        + ", ".join(missing_canonical)
+                    )
+                extra_canonical = sorted(
+                    set(canonical_admission_profile)
+                    - set(REQUIRED_CANONICAL_PROFILE_KEYS)
+                )
+                if extra_canonical:
+                    failures.append(
+                        f"artifact class {class_id}.producer_admission."
+                        "canonical_profile has unknown keys: "
+                        + ", ".join(extra_canonical)
+                    )
+                for key, expected_value in (
+                    CANONICAL_ROUTING_ADMISSION_CONTRACT.items()
+                ):
+                    if canonical_admission_profile.get(key) != expected_value:
+                        failures.append(
+                            f"artifact class {class_id}.producer_admission."
+                            f"canonical_profile.{key} must match the exact "
+                            "receipt-bound G5 canonical contract"
+                        )
+                if (
+                    canonical_admission_profile.get("owner_repo")
+                    != canonical_owner_repo
+                ):
+                    failures.append(
+                        f"artifact class {class_id}.producer_admission."
+                        "canonical_profile owner must match the canonical owner"
+                    )
+                canonical_admission_profile_id = (
+                    canonical_admission_profile.get("profile_id")
+                )
+                if (
+                    not isinstance(canonical_admission_profile_id, str)
+                    or not canonical_admission_profile_id
+                ):
+                    failures.append(
+                        f"artifact class {class_id}.producer_admission."
+                        "canonical_profile.profile_id must be a non-empty string"
+                    )
+
             candidate_profiles = admission.get("candidate_profiles")
             if not isinstance(candidate_profiles, list) or not candidate_profiles:
                 failures.append(
@@ -544,8 +730,6 @@ def main() -> int:
                     seen_candidate_profiles.add(candidate_profile_id)
                 if not isinstance(candidate_owner, str) or not candidate_owner:
                     failures.append(f"{label}.owner_repo must be a non-empty string")
-                elif candidate_owner == canonical_owner_repo:
-                    failures.append(f"{label}.owner_repo must not be canonical")
                 owner_profiles = [
                     profile
                     for profile in (
@@ -588,14 +772,6 @@ def main() -> int:
                     value = candidate.get(key)
                     if not isinstance(value, str) or not value:
                         failures.append(f"{label}.{key} must be a non-empty string")
-                if (
-                    candidate.get("current_canonical_owner_repo")
-                    != canonical_owner_repo
-                ):
-                    failures.append(
-                        f"{label}.current_canonical_owner_repo must match the "
-                        "canonical owner"
-                    )
                 for key in (
                     "allowed_registry_lifecycle_states",
                     "allowed_trust_root_modes",

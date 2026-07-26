@@ -1,6 +1,6 @@
 {
   "schema": "abyss_machine_artifact_signature_policy_manifest_v1",
-  "policy_version": "0.2.8",
+  "policy_version": "0.2.9",
   "purpose": "Declare how abyss-machine public seed contracts, release bundles, runtime artifacts, local evidence, and public media exports are fingerprinted, attested, or signed without publishing private host state.",
   "primary_standard_refs": {
     "sbom": [
@@ -191,9 +191,9 @@
     "aoa-sdk": {
       "profile_id": "aoa-sdk",
       "owner_repo": "aoa-sdk",
-      "owner_route_refs": ["AGENTS.md", "pyproject.toml", "sdk/distribution/package-contract/README.md", "sdk/distribution/manifests/routing_g5_release_candidate.input-lock.json", "mechanics/release-support/README.md", "src/aoa_sdk/control_plane/routing/candidate.py", "src/aoa_sdk/control_plane/routing/release_candidate.py", "mechanics/boundary-bridge/parts/consumed-surface-posture-gate/CONTRACT.md"],
+      "owner_route_refs": ["AGENTS.md", "pyproject.toml", "sdk/distribution/package-contract/README.md", "sdk/distribution/manifests/routing_g5_release_candidate.input-lock.json", "sdk/distribution/manifests/routing_g5_canonical.input-lock.json", "mechanics/release-support/README.md", "src/aoa_sdk/control_plane/routing/candidate.py", "src/aoa_sdk/control_plane/routing/release_candidate.py", "src/aoa_sdk/control_plane/routing/canonical.py", "src/aoa_sdk/control_plane/routing/producer.py", "src/aoa_sdk/control_plane/routing/validator.py", "mechanics/boundary-bridge/parts/consumed-surface-posture-gate/CONTRACT.md"],
       "artifact_classes": ["aoa_sdk_python_distribution", "thin_routing_readmodel_bundle"],
-      "release_export_triggers": ["wheel or sdist is built", "SDK package is published or handed to an installer/runtime consumer", "non-publishing SDK routing G5 candidate is assembled for stronger-owner trust and runtime canary review", "exact SDK routing G5 release candidate is prepared as a public GitHub release asset before owner switch"],
+      "release_export_triggers": ["wheel or sdist is built", "SDK package is published or handed to an installer/runtime consumer", "non-publishing SDK routing G5 candidate is assembled for stronger-owner trust and runtime canary review", "exact SDK routing G5 release candidate is prepared as a public GitHub release asset before owner switch", "receipt-bound SDK routing G5 canonical bundle is published for owner-routed runtime consumption"],
       "producer_commands": ["python scripts/release_check.py"],
       "host_verifier_commands": [
         "abyss-machine artifacts verify BUNDLE_DIR --json",
@@ -202,8 +202,8 @@
       ],
       "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
       "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
-      "consumer_expectations": ["package consumers verify wheel/sdist digest, SBOM, provenance, ABI identity, and trust-gate verdict before use", "routing candidate consumers require the exact SDK source ref, candidate provenance, subject digest, and stronger-owner admission before an isolated or live canary", "routing release consumers bind the exact public asset and release-ready registry record while normal runtime remains denied until the explicit canonical policy switch"],
-      "owner_boundaries": ["aoa-sdk owns typed SDK/API package truth; abyss-machine records evidence and gates consumption without rewriting SDK source", "aoa-sdk is admitted as a non-publishing routing G5 candidate and as a separately profiled public release candidate while aoa-routing remains the single canonical producer; neither admission is a canonical switch"],
+      "consumer_expectations": ["package consumers verify wheel/sdist digest, SBOM, provenance, ABI identity, and trust-gate verdict before use", "routing candidate consumers require the exact SDK source ref, candidate provenance, subject digest, and stronger-owner admission before an isolated or live canary", "routing release consumers bind the exact public asset and release-ready registry record while normal runtime remains denied until the explicit canonical policy switch", "routing runtime consumers require the exact v0.8.0 canonical archive, owner-switch receipt, public release evidence, materialized subject store, and normal-runtime trust-gate allow"],
+      "owner_boundaries": ["aoa-sdk owns typed SDK/API package truth and, from the receipt-bound G5 switch, canonical routing generation; abyss-machine records evidence and gates consumption without rewriting SDK source", "aoa-routing remains a maintenance-only compatibility, security, rollback, and deprecation predecessor; repository archival remains forbidden without consumer-zero, compatibility exit, and separate exact operator approval"],
       "trust_root_modes": ["local_dev", "host_managed", "github_oidc", "public_release"]
     },
     "abyss-stack": {
@@ -518,7 +518,7 @@
         "privacy_boundary": "public; must not include live host facts, private captures, secrets, caches, models, or local indexes",
         "content_identity": "git tree plus generated contract ABI sha256-tree-v1",
         "abi_epoch": "v1 via public-seed-scaffold",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#public_source_seed",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#public_source_seed",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/ci_gate.py --mode source-fast"],
         "action": "KEEP"
@@ -542,7 +542,7 @@
         "privacy_boundary": "public-derived; rendered host-local values stay outside the repo",
         "content_identity": "release artifact digest plus ABI source tree hash",
         "abi_epoch": "v1 via bootstrap-install-seed",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#bootstrap_install_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#bootstrap_install_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact", "scripts/abyss-machine-bootstrap doctor --dry-run --json"],
         "action": "KEEP"
@@ -566,7 +566,7 @@
         "privacy_boundary": "publishable only after excluding local model caches, compile blobs, private benchmarks, and /srv runtime state; no private material from host evidence is included",
         "content_identity": "artifact digest plus release sidecar digests",
         "abi_epoch": "v1 via host-runtime-artifact-route",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#runtime_or_container_artifact",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#runtime_or_container_artifact",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -590,7 +590,7 @@
         "privacy_boundary": "publishable only after excluding local prompts, private traces, benchmark scratch, compile caches, and host-specific /srv state; no private material from host evidence is included",
         "content_identity": "model/runtime bundle digest plus model, dataset, conversion, and framework-config identities",
         "abi_epoch": "v1 via host-ai-runtime-route",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#ai_model_or_runtime_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#ai_model_or_runtime_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "ml_bom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "ADD_ML_BOM"
@@ -614,7 +614,7 @@
         "privacy_boundary": "package contains code only; no private typed text, browser captures, local histories, or host evidence is included",
         "content_identity": "zip/xpi digest plus ABI source tree hash",
         "abi_epoch": "v1 via typing-extension-package",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#browser_extension_package",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#browser_extension_package",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -638,7 +638,7 @@
         "privacy_boundary": "public-safe generated export metadata and digests only; no private workspace evidence, no secrets, no host runtime state, and no downstream adoption truth",
         "content_identity": "generated/release_manifest.json digest plus artifact_identity from the owning aoa-skills repository",
         "abi_epoch": "aoa_skills_release_manifest_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#aoa_skills_release_manifest",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#aoa_skills_release_manifest",
         "trust_layer": ["abi_contract_signature", "local_release_provenance", "w3c_prov_lineage"],
         "verification": ["abyss-machine artifacts verify BUNDLE_DIR --json", "python scripts/validation/validate_abyss_machine_artifact_bundle.py", "python scripts/lanes/ci_gate.py --mode release"],
         "action": "KEEP"
@@ -662,7 +662,7 @@
         "privacy_boundary": "public-safe portable kernel, route docs, schemas, scripts, skills, hook examples, tests, and compact export metadata only; no private workspace evidence, raw transcripts, session archives, hook receipts, diagnostics payloads, search databases, graph sidecars, or secrets",
         "content_identity": "clean portable export bundle digest plus aoa-session-memory portable kernel subject inventory",
         "abi_epoch": "aoa_session_memory_portable_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#aoa_session_memory_portable_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#aoa_session_memory_portable_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python3 scripts/aoa_session_memory.py audit --workspace-root /srv/AbyssOS --aoa-root /srv/AbyssOS/bundles/aoa-session-memory --portable-bundle", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -686,7 +686,7 @@
         "privacy_boundary": "public source-authored agent-layer metadata only; no private prompts, session transcripts, secrets, live runtime state, hidden operator traces, or role authority beyond aoa-agents source objects",
         "content_identity": "generated/agent_registry.min.json digest plus repo-local aoa-agents artifact identity",
         "abi_epoch": "aoa_agents_role_registry_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#role_contract_registry",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#role_contract_registry",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/build_published_surfaces.py", "python scripts/validate_agents.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -710,7 +710,7 @@
         "privacy_boundary": "public technique metadata and source refs only; no private project residue, hidden transcripts, source payload bodies, secrets, machine-local runtime state, or KAG substrate authority",
         "content_identity": "generated/kag_export.min.json digest plus repo-local aoa-techniques artifact identity",
         "abi_epoch": "aoa_techniques_kag_export_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#source_owned_kag_export_capsule",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#source_owned_kag_export_capsule",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/build_kag_export.py", "python scripts/validate_repo.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -734,7 +734,7 @@
         "privacy_boundary": "public KAG surface refs and compact summaries only; no private session payloads, memo payload bodies, source corpus bodies, secrets, live runtime state, or local host evidence",
         "content_identity": "generated/kag_registry.min.json digest plus repo-local aoa-kag artifact identity",
         "abi_epoch": "aoa_kag_registry_readmodel_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#derived_kag_registry_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#derived_kag_registry_readmodel_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/validate_kag.py", "python scripts/ci_gate.py --mode generated", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -758,7 +758,7 @@
         "privacy_boundary": "public-safe KAG records and source-return coordinates only; no private sessions, memory payloads, secrets, host runtime state, query caches, embeddings, graph stores, or vector stores",
         "content_identity": "owner release digest plus byte-exact portable family subject aggregate; mirrors and cache locations are delivery coordinates only",
         "abi_epoch": "aoa-kag-owner-family-release-v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#kag_owner_family_release",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#kag_owner_family_release",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["python scripts/validate_repo_local_kag_release.py --repo-root OWNER_ROOT --artifact-root ARTIFACT_ROOT", "abyss-machine artifacts verify BUNDLE_DIR --subject-root FAMILY_EXPORT --json", "abyss-machine artifacts trust-gate --artifact-class kag_owner_family_release --json"],
         "action": "ADD_SIGNED_CONTENT_ADDRESSED_RELEASE"
@@ -782,7 +782,7 @@
         "privacy_boundary": "public-safe owner identities, source refs, digests, aggregate measurements, and unresolved-reference state only; no owner record bodies or private runtime material",
         "content_identity": "deterministic OS composition digest over 24 verified owner releases; transport locations remain separate",
         "abi_epoch": "aoa-kag-os-composition-v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#kag_os_composition",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#kag_os_composition",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto", "sigstore_cosign"],
         "verification": ["aoa-kag OS composition validator", "abyss-machine artifacts verify BUNDLE_DIR --subject-root COMPOSITION_EXPORT --json", "abyss-machine artifacts trust-gate --artifact-class kag_os_composition --json"],
         "action": "ADD_SIGNED_FEDERATION_COMPOSITION"
@@ -806,7 +806,7 @@
         "privacy_boundary": "public reviewed corpus and teaching fixture refs only; no private session payloads, unreviewed local-port candidates, secrets, live access-plane state, or proof/identity claims",
         "content_identity": "generated memory-object catalog, compact catalog, capsules, and sections digests plus repo-local aoa-memo artifact identity",
         "abi_epoch": "aoa_memo_memory_object_surfaces_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#derived_memory_object_readmodel_family",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#derived_memory_object_readmodel_family",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/memory/generate_memory_object_surfaces.py --check", "python scripts/memory/validate_memory_object_surfaces.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -819,33 +819,80 @@
       "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"}
     },
     "thin_routing_readmodel_bundle": {
-      "description": "Generated aoa-routing thin router/readmodel bundle derived from source-owned route schemas, generated route catalogs, and sibling next-hop references.",
+      "description": "Canonical generated aoa-sdk thin router/readmodel bundle derived from source-owned route schemas, generated route catalogs, and sibling next-hop references after the receipt-bound G5 owner switch.",
       "identity": {
         "artifact_class": "thin_routing_readmodel_bundle",
         "surface_state": "public_generated_routing_surfaces",
-        "owner_repo": "aoa-routing",
-        "authority_ref": ["README.md", "generated/AGENTS.md", "generated/aoa_router.min.json", "routing/core/schemas/aoa-router.schema.json"],
-        "producer": "aoa-routing router builder from routing schemas, bounded mechanics, and sibling generated catalogs referenced by path",
-        "consumer_expectation": "routing consumers verify generated router digests, ABI identity, SBOM-lite subject inventory, SLSA/in-toto generation provenance, build_router --check, validate_router, and source-owned next-hop refs before dispatch; the router remains navigation metadata and not owner truth",
+        "owner_repo": "aoa-sdk",
+        "authority_ref": ["sdk/distribution/manifests/routing_g5_canonical.input-lock.json", "src/aoa_sdk/control_plane/routing/canonical.py", "src/aoa_sdk/control_plane/routing/producer.py", "src/aoa_sdk/control_plane/routing/validator.py"],
+        "producer": "aoa-sdk canonical routing builder from receipt-bound G5 inputs, routing schemas, bounded mechanics, and sibling generated catalogs referenced by path",
+        "consumer_expectation": "routing consumers verify the exact SDK source ref, owner-switch receipt, canonical provenance, public v0.8.0 asset digest, generated router digests, ABI identity, SBOM-lite subject inventory, SLSA/in-toto provenance, subject store, and runtime trust-gate allow before dispatch; the router remains navigation metadata and not sibling owner truth",
         "privacy_boundary": "public routing refs and compact generated navigation summaries only; no private payloads, secrets, live runtime state, copied owner corpora, or sibling source authority",
-        "content_identity": "generated aoa router, route hints, recommended paths, and routing schemas digests plus repo-local aoa-routing artifact identity",
+        "content_identity": "generated aoa router, route hints, recommended paths, routing schemas, owner-switch receipt, and canonical provenance digests plus exact aoa-sdk source identity",
         "abi_epoch": "aoa_routing_thin_router_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#thin_routing_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#thin_routing_readmodel_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
-        "verification": ["python scripts/build_router.py --check", "python scripts/validate_router.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "verification": ["python -m aoa_sdk.control_plane.routing.canonical --check --output-dir CANONICAL_ROOT --public-release-archive PUBLIC_RELEASE_ASSET --runtime-consumer-root ABYSS_STACK_ROOT", "python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
       },
       "abi_signature": {"required": true},
       "sbom": {"required": true, "trigger": "SBOM-lite subject inventory for generated routing readmodel bundles consumed by machine routers and agents"},
       "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
       "slsa_in_toto": {"required": true, "trigger": "generated routing readmodel bundle artifacts are exported or prepared for release"},
-      "sigstore_cosign": {"required": false, "trigger": "not required until aoa-routing publishes signed release assets or external release bundles"},
+      "sigstore_cosign": {"required": false, "trigger": "the exact SDK canonical release is verified through GitHub artifact attestation and public-release evidence; a separate Cosign control is not yet policy-required"},
       "c2pa": {"required": false, "trigger": "not public media; C2PA applies only to public PDF/media/content exports"},
       "producer_admission": {
-        "canonical_profile_id": "aoa-routing",
-        "canonical_owner_repo": "aoa-routing",
+        "canonical_profile_id": "aoa-sdk",
+        "canonical_owner_repo": "aoa-sdk",
         "single_canonical_owner": true,
         "canonical_switch_requires_explicit_policy_update": true,
+        "canonical_profile": {
+          "profile_id": "aoa-sdk-g5-canonical",
+          "owner_repo": "aoa-sdk",
+          "source_ref": "e4ffd26ed9e50125be584c00839ee6a8f7016a0d",
+          "manifest_mode": "github_release",
+          "lifecycle_initial_state": "release-ready",
+          "manifest_promotion_path": ["release-ready", "published", "superseded", "revoked"],
+          "manifest_latest_eligible_states": ["release-ready", "published"],
+          "artifact_source_kind": "generated_thin_routing_readmodel_canonical",
+          "provenance_subject_ref": "succession/routing-g5-canonical-provenance.json",
+          "provenance_schema": "aoa_sdk_routing_g5_canonical_provenance_v1",
+          "provenance_state": "sdk_canonical",
+          "publication_posture": "public_release_canonical",
+          "predecessor_owner_repo": "aoa-routing",
+          "predecessor_source_ref": "97f60de1b5992ef6bf5ff0f051bd452d940d9a85",
+          "predecessor_posture": "compatibility_security_rollback_deprecation_only",
+          "owner_switch_receipt_ref": "succession/routing-g5-owner-switch.json",
+          "owner_switch_receipt_schema": "aoa_sdk_routing_g5_owner_switch_receipt_v1",
+          "owner_switch_receipt_digest": "sha256:d2b9272dacd1cd04d3bf200c4e9b8c7bce301c1b0a2bcb36e0c8a16064ea6645",
+          "owner_switch_receipt_status": "g5_switch_authorized",
+          "sdk_version": "0.8.0",
+          "abi_epoch": "aoa_routing_thin_router_v1",
+          "public_release_source_ref": "15f8239c6467ee99da0f6f9615bcb9a44270b574",
+          "public_release_ref": "https://github.com/8Dionysus/aoa-sdk/releases/tag/v0.7.0",
+          "public_release_asset_name": "aoa-sdk-routing-g5-release-candidate-v0.7.0.tar.gz",
+          "public_release_asset_digest": "sha256:adf38173306baef7fc47595fc7f44b46bb107fbc48b493adf4b665a22520bee2",
+          "canonical_release_ref": "https://github.com/8Dionysus/aoa-sdk/releases/tag/v0.8.0",
+          "canonical_release_asset_name": "aoa-sdk-routing-g5-canonical-v0.8.0.tar.gz",
+          "canonical_release_asset_digest": "sha256:e72b6f5c26bc815fe349c6cc8ac31e595b4cf6842d1538b4e0ef15caf97c1b6d",
+          "stronger_owner": "abyss-machine",
+          "trust_admission_status": "canonical_receipt_verified",
+          "runtime_consumer": "abyss-stack",
+          "runtime_consumer_source_ref": "fac82c75d860dd2433cfc1e391f4b6ba117425d7",
+          "runtime_consumer_decision_id": "ABYSS-STACK-D-0086",
+          "allowed_registry_lifecycle_states": ["release-ready", "published", "superseded", "revoked"],
+          "allowed_trust_root_modes": ["public_release"],
+          "allowed_consumer_intents": ["release_consumer", "runtime_canary", "runtime"],
+          "required_g5_authority": {
+            "archive_authorized": false,
+            "canonical_producer_switch_authorized": true,
+            "compatibility_window_started": true,
+            "live_runtime_mutation_authorized": true,
+            "predecessor_maintenance_only": true,
+            "sdk_canonical": true
+          },
+          "archive_stop_line": "Repository archival remains forbidden without consumer-zero, compatibility exit, and separate exact operator approval."
+        },
         "candidate_profiles": [
           {
             "profile_id": "aoa-sdk",
@@ -916,7 +963,7 @@
         "privacy_boundary": "public playbook metadata and generated playbook-owned composition/readout refs only; no private run logs, secrets, live runtime state, memo truth, proof verdicts, or routing authority",
         "content_identity": "generated playbook registry and playbook-owned composition, activation, review, and federation readout digests plus repo-local aoa-playbooks artifact identity",
         "abi_epoch": "aoa_playbooks_registry_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#playbook_registry_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#playbook_registry_bundle",
         "trust_layer": ["abi_contract_signature", "slsa_in_toto"],
         "verification": ["python scripts/validate_playbooks.py", "python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -940,7 +987,7 @@
         "privacy_boundary": "public package artifacts only; no private workspace evidence, host runtime state, session traces, caches, or local /srv data",
         "content_identity": "wheel and sdist digests plus repo-local aoa-sdk artifact identity manifest",
         "abi_epoch": "aoa_sdk_python_distribution_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#aoa_sdk_python_distribution",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#aoa_sdk_python_distribution",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -964,7 +1011,7 @@
         "privacy_boundary": "public-safe rendered runtime config only; no Secrets, Logs, Models, stack.env values, private host captures, local databases, or deployed /srv mutable state",
         "content_identity": "rendered runtime config digests plus repo-local abyss-stack artifact identity manifest",
         "abi_epoch": "abyss_stack_runtime_config_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#abyss_stack_runtime_config_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#abyss_stack_runtime_config_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -988,7 +1035,7 @@
         "privacy_boundary": "public-safe generated proof reader only; no private datasets, hidden telemetry, raw operator traces, secret-bearing fixtures, or unreviewed runtime evidence",
         "content_identity": "generated report-index digest plus repo-local aoa-evals artifact identity manifest",
         "abi_epoch": "aoa_evals_generated_report_index_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#aoa_evals_generated_report_index_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#aoa_evals_generated_report_index_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
@@ -1012,7 +1059,7 @@
         "privacy_boundary": "public derived summary refs only; no raw private receipts, session captures, owner payload bodies, runtime-local evidence, or owner-truth claims",
         "content_identity": "generated summary surface catalog digest plus repo-local aoa-stats artifact identity",
         "abi_epoch": "aoa_stats_summary_surface_catalog_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#derived_observability_readmodel_catalog",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#derived_observability_readmodel_catalog",
         "trust_layer": ["abi_contract_signature", "sbom"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_BOM"
@@ -1036,7 +1083,7 @@
         "privacy_boundary": "public-safe generated JSON readmodels only; no private host/runtime/session evidence, unreviewed source expansion, local graph cache, or media credential material",
         "content_identity": "root_entry_map, KAG export, and ToS corpus index digests plus repo-local Tree-of-Sophia artifact identity",
         "abi_epoch": "tree_of_sophia_generated_readmodel_bundle_v1",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#tree_of_sophia_generated_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#tree_of_sophia_generated_readmodel_bundle",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "DEFINE_ABI"
@@ -1060,7 +1107,7 @@
         "privacy_boundary": "public-safe generated seed navigation only; no private host/runtime/session evidence, unpublished owner evidence, seed-pack media credentials, or canonical seed meaning",
         "content_identity": "generated seed route map digest plus repo-local Dionysus artifact identity",
         "abi_epoch": "dionysus_seed_route_map_v2",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#dionysus_seed_route_readmodel_bundle",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#dionysus_seed_route_readmodel_bundle",
         "trust_layer": ["abi_contract_signature"],
         "verification": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "DEFINE_ABI"
@@ -1084,7 +1131,7 @@
         "privacy_boundary": "private host evidence; not public repo content and not release-signed by default",
         "content_identity": "local packet path, sha256 or tree_hash, size, mtime, and producer refs",
         "abi_epoch": "local packet schema v1",
-        "contract_version": "abyss_machine_local_provenance_packet_v1@artifact_signature_policy.manifest.json@0.2.8",
+        "contract_version": "abyss_machine_local_provenance_packet_v1@artifact_signature_policy.manifest.json@0.2.9",
         "trust_layer": ["local_provenance", "w3c_prov_lineage"],
         "verification": ["abyss-machine artifacts validate --json", "subsystem-specific local validator"],
         "action": "ADD_LOCAL_PROVENANCE"
@@ -1109,7 +1156,7 @@
         "privacy_boundary": "public only after review; no private material from host evidence is included in public exports, and source evidence keeps its local provenance",
         "content_identity": "media digest plus C2PA manifest or sidecar",
         "abi_epoch": "not_applicable_content_credential",
-        "contract_version": "artifact_signature_policy.manifest.json@0.2.8#public_media_export",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#public_media_export",
         "trust_layer": ["c2pa"],
         "verification": ["python scripts/ci_gate.py --mode release-artifact"],
         "action": "KEEP"
@@ -1366,11 +1413,11 @@
       }
     },
     {
-      "id": "aoa-routing-thin-router-release",
+      "id": "aoa-sdk-routing-g5-canonical-release",
       "artifact_class": "thin_routing_readmodel_bundle",
-      "artifact_patterns": ["dist/aoa-routing-thin-router/*.json"],
+      "artifact_patterns": ["dist/aoa-sdk-routing/aoa-sdk-routing-g5-canonical-v0.8.0.tar.gz"],
       "public_repo_policy": "not_tracked",
-      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-routing",
+      "staging_route": "/srv/abyss-machine/artifacts/releases/aoa-sdk",
       "required_controls": ["abi_signature", "sbom", "slsa_in_toto"],
       "sidecar_extensions": {
         "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],

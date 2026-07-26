@@ -3600,7 +3600,7 @@ def artifact_requirement_row(
         "claim_limits": [
             "Requirements are a policy/read-model projection; they do not produce evidence or prove an artifact is safe.",
             "Sibling-owned producer profiles name owner expectations but do not replace owner-repo validators or release decisions.",
-            "Candidate producer admission preserves the named canonical owner and does not authorize an owner switch.",
+            "Historical candidate producer admissions preserve their recorded pre-G5 canonical owner and do not inherit the receipt-bound canonical switch.",
             "GitHub OIDC is one producer adapter, not the OS Abyss trust plane itself.",
         ],
     }
@@ -4441,6 +4441,71 @@ def _candidate_producer_profile(
     return legacy[0] if len(legacy) == 1 else None
 
 
+def _canonical_producer_admission_record(
+    *,
+    rule: Mapping[str, Any],
+    profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": "abyss_machine_artifact_producer_admission_v1",
+        "status": "canonical_producer",
+        "profile_id": str(profile.get("profile_id") or ""),
+        "owner_repo": str(profile.get("owner_repo") or ""),
+        "source_ref": str(profile.get("source_ref") or ""),
+        "canonical_owner_repo": str(profile.get("owner_repo") or ""),
+        "canonical_predecessor_source_ref": str(
+            profile.get("predecessor_source_ref") or ""
+        ),
+        "provenance_subject_ref": str(
+            profile.get("provenance_subject_ref") or ""
+        ),
+        "provenance_state": str(profile.get("provenance_state") or ""),
+        "publication_posture": str(
+            profile.get("publication_posture") or ""
+        ),
+        "required_controls": required_controls_for_rule(dict(rule)),
+        "stronger_owner": str(profile.get("stronger_owner") or ""),
+        "trust_admission_status": str(
+            profile.get("trust_admission_status") or ""
+        ),
+        "runtime_consumer": str(profile.get("runtime_consumer") or ""),
+        "allowed_registry_lifecycle_states": profile.get(
+            "allowed_registry_lifecycle_states"
+        ),
+        "allowed_trust_root_modes": profile.get(
+            "allowed_trust_root_modes"
+        ),
+        "allowed_consumer_intents": profile.get(
+            "allowed_consumer_intents"
+        ),
+        "single_canonical_owner": True,
+        "canonical_switch_authorized": True,
+        "g5_authority": profile.get("required_g5_authority"),
+        "owner_switch_receipt": {
+            "schema": str(
+                profile.get("owner_switch_receipt_schema") or ""
+            ),
+            "digest": str(
+                profile.get("owner_switch_receipt_digest") or ""
+            ),
+            "status": str(
+                profile.get("owner_switch_receipt_status") or ""
+            ),
+        },
+        "canonical_release": {
+            "release_ref": str(
+                profile.get("canonical_release_ref") or ""
+            ),
+            "asset_name": str(
+                profile.get("canonical_release_asset_name") or ""
+            ),
+            "asset_digest": str(
+                profile.get("canonical_release_asset_digest") or ""
+            ),
+        },
+    }
+
+
 def _producer_admission_for_manifest(
     *,
     rule: Mapping[str, Any],
@@ -4467,22 +4532,279 @@ def _producer_admission_for_manifest(
         if isinstance(manifest, Mapping)
         else canonical_owner
     )
-    if manifest_owner == canonical_owner:
-        return {
-            "schema": "abyss_machine_artifact_producer_admission_v1",
-            "status": "canonical_producer",
-            "profile_id": str(admission.get("canonical_profile_id") or ""),
-            "owner_repo": canonical_owner,
-            "canonical_owner_repo": canonical_owner,
-            "single_canonical_owner": True,
-            "canonical_switch_authorized": False,
-        }
-
     manifest_profile_id = (
         str(manifest.get("producer_admission_profile_id") or "")
         if isinstance(manifest, Mapping)
         else ""
     )
+    canonical_profile = admission.get("canonical_profile")
+    if (
+        manifest_owner == canonical_owner
+        and isinstance(canonical_profile, Mapping)
+        and manifest_profile_id == canonical_profile.get("profile_id")
+    ):
+        if not isinstance(manifest, Mapping):
+            raise ValueError(
+                "canonical producer admission requires a bundle manifest"
+            )
+        if manifest.get("public_safe") is not True:
+            raise ValueError(
+                "canonical producer admission requires public_safe=true"
+            )
+        if canonical_profile.get("owner_repo") != canonical_owner:
+            raise ValueError(
+                "canonical producer admission profile owner mismatch"
+            )
+        if manifest.get("mode") != canonical_profile.get("manifest_mode"):
+            raise ValueError(
+                "canonical producer admission manifest mode mismatch"
+            )
+        lifecycle = manifest.get("lifecycle")
+        if (
+            not isinstance(lifecycle, Mapping)
+            or lifecycle.get("initial_state")
+            != canonical_profile.get("lifecycle_initial_state")
+            or lifecycle.get("promotion_path")
+            != canonical_profile.get("manifest_promotion_path")
+            or lifecycle.get("latest_eligible_states")
+            != canonical_profile.get("manifest_latest_eligible_states")
+        ):
+            raise ValueError(
+                "canonical producer admission manifest lifecycle mismatch"
+            )
+        artifact_source = manifest.get("artifact_source")
+        canonical_source_ref = canonical_profile.get("source_ref")
+        if (
+            not isinstance(artifact_source, Mapping)
+            or artifact_source.get("kind")
+            != canonical_profile.get("artifact_source_kind")
+            or artifact_source.get("producer_source_ref")
+            != canonical_source_ref
+            or not _is_exact_git_object_id(canonical_source_ref)
+        ):
+            raise ValueError(
+                "canonical producer admission artifact source mismatch"
+            )
+        if explicit_source_ref and explicit_source_ref != canonical_source_ref:
+            raise ValueError(
+                "canonical producer admission source_ref does not match "
+                "the manifest"
+            )
+
+        subject_specs = manifest.get("artifact_subjects")
+        provenance_ref = str(
+            canonical_profile.get("provenance_subject_ref") or ""
+        )
+        receipt_ref = str(
+            canonical_profile.get("owner_switch_receipt_ref") or ""
+        )
+        for subject_ref, label in (
+            (provenance_ref, "canonical provenance"),
+            (receipt_ref, "owner-switch receipt"),
+        ):
+            if not isinstance(subject_specs, list) or not any(
+                isinstance(item, Mapping)
+                and item.get("path") == subject_ref
+                for item in subject_specs
+            ):
+                raise ValueError(
+                    f"canonical producer admission {label} must be an "
+                    "artifact subject"
+                )
+
+        subject_root = _subject_repo_root(dict(manifest))
+        safe_provenance_ref = _safe_repo_relative_path(
+            provenance_ref,
+            field="producer_admission.provenance_subject_ref",
+        )
+        safe_receipt_ref = _safe_repo_relative_path(
+            receipt_ref,
+            field="producer_admission.owner_switch_receipt_ref",
+        )
+        provenance_path = subject_root / safe_provenance_ref
+        receipt_path = subject_root / safe_receipt_ref
+        for subject_path, label in (
+            (provenance_path, "canonical provenance"),
+            (receipt_path, "owner-switch receipt"),
+        ):
+            if subject_path.is_symlink() or not subject_path.is_file():
+                raise ValueError(
+                    f"canonical producer admission {label} must be a "
+                    "regular file"
+                )
+        provenance = _read_json(provenance_path)
+        receipt = _read_json(receipt_path)
+        receipt_digest = _stable_digest(receipt)
+        if receipt_digest != canonical_profile.get(
+            "owner_switch_receipt_digest"
+        ):
+            raise ValueError(
+                "canonical producer admission owner-switch receipt digest "
+                "mismatch"
+            )
+
+        expected_authority = canonical_profile.get(
+            "required_g5_authority"
+        )
+        expected_artifact_identity = {
+            "artifact_class": manifest.get("artifact_class"),
+            "abi_epoch": canonical_profile.get("abi_epoch"),
+            "owner_repo": canonical_owner,
+        }
+        expected_canonical_producer = {
+            "implementation": "aoa_sdk.control_plane.routing",
+            "owner_repo": canonical_owner,
+            "source_ref": canonical_source_ref,
+        }
+        expected_predecessor = {
+            "owner_repo": canonical_profile.get(
+                "predecessor_owner_repo"
+            ),
+            "posture": canonical_profile.get("predecessor_posture"),
+            "source_ref": canonical_profile.get(
+                "predecessor_source_ref"
+            ),
+        }
+        expected_receipt_summary = {
+            "digest": canonical_profile.get(
+                "owner_switch_receipt_digest"
+            ),
+            "path": receipt_ref,
+            "schema": canonical_profile.get(
+                "owner_switch_receipt_schema"
+            ),
+            "status": canonical_profile.get(
+                "owner_switch_receipt_status"
+            ),
+        }
+        expected_public_release = {
+            "asset_digest": canonical_profile.get(
+                "public_release_asset_digest"
+            ),
+            "asset_name": canonical_profile.get(
+                "public_release_asset_name"
+            ),
+            "byte_parity": True,
+            "release_ref": canonical_profile.get("public_release_ref"),
+            "source_ref": canonical_profile.get(
+                "public_release_source_ref"
+            ),
+        }
+        expected_runtime_contract = {
+            "decision_id": canonical_profile.get(
+                "runtime_consumer_decision_id"
+            ),
+            "live_cutover_executed": False,
+            "owner_repo": canonical_profile.get("runtime_consumer"),
+            "source_ref": canonical_profile.get(
+                "runtime_consumer_source_ref"
+            ),
+        }
+        provenance_expectations = {
+            "schema_version": canonical_profile.get(
+                "provenance_schema"
+            ),
+            "state": canonical_profile.get("provenance_state"),
+            "publication_posture": canonical_profile.get(
+                "publication_posture"
+            ),
+            "artifact_identity": expected_artifact_identity,
+            "canonical_producer": expected_canonical_producer,
+            "canonical_predecessor": expected_predecessor,
+            "g5_authority": expected_authority,
+            "owner_switch_receipt": expected_receipt_summary,
+            "public_release_trust_root": expected_public_release,
+            "runtime_consumer_contract": expected_runtime_contract,
+            "archive_stop_line": canonical_profile.get(
+                "archive_stop_line"
+            ),
+        }
+        for field, expected in provenance_expectations.items():
+            if provenance.get(field) != expected:
+                raise ValueError(
+                    "canonical producer admission provenance mismatch: "
+                    f"{field}"
+                )
+
+        expected_receipt = {
+            "schema": canonical_profile.get(
+                "owner_switch_receipt_schema"
+            ),
+            "status": canonical_profile.get(
+                "owner_switch_receipt_status"
+            ),
+            "archive_stop_line": canonical_profile.get(
+                "archive_stop_line"
+            ),
+            "g5_authority": expected_authority,
+            "sdk": {
+                "abi_epoch": canonical_profile.get("abi_epoch"),
+                "owner_repo": canonical_owner,
+                "source_ref": canonical_source_ref,
+                "version": canonical_profile.get("sdk_version"),
+            },
+            "predecessor": {
+                "owner_repo": canonical_profile.get(
+                    "predecessor_owner_repo"
+                ),
+                "rollback_posture": "retained",
+                "source_ref": canonical_profile.get(
+                    "predecessor_source_ref"
+                ),
+            },
+            "public_release": {
+                "asset_digest": canonical_profile.get(
+                    "public_release_asset_digest"
+                ),
+                "asset_name": canonical_profile.get(
+                    "public_release_asset_name"
+                ),
+                "release_ref": canonical_profile.get(
+                    "public_release_ref"
+                ),
+                "source_ref": canonical_profile.get(
+                    "public_release_source_ref"
+                ),
+            },
+            "runtime_consumer": {
+                "contract_ref": (
+                    "docs/decisions/"
+                    "ABYSS-STACK-D-0086-receipt-bound-sdk-routing-cutover.md"
+                ),
+                "owner_repo": canonical_profile.get(
+                    "runtime_consumer"
+                ),
+                "source_ref": canonical_profile.get(
+                    "runtime_consumer_source_ref"
+                ),
+            },
+            "transition": {
+                "canonical_owner_after": canonical_owner,
+                "canonical_owner_before": canonical_profile.get(
+                    "predecessor_owner_repo"
+                ),
+                "from_state": "predecessor_canonical",
+                "to_state": canonical_profile.get("provenance_state"),
+            },
+            "compatibility_window": {
+                "started_by_sdk_version": canonical_profile.get(
+                    "sdk_version"
+                ),
+                "started_on": "2026-07-26",
+                "state": "started",
+            },
+        }
+        for field, expected in expected_receipt.items():
+            if receipt.get(field) != expected:
+                raise ValueError(
+                    "canonical producer admission owner-switch receipt "
+                    f"mismatch: {field}"
+                )
+        return _canonical_producer_admission_record(
+            rule=rule,
+            profile=canonical_profile,
+        )
+
     candidate = _candidate_producer_profile(
         admission,
         owner_repo=manifest_owner,
@@ -4642,7 +4964,9 @@ def _producer_admission_for_manifest(
         "profile_id": str(candidate.get("profile_id") or ""),
         "owner_repo": manifest_owner,
         "source_ref": candidate_source_ref,
-        "canonical_owner_repo": canonical_owner,
+        "canonical_owner_repo": candidate.get(
+            "current_canonical_owner_repo"
+        ),
         "canonical_predecessor_source_ref": current_canonical.get("source_ref"),
         "provenance_subject_ref": provenance_ref,
         "provenance_state": candidate.get("provenance_state"),
@@ -4687,19 +5011,36 @@ def _validate_producer_admission_sidecars(
         )
     canonical_owner = str(admission.get("canonical_owner_repo") or "")
     identity_owner = str(identity.get("owner_repo") or "")
-    if identity_owner == canonical_owner:
-        expected = {
-            "schema": "abyss_machine_artifact_producer_admission_v1",
-            "status": "canonical_producer",
-            "profile_id": str(admission.get("canonical_profile_id") or ""),
-            "owner_repo": canonical_owner,
-            "canonical_owner_repo": canonical_owner,
-            "single_canonical_owner": True,
-            "canonical_switch_authorized": False,
-        }
+    if record.get("status") == "canonical_producer":
+        canonical_profile = admission.get("canonical_profile")
+        if (
+            identity_owner != canonical_owner
+            or not isinstance(canonical_profile, Mapping)
+        ):
+            errors.append(
+                "canonical producer admission owner or policy profile is invalid"
+            )
+            return
+        expected = _canonical_producer_admission_record(
+            rule=rule,
+            profile=canonical_profile,
+        )
         if record != expected:
             errors.append(
                 "canonical producer admission record does not match policy"
+            )
+        external_identity = external_subject.get("artifact_identity")
+        if (
+            not isinstance(external_identity, Mapping)
+            or external_identity.get("owner_repo") != canonical_owner
+            or external_identity.get("artifact_class")
+            != identity.get("artifact_class")
+            or external_identity.get("abi_epoch")
+            != canonical_profile.get("abi_epoch")
+        ):
+            errors.append(
+                "canonical producer admission external ABI identity does "
+                "not match policy"
             )
         return
 
@@ -4719,9 +5060,12 @@ def _validate_producer_admission_sidecars(
         errors.append("candidate producer admission profile does not match policy")
     if record.get("owner_repo") != identity_owner:
         errors.append("candidate producer admission owner does not match identity")
-    if record.get("canonical_owner_repo") != canonical_owner:
+    if record.get("canonical_owner_repo") != candidate.get(
+        "current_canonical_owner_repo"
+    ):
         errors.append(
-            "candidate producer admission canonical owner does not match policy"
+            "candidate producer admission historical canonical owner does "
+            "not match policy"
         )
     if record.get("provenance_subject_ref") != candidate.get(
         "provenance_subject_ref"
@@ -7649,18 +7993,115 @@ def _update_registry_record_subject_store(
     return {"ok": True, "errors": [], "written": [str(record_path), str(index_path)]}
 
 
-def _candidate_producer_admission_boundary_errors(
+def _producer_admission_boundary_errors(
     admission: Mapping[str, Any],
     *,
     artifact_class: str,
     lifecycle_state: str,
     trust_root_mode: str,
     consumer_intent: str = "",
+    trust_root_evidence: Mapping[str, Any] | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> list[str]:
     status = str(admission.get("status") or "")
     if status == "canonical_producer":
-        return []
+        errors: list[str] = []
+        try:
+            rule = artifact_class_rule(
+                artifact_class,
+                repo_root=repo_root,
+            )
+        except (
+            FileNotFoundError,
+            KeyError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            rule = {}
+        producer_policy = (
+            rule.get("producer_admission")
+            if isinstance(rule.get("producer_admission"), Mapping)
+            else {}
+        )
+        canonical_profile = producer_policy.get("canonical_profile")
+        if not isinstance(canonical_profile, Mapping):
+            return ["canonical_producer_policy_profile_missing"]
+        expected = _canonical_producer_admission_record(
+            rule=rule,
+            profile=canonical_profile,
+        )
+        if dict(admission) != expected:
+            errors.append("canonical_producer_admission_policy_mismatch")
+        if (
+            not _is_exact_git_object_id(admission.get("source_ref"))
+            or admission.get("source_ref")
+            != canonical_profile.get("source_ref")
+            or admission.get("owner_repo")
+            != producer_policy.get("canonical_owner_repo")
+            or admission.get("canonical_owner_repo")
+            != producer_policy.get("canonical_owner_repo")
+        ):
+            errors.append(
+                "canonical_producer_admission_source_binding_invalid"
+            )
+        allowed_lifecycle_states = admission.get(
+            "allowed_registry_lifecycle_states"
+        )
+        if (
+            not isinstance(allowed_lifecycle_states, list)
+            or lifecycle_state not in allowed_lifecycle_states
+        ):
+            errors.append(
+                f"canonical_registry_lifecycle_not_admitted:{lifecycle_state}"
+            )
+        allowed_trust_root_modes = admission.get(
+            "allowed_trust_root_modes"
+        )
+        if (
+            not isinstance(allowed_trust_root_modes, list)
+            or trust_root_mode not in allowed_trust_root_modes
+        ):
+            errors.append(
+                f"canonical_trust_root_mode_not_admitted:{trust_root_mode}"
+            )
+        if consumer_intent:
+            allowed_consumer_intents = admission.get(
+                "allowed_consumer_intents"
+            )
+            if (
+                not isinstance(allowed_consumer_intents, list)
+                or consumer_intent not in allowed_consumer_intents
+            ):
+                errors.append(
+                    "canonical_consumer_intent_not_admitted:"
+                    f"{consumer_intent}"
+                )
+        if trust_root_mode == "public_release":
+            evidence = (
+                trust_root_evidence
+                if isinstance(trust_root_evidence, Mapping)
+                else {}
+            )
+            expected_evidence = {
+                "source_repo": canonical_profile.get("owner_repo"),
+                "source_ref": canonical_profile.get("source_ref"),
+                "release_ref": canonical_profile.get(
+                    "canonical_release_ref"
+                ),
+                "asset_ref": canonical_profile.get(
+                    "canonical_release_asset_name"
+                ),
+                "asset_digest": canonical_profile.get(
+                    "canonical_release_asset_digest"
+                ),
+            }
+            for field, expected_value in expected_evidence.items():
+                if evidence.get(field) != expected_value:
+                    errors.append(
+                        "canonical_public_release_evidence_mismatch:"
+                        f"{field}"
+                    )
+        return errors
     if status != "candidate_admitted":
         return ["producer_admission_status_invalid"]
 
@@ -7864,23 +8305,29 @@ def bundle_registry_record(
         provenance=provenance,
         manifest=manifest,
     )
-    if producer_admission.get("status") == "candidate_admitted":
+    if producer_admission.get("status") in {
+        "candidate_admitted",
+        "canonical_producer",
+    }:
         if source_repo and str(source_repo) != identity_source_repo:
             errors.append(
-                "candidate promotion source_repo does not match the signed bundle identity"
+                "producer admission promotion source_repo does not match "
+                "the signed bundle identity"
             )
         if source_ref and str(source_ref) != identity_source_ref:
             errors.append(
-                "candidate promotion source_ref does not match the signed bundle identity"
+                "producer admission promotion source_ref does not match "
+                "the signed bundle identity"
             )
         resolved_source_repo = identity_source_repo
         resolved_source_ref = identity_source_ref
         errors.extend(
-            _candidate_producer_admission_boundary_errors(
+            _producer_admission_boundary_errors(
                 producer_admission,
                 artifact_class=artifact_class,
                 lifecycle_state=lifecycle_state,
                 trust_root_mode=trust_root_mode,
+                trust_root_evidence=trust_root_evidence,
                 repo_root=repo_root,
             )
         )
@@ -9004,12 +9451,20 @@ def trust_gate(
     producer_admission = selected.get("producer_admission")
     if isinstance(producer_admission, dict):
         blockers.extend(
-            _candidate_producer_admission_boundary_errors(
+            _producer_admission_boundary_errors(
                 producer_admission,
                 artifact_class=artifact_class,
                 lifecycle_state=str(selected.get("lifecycle_state") or ""),
                 trust_root_mode=str(selected.get("trust_root_mode") or ""),
                 consumer_intent=consumer_intent,
+                trust_root_evidence=(
+                    selected.get("trust_root_evidence")
+                    if isinstance(
+                        selected.get("trust_root_evidence"),
+                        Mapping,
+                    )
+                    else {}
+                ),
             )
         )
     elif (

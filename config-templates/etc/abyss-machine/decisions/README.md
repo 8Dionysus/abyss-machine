@@ -100,6 +100,7 @@ movement for that decision only.
 | 0020 | [Artifact Evidence Cleanup Route](0020-artifact-evidence-cleanup-route.md) | `0020-artifact-evidence-cleanup-route.md` | artifacts, storage-topology, ai-cache, vault-restore, validation-guard | active cleanup evidence rationale |
 | 0022 | [Owner-Native Memory Orchestration](0022-owner-native-memory-orchestration.md) | `0022-owner-native-memory-orchestration.md` | memory, resource-gate, owner-boundary, runtime-lifecycle, validation-guard | active owner-boundary rationale |
 | 0023 | [Separate Release Trust From Routing Owner Switch](0023-separate-release-trust-from-routing-owner-switch.md) | `0023-separate-release-trust-from-routing-owner-switch.md` | artifacts, owner-boundary, release-trust, validation-guard | active artifact admission rationale |
+| 0024 | [Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md) | `0024-admit-receipt-bound-sdk-routing-canonical-producer.md` | artifacts, owner-boundary, routing-succession, runtime-admission, validation-guard | active canonical admission rationale |
 
 ## Index By Surface Class
 
@@ -137,6 +138,7 @@ movement for that decision only.
 - [0018 Self-Awareness Observability Layer](0018-self-awareness-observability-layer.md)
 - [0019 Self-Awareness Full Stack Coverage](0019-self-awareness-full-stack-coverage.md)
 - [0022 Owner-Native Memory Orchestration](0022-owner-native-memory-orchestration.md)
+- [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 
 ### AI / Resident Selection
 
@@ -149,6 +151,7 @@ movement for that decision only.
 - [0004 Large Root Design Route](0004-srv-large-root-design-route.md)
 - [0020 Artifact Evidence Cleanup Route](0020-artifact-evidence-cleanup-route.md)
 - [0023 Separate Release Trust From Routing Owner Switch](0023-separate-release-trust-from-routing-owner-switch.md)
+- [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 
 ### Typing / Journaling
 
@@ -219,6 +222,7 @@ Route:
 - artifact cleanup evidence and vault restore guard: [0020](0020-artifact-evidence-cleanup-route.md)
 - owner-native memory lifecycle and coordinator admission gate: [0022](0022-owner-native-memory-orchestration.md)
 - release trust versus routing owner-switch authority: [0023](0023-separate-release-trust-from-routing-owner-switch.md)
+- receipt-bound SDK routing canonical admission: [0024](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 
 ## Promotion Path
 

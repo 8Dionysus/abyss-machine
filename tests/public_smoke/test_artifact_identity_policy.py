@@ -136,7 +136,7 @@ def test_every_artifact_class_has_identity_posture() -> None:
                 "kag_owner_family_release": "aoa-kag",
                 "kag_os_composition": "aoa-kag",
                 "derived_memory_object_readmodel_family": "aoa-memo",
-                "thin_routing_readmodel_bundle": "aoa-routing",
+                "thin_routing_readmodel_bundle": "aoa-sdk",
                 "playbook_registry_bundle": "aoa-playbooks",
                 "aoa_sdk_python_distribution": "aoa-sdk",
                 "abyss_stack_runtime_config_bundle": "abyss-stack",
@@ -435,10 +435,10 @@ def test_aoa_memo_memory_object_readmodels_require_abi_and_slsa_without_prematur
     assert memo_release["required_controls"] == ["abi_signature", "slsa_in_toto"]
 
 
-def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_cosign_or_c2pa() -> None:
+def test_aoa_sdk_canonical_thin_router_requires_receipt_bound_abi_sbom_and_slsa() -> None:
     policy = load_policy()
     routing_rule = policy["artifact_classes"]["thin_routing_readmodel_bundle"]
-    assert routing_rule["identity"]["owner_repo"] == "aoa-routing"
+    assert routing_rule["identity"]["owner_repo"] == "aoa-sdk"
     assert routing_rule["identity"]["trust_layer"] == ["abi_contract_signature", "sbom", "slsa_in_toto"]
     assert routing_rule["abi_signature"]["required"] is True
     assert routing_rule["sbom"]["required"] is True
@@ -446,19 +446,58 @@ def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_co
     assert routing_rule["sigstore_cosign"]["required"] is False
     assert routing_rule["c2pa"]["required"] is False
     assert "subject inventory" in routing_rule["sbom"]["trigger"]
-    assert "release assets" in routing_rule["sigstore_cosign"]["trigger"]
+    assert "GitHub artifact attestation" in routing_rule["sigstore_cosign"]["trigger"]
     assert "PDF/media/content exports" in routing_rule["c2pa"]["trigger"]
 
     release_rules = {item["id"]: item for item in policy["release_artifact_rules"]}
-    routing_release = release_rules["aoa-routing-thin-router-release"]
+    routing_release = release_rules["aoa-sdk-routing-g5-canonical-release"]
     assert routing_release["artifact_class"] == "thin_routing_readmodel_bundle"
+    assert routing_release["artifact_patterns"] == [
+        "dist/aoa-sdk-routing/"
+        "aoa-sdk-routing-g5-canonical-v0.8.0.tar.gz"
+    ]
     assert routing_release["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
 
     admission = routing_rule["producer_admission"]
-    assert admission["canonical_profile_id"] == "aoa-routing"
-    assert admission["canonical_owner_repo"] == "aoa-routing"
+    assert admission["canonical_profile_id"] == "aoa-sdk"
+    assert admission["canonical_owner_repo"] == "aoa-sdk"
     assert admission["single_canonical_owner"] is True
     assert admission["canonical_switch_requires_explicit_policy_update"] is True
+    canonical = admission["canonical_profile"]
+    assert canonical["profile_id"] == "aoa-sdk-g5-canonical"
+    assert (
+        canonical["source_ref"]
+        == "e4ffd26ed9e50125be584c00839ee6a8f7016a0d"
+    )
+    assert (
+        canonical["predecessor_source_ref"]
+        == "97f60de1b5992ef6bf5ff0f051bd452d940d9a85"
+    )
+    assert canonical["owner_switch_receipt_digest"] == (
+        "sha256:"
+        "d2b9272dacd1cd04d3bf200c4e9b8c7bce301c1b0a2bcb36e0c8a16064ea6645"
+    )
+    assert canonical["canonical_release_asset_digest"] == (
+        "sha256:"
+        "e72b6f5c26bc815fe349c6cc8ac31e595b4cf6842d1538b4e0ef15caf97c1b6d"
+    )
+    assert canonical["allowed_consumer_intents"] == [
+        "release_consumer",
+        "runtime_canary",
+        "runtime",
+    ]
+    assert canonical["required_g5_authority"] == {
+        "archive_authorized": False,
+        "canonical_producer_switch_authorized": True,
+        "compatibility_window_started": True,
+        "live_runtime_mutation_authorized": True,
+        "predecessor_maintenance_only": True,
+        "sdk_canonical": True,
+    }
+    assert canonical["archive_stop_line"] == (
+        "Repository archival remains forbidden without consumer-zero, "
+        "compatibility exit, and separate exact operator approval."
+    )
     assert admission["candidate_profiles"] == [
         {
             "profile_id": "aoa-sdk",
@@ -553,7 +592,7 @@ def test_aoa_routing_thin_router_requires_abi_sbom_and_slsa_without_premature_co
         if "thin_routing_readmodel_bundle" in profile["artifact_classes"]
     }
     assert routing_profiles == {"aoa-routing", "aoa-sdk"}
-    assert routing_rule["identity"]["owner_repo"] == "aoa-routing"
+    assert routing_rule["identity"]["owner_repo"] == "aoa-sdk"
 
 
 def test_aoa_playbooks_registry_requires_abi_and_slsa_without_premature_sbom_or_cosign() -> None:
