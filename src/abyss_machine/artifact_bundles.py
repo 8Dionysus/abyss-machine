@@ -7999,6 +7999,7 @@ def _canonical_public_release_archive_binding(
     *,
     producer_admission: Mapping[str, Any],
     subjects: Mapping[str, Any],
+    bundle_manifest_ref: str,
     subject_root: str | Path | None,
     public_release_archive: str | Path | None,
     trust_root_evidence: Mapping[str, Any] | None,
@@ -8045,10 +8046,22 @@ def _canonical_public_release_archive_binding(
             manifest_ref,
             field="canonical_release.manifest_ref",
         )
+        safe_bundle_manifest_ref = _safe_repo_relative_path(
+            bundle_manifest_ref,
+            field="artifact.identity.json.bundle_manifest_ref",
+        )
     except ValueError:
         return {}, ["canonical_public_release_policy_path_invalid"]
     if len(safe_prefix.parts) != 1:
         return {}, ["canonical_public_release_archive_prefix_invalid"]
+    bundle_manifest_ref_matches_archive = (
+        safe_bundle_manifest_ref.as_posix()
+        == safe_manifest_ref.as_posix()
+    )
+    if not bundle_manifest_ref_matches_archive:
+        errors.append(
+            "canonical_public_release_bundle_manifest_ref_mismatch"
+        )
     archive_prefix_path = PurePosixPath(safe_prefix.as_posix())
     manifest_relative_path = PurePosixPath(
         safe_manifest_ref.as_posix()
@@ -8287,6 +8300,7 @@ def _canonical_public_release_archive_binding(
         "archive_digest": archive_digest,
         "archive_prefix": archive_prefix_path.as_posix(),
         "archive_manifest_ref": safe_manifest_ref.as_posix(),
+        "bundle_manifest_ref": safe_bundle_manifest_ref.as_posix(),
         "archive_manifest_digest": manifest_digest,
         "archive_file_count": len(archive_files),
         "artifact_subject_count": len(archive_subject_entries),
@@ -8307,6 +8321,9 @@ def _canonical_public_release_archive_binding(
             ),
             "exact_member_set": exact_member_set,
             "manifest_byte_parity": manifest_byte_parity,
+            "bundle_manifest_ref_matches_archive": (
+                bundle_manifest_ref_matches_archive
+            ),
             "subject_byte_parity": subject_byte_parity,
             "subject_aggregate_parity": subject_aggregate_parity,
         },
@@ -8337,6 +8354,7 @@ def _canonical_public_release_archive_binding_errors(
         "archive_digest": canonical_release.get("asset_digest"),
         "archive_prefix": canonical_release.get("archive_prefix"),
         "archive_manifest_ref": canonical_release.get("manifest_ref"),
+        "bundle_manifest_ref": canonical_release.get("manifest_ref"),
         "archive_manifest_digest": canonical_release.get(
             "manifest_digest"
         ),
@@ -8381,6 +8399,7 @@ def _canonical_public_release_archive_binding_errors(
         "archive_digest_matches_policy",
         "exact_member_set",
         "manifest_byte_parity",
+        "bundle_manifest_ref_matches_archive",
         "subject_byte_parity",
         "subject_aggregate_parity",
     ):
@@ -8459,6 +8478,8 @@ def _producer_admission_boundary_errors(
     canonical_archive_binding: Mapping[str, Any] | None = None,
     subject_digest: str = "",
     artifact_subjects_digest: str = "",
+    consumer_refs: list[str] | None = None,
+    consumer_subject_digest: str = "",
     repo_root: Path = REPO_ROOT,
 ) -> list[str]:
     status = str(admission.get("status") or "")
@@ -8533,6 +8554,44 @@ def _producer_admission_boundary_errors(
                 errors.append(
                     "canonical_consumer_intent_not_admitted:"
                     f"{consumer_intent}"
+                )
+        required_consumer_ref = str(
+            canonical_profile.get("required_consumer_ref") or ""
+        )
+        normalized_consumer_refs = {
+            str(item) for item in consumer_refs or [] if str(item)
+        }
+        if (
+            not required_consumer_ref
+            or required_consumer_ref not in normalized_consumer_refs
+        ):
+            errors.append(
+                "canonical_required_consumer_ref_missing:"
+                f"{required_consumer_ref or 'unconfigured'}"
+            )
+        if consumer_intent == "runtime":
+            expected_artifact_subjects_digest = str(
+                admission.get("canonical_release", {}).get(
+                    "artifact_subjects_digest"
+                )
+                if isinstance(
+                    admission.get("canonical_release"),
+                    Mapping,
+                )
+                else ""
+            )
+            if not consumer_subject_digest:
+                errors.append(
+                    "canonical_runtime_artifact_subjects_digest_required"
+                )
+            elif (
+                consumer_subject_digest
+                != expected_artifact_subjects_digest
+                or consumer_subject_digest
+                != artifact_subjects_digest
+            ):
+                errors.append(
+                    "canonical_runtime_artifact_subjects_digest_mismatch"
                 )
         if trust_root_mode == "public_release":
             evidence = (
@@ -8805,11 +8864,71 @@ def bundle_registry_record(
         ) = _canonical_public_release_archive_binding(
             producer_admission=producer_admission,
             subjects=subjects,
+            bundle_manifest_ref=bundle_manifest_ref,
             subject_root=subject_root,
             public_release_archive=public_release_archive,
             trust_root_evidence=trust_root_evidence,
         )
         errors.extend(canonical_archive_binding_errors)
+        if (
+            producer_admission.get("status") == "canonical_producer"
+            and subject_root is not None
+        ):
+            canonical_release = producer_admission.get(
+                "canonical_release"
+            )
+            canonical_release = (
+                canonical_release
+                if isinstance(canonical_release, Mapping)
+                else {}
+            )
+            canonical_manifest_ref = str(
+                canonical_release.get("manifest_ref") or ""
+            )
+            try:
+                safe_canonical_manifest_ref = _safe_repo_relative_path(
+                    canonical_manifest_ref,
+                    field="canonical_release.manifest_ref",
+                )
+                authenticated_manifest = load_bundle_manifest(
+                    Path(subject_root) / safe_canonical_manifest_ref,
+                    repo_root=repo_root,
+                )
+            except (
+                FileNotFoundError,
+                KeyError,
+                OSError,
+                ValueError,
+                json.JSONDecodeError,
+            ):
+                authenticated_manifest = {}
+                errors.append(
+                    "canonical_public_release_bundle_manifest_unresolvable"
+                )
+            if authenticated_manifest:
+                authenticated_consumer_contract = (
+                    authenticated_manifest.get("consumer_contract")
+                    if isinstance(
+                        authenticated_manifest.get("consumer_contract"),
+                        dict,
+                    )
+                    else {}
+                )
+                identity_consumer_contract = (
+                    identity.get("consumer_contract")
+                    if isinstance(identity.get("consumer_contract"), dict)
+                    else {}
+                )
+                if (
+                    identity_consumer_contract
+                    != authenticated_consumer_contract
+                ):
+                    errors.append(
+                        "canonical_public_release_bundle_manifest_"
+                        "consumer_contract_mismatch"
+                    )
+                manifest = authenticated_manifest
+                consumer_contract = authenticated_consumer_contract
         errors.extend(
             _producer_admission_boundary_errors(
                 producer_admission,
@@ -8822,6 +8941,7 @@ def bundle_registry_record(
                 artifact_subjects_digest=str(
                     subjects.get("aggregate_digest") or ""
                 ),
+                consumer_refs=consumer_refs,
                 repo_root=repo_root,
             )
         )
@@ -9985,6 +10105,12 @@ def trust_gate(
                 artifact_subjects_digest=str(
                     selected.get("artifact_subjects_digest") or ""
                 ),
+                consumer_refs=(
+                    selected.get("consumer_refs")
+                    if isinstance(selected.get("consumer_refs"), list)
+                    else []
+                ),
+                consumer_subject_digest=subject_digest,
             )
         )
     elif (

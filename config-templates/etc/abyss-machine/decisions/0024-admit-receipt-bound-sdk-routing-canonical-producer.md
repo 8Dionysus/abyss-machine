@@ -64,12 +64,17 @@ runtime-supplied canonical subject root, reject unsafe or extra archive
 members, and prove byte parity for `artifact.bundle.json` plus all 29 declared
 subjects. It must also reproduce the exact subject aggregate and bind the
 archive digest to the exact attestation schema, verifier, and workflow evidence
-reference before writing a registry record.
+reference before writing a registry record. The signed bundle manifest ref must
+resolve through that canonical subject root to the policy-pinned archive
+manifest, its consumer contract must match the authenticated manifest, and
+promotion must carry `abyss-stack:routing-canonical`.
 
 Permit normal `runtime` only after the artifact subjects are materialized and
-the latest bound trust gate returns `allow`. Keep the two pre-G5 SDK profiles
-as separately selected historical contracts and reject new canonical
-production by `aoa-routing`.
+the latest bound trust gate is selected by the exact materialized
+`artifact.subjects.json` aggregate and returns `allow`. The distinct signed
+bundle subject digest remains release-evidence identity, not the runtime
+handoff selector. Keep the two pre-G5 SDK profiles as separately selected
+historical contracts and reject new canonical production by `aoa-routing`.
 
 ## Rationale
 
@@ -127,6 +132,9 @@ decompressing any archive member.
 - 2026-07-26: Added byte-level archive-to-subject binding after review found
   that a locally rebuilt subject family could otherwise repeat the known
   archive digest.
+- 2026-07-26: Bound promotion to the authenticated archive manifest and named
+  abyss-stack consumer, and required the materialized subject aggregate as the
+  normal-runtime trust-gate selector.
 - 2026-07-26: Pinned persisted manifest, archive-member-set, and subject
   aggregate digests after review found that well-formed replacement digests
   could otherwise survive a later trust-gate read.

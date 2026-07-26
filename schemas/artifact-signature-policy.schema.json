@@ -184,6 +184,7 @@
                   "stronger_owner",
                   "trust_admission_status",
                   "runtime_consumer",
+                  "required_consumer_ref",
                   "runtime_consumer_source_ref",
                   "runtime_consumer_decision_id",
                   "allowed_registry_lifecycle_states",
@@ -243,6 +244,7 @@
                   "stronger_owner": {"type": "string", "minLength": 1},
                   "trust_admission_status": {"type": "string", "minLength": 1},
                   "runtime_consumer": {"type": "string", "minLength": 1},
+                  "required_consumer_ref": {"type": "string", "minLength": 1},
                   "runtime_consumer_source_ref": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
                   "runtime_consumer_decision_id": {"type": "string", "minLength": 1},
                   "allowed_registry_lifecycle_states": {

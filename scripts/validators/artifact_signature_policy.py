@@ -76,6 +76,7 @@ REQUIRED_CANONICAL_PROFILE_KEYS = (
     "stronger_owner",
     "trust_admission_status",
     "runtime_consumer",
+    "required_consumer_ref",
     "runtime_consumer_source_ref",
     "runtime_consumer_decision_id",
     "allowed_registry_lifecycle_states",
@@ -332,6 +333,7 @@ CANONICAL_ROUTING_ADMISSION_CONTRACT = {
     "stronger_owner": "abyss-machine",
     "trust_admission_status": "canonical_receipt_verified",
     "runtime_consumer": "abyss-stack",
+    "required_consumer_ref": "abyss-stack:routing-canonical",
     "runtime_consumer_source_ref": (
         "fac82c75d860dd2433cfc1e391f4b6ba117425d7"
     ),

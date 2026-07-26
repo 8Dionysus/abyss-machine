@@ -887,6 +887,7 @@
           "stronger_owner": "abyss-machine",
           "trust_admission_status": "canonical_receipt_verified",
           "runtime_consumer": "abyss-stack",
+          "required_consumer_ref": "abyss-stack:routing-canonical",
           "runtime_consumer_source_ref": "fac82c75d860dd2433cfc1e391f4b6ba117425d7",
           "runtime_consumer_decision_id": "ABYSS-STACK-D-0086",
           "allowed_registry_lifecycle_states": ["release-ready", "published", "superseded", "revoked"],
