@@ -102,7 +102,9 @@ retains the exact archive, manifest, member-set, and subject aggregate digests
 plus the five successful parity verdicts. The canonical policy pins the exact
 manifest, member-set, and subject aggregate digests, so later trust-gate reads
 compare values rather than merely accepting syntactically valid SHA-256
-strings and fail closed if that binding is absent or mutated.
+strings and fail closed if that binding is absent or mutated. Promotion returns
+immediately when the archive digest differs from policy, before opening or
+decompressing any archive member.
 
 ## Boundaries
 
@@ -128,6 +130,9 @@ strings and fail closed if that binding is absent or mutated.
 - 2026-07-26: Pinned persisted manifest, archive-member-set, and subject
   aggregate digests after review found that well-formed replacement digests
   could otherwise survive a later trust-gate read.
+- 2026-07-26: Made archive-digest rejection precede decompression after review
+  found that an already-known mismatched archive could otherwise consume host
+  memory during member reads.
 
 ## Source Surfaces
 

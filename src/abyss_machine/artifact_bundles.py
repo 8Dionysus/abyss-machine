@@ -8067,7 +8067,10 @@ def _canonical_public_release_archive_binding(
         errors.append("canonical_public_release_archive_asset_name_mismatch")
     archive_digest = _file_digest(archive)
     if archive_digest != expected_archive_digest:
-        errors.append("canonical_public_release_archive_digest_mismatch")
+        return {}, [
+            *errors,
+            "canonical_public_release_archive_digest_mismatch",
+        ]
 
     requested_root = Path(subject_root).expanduser().absolute()
     if requested_root.is_symlink():
