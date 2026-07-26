@@ -120,12 +120,15 @@ record rather than silently floating to a new tag.
   source/receipt/authority/release-digest tamper rejection.
 - The real public v0.8.0 bundle must pass the same build, verification,
   registry, subject-store, and runtime-gate sequence before cutover.
+- `PUBLIC_RELEASE_EVIDENCE_JSON` must contain the exact `release_ref`,
+  `asset_ref`, `asset_digest`, `source_repo`, `source_ref`, `subject_digest`,
+  and `verifier` values for the canonical v0.8.0 archive and built bundle.
 
 ```bash
 python scripts/validators/artifact_signature_policy.py
 pytest -q tests/public_smoke/test_artifact_identity_policy.py tests/public_smoke/test_artifact_bundle_verifier.py
 abyss-machine artifacts verify BUNDLE_DIR --subject-root CANONICAL_ROOT --json
-abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --json
+abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --trust-root-evidence-json @PUBLIC_RELEASE_EVIDENCE_JSON --json
 abyss-machine artifacts materialize-subjects BUNDLE_DIR --store-root SUBJECT_STORE_ROOT --registry-dir REGISTRY_DIR --manifest CANONICAL_ROOT/artifact.bundle.json --consumer-intent runtime --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --json
 abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class thin_routing_readmodel_bundle --consumer-intent runtime --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --subject-digest SUBJECT_DIGEST --json
 ```
