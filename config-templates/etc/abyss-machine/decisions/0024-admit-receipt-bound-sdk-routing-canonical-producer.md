@@ -133,6 +133,10 @@ decompressing any archive member.
 - 2026-07-26: Made archive-digest rejection precede decompression after review
   found that an already-known mismatched archive could otherwise consume host
   memory during member reads.
+- 2026-07-26: Required the release-evidence subject digest to match the
+  bundle record before registry write, and made the runtime handoff command
+  bind the named `abyss-stack` consumer plus the distinct artifact-subject
+  aggregate required by D-0086.
 
 ## Source Surfaces
 
@@ -159,14 +163,18 @@ decompressing any archive member.
   `release_ref`, `asset_ref`, `asset_digest`, `source_repo`, `source_ref`,
   `subject_digest`, `evidence_ref`, and `verifier` values for the canonical
   v0.8.0 archive and built bundle.
+- `PUBLIC_RELEASE_EVIDENCE_JSON.subject_digest` is the signed bundle-record
+  subject digest. `ARTIFACT_SUBJECTS_DIGEST` is the distinct
+  `artifact.subjects.json` aggregate selected by the materialized subject
+  store and passed into the D-0086 cutover.
 
 ```bash
 python scripts/validators/artifact_signature_policy.py
 pytest -q tests/public_smoke/test_artifact_identity_policy.py tests/public_smoke/test_artifact_bundle_verifier.py
 abyss-machine artifacts verify BUNDLE_DIR --subject-root CANONICAL_ROOT --json
-abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --trust-root-evidence-json @PUBLIC_RELEASE_EVIDENCE_JSON --subject-root CANONICAL_ROOT --public-release-archive CANONICAL_ARCHIVE --json
+abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-stack:routing-canonical --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --trust-root-evidence-json @PUBLIC_RELEASE_EVIDENCE_JSON --subject-root CANONICAL_ROOT --public-release-archive CANONICAL_ARCHIVE --json
 abyss-machine artifacts materialize-subjects BUNDLE_DIR --store-root SUBJECT_STORE_ROOT --registry-dir REGISTRY_DIR --manifest CANONICAL_ROOT/artifact.bundle.json --consumer-intent runtime --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --json
-abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class thin_routing_readmodel_bundle --consumer-intent runtime --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --subject-digest SUBJECT_DIGEST --json
+abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class thin_routing_readmodel_bundle --consumer-intent runtime --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --subject-digest ARTIFACT_SUBJECTS_DIGEST --json
 ```
 
 ## Follow-up Route
