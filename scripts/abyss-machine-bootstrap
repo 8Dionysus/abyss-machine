@@ -964,7 +964,7 @@ def add_common_options(parser: argparse.ArgumentParser) -> None:
     defaults = DEFAULT_PATH_POLICY.cli_defaults()
     parser.add_argument("--profile", default="linux-systemd-core", choices=sorted(PROFILE_UNITS))
     parser.add_argument("--user", default=defaults["user"])
-    parser.add_argument("--home", default=defaults["home"])
+    parser.add_argument("--home", default=None)
     parser.add_argument("--etc-root", default=defaults["etc_root"])
     parser.add_argument("--state-root", default=defaults["state_root"])
     parser.add_argument("--srv-root", default=defaults["srv_root"])

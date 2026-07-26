@@ -351,6 +351,27 @@ def latest_read_document(data: dict[str, Any], *, read_at: str) -> dict[str, Any
     return payload
 
 
+def _path_is_inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_abyss_systemd_unit_path(path: Path, root: Path) -> bool:
+    if not _path_is_inside(path, root):
+        return False
+    rel = path.relative_to(root)
+    parts = rel.parts
+    if len(parts) == 1:
+        return parts[0].startswith("abyss-")
+    if len(parts) == 2:
+        dropin_dir, dropin_file = parts
+        return dropin_dir.startswith("abyss-") and dropin_dir.endswith(".d") and dropin_file.endswith(".conf")
+    return False
+
+
 def surface_path_class(
     path_text: str,
     *,
@@ -359,13 +380,17 @@ def surface_path_class(
     user_systemd_dir: Path,
     fallback_protection: dict[str, Any],
 ) -> dict[str, Any]:
-    path = Path(path_text).expanduser()
+    path = Path(path_text).expanduser().resolve(strict=False)
     resolved_text = str(path)
-    if resolved_text.startswith("/etc/abyss-machine") or resolved_text == "/etc/abyss-machine":
+    state_root = state_dir.expanduser().resolve(strict=False)
+    machine_root = machine_root.expanduser().resolve(strict=False)
+    user_systemd_root = user_systemd_dir.expanduser().resolve(strict=False)
+    system_systemd_root = Path("/etc/systemd/system").resolve(strict=False)
+    if path == Path("/etc/abyss-machine") or _path_is_inside(path, Path("/etc/abyss-machine")):
         return {"class": "host_config", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}
-    if resolved_text.startswith(str(state_dir)) or resolved_text == str(state_dir):
+    if path == state_root or _path_is_inside(path, state_root):
         return {"class": "host_state", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}
-    if resolved_text.startswith(str(machine_root)) or resolved_text == str(machine_root):
+    if path == machine_root or _path_is_inside(path, machine_root):
         return {"class": "host_large_root", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}
     if (
         resolved_text == "/usr/local/bin/abyss-machine"
@@ -377,9 +402,9 @@ def surface_path_class(
         return {"class": "host_binary", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}
     if resolved_text == "/usr/local/share/abyss-machine" or resolved_text.startswith("/usr/local/share/abyss-machine/"):
         return {"class": "host_public_seed", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}
-    if resolved_text.startswith("/etc/systemd/system/abyss-"):
+    if _is_abyss_systemd_unit_path(path, system_systemd_root):
         return {"class": "host_system_systemd", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}
-    if resolved_text.startswith(str(user_systemd_dir / "abyss-")):
+    if _is_abyss_systemd_unit_path(path, user_systemd_root):
         return {"class": "host_user_systemd", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}
     if resolved_text == "/run/abyss-machine" or resolved_text.startswith("/run/abyss-machine/"):
         return {"class": "host_runtime", "decision": "allow_candidate", "owner": "abyss-machine", "path": resolved_text}

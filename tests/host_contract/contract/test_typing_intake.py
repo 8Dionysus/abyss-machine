@@ -276,7 +276,92 @@ def test_codex_prompt_hook_status_detects_user_prompt_submit_command(abyss_machi
     assert status["ok"] is True
     assert status["status"] == "ready"
     assert status["policy"]["native_codex_submit_hook"] is True
+    assert status["policy"]["native_codex_submit_hook_supported"] is True
+    assert status["policy"]["primary_prompt_intake_route"] == "native_codex_submit_hook"
     assert status["policy"]["session_postprocessing"] is False
+
+
+def test_codex_prompt_hook_status_accepts_session_tail_fallback(abyss_machine_module, tmp_path, monkeypatch) -> None:
+    machine = abyss_machine_module
+    hooks = tmp_path / "hooks.json"
+    config = tmp_path / "config.toml"
+    hook_latest = tmp_path / "codex-hook-latest.json"
+    selftest_latest = tmp_path / "codex-hook-selftest.json"
+    tail_latest = tmp_path / "codex-tail-latest.json"
+    hooks.write_text(
+        """
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /srv/AbyssOS/.aoa/scripts/aoa_session_memory.py hook --event-name UserPromptSubmit --workspace-root /srv/AbyssOS --aoa-root /srv/AbyssOS/.aoa",
+            "statusMessage": "AoA session memory prompt",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config.write_text("[features]\nhooks = true\n", encoding="utf-8")
+    hook_latest.write_text('{"ok": true, "status": "ingested"}\n', encoding="utf-8")
+    selftest_latest.write_text('{"ok": true, "status": "passed"}\n', encoding="utf-8")
+    tail_latest.write_text('{"ok": true, "status": "processed"}\n', encoding="utf-8")
+    monkeypatch.setattr(machine, "TYPING_CODEX_HOOKS_PATH", hooks)
+    monkeypatch.setattr(machine, "TYPING_CODEX_CONFIG_PATH", config)
+    monkeypatch.setattr(machine, "TYPING_CODEX_HOOK_EVENTS_LATEST_PATH", hook_latest)
+    monkeypatch.setattr(machine, "TYPING_CODEX_HOOK_SELFTEST_LATEST_PATH", selftest_latest)
+    monkeypatch.setattr(machine, "TYPING_CODEX_SESSION_TAIL_LATEST_PATH", tail_latest)
+    monkeypatch.setattr(machine, "typing_latest", lambda: {"ok": True, "source_adapter": "codex_session_jsonl_prompt_tail", "status": "captured"})
+    monkeypatch.setattr(machine, "typing_records", lambda _limit: ([], []))
+    monkeypatch.setattr(machine, "typing_records_for_source_adapter", lambda _adapter, **_kwargs: ([], [], {}))
+    monkeypatch.setattr(
+        machine,
+        "typing_codex_recent_prompt_summary",
+        lambda _records: {"recent_records": 0, "live_prompt_observed": False},
+    )
+    monkeypatch.setattr(
+        machine,
+        "typing_codex_session_tail_recent_prompt_summary",
+        lambda _records: {"recent_records": 1, "live_prompt_observed": True},
+    )
+
+    status = machine.typing_codex_prompt_hook_status(write_latest=False)
+
+    assert status["ok"] is True
+    assert status["status"] == "ready_via_tail_fallback"
+    assert status["direct_hook_ready"] is False
+    assert status["tail_fallback_ready"] is True
+    assert status["hooks_json"]["matching_commands"] == []
+    assert status["policy"]["native_codex_submit_hook"] is False
+    assert status["policy"]["native_codex_submit_hook_supported"] is True
+    assert status["policy"]["direct_foreground_hook_required"] is False
+    assert status["policy"]["session_tail_fallback"] is True
+    assert status["policy"]["primary_prompt_intake_route"] == "session_tail_fallback"
+
+
+def test_codex_hook_status_cli_no_write_uses_readonly_status(abyss_machine_module, monkeypatch, capsys) -> None:
+    machine = abyss_machine_module
+    calls: list[bool] = []
+
+    def fake_status(*, write_latest: bool = True) -> dict[str, object]:
+        calls.append(write_latest)
+        return {"ok": True, "status": "ready_via_tail_fallback"}
+
+    monkeypatch.setattr(machine, "typing_codex_prompt_hook_status", fake_status)
+
+    rc = machine.main(["typing", "codex-hook-status", "--json", "--no-write"])
+
+    assert rc == 0
+    assert calls == [False]
+    assert "ready_via_tail_fallback" in capsys.readouterr().out
 
 
 def test_typing_ingest_adds_causal_context_without_action_claims(abyss_machine_module, monkeypatch) -> None:

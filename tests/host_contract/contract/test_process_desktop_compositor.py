@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import types
@@ -93,6 +94,52 @@ def test_atspi_window_probe_code_adds_installed_parent_to_sys_path(tmp_path, aby
     assert proc.returncode == 0
     assert proc.stderr == ""
     assert payload == {"ok": True, "dep": "loaded-from-installed-parent"}
+
+
+def test_atspi_window_probe_code_moves_installed_parent_ahead_of_inherited_checkout(
+    tmp_path,
+    abyss_machine_module,
+) -> None:
+    stale_checkout = tmp_path / "checkout"
+    stale_package = stale_checkout / "abyss_machine"
+    stale_package.mkdir(parents=True)
+    (stale_package / "__init__.py").write_text("", encoding="utf-8")
+    (stale_package / "fake_dep.py").write_text("VALUE = 'loaded-from-stale-checkout'\n", encoding="utf-8")
+
+    installed_parent = tmp_path / "installed"
+    package = installed_parent / "abyss_machine"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "fake_dep.py").write_text("VALUE = 'loaded-from-installed-parent'\n", encoding="utf-8")
+    probe = installed_parent / "abyss-machine"
+    probe.write_text(
+        "\n".join(
+            [
+                "from abyss_machine import fake_dep",
+                "def process_atspi_window_snapshot():",
+                "    return {'ok': True, 'dep': fake_dep.VALUE, 'path0': __import__('sys').path[0]}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join([str(stale_checkout), str(installed_parent)])
+    proc = subprocess.run(
+        [sys.executable, "-c", abyss_machine_module.process_atspi_window_snapshot_probe_code(str(probe))],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=5.0,
+        env=env,
+    )
+
+    payload = json.loads(proc.stdout)
+    assert proc.returncode == 0
+    assert proc.stderr == ""
+    assert payload == {"ok": True, "dep": "loaded-from-installed-parent", "path0": str(installed_parent)}
 
 
 def test_desktop_compositor_guidance_does_not_blame_vitals(abyss_machine_module) -> None:

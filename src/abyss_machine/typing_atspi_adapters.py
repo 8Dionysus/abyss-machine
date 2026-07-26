@@ -1751,9 +1751,6 @@ def atspi_focus_text_by_url(
                         else None
                     ),
                     "text_error": text_error,
-                    "_text": text,
-                    "_caret_offset": caret,
-                    "_document_attrs": document_attrs,
                 }
                 data["attempts"].append(attempt)
                 data["attempts"] = data["attempts"][-8:]

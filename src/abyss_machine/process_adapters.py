@@ -1952,7 +1952,8 @@ path = {json.dumps(str(path))}
 payload = None
 try:
     parent = os.path.dirname(path)
-    if parent and parent not in sys.path:
+    if parent:
+        sys.path[:] = [entry for entry in sys.path if entry != parent]
         sys.path.insert(0, parent)
     loader = importlib.machinery.SourceFileLoader("abyss_machine_atspi_probe", path)
     spec = importlib.util.spec_from_loader(loader.name, loader)

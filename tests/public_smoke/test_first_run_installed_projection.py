@@ -108,6 +108,23 @@ def test_command_result_reports_timeout_without_raising(tmp_path: Path) -> None:
     assert "timed out" in result["stderr"]
 
 
+def test_portability_scan_prunes_excluded_dirs_and_detects_runtime_home_path(tmp_path: Path) -> None:
+    module = load_validator_module()
+    projection = tmp_path / "projection"
+    git_dir = projection / ".git"
+    public_dir = projection / "etc"
+    git_dir.mkdir(parents=True)
+    public_dir.mkdir(parents=True)
+    operator_home = "home/" + "dionysus"
+    (git_dir / "config").write_text(f"/{operator_home} should be ignored here\n", encoding="utf-8")
+    (public_dir / "config").write_text(f"cache_root={operator_home}/cache\n", encoding="utf-8")
+
+    report = module.portability_scan_report({"root": projection})
+
+    assert not any(".git" in finding["path"] for finding in report["findings"])
+    assert any(finding["needle"] == "operator_runtime_home_path" for finding in report["findings"])
+
+
 def test_command_result_timeout_kills_child_process_group(tmp_path: Path) -> None:
     module = load_validator_module()
     script = (

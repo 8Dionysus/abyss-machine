@@ -52,11 +52,17 @@ def _chown_group(path: Path, group: str) -> None:
 
 
 def apply_state_file_mode(path: Path, *, mode: int = 0o664, group: str = DEFAULT_STATE_GROUP) -> None:
+    os.chmod(path, mode)
+    _chown_group(path, group)
+
+
+def _discard_temp_file(path: Path | None) -> None:
+    if path is None:
+        return
     try:
-        os.chmod(path, mode)
+        path.unlink()
     except OSError:
         pass
-    _chown_group(path, group)
 
 
 def connect_db(db_path: Path, create: bool = False) -> sqlite3.Connection:
@@ -69,6 +75,7 @@ def write_schema_sql(
     *,
     group: str = DEFAULT_STATE_GROUP,
 ) -> str | None:
+    tmp_name: Path | None = None
     try:
         schema_path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -85,6 +92,7 @@ def write_schema_sql(
         os.replace(tmp_name, schema_path)
         return None
     except OSError as exc:
+        _discard_temp_file(tmp_name)
         return str(exc)
 
 
@@ -265,6 +273,7 @@ def safe_atomic_write_json(
     mode: int = 0o664,
     group: str = DEFAULT_STATE_GROUP,
 ) -> dict[str, str] | None:
+    tmp_name: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -281,6 +290,7 @@ def safe_atomic_write_json(
         os.replace(tmp_name, path)
         return None
     except OSError as exc:
+        _discard_temp_file(tmp_name)
         return {"path": str(path), "error": str(exc)}
 
 

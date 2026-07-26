@@ -5864,7 +5864,24 @@ def test_memory_hotpath_probe_route_is_measurement_only_and_preserved(abyss_mach
         "measurement_status": "latest_failed",
         "issues": ["active_memory_stalls_after_probe", "first_tts_slow"],
         "findings": ["tts_second_run_faster_after_swapin"],
+        "request": {
+            "tts_profile": "lab-compact",
+            "repeat_tts": 1,
+            "stt_profiles": ["command"],
+            "include_llm": False,
+            "llm_limit": 4,
+            "top": 8,
+        },
+        "failure_context": {
+            "failed_stage": "tts",
+            "tts_profile": "lab-compact",
+            "tts_policy_blocked": True,
+            "tts_policy_reasons": ["effective_mode_saver"],
+            "tts_runs": 1,
+            "stt_runs": 0,
+        },
         "summary": {
+            "tts_profile": "lab-compact",
             "first_tts_wall_sec": 21.04,
             "last_tts_wall_sec": 1.381,
             "command_stt_client_sec": None,
@@ -5879,9 +5896,27 @@ def test_memory_hotpath_probe_route_is_measurement_only_and_preserved(abyss_mach
     assert route["complete"] is True
     assert abyss_machine_module.memory_hotpath_probe_route_complete(route) is True
     assert route["measurement_status"] == "latest_failed"
+    assert route["request"]["tts_profile"] == "lab-compact"
+    assert route["failure_context"]["failed_stage"] == "tts"
     assert route["latency"]["first_tts_wall_sec"] == 21.04
     assert route["latency"]["last_tts_wall_sec"] == 1.381
     assert route["swap"]["used_percent_before"] == 65.52
+    assert route["safe_next_action"]["remeasure_same_profile_argv"] == [
+        "abyss-machine",
+        "memory",
+        "hotpath-probe",
+        "--tts-profile",
+        "lab-compact",
+        "--repeat-tts",
+        "1",
+        "--stt-profile",
+        "command",
+        "--llm-limit",
+        "4",
+        "--top",
+        "8",
+        "--json",
+    ]
     assert route["safe_next_action"]["executes_commands"] is False
     assert route["safe_next_action"]["host_layer_mutates_stack"] is False
     assert route["safe_next_action"]["does_not_apply_cgroup_properties"] is True
@@ -5904,6 +5939,102 @@ def test_memory_hotpath_probe_route_is_measurement_only_and_preserved(abyss_mach
     assert response_route["safe_next_action"] == route["safe_next_action"]
     assert response_route["suggestion"]["command_profile"]["mutating_if_run"] is False
     assert response_route["executes"] is False
+
+
+def test_memory_hotpath_probe_uses_selected_tts_profile_without_live_services(
+    abyss_machine_module, monkeypatch, tmp_path
+) -> None:
+    audio = tmp_path / "synthetic.wav"
+    audio.write_bytes(b"synthetic")
+    seen_tts_profiles: list[str] = []
+
+    def fake_residency(*, top: int, write_latest: bool) -> dict:
+        return {
+            "status": "environment_guarded",
+            "summary": {
+                "memory_class": "warm",
+                "zram_disk_mib": 1024.0,
+                "zram_data_mib": 512.0,
+                "zram_resident_mib": 256.0,
+                "zram_logical_free_mib": 512.0,
+                "zram_logical_to_memory_ratio": 2.0,
+                "swap_used_percent": 55.0,
+                "psi_some_avg10": 0.0,
+                "psi_full_avg10": 0.0,
+                "protected_high_swap_units": [],
+            },
+            "services": [],
+        }
+
+    def fake_tts_synth(profile: str, text: str, *args, **kwargs) -> dict:
+        seen_tts_profiles.append(profile)
+        return {
+            "ok": True,
+            "profile": profile,
+            "engine": "fixture",
+            "device": "cpu",
+            "wall_sec": 0.25,
+            "audio": {"duration_sec": 0.5},
+            "server": {"synth_sec": 0.2, "warm": True},
+            "rtf": 0.4,
+            "output": str(audio),
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "memory_residency", fake_residency)
+    monkeypatch.setattr(abyss_machine_module, "ai_tts_server_status", lambda write_latest=True: {"ok": True, "service": {"active": True, "enabled": True}, "ping": {"profile": "quality-compact"}})
+    monkeypatch.setattr(abyss_machine_module, "ai_policy", lambda write_latest=True: {"class": "green", "heavy_policy": "allowed", "can_run_heavy": True})
+    monkeypatch.setattr(abyss_machine_module, "ai_tts_synth", fake_tts_synth)
+    monkeypatch.setattr(abyss_machine_module, "dictation_transcribe", lambda audio_path, profile: {"ok": True, "via": "fixture", "client_elapsed_sec": 0.1, "segments": [], "text": "ok"})
+    monkeypatch.setattr(abyss_machine_module, "memory_hotpath_llm_probe", lambda include_llm, limit: {"mode": "latest_only", "executed": False, "elapsed_ms": 12.0})
+
+    data = abyss_machine_module.memory_hotpath_probe(
+        text="fixture",
+        tts_profile="lab-compact",
+        repeat_tts=1,
+        stt_profiles=["command"],
+        include_llm=False,
+        llm_limit=4,
+        top=8,
+        write_latest=False,
+    )
+
+    assert data["ok"] is True
+    assert seen_tts_profiles == ["lab-compact"]
+    assert data["request"]["tts_profile"] == "lab-compact"
+    assert data["summary"]["tts_profile"] == "lab-compact"
+    assert data["probes"]["tts"][0]["profile"] == "lab-compact"
+    assert data["probes"]["dictation"][0]["profile"] == "command"
+    assert data["failure_context"]["failed_stage"] is None
+    assert data["summary"]["failed_stage"] is None
+    assert data["summary"]["failure_error"] is None
+
+    def fake_tts_failure(profile: str, text: str, *args, **kwargs) -> dict:
+        return {
+            "ok": False,
+            "profile": profile,
+            "engine": "fixture",
+            "device": "cpu",
+            "error": "fixture tts failed",
+            "policy_allowed": True,
+            "policy_reasons": [],
+        }
+
+    monkeypatch.setattr(abyss_machine_module, "ai_tts_synth", fake_tts_failure)
+    failed = abyss_machine_module.memory_hotpath_probe(
+        text="fixture",
+        tts_profile="lab-compact",
+        repeat_tts=1,
+        stt_profiles=["command"],
+        include_llm=False,
+        llm_limit=4,
+        top=8,
+        write_latest=False,
+    )
+
+    assert failed["ok"] is False
+    assert failed["failure_context"]["failed_stage"] == "tts"
+    assert failed["summary"]["failed_stage"] == "tts"
+    assert failed["summary"]["failure_error"] == "fixture tts failed"
 
 
 def test_doctor_warning_route_is_review_only_and_preserved(abyss_machine_module) -> None:
@@ -9244,7 +9375,10 @@ def test_self_awareness_export_manifest_indexes_artifacts(abyss_machine_module) 
     assert handoff["coverage_audit_ref"] == handoff["artifact_refs"]["coverage_audit"]
     assert handoff["summary"]["coverage_impact_entries"] == len(handoff["coverage_impacts"]) == len(handoff["open_requirements"])
     assert handoff["blocked_coverage_planes"] == handoff["summary"]["blocked_coverage_planes"]
-    assert handoff["blocked_coverage_planes"]
+    if handoff["summary"]["open"]:
+        assert handoff["blocked_coverage_planes"]
+    else:
+        assert handoff["blocked_coverage_planes"] == []
     assert set(handoff["coverage_impacts_by_requirement"]) == set(handoff["open_requirement_ids"])
     assert {impact["requirement_id"] for impact in handoff["coverage_impacts"]} == set(handoff["open_requirement_ids"])
     assert handoff["stack_owner_handoff"]["coverage_impacts_by_requirement"] == handoff["coverage_impacts_by_requirement"]

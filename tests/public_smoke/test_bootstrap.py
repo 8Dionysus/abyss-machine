@@ -795,6 +795,47 @@ def test_typing_profile_is_opt_in() -> None:
     assert payload["dry_run"] is True
 
 
+def test_bootstrap_install_projects_typing_nervous_refresh_to_installed_cli(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    systemd_user_dir = tmp_path / "systemd" / "user"
+    payload = run_bootstrap(
+        "install",
+        "--profile",
+        "typing-intake",
+        "--apply",
+        "--skip-artifact-trust-gate",
+        "--home",
+        str(tmp_path / "home" / "agent"),
+        "--etc-root",
+        str(tmp_path / "etc" / "abyss-machine"),
+        "--state-root",
+        str(tmp_path / "var" / "lib" / "abyss-machine"),
+        "--srv-root",
+        str(tmp_path / "srv" / "abyss-machine"),
+        "--run-root",
+        str(tmp_path / "run" / "abyss-machine"),
+        "--abyss-os-root",
+        str(tmp_path / "srv" / "AbyssOS"),
+        "--vault-mount",
+        str(tmp_path / "abyss"),
+        "--local-bin-dir",
+        str(bin_dir),
+        "--local-libexec-dir",
+        str(tmp_path / "libexec"),
+        "--systemd-system-dir",
+        str(tmp_path / "systemd" / "system"),
+        "--systemd-user-dir",
+        str(systemd_user_dir),
+    )
+
+    service_text = (systemd_user_dir / "abyss-machine-typing-nervous-refresh.service").read_text(
+        encoding="utf-8"
+    )
+    assert payload["ok"] is True
+    assert f"ExecStart={bin_dir}/abyss-machine typing nervous-refresh --json" in service_text
+    assert "abyss-machine-typing-nervous-refresh-tick" not in service_text
+
+
 def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     libexec_dir = tmp_path / "libexec"

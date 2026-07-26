@@ -4,8 +4,16 @@ import hashlib
 import io
 import json
 import struct
+import sys
+from pathlib import Path
 
 import pytest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from abyss_machine import cli
 from abyss_machine import typing_browser_adapters
@@ -999,6 +1007,91 @@ def test_browser_context_selftest_runtime_adapter_builds_public_safe_document(tm
         "ABYSS_MACHINE_NERVOUS_BROWSER_ATSPI_MAX_APPS": "old",
         "KEEP": "1",
     }
+
+
+def test_browser_context_selftest_keeps_polling_after_firefox_launcher_exits(tmp_path) -> None:
+    generated_at = "2026-06-27T18:00:00Z"
+    launched: list[list[str]] = []
+    calls = {"capture": 0}
+    clock = {"now": 100.0}
+
+    class FakeProcess:
+        pid = 999999
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def communicate(self, timeout=0):
+            return "launcher exited", ""
+
+    def fake_process_factory(command: list[str], **_kwargs: object) -> FakeProcess:
+        launched.append(command)
+        return FakeProcess()
+
+    def fake_sleep(seconds: float) -> None:
+        clock["now"] += seconds
+
+    def fake_live_capture(**_kwargs: object) -> dict[str, object]:
+        calls["capture"] += 1
+        if calls["capture"] == 1:
+            return {"ok": True, "summary": {"captures": 0}, "captures": []}
+        url = launched[0][-1]
+        return {
+            "ok": True,
+            "summary": {"captures": 1},
+            "captures": [{
+                "record": {
+                    "captured_at": generated_at,
+                    "title": "Abyss Writing Context",
+                    "url": {"url": url},
+                    "content_type": "text/html",
+                    "text_length": 512,
+                    "skipped_text": False,
+                    "web_context_quality": {"class": "project_context"},
+                    "content_quality": {"classification": "usable"},
+                },
+                "atspi": {"path": "/application/firefox/document", "role": "document"},
+            }],
+        }
+
+    def fake_context_from_path(
+        source_path: str,
+        document_path: str,
+        events_policy: dict[str, object] | None,
+        *,
+        allow_attention_fallback: bool,
+    ) -> dict[str, object]:
+        return {
+            "ok": True,
+            "status": "matched",
+            "url": launched[0][-1],
+            "basis": "recent_browser_content",
+        }
+
+    data = typing_browser_adapters.browser_context_selftest_document(
+        generated_at=generated_at,
+        pid=4242,
+        tmp_root=tmp_path / "tmp",
+        schema_prefix="abyss_machine",
+        version="fixture-version",
+        events_policy={"max_age_sec": 30},
+        focus_window_by_title=lambda *_args, **_kwargs: {"ok": True},
+        focus_metadata_by_url=lambda *_args, **_kwargs: {"ok": True},
+        live_content_capture=fake_live_capture,
+        context_from_recent_atspi_path=fake_context_from_path,
+        natural_route_host=lambda: "127.0.0.1",
+        url_origin=lambda url: {"origin": "http://127.0.0.1"},
+        which=lambda name: "/usr/bin/firefox" if name == "firefox" else None,
+        process_factory=fake_process_factory,
+        sleep=fake_sleep,
+        monotonic=lambda: clock["now"],
+        env_mapping={},
+        deadline_seconds=3.0,
+    )
+
+    assert data["status"] == "passed"
+    assert calls["capture"] == 2
 
 
 def test_cli_browser_context_selftest_binds_adapter_to_latest_store(monkeypatch, tmp_path) -> None:
