@@ -70,8 +70,26 @@ def test_change_surface_classification_and_preflight_are_owner_gated(tmp_path: P
         user_systemd_dir=tmp_path / "user-systemd",
         fallback_protection=fallback,
     )
+    systemd_dropin = changes_contracts.surface_path_class(
+        "/etc/systemd/system/abyss-ai-workload-refresh.service.d/override.conf",
+        state_dir=tmp_path / "state",
+        machine_root=tmp_path / "srv" / "abyss-machine",
+        user_systemd_dir=tmp_path / "user-systemd",
+        fallback_protection=fallback,
+    )
+    escaped_systemd = changes_contracts.surface_path_class(
+        "/etc/systemd/system/abyss-ai-workload-refresh.service.d/../sshd.service",
+        state_dir=tmp_path / "state",
+        machine_root=tmp_path / "srv" / "abyss-machine",
+        user_systemd_dir=tmp_path / "user-systemd",
+        fallback_protection=fallback,
+    )
     assert allowed["class"] == "host_config"
     assert allowed["decision"] == "allow_candidate"
+    assert systemd_dropin["class"] == "host_system_systemd"
+    assert systemd_dropin["decision"] == "allow_candidate"
+    assert escaped_systemd["decision"] == "deny"
+    assert escaped_systemd["owner"] == "operator_work"
     assert protected["decision"] == "deny"
     assert protected["owner"] == "operator_work"
 

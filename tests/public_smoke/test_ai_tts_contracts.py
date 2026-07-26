@@ -65,6 +65,22 @@ def test_tts_model_and_openvino_artifact_contract_shapes_are_module_owned() -> N
     assert model["read_only_source"] is True
     assert model_artifacts(None)["path"] is None
     assert model_artifacts("host-managed")["host_managed"] is True
+    managed = model_artifacts(
+        "host-managed",
+        exists=True,
+        required_files={"cache_payload": True},
+        file_summary={"immediate_files": 0},
+    )
+    missing_managed = model_artifacts(
+        "host-managed",
+        exists=True,
+        required_files={"cache_payload": False},
+        file_summary={"immediate_files": 0},
+    )
+    assert managed["exists"] is True
+    assert managed["complete"] is True
+    assert managed["required_files"]["cache_payload"] is True
+    assert missing_managed["complete"] is False
 
     assert incomplete_ov["exists"] is True
     assert incomplete_ov["complete"] is False
@@ -125,6 +141,34 @@ def test_tts_profile_status_contract_separates_runtime_facts_from_decision() -> 
         adapter_ready=False,
         runtime_python="/venv/bin/python",
     )
+    missing_openvino_ir = profile_status(
+        name="quality",
+        profile=profile,
+        inventory=inventory,
+        config={"python": "/venv/bin/python", "language": "Russian"},
+        model=model,
+        openvino_model=openvino_artifacts(
+            "/runtime/tts-missing",
+            exists=False,
+            required_files={item: True for item in TTS_OPENVINO_REQUIRED_FILES},
+        ),
+        adapter_ready=True,
+        runtime_python="/venv/bin/python",
+    )
+    incomplete_openvino_ir = profile_status(
+        name="quality",
+        profile=profile,
+        inventory=inventory,
+        config={"python": "/venv/bin/python", "language": "Russian"},
+        model=model,
+        openvino_model=openvino_artifacts(
+            "/runtime/tts-incomplete",
+            exists=True,
+            required_files={item: item != "talker.bin" for item in TTS_OPENVINO_REQUIRED_FILES},
+        ),
+        adapter_ready=True,
+        runtime_python="/venv/bin/python",
+    )
 
     assert status["status"] == "executable"
     assert status["runtime"]["ready"] is True
@@ -138,6 +182,74 @@ def test_tts_profile_status_contract_separates_runtime_facts_from_decision() -> 
     assert status["policy"]["host_layer_mutates_stack"] is False
     assert missing_adapter["status"] == "runtime-missing"
     assert missing_adapter["runtime"]["reason"] == "OpenVINO Qwen3-TTS adapter source is missing"
+    assert missing_openvino_ir["status"] == "openvino-ir-missing"
+    assert missing_openvino_ir["runtime"]["reason"] == "OpenVINO Qwen3-TTS IR is missing"
+    assert incomplete_openvino_ir["status"] == "openvino-ir-incomplete"
+    assert incomplete_openvino_ir["runtime"]["reason"] == "OpenVINO Qwen3-TTS IR is incomplete"
+
+
+def test_babelvox_profile_status_requires_host_managed_cache_payload() -> None:
+    profile = {
+        "enabled": True,
+        "engine": "babelvox",
+        "description": "fixture babelvox profile",
+        "declared_class": "heavy",
+        "device": "NPU",
+        "language": "Russian",
+        "precision": "int8",
+    }
+    inventory = {
+        "runtime": {
+            "profile_python_modules": {
+                "npu-fast-experimental": {
+                    "ok": True,
+                    "modules": {
+                        "babelvox": {"present": True},
+                    },
+                }
+            },
+            "binaries": {},
+        }
+    }
+    missing_model = model_artifacts(
+        "host-managed",
+        exists=True,
+        required_files={"cache_payload": False},
+        file_summary={"immediate_files": 0},
+    )
+    ready_model = model_artifacts(
+        "host-managed",
+        exists=True,
+        required_files={"cache_payload": True},
+        file_summary={"immediate_files": 1},
+    )
+    missing_status = profile_status(
+        name="npu-fast-experimental",
+        profile=profile,
+        inventory=inventory,
+        config={"python": "/venv/bin/python", "language": "Russian"},
+        model=missing_model,
+        openvino_model=None,
+        adapter_ready=False,
+        runtime_python="/venv/bin/python",
+    )
+    ready_status = profile_status(
+        name="npu-fast-experimental",
+        profile=profile,
+        inventory=inventory,
+        config={"python": "/venv/bin/python", "language": "Russian"},
+        model=ready_model,
+        openvino_model=None,
+        adapter_ready=False,
+        runtime_python="/venv/bin/python",
+    )
+
+    assert missing_status["status"] == "model-missing"
+    assert missing_status["runtime"]["ready"] is True
+    assert missing_status["runtime"]["synth_supported"] is False
+    assert missing_status["runtime"]["reason"] == "BabelVox host-managed model cache is missing"
+    assert ready_status["status"] == "executable"
+    assert ready_status["runtime"]["synth_supported"] is True
 
 
 def test_tts_small_contract_helpers_are_module_owned() -> None:

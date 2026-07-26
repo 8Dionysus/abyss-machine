@@ -55,15 +55,19 @@ returns to critical gating when zram headroom collapses or PSI shows stalls.
 
 Light work and interactive medium work can proceed under active games when
 memory is warm rather than critical. Unattended medium, heavy, and sustained
-work remain gated by game guard and memory policy. Future tuning must watch PSI,
-major faults, zram free MiB, and user-visible latency together instead of using
-swap percentage alone.
+work remain gated by game guard and memory policy. `--force` is not effective
+for `--unattended` background automation; scheduled work should use
+`--success-on-block` to skip cleanly when soft gates block. Future tuning must
+watch PSI, major faults, zram free MiB, and user-visible latency together
+instead of using swap percentage alone.
 
 ## Boundaries
 
 This decision does not authorize heavy or unattended work during foreground
 game pressure. It narrows blunt memory classification, while game guard,
-resource policy, and live PSI/swap evidence still gate launches.
+resource policy, and live PSI/swap evidence still gate launches. Operator force
+belongs to non-unattended retries; background timers and agents do not inherit it
+as permission to create new pressure.
 
 ## Current Applicability
 

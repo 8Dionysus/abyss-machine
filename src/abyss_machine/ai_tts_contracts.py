@@ -101,7 +101,17 @@ def model_artifacts(
     if model_path is None:
         return {"path": None, "exists": False, "complete": False, "read_only_source": False}
     if str(model_path) == "host-managed":
-        return {"path": "host-managed", "exists": False, "complete": False, "read_only_source": False, "host_managed": True}
+        files = required_files if isinstance(required_files, dict) else {}
+        complete = bool(exists) and (all(files.values()) if files else bool(exists))
+        return {
+            "path": "host-managed",
+            "exists": bool(exists),
+            "complete": complete,
+            "required_files": files,
+            "file_summary": file_summary or {},
+            "read_only_source": False,
+            "host_managed": True,
+        }
     path = Path(str(model_path)).expanduser()
     lowered = path.name.lower()
     model_type = None
@@ -178,8 +188,13 @@ def profile_status(
 
     if engine == "babelvox":
         runtime_ready = module_present(modules, "babelvox")
-        synth_supported = runtime_ready
-        runtime_reason = None if runtime_ready else "python module babelvox is not installed"
+        synth_supported = bool(runtime_ready and model.get("complete"))
+        if not runtime_ready:
+            runtime_reason = "python module babelvox is not installed"
+        elif not model.get("complete"):
+            runtime_reason = "BabelVox host-managed model cache is missing"
+        else:
+            runtime_reason = None
     elif engine == "piper":
         runtime_ready = bool(binaries.get("piper"))
         synth_supported = runtime_ready and bool(model.get("exists"))
@@ -206,7 +221,9 @@ def profile_status(
             runtime_reason = "python module numpy is not installed"
         elif not adapter_ready:
             runtime_reason = "OpenVINO Qwen3-TTS adapter source is missing"
-        elif not (openvino_model and openvino_model.get("complete")):
+        elif not (openvino_model and openvino_model.get("exists")):
+            runtime_reason = "OpenVINO Qwen3-TTS IR is missing"
+        elif not openvino_model.get("complete"):
             runtime_reason = "OpenVINO Qwen3-TTS IR is incomplete"
         else:
             runtime_reason = None
@@ -221,10 +238,14 @@ def profile_status(
         status = "disabled"
     elif engine in {"qwen3_tts_openvino", "qwen_tts_reference", "piper"} and not model.get("complete") and not model.get("exists"):
         status = "model-missing"
-    elif engine == "qwen3_tts_openvino" and model.get("complete") and not (openvino_model and openvino_model.get("exists")):
-        status = "model-ready-adapter-missing"
+    elif engine == "babelvox" and not model.get("complete"):
+        status = "model-missing"
     elif not runtime_ready:
         status = "runtime-missing"
+    elif engine == "qwen3_tts_openvino" and model.get("complete") and not (openvino_model and openvino_model.get("exists")):
+        status = "openvino-ir-missing"
+    elif engine == "qwen3_tts_openvino" and model.get("complete") and openvino_model and not openvino_model.get("complete"):
+        status = "openvino-ir-incomplete"
     elif not synth_supported:
         status = "adapter-missing"
     else:

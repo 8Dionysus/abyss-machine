@@ -12,6 +12,7 @@ import time
 from typing import Any, Callable, Sequence
 
 from . import process_adapters
+from . import process_contracts
 
 
 CommandExistsPort = Callable[[str], bool]
@@ -74,6 +75,11 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+def _read_optional_text(path: Path) -> str | None:
+    text = _read_text(path).strip()
+    return text or None
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -159,12 +165,14 @@ def hotpath_tts_probe(
     text: str,
     index: int,
     *,
+    tts_profile: str = "quality-compact",
     synth_port: TtsSynthPort,
     monotonic: MonotonicPort = time.monotonic,
 ) -> dict[str, Any]:
     started = monotonic()
+    profile = str(tts_profile or "quality-compact").strip() or "quality-compact"
     result = synth_port(
-        "quality-compact",
+        profile,
         text,
         output=None,
         force=False,
@@ -311,8 +319,10 @@ def hotpath_probe_document(
     llm_probe_port: LlmProbePort,
     output_exists_port: OutputExistsPort,
     paths_refs: dict[str, Any],
+    tts_profile: str = "quality-compact",
 ) -> dict[str, Any]:
     text = str(text or "").strip()
+    tts_profile = str(tts_profile or "quality-compact").strip() or "quality-compact"
     repeat_tts = max(1, min(int(repeat_tts), 3))
     profiles = [str(item).strip() for item in (stt_profiles or ["command", "quality"]) if str(item).strip()]
     if not profiles:
@@ -376,7 +386,23 @@ def hotpath_probe_document(
         if llm.get("fallback_used"):
             issues.append("resident_llm_fallback_used")
 
-    probe_failed = any(not item.get("ok") for item in tts_runs) or any(not item.get("ok") for item in stt_runs)
+    failed_tts = next((item for item in tts_runs if not item.get("ok")), {})
+    failed_stt = next((item for item in stt_runs if not item.get("ok")), {})
+    failed_stage = "tts" if failed_tts else ("stt" if failed_stt else None)
+    failed_probe = failed_tts or failed_stt
+    failure_context = {
+        "failed_stage": failed_stage,
+        "tts_profile": tts_profile,
+        "tts_policy_blocked": failed_stage == "tts" and failed_probe.get("policy_allowed") is False,
+        "tts_policy_reasons": failed_probe.get("policy_reasons") if failed_stage == "tts" else [],
+        "tts_error": failed_probe.get("error") if failed_stage == "tts" else None,
+        "stt_profile": failed_probe.get("profile") if failed_stage == "stt" else None,
+        "stt_error": failed_probe.get("error") if failed_stage == "stt" else None,
+        "tts_runs": len(tts_runs),
+        "stt_runs": len(stt_runs),
+    }
+
+    probe_failed = bool(failed_stage)
     status = "failed" if probe_failed else ("watch" if issues else "ok")
     return {
         "schema": f"{schema_prefix}_memory_hotpath_probe_v1",
@@ -389,8 +415,11 @@ def hotpath_probe_document(
             "findings": sorted(set(findings)),
             "issues": sorted(set(issues)),
             "duration_sec": round(monotonic() - started, 3),
+            "tts_profile": tts_profile,
             "tts_runs": len(tts_runs),
             "stt_runs": len(stt_runs),
+            "failed_stage": failed_stage,
+            "failure_error": failed_probe.get("error") if failed_stage else None,
             "llm_executed": bool(include_llm),
             "first_tts_wall_sec": first_tts_wall,
             "last_tts_wall_sec": last_tts_wall,
@@ -404,13 +433,14 @@ def hotpath_probe_document(
         },
         "request": {
             "text_chars": len(text),
-            "tts_profile": "quality-compact",
+            "tts_profile": tts_profile,
             "repeat_tts": repeat_tts,
             "stt_profiles": profiles,
             "include_llm": bool(include_llm),
             "llm_limit": int(llm_limit),
             "top": int(top),
         },
+        "failure_context": failure_context,
         "before": {
             "memory": before_brief,
             "tts_server": {
@@ -702,7 +732,7 @@ def cgroup_status(*, cgroup_root: Path = Path("/sys/fs/cgroup"), uid: int | None
             "path": str(path),
             "exists": path.exists(),
             "memory_current": _read_optional_int(path / "memory.current"),
-            "memory_max": _read_text(path / "memory.max"),
+            "memory_max": _read_optional_text(path / "memory.max"),
             "memory_pressure": parse_pressure_file(path / "memory.pressure"),
             "memory_events": parse_key_value_file(path / "memory.events"),
         }
@@ -1030,6 +1060,15 @@ def cgroup_unit_hint(cgroup_path: str | None) -> str | None:
     return parts[-1] if parts else None
 
 
+def podman_id_from_cgroup_path(cgroup_path: str | None) -> str | None:
+    if not cgroup_path:
+        return None
+    match = re.search(r"(?:^|/)libpod-([0-9a-fA-F]{12,64})\.scope(?:/|$)", cgroup_path)
+    if not match:
+        return None
+    return match.group(1).lower()
+
+
 def cgroup_primary_bucket(
     items: list[dict[str, Any]],
     *,
@@ -1052,22 +1091,70 @@ def cgroup_primary_bucket(
     return workload, role, protected, route
 
 
+def process_route(workload: str, role: str, protected: bool) -> str:
+    if role in process_contracts.STACK_SERVICE_ROLES:
+        return "stack_owner_route_required"
+    if protected or role in protected_roles_from_contracts():
+        return "route_new_work_around_protected_capability"
+    if workload == "game_platform":
+        return "operator_review_game_platform_only"
+    if workload in {"development", "browser", "normal"}:
+        return "operator_review_candidate"
+    return "observe"
+
+
+def protected_roles_from_contracts() -> set[str]:
+    return set(process_contracts.PROTECTED_CAPABILITY_ROLES)
+
+
+def cgroup_route_with_podman_metadata(
+    *,
+    workload: str,
+    role: str,
+    protected: bool,
+    route: str,
+    podman_container: dict[str, Any] | None,
+    names: list[str],
+    unit: str | None,
+) -> tuple[str, str, bool, str]:
+    if role in {"persistent_model", "persistent_ai_service", "operator_dictation"} or protected:
+        return workload, role, protected, route
+    if not isinstance(podman_container, dict):
+        return workload, role, protected, route
+    stack_role = process_contracts.stack_service_role(
+        podman_container.get("name"),
+        podman_container.get("compose_service"),
+        podman_container.get("systemd_unit"),
+        unit,
+        *names,
+    )
+    if stack_role == "none":
+        return workload, role, protected, route
+    return "stack_service", stack_role, True, "stack_owner_route_required"
+
+
 def podman_container_index(
     *,
     command_exists: CommandExistsPort = tool_available,
     runner: CommandRunnerPort = run_tool_process,
+    timeout_sec: float | None = None,
 ) -> dict[str, Any]:
     data: dict[str, Any] = {
         "ok": False,
         "available": False,
         "containers": 0,
         "by_pid": {},
+        "by_id": {},
         "error": None,
+        "timeout_sec": None,
     }
     if not command_exists("podman"):
         data["error"] = "podman_not_installed"
         return data
-    out = runner(["podman", "ps", "--format", "json"], 8.0)
+    timeout = timeout_sec if timeout_sec is not None else _safe_float(os.environ.get("ABYSS_MACHINE_PODMAN_PS_TIMEOUT_SEC"), 15.0)
+    timeout = timeout if isinstance(timeout, (int, float)) and timeout > 0 else 15.0
+    data["timeout_sec"] = round(float(timeout), 3)
+    out = runner(["podman", "ps", "--format", "json"], timeout)
     if not out.get("ok"):
         data["error"] = out.get("stderr") or out.get("stdout") or "podman_ps_failed"
         return data
@@ -1079,17 +1166,19 @@ def podman_container_index(
     if not isinstance(raw, list):
         raw = []
     by_pid: dict[int, dict[str, Any]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
     for item in raw:
         if not isinstance(item, dict):
             continue
         pid = _safe_int(item.get("Pid"), 0)
-        if pid <= 0:
-            continue
+        full_id = str(item.get("Id") or "")
+        short_id = full_id[:12]
         labels = process_adapters.sanitized_container_labels(item.get("Labels"))
         names = process_adapters.container_name_list(item.get("Names"))
-        name = names[0] if names else str(item.get("Id") or "")[:12]
-        by_pid[pid] = {
-            "id": str(item.get("Id") or "")[:12],
+        name = names[0] if names else short_id
+        container = {
+            "id": short_id,
+            "full_id": full_id or None,
             "name": name,
             "names": names,
             "image": item.get("Image"),
@@ -1099,19 +1188,45 @@ def podman_container_index(
             "systemd_unit": labels.get("PODMAN_SYSTEMD_UNIT"),
             "labels": labels,
         }
-    data.update({"ok": True, "available": True, "containers": len(raw), "by_pid": by_pid})
+        if pid > 0:
+            by_pid[pid] = container
+        for key in (short_id, full_id):
+            if key:
+                by_id[key.lower()] = container
+    data.update({"ok": True, "available": True, "containers": len(raw), "by_pid": by_pid, "by_id": by_id})
     return data
 
 
-def podman_container_for_pids(pids: list[int], podman_index: dict[str, Any] | None) -> dict[str, Any] | None:
+def podman_container_for_cgroup(
+    pids: list[int],
+    podman_index: dict[str, Any] | None,
+    *,
+    cgroup_path: str | None = None,
+) -> dict[str, Any] | None:
     by_pid = podman_index.get("by_pid") if isinstance(podman_index, dict) else None
     if not isinstance(by_pid, dict):
-        return None
-    for pid in pids:
-        item = by_pid.get(pid)
-        if isinstance(item, dict):
-            return item
+        by_pid = {}
+    else:
+        for pid in pids:
+            item = by_pid.get(pid)
+            if isinstance(item, dict):
+                return item
+    podman_id = podman_id_from_cgroup_path(cgroup_path)
+    by_id = podman_index.get("by_id") if isinstance(podman_index, dict) else None
+    if podman_id and isinstance(by_id, dict):
+        for key in (podman_id, podman_id[:12]):
+            item = by_id.get(key)
+            if isinstance(item, dict):
+                return item
+        for key, item in by_id.items():
+            key_text = str(key).lower()
+            if isinstance(item, dict) and (key_text.startswith(podman_id) or podman_id.startswith(key_text)):
+                return item
     return None
+
+
+def podman_container_for_pids(pids: list[int], podman_index: dict[str, Any] | None) -> dict[str, Any] | None:
+    return podman_container_for_cgroup(pids, podman_index)
 
 
 def cgroup_swap_snapshot(
@@ -1147,12 +1262,28 @@ def cgroup_swap_snapshot(
         names = sorted({str(item.get("name") or item.get("comm") or "") for item in items if item.get("name") or item.get("comm")})[:8]
         swap_rollup_kib = sum(int(item.get("swap_kib") or 0) for item in items)
         pss_rollup_kib = sum(int(item.get("pss_kib") or 0) for item in items)
-        podman_container = podman_container_for_pids(pids, podman_index)
+        podman_id = podman_id_from_cgroup_path(cgroup_path)
+        podman_container = podman_container_for_cgroup(pids, podman_index, cgroup_path=cgroup_path)
+        unit = cgroup_unit_hint(cgroup_path)
+        workload, role, protected, route = cgroup_route_with_podman_metadata(
+            workload=workload,
+            role=role,
+            protected=protected,
+            route=route,
+            podman_container=podman_container,
+            names=names,
+            unit=unit,
+        )
         entries.append(
             {
                 "cgroup": cgroup_path,
-                "unit": cgroup_unit_hint(cgroup_path),
+                "unit": unit,
                 "podman": podman_container,
+                "podman_id": (
+                    podman_container.get("id")
+                    if isinstance(podman_container, dict) and podman_container.get("id")
+                    else podman_id[:12] if podman_id else None
+                ),
                 "container_name": podman_container.get("name") if isinstance(podman_container, dict) else None,
                 "compose_service": podman_container.get("compose_service") if isinstance(podman_container, dict) else None,
                 "processes": len(items),
@@ -1163,6 +1294,7 @@ def cgroup_swap_snapshot(
                 "capability_role": role,
                 "protected": protected,
                 "route": route,
+                "importance": process_contracts.process_importance(workload, role, protected),
                 "memory_current_kib": int(memory_current / 1024) if isinstance(memory_current, int) else None,
                 "memory_current_mib": _bytes_to_mib(memory_current) if isinstance(memory_current, int) else None,
                 "swap_current_kib": int(swap_current / 1024),
@@ -1222,12 +1354,28 @@ def cgroup_memory_snapshot(
         rss_rollup_kib = sum(int(item.get("vmrss_kib") or item.get("rss_kib") or 0) for item in items)
         pss_rollup_kib = sum(int(item.get("pss_kib") or 0) for item in items)
         swap_rollup_kib = sum(int(item.get("swap_kib") or 0) for item in items)
-        podman_container = podman_container_for_pids(pids, podman_index)
+        podman_id = podman_id_from_cgroup_path(cgroup_path)
+        podman_container = podman_container_for_cgroup(pids, podman_index, cgroup_path=cgroup_path)
+        unit = cgroup_unit_hint(cgroup_path)
+        workload, role, protected, route = cgroup_route_with_podman_metadata(
+            workload=workload,
+            role=role,
+            protected=protected,
+            route=route,
+            podman_container=podman_container,
+            names=names,
+            unit=unit,
+        )
         entries.append(
             {
                 "cgroup": cgroup_path,
-                "unit": cgroup_unit_hint(cgroup_path),
+                "unit": unit,
                 "podman": podman_container,
+                "podman_id": (
+                    podman_container.get("id")
+                    if isinstance(podman_container, dict) and podman_container.get("id")
+                    else podman_id[:12] if podman_id else None
+                ),
                 "container_name": podman_container.get("name") if isinstance(podman_container, dict) else None,
                 "compose_service": podman_container.get("compose_service") if isinstance(podman_container, dict) else None,
                 "processes": len(items),
@@ -1238,6 +1386,7 @@ def cgroup_memory_snapshot(
                 "capability_role": role,
                 "protected": protected,
                 "route": route,
+                "importance": process_contracts.process_importance(workload, role, protected),
                 "memory_current_kib": int(memory_current / 1024),
                 "memory_current_mib": _bytes_to_mib(memory_current),
                 "swap_current_kib": int((swap_current or 0) / 1024),
@@ -1316,6 +1465,15 @@ def process_snapshot(
                         item[key] = rollup[key]
             else:
                 smaps_missing += 1
+
+    for item in processes:
+        workload = str(item.get("workload_hint") or "normal")
+        role = str(item.get("capability_role") or "none")
+        protected = bool(item.get("protected")) or role in protected_roles or workload == "game"
+        route = str(item.get("route") or process_route(workload, role, protected))
+        item["protected"] = protected
+        item["route"] = route
+        item["importance"] = process_contracts.process_importance(workload, role, protected)
 
     top_rss = sorted(processes, key=lambda item: int(item.get("vmrss_kib") or item.get("rss_kib") or 0), reverse=True)[:top]
     top_pss = sorted(

@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 22123762,
+  "allowed_tracked_bytes": 25299659,
+  "approved_by": "repository-owner",
+  "base_ref": "7f1b9fcf6f5beca7203f49ffb7ec53d765d1db86",
+  "changed_generated_bytes": 22123762,
+  "changed_generated_files": 366,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "59541e5930845a4bda266adff6665a923fe6607ad6bb0491a0489fd77d742ae1",
+  "reason": "Reviewed full-current landing changes source identities and line anchors across 34 owner files; refresh the portable KAG family without changing its standing budget.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25299659,
+  "tracked_bytes_max": 27262976
+}

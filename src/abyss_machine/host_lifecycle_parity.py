@@ -28,12 +28,13 @@ RUNTIME_COMMANDS: dict[str, tuple[str, ...]] = {
     "ai-llm-validate": ("abyss-machine", "ai", "llm", "validate", "--json"),
     "ai-llm-resident-validate": ("abyss-machine", "ai", "llm", "resident", "validate", "--json"),
     "ai-llm-workhorse-validate": ("abyss-machine", "ai", "llm", "workhorse", "validate", "--json"),
+    "typing-codex-hook-status": ("abyss-machine", "typing", "codex-hook-status", "--json", "--no-write"),
     "typing-validate": ("abyss-machine", "typing", "validate", "--json"),
     "nervous-validate": ("abyss-machine", "nervous", "validate", "--json"),
 }
 
 RUNTIME_COMMAND_EFFECTS: dict[str, str] = {
-    "enter": "read_only",
+    "enter": "refresh_latest",
     "doctor-paths": "read_only",
     "doctor": "refresh_latest",
     "doctor-machine-report": "refresh_latest",
@@ -45,6 +46,7 @@ RUNTIME_COMMAND_EFFECTS: dict[str, str] = {
     "ai-llm-validate": "refresh_latest",
     "ai-llm-resident-validate": "refresh_latest",
     "ai-llm-workhorse-validate": "refresh_latest",
+    "typing-codex-hook-status": "read_only",
     "typing-validate": "refresh_latest",
     "nervous-validate": "refresh_latest",
 }
@@ -55,6 +57,7 @@ RUNTIME_PROFILES: dict[str, tuple[str, ...]] = {
     "diagnostic-refresh": ("doctor", "doctor-machine-report"),
     "storage-read": ("storage-paths",),
     "storage-refresh": ("storage-cleanup-plan",),
+    "typing-read": ("typing-codex-hook-status",),
     "typing-nervous-refresh": ("typing-validate", "nervous-validate"),
     "ai-refresh": ("ai-validate", "ai-policy", "ai-capabilities"),
     "ai-llm-refresh": ("ai-validate", "ai-llm-validate", "ai-llm-resident-validate", "ai-llm-workhorse-validate"),
@@ -332,6 +335,7 @@ def compact_command_result(
     stdout: str,
     stderr: str,
     timed_out: bool = False,
+    error_kind: str = "",
 ) -> dict[str, Any]:
     payload: Any = None
     json_ok = False
@@ -352,10 +356,10 @@ def compact_command_result(
         "stdout_bytes": len(stdout.encode("utf-8", errors="replace")),
         "stderr_bytes": len(stderr.encode("utf-8", errors="replace")),
     }
+    if error_kind:
+        row["error_kind"] = error_kind
     if json_ok:
         row["projection"] = compact_json_projection(payload)
-    elif stderr:
-        row["stderr_tail"] = stderr[-500:]
     return row
 
 
@@ -388,6 +392,46 @@ def runtime_summary(runtime_checks: Sequence[Mapping[str, Any]]) -> dict[str, An
     }
 
 
+def parity_next_actions(content: Mapping[str, Any], runtime: Mapping[str, Any]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    content_failed = content.get("status") != "ok"
+    runtime_failed = runtime.get("status") != "ok"
+    if content_failed:
+        actions.append(
+            {
+                "id": "sync_installed_projection",
+                "status": "operator_required",
+                "reason": "installed projection differs from source checkout",
+                "dry_run_command": "scripts/abyss-machine-bootstrap install --profile linux-systemd-core --dry-run --json",
+                "apply_command": "scripts/abyss-machine-bootstrap install --profile linux-systemd-core --apply --json",
+                "notes": [
+                    "requires install privileges and artifact trust-gate admission",
+                    "do not hand-copy live /usr/local files as source truth",
+                ],
+            }
+        )
+    if runtime_failed:
+        failed_checks = [str(item) for item in runtime.get("failure_checks", []) if item]
+        actions.append(
+            {
+                "id": "rerun_runtime_parity",
+                "status": "after_projection_sync" if content_failed else "ready",
+                "reason": "runtime check failed" if len(failed_checks) == 1 else "runtime checks failed",
+                "failed_checks": failed_checks,
+                "command": "scripts/validators/source_install_runtime_parity.py --json --runtime-profile typing-read --runtime-timeout 10",
+            }
+        )
+    if not actions:
+        actions.append(
+            {
+                "id": "no_action_required",
+                "status": "ok",
+                "reason": "source, installed projection, and selected runtime checks agree",
+            }
+        )
+    return actions
+
+
 def build_parity_document(
     *,
     generated_at: str,
@@ -409,6 +453,7 @@ def build_parity_document(
     failures = list(content["failures"])
     if runtime["status"] != "ok":
         failures.extend(f"runtime check failed: {item}" for item in runtime["failure_checks"])
+    next_actions = parity_next_actions(content, runtime)
     return {
         "schema": SCHEMA,
         "generated_at": generated_at,
@@ -423,9 +468,11 @@ def build_parity_document(
         "content_parity": content,
         "runtime": runtime,
         "failures": failures,
+        "next_actions": next_actions,
         "privacy": {
             "compact_summary_only": True,
             "raw_runtime_stdout_included": False,
+            "raw_runtime_stderr_included": False,
             "raw_runtime_json_included": False,
         },
     }

@@ -4468,11 +4468,24 @@ def memory_cgroup_primary_bucket(items: list[dict[str, Any]]) -> tuple[str, str,
     return memory_adapters.cgroup_primary_bucket(items, protected_roles=PROTECTED_CAPABILITY_ROLES)
 
 
-def memory_podman_container_index() -> dict[str, Any]:
+def memory_podman_container_index(timeout_sec: float | None = None) -> dict[str, Any]:
     return memory_adapters.podman_container_index(
         command_exists=command_exists,
         runner=lambda command, timeout: run(list(command), timeout=timeout),
+        timeout_sec=timeout_sec,
     )
+
+
+def memory_podman_index_disabled(reason: str = "disabled_by_request") -> dict[str, Any]:
+    return {
+        "ok": False,
+        "available": False,
+        "containers": 0,
+        "by_pid": {},
+        "by_id": {},
+        "error": reason,
+        "timeout_sec": 0.0,
+    }
 
 
 def memory_podman_container_for_pids(pids: list[int], podman_index: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -4497,12 +4510,23 @@ def memory_cgroup_memory_snapshot(processes: list[dict[str, Any]], top: int = 40
     )
 
 
-def memory_process_snapshot(top: int = 40, smaps: bool = True, write_latest: bool = False) -> dict[str, Any]:
+def memory_process_snapshot(
+    top: int = 40,
+    smaps: bool = True,
+    write_latest: bool = False,
+    podman_timeout_sec: float | None = None,
+    podman_enabled: bool = True,
+) -> dict[str, Any]:
+    podman_index_port = (
+        (lambda: memory_podman_container_index(timeout_sec=podman_timeout_sec))
+        if podman_enabled
+        else (lambda: memory_podman_index_disabled())
+    )
     body = memory_adapters.process_snapshot(
         top=top,
         smaps=smaps,
         process_info=process_info,
-        podman_index_port=memory_podman_container_index,
+        podman_index_port=podman_index_port,
         protected_roles=PROTECTED_CAPABILITY_ROLES,
     )
     data = {
@@ -4594,6 +4618,8 @@ def memory_residency_hotpath_evidence(max_age_sec: float = 3600.0) -> dict[str, 
             age_sec = None
 
     summary = data.get("summary", {}) if isinstance(data.get("summary"), dict) else {}
+    request = data.get("request", {}) if isinstance(data.get("request"), dict) else {}
+    failure_context = data.get("failure_context", {}) if isinstance(data.get("failure_context"), dict) else {}
     issues = summary.get("issues") if isinstance(summary.get("issues"), list) else []
     findings = summary.get("findings") if isinstance(summary.get("findings"), list) else []
     fresh = bool(age_sec is not None and age_sec <= max_age_sec)
@@ -4620,7 +4646,17 @@ def memory_residency_hotpath_evidence(max_age_sec: float = 3600.0) -> dict[str, 
         "measurement_status": measurement_status,
         "issues": issues,
         "findings": findings,
+        "request": {
+            "tts_profile": request.get("tts_profile"),
+            "repeat_tts": request.get("repeat_tts"),
+            "stt_profiles": request.get("stt_profiles"),
+            "include_llm": request.get("include_llm"),
+            "llm_limit": request.get("llm_limit"),
+            "top": request.get("top"),
+        },
+        "failure_context": failure_context,
         "summary": {
+            "tts_profile": summary.get("tts_profile") or request.get("tts_profile"),
             "first_tts_wall_sec": summary.get("first_tts_wall_sec"),
             "last_tts_wall_sec": summary.get("last_tts_wall_sec"),
             "command_stt_client_sec": summary.get("command_stt_client_sec"),
@@ -4629,6 +4665,35 @@ def memory_residency_hotpath_evidence(max_age_sec: float = 3600.0) -> dict[str, 
             "swap_used_percent_after": summary.get("swap_used_percent_after"),
         },
     }
+
+
+def memory_hotpath_remeasure_argv(hotpath: dict[str, Any]) -> list[str]:
+    request = hotpath.get("request") if isinstance(hotpath.get("request"), dict) else {}
+    argv = ["abyss-machine", "memory", "hotpath-probe"]
+    tts_profile = str(request.get("tts_profile") or "quality-compact").strip()
+    if tts_profile:
+        argv.extend(["--tts-profile", tts_profile])
+    repeat_tts = request.get("repeat_tts")
+    if repeat_tts is not None:
+        argv.extend(["--repeat-tts", str(repeat_tts)])
+    stt_profiles = request.get("stt_profiles")
+    if isinstance(stt_profiles, list):
+        for profile in stt_profiles:
+            profile_text = str(profile or "").strip()
+            if profile_text:
+                argv.extend(["--stt-profile", profile_text])
+    if request.get("include_llm") is True:
+        argv.append("--include-llm")
+    if request.get("llm_limit") is not None:
+        argv.extend(["--llm-limit", str(request.get("llm_limit"))])
+    if request.get("top") is not None:
+        argv.extend(["--top", str(request.get("top"))])
+    argv.append("--json")
+    return argv
+
+
+def memory_hotpath_remeasure_command(hotpath: dict[str, Any]) -> str:
+    return " ".join(shlex.quote(part) for part in memory_hotpath_remeasure_argv(hotpath))
 
 
 def memory_residency_hotpath_action(hotpath: dict[str, Any]) -> dict[str, Any]:
@@ -4651,7 +4716,8 @@ def memory_residency_hotpath_action(hotpath: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": "measure_hot_path_latency",
         "status": action_status,
-        "command": "abyss-machine memory hotpath-probe --json",
+        "command": memory_hotpath_remeasure_command(hotpath),
+        "remeasure_same_profile_argv": memory_hotpath_remeasure_argv(hotpath),
         "legacy_manual_commands": [
             "abyss-machine ai tts server status --json",
             "abyss-machine ai tts synth --profile quality-compact --text 'Проверка горячего пути синтеза.' --json",
@@ -4668,11 +4734,13 @@ def memory_hotpath_probe_route(hotpath: dict[str, Any]) -> dict[str, Any]:
     summary = hotpath.get("summary") if isinstance(hotpath.get("summary"), dict) else {}
     issues = [str(item) for item in (hotpath.get("issues") if isinstance(hotpath.get("issues"), list) else []) if item]
     findings = [str(item) for item in (hotpath.get("findings") if isinstance(hotpath.get("findings"), list) else []) if item]
+    remeasure_argv = memory_hotpath_remeasure_argv(hotpath)
     safe_next = {
         "kind": "memory_hotpath_measurement_review",
         "owner_route": "abyss-machine:memory",
         "review_command": "abyss-machine memory residency --json",
-        "remeasure_command": "abyss-machine memory hotpath-probe --json",
+        "remeasure_command": " ".join(shlex.quote(part) for part in remeasure_argv),
+        "remeasure_same_profile_argv": remeasure_argv,
         "post_verifiers": [
             "abyss-machine memory residency --json",
             "abyss-machine memory validate --json",
@@ -4707,6 +4775,8 @@ def memory_hotpath_probe_route(hotpath: dict[str, Any]) -> dict[str, Any]:
         "ok": hotpath.get("ok") is True,
         "issues": issues,
         "findings": findings,
+        "request": hotpath.get("request") if isinstance(hotpath.get("request"), dict) else {},
+        "failure_context": hotpath.get("failure_context") if isinstance(hotpath.get("failure_context"), dict) else {},
         "latency": {
             "first_tts_wall_sec": summary.get("first_tts_wall_sec"),
             "last_tts_wall_sec": summary.get("last_tts_wall_sec"),
@@ -4932,10 +5002,15 @@ def memory_hotpath_residency_brief(data: dict[str, Any]) -> dict[str, Any]:
     return memory_adapters.hotpath_residency_brief(data)
 
 
-def memory_hotpath_tts_probe(text: str, index: int) -> dict[str, Any]:
+def memory_hotpath_tts_probe(
+    text: str,
+    index: int,
+    tts_profile: str = "quality-compact",
+) -> dict[str, Any]:
     return memory_adapters.hotpath_tts_probe(
         text,
         index,
+        tts_profile=tts_profile,
         synth_port=ai_tts_synth,
         monotonic=time.monotonic,
     )
@@ -4965,6 +5040,7 @@ def memory_hotpath_llm_probe(include_llm: bool, limit: int) -> dict[str, Any]:
 
 def memory_hotpath_probe(
     text: str | None = None,
+    tts_profile: str = "quality-compact",
     repeat_tts: int = 2,
     stt_profiles: list[str] | None = None,
     include_llm: bool = False,
@@ -4973,6 +5049,7 @@ def memory_hotpath_probe(
     write_latest: bool = True,
 ) -> dict[str, Any]:
     text = (text or "Проверка горячего пути синтеза и распознавания.").strip()
+    tts_profile = str(tts_profile or "quality-compact").strip() or "quality-compact"
     data = memory_adapters.hotpath_probe_document(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
@@ -4987,7 +5064,11 @@ def memory_hotpath_probe(
         residency_port=lambda top_value: memory_residency(top=top_value, write_latest=False),
         tts_status_port=lambda: ai_tts_server_status(write_latest=True),
         ai_policy_port=lambda: ai_policy(write_latest=True),
-        tts_probe_port=memory_hotpath_tts_probe,
+        tts_probe_port=lambda text_value, index: memory_hotpath_tts_probe(
+            text_value,
+            index,
+            tts_profile=tts_profile,
+        ),
         stt_probe_port=memory_hotpath_stt_probe,
         llm_probe_port=lambda include_llm_value, limit_value: memory_hotpath_llm_probe(include_llm=include_llm_value, limit=limit_value),
         output_exists_port=lambda output: Path(str(output)).exists(),
@@ -4998,6 +5079,7 @@ def memory_hotpath_probe(
             "tts_latest": AI_TTS_LATEST_PATH,
             "llm_micro_latest": AI_LLM_RESIDENT_ROOT / "jobs" / "micro" / "latest.json",
         },
+        tts_profile=tts_profile,
     )
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_HOTPATH_LATEST_PATH, data, 0o664)
@@ -5083,9 +5165,19 @@ def memory_status(write_latest: bool = False) -> dict[str, Any]:
     return data
 
 
-def memory_pressure(top: int = 30, write_latest: bool = False) -> dict[str, Any]:
+def memory_pressure(
+    top: int = 30,
+    write_latest: bool = False,
+    podman_timeout_sec: float | None = None,
+    podman_enabled: bool = True,
+) -> dict[str, Any]:
     status_data = memory_status(write_latest=False)
-    processes = memory_process_snapshot(top=top, smaps=True, write_latest=False)
+    process_kwargs: dict[str, Any] = {"top": top, "smaps": True, "write_latest": False}
+    if podman_timeout_sec is not None:
+        process_kwargs["podman_timeout_sec"] = podman_timeout_sec
+    if not podman_enabled:
+        process_kwargs["podman_enabled"] = False
+    processes = memory_process_snapshot(**process_kwargs)
     mem_summary = nested_get(status_data, ["meminfo", "summary"]) or {}
     zram_summary = nested_get(status_data, ["zram", "summary"]) or {}
     process_summary = processes.get("summary", {}) if isinstance(processes.get("summary"), dict) else {}
@@ -5160,6 +5252,68 @@ def memory_pressure(top: int = 30, write_latest: bool = False) -> dict[str, Any]
     return data
 
 
+def memory_document_age_seconds(data: dict[str, Any]) -> float | None:
+    generated_at = data.get("generated_at")
+    if not generated_at:
+        return None
+    try:
+        generated = dt.datetime.fromisoformat(str(generated_at))
+    except ValueError:
+        return None
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=dt.timezone.utc)
+    now = dt.datetime.now(dt.timezone.utc).astimezone()
+    return max(0.0, (now - generated.astimezone()).total_seconds())
+
+
+def memory_headroom_pressure_from_latest(max_age_sec: float) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    if max_age_sec <= 0:
+        return None, {
+            "status": "latest_reuse_disabled",
+            "max_age_sec": max_age_sec,
+            "path": str(MEMORY_PRESSURE_LATEST_PATH),
+        }
+    pressure, error = load_json_document(MEMORY_PRESSURE_LATEST_PATH)
+    if pressure is None:
+        return None, {
+            "status": "latest_unavailable",
+            "error": error,
+            "max_age_sec": max_age_sec,
+            "path": str(MEMORY_PRESSURE_LATEST_PATH),
+        }
+    age_sec = memory_document_age_seconds(pressure)
+    if age_sec is None:
+        return None, {
+            "status": "latest_age_unknown",
+            "max_age_sec": max_age_sec,
+            "path": str(MEMORY_PRESSURE_LATEST_PATH),
+            "generated_at": pressure.get("generated_at"),
+        }
+    if age_sec > max_age_sec:
+        return None, {
+            "status": "latest_stale",
+            "age_sec": round(age_sec, 3),
+            "max_age_sec": max_age_sec,
+            "path": str(MEMORY_PRESSURE_LATEST_PATH),
+            "generated_at": pressure.get("generated_at"),
+        }
+    if not isinstance(pressure.get("status"), dict) or not isinstance(pressure.get("processes"), dict):
+        return None, {
+            "status": "latest_incomplete",
+            "age_sec": round(age_sec, 3),
+            "max_age_sec": max_age_sec,
+            "path": str(MEMORY_PRESSURE_LATEST_PATH),
+        }
+    return pressure, {
+        "status": "fresh_latest_reused",
+        "age_sec": round(age_sec, 3),
+        "max_age_sec": max_age_sec,
+        "path": str(MEMORY_PRESSURE_LATEST_PATH),
+        "generated_at": pressure.get("generated_at"),
+        "history_append_avoided": True,
+    }
+
+
 def memory_float(value: Any, default: float | None = None) -> float | None:
     return memory_contracts.float_value(value, default)
 
@@ -5168,8 +5322,35 @@ def memory_headroom_process_buckets(processes: dict[str, Any]) -> dict[str, Any]
     return memory_contracts.headroom_process_buckets(processes, PROTECTED_CAPABILITY_ROLES)
 
 
-def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]:
-    pressure = memory_pressure(top=top, write_latest=False)
+def memory_headroom(
+    top: int = 40,
+    write_latest: bool = False,
+    podman_timeout_sec: float | None = None,
+    podman_enabled: bool = True,
+    pressure_max_age_sec: float = 120.0,
+) -> dict[str, Any]:
+    pressure: dict[str, Any] | None = None
+    if write_latest:
+        pressure, pressure_source = memory_headroom_pressure_from_latest(pressure_max_age_sec)
+    else:
+        pressure_source = {
+            "status": "fresh_collect_without_write",
+            "history_append_avoided": True,
+            "reason": "caller_disabled_write_latest",
+        }
+    if pressure is None:
+        pressure_kwargs: dict[str, Any] = {"top": top, "write_latest": write_latest}
+        if podman_timeout_sec is not None:
+            pressure_kwargs["podman_timeout_sec"] = podman_timeout_sec
+        if not podman_enabled:
+            pressure_kwargs["podman_enabled"] = False
+        pressure = memory_pressure(**pressure_kwargs)
+        if write_latest:
+            pressure_source = {
+                **pressure_source,
+                "fallback": "collected_fresh_pressure",
+                "history_append_avoided": False,
+            }
     policy = memory_policy_document()
     reserve_policy = policy.get("swap_reserve", {}) if isinstance(policy.get("swap_reserve"), dict) else {}
     thresholds = policy.get("thresholds", {}) if isinstance(policy.get("thresholds"), dict) else {}
@@ -5191,6 +5372,7 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
     swap_used_percent = memory_float(swap_reserve.get("used_percent"), 0.0) or 0.0
     target_swap_free_mib = memory_float(swap_reserve.get("target_free_mib"), 2048.0) or 2048.0
     swap_free_shortfall_mib = memory_float(swap_reserve.get("shortfall_mib"), 0.0) or 0.0
+    mem_total_mib = memory_float(mem_summary.get("mem_total_mib"), 0.0) or 0.0
     mem_available_percent = memory_float(mem_summary.get("mem_available_percent"), 0.0) or 0.0
     mem_available_mib = memory_float(mem_summary.get("mem_available_mib"), 0.0) or 0.0
     psi_some_avg10 = memory_float(nested_get(status, ["psi", "some", "avg10"]), 0.0) or 0.0
@@ -5202,6 +5384,33 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
     zram_disk_mib = memory_float(zram_summary.get("disk_mib"), 0.0) or 0.0
     zram_data_mib = memory_float(zram_summary.get("data_mib"), 0.0) or 0.0
     zram_logical_free_mib = round(max(0.0, zram_disk_mib - zram_data_mib), 1)
+    zram_candidate_mib = round(min(mem_total_mib * 5.0 / 8.0, 20480.0), 1) if mem_total_mib > 0 else None
+    zram_candidate_extra_mib = (
+        round(max(0.0, zram_candidate_mib - zram_disk_mib), 1)
+        if isinstance(zram_candidate_mib, (int, float))
+        else None
+    )
+    if not zram_only:
+        zram_candidate_status = "not_applicable_non_zram_swap"
+    elif not isinstance(zram_candidate_extra_mib, (int, float)) or zram_candidate_extra_mib <= 512.0:
+        zram_candidate_status = "current_policy_at_or_above_candidate"
+    elif swap_used_percent >= 65.0 or zram_logical_free_mib < target_swap_free_mib * 2.0:
+        zram_candidate_status = "candidate_after_reboot_ab_window"
+    else:
+        zram_candidate_status = "available_if_future_pressure_repeats"
+    zram_resize_candidate = {
+        "status": zram_candidate_status,
+        "formula": "zram-size = min(ram * 5 / 8, 20480)",
+        "current_zram_mib": round(zram_disk_mib, 1),
+        "candidate_zram_mib": zram_candidate_mib,
+        "additional_logical_headroom_mib": zram_candidate_extra_mib,
+        "trigger_swap_used_percent_at_or_above": 65.0,
+        "requires_reboot_clean_baseline": True,
+        "requires_privileged_route": True,
+        "requires_one_variable_ab_window": True,
+        "live_reconfigure_allowed": False,
+        "reason": "Current agentic workload can accumulate high zram occupancy while RAM and PSI still look healthy; evaluate larger persistent zram only as a controlled next-boot A/B variable.",
+    }
 
     if psi_some_avg10 > max_psi_some or psi_full_avg10 > max_psi_full:
         condition = "active_memory_stalls"
@@ -5243,6 +5452,17 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
                 "source": "/etc/systemd/zram-generator.conf",
             }
         )
+    if zram_resize_candidate["status"] == "candidate_after_reboot_ab_window":
+        actions.append(
+            {
+                "id": "zram_size_20g_or_0_625_ram_ab",
+                "kind": "operator_maintenance",
+                "status": "candidate",
+                "reason": "zram-only swap is already above the high-use trigger under low PSI; test larger persistent zram in a reboot-clean one-variable A/B window.",
+                "source": "/etc/systemd/zram-generator.conf",
+                "candidate": zram_resize_candidate,
+            }
+        )
 
     data = {
         "schema": f"{SCHEMA_PREFIX}_memory_headroom_v1",
@@ -5268,6 +5488,7 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
             "zram_logical_free_mib": zram_logical_free_mib,
             "zram_resident_mib": zram_summary.get("total_memory_mib"),
             "zram_logical_to_memory_ratio": zram_summary.get("logical_to_memory_ratio"),
+            "zram_resize_candidate": zram_resize_candidate,
             "psi_some_avg10": psi_some_avg10,
             "psi_full_avg10": psi_full_avg10,
             "commit_percent": mem_summary.get("commit_percent"),
@@ -5294,6 +5515,7 @@ def memory_headroom(top: int = 40, write_latest: bool = False) -> dict[str, Any]
             "plan": "abyss-machine memory plan --json",
             "resource_plan_medium_indexing": "abyss-machine resource plan --class medium --kind indexing --unattended --no-thermal-sample --json",
         },
+        "pressure_source": pressure_source,
         "paths": {
             "latest": str(MEMORY_HEADROOM_LATEST_PATH),
             "retention": "latest_only",
@@ -5331,7 +5553,15 @@ def memory_plan(
     mode_input: dict[str, Any] | None = None,
     game_guard_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    pressure = pressure_input if isinstance(pressure_input, dict) else memory_pressure(top=30, write_latest=False)
+    if isinstance(pressure_input, dict):
+        pressure = pressure_input
+        pressure_freshness = {"status": "provided_by_caller"}
+    else:
+        pressure = memory_pressure(top=30, write_latest=False)
+        pressure_freshness = {
+            "status": "fresh_collect_without_write",
+            "generated_at": pressure.get("generated_at"),
+        }
     policy = memory_policy_document()
     mode = mode_input if isinstance(mode_input, dict) else mode_status()
     game_guard = game_guard_input if isinstance(game_guard_input, dict) else process_game_guard(write_latest=False)
@@ -5347,6 +5577,11 @@ def memory_plan(
         pressure_latest=MEMORY_PRESSURE_LATEST_PATH,
         game_guard_latest=PROCESS_GAME_GUARD_LATEST_PATH,
     )
+    data["input_freshness"] = {
+        "pressure": pressure_freshness,
+        "mode": {"status": "provided_by_caller" if isinstance(mode_input, dict) else "live_refresh"},
+        "game_guard": {"status": "provided_by_caller" if isinstance(game_guard_input, dict) else "live_refresh"},
+    }
     if write_latest:
         latest_error = safe_atomic_write_json(MEMORY_PLAN_LATEST_PATH, data, 0o664)
         index_error = safe_atomic_write_json(MEMORY_INDEX_PATH, memory_paths(), 0o664)
@@ -5680,10 +5915,35 @@ def ai_tts_module_status(python: str | None = None) -> dict[str, Any]:
     return python_modules_status(str(python or ai_tts_config().get("python") or ""), packages)
 
 
-def ai_tts_model_artifacts(model_path: Any) -> dict[str, Any]:
+def path_has_file_payload(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    try:
+        return any(item.is_file() for item in path.rglob("*"))
+    except OSError:
+        return False
+
+
+def ai_tts_host_managed_model_artifacts(profile_name: str) -> dict[str, Any]:
+    cache_dir = AI_TTS_CACHE_ROOT / ai_tts_contracts.profile_slug(profile_name)
+    exists = cache_dir.exists()
+    has_payload = path_has_file_payload(cache_dir)
+    data = ai_tts_contracts.model_artifacts(
+        "host-managed",
+        exists=exists,
+        required_files={"cache_payload": has_payload},
+        file_summary=immediate_file_summary(cache_dir) if exists and cache_dir.is_dir() else {},
+    )
+    data["cache_dir"] = str(cache_dir)
+    return data
+
+
+def ai_tts_model_artifacts(model_path: Any, profile_name: str | None = None) -> dict[str, Any]:
     if model_path is None:
         return ai_tts_contracts.model_artifacts(model_path)
     if str(model_path) == "host-managed":
+        if profile_name:
+            return ai_tts_host_managed_model_artifacts(profile_name)
         return ai_tts_contracts.model_artifacts(model_path)
     path = Path(str(model_path)).expanduser()
     exists = path.exists()
@@ -5717,7 +5977,7 @@ def ai_tts_profile_status(name: str, profile: dict[str, Any], inventory: dict[st
     inventory = inventory or ai_tts_inventory(write_latest=False)
     config = ai_tts_config()
     runtime_python = ai_tts_profile_python(profile, config)
-    model = ai_tts_model_artifacts(profile.get("model"))
+    model = ai_tts_model_artifacts(profile.get("model"), profile_name=name)
     ov_model = ai_tts_openvino_artifacts(profile.get("ov_dir")) if str(profile.get("engine") or "") == "qwen3_tts_openvino" else None
     adapter_src = Path(str(profile.get("adapter_src") or "")).expanduser()
     return ai_tts_contracts.profile_status(
@@ -7470,13 +7730,13 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
         direct_status.append(podman_direct)
     residual_specs = [
         ("home_huggingface", home / ".cache/huggingface", AI_CACHE_ROOT / "huggingface"),
-        ("home_pip", home / ".cache/pip", ABYSS_MACHINE_CACHE_ROOT / "home/dionysus/cache/pip"),
+        ("home_pip", home / ".cache/pip", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/pip"),
         ("home_torch", home / ".cache/torch", AI_CACHE_ROOT / "torch"),
         ("home_torch_extensions", home / ".cache/torch_extensions", AI_CACHE_ROOT / "torch_extensions"),
         ("home_triton", home / ".triton", AI_CACHE_ROOT / "triton"),
-        ("home_ms_playwright", home / ".cache/ms-playwright", ABYSS_MACHINE_CACHE_ROOT / "home/dionysus/cache/ms-playwright"),
-        ("home_puppeteer", home / ".cache/puppeteer", ABYSS_MACHINE_CACHE_ROOT / "home/dionysus/cache/puppeteer"),
-        ("home_npu_cache", home / ".cache/ze_intel_npu_cache", ABYSS_MACHINE_CACHE_ROOT / "home/dionysus/cache/ze_intel_npu_cache"),
+        ("home_ms_playwright", home / ".cache/ms-playwright", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ms-playwright"),
+        ("home_puppeteer", home / ".cache/puppeteer", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/puppeteer"),
+        ("home_npu_cache", home / ".cache/ze_intel_npu_cache", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ze_intel_npu_cache"),
         ("home_nltk_data", home / "nltk_data", AI_CACHE_ROOT / "nltk_data"),
     ]
     if not podman_on_large_root:
@@ -7668,7 +7928,7 @@ def podman_text(cmd: list[str], timeout: float = 10.0) -> tuple[str, str | None]
 
 
 def rootless_podman_target_graphroot() -> Path:
-    return ABYSS_MACHINE_STORAGE_ROOT / "home/dionysus/containers/storage"
+    return ABYSS_MACHINE_STORAGE_ROOT / "home/operator/containers/storage"
 
 
 def podman_store_summary(timeout: float = 8.0) -> tuple[dict[str, Any], str | None]:
@@ -8012,7 +8272,7 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
         },
         {
             "id": "home_npu_cache_routed",
-            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/dionysus/cache/ze_intel_npu_cache"),
+            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ze_intel_npu_cache"),
             "category": "rebuildable_cache",
             "disposition": "cleanup_under_pressure",
             "reclaimability": "rebuildable",
@@ -8023,7 +8283,7 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
         },
         {
             "id": "home_pip_cache_routed",
-            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/dionysus/cache/pip"),
+            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/pip"),
             "category": "rebuildable_cache",
             "disposition": "cleanup_under_pressure",
             "reclaimability": "redownloadable",
@@ -14839,6 +15099,7 @@ def process_text_haystack(*parts: Any) -> str:
     return process_contracts.text_haystack(*parts)
 
 
+STACK_SERVICE_ROLES = process_contracts.STACK_SERVICE_ROLES
 PROTECTED_CAPABILITY_ROLES = process_contracts.PROTECTED_CAPABILITY_ROLES
 
 
@@ -17634,12 +17895,12 @@ def default_nervous_policy() -> dict[str, Any]:
             "local_index_interval": "45min",
         },
         "browser_content": {
-            "method": "firefox_accessibility_tree_primary_with_bidi_diagnostic",
+            "method": "browser_accessibility_tree_primary_with_firefox_bidi_diagnostic",
             "bidi_url": NERVOUS_BROWSER_BIDI_DEFAULT_URL,
-            "captures": "Firefox document text through AT-SPI during normal browsing; BiDi only when explicitly launched in diagnostic mode",
+            "captures": "Firefox/Chromium-family document text through AT-SPI during normal browsing; Firefox BiDi only when explicitly launched in diagnostic mode",
             "normal_browser_launch": "must not add --remote-debugging-port; use accessibility bridge env only",
             "firefox_accessibility_env": "GNOME_ACCESSIBILITY=1 NO_AT_BRIDGE=0 GTK_MODULES=gail:atk-bridge",
-            "fast_tick": "abyss-nervous-browser-content-capture.timer runs about every 120s while Firefox is open, uses a bounded focused/visible-first AT-SPI budget, and skips when Firefox is closed",
+            "fast_tick": "abyss-nervous-browser-content-capture.timer runs about every 120s while a supported browser is open, uses a bounded focused/visible-first AT-SPI budget, and skips when supported browsers are closed",
             "dedupe": "raw captures are deduplicated by url hash, title hash, text hash, and skipped_text flag before append",
             "privacy": "no cookies, no localStorage, no form values; body text is skipped on login/password-like pages",
             "storage": str(NERVOUS_BROWSER_CONTENT_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
@@ -17665,7 +17926,7 @@ def default_nervous_policy() -> dict[str, Any]:
                 "interval": "120s",
                 "stdout": "null",
                 "source_class": "local_private_firefox_page_text",
-                "idle_behavior": "exit 0 without writing when Firefox is closed",
+                "idle_behavior": "exit 0 without writing when supported browsers are closed",
             },
             "typed_text_autolog": {
                 "enabled": True,
@@ -18588,7 +18849,7 @@ def nervous_atspi_document_attributes(Atspi: Any, document: Any) -> dict[str, An
     return nervous_browser_content_adapters.atspi_document_attributes(Atspi, document)
 
 
-def nervous_atspi_firefox_documents(
+def nervous_atspi_browser_documents(
     Atspi: Any,
     app: Any,
     max_nodes: int = NERVOUS_BROWSER_ATSPI_SCAN_MAX_NODES,
@@ -18639,8 +18900,9 @@ def nervous_browser_live_content_capture(write_latest: bool = True) -> dict[str,
         "generated_at": now_iso(),
         "ok": bool(accessibility.get("ok")) or bool(bidi and bidi.get("ok")),
         "source_id": "browser_active_tab",
-        "capture_source": "firefox_accessibility_tree_primary",
+        "capture_source": "browser_accessibility_tree_primary",
         "storage_root": str(NERVOUS_BROWSER_CONTENT_ROOT),
+        "browser_runtime": accessibility.get("browser_runtime"),
         "firefox_runtime": accessibility.get("firefox_runtime"),
         "accessibility": {
             "ok": accessibility.get("ok"),
@@ -18648,6 +18910,7 @@ def nervous_browser_live_content_capture(write_latest: bool = True) -> dict[str,
             "skip_reason": accessibility.get("skip_reason"),
             "summary": accessibility.get("summary"),
             "capture_settings": accessibility.get("capture_settings"),
+            "browser_runtime": accessibility.get("browser_runtime"),
             "firefox_runtime": accessibility.get("firefox_runtime"),
             "error": accessibility.get("error"),
         },
@@ -21185,6 +21448,9 @@ def nervous_semantic_model_paths(embedding: dict[str, Any], *, create_cache_dir:
 
 
 def nervous_semantic_embed_texts(text_items: list[dict[str, str]], embedding: dict[str, Any]) -> dict[str, Any]:
+    if not text_items:
+        return {"ok": True, "vectors": {}, "summary": {"items": 0}}
+
     model_dir, device, cache_dir, error = nervous_semantic_model_paths(embedding)
     python = shutil.which("abyss-openvino-python") or str(ai_config().get("openvino", {}).get("python", ""))
     if error:
@@ -23430,14 +23696,31 @@ def typing_codex_prompt_hook_status(write_latest: bool = True) -> dict[str, Any]
     )
     prompt_summary = typing_codex_recent_prompt_summary(codex_records)
     tail_summary = typing_codex_session_tail_recent_prompt_summary(tail_records)
+    direct_hook_ready = bool(hooks_exists and matching)
+    tail_latest_status = latest_tail.get("status") if isinstance(latest_tail, dict) else None
+    tail_fallback_ready = (
+        tail_summary.get("live_prompt_observed") is True
+        and latest_tail_error is None
+        and str(tail_latest_status or "") not in {"", "failed", "error"}
+    )
+    effective_ready = direct_hook_ready or tail_fallback_ready
+    if direct_hook_ready:
+        status = "ready"
+    elif tail_fallback_ready:
+        status = "ready_via_tail_fallback"
+    else:
+        status = "not_ready"
     data = {
         "schema": f"{SCHEMA_PREFIX}_typing_codex_prompt_hook_status_v1",
         "version": VERSION,
         "generated_at": now_iso(),
-        "ok": bool(hooks_exists and matching),
-        "status": "ready" if hooks_exists and matching else "not_ready",
+        "ok": effective_ready,
+        "status": status,
         "adapter": "codex_user_prompt_submit",
         "expected_command": expected,
+        "direct_hook_ready": direct_hook_ready,
+        "tail_fallback_ready": tail_fallback_ready,
+        "effective_prompt_intake_ready": effective_ready,
         "hooks_json": {
             "path": str(TYPING_CODEX_HOOKS_PATH),
             "exists": hooks_exists,
@@ -23487,7 +23770,11 @@ def typing_codex_prompt_hook_status(write_latest: bool = True) -> dict[str, Any]
         "policy": {
             "raw_keylogging": False,
             "session_postprocessing": False,
-            "native_codex_submit_hook": True,
+            "native_codex_submit_hook": direct_hook_ready,
+            "native_codex_submit_hook_supported": True,
+            "direct_foreground_hook_required": False,
+            "session_tail_fallback": True,
+            "primary_prompt_intake_route": "native_codex_submit_hook" if direct_hook_ready else ("session_tail_fallback" if tail_fallback_ready else "uncovered"),
             "hook_fail_open": True,
             "password_fields_captured": False,
         },
@@ -29546,7 +29833,9 @@ def typing_validate(strict: bool = False, write_latest: bool = True) -> dict[str
     add(
         "ok" if codex_hook.get("ok") else "warn",
         "codex_hook_status",
-        "Codex UserPromptSubmit hook is wired into typing intake" if codex_hook.get("ok") else "Codex UserPromptSubmit hook is not fully wired into typing intake",
+        "Codex prompt intake is covered by direct hook or raw JSONL tail fallback"
+        if codex_hook.get("ok")
+        else "Codex prompt intake is not covered by direct hook or raw JSONL tail fallback",
         codex_hook,
     )
     codex_config = codex_hook.get("config") if isinstance(codex_hook.get("config"), dict) else {}
@@ -30752,7 +31041,7 @@ def nervous_baseline(write_latest: bool = True) -> dict[str, Any]:
             "service": browser_content_service,
             "latest": str(NERVOUS_BROWSER_CONTENT_LATEST_PATH),
             "raw_storage_root": str(NERVOUS_BROWSER_CONTENT_ROOT),
-            "idle_behavior": "timer tick exits cleanly without capture while Firefox is closed",
+            "idle_behavior": "timer tick exits cleanly without capture while supported browsers are closed",
         },
         "index": {
             "status": {
@@ -31056,7 +31345,7 @@ def nervous_index_document(status_data: dict[str, Any] | None = None) -> dict[st
             "Retrieval packs and synthesis candidates cite existing indexed evidence; they do not become facts by themselves.",
             "Retention apply defaults to dry-run and does not delete fact records; use explicit forget for fact deletion.",
             "Enabled local-private connectors must keep raw_private_content=false and route raw artifacts only under /srv/abyss-machine/storage/nervous/captures.",
-            "Browser capture reads recent local history metadata and Firefox document text through AT-SPI during normal browsing; terminal capture does not attach to existing stdout/stderr streams.",
+            "Browser capture reads recent local history metadata plus supported browser document text through AT-SPI during normal browsing; terminal capture does not attach to existing stdout/stderr streams.",
             "Do not write to abyss-stack or sibling AoA repositories from this host layer.",
             "Treat AoA repositories as source material under reformation until owner contracts stabilize.",
             "Local index reads passive facts plus derived events/episodes and stores SQLite/FTS data under /srv/abyss-machine/storage.",
@@ -49950,21 +50239,28 @@ def main(argv: list[str]) -> int:
         p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     memory_pressure_parser = memory_sub.add_parser("pressure")
     memory_pressure_parser.add_argument("--top", type=int, default=30, help="top process limit for PSS/RSS attribution")
+    memory_pressure_parser.add_argument("--podman-timeout-sec", type=float, default=None, help="timeout for podman ps inventory; default uses ABYSS_MACHINE_PODMAN_PS_TIMEOUT_SEC or 15")
+    memory_pressure_parser.add_argument("--no-podman-index", action="store_true", help="skip Podman inventory and classify from process/cgroup evidence only")
     memory_pressure_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     memory_processes_parser = memory_sub.add_parser("processes")
     memory_processes_parser.add_argument("--top", type=int, default=40, help="top process limit")
     memory_processes_parser.add_argument("--no-smaps", action="store_true", help="skip smaps_rollup/PSS reads")
+    memory_processes_parser.add_argument("--podman-timeout-sec", type=float, default=None, help="timeout for podman ps inventory; default uses ABYSS_MACHINE_PODMAN_PS_TIMEOUT_SEC or 15")
+    memory_processes_parser.add_argument("--no-podman-index", action="store_true", help="skip Podman inventory and classify from process/cgroup evidence only")
     memory_processes_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     memory_plan_parser = memory_sub.add_parser("plan")
     memory_plan_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     memory_headroom_parser = memory_sub.add_parser("headroom")
     memory_headroom_parser.add_argument("--top", type=int, default=40, help="top process limit for swap attribution")
+    memory_headroom_parser.add_argument("--podman-timeout-sec", type=float, default=None, help="timeout for podman ps inventory; default uses ABYSS_MACHINE_PODMAN_PS_TIMEOUT_SEC or 15")
+    memory_headroom_parser.add_argument("--no-podman-index", action="store_true", help="skip Podman inventory and classify from process/cgroup evidence only")
     memory_headroom_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     memory_residency_parser = memory_sub.add_parser("residency")
     memory_residency_parser.add_argument("--top", type=int, default=40, help="top process limit for supporting pressure attribution")
     memory_residency_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     memory_hotpath_parser = memory_sub.add_parser("hotpath-probe")
     memory_hotpath_parser.add_argument("--text", default=None, help="synthetic Russian phrase for TTS->STT probe")
+    memory_hotpath_parser.add_argument("--tts-profile", default="quality-compact", help="TTS profile to measure")
     memory_hotpath_parser.add_argument("--repeat-tts", type=int, default=2, help="repeat warm TTS synthesis 1-3 times")
     memory_hotpath_parser.add_argument("--stt-profile", action="append", default=None, help="dictation profile to test; repeatable")
     memory_hotpath_parser.add_argument("--include-llm", action="store_true", help="execute one Gemma4 Spark resident micro tick")
@@ -50556,6 +50852,7 @@ def main(argv: list[str]) -> int:
     typing_zsh_hook_selftest_parser = typing_sub.add_parser("zsh-hook-selftest")
     typing_zsh_hook_selftest_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     typing_codex_hook_status_parser = typing_sub.add_parser("codex-hook-status")
+    typing_codex_hook_status_parser.add_argument("--no-write", action="store_true", help="inspect status without refreshing latest files")
     typing_codex_hook_status_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     typing_codex_hook_selftest_parser = typing_sub.add_parser("codex-hook-selftest")
     typing_codex_hook_selftest_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -52443,14 +52740,28 @@ def main(argv: list[str]) -> int:
                 print_memory_status_text(data)
             return 0 if data.get("ok") else 1
         if args.memory_command == "pressure":
-            data = memory_pressure(top=int(args.top), write_latest=False)
+            pressure_kwargs: dict[str, Any] = {"top": int(args.top), "write_latest": False}
+            if args.podman_timeout_sec is not None:
+                pressure_kwargs["podman_timeout_sec"] = args.podman_timeout_sec
+            if args.no_podman_index:
+                pressure_kwargs["podman_enabled"] = False
+            data = memory_pressure(**pressure_kwargs)
             if args.json:
                 print_json(data)
             else:
                 print_memory_pressure_text(data)
             return 0 if data.get("ok") else 1
         if args.memory_command == "processes":
-            data = memory_process_snapshot(top=int(args.top), smaps=not bool(args.no_smaps), write_latest=False)
+            process_kwargs: dict[str, Any] = {
+                "top": int(args.top),
+                "smaps": not bool(args.no_smaps),
+                "write_latest": False,
+            }
+            if args.podman_timeout_sec is not None:
+                process_kwargs["podman_timeout_sec"] = args.podman_timeout_sec
+            if args.no_podman_index:
+                process_kwargs["podman_enabled"] = False
+            data = memory_process_snapshot(**process_kwargs)
             if args.json:
                 print_json(data)
             else:
@@ -52464,7 +52775,12 @@ def main(argv: list[str]) -> int:
                 print_memory_plan_text(data)
             return 0 if data.get("ok") else 1
         if args.memory_command == "headroom":
-            data = memory_headroom(top=int(args.top), write_latest=False)
+            headroom_kwargs: dict[str, Any] = {"top": int(args.top), "write_latest": False}
+            if args.podman_timeout_sec is not None:
+                headroom_kwargs["podman_timeout_sec"] = args.podman_timeout_sec
+            if args.no_podman_index:
+                headroom_kwargs["podman_enabled"] = False
+            data = memory_headroom(**headroom_kwargs)
             if args.json:
                 print_json(data)
             else:
@@ -52480,6 +52796,7 @@ def main(argv: list[str]) -> int:
         if args.memory_command == "hotpath-probe":
             data = memory_hotpath_probe(
                 text=getattr(args, "text", None),
+                tts_profile=str(getattr(args, "tts_profile", "quality-compact")),
                 repeat_tts=int(getattr(args, "repeat_tts", 2)),
                 stt_profiles=getattr(args, "stt_profile", None),
                 include_llm=bool(getattr(args, "include_llm", False)),
@@ -54240,7 +54557,7 @@ def main(argv: list[str]) -> int:
             return 0 if data.get("ok") else 1
 
         if args.typing_command == "codex-hook-status":
-            data = typing_codex_prompt_hook_status(write_latest=True)
+            data = typing_codex_prompt_hook_status(write_latest=not bool(getattr(args, "no_write", False)))
             if args.json:
                 print_json(data)
             else:

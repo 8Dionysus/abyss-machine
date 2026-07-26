@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -103,10 +104,27 @@ def test_runtime_projection_omits_nested_status_payloads() -> None:
     assert "/var/lib/abyss-machine/private" not in json.dumps(row)
 
 
+def test_runtime_projection_omits_raw_stderr_for_non_json_failures() -> None:
+    row = host_lifecycle_parity.compact_command_result(
+        name="example",
+        command=["abyss-machine", "example", "--json"],
+        returncode=2,
+        stdout="",
+        stderr="private host path: /private/operator/secret",
+    )
+
+    rendered = json.dumps(row)
+    assert row["status"] == "failed"
+    assert row["stderr_bytes"] > 0
+    assert "stderr_tail" not in row
+    assert "/private/operator/secret" not in rendered
+
+
 def test_runtime_check_profiles_are_module_owned_and_deduped() -> None:
     assert host_lifecycle_parity.select_runtime_check_names() == ["enter"]
     assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["diagnostic-read"]) == ["doctor-paths"]
     assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["storage-refresh"]) == ["storage-cleanup-plan"]
+    assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["typing-read"]) == ["typing-codex-hook-status"]
     assert host_lifecycle_parity.select_runtime_check_names(runtime_profiles=["ai-llm-refresh"]) == [
         "ai-validate",
         "ai-llm-validate",
@@ -125,9 +143,12 @@ def test_runtime_check_profiles_are_module_owned_and_deduped() -> None:
         "doctor-paths",
     ]
     assert host_lifecycle_parity.runtime_command_effect_catalog()["doctor-paths"] == "read_only"
+    assert host_lifecycle_parity.runtime_command_effect_catalog()["typing-codex-hook-status"] == "read_only"
+    assert host_lifecycle_parity.runtime_command_effect_catalog()["enter"] == "refresh_latest"
     assert host_lifecycle_parity.runtime_command_effect_catalog()["storage-cleanup-plan"] == "refresh_latest"
     assert set(host_lifecycle_parity.runtime_command_effect_catalog()) == set(host_lifecycle_parity.runtime_command_catalog())
     assert host_lifecycle_parity.runtime_refresh_check_names(["enter", "doctor", "ai-validate"]) == [
+        "enter",
         "doctor",
         "ai-validate",
     ]
@@ -137,6 +158,13 @@ def test_runtime_check_profiles_are_module_owned_and_deduped() -> None:
         "machine-report",
         "--json",
         "--no-thermal-sample",
+    ]
+    assert host_lifecycle_parity.runtime_command_catalog()["typing-codex-hook-status"] == [
+        "abyss-machine",
+        "typing",
+        "codex-hook-status",
+        "--json",
+        "--no-write",
     ]
 
 
@@ -213,6 +241,14 @@ def test_build_parity_document_combines_content_and_runtime(tmp_path: Path) -> N
     assert report["ok"] is True
     assert report["content_parity"]["status"] == "ok"
     assert report["runtime"]["status"] == "ok"
+    assert report["next_actions"] == [
+        {
+            "id": "no_action_required",
+            "status": "ok",
+            "reason": "source, installed projection, and selected runtime checks agree",
+        }
+    ]
+    assert report["privacy"]["raw_runtime_stderr_included"] is False
     assert report["privacy"]["raw_runtime_json_included"] is False
 
 
@@ -266,6 +302,8 @@ def test_parity_summary_document_omits_paths_digests_and_raw_runtime_details(tmp
 
 
 def test_source_install_runtime_parity_script_supports_advisory_mode(tmp_path: Path) -> None:
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
     result = subprocess.run(
         [
             sys.executable,
@@ -278,6 +316,7 @@ def test_source_install_runtime_parity_script_supports_advisory_mode(tmp_path: P
             str(tmp_path / "missing-share"),
             "--runtime-check",
             "enter",
+            "--allow-runtime-refresh",
             "--runtime-timeout",
             "0.01",
             "--advisory",
@@ -288,6 +327,7 @@ def test_source_install_runtime_parity_script_supports_advisory_mode(tmp_path: P
         capture_output=True,
         check=False,
         timeout=30,
+        env={**os.environ, "PATH": str(empty_path)},
     )
 
     assert result.returncode == 0
@@ -295,6 +335,41 @@ def test_source_install_runtime_parity_script_supports_advisory_mode(tmp_path: P
     assert payload["schema"] == host_lifecycle_parity.SCHEMA
     assert payload["ok"] is False
     assert payload["content_parity"]["cli"]["status"] == "failed"
+    runtime_row = payload["runtime"]["checks"][0]
+    assert runtime_row["returncode"] == 127
+    assert runtime_row["error_kind"] == "missing_runtime_command"
+    assert "stderr_tail" not in runtime_row
+    assert payload["next_actions"][0]["id"] == "sync_installed_projection"
+    assert payload["next_actions"][0]["status"] == "operator_required"
+    assert payload["next_actions"][1]["id"] == "rerun_runtime_parity"
+    assert payload["next_actions"][1]["status"] == "after_projection_sync"
+
+
+def test_source_install_runtime_parity_default_enter_requires_refresh_allowance(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "validators" / "source_install_runtime_parity.py"),
+            "--host-cli",
+            str(tmp_path / "missing-cli"),
+            "--host-libexec-dir",
+            str(tmp_path / "missing-libexec"),
+            "--host-share-root",
+            str(tmp_path / "missing-share"),
+            "--json",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "blocked"
+    assert payload["refresh_checks"] == ["enter"]
+    assert "--allow-runtime-refresh" in payload["error"]
 
 
 def test_source_install_runtime_parity_script_emits_summary_projection(tmp_path: Path) -> None:
@@ -310,6 +385,7 @@ def test_source_install_runtime_parity_script_emits_summary_projection(tmp_path:
             str(tmp_path / "missing-share"),
             "--runtime-check",
             "enter",
+            "--allow-runtime-refresh",
             "--runtime-timeout",
             "0.01",
             "--advisory",

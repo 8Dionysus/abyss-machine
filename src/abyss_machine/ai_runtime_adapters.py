@@ -981,6 +981,7 @@ def policy_readmodel_from_live_inputs(
     observability = dict(observability_status())
     latest = observability.get("latest") if isinstance(observability.get("latest"), Mapping) else {}
     battery = latest.get("battery") if isinstance(latest.get("battery"), Mapping) else None
+    selected_battery = battery if isinstance(battery, Mapping) and battery else battery_summary()
     selected_cpu_thermal_map = (
         cpu_thermal_map_input
         if isinstance(cpu_thermal_map_input, Mapping)
@@ -992,7 +993,7 @@ def policy_readmodel_from_live_inputs(
         now_iso=now_iso,
         config=config,
         telemetry_age_sec=latest.get("age_sec"),
-        battery=battery if isinstance(battery, Mapping) else battery_summary(),
+        battery=selected_battery,
         mode=mode_status(),
         thermal=thermal_policy_snapshot(observability_latest(), thermal_policy),
         cpu_thermal_map=selected_cpu_thermal_map,
@@ -2103,14 +2104,15 @@ def llm_controller_result_projection(
         data = ai_runtime_contracts.parse_json_stdout(stdout)
         if data is not None:
             return {"format": "json", "data": data, "returncode": returncode}
+        error_returncode = returncode or 1
         return {
             "format": "json",
-            "returncode": returncode,
+            "returncode": error_returncode,
             "data": {
                 "ok": False,
                 "error": invalid_json_error,
                 "command": command,
-                "returncode": returncode,
+                "returncode": error_returncode,
                 "stdout_tail": ai_runtime_contracts.text_tail(stdout, 1000),
                 "stderr_tail": ai_runtime_contracts.text_tail(stderr, 1000),
             },
@@ -2121,7 +2123,9 @@ def llm_controller_result_projection(
         data = dict(json_error)
     else:
         data = {"ok": False, "error": stderr or empty_error, "command": command}
-    return {"format": "json", "data": data, "returncode": returncode}
+    error_returncode = returncode or 1
+    data.setdefault("returncode", error_returncode)
+    return {"format": "json", "data": data, "returncode": error_returncode}
 
 
 def stt_fixture_wav_duration(path: Path) -> float | None:

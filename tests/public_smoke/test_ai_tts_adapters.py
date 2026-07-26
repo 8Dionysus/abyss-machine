@@ -20,6 +20,29 @@ from abyss_machine import ai_tts_adapters
 STAMP = "2026-06-29T12:00:00+00:00"
 
 
+def test_cli_tts_host_managed_model_artifacts_require_cache_payload(monkeypatch, tmp_path: Path) -> None:
+    from abyss_machine import cli
+
+    monkeypatch.setattr(cli, "AI_TTS_CACHE_ROOT", tmp_path)
+    empty_cache = tmp_path / "npu-fast-experimental"
+    empty_cache.mkdir()
+
+    missing = cli.ai_tts_host_managed_model_artifacts("npu-fast-experimental")
+    assert missing["exists"] is True
+    assert missing["complete"] is False
+    assert missing["required_files"]["cache_payload"] is False
+    assert missing["cache_dir"] == str(empty_cache)
+
+    payload = empty_cache / "models--babelvox" / "snapshots" / "fixture" / "config.json"
+    payload.parent.mkdir(parents=True)
+    payload.write_text("{}", encoding="utf-8")
+
+    ready = cli.ai_tts_host_managed_model_artifacts("npu-fast-experimental")
+    assert ready["exists"] is True
+    assert ready["complete"] is True
+    assert ready["required_files"]["cache_payload"] is True
+
+
 def test_tts_server_socket_path_and_transport_are_fakeable() -> None:
     assert ai_tts_adapters.server_socket_path({}, 1000) == Path("/run/user/1000/abyss-machine/tts/server.sock")
     assert ai_tts_adapters.server_socket_path({"ABYSS_TTS_SERVER_SOCKET": "/tmp/tts.sock"}, 1000) == Path("/tmp/tts.sock")

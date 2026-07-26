@@ -52,7 +52,10 @@ def test_memory_status_parsers_use_fake_roots_and_runners(tmp_path: Path) -> Non
     assert memory_adapters.zram_status(runner=runner)["summary"]["logical_to_memory_ratio"] == 1.333
     assert memory_adapters.sysctl_snapshot(runner=runner)["values"]["vm.swappiness"] == "60"
     assert memory_adapters.zswap_status(module_root=zswap_root)["enabled"] is True
-    assert memory_adapters.cgroup_status(cgroup_root=cgroup_root, uid=1000)["user"]["memory_events"]["oom"] == 1
+    cgroup_status = memory_adapters.cgroup_status(cgroup_root=cgroup_root, uid=1000)
+    assert cgroup_status["root"]["memory_max"] == "max"
+    assert cgroup_status["user"]["memory_max"] is None
+    assert cgroup_status["user"]["memory_events"]["oom"] == 1
 
 
 def test_resource_slice_cache_offer_requires_empty_clean_owner_cgroup(tmp_path: Path) -> None:
@@ -441,8 +444,173 @@ def test_process_snapshot_uses_fake_proc_cgroup_and_podman_ports(tmp_path: Path)
     assert body["summary"]["top_cgroup_memory_total_kib"] == 4096
     top_cgroup = body["top"]["cgroup_memory"][0]
     assert top_cgroup["protected"] is True
+    assert top_cgroup["importance"]["class"] == "protected_capability"
     assert top_cgroup["podman"]["name"] == "model-api"
+    assert top_cgroup["podman_id"] == "abcdef123456"
     assert body["top"]["pss"][0]["pss_kib"] == 2048
+    assert body["top"]["pss"][0]["protected"] is True
+    assert body["top"]["pss"][0]["route"] == "route_new_work_around_protected_capability"
+    assert body["top"]["pss"][0]["importance"]["class"] == "protected_capability"
+
+
+def test_process_snapshot_matches_podman_container_by_cgroup_id(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    cgroup_root = tmp_path / "cgroup"
+    container_id = "abcdef1234567890abcdef1234567890"
+    cgroup_path = f"/user.slice/libpod-{container_id}.scope/container"
+    cgroup = cgroup_root / cgroup_path.lstrip("/")
+    (proc_root / "10").mkdir(parents=True)
+    cgroup.mkdir(parents=True)
+    (proc_root / "10" / "smaps_rollup").write_text("Rss: 4096 kB\nPss: 2048 kB\nSwap: 1024 kB\n", encoding="utf-8")
+    (cgroup / "memory.current").write_text("4194304\n", encoding="utf-8")
+    (cgroup / "memory.swap.current").write_text("1048576\n", encoding="utf-8")
+
+    def process_info(pid: int) -> dict[str, Any] | None:
+        return {
+            "pid": pid,
+            "name": "ovms",
+            "vmrss_kib": 4096,
+            "oom_score": 100,
+            "cgroup": f"0::{cgroup_path}",
+            "workload_hint": "ai_runtime",
+            "capability_role": "persistent_model",
+            "cmdline": "ovms --serve",
+        }
+
+    body = memory_adapters.process_snapshot(
+        top=5,
+        proc_root=proc_root,
+        cgroup_root=cgroup_root,
+        process_info=process_info,
+        podman_index_port=lambda: {
+            "containers": 1,
+            "error": None,
+            "by_pid": {},
+            "by_id": {
+                container_id: {"id": container_id[:12], "name": "ovms", "compose_service": "ovms"},
+            },
+        },
+        protected_roles={"persistent_model", "persistent_ai_service", "operator_dictation"},
+    )
+
+    top_cgroup = body["top"]["cgroup_swap"][0]
+    assert top_cgroup["podman_id"] == container_id[:12]
+    assert top_cgroup["container_name"] == "ovms"
+    assert top_cgroup["compose_service"] == "ovms"
+    assert top_cgroup["protected"] is True
+
+
+def test_process_snapshot_classifies_stack_stateful_podman_services(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    cgroup_root = tmp_path / "cgroup"
+    container_id = "1234567890abcdef1234567890abcdef"
+    cgroup_path = f"/user.slice/libpod-{container_id}.scope/container"
+    cgroup = cgroup_root / cgroup_path.lstrip("/")
+    (proc_root / "10").mkdir(parents=True)
+    cgroup.mkdir(parents=True)
+    (proc_root / "10" / "smaps_rollup").write_text("Rss: 4096 kB\nPss: 2048 kB\nSwap: 1024 kB\n", encoding="utf-8")
+    (cgroup / "memory.current").write_text("4194304\n", encoding="utf-8")
+    (cgroup / "memory.swap.current").write_text("1048576\n", encoding="utf-8")
+
+    def process_info(pid: int) -> dict[str, Any] | None:
+        return {
+            "pid": pid,
+            "name": "java",
+            "vmrss_kib": 4096,
+            "oom_score": 100,
+            "cgroup": f"0::{cgroup_path}",
+            "workload_hint": "normal",
+            "capability_role": "none",
+            "cmdline": "/opt/java/openjdk/bin/java -cp /var/lib/neo4j/lib/*",
+        }
+
+    body = memory_adapters.process_snapshot(
+        top=5,
+        proc_root=proc_root,
+        cgroup_root=cgroup_root,
+        process_info=process_info,
+        podman_index_port=lambda: {
+            "containers": 1,
+            "error": None,
+            "by_pid": {},
+            "by_id": {
+                container_id: {"id": container_id[:12], "name": "abyss_neo4j_1", "compose_service": "neo4j"},
+            },
+        },
+        protected_roles={"persistent_model", "persistent_ai_service", "operator_dictation"},
+    )
+
+    top_cgroup = body["top"]["cgroup_swap"][0]
+    assert top_cgroup["workload_hint"] == "stack_service"
+    assert top_cgroup["capability_role"] == "stack_state_service"
+    assert top_cgroup["protected"] is True
+    assert top_cgroup["route"] == "stack_owner_route_required"
+    assert top_cgroup["importance"]["class"] == "stack_state_service"
+
+
+def test_process_snapshot_keeps_podman_id_when_podman_index_times_out(tmp_path: Path) -> None:
+    proc_root = tmp_path / "proc"
+    cgroup_root = tmp_path / "cgroup"
+    container_id = "fedcba9876543210fedcba9876543210"
+    cgroup_path = f"/user.slice/libpod-{container_id}.scope/container"
+    cgroup = cgroup_root / cgroup_path.lstrip("/")
+    (proc_root / "10").mkdir(parents=True)
+    cgroup.mkdir(parents=True)
+    (proc_root / "10" / "smaps_rollup").write_text("Rss: 4096 kB\nPss: 2048 kB\nSwap: 1024 kB\n", encoding="utf-8")
+    (cgroup / "memory.current").write_text("4194304\n", encoding="utf-8")
+    (cgroup / "memory.swap.current").write_text("1048576\n", encoding="utf-8")
+
+    def process_info(pid: int) -> dict[str, Any] | None:
+        return {
+            "pid": pid,
+            "name": "ovms",
+            "vmrss_kib": 4096,
+            "oom_score": 100,
+            "cgroup": f"0::{cgroup_path}",
+            "workload_hint": "ai_runtime",
+            "capability_role": "persistent_model",
+            "cmdline": "ovms --serve",
+        }
+
+    body = memory_adapters.process_snapshot(
+        top=5,
+        proc_root=proc_root,
+        cgroup_root=cgroup_root,
+        process_info=process_info,
+        podman_index_port=lambda: {
+            "containers": 0,
+            "error": "timeout",
+            "by_pid": {},
+            "by_id": {},
+        },
+        protected_roles={"persistent_model", "persistent_ai_service", "operator_dictation"},
+    )
+
+    top_cgroup = body["top"]["cgroup_swap"][0]
+    assert body["summary"]["podman_index_error"] == "timeout"
+    assert top_cgroup["podman"] is None
+    assert top_cgroup["podman_id"] == container_id[:12]
+    assert top_cgroup["protected"] is True
+
+
+def test_podman_container_index_accepts_explicit_short_timeout() -> None:
+    calls: list[tuple[list[str], float]] = []
+
+    def runner(command: list[str], timeout: float) -> dict[str, Any]:
+        calls.append((command, timeout))
+        return {"ok": False, "returncode": 124, "stdout": "", "stderr": "timeout"}
+
+    snapshot = memory_adapters.podman_container_index(
+        command_exists=lambda name: name == "podman",
+        runner=runner,
+        timeout_sec=0.25,
+    )
+
+    assert calls == [(["podman", "ps", "--format", "json"], 0.25)]
+    assert snapshot["available"] is False
+    assert snapshot["containers"] == 0
+    assert snapshot["error"] == "timeout"
+    assert snapshot["timeout_sec"] == 0.25
 
 
 def test_codex_thread_identity_uses_open_rollout_fd_without_exposing_path(tmp_path: Path) -> None:
