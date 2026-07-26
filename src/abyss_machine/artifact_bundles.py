@@ -4509,8 +4509,20 @@ def _canonical_producer_admission_record(
             "manifest_ref": str(
                 profile.get("canonical_release_manifest_ref") or ""
             ),
+            "manifest_digest": str(
+                profile.get("canonical_release_manifest_digest") or ""
+            ),
+            "member_set_digest": str(
+                profile.get("canonical_release_member_set_digest") or ""
+            ),
             "subject_count": profile.get(
                 "canonical_release_subject_count"
+            ),
+            "artifact_subjects_digest": str(
+                profile.get(
+                    "canonical_release_artifact_subjects_digest"
+                )
+                or ""
             ),
             "attestation": {
                 "evidence_schema": str(
@@ -8322,6 +8334,9 @@ def _canonical_public_release_archive_binding_errors(
         "archive_digest": canonical_release.get("asset_digest"),
         "archive_prefix": canonical_release.get("archive_prefix"),
         "archive_manifest_ref": canonical_release.get("manifest_ref"),
+        "archive_manifest_digest": canonical_release.get(
+            "manifest_digest"
+        ),
         "archive_file_count": (
             canonical_release.get("subject_count", 0) + 1
             if isinstance(
@@ -8333,7 +8348,12 @@ def _canonical_public_release_archive_binding_errors(
         "artifact_subject_count": canonical_release.get(
             "subject_count"
         ),
-        "artifact_subjects_digest": artifact_subjects_digest,
+        "artifact_subjects_digest": canonical_release.get(
+            "artifact_subjects_digest"
+        ),
+        "archive_member_set_digest": canonical_release.get(
+            "member_set_digest"
+        ),
     }
     errors: list[str] = []
     for field, expected_value in expected.items():
@@ -8342,19 +8362,13 @@ def _canonical_public_release_archive_binding_errors(
                 "canonical_public_release_archive_binding_mismatch:"
                 f"{field}"
             )
-    manifest_digest = str(actual.get("archive_manifest_digest") or "")
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", manifest_digest):
+    if (
+        artifact_subjects_digest
+        != canonical_release.get("artifact_subjects_digest")
+    ):
         errors.append(
             "canonical_public_release_archive_binding_mismatch:"
-            "archive_manifest_digest"
-        )
-    member_set_digest = str(
-        actual.get("archive_member_set_digest") or ""
-    )
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", member_set_digest):
-        errors.append(
-            "canonical_public_release_archive_binding_mismatch:"
-            "archive_member_set_digest"
+            "record_artifact_subjects_digest"
         )
     verification = actual.get("verification")
     verification = (

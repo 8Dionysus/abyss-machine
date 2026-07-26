@@ -99,8 +99,10 @@ record rather than silently floating to a new tag.
 Canonical promotion now requires both `--subject-root` and
 `--public-release-archive`. The durable record contains no local paths; it
 retains the exact archive, manifest, member-set, and subject aggregate digests
-plus the five successful parity verdicts so later trust-gate reads fail closed
-if that binding is absent or mutated.
+plus the five successful parity verdicts. The canonical policy pins the exact
+manifest, member-set, and subject aggregate digests, so later trust-gate reads
+compare values rather than merely accepting syntactically valid SHA-256
+strings and fail closed if that binding is absent or mutated.
 
 ## Boundaries
 
@@ -123,6 +125,9 @@ if that binding is absent or mutated.
 - 2026-07-26: Added byte-level archive-to-subject binding after review found
   that a locally rebuilt subject family could otherwise repeat the known
   archive digest.
+- 2026-07-26: Pinned persisted manifest, archive-member-set, and subject
+  aggregate digests after review found that well-formed replacement digests
+  could otherwise survive a later trust-gate read.
 
 ## Source Surfaces
 
@@ -140,7 +145,8 @@ if that binding is absent or mutated.
 - Bundle tests exercise canonical build, verify, public-release promotion,
   subject materialization, normal-runtime allow, predecessor rejection, and
   source/receipt/authority/release-digest/archive-member/local-rebuild tamper
-  rejection.
+  rejection, including persisted digest replacement with another well-formed
+  SHA-256 value.
 - The real public v0.8.0 bundle must pass the same build, verification,
   archive-binding, registry, subject-store, and runtime-gate sequence before
   cutover.

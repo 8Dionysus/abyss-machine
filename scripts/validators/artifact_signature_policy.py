@@ -66,7 +66,10 @@ REQUIRED_CANONICAL_PROFILE_KEYS = (
     "canonical_release_asset_digest",
     "canonical_release_archive_prefix",
     "canonical_release_manifest_ref",
+    "canonical_release_manifest_digest",
+    "canonical_release_member_set_digest",
     "canonical_release_subject_count",
+    "canonical_release_artifact_subjects_digest",
     "canonical_release_evidence_schema",
     "canonical_release_evidence_ref",
     "canonical_release_verifier",
@@ -303,7 +306,19 @@ CANONICAL_ROUTING_ADMISSION_CONTRACT = {
     ),
     "canonical_release_archive_prefix": "aoa-sdk-routing-g5-canonical",
     "canonical_release_manifest_ref": "artifact.bundle.json",
+    "canonical_release_manifest_digest": (
+        "sha256:06597580000a728dedfac209c7cd74ec"
+        "8e4472bae581de01cf229a6c5a1c01bc"
+    ),
+    "canonical_release_member_set_digest": (
+        "sha256:d4c3b16c116c71712f77a917a8ab74"
+        "c555cc2c4b76bf8d364b9de46fd708b92e"
+    ),
     "canonical_release_subject_count": 29,
+    "canonical_release_artifact_subjects_digest": (
+        "sha256:4b18aa61850afe3859ca2e3a221a671"
+        "0a34dc45ea47d9321126abb1ebbe1671b"
+    ),
     "canonical_release_evidence_schema": (
         "abyss_machine_public_release_trust_root_evidence_v1"
     ),
