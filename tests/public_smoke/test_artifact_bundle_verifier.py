@@ -8911,6 +8911,52 @@ def test_sdk_routing_canonical_rejects_wrong_public_release_digest(
     )
 
 
+def test_sdk_routing_canonical_rejects_wrong_evidence_subject_before_registry_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
+        tmp_path
+    )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(
+        monkeypatch,
+        archive,
+        manifest_path,
+    )
+    bundle = tmp_path / "bundle"
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=manifest_path,
+    )
+    artifact_bundles.sign_bundle(bundle)
+
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        tmp_path / "registry",
+        lifecycle_state="release-ready",
+        source_repo="aoa-sdk",
+        source_ref=sdk_source_ref,
+        producer="pytest aoa-sdk canonical routing builder",
+        trust_root_mode="public_release",
+        trust_root_evidence=_canonical_public_release_evidence(
+            subject_digest="sha256:" + ("0" * 64),
+            sdk_source_ref=sdk_source_ref,
+        ),
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
+    )
+
+    assert promoted["ok"] is False
+    assert promoted["written"] == []
+    assert (
+        "canonical_public_release_evidence_mismatch:subject_digest"
+        in promoted["errors"]
+    )
+
+
 def test_sdk_routing_canonical_rejects_archive_digest_before_decompression(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -8457,6 +8457,7 @@ def _producer_admission_boundary_errors(
     consumer_intent: str = "",
     trust_root_evidence: Mapping[str, Any] | None = None,
     canonical_archive_binding: Mapping[str, Any] | None = None,
+    subject_digest: str = "",
     artifact_subjects_digest: str = "",
     repo_root: Path = REPO_ROOT,
 ) -> list[str]:
@@ -8546,6 +8547,7 @@ def _producer_admission_boundary_errors(
                 "mode": "public_release",
                 "source_repo": canonical_profile.get("owner_repo"),
                 "source_ref": canonical_profile.get("source_ref"),
+                "subject_digest": subject_digest,
                 "release_ref": canonical_profile.get(
                     "canonical_release_ref"
                 ),
@@ -8816,6 +8818,7 @@ def bundle_registry_record(
                 trust_root_mode=trust_root_mode,
                 trust_root_evidence=trust_root_evidence,
                 canonical_archive_binding=canonical_archive_binding,
+                subject_digest=subject_digest,
                 artifact_subjects_digest=str(
                     subjects.get("aggregate_digest") or ""
                 ),
@@ -9975,6 +9978,9 @@ def trust_gate(
                         Mapping,
                     )
                     else {}
+                ),
+                subject_digest=str(
+                    selected.get("subject_digest") or ""
                 ),
                 artifact_subjects_digest=str(
                     selected.get("artifact_subjects_digest") or ""
