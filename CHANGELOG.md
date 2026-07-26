@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Compact the Artifact Trust skill's global routing description while retaining
+  its artifact classes, evidence-pressure triggers, and nearest exclusions in
+  the host-visible prefix.
 - Admit only the exact receipt-bound `aoa-sdk` G5 canonical routing producer,
   and require promotion to prove byte parity between the policy-pinned public
   v0.8.0 archive, its manifest, all 29 subjects, their aggregate, and exact

@@ -1,6 +1,6 @@
 ---
 name: os-abyss-artifact-trust-loop
-description: "Route an OS Abyss artifact through owner classification, required controls, producer evidence, drift, durable registry selection, and fail-closed consumer admission. Use before building, releasing, updating, installing, publishing, or consuming an Abyss bundle, package, container, model/runtime, generated read model, portable export, browser extension, or public media artifact; also use to diagnose stale provenance, SBOM, signatures, C2PA, TUF, OCI, source-ref, registry-latest, or trust-gate evidence. Do not use for ordinary source edits or tests with no artifact boundary, generic supply-chain explanations, raw session retrieval, or source-authority disputes."
+description: "Route one OS Abyss artifact through owner controls, evidence/drift review, registry selection, and fail-closed consumer admission. Use before producing or consuming a concrete bundle, package, container, model/runtime, generated export, extension, or media artifact, or when provenance, SBOM/signature, source-ref, registry, or trust-gate evidence is stale or missing. Do not use for ordinary source edits/tests, generic supply-chain explanations, raw sessions, or source-authority disputes."
 ---
 
 # OS Abyss Artifact Trust Loop
@@ -41,7 +41,7 @@ Use the skill directory reported by the host as the initial bundle root.
 3. Require `schema_version` to be `aoa_skill_source_receipt_v1` or
    `aoa_skill_source_receipt_v2`,
    `name=os-abyss-artifact-trust-loop`, `owner_repo=abyss-machine`,
-   `source_path=skills/os-abyss-artifact-trust-loop`, and `version=0.1.1`.
+   `source_path=skills/os-abyss-artifact-trust-loop`, and `version=0.1.2`.
    For v2 also require non-empty `digest`, `source_fingerprint`,
    `source_fingerprint_scope`, and `prompt_description_sha256`. When
    `capability_graph_hash` is present, require it to be a non-empty string and
