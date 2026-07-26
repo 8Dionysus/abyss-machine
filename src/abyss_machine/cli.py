@@ -49792,6 +49792,11 @@ def main(argv: list[str]) -> int:
     artifacts_bundle_register_parser.add_argument("--source-repo", default="", help="source repository that produced the artifact")
     artifacts_bundle_register_parser.add_argument("--source-ref", default="", help="source ref, manifest, or revision used for the promoted artifact")
     artifacts_bundle_register_parser.add_argument("--subject-root", default="", help="runtime artifact subject root for verification before registration")
+    artifacts_bundle_register_parser.add_argument(
+        "--public-release-archive",
+        default="",
+        help="exact public release archive whose bytes must bind canonical subjects before registration",
+    )
     artifacts_bundle_register_parser.add_argument("--producer", default="", help="producer identity for the promoted artifact")
     artifacts_bundle_register_parser.add_argument(
         "--trust-root-mode",
@@ -49820,6 +49825,11 @@ def main(argv: list[str]) -> int:
     artifacts_evidence_promote_parser.add_argument("--source-repo", default="", help="source repository that produced the artifact")
     artifacts_evidence_promote_parser.add_argument("--source-ref", default="", help="source ref, manifest, or revision used for the promoted artifact")
     artifacts_evidence_promote_parser.add_argument("--subject-root", default="", help="runtime artifact subject root for verification before promotion")
+    artifacts_evidence_promote_parser.add_argument(
+        "--public-release-archive",
+        default="",
+        help="exact public release archive whose bytes must bind canonical subjects before promotion",
+    )
     artifacts_evidence_promote_parser.add_argument("--producer", default="", help="producer identity for the promoted artifact")
     artifacts_evidence_promote_parser.add_argument(
         "--trust-root-mode",
@@ -52148,6 +52158,9 @@ def main(argv: list[str]) -> int:
                 trust_root_mode=str(args.trust_root_mode),
                 trust_root_evidence=trust_root_evidence,
                 subject_root=str(args.subject_root or "") or None,
+                public_release_archive=(
+                    str(args.public_release_archive or "") or None
+                ),
             )
             if args.json:
                 print_json(data)
@@ -52185,6 +52198,9 @@ def main(argv: list[str]) -> int:
                 trust_root_mode=str(args.trust_root_mode),
                 trust_root_evidence=trust_root_evidence,
                 subject_root=str(args.subject_root or "") or None,
+                public_release_archive=(
+                    str(args.public_release_archive or "") or None
+                ),
             )
             if args.json:
                 print_json(data)

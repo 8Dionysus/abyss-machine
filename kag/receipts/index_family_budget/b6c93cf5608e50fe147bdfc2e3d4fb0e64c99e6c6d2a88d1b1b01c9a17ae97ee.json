@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 20204227,
+  "allowed_tracked_bytes": 25315289,
+  "approved_by": "repository-owner",
+  "base_ref": "7f1b9fcf6f5beca7203f49ffb7ec53d765d1db86",
+  "changed_generated_bytes": 20204227,
+  "changed_generated_files": 276,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "b6c93cf5608e50fe147bdfc2e3d4fb0e64c99e6c6d2a88d1b1b01c9a17ae97ee",
+  "reason": "Receipt-bound SDK canonical routing producer admission now binds the exact public v0.8.0 archive, manifest, 29 subject bytes, subject aggregate, and attestation evidence before registry promotion; deterministic portable family refresh is required while tracked bytes remain below the standing cap and KAG authority is unchanged.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25315289,
+  "tracked_bytes_max": 27262976
+}

@@ -59,10 +59,17 @@ v0.8.0 canonical archive digest, abyss-stack contract ref, and archival stop
 line before sidecars can be built.
 
 Require a new public-release registry record whose trust evidence matches the
-v0.8.0 archive. Permit normal `runtime` only after the artifact subjects are
-materialized and the latest bound trust gate returns `allow`. Keep the two
-pre-G5 SDK profiles as separately selected historical contracts and reject new
-canonical production by `aoa-routing`.
+v0.8.0 archive. Promotion must read the exact policy-pinned archive and the
+runtime-supplied canonical subject root, reject unsafe or extra archive
+members, and prove byte parity for `artifact.bundle.json` plus all 29 declared
+subjects. It must also reproduce the exact subject aggregate and bind the
+archive digest to the exact attestation schema, verifier, and workflow evidence
+reference before writing a registry record.
+
+Permit normal `runtime` only after the artifact subjects are materialized and
+the latest bound trust gate returns `allow`. Keep the two pre-G5 SDK profiles
+as separately selected historical contracts and reject new canonical
+production by `aoa-routing`.
 
 ## Rationale
 
@@ -72,7 +79,9 @@ host admission, and consumer readiness. No single GitHub release, sidecar,
 owner string, or runtime command can manufacture the switch.
 
 A new registry record prevents a candidate verdict from being reinterpreted
-after policy changes. Keeping the subject store and runtime gate downstream
+after policy changes. Archive-to-subject byte parity prevents a caller from
+building valid sidecars over locally changed bytes while repeating the known
+public archive digest. Keeping the subject store and runtime gate downstream
 also proves that the exact reviewed bytes, not merely their metadata, are
 available to the consumer.
 
@@ -87,6 +96,12 @@ The exact source and release digests are intentionally narrow. A later SDK
 canonical release requires another explicit policy update and fresh admission
 record rather than silently floating to a new tag.
 
+Canonical promotion now requires both `--subject-root` and
+`--public-release-archive`. The durable record contains no local paths; it
+retains the exact archive, manifest, member-set, and subject aggregate digests
+plus the five successful parity verdicts so later trust-gate reads fail closed
+if that binding is absent or mutated.
+
 ## Boundaries
 
 - This decision does not make routing readmodels sibling source truth.
@@ -94,6 +109,8 @@ record rather than silently floating to a new tag.
 - It does not authorize `aoa-routing` archival or deletion.
 - It does not prove consumer-zero or compatibility exit.
 - It does not permit reuse or mutation of a pre-G5 registry record.
+- It does not let a locally rebuilt subject family inherit authority by
+  repeating the canonical public archive digest.
 - It does not claim live runtime cutover until abyss-stack produces its own
   owner-routed cutover and rollback evidence.
 
@@ -101,6 +118,11 @@ record rather than silently floating to a new tag.
 
 - 2026-07-26: Initial accepted record for the exact receipt-bound SDK G5
   canonical admission.
+- 2026-07-26: Required exact public-release evidence fields in the documented
+  promotion route after review found that the example omitted them.
+- 2026-07-26: Added byte-level archive-to-subject binding after review found
+  that a locally rebuilt subject family could otherwise repeat the known
+  archive digest.
 
 ## Source Surfaces
 
@@ -117,18 +139,21 @@ record rather than silently floating to a new tag.
 - Artifact policy validation pins the complete G5 canonical profile.
 - Bundle tests exercise canonical build, verify, public-release promotion,
   subject materialization, normal-runtime allow, predecessor rejection, and
-  source/receipt/authority/release-digest tamper rejection.
+  source/receipt/authority/release-digest/archive-member/local-rebuild tamper
+  rejection.
 - The real public v0.8.0 bundle must pass the same build, verification,
-  registry, subject-store, and runtime-gate sequence before cutover.
-- `PUBLIC_RELEASE_EVIDENCE_JSON` must contain the exact `release_ref`,
-  `asset_ref`, `asset_digest`, `source_repo`, `source_ref`, `subject_digest`,
-  and `verifier` values for the canonical v0.8.0 archive and built bundle.
+  archive-binding, registry, subject-store, and runtime-gate sequence before
+  cutover.
+- `PUBLIC_RELEASE_EVIDENCE_JSON` must contain the exact `schema`, `mode`,
+  `release_ref`, `asset_ref`, `asset_digest`, `source_repo`, `source_ref`,
+  `subject_digest`, `evidence_ref`, and `verifier` values for the canonical
+  v0.8.0 archive and built bundle.
 
 ```bash
 python scripts/validators/artifact_signature_policy.py
 pytest -q tests/public_smoke/test_artifact_identity_policy.py tests/public_smoke/test_artifact_bundle_verifier.py
 abyss-machine artifacts verify BUNDLE_DIR --subject-root CANONICAL_ROOT --json
-abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --trust-root-evidence-json @PUBLIC_RELEASE_EVIDENCE_JSON --json
+abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --trust-root-evidence-json @PUBLIC_RELEASE_EVIDENCE_JSON --subject-root CANONICAL_ROOT --public-release-archive CANONICAL_ARCHIVE --json
 abyss-machine artifacts materialize-subjects BUNDLE_DIR --store-root SUBJECT_STORE_ROOT --registry-dir REGISTRY_DIR --manifest CANONICAL_ROOT/artifact.bundle.json --consumer-intent runtime --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --json
 abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class thin_routing_readmodel_bundle --consumer-intent runtime --source-repo aoa-sdk --source-ref e4ffd26ed9e50125be584c00839ee6a8f7016a0d --trust-root-mode public_release --subject-digest SUBJECT_DIGEST --json
 ```

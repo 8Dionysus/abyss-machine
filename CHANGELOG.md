@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Admit only the exact receipt-bound `aoa-sdk` G5 canonical routing producer,
+  and require promotion to prove byte parity between the policy-pinned public
+  v0.8.0 archive, its manifest, all 29 subjects, their aggregate, and exact
+  attestation evidence before a durable registry record can be written.
 - Add the owner-local Artifact Trust skill bundle and OS-user exposure port,
   keeping artifact policy, registry, producer, and consumer-gate authority with
   their existing owners while adding the canonical skill package to the signed

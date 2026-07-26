@@ -11,6 +11,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tarfile
 import tomllib
 import urllib.parse
 import uuid
@@ -4502,6 +4503,26 @@ def _canonical_producer_admission_record(
             "asset_digest": str(
                 profile.get("canonical_release_asset_digest") or ""
             ),
+            "archive_prefix": str(
+                profile.get("canonical_release_archive_prefix") or ""
+            ),
+            "manifest_ref": str(
+                profile.get("canonical_release_manifest_ref") or ""
+            ),
+            "subject_count": profile.get(
+                "canonical_release_subject_count"
+            ),
+            "attestation": {
+                "evidence_schema": str(
+                    profile.get("canonical_release_evidence_schema") or ""
+                ),
+                "evidence_ref": str(
+                    profile.get("canonical_release_evidence_ref") or ""
+                ),
+                "verifier": str(
+                    profile.get("canonical_release_verifier") or ""
+                ),
+            },
         },
     }
 
@@ -7962,6 +7983,423 @@ def _public_media_public_release_c2pa_promotion_errors(record: dict[str, Any]) -
     return [PUBLIC_MEDIA_PUBLIC_RELEASE_C2PA_TRUST_LIST_VERIFIER_REQUIRED]
 
 
+def _canonical_public_release_archive_binding(
+    *,
+    producer_admission: Mapping[str, Any],
+    subjects: Mapping[str, Any],
+    subject_root: str | Path | None,
+    public_release_archive: str | Path | None,
+    trust_root_evidence: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], list[str]]:
+    if producer_admission.get("status") != "canonical_producer":
+        return {}, []
+
+    errors: list[str] = []
+    canonical_release = producer_admission.get("canonical_release")
+    if not isinstance(canonical_release, Mapping):
+        return {}, ["canonical_public_release_policy_binding_missing"]
+
+    expected_asset_name = str(
+        canonical_release.get("asset_name") or ""
+    )
+    expected_archive_digest = str(
+        canonical_release.get("asset_digest") or ""
+    )
+    archive_prefix = str(
+        canonical_release.get("archive_prefix") or ""
+    )
+    manifest_ref = str(canonical_release.get("manifest_ref") or "")
+    expected_subject_count = canonical_release.get("subject_count")
+    attestation = canonical_release.get("attestation")
+    attestation = (
+        attestation if isinstance(attestation, Mapping) else {}
+    )
+    evidence = (
+        trust_root_evidence
+        if isinstance(trust_root_evidence, Mapping)
+        else {}
+    )
+    if public_release_archive is None:
+        return {}, ["canonical_public_release_archive_required"]
+    if subject_root is None:
+        return {}, ["canonical_public_release_subject_root_required"]
+
+    try:
+        safe_prefix = _safe_repo_relative_path(
+            archive_prefix,
+            field="canonical_release.archive_prefix",
+        )
+        safe_manifest_ref = _safe_repo_relative_path(
+            manifest_ref,
+            field="canonical_release.manifest_ref",
+        )
+    except ValueError:
+        return {}, ["canonical_public_release_policy_path_invalid"]
+    if len(safe_prefix.parts) != 1:
+        return {}, ["canonical_public_release_archive_prefix_invalid"]
+    archive_prefix_path = PurePosixPath(safe_prefix.as_posix())
+    manifest_relative_path = PurePosixPath(
+        safe_manifest_ref.as_posix()
+    )
+
+    requested_archive = Path(public_release_archive).expanduser().absolute()
+    if requested_archive.is_symlink():
+        return {}, ["canonical_public_release_archive_symlink_forbidden"]
+    try:
+        archive = requested_archive.resolve(strict=True)
+    except OSError:
+        return {}, ["canonical_public_release_archive_missing"]
+    if not archive.is_file():
+        return {}, ["canonical_public_release_archive_not_regular_file"]
+    if archive.name != expected_asset_name:
+        errors.append("canonical_public_release_archive_asset_name_mismatch")
+    archive_digest = _file_digest(archive)
+    if archive_digest != expected_archive_digest:
+        errors.append("canonical_public_release_archive_digest_mismatch")
+
+    requested_root = Path(subject_root).expanduser().absolute()
+    if requested_root.is_symlink():
+        return {}, ["canonical_public_release_subject_root_symlink_forbidden"]
+    try:
+        resolved_subject_root = requested_root.resolve(strict=True)
+    except OSError:
+        return {}, ["canonical_public_release_subject_root_missing"]
+    if not resolved_subject_root.is_dir():
+        return {}, ["canonical_public_release_subject_root_not_directory"]
+
+    subject_files = (
+        subjects.get("files")
+        if isinstance(subjects.get("files"), list)
+        else []
+    )
+    if (
+        not isinstance(expected_subject_count, int)
+        or len(subject_files) != expected_subject_count
+    ):
+        errors.append("canonical_public_release_subject_count_mismatch")
+
+    normalized_subjects: dict[str, dict[str, Any]] = {}
+    for index, raw_entry in enumerate(subject_files):
+        if not isinstance(raw_entry, Mapping):
+            errors.append(
+                "canonical_public_release_subject_entry_invalid:"
+                f"{index}"
+            )
+            continue
+        path_text = str(raw_entry.get("path") or "")
+        try:
+            safe_path = _safe_repo_relative_path(
+                path_text,
+                field=f"artifact_subjects[{index}].path",
+            )
+        except ValueError:
+            errors.append(
+                "canonical_public_release_subject_path_invalid:"
+                f"{path_text}"
+            )
+            continue
+        normalized_path = safe_path.as_posix()
+        if normalized_path in normalized_subjects:
+            errors.append(
+                "canonical_public_release_subject_path_duplicate:"
+                f"{normalized_path}"
+            )
+            continue
+        normalized_subjects[normalized_path] = dict(raw_entry)
+
+    expected_file_refs = {
+        (archive_prefix_path / manifest_relative_path).as_posix()
+    } | {
+        (archive_prefix_path / PurePosixPath(path)).as_posix()
+        for path in normalized_subjects
+    }
+    expected_directory_refs: set[str] = set()
+    for member_ref in expected_file_refs:
+        parent = PurePosixPath(member_ref).parent
+        while parent != archive_prefix_path:
+            expected_directory_refs.add(parent.as_posix())
+            parent = parent.parent
+
+    archive_files: dict[str, bytes] = {}
+    archive_directories: set[str] = set()
+    seen_members: set[str] = set()
+    try:
+        with tarfile.open(archive, mode="r:gz") as tar:
+            for member in tar.getmembers():
+                raw_name = member.name.rstrip("/")
+                member_path = PurePosixPath(raw_name)
+                normalized_name = member_path.as_posix()
+                if (
+                    not raw_name
+                    or member_path.is_absolute()
+                    or ".." in member_path.parts
+                    or normalized_name != raw_name
+                    or normalized_name in seen_members
+                ):
+                    errors.append(
+                        "canonical_public_release_archive_member_invalid"
+                    )
+                    continue
+                seen_members.add(normalized_name)
+                if member.issym() or member.islnk():
+                    errors.append(
+                        "canonical_public_release_archive_link_forbidden"
+                    )
+                    continue
+                if member.isdir():
+                    archive_directories.add(normalized_name)
+                    continue
+                if not member.isfile():
+                    errors.append(
+                        "canonical_public_release_archive_member_type_invalid"
+                    )
+                    continue
+                extracted = tar.extractfile(member)
+                if extracted is None:
+                    errors.append(
+                        "canonical_public_release_archive_member_unreadable"
+                    )
+                    continue
+                archive_files[normalized_name] = extracted.read()
+    except (OSError, tarfile.TarError):
+        errors.append("canonical_public_release_archive_unreadable")
+
+    exact_member_set = (
+        set(archive_files) == expected_file_refs
+        and archive_directories == expected_directory_refs
+    )
+    if not exact_member_set:
+        errors.append("canonical_public_release_archive_member_set_mismatch")
+
+    manifest_member_ref = (
+        archive_prefix_path / manifest_relative_path
+    ).as_posix()
+    manifest_path = resolved_subject_root / Path(
+        safe_manifest_ref.as_posix()
+    )
+    manifest_byte_parity = False
+    manifest_digest = ""
+    try:
+        resolved_manifest = manifest_path.resolve(strict=True)
+        resolved_manifest.relative_to(resolved_subject_root)
+        if manifest_path.is_symlink() or not resolved_manifest.is_file():
+            raise OSError
+        local_manifest_bytes = resolved_manifest.read_bytes()
+        manifest_digest = (
+            "sha256:" + hashlib.sha256(local_manifest_bytes).hexdigest()
+        )
+        manifest_byte_parity = (
+            archive_files.get(manifest_member_ref)
+            == local_manifest_bytes
+        )
+    except (OSError, ValueError):
+        errors.append(
+            "canonical_public_release_local_manifest_invalid"
+        )
+    if not manifest_byte_parity:
+        errors.append(
+            "canonical_public_release_archive_manifest_byte_mismatch"
+        )
+
+    archive_subject_entries: list[dict[str, Any]] = []
+    subject_byte_parity = True
+    for path_text, expected_entry in sorted(normalized_subjects.items()):
+        archive_member_ref = (
+            archive_prefix_path / PurePosixPath(path_text)
+        ).as_posix()
+        body = archive_files.get(archive_member_ref)
+        local_path = resolved_subject_root / Path(path_text)
+        try:
+            resolved_local = local_path.resolve(strict=True)
+            resolved_local.relative_to(resolved_subject_root)
+            if local_path.is_symlink() or not resolved_local.is_file():
+                raise OSError
+            local_body = resolved_local.read_bytes()
+        except (OSError, ValueError):
+            errors.append(
+                "canonical_public_release_local_subject_invalid:"
+                f"{path_text}"
+            )
+            subject_byte_parity = False
+            continue
+        digest_hex = hashlib.sha256(body or b"").hexdigest()
+        archive_entry = {
+            "path": path_text,
+            "role": str(expected_entry.get("role") or "artifact"),
+            "bytes": len(body or b""),
+            "sha256": f"sha256:{digest_hex}",
+            "sha256_hex": digest_hex,
+        }
+        archive_subject_entries.append(archive_entry)
+        if body is None or body != local_body or archive_entry != expected_entry:
+            errors.append(
+                "canonical_public_release_archive_subject_byte_mismatch:"
+                f"{path_text}"
+            )
+            subject_byte_parity = False
+
+    archive_subjects_digest = _stable_digest(archive_subject_entries)
+    recorded_subjects_digest = str(
+        subjects.get("aggregate_digest") or ""
+    )
+    subject_aggregate_parity = (
+        len(archive_subject_entries) == len(normalized_subjects)
+        and archive_subjects_digest == recorded_subjects_digest
+    )
+    if not subject_aggregate_parity:
+        errors.append(
+            "canonical_public_release_archive_subject_aggregate_mismatch"
+        )
+
+    attestation_digest_bound = (
+        evidence.get("asset_digest") == archive_digest
+        and evidence.get("evidence_ref")
+        == attestation.get("evidence_ref")
+        and evidence.get("verifier") == attestation.get("verifier")
+        and evidence.get("schema")
+        == attestation.get("evidence_schema")
+    )
+    if not attestation_digest_bound:
+        errors.append(
+            "canonical_public_release_archive_attestation_binding_mismatch"
+        )
+
+    binding = {
+        "schema": (
+            "abyss_machine_canonical_public_release_archive_binding_v1"
+        ),
+        "archive_asset_name": archive.name,
+        "archive_digest": archive_digest,
+        "archive_prefix": archive_prefix_path.as_posix(),
+        "archive_manifest_ref": safe_manifest_ref.as_posix(),
+        "archive_manifest_digest": manifest_digest,
+        "archive_file_count": len(archive_files),
+        "artifact_subject_count": len(archive_subject_entries),
+        "artifact_subjects_digest": archive_subjects_digest,
+        "archive_member_set_digest": _stable_digest(
+            sorted(expected_file_refs | expected_directory_refs)
+        ),
+        "attestation": {
+            "evidence_schema": str(evidence.get("schema") or ""),
+            "evidence_ref": str(evidence.get("evidence_ref") or ""),
+            "verifier": str(evidence.get("verifier") or ""),
+            "asset_digest": str(evidence.get("asset_digest") or ""),
+            "archive_digest_bound": attestation_digest_bound,
+        },
+        "verification": {
+            "archive_digest_matches_policy": (
+                archive_digest == expected_archive_digest
+            ),
+            "exact_member_set": exact_member_set,
+            "manifest_byte_parity": manifest_byte_parity,
+            "subject_byte_parity": subject_byte_parity,
+            "subject_aggregate_parity": subject_aggregate_parity,
+        },
+    }
+    return binding, errors
+
+
+def _canonical_public_release_archive_binding_errors(
+    admission: Mapping[str, Any],
+    binding: Mapping[str, Any] | None,
+    *,
+    artifact_subjects_digest: str,
+) -> list[str]:
+    if admission.get("status") != "canonical_producer":
+        return []
+    canonical_release = admission.get("canonical_release")
+    canonical_release = (
+        canonical_release
+        if isinstance(canonical_release, Mapping)
+        else {}
+    )
+    actual = binding if isinstance(binding, Mapping) else {}
+    expected = {
+        "schema": (
+            "abyss_machine_canonical_public_release_archive_binding_v1"
+        ),
+        "archive_asset_name": canonical_release.get("asset_name"),
+        "archive_digest": canonical_release.get("asset_digest"),
+        "archive_prefix": canonical_release.get("archive_prefix"),
+        "archive_manifest_ref": canonical_release.get("manifest_ref"),
+        "archive_file_count": (
+            canonical_release.get("subject_count", 0) + 1
+            if isinstance(
+                canonical_release.get("subject_count"),
+                int,
+            )
+            else None
+        ),
+        "artifact_subject_count": canonical_release.get(
+            "subject_count"
+        ),
+        "artifact_subjects_digest": artifact_subjects_digest,
+    }
+    errors: list[str] = []
+    for field, expected_value in expected.items():
+        if not actual or actual.get(field) != expected_value:
+            errors.append(
+                "canonical_public_release_archive_binding_mismatch:"
+                f"{field}"
+            )
+    manifest_digest = str(actual.get("archive_manifest_digest") or "")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", manifest_digest):
+        errors.append(
+            "canonical_public_release_archive_binding_mismatch:"
+            "archive_manifest_digest"
+        )
+    member_set_digest = str(
+        actual.get("archive_member_set_digest") or ""
+    )
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", member_set_digest):
+        errors.append(
+            "canonical_public_release_archive_binding_mismatch:"
+            "archive_member_set_digest"
+        )
+    verification = actual.get("verification")
+    verification = (
+        verification if isinstance(verification, Mapping) else {}
+    )
+    for field in (
+        "archive_digest_matches_policy",
+        "exact_member_set",
+        "manifest_byte_parity",
+        "subject_byte_parity",
+        "subject_aggregate_parity",
+    ):
+        if verification.get(field) is not True:
+            errors.append(
+                "canonical_public_release_archive_binding_mismatch:"
+                f"verification.{field}"
+            )
+    attestation = actual.get("attestation")
+    attestation = (
+        attestation if isinstance(attestation, Mapping) else {}
+    )
+    expected_attestation = canonical_release.get("attestation")
+    expected_attestation = (
+        expected_attestation
+        if isinstance(expected_attestation, Mapping)
+        else {}
+    )
+    for field in ("evidence_schema", "evidence_ref", "verifier"):
+        if attestation.get(field) != expected_attestation.get(field):
+            errors.append(
+                "canonical_public_release_archive_binding_mismatch:"
+                f"attestation.{field}"
+            )
+    if (
+        attestation.get("asset_digest")
+        != canonical_release.get("asset_digest")
+        or attestation.get("archive_digest_bound") is not True
+    ):
+        errors.append(
+            "canonical_public_release_archive_binding_mismatch:"
+            "attestation.asset_digest"
+        )
+    return errors
+
+
 def _registry_record_path(registry_dir: Path, record_id: str) -> Path:
     filename = record_id.removeprefix("sha256:") + ".json"
     return registry_dir / BUNDLE_REGISTRY_RECORDS_DIR / filename
@@ -8001,6 +8439,8 @@ def _producer_admission_boundary_errors(
     trust_root_mode: str,
     consumer_intent: str = "",
     trust_root_evidence: Mapping[str, Any] | None = None,
+    canonical_archive_binding: Mapping[str, Any] | None = None,
+    artifact_subjects_digest: str = "",
     repo_root: Path = REPO_ROOT,
 ) -> list[str]:
     status = str(admission.get("status") or "")
@@ -8083,6 +8523,10 @@ def _producer_admission_boundary_errors(
                 else {}
             )
             expected_evidence = {
+                "schema": canonical_profile.get(
+                    "canonical_release_evidence_schema"
+                ),
+                "mode": "public_release",
                 "source_repo": canonical_profile.get("owner_repo"),
                 "source_ref": canonical_profile.get("source_ref"),
                 "release_ref": canonical_profile.get(
@@ -8094,6 +8538,12 @@ def _producer_admission_boundary_errors(
                 "asset_digest": canonical_profile.get(
                     "canonical_release_asset_digest"
                 ),
+                "evidence_ref": canonical_profile.get(
+                    "canonical_release_evidence_ref"
+                ),
+                "verifier": canonical_profile.get(
+                    "canonical_release_verifier"
+                ),
             }
             for field, expected_value in expected_evidence.items():
                 if evidence.get(field) != expected_value:
@@ -8101,6 +8551,13 @@ def _producer_admission_boundary_errors(
                         "canonical_public_release_evidence_mismatch:"
                         f"{field}"
                     )
+        errors.extend(
+            _canonical_public_release_archive_binding_errors(
+                admission,
+                canonical_archive_binding,
+                artifact_subjects_digest=artifact_subjects_digest,
+            )
+        )
         return errors
     if status != "candidate_admitted":
         return ["producer_admission_status_invalid"]
@@ -8234,6 +8691,7 @@ def bundle_registry_record(
     trust_root_evidence: dict[str, Any] | None = None,
     verifier_versions: dict[str, Any] | None = None,
     subject_root: str | Path | None = None,
+    public_release_archive: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     if lifecycle_state not in BUNDLE_LIFECYCLE_STATES:
@@ -8305,6 +8763,7 @@ def bundle_registry_record(
         provenance=provenance,
         manifest=manifest,
     )
+    canonical_archive_binding: dict[str, Any] = {}
     if producer_admission.get("status") in {
         "candidate_admitted",
         "canonical_producer",
@@ -8321,6 +8780,17 @@ def bundle_registry_record(
             )
         resolved_source_repo = identity_source_repo
         resolved_source_ref = identity_source_ref
+        (
+            canonical_archive_binding,
+            canonical_archive_binding_errors,
+        ) = _canonical_public_release_archive_binding(
+            producer_admission=producer_admission,
+            subjects=subjects,
+            subject_root=subject_root,
+            public_release_archive=public_release_archive,
+            trust_root_evidence=trust_root_evidence,
+        )
+        errors.extend(canonical_archive_binding_errors)
         errors.extend(
             _producer_admission_boundary_errors(
                 producer_admission,
@@ -8328,6 +8798,10 @@ def bundle_registry_record(
                 lifecycle_state=lifecycle_state,
                 trust_root_mode=trust_root_mode,
                 trust_root_evidence=trust_root_evidence,
+                canonical_archive_binding=canonical_archive_binding,
+                artifact_subjects_digest=str(
+                    subjects.get("aggregate_digest") or ""
+                ),
                 repo_root=repo_root,
             )
         )
@@ -8416,6 +8890,10 @@ def bundle_registry_record(
     }
     if producer_admission:
         record["producer_admission"] = producer_admission
+    if canonical_archive_binding:
+        record[
+            "canonical_public_release_archive_binding"
+        ] = canonical_archive_binding
     if control_evidence:
         record["control_evidence"] = control_evidence
     if c2pa_trust:
@@ -8566,6 +9044,7 @@ def write_bundle_registry_record(
     trust_root_evidence: dict[str, Any] | None = None,
     verifier_versions: dict[str, Any] | None = None,
     subject_root: str | Path | None = None,
+    public_release_archive: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     root = Path(registry_dir)
@@ -8583,6 +9062,7 @@ def write_bundle_registry_record(
         trust_root_evidence=trust_root_evidence,
         verifier_versions=verifier_versions,
         subject_root=subject_root,
+        public_release_archive=public_release_archive,
         repo_root=repo_root,
     )
     if not payload.get("ok"):
@@ -8931,6 +9411,7 @@ def promote_bundle_evidence(
     trust_root_mode: str = "local_dev",
     trust_root_evidence: dict[str, Any] | None = None,
     subject_root: str | Path | None = None,
+    public_release_archive: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
     registry_write = write_bundle_registry_record(
@@ -8947,6 +9428,7 @@ def promote_bundle_evidence(
         trust_root_mode=trust_root_mode,
         trust_root_evidence=trust_root_evidence,
         subject_root=subject_root,
+        public_release_archive=public_release_archive,
         repo_root=repo_root,
     )
     record = registry_write.get("record") if isinstance(registry_write.get("record"), dict) else {}
@@ -9464,6 +9946,21 @@ def trust_gate(
                         Mapping,
                     )
                     else {}
+                ),
+                canonical_archive_binding=(
+                    selected.get(
+                        "canonical_public_release_archive_binding"
+                    )
+                    if isinstance(
+                        selected.get(
+                            "canonical_public_release_archive_binding"
+                        ),
+                        Mapping,
+                    )
+                    else {}
+                ),
+                artifact_subjects_digest=str(
+                    selected.get("artifact_subjects_digest") or ""
                 ),
             )
         )

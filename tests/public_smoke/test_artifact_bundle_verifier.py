@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -8198,6 +8200,111 @@ def _write_sdk_routing_release_candidate_fixture(
     return manifest_path, sdk_source_ref
 
 
+SDK_ROUTING_CANONICAL_ASSEMBLY_SUBJECTS = (
+    (
+        "docs/FEDERATION_ENTRY_ABI.md",
+        "runtime_compatibility_boundary",
+    ),
+    (
+        "docs/RECURRENCE_NAVIGATION_BOUNDARY.md",
+        "runtime_compatibility_boundary",
+    ),
+    ("generated/aoa_router.min.json", "routing_readmodel"),
+    (
+        "generated/composite_stress_route_hints.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/cross_repo_registry.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/federation_entrypoints.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/kag_source_lift_relation_hints.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/owner_layer_shortlist.min.json",
+        "routing_readmodel",
+    ),
+    ("generated/pairing_hints.min.json", "routing_readmodel"),
+    (
+        "generated/quest_dispatch_hints.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/recommended_paths.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/return_navigation_hints.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/stats_regrounding_hints.min.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/task_to_surface_hints.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/task_to_tier_hints.json",
+        "routing_readmodel",
+    ),
+    (
+        "generated/tiny_model_entrypoints.json",
+        "routing_readmodel",
+    ),
+    ("schemas/aoa-router.schema.json", "routing_schema"),
+    (
+        "schemas/cross-repo-registry.schema.json",
+        "routing_schema",
+    ),
+    (
+        "schemas/federation-entrypoints.schema.json",
+        "routing_schema",
+    ),
+    (
+        "schemas/kag-source-lift-relation-hints.schema.json",
+        "routing_schema",
+    ),
+    ("schemas/pairing-hints.schema.json", "routing_schema"),
+    (
+        "schemas/recommended-paths.schema.json",
+        "routing_schema",
+    ),
+    (
+        "schemas/return-navigation-hints.schema.json",
+        "routing_schema",
+    ),
+    ("schemas/router-entry.schema.json", "routing_schema"),
+    (
+        "schemas/task-to-surface-hints.schema.json",
+        "routing_schema",
+    ),
+    (
+        "schemas/task-to-tier-hints.schema.json",
+        "routing_schema",
+    ),
+    (
+        "schemas/tiny-model-entrypoints.schema.json",
+        "routing_schema",
+    ),
+    (
+        "succession/routing-g5-canonical-provenance.json",
+        "canonical_owner_succession_provenance",
+    ),
+    (
+        "succession/routing-g5-owner-switch.json",
+        "owner_switch_receipt",
+    ),
+)
+
+
 def _write_sdk_routing_canonical_fixture(
     root: Path,
     *,
@@ -8246,6 +8353,28 @@ def _write_sdk_routing_canonical_fixture(
         json.dumps(router, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    for subject_ref, _ in SDK_ROUTING_CANONICAL_ASSEMBLY_SUBJECTS:
+        subject_path = canonical_root / subject_ref
+        if subject_path.exists() or subject_ref.startswith("succession/"):
+            continue
+        subject_path.parent.mkdir(parents=True, exist_ok=True)
+        if subject_path.suffix == ".md":
+            subject_path.write_text(
+                f"# Canonical fixture\n\nSubject: `{subject_ref}`.\n",
+                encoding="utf-8",
+            )
+        else:
+            subject_path.write_text(
+                json.dumps(
+                    {
+                        "fixture": "sdk-routing-canonical",
+                        "path": subject_ref,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
     receipt = {
         "archive_stop_line": archive_stop_line,
         "authorized_at": "2026-07-26T03:53:33Z",
@@ -8386,17 +8515,10 @@ def _write_sdk_routing_canonical_fixture(
         },
         "artifact_subjects": [
             {
-                "path": "generated/aoa_router.min.json",
-                "role": "routing_readmodel",
-            },
-            {
-                "path": receipt_ref,
-                "role": "owner_switch_receipt",
-            },
-            {
-                "path": provenance_ref,
-                "role": "canonical_owner_succession_provenance",
-            },
+                "path": subject_ref,
+                "role": role,
+            }
+            for subject_ref, role in SDK_ROUTING_CANONICAL_ASSEMBLY_SUBJECTS
         ],
         "build_type": (
             "urn:abyssos:buildtype:aoa-sdk-routing-g5-canonical:v1"
@@ -8436,6 +8558,60 @@ def _write_sdk_routing_canonical_fixture(
     return manifest_path, sdk_source_ref
 
 
+def _write_sdk_routing_canonical_release_archive(
+    manifest_path: Path,
+) -> Path:
+    canonical_root = manifest_path.parent
+    archive = (
+        manifest_path.parents[1]
+        / "aoa-sdk-routing-g5-canonical-v0.8.0.tar.gz"
+    )
+    prefix = "aoa-sdk-routing-g5-canonical"
+    with tarfile.open(archive, mode="w:gz") as tar:
+        manifest_bytes = manifest_path.read_bytes()
+        manifest_info = tarfile.TarInfo(
+            f"{prefix}/artifact.bundle.json"
+        )
+        manifest_info.size = len(manifest_bytes)
+        manifest_info.mode = 0o644
+        tar.addfile(manifest_info, io.BytesIO(manifest_bytes))
+        for directory in ("docs", "generated", "schemas", "succession"):
+            directory_info = tarfile.TarInfo(f"{prefix}/{directory}/")
+            directory_info.type = tarfile.DIRTYPE
+            directory_info.mode = 0o755
+            tar.addfile(directory_info)
+        for subject_ref, _ in SDK_ROUTING_CANONICAL_ASSEMBLY_SUBJECTS:
+            subject_bytes = (canonical_root / subject_ref).read_bytes()
+            subject_info = tarfile.TarInfo(f"{prefix}/{subject_ref}")
+            subject_info.size = len(subject_bytes)
+            subject_info.mode = 0o644
+            tar.addfile(subject_info, io.BytesIO(subject_bytes))
+    return archive
+
+
+def _patch_sdk_routing_canonical_archive_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    archive: Path,
+) -> None:
+    expected_digest = (
+        "sha256:"
+        "e72b6f5c26bc815fe349c6cc8ac31e595b4cf6842d1538b4e0ef15caf97c1b6d"
+    )
+    archive_path = archive.resolve()
+    original_file_digest = artifact_bundles._file_digest
+
+    def _release_digest(path: Path) -> str:
+        if Path(path).resolve() == archive_path:
+            return expected_digest
+        return original_file_digest(path)
+
+    monkeypatch.setattr(
+        artifact_bundles,
+        "_file_digest",
+        _release_digest,
+    )
+
+
 def _canonical_public_release_evidence(
     *,
     subject_digest: str,
@@ -8446,12 +8622,17 @@ def _canonical_public_release_evidence(
     ),
 ) -> dict[str, str]:
     return {
-        "schema": "pytest_sdk_canonical_public_release_evidence_v1",
+        "schema": (
+            "abyss_machine_public_release_trust_root_evidence_v1"
+        ),
         "mode": "public_release",
         "source_repo": "aoa-sdk",
         "source_ref": sdk_source_ref,
         "subject_digest": subject_digest,
-        "verifier": "gh attestation verify",
+        "verifier": (
+            "gh attestation verify constrained to "
+            "8Dionysus/aoa-sdk/.github/workflows/release-artifacts.yml"
+        ),
         "evidence_ref": (
             "https://github.com/8Dionysus/aoa-sdk/actions/runs/30186992873"
         ),
@@ -8467,10 +8648,15 @@ def _canonical_public_release_evidence(
 
 def test_sdk_routing_canonical_runs_full_registry_subject_store_trust_loop(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
         tmp_path
     )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(monkeypatch, archive)
     bundle = tmp_path / "bundle"
     registry = tmp_path / "registry"
     subject_store = tmp_path / "subject-store"
@@ -8495,6 +8681,8 @@ def test_sdk_routing_canonical_runs_full_registry_subject_store_trust_loop(
             subject_digest=subject_digest,
             sdk_source_ref=sdk_source_ref,
         ),
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
     )
     pre_materialization = artifact_bundles.trust_gate(
         registry,
@@ -8539,6 +8727,21 @@ def test_sdk_routing_canonical_runs_full_registry_subject_store_trust_loop(
     assert promoted["record"]["producer_admission"] == (
         build["producer_admission"]
     )
+    archive_binding = promoted["record"][
+        "canonical_public_release_archive_binding"
+    ]
+    assert archive_binding["archive_digest"] == (
+        "sha256:"
+        "e72b6f5c26bc815fe349c6cc8ac31e595b4cf6842d1538b4e0ef15caf97c1b6d"
+    )
+    assert archive_binding["artifact_subject_count"] == 29
+    assert archive_binding["verification"] == {
+        "archive_digest_matches_policy": True,
+        "exact_member_set": True,
+        "manifest_byte_parity": True,
+        "subject_aggregate_parity": True,
+        "subject_byte_parity": True,
+    }
     assert pre_materialization["verdict"] == "deny"
     assert artifact_bundles.REQUIRED_SUBJECT_STORE_BLOCKER in (
         pre_materialization["blockers"]
@@ -8587,10 +8790,15 @@ def test_sdk_routing_canonical_rejects_source_receipt_and_authority_tamper(
 
 def test_sdk_routing_canonical_rejects_wrong_public_release_digest(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
         tmp_path
     )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(monkeypatch, archive)
     bundle = tmp_path / "bundle"
     artifact_bundles.build_sidecars(
         bundle,
@@ -8612,6 +8820,8 @@ def test_sdk_routing_canonical_rejects_wrong_public_release_digest(
             sdk_source_ref=sdk_source_ref,
             asset_digest="sha256:" + ("0" * 64),
         ),
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
     )
 
     assert promoted["ok"] is False
@@ -8619,6 +8829,93 @@ def test_sdk_routing_canonical_rejects_wrong_public_release_digest(
     assert (
         "canonical_public_release_evidence_mismatch:asset_digest"
         in promoted["errors"]
+    )
+
+
+def test_sdk_routing_canonical_rejects_subjects_rebuilt_from_local_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
+        tmp_path
+    )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(monkeypatch, archive)
+    router_path = manifest_path.parent / "generated/aoa_router.min.json"
+    router = json.loads(router_path.read_text(encoding="utf-8"))
+    router["locally_rebuilt_after_release"] = True
+    router_path.write_text(
+        json.dumps(router, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    bundle = tmp_path / "bundle"
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=manifest_path,
+    )
+    artifact_bundles.sign_bundle(bundle)
+    subject_digest = _bundle_subject_digest(bundle)
+
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        tmp_path / "registry",
+        lifecycle_state="release-ready",
+        source_repo="aoa-sdk",
+        source_ref=sdk_source_ref,
+        producer="pytest locally rebuilt canonical routing builder",
+        trust_root_mode="public_release",
+        trust_root_evidence=_canonical_public_release_evidence(
+            subject_digest=subject_digest,
+            sdk_source_ref=sdk_source_ref,
+        ),
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
+    )
+
+    assert promoted["ok"] is False
+    assert promoted["written"] == []
+    assert (
+        "canonical_public_release_archive_subject_byte_mismatch:"
+        "generated/aoa_router.min.json"
+        in promoted["errors"]
+    )
+
+
+def test_sdk_routing_canonical_requires_public_release_archive(
+    tmp_path: Path,
+) -> None:
+    manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
+        tmp_path
+    )
+    bundle = tmp_path / "bundle"
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=manifest_path,
+    )
+    artifact_bundles.sign_bundle(bundle)
+    subject_digest = _bundle_subject_digest(bundle)
+
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        tmp_path / "registry",
+        lifecycle_state="release-ready",
+        source_repo="aoa-sdk",
+        source_ref=sdk_source_ref,
+        producer="pytest canonical routing builder without release archive",
+        trust_root_mode="public_release",
+        trust_root_evidence=_canonical_public_release_evidence(
+            subject_digest=subject_digest,
+            sdk_source_ref=sdk_source_ref,
+        ),
+        subject_root=manifest_path.parent,
+    )
+
+    assert promoted["ok"] is False
+    assert promoted["written"] == []
+    assert "canonical_public_release_archive_required" in (
+        promoted["errors"]
     )
 
 
@@ -8639,6 +8936,7 @@ def test_sdk_routing_canonical_rejects_wrong_public_release_digest(
 )
 def test_sdk_routing_canonical_rejects_unadmitted_lifecycle_and_trust_root(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     lifecycle_state: str,
     trust_root_mode: str,
     expected_error: str,
@@ -8646,6 +8944,10 @@ def test_sdk_routing_canonical_rejects_unadmitted_lifecycle_and_trust_root(
     manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
         tmp_path
     )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(monkeypatch, archive)
     bundle = tmp_path / "bundle"
     artifact_bundles.build_sidecars(
         bundle,
@@ -8671,6 +8973,8 @@ def test_sdk_routing_canonical_rejects_unadmitted_lifecycle_and_trust_root(
         producer="pytest aoa-sdk canonical routing builder",
         trust_root_mode=trust_root_mode,
         trust_root_evidence=evidence,
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
     )
 
     assert promoted["ok"] is False
@@ -8680,10 +8984,15 @@ def test_sdk_routing_canonical_rejects_unadmitted_lifecycle_and_trust_root(
 
 def test_sdk_routing_canonical_trust_gate_rejects_unadmitted_consumer_intent(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
         tmp_path
     )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(monkeypatch, archive)
     bundle = tmp_path / "bundle"
     registry = tmp_path / "registry"
     artifact_bundles.build_sidecars(
@@ -8704,6 +9013,8 @@ def test_sdk_routing_canonical_trust_gate_rejects_unadmitted_consumer_intent(
             subject_digest=subject_digest,
             sdk_source_ref=sdk_source_ref,
         ),
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
     )
 
     gate = artifact_bundles.trust_gate(
@@ -8726,10 +9037,15 @@ def test_sdk_routing_canonical_trust_gate_rejects_unadmitted_consumer_intent(
 
 def test_sdk_routing_canonical_trust_gate_rejects_registry_admission_tamper(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
         tmp_path
     )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(monkeypatch, archive)
     bundle = tmp_path / "bundle"
     registry = tmp_path / "registry"
     artifact_bundles.build_sidecars(
@@ -8750,6 +9066,8 @@ def test_sdk_routing_canonical_trust_gate_rejects_registry_admission_tamper(
             subject_digest=subject_digest,
             sdk_source_ref=sdk_source_ref,
         ),
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
     )
     record_path = (
         registry
@@ -8780,6 +9098,76 @@ def test_sdk_routing_canonical_trust_gate_rejects_registry_admission_tamper(
     assert gate["verdict"] == "deny"
     assert "canonical_producer_admission_policy_mismatch" in (
         gate["blockers"]
+    )
+
+
+def test_sdk_routing_canonical_trust_gate_rejects_archive_binding_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_path, sdk_source_ref = _write_sdk_routing_canonical_fixture(
+        tmp_path
+    )
+    archive = _write_sdk_routing_canonical_release_archive(
+        manifest_path
+    )
+    _patch_sdk_routing_canonical_archive_digest(monkeypatch, archive)
+    bundle = tmp_path / "bundle"
+    registry = tmp_path / "registry"
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=manifest_path,
+    )
+    artifact_bundles.sign_bundle(bundle)
+    subject_digest = _bundle_subject_digest(bundle)
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="release-ready",
+        source_repo="aoa-sdk",
+        source_ref=sdk_source_ref,
+        producer="pytest aoa-sdk canonical routing builder",
+        trust_root_mode="public_release",
+        trust_root_evidence=_canonical_public_release_evidence(
+            subject_digest=subject_digest,
+            sdk_source_ref=sdk_source_ref,
+        ),
+        subject_root=manifest_path.parent,
+        public_release_archive=archive,
+    )
+    record_path = (
+        registry
+        / artifact_bundles.BUNDLE_REGISTRY_RECORDS_DIR
+        / (
+            promoted["record"]["record_id"].removeprefix("sha256:")
+            + ".json"
+        )
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["canonical_public_release_archive_binding"][
+        "verification"
+    ]["subject_byte_parity"] = False
+    record_path.write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="thin_routing_readmodel_bundle",
+        subject_digest=subject_digest,
+        consumer_intent="runtime",
+        expected_source_repo="aoa-sdk",
+        expected_source_ref=sdk_source_ref,
+        expected_trust_root_mode="public_release",
+    )
+
+    assert gate["ok"] is False
+    assert gate["verdict"] == "deny"
+    assert (
+        "canonical_public_release_archive_binding_mismatch:"
+        "verification.subject_byte_parity"
+        in gate["blockers"]
     )
 
 

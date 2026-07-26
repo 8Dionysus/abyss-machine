@@ -64,6 +64,12 @@ REQUIRED_CANONICAL_PROFILE_KEYS = (
     "canonical_release_ref",
     "canonical_release_asset_name",
     "canonical_release_asset_digest",
+    "canonical_release_archive_prefix",
+    "canonical_release_manifest_ref",
+    "canonical_release_subject_count",
+    "canonical_release_evidence_schema",
+    "canonical_release_evidence_ref",
+    "canonical_release_verifier",
     "stronger_owner",
     "trust_admission_status",
     "runtime_consumer",
@@ -294,6 +300,19 @@ CANONICAL_ROUTING_ADMISSION_CONTRACT = {
     ),
     "canonical_release_asset_digest": (
         "sha256:e72b6f5c26bc815fe349c6cc8ac31e595b4cf6842d1538b4e0ef15caf97c1b6d"
+    ),
+    "canonical_release_archive_prefix": "aoa-sdk-routing-g5-canonical",
+    "canonical_release_manifest_ref": "artifact.bundle.json",
+    "canonical_release_subject_count": 29,
+    "canonical_release_evidence_schema": (
+        "abyss_machine_public_release_trust_root_evidence_v1"
+    ),
+    "canonical_release_evidence_ref": (
+        "https://github.com/8Dionysus/aoa-sdk/actions/runs/30186992873"
+    ),
+    "canonical_release_verifier": (
+        "gh attestation verify constrained to "
+        "8Dionysus/aoa-sdk/.github/workflows/release-artifacts.yml"
     ),
     "stronger_owner": "abyss-machine",
     "trust_admission_status": "canonical_receipt_verified",
