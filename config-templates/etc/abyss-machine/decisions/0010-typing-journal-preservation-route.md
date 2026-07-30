@@ -18,7 +18,7 @@ accepted
 
 ## Current Applicability
 
-As of 2026-05-23, typed-input and browser-interaction journaling must preserve
+As of 2026-07-29, typed-input and browser-interaction journaling must preserve
 important evidence before reducing storage. Storage pressure is handled through
 lossless compression, compact per-event history, derived readmodels, and sparse
 full-state checkpoints, not by deleting canonical journals.
@@ -33,6 +33,12 @@ duplicating the full state for every accessibility event caused severe write
 amplification without adding proportional evidence.
 `typing validate` enforces the compact-row search and causal-binding contract
 with `atspi_compact_history_search_binding_keys`.
+
+The same tiering applies to the derived `typing/process` readmodel. Its complete
+current lanes and recent entries belong in `latest.json`; each scheduled history
+append keeps only aggregate counts, bounded gap summaries, dedupe/continuity
+summary, and explicit provenance back to the full latest readmodel and canonical
+typing event journals.
 
 ## Context
 
@@ -123,6 +129,11 @@ and regenerable noise.
   AT-SPI metadata-only browser/chrome events count guarded project/entity axes
   instead of impersonating true missing causal evidence. Actual project gaps in
   Codex, shell, browser-extension, and AI-transcript routes remain visible.
+- 2026-07-29: Applied the existing compact-history rule to the derived
+  `typing/process` readmodel after its three-minute writer was measured
+  repeating roughly 465 KiB of full state per row. Full state remains in
+  `latest.json`; history omits individual lanes, recent entries,
+  context-anchor identities, event-id samples, and parse-error payloads.
 
 ## Source Surfaces
 

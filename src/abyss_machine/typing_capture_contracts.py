@@ -3897,6 +3897,100 @@ def typing_process_from_records(
     }
 
 
+def typing_process_compact_history_document(
+    process: Mapping[str, Any],
+    *,
+    schema_prefix: str = "abyss_machine",
+    version: str | None = None,
+) -> dict[str, Any]:
+    """Project a full typing process readmodel into bounded historical evidence."""
+
+    def mapping_value(key: str) -> dict[str, Any]:
+        value = process.get(key)
+        return dict(value) if isinstance(value, Mapping) else {}
+
+    def compact_gaps(key: str) -> list[dict[str, Any]]:
+        value = process.get(key)
+        if not isinstance(value, list):
+            return []
+        return [
+            {
+                field: item.get(field)
+                for field in ("level", "key", "count")
+                if item.get(field) is not None
+            }
+            for item in value
+            if isinstance(item, Mapping)
+        ]
+
+    def selected_mapping(key: str, fields: tuple[str, ...]) -> dict[str, Any]:
+        value = process.get(key)
+        if not isinstance(value, Mapping):
+            return {}
+        return {field: value.get(field) for field in fields if value.get(field) is not None}
+
+    awareness = process.get("awareness") if isinstance(process.get("awareness"), Mapping) else {}
+    parse_errors = process.get("parse_errors") if isinstance(process.get("parse_errors"), list) else []
+    return {
+        "schema": f"{schema_prefix}_typing_process_compact_history_v1",
+        "version": version if version is not None else process.get("version"),
+        "generated_at": process.get("generated_at"),
+        "ok": process.get("ok") is True,
+        "status": process.get("status"),
+        "summary": mapping_value("summary"),
+        "by_adapter": mapping_value("by_adapter"),
+        "by_status": mapping_value("by_status"),
+        "by_capture_gate_decision": mapping_value("by_capture_gate_decision"),
+        "by_project": mapping_value("by_project"),
+        "by_project_basis": mapping_value("by_project_basis"),
+        "by_recipient": mapping_value("by_recipient"),
+        "by_surface_kind": mapping_value("by_surface_kind"),
+        "by_task_binding": mapping_value("by_task_binding"),
+        "by_interaction_kind": mapping_value("by_interaction_kind"),
+        "by_awareness_state": mapping_value("by_awareness_state"),
+        "by_context_anchor_kind": mapping_value("by_context_anchor_kind"),
+        "awareness": {
+            "schema": awareness.get("schema"),
+            "records": awareness.get("records"),
+            "average_score": awareness.get("average_score"),
+            "by_state": dict(awareness.get("by_state")) if isinstance(awareness.get("by_state"), Mapping) else {},
+            "axis_states": dict(awareness.get("axis_states")) if isinstance(awareness.get("axis_states"), Mapping) else {},
+            "top_gaps": dict(awareness.get("top_gaps")) if isinstance(awareness.get("top_gaps"), Mapping) else {},
+        },
+        "quality_gaps": compact_gaps("quality_gaps"),
+        "context_notes": compact_gaps("context_notes"),
+        "dedupe": selected_mapping(
+            "dedupe",
+            ("raw_records", "unique_records", "duplicate_event_rows_collapsed"),
+        ),
+        "continuity": selected_mapping(
+            "continuity",
+            (
+                "interaction_records",
+                "continuity_promoted",
+                "continuity_backfilled",
+                "continuity_blocked_by_age",
+                "continuity_max_age_sec",
+            ),
+        ),
+        "parse_error_count": len(parse_errors),
+        "policy": {
+            "facts_only": True,
+            "stores_extra_text": False,
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+            "automatic_action": False,
+            "full_readmodel": "latest.json",
+            "history_shape": "compact_summary",
+        },
+        "non_claims": [
+            "Compact history does not replace the full latest readmodel or canonical typing event journals.",
+            "Individual lanes, recent entries, context-anchor identities, and parse-error payloads are intentionally omitted.",
+            "The compact history authorizes no action and widens no capture.",
+        ],
+    }
+
+
 def _coverage_snapshot_document(snapshot: Mapping[str, Any], key: str) -> Mapping[str, Any] | None:
     value = snapshot.get(key)
     return value if isinstance(value, Mapping) else None

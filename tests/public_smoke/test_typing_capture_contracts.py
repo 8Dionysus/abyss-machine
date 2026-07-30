@@ -92,6 +92,7 @@ from abyss_machine.typing_capture_contracts import (
     typing_process_entry_index,
     typing_process_context_anchor,
     typing_process_continuity_projects,
+    typing_process_compact_history_document,
     typing_process_from_records,
     typing_process_generated_epoch,
     typing_process_interaction_for_record,
@@ -1206,6 +1207,109 @@ def test_typing_process_from_records_builds_module_owned_readmodel_without_text_
     assert process["policy"]["widens_capture"] is False
     assert "sha256:text" in str(process)
     assert "captured raw text" not in str(process)
+
+
+def test_typing_process_compact_history_preserves_aggregates_without_repeated_detail() -> None:
+    process = {
+        "schema": "abyss_machine_typing_process_v1",
+        "version": "test-version",
+        "generated_at": "2026-07-29T12:00:00Z",
+        "ok": True,
+        "status": "processed_with_context_gaps",
+        "summary": {"records_processed": 240, "lanes": 80, "quality_gaps": 1},
+        "by_adapter": {"codex_session_tail": 240},
+        "by_status": {"captured": 240},
+        "by_capture_gate_decision": {"allow": 240},
+        "by_project": {"abyss-machine": 240},
+        "by_project_basis": {"project_root_match": 240},
+        "by_recipient": {"ai_counterpart": 240},
+        "by_surface_kind": {"terminal": 240},
+        "by_task_binding": {"project_or_surface_context": 240},
+        "by_interaction_kind": {"codex_session": 240},
+        "by_awareness_state": {"complete": 240},
+        "by_context_anchor_kind": {"project_root": 240},
+        "by_context_anchor": {"project:/work/abyss-machine": 240},
+        "awareness": {
+            "schema": "abyss_machine_typing_causal_awareness_summary_v1",
+            "records": 240,
+            "average_score": 1.0,
+            "by_state": {"complete": 240},
+            "axis_states": {"privacy_gate": {"known": 240}},
+            "top_gaps": {},
+            "gaps_by_adapter": {"codex_session_tail": {}},
+        },
+        "lanes": [{"lane_id": f"lane-{index}", "sample_event_ids": [f"event-{index}"]} for index in range(80)],
+        "recent_entries": [{"event_id": f"event-{index}", "text_sha256": f"sha256:{index}"} for index in range(80)],
+        "quality_gaps": [{"level": "watch", "key": "missing_context_anchor", "count": 3, "event_ids": ["event-1"]}],
+        "context_notes": [{"level": "info", "key": "context_anchor_without_project", "count": 2, "event_ids": ["event-2"]}],
+        "dedupe": {"raw_records": 241, "unique_records": 240},
+        "continuity": {"interaction_records": 240, "promoted_event_ids": ["event-3"]},
+        "parse_errors": [{"line": 1, "error": "private parser detail"}],
+    }
+
+    history = typing_process_compact_history_document(process)
+
+    assert history["schema"] == "abyss_machine_typing_process_compact_history_v1"
+    assert history["summary"] == process["summary"]
+    assert history["by_project"] == {"abyss-machine": 240}
+    assert history["parse_error_count"] == 1
+    assert history["quality_gaps"] == [{"level": "watch", "key": "missing_context_anchor", "count": 3}]
+    assert history["policy"]["full_readmodel"] == "latest.json"
+    assert history["policy"]["history_shape"] == "compact_summary"
+    assert "lanes" not in history
+    assert "recent_entries" not in history
+    assert "by_context_anchor" not in history
+    assert "gaps_by_adapter" not in history["awareness"]
+    assert "event_ids" not in str(history)
+    assert "private parser detail" not in str(history)
+
+
+def test_typing_process_writes_full_latest_and_only_compact_history(monkeypatch, tmp_path) -> None:
+    from abyss_machine import cli
+
+    process = {
+        "schema": "abyss_machine_typing_process_v1",
+        "version": cli.VERSION,
+        "generated_at": "2026-07-29T12:00:00Z",
+        "ok": True,
+        "status": "processed",
+        "summary": {"records_processed": 1, "lanes": 1},
+        "lanes": [{"lane_id": "lane-1", "sample_event_ids": ["event-1"]}],
+        "recent_entries": [{"event_id": "event-1", "text_sha256": "sha256:text"}],
+        "parse_errors": [],
+    }
+    atomic_writes: list[tuple[object, dict]] = []
+    history_appends: list[tuple[object, dict]] = []
+
+    monkeypatch.setattr(cli, "typing_policy", lambda write_latest=False: {"ok": True})
+    monkeypatch.setattr(cli, "typing_records", lambda limit: ([{"event_id": "event-1"}], []))
+    monkeypatch.setattr(cli, "typing_process_from_records", lambda *args, **kwargs: process)
+    monkeypatch.setattr(cli, "typing_index_document", lambda: {"schema": "typing_index_v1"})
+    monkeypatch.setattr(cli, "TYPING_PROCESS_LATEST_PATH", tmp_path / "process" / "latest.json")
+    monkeypatch.setattr(cli, "TYPING_PROCESS_ROOT", tmp_path / "process")
+    monkeypatch.setattr(cli, "TYPING_INDEX_PATH", tmp_path / "index.json")
+    monkeypatch.setattr(
+        cli,
+        "safe_atomic_write_json",
+        lambda path, data, mode=0o664: atomic_writes.append((path, data)),
+    )
+    monkeypatch.setattr(
+        cli,
+        "safe_append_jsonl",
+        lambda path, data, mode=0o664: history_appends.append((path, data)),
+    )
+
+    result = cli.typing_process(limit=240, write_latest=True)
+
+    assert result is process
+    assert atomic_writes[0][1] is process
+    assert atomic_writes[1][1] == {"schema": "typing_index_v1"}
+    assert len(history_appends) == 1
+    history = history_appends[0][1]
+    assert history["schema"] == "abyss_machine_typing_process_compact_history_v1"
+    assert history["summary"] == {"records_processed": 1, "lanes": 1}
+    assert "lanes" not in history
+    assert "recent_entries" not in history
 
 
 def test_typing_causal_context_readmodel_from_records_builds_module_owned_document() -> None:
