@@ -1,6 +1,6 @@
 {
   "schema": "abyss_machine_storage_policy_v1",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "generated_at": "2026-05-07T17:22:00-06:00",
   "purpose": "Route large mutable caches, AI artifacts, generated runtimes, process evidence, and agent scratch data away from the limited Btrfs system root and into {{ABYSS_MACHINE_SRV}}.",
   "principle": "Keep stable configs, manifests, service units, policy, hook contracts, and compact state on /. Put large or fast-growing generated data directly on {{ABYSS_MACHINE_SRV}}. Store host facts and low-level snapshots under {{ABYSS_MACHINE_STATE}}. Do not leave compatibility symlinks unless the operator explicitly approves them.",
@@ -95,6 +95,10 @@
       "storage_monitor_latest": "{{ABYSS_MACHINE_STATE}}/storage/monitor/latest.json",
       "storage_write_preflight_latest": "{{ABYSS_MACHINE_STATE}}/storage/write-preflight/latest.json",
       "storage_apply_latest": "{{ABYSS_MACHINE_STATE}}/storage/apply/latest.json",
+      "storage_candidates_latest": "{{ABYSS_MACHINE_STATE}}/storage/candidates/latest.json",
+      "storage_candidates_manifests": "{{ABYSS_MACHINE_STATE}}/storage/candidates/manifests",
+      "storage_candidates_claims": "{{ABYSS_MACHINE_STATE}}/storage/candidates/claims",
+      "storage_candidates_validation_latest": "{{ABYSS_MACHINE_STATE}}/storage/candidates/validation/latest.json",
       "storage_monitor_timer": "{{ABYSS_USER_HOME}}/.config/systemd/user/abyss-storage-monitor.timer",
       "storage_monitor_service": "{{ABYSS_USER_HOME}}/.config/systemd/user/abyss-storage-monitor.service",
       "process_agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/processes/AGENTS.md",
@@ -120,6 +124,11 @@
       "storage_write_preflight": "abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json",
       "storage_apply_dry_run": "abyss-machine storage apply --action-id ID --dry-run --json",
       "storage_apply_confirm": "abyss-machine storage apply --action-id ID --confirm --json",
+      "storage_candidates_refresh": "abyss-machine storage candidates refresh --json",
+      "storage_candidates_refresh_deep": "abyss-machine storage candidates refresh --deep --json",
+      "storage_candidates_list": "abyss-machine storage candidates list --json",
+      "storage_candidates_explain": "abyss-machine storage candidates explain ID --json",
+      "storage_candidates_validate": "abyss-machine storage candidates validate ID --json",
       "process_paths": "abyss-machine processes paths --json",
     "process_latest": "abyss-machine processes latest --json",
     "process_snapshot": "abyss-machine processes snapshot --json"
@@ -301,6 +310,37 @@
       "default_is_dry_run": true,
       "confirm_required_for_actual": true,
       "rule": "Apply consumes one cleanup-plan action, re-runs monitor/process guard, runs hooks for actual confirmed actions, and only executes allowlisted action types."
+  },
+  "candidate_lifecycle": {
+      "status": "active-persistent-evidence-contract",
+      "root": "{{ABYSS_MACHINE_STATE}}/storage/candidates",
+      "latest": "{{ABYSS_MACHINE_STATE}}/storage/candidates/latest.json",
+      "history": "{{ABYSS_MACHINE_STATE}}/storage/candidates/history/YYYY/MM/YYYY-MM-DD.jsonl",
+      "hourly_mode": "cheap carry-forward with evidence age; never promotes readiness",
+      "daily_mode": "deep owner/process/mount/service/container/config/runtime/Git/Podman/Vault/fingerprint scan",
+      "automatic_deletion": false,
+      "absence_of_pid_is_not_permission": true,
+      "age_alone_is_not_permission": true,
+      "missing_or_expired_claim_is_not_permission": true,
+      "history_limit": 32,
+      "minimum_reclaimable_bytes": 1,
+      "default": {
+        "minimum_observations": 3,
+        "quiet_seconds": 259200
+      },
+      "by_kind": {
+        "generated_tmp": {"minimum_observations": 3, "quiet_seconds": 86400},
+        "failed_runtime": {"minimum_observations": 3, "quiet_seconds": 86400},
+        "runtime": {"minimum_observations": 3, "quiet_seconds": 259200},
+        "git_worktree": {"minimum_observations": 3, "quiet_seconds": 86400},
+        "openvino_cache": {"minimum_observations": 3, "quiet_seconds": 259200},
+        "huggingface_model": {"minimum_observations": 3, "quiet_seconds": 259200},
+        "model_cache": {"minimum_observations": 3, "quiet_seconds": 604800},
+        "podman_image": {"minimum_observations": 3, "quiet_seconds": 259200},
+        "podman_volume": {"minimum_observations": 3, "quiet_seconds": 604800},
+        "aoa_owner_debris": {"minimum_observations": 2, "quiet_seconds": 3600}
+      },
+      "rule": "A candidate verdict is a hard-gate classification, never a score. Ready candidates still require exact candidate revalidation and operator approval immediately before any owner-specific apply."
   },
   "completed_migrations": [
     {

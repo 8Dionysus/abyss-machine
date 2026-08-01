@@ -229,6 +229,8 @@ try:
     from . import process_adapters
     from . import process_contracts
     from . import runtime_evidence_contracts
+    from . import storage_candidate_adapters
+    from . import storage_candidate_contracts
     from . import typing_capture_contracts
     from .nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
@@ -332,6 +334,8 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import process_adapters
     from abyss_machine import process_contracts
     from abyss_machine import runtime_evidence_contracts
+    from abyss_machine import storage_candidate_adapters
+    from abyss_machine import storage_candidate_contracts
     from abyss_machine import typing_capture_contracts
     from abyss_machine.nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
@@ -426,7 +430,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     )
 
 
-VERSION = "0.8.92"
+VERSION = "0.8.93"
 SCHEMA_PREFIX = "abyss_machine"
 PATH_POLICY = DEFAULT_PATH_POLICY
 MANIFEST_PATH = PATH_POLICY.etc_file("bridge.json")
@@ -451,6 +455,18 @@ STORAGE_WRITE_PREFLIGHT_ROOT = STORAGE_STATE_ROOT / "write-preflight"
 STORAGE_WRITE_PREFLIGHT_LATEST_PATH = STORAGE_WRITE_PREFLIGHT_ROOT / "latest.json"
 STORAGE_APPLY_ROOT = STORAGE_STATE_ROOT / "apply"
 STORAGE_APPLY_LATEST_PATH = STORAGE_APPLY_ROOT / "latest.json"
+STORAGE_CANDIDATES_ROOT = path_from_env("ABYSS_MACHINE_STORAGE_CANDIDATES_ROOT", STORAGE_STATE_ROOT / "candidates")
+STORAGE_CANDIDATES_LATEST_PATH = STORAGE_CANDIDATES_ROOT / "latest.json"
+STORAGE_CANDIDATES_HISTORY_ROOT = STORAGE_CANDIDATES_ROOT / "history"
+STORAGE_CANDIDATES_MANIFESTS_ROOT = STORAGE_CANDIDATES_ROOT / "manifests"
+STORAGE_CANDIDATES_CLAIMS_ROOT = STORAGE_CANDIDATES_ROOT / "claims"
+STORAGE_CANDIDATES_VALIDATION_ROOT = STORAGE_CANDIDATES_ROOT / "validation"
+STORAGE_CANDIDATES_VALIDATION_LATEST_PATH = STORAGE_CANDIDATES_VALIDATION_ROOT / "latest.json"
+STORAGE_CANDIDATES_APPROVALS_ROOT = STORAGE_CANDIDATES_ROOT / "approvals"
+STORAGE_CANDIDATES_RECEIPTS_ROOT = STORAGE_CANDIDATES_ROOT / "receipts"
+STORAGE_CANDIDATES_NOTIFICATION_ROOT = STORAGE_CANDIDATES_ROOT / "notifications"
+STORAGE_CANDIDATES_NOTIFICATION_LATEST_PATH = STORAGE_CANDIDATES_NOTIFICATION_ROOT / "latest.json"
+STORAGE_BACKUP_LANES_ROOT = path_from_env("ABYSS_MACHINE_BACKUP_LANES_ROOT", STATE_DIR / "backup" / "lanes")
 ARTIFACTS_ROOT = STATE_DIR / "artifacts"
 ARTIFACTS_AGENTS_PATH = ARTIFACTS_ROOT / "AGENTS.md"
 ARTIFACTS_INDEX_PATH = ARTIFACTS_ROOT / "index.json"
@@ -7737,7 +7753,8 @@ def storage_hooks_status(stage: str | None = None) -> dict[str, Any]:
 
 def run_storage_hooks(stage: str, payload: dict[str, Any] | None = None, enforce: bool = False, timeout: float = 10.0) -> dict[str, Any]:
     names = storage_hook_stage_names()
-    return storage_adapters.run_hook_stage_document(
+    payload = payload or {}
+    document = storage_adapters.run_hook_stage_document(
         stage=stage,
         valid_stages=sorted(names),
         directories=storage_hook_directories(stage) if stage in names else [],
@@ -7754,6 +7771,51 @@ def run_storage_hooks(stage: str, payload: dict[str, Any] | None = None, enforce
         storage_root=ABYSS_MACHINE_STORAGE_ROOT,
         base_env=os.environ,
     )
+    manifest_payload = payload.get("candidate_manifest") if isinstance(payload.get("candidate_manifest"), dict) else None
+    if stage in {"post_large_write", "post_runtime_create"} and manifest_payload:
+        registration = storage_candidate_register(
+            path=str(manifest_payload.get("path") or ""),
+            owner=str(manifest_payload.get("owner") or "unknown"),
+            kind=str(manifest_payload.get("kind") or ("runtime" if stage == "post_runtime_create" else "generated_tmp")),
+            purpose=str(manifest_payload.get("purpose") or stage),
+            producer=str(manifest_payload.get("producer") or payload.get("producer") or "storage-hook"),
+            source_id=str(manifest_payload.get("source_id") or payload.get("event_id") or stage),
+            recovery_command=manifest_payload.get("recovery_command"),
+            replacement_ref=manifest_payload.get("replacement_ref"),
+            retention_until=manifest_payload.get("retention_until"),
+            executor_type=manifest_payload.get("executor_type"),
+            unique_data_clear=manifest_payload.get("unique_data_clear") is True,
+            preserved_refs=[str(item) for item in manifest_payload.get("preserved_refs", []) if str(item)] if isinstance(manifest_payload.get("preserved_refs"), list) else [],
+            archivable=manifest_payload.get("archivable") is True,
+            recovery_verified=manifest_payload.get("recovery_verified") is True,
+            replacement_verified=manifest_payload.get("replacement_verified") is True,
+            archive_digest_match=manifest_payload.get("archive_digest_match") is True,
+            restore_command=manifest_payload.get("restore_command"),
+            restore_verified=manifest_payload.get("restore_verified") is True,
+        )
+        document["candidate_registration"] = registration
+        if enforce and not registration.get("ok"):
+            document["ok"] = False
+    candidate_id = str(payload.get("candidate_id") or "")
+    if stage == "pre_cache_cleanup" and candidate_id:
+        preflight = storage_candidate_operator_preflight(candidate_id, refresh_validation=True)
+        document["candidate_apply_preflight"] = preflight
+        if enforce and not preflight.get("ok"):
+            document["ok"] = False
+    receipt_payload = payload.get("candidate_receipt") if isinstance(payload.get("candidate_receipt"), dict) else None
+    if stage == "post_cache_cleanup" and candidate_id and receipt_payload:
+        receipt = storage_candidate_receipt(
+            candidate_id,
+            action=str(receipt_payload.get("action") or ""),
+            result=str(receipt_payload.get("result") or "failed"),
+            before_bytes=receipt_payload.get("before_bytes") if isinstance(receipt_payload.get("before_bytes"), int) else None,
+            after_bytes=receipt_payload.get("after_bytes") if isinstance(receipt_payload.get("after_bytes"), int) else None,
+            evidence_refs=[str(item) for item in receipt_payload.get("evidence_refs", []) if str(item)] if isinstance(receipt_payload.get("evidence_refs"), list) else [],
+        )
+        document["candidate_receipt"] = receipt
+        if enforce and not receipt.get("ok"):
+            document["ok"] = False
+    return document
 
 
 def storage_cache_env_routes() -> dict[str, str]:
@@ -7826,6 +7888,7 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
     monitor_latest, _ = load_json_document(STORAGE_MONITOR_LATEST_PATH)
     write_preflight_latest, _ = load_json_document(STORAGE_WRITE_PREFLIGHT_LATEST_PATH)
     apply_latest, _ = load_json_document(STORAGE_APPLY_LATEST_PATH)
+    candidates_latest, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
     root_used = root_usage.get("used_percent")
     policy_doc = policy.get("document", {}) if isinstance(policy.get("document"), dict) else {}
     system_root = policy_doc.get("system_root", {}) if isinstance(policy_doc.get("system_root"), dict) else {}
@@ -7913,6 +7976,14 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "dry_run": apply_latest.get("dry_run") if isinstance(apply_latest, dict) else None,
             "ok": apply_latest.get("ok") if isinstance(apply_latest, dict) else None,
         },
+        "candidates": {
+            "latest": str(STORAGE_CANDIDATES_LATEST_PATH),
+            "exists": STORAGE_CANDIDATES_LATEST_PATH.exists(),
+            "generated_at": candidates_latest.get("generated_at") if isinstance(candidates_latest, dict) else None,
+            "snapshot_id": candidates_latest.get("snapshot_id") if isinstance(candidates_latest, dict) else None,
+            "summary": candidates_latest.get("summary") if isinstance(candidates_latest, dict) else None,
+            "commands": storage_candidate_paths().get("commands"),
+        },
         "ai_storage": {
             "source": "fresh_scan" if full_ai_scan else "latest_file",
             "latest_path": str(AI_STORAGE_LATEST_PATH),
@@ -7939,6 +8010,7 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "monitor_latest": monitor_latest.get("generated_at") if isinstance(monitor_latest, dict) else None,
             "write_preflight_latest": write_preflight_latest.get("generated_at") if isinstance(write_preflight_latest, dict) else None,
             "apply_latest": apply_latest.get("generated_at") if isinstance(apply_latest, dict) else None,
+            "candidates_latest": candidates_latest.get("generated_at") if isinstance(candidates_latest, dict) else None,
         },
         "commands": {
             "policy": ["abyss-machine", "storage", "policy", "--json"],
@@ -7957,6 +8029,8 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "write_preflight": ["abyss-machine", "storage", "write-preflight", "--kind", "KIND", "--bytes", "BYTES", "--target", "PATH", "--json"],
             "apply_dry_run": ["abyss-machine", "storage", "apply", "--action-id", "ID", "--dry-run", "--json"],
             "apply_confirm": ["abyss-machine", "storage", "apply", "--action-id", "ID", "--confirm", "--json"],
+            "candidates_refresh": ["abyss-machine", "storage", "candidates", "refresh", "--json"],
+            "candidates_refresh_deep": ["abyss-machine", "storage", "candidates", "refresh", "--deep", "--json"],
         },
         "rules": [
             "Large generated data belongs under /srv/abyss-machine, not /work and not the system root.",
@@ -9052,6 +9126,31 @@ def storage_monitor(
         artifact_snapshot,
     )
 
+    previous_candidates, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    previous_candidates = previous_candidates if isinstance(previous_candidates, dict) else {}
+    last_deep = storage_candidate_contracts.parse_time(previous_candidates.get("last_deep_at"))
+    current_time = dt.datetime.now(dt.timezone.utc)
+    deep_age_seconds = int((current_time - last_deep).total_seconds()) if last_deep else None
+    pressure_class = str(nested_get(pressure, ["summary", "srv_pressure_class"]) or "")
+    significant_growth = bool(nested_get(inventory, ["drift", "grown"]))
+    known_candidate_ids = {str(item.get("candidate_id") or "") for item in previous_candidates.get("candidates", []) if isinstance(item, dict)}
+    pending_manifests = [item for item in storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT) if item.get("valid") is True and str(item.get("candidate_id") or "") not in known_candidate_ids]
+    deep_requested = pressure_class in {"warning", "critical"} or significant_growth or bool(pending_manifests)
+    deep_due = bool(pending_manifests) or deep_age_seconds is None or deep_age_seconds >= 12 * 3600
+    deep_candidates = deep_requested and deep_due
+    step_started = time.monotonic()
+    candidates = storage_candidates_refresh(
+        deep=deep_candidates,
+        artifact_snapshot=artifact_snapshot,
+        write_latest=write_latest,
+    )
+    step_summary(
+        "candidates_deep_pressure" if deep_candidates else "candidates_light",
+        ["abyss-machine", "storage", "candidates", "refresh", *( ["--deep"] if deep_candidates else []), "--json"],
+        step_started,
+        candidates,
+    )
+
     guard_summary = cleanup.get("guard", {}).get("summary", {}) if isinstance(cleanup.get("guard"), dict) else {}
     active_paths = [
         {
@@ -9074,6 +9173,7 @@ def storage_monitor(
             "pressure_latest": str(STORAGE_PRESSURE_LATEST_PATH),
             "cleanup_plan_latest": str(STORAGE_CLEANUP_PLAN_LATEST_PATH),
             "artifact_snapshot_latest": str(ARTIFACTS_SNAPSHOT_LATEST_PATH),
+            "candidates_latest": str(STORAGE_CANDIDATES_LATEST_PATH),
             "index": str(STORAGE_INDEX_PATH),
         },
         "timer": {
@@ -9107,6 +9207,16 @@ def storage_monitor(
             "artifact_snapshot_current_live_records": nested_get(artifact_snapshot, ["summary", "current_live_records"]),
             "artifact_snapshot_backed_records": nested_get(artifact_snapshot, ["summary", "backed_records"]),
             "artifact_snapshot_classes": nested_get(artifact_snapshot, ["summary", "by_classification"]),
+            "candidate_scan_deep": deep_candidates,
+            "candidate_deep_requested": deep_requested,
+            "candidate_deep_due": deep_due,
+            "candidate_previous_deep_age_seconds": deep_age_seconds,
+            "candidate_significant_growth": significant_growth,
+            "candidate_pending_manifests": len(pending_manifests),
+            "candidates": nested_get(candidates, ["summary", "candidates"]),
+            "candidate_ready": nested_get(candidates, ["summary", "ready"]),
+            "candidate_reclaimable_bytes": nested_get(candidates, ["summary", "reclaimable_bytes"]),
+            "candidate_changed": nested_get(candidates, ["summary", "changed"]),
             "process_guard_paths": guard_summary.get("paths"),
             "process_guard_active_paths": guard_summary.get("active_paths"),
             "active_paths": active_paths,
@@ -9119,6 +9229,8 @@ def storage_monitor(
             "no_symlink_tail": True,
             "timer_uses_light_inventory_only": True,
             "timer_refreshes_artifact_snapshot": True,
+            "timer_refreshes_candidate_lifecycle": True,
+            "pressure_triggers_deep_candidate_scan": True,
             "artifact_snapshot_is_facts_only": True,
             "cleanup_plan_is_not_permission_to_delete": True,
         },
@@ -15094,7 +15206,7 @@ def storage_apply(
 
 
 def storage_paths() -> dict[str, Any]:
-    return storage_contracts.paths_document(
+    document = storage_contracts.paths_document(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
@@ -15128,6 +15240,661 @@ def storage_paths() -> dict[str, Any]:
         apply_root=STORAGE_APPLY_ROOT,
         protected_roots=storage_protected_roots(),
     )
+    document["candidates"] = storage_candidate_paths()
+    return document
+
+
+def storage_candidate_paths() -> dict[str, Any]:
+    document = storage_candidate_contracts.paths_document(
+        root=STORAGE_CANDIDATES_ROOT,
+        latest_path=STORAGE_CANDIDATES_LATEST_PATH,
+        manifests_root=STORAGE_CANDIDATES_MANIFESTS_ROOT,
+        claims_root=STORAGE_CANDIDATES_CLAIMS_ROOT,
+        validation_root=STORAGE_CANDIDATES_VALIDATION_ROOT,
+    )
+    document["notifications"] = {
+        "latest": str(STORAGE_CANDIDATES_NOTIFICATION_LATEST_PATH),
+        "daily_glob": str(STORAGE_CANDIDATES_NOTIFICATION_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+        "rule": "records are emitted only when candidate verdicts change",
+    }
+    document["approvals"] = str(STORAGE_CANDIDATES_APPROVALS_ROOT)
+    document["receipts"] = str(STORAGE_CANDIDATES_RECEIPTS_ROOT)
+    return document
+
+
+def storage_candidate_policy() -> dict[str, Any]:
+    policy = storage_policy_document().get("document")
+    if not isinstance(policy, dict):
+        return storage_candidate_contracts.merged_policy()
+    configured = policy.get("candidate_lifecycle")
+    return storage_candidate_contracts.merged_policy(configured if isinstance(configured, dict) else {})
+
+
+def storage_candidate_json_documents(paths: Sequence[Path]) -> list[tuple[str, dict[str, Any]]]:
+    documents: list[tuple[str, dict[str, Any]]] = []
+    for path in paths:
+        document, _ = load_json_document(path)
+        if isinstance(document, dict) and document:
+            documents.append((str(path), document))
+    return documents
+
+
+def storage_candidate_lane_documents() -> list[tuple[str, dict[str, Any]]]:
+    return storage_candidate_json_documents(sorted(STORAGE_BACKUP_LANES_ROOT.glob("*/latest-success.json")))
+
+
+def storage_candidate_runtime_documents() -> list[tuple[str, dict[str, Any]]]:
+    return storage_candidate_json_documents([
+        AI_RUNTIME_LATEST_PATH,
+        AI_LLM_REGISTRY_LATEST_PATH,
+        AI_LLM_RESIDENT_AUDIT_LATEST_PATH,
+        AI_LLM_RESIDENT_CANDIDATES_LATEST_PATH,
+        AI_LLM_WORKHORSE_PREFLIGHT_LATEST_PATH,
+        AI_LLM_WORKHORSE_PACK_LATEST_PATH,
+        AI_LLM_WORKHORSE_REVIEW_LATEST_PATH,
+        AI_LLM_WORKHORSE_VALIDATE_LATEST_PATH,
+    ])
+
+
+def storage_candidate_owner_aoa_document() -> dict[str, Any]:
+    script = DEFAULT_AOA_SESSION_MEMORY_ROOT / "scripts" / "aoa_session_memory.py"
+    if not script.exists():
+        return {"status": "owner_adapter_unavailable", "error": f"missing {script}"}
+    result = run([
+        str(script),
+        "maintenance-cleanup",
+        "--workspace-root", str(DEFAULT_AOA_SESSION_MEMORY_ROOT.parent),
+        "--aoa-root", str(DEFAULT_AOA_SESSION_MEMORY_ROOT),
+    ], timeout=180.0)
+    if not result.get("ok"):
+        return {
+            "status": "owner_adapter_failed",
+            "error": str(result.get("stderr") or result.get("stdout") or "unknown error")[:4000],
+        }
+    try:
+        parsed = json.loads(str(result.get("stdout") or ""))
+    except json.JSONDecodeError as exc:
+        return {"status": "owner_adapter_invalid_json", "error": str(exc)}
+    return parsed if isinstance(parsed, dict) else {"status": "owner_adapter_invalid_document"}
+
+
+def storage_candidate_discover_specs(*, artifact_snapshot: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    manifests = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT)
+    tmp_specs = storage_candidate_adapters.direct_child_specs(
+        ABYSS_MACHINE_TMP_ROOT,
+        owner="abyss-machine:tmp",
+        kind="generated_tmp",
+        source_adapter="tmp_children",
+    )
+    if (ABYSS_MACHINE_TMP_ROOT / "ai").is_dir():
+        tmp_specs = [item for item in tmp_specs if str(item.get("path")) != str(ABYSS_MACHINE_TMP_ROOT / "ai")]
+    specs.extend(tmp_specs)
+    specs.extend(storage_candidate_adapters.runtime_specs(ABYSS_MACHINE_RUNTIME_ROOT))
+    if (ABYSS_MACHINE_TMP_ROOT / "ai").is_dir():
+        specs.extend(storage_candidate_adapters.direct_child_specs(
+            ABYSS_MACHINE_TMP_ROOT / "ai",
+            owner="abyss-machine:tmp-ai",
+            kind="generated_tmp",
+            source_adapter="tmp_ai_children",
+        ))
+    snapshot = artifact_snapshot if isinstance(artifact_snapshot, dict) else artifacts_snapshot(scope="all", history_days=14, write_latest=False)
+    specs.extend(storage_candidate_adapters.artifact_specs(snapshot))
+    specs.extend(storage_candidate_adapters.huggingface_specs(AI_CACHE_ROOT / "huggingface"))
+    specs.extend(storage_candidate_adapters.git_specs([ABYSS_MACHINE_TMP_ROOT]))
+    if command_exists("podman"):
+        podman = run(["podman", "system", "df", "-v"], timeout=45.0)
+        if podman.get("ok"):
+            specs.extend(storage_candidate_adapters.podman_specs(str(podman.get("stdout") or "")))
+    aoa_document = storage_candidate_owner_aoa_document()
+    specs.extend(storage_candidate_adapters.aoa_specs(aoa_document))
+    specs.extend(storage_candidate_adapters.manifest_specs(manifests))
+
+    priority = {
+        "tmp_children": 10,
+        "runtime_children": 10,
+        "tmp_ai_children": 20,
+        "artifact_snapshot": 50,
+        "huggingface_cache": 60,
+        "podman": 70,
+        "git_worktree": 80,
+        "creation_manifest": 90,
+        "aoa_owner_verdict": 100,
+    }
+    by_path: dict[str, dict[str, Any]] = {}
+    for spec in specs:
+        path = str(spec.get("path") or "")
+        if not path:
+            continue
+        previous = by_path.get(path)
+        if previous is None or priority.get(str(spec.get("source_adapter")), 0) >= priority.get(str(previous.get("source_adapter")), 0):
+            by_path[path] = {**(previous or {}), **spec}
+        else:
+            by_path[path] = {**spec, **previous}
+    return list(by_path.values())
+
+
+def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    physical_paths = [
+        str(spec.get("path")) for spec in specs
+        if spec.get("path") and not str(spec.get("path")).startswith("podman://")
+    ]
+    result = {
+        path: {
+            "checked": True,
+            "active": False,
+            "hits": [],
+            "hit_count": 0,
+            "strong_live_hit_count": 0,
+            "source": "single-pass exact path/name config scan",
+        }
+        for path in physical_paths
+    }
+    for file_path in artifact_config_scan_files():
+        try:
+            stat = file_path.stat()
+            if stat.st_size > 8 * 1024 * 1024:
+                continue
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        source_kind = artifact_evidence_source_kind(file_path)
+        for path in physical_paths:
+            name = Path(path).name
+            path_hit = bool(path and path in text)
+            name_hit = bool(name and name in text)
+            matched_tokens = [token for token, present in ((path, path_hit), (name, name_hit)) if present]
+            if not matched_tokens:
+                continue
+            item = result[path]
+            item["hit_count"] += 1
+            active = source_kind == "live_config" and path_hit
+            if active:
+                item["strong_live_hit_count"] += 1
+                item["active"] = True
+            if len(item["hits"]) < 40:
+                item["hits"].append({
+                    "path": str(file_path),
+                    "matched": matched_tokens,
+                    "source_kind": source_kind,
+                    "active_evidence": active,
+                })
+    return result
+
+
+def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str) -> dict[str, Any]:
+    manifests = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT)
+    known_ids = {str(item.get("candidate_id") or "") for item in previous.get("candidates", []) if isinstance(item, dict)}
+    pending_manifest_ids = [str(item.get("candidate_id")) for item in manifests if item.get("valid") is True and str(item.get("candidate_id") or "") not in known_ids]
+    if not previous.get("candidates"):
+        return {
+            "schema": f"{SCHEMA_PREFIX}_storage_candidates_v1",
+            "version": VERSION,
+            "generated_at": generated_at,
+            "ok": True,
+            "deep": False,
+            "snapshot_id": None,
+            "summary": {"candidates": 0, "ready": 0, "delete_ready": 0, "archive_ready": 0, "changed": 0, "retired": 0, "physical_bytes": 0, "reclaimable_bytes": 0, "by_verdict": {}},
+            "changes": [],
+            "candidates": [],
+            "retired": [],
+            "paths": storage_candidate_paths(),
+            "light_refresh": {"mode": "carry_forward_only", "needs_deep_seed": True, "manifest_count": len(manifests), "pending_manifest_candidate_ids": pending_manifest_ids},
+            "policy": {**storage_candidate_policy(), "automatic_deletion": False},
+        }
+    document = json.loads(json.dumps(previous))
+    prior_generated = storage_candidate_contracts.parse_time(previous.get("last_deep_at") or previous.get("generated_at"))
+    now_time = storage_candidate_contracts.parse_time(generated_at)
+    evidence_age = int((now_time - prior_generated).total_seconds()) if now_time and prior_generated else None
+    document.update({"version": VERSION, "generated_at": generated_at, "deep": False, "changes": []})
+    if isinstance(document.get("summary"), dict):
+        document["summary"]["changed"] = 0
+        document["summary"]["retired"] = 0
+    document["light_refresh"] = {
+        "mode": "carry_forward_only",
+        "source_snapshot_id": previous.get("snapshot_id"),
+        "evidence_age_seconds": evidence_age,
+        "ready_verdicts_require_deep_validate_before_apply": True,
+        "manifest_count": len(manifests),
+        "pending_manifest_candidate_ids": pending_manifest_ids,
+    }
+    document.setdefault("policy", {})["automatic_deletion"] = False
+    document["paths"] = storage_candidate_paths()
+    return document
+
+
+def storage_candidates_refresh(*, deep: bool = False, artifact_snapshot: dict[str, Any] | None = None, write_latest: bool = True) -> dict[str, Any]:
+    generated_at = now_iso()
+    previous, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    previous = previous if isinstance(previous, dict) else {}
+    if not deep:
+        data = storage_candidate_light_refresh(previous, generated_at)
+    else:
+        specs = storage_candidate_discover_specs(artifact_snapshot=artifact_snapshot)
+        claims = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_CLAIMS_ROOT)
+        runtime_documents = storage_candidate_runtime_documents()
+        lane_documents = storage_candidate_lane_documents()
+        process_by_path = storage_candidate_adapters.process_references([str(spec.get("path") or "") for spec in specs])
+        config_by_path = storage_candidate_config_refs_by_path(specs)
+        observations: list[dict[str, Any]] = []
+        for spec in specs:
+            path_text = str(spec.get("path") or "")
+            virtual = path_text.startswith("podman://")
+            protection = {"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text))
+            artifact_spec = artifact_spec_for_path(Path(path_text)) if spec.get("source_adapter") == "artifact_snapshot" and not virtual else {}
+            service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
+            container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
+            config_refs = config_by_path.get(path_text, {"checked": virtual, "active": False, "hits": []})
+            for evidence in (service_refs, container_refs, config_refs):
+                evidence.setdefault("checked", not evidence.get("error"))
+                evidence.setdefault("active", False)
+            observations.append(storage_candidate_adapters.collect_observation(
+                spec,
+                protection=protection,
+                process_refs=process_by_path.get(path_text, {"checked": virtual, "active": False, "refs": []}),
+                claims=claims,
+                runtime_documents=runtime_documents,
+                lane_documents=lane_documents,
+                deep=True,
+                generated_at=generated_at,
+                max_fingerprint_entries=50_000,
+                service_refs=service_refs,
+                container_refs=container_refs,
+                config_refs=config_refs,
+            ))
+        data = storage_candidate_contracts.candidates_document(
+            observations,
+            previous_document=previous,
+            configured_policy=storage_candidate_policy(),
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+            generated_at=generated_at,
+            paths=storage_candidate_paths(),
+            deep=True,
+        )
+        data["last_deep_at"] = generated_at
+    if write_latest:
+        latest_error = safe_atomic_write_json(STORAGE_CANDIDATES_LATEST_PATH, data, 0o664)
+        daily_error = safe_append_jsonl(
+            ai_daily_jsonl_path(STORAGE_CANDIDATES_HISTORY_ROOT),
+            storage_candidate_contracts.candidate_history_event(data),
+            0o664,
+        )
+        notification_errors: list[str] = []
+        changes = data.get("changes") if isinstance(data.get("changes"), list) else []
+        if changes:
+            notification = {
+                "schema": f"{SCHEMA_PREFIX}_storage_candidate_changes_v1",
+                "version": VERSION,
+                "generated_at": generated_at,
+                "snapshot_id": data.get("snapshot_id"),
+                "changes": changes,
+                "summary": {"changed": len(changes)},
+                "changed_only": True,
+            }
+            for error in (
+                safe_atomic_write_json(STORAGE_CANDIDATES_NOTIFICATION_LATEST_PATH, notification, 0o664),
+                safe_append_jsonl(ai_daily_jsonl_path(STORAGE_CANDIDATES_NOTIFICATION_ROOT), notification, 0o664),
+            ):
+                if error:
+                    notification_errors.append(error)
+            if os.environ.get("ABYSS_MACHINE_STORAGE_CANDIDATE_NOTIFY", "").lower() in {"1", "true", "yes", "on"}:
+                notify("Abyss storage candidates changed", f"{len(changes)} verdict transition(s)", expire_ms=6000)
+        errors = [error for error in (latest_error, daily_error, *notification_errors) if error]
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    return data
+
+
+def storage_candidates_list(**filters: Any) -> dict[str, Any]:
+    document, error = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    document = document if isinstance(document, dict) else {}
+    candidates = storage_candidate_contracts.filter_candidates(document, **filters)
+    candidates = [{**item, "lifecycle": storage_candidate_lifecycle(str(item.get("candidate_id") or ""), base_state=str(item.get("lifecycle_state") or "classified"))} for item in candidates]
+    return {
+        "schema": f"{SCHEMA_PREFIX}_storage_candidates_list_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": error is None and bool(document),
+        "error": error,
+        "snapshot_id": document.get("snapshot_id"),
+        "source_generated_at": document.get("generated_at"),
+        "summary": {"selected": len(candidates), "available": len(document.get("candidates", []))},
+        "candidates": candidates,
+    }
+
+
+def storage_candidate_explain(candidate_id: str) -> dict[str, Any]:
+    document, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    result = storage_candidate_contracts.explain_candidate(document if isinstance(document, dict) else {}, candidate_id)
+    if result.get("ok"):
+        candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else {}
+        result["lifecycle"] = storage_candidate_lifecycle(candidate_id, base_state=str(candidate.get("lifecycle_state") or "classified"))
+    return result
+
+
+def storage_candidate_lifecycle(candidate_id: str, *, base_state: str) -> dict[str, Any]:
+    validation, _ = load_json_document(STORAGE_CANDIDATES_VALIDATION_LATEST_PATH)
+    validation_match = isinstance(validation, dict) and validation.get("candidate_id") == candidate_id
+    approval_path = STORAGE_CANDIDATES_APPROVALS_ROOT / f"{candidate_id}.json"
+    approval, _ = load_json_document(approval_path)
+    approval = approval if isinstance(approval, dict) else {}
+    expiry = storage_candidate_contracts.parse_time(approval.get("expires_at"))
+    approval_active = bool(approval.get("valid") is True and expiry and expiry > dt.datetime.now(dt.timezone.utc))
+    receipt_paths = sorted(STORAGE_CANDIDATES_RECEIPTS_ROOT.glob(f"{candidate_id}-*.json"))
+    latest_receipt, _ = load_json_document(receipt_paths[-1]) if receipt_paths else ({}, None)
+    receipt_valid = isinstance(latest_receipt, dict) and latest_receipt.get("valid") is True
+    state = "receipted" if receipt_valid else ("operator-approved" if approval_active else ("validated" if validation_match and validation.get("valid") is True else base_state))
+    return {
+        "state": state,
+        "validation": validation if validation_match else None,
+        "approval": approval or None,
+        "approval_active": approval_active,
+        "latest_receipt": latest_receipt if receipt_valid else None,
+    }
+
+
+def storage_candidate_find_spec(candidate_id: str) -> dict[str, Any] | None:
+    latest, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    saved = next((item for item in (latest or {}).get("candidates", []) if isinstance(item, dict) and item.get("candidate_id") == candidate_id), None)
+    if saved is None:
+        return None
+    path_text = str(saved.get("path") or "")
+    adapter = str(saved.get("source_adapter") or "")
+    specs: list[dict[str, Any]] = []
+    if adapter == "creation_manifest":
+        specs = storage_candidate_adapters.manifest_specs(storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT))
+    elif adapter == "artifact_snapshot":
+        specs = storage_candidate_adapters.artifact_specs(artifacts_snapshot(scope="all", history_days=14, write_latest=False))
+    elif adapter == "huggingface_cache":
+        specs = storage_candidate_adapters.huggingface_specs(AI_CACHE_ROOT / "huggingface")
+    elif adapter == "git_worktree":
+        path = Path(path_text)
+        if path.exists():
+            evidence = storage_candidate_adapters.git_worktree_evidence(path)
+            specs = [{
+                "path": path_text,
+                "owner": "git",
+                "kind": "git_worktree",
+                "source_id": str(saved.get("source_id") or f"git:{evidence.get('common_git_dir')}:{path}"),
+                "source_adapter": "git_worktree",
+                "executor": evidence["executor"],
+                "unique_data": evidence["unique_data"],
+                "recovery": evidence["recovery"],
+                "replacement": {"verified": False},
+                "git": evidence,
+            }]
+    elif adapter == "podman" and command_exists("podman"):
+        podman = run(["podman", "system", "df", "-v"], timeout=45.0)
+        specs = storage_candidate_adapters.podman_specs(str(podman.get("stdout") or "")) if podman.get("ok") else []
+    elif adapter == "aoa_owner_verdict":
+        specs = storage_candidate_adapters.aoa_specs(storage_candidate_owner_aoa_document())
+    else:
+        kind = str(saved.get("kind") or "unknown")
+        specs = [{
+            "candidate_id": candidate_id,
+            "path": path_text,
+            "owner": str(saved.get("owner") or "unknown"),
+            "kind": kind,
+            "source_id": str(saved.get("source_id") or ""),
+            "source_adapter": adapter,
+            "executor": dict(saved.get("executor") if isinstance(saved.get("executor"), dict) else {}),
+            "unique_data": {"status": "unknown", "reasons": ["generic rediscovery does not infer unique-data clearance"]},
+            "recovery": {"verified": False, "command": None},
+            "replacement": {"verified": False},
+        }]
+    for spec in specs:
+        resolved = str(spec.get("candidate_id") or storage_candidate_contracts.stable_candidate_id(
+            owner=str(spec.get("owner") or "unknown"),
+            kind=str(spec.get("kind") or "unknown"),
+            path=str(spec.get("path") or ""),
+            source_id=str(spec.get("source_id") or ""),
+        ))
+        if resolved == candidate_id or str(spec.get("path") or "") == path_text:
+            spec["candidate_id"] = candidate_id
+            spec["source_id"] = str(saved.get("source_id") or spec.get("source_id") or "")
+            return spec
+    return None
+
+
+def storage_candidate_validate(candidate_id: str, *, write_latest: bool = True) -> dict[str, Any]:
+    generated_at = now_iso()
+    document, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    document = document if isinstance(document, dict) else {}
+    spec = storage_candidate_find_spec(candidate_id)
+    if spec is None:
+        data = {"schema": f"{SCHEMA_PREFIX}_storage_candidate_validate_v1", "version": VERSION, "generated_at": generated_at, "ok": False, "valid": False, "candidate_id": candidate_id, "error": "candidate_not_rediscovered"}
+    else:
+        path_text = str(spec.get("path") or "")
+        virtual = path_text.startswith("podman://")
+        artifact_spec = artifact_spec_for_path(Path(path_text)) if not virtual else {}
+        process_refs = storage_candidate_adapters.process_references([path_text]).get(path_text, {"checked": virtual, "active": False, "refs": []})
+        service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
+        container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
+        config_refs = artifact_config_refs(Path(path_text), [str(item) for item in artifact_spec.get("config_tokens", []) if item]) if artifact_spec else {"checked": True, "active": False, "hits": []}
+        for evidence in (service_refs, container_refs, config_refs):
+            evidence.setdefault("checked", not evidence.get("error"))
+            evidence.setdefault("active", False)
+        observation = storage_candidate_adapters.collect_observation(
+            spec,
+            protection={"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text)),
+            process_refs=process_refs,
+            claims=storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_CLAIMS_ROOT),
+            runtime_documents=storage_candidate_runtime_documents(),
+            lane_documents=storage_candidate_lane_documents(),
+            deep=True,
+            generated_at=generated_at,
+            max_fingerprint_entries=50_000,
+            service_refs=service_refs,
+            container_refs=container_refs,
+            config_refs=config_refs,
+        )
+        data = storage_candidate_contracts.validate_candidate(
+            document,
+            observation,
+            candidate_id=candidate_id,
+            configured_policy=storage_candidate_policy(),
+            generated_at=generated_at,
+        )
+        data["version"] = VERSION
+    if write_latest:
+        latest_error = safe_atomic_write_json(STORAGE_CANDIDATES_VALIDATION_LATEST_PATH, data, 0o664)
+        daily_error = safe_append_jsonl(ai_daily_jsonl_path(STORAGE_CANDIDATES_VALIDATION_ROOT), data, 0o664)
+        errors = [error for error in (latest_error, daily_error) if error]
+        if errors:
+            data["ok"] = False
+            data["write_errors"] = errors
+    return data
+
+
+def storage_candidate_register(
+    *,
+    path: str,
+    owner: str,
+    kind: str,
+    purpose: str,
+    producer: str,
+    source_id: str,
+    recovery_command: str | None,
+    replacement_ref: str | None,
+    retention_until: str | None,
+    executor_type: str | None,
+    unique_data_clear: bool,
+    preserved_refs: Sequence[str],
+    archivable: bool,
+    recovery_verified: bool,
+    replacement_verified: bool,
+    archive_digest_match: bool,
+    restore_command: str | None,
+    restore_verified: bool,
+) -> dict[str, Any]:
+    manifest = storage_candidate_contracts.manifest_document(
+        path=path,
+        owner=owner,
+        kind=kind,
+        purpose=purpose,
+        producer=producer,
+        source_id=source_id,
+        recovery_command=recovery_command,
+        replacement_ref=replacement_ref,
+        retention_until=retention_until,
+        executor_type=executor_type,
+        unique_data_clear=unique_data_clear,
+        preserved_refs=preserved_refs,
+        archivable=archivable,
+        recovery_verified=recovery_verified,
+        replacement_verified=replacement_verified,
+        archive={
+            "digest_match": bool(archive_digest_match),
+            "restore_command": restore_command,
+            "restore_verified": bool(restore_verified),
+        },
+        created_at=now_iso(),
+    )
+    if not manifest.get("valid"):
+        return {"schema": f"{SCHEMA_PREFIX}_storage_candidate_register_v1", "version": VERSION, "generated_at": now_iso(), "ok": False, "manifest": manifest}
+    try:
+        written = storage_candidate_adapters.write_manifest(STORAGE_CANDIDATES_MANIFESTS_ROOT, manifest)
+    except OSError as exc:
+        return {"schema": f"{SCHEMA_PREFIX}_storage_candidate_register_v1", "version": VERSION, "generated_at": now_iso(), "ok": False, "error": str(exc), "manifest": manifest}
+    return {
+        "schema": f"{SCHEMA_PREFIX}_storage_candidate_register_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": True,
+        "manifest_path": str(written),
+        "manifest": manifest,
+        "next": "abyss-machine storage candidates refresh --deep --json",
+        "automatic_deletion": False,
+    }
+
+
+def storage_candidate_claim(
+    *,
+    claim_id: str,
+    candidate_id: str | None,
+    path: str | None,
+    owner: str,
+    session_id: str | None,
+    change_id: str | None,
+    purpose: str,
+    ttl_seconds: int,
+) -> dict[str, Any]:
+    issued = dt.datetime.now(dt.timezone.utc)
+    expires = issued + dt.timedelta(seconds=max(60, int(ttl_seconds)))
+    claim = storage_candidate_contracts.claim_document(
+        claim_id=claim_id,
+        candidate_id=candidate_id,
+        path=path,
+        owner=owner,
+        session_id=session_id,
+        change_id=change_id,
+        purpose=purpose,
+        issued_at=issued.isoformat(),
+        expires_at=expires.isoformat(),
+    )
+    if not claim.get("valid"):
+        return {"schema": f"{SCHEMA_PREFIX}_storage_candidate_claim_write_v1", "version": VERSION, "generated_at": now_iso(), "ok": False, "claim": claim}
+    try:
+        written = storage_candidate_adapters.write_claim(STORAGE_CANDIDATES_CLAIMS_ROOT, claim)
+    except OSError as exc:
+        return {"schema": f"{SCHEMA_PREFIX}_storage_candidate_claim_write_v1", "version": VERSION, "generated_at": now_iso(), "ok": False, "error": str(exc), "claim": claim}
+    return {"schema": f"{SCHEMA_PREFIX}_storage_candidate_claim_write_v1", "version": VERSION, "generated_at": now_iso(), "ok": True, "claim_path": str(written), "claim": claim}
+
+
+def storage_candidate_release(claim_id: str) -> dict[str, Any]:
+    path, error = storage_candidate_adapters.release_claim(STORAGE_CANDIDATES_CLAIMS_ROOT, claim_id, released_at=now_iso())
+    return {
+        "schema": f"{SCHEMA_PREFIX}_storage_candidate_claim_release_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "ok": error is None and path is not None,
+        "claim_id": claim_id,
+        "claim_path": str(path) if path else None,
+        "error": error,
+        "release_is_not_delete_permission": True,
+    }
+
+
+def storage_candidate_approve(candidate_id: str, *, approved_by: str, ttl_seconds: int, note: str | None) -> dict[str, Any]:
+    candidates, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    validation, _ = load_json_document(STORAGE_CANDIDATES_VALIDATION_LATEST_PATH)
+    candidate = next((item for item in (candidates or {}).get("candidates", []) if isinstance(item, dict) and item.get("candidate_id") == candidate_id), None)
+    if candidate is None:
+        return {"schema": f"{SCHEMA_PREFIX}_storage_candidate_approval_v1", "version": VERSION, "generated_at": now_iso(), "ok": False, "error": "candidate_not_found", "candidate_id": candidate_id}
+    approved_at = dt.datetime.now(dt.timezone.utc)
+    approval = storage_candidate_contracts.approval_document(
+        candidate=candidate,
+        validation=validation if isinstance(validation, dict) else {},
+        approved_by=approved_by,
+        approved_at=approved_at.isoformat(),
+        expires_at=(approved_at + dt.timedelta(seconds=max(60, int(ttl_seconds)))).isoformat(),
+        note=note,
+    )
+    approval["version"] = VERSION
+    approval["ok"] = approval.get("valid") is True
+    if approval.get("valid"):
+        path = STORAGE_CANDIDATES_APPROVALS_ROOT / f"{candidate_id}.json"
+        try:
+            storage_candidate_adapters.atomic_write_json(path, approval)
+            approval["path"] = str(path)
+        except OSError as exc:
+            approval["ok"] = False
+            approval["error"] = str(exc)
+    return approval
+
+
+def storage_candidate_operator_preflight(candidate_id: str, *, refresh_validation: bool = True) -> dict[str, Any]:
+    validation = storage_candidate_validate(candidate_id, write_latest=True) if refresh_validation else load_json_document(STORAGE_CANDIDATES_VALIDATION_LATEST_PATH)[0]
+    candidates, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+    candidate = next((item for item in (candidates or {}).get("candidates", []) if isinstance(item, dict) and item.get("candidate_id") == candidate_id), None)
+    approval, _ = load_json_document(STORAGE_CANDIDATES_APPROVALS_ROOT / f"{candidate_id}.json")
+    if candidate is None:
+        return {"schema": f"{SCHEMA_PREFIX}_storage_candidate_operator_apply_preflight_v1", "version": VERSION, "generated_at": now_iso(), "ok": False, "decision": "blocked_fail_closed", "candidate_id": candidate_id, "reasons": ["candidate_not_found"], "executes_mutation": False}
+    data = storage_candidate_contracts.operator_apply_preflight(
+        candidate=candidate,
+        validation=validation if isinstance(validation, dict) else {},
+        approval=approval if isinstance(approval, dict) else {},
+    )
+    data["version"] = VERSION
+    data["generated_at"] = now_iso()
+    return data
+
+
+def storage_candidate_receipt(
+    candidate_id: str,
+    *,
+    action: str,
+    result: str,
+    before_bytes: int | None,
+    after_bytes: int | None,
+    evidence_refs: Sequence[str],
+) -> dict[str, Any]:
+    approval_path = STORAGE_CANDIDATES_APPROVALS_ROOT / f"{candidate_id}.json"
+    approval, _ = load_json_document(approval_path)
+    receipt = storage_candidate_contracts.receipt_document(
+        candidate_id=candidate_id,
+        approval=approval if isinstance(approval, dict) else {},
+        action=action,
+        result=result,
+        applied_at=now_iso(),
+        before_bytes=before_bytes,
+        after_bytes=after_bytes,
+        evidence_refs=evidence_refs,
+    )
+    receipt["version"] = VERSION
+    receipt["ok"] = receipt.get("valid") is True
+    if receipt.get("valid"):
+        timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        path = STORAGE_CANDIDATES_RECEIPTS_ROOT / f"{candidate_id}-{timestamp}.json"
+        try:
+            storage_candidate_adapters.atomic_write_json(path, receipt)
+            receipt["path"] = str(path)
+        except OSError as exc:
+            receipt["ok"] = False
+            receipt["error"] = str(exc)
+    return receipt
 
 
 def proc_total_jiffies() -> int | None:
@@ -39960,7 +40727,7 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
             "history": STORAGE_VALIDATE_ROOT,
             "paths": storage_paths,
             "docs": [Path("/var/lib/abyss-machine/storage/AGENTS.md"), STORAGE_POLICY_PATH, STORAGE_POLICY_ENV_PATH],
-            "dirs": [STORAGE_STATE_ROOT, ABYSS_MACHINE_ROOT, ABYSS_MACHINE_CACHE_ROOT, ABYSS_MACHINE_RUNTIME_ROOT, ABYSS_MACHINE_STORAGE_ROOT, ABYSS_MACHINE_TMP_ROOT],
+            "dirs": [STORAGE_STATE_ROOT, STORAGE_CANDIDATES_ROOT, ABYSS_MACHINE_ROOT, ABYSS_MACHINE_CACHE_ROOT, ABYSS_MACHINE_RUNTIME_ROOT, ABYSS_MACHINE_STORAGE_ROOT, ABYSS_MACHINE_TMP_ROOT],
             "json": [
                 ("storage_index", STORAGE_INDEX_PATH, f"{SCHEMA_PREFIX}_storage_paths_v1", True),
                 ("storage_latest", STORAGE_LATEST_PATH, None, False),
@@ -39968,8 +40735,10 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
                 ("pressure_latest", STORAGE_PRESSURE_LATEST_PATH, None, False),
                 ("cleanup_plan_latest", STORAGE_CLEANUP_PLAN_LATEST_PATH, None, False),
                 ("write_preflight_latest", STORAGE_WRITE_PREFLIGHT_LATEST_PATH, None, False),
+                ("storage_candidates_latest", STORAGE_CANDIDATES_LATEST_PATH, f"{SCHEMA_PREFIX}_storage_candidates_v1", False),
+                ("storage_candidate_validation_latest", STORAGE_CANDIDATES_VALIDATION_LATEST_PATH, f"{SCHEMA_PREFIX}_storage_candidate_validate_v1", False),
             ],
-            "timers": [("user", "abyss-storage-monitor.timer", False)],
+            "timers": [("user", "abyss-storage-monitor.timer", False), ("user", "abyss-storage-candidates-deep.timer", False)],
             "bridge_commands": ["storage_paths_json", "storage_pressure_json", "storage_write_preflight_json"],
         },
         "artifacts": {
@@ -50612,6 +51381,74 @@ def main(argv: list[str]) -> int:
     storage_apply_parser.add_argument("--confirm", action="store_true", help="execute the allowlisted action after guard/hooks")
     storage_apply_parser.add_argument("--age-days", type=float, default=7.0, help="minimum age for age-based generated temp cleanup")
     storage_apply_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_parser = storage_sub.add_parser("candidates", help="persistent evidence-first cleanup candidate lifecycle")
+    storage_candidates_sub = storage_candidates_parser.add_subparsers(dest="storage_candidates_command", required=True)
+    storage_candidates_refresh_parser = storage_candidates_sub.add_parser("refresh")
+    storage_candidates_refresh_parser.add_argument("--deep", action="store_true", help="run owner, process, Podman, Git, Vault and fingerprint evidence adapters")
+    storage_candidates_refresh_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_list_parser = storage_candidates_sub.add_parser("list")
+    storage_candidates_list_parser.add_argument("--verdict", action="append", default=[])
+    storage_candidates_list_parser.add_argument("--owner", action="append", default=[])
+    storage_candidates_list_parser.add_argument("--blocker", action="append", default=[])
+    storage_candidates_list_parser.add_argument("--min-bytes", type=int, default=0)
+    storage_candidates_list_parser.add_argument("--changed", action="store_true")
+    storage_candidates_list_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_explain_parser = storage_candidates_sub.add_parser("explain")
+    storage_candidates_explain_parser.add_argument("candidate_id")
+    storage_candidates_explain_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_validate_parser = storage_candidates_sub.add_parser("validate")
+    storage_candidates_validate_parser.add_argument("candidate_id")
+    storage_candidates_validate_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_preflight_parser = storage_candidates_sub.add_parser("preflight")
+    storage_candidates_preflight_parser.add_argument("candidate_id")
+    storage_candidates_preflight_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_register_parser = storage_candidates_sub.add_parser("register")
+    storage_candidates_register_parser.add_argument("--path", required=True)
+    storage_candidates_register_parser.add_argument("--owner", required=True)
+    storage_candidates_register_parser.add_argument("--kind", required=True, choices=sorted(storage_candidate_contracts.EXECUTORS_BY_KIND))
+    storage_candidates_register_parser.add_argument("--purpose", required=True)
+    storage_candidates_register_parser.add_argument("--producer", required=True)
+    storage_candidates_register_parser.add_argument("--source-id", required=True)
+    storage_candidates_register_parser.add_argument("--recovery-command")
+    storage_candidates_register_parser.add_argument("--replacement-ref")
+    storage_candidates_register_parser.add_argument("--retention-until")
+    storage_candidates_register_parser.add_argument("--executor-type")
+    storage_candidates_register_parser.add_argument("--unique-data-clear", action="store_true")
+    storage_candidates_register_parser.add_argument("--preserved-ref", action="append", default=[])
+    storage_candidates_register_parser.add_argument("--archivable", action="store_true")
+    storage_candidates_register_parser.add_argument("--recovery-verified", action="store_true")
+    storage_candidates_register_parser.add_argument("--replacement-verified", action="store_true")
+    storage_candidates_register_parser.add_argument("--archive-digest-match", action="store_true")
+    storage_candidates_register_parser.add_argument("--restore-command")
+    storage_candidates_register_parser.add_argument("--restore-verified", action="store_true")
+    storage_candidates_register_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_claim_parser = storage_candidates_sub.add_parser("claim")
+    storage_candidates_claim_parser.add_argument("--claim-id", required=True)
+    storage_candidates_claim_parser.add_argument("--candidate-id")
+    storage_candidates_claim_parser.add_argument("--path")
+    storage_candidates_claim_parser.add_argument("--owner", required=True)
+    storage_candidates_claim_parser.add_argument("--session-id")
+    storage_candidates_claim_parser.add_argument("--change-id")
+    storage_candidates_claim_parser.add_argument("--purpose", required=True)
+    storage_candidates_claim_parser.add_argument("--ttl-seconds", type=int, default=86400)
+    storage_candidates_claim_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_release_parser = storage_candidates_sub.add_parser("release")
+    storage_candidates_release_parser.add_argument("--claim-id", required=True)
+    storage_candidates_release_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_approve_parser = storage_candidates_sub.add_parser("approve")
+    storage_candidates_approve_parser.add_argument("candidate_id")
+    storage_candidates_approve_parser.add_argument("--approved-by", required=True)
+    storage_candidates_approve_parser.add_argument("--ttl-seconds", type=int, default=3600)
+    storage_candidates_approve_parser.add_argument("--note")
+    storage_candidates_approve_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_candidates_receipt_parser = storage_candidates_sub.add_parser("receipt")
+    storage_candidates_receipt_parser.add_argument("candidate_id")
+    storage_candidates_receipt_parser.add_argument("--action", required=True)
+    storage_candidates_receipt_parser.add_argument("--result", required=True, choices=["applied", "failed", "aborted"])
+    storage_candidates_receipt_parser.add_argument("--before-bytes", type=int)
+    storage_candidates_receipt_parser.add_argument("--after-bytes", type=int)
+    storage_candidates_receipt_parser.add_argument("--evidence-ref", action="append", default=[], required=True)
+    storage_candidates_receipt_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
     artifacts_parser = add_top_level_parser("artifacts", help="inspect large host-local artifact evidence before cleanup/offload decisions")
     artifacts_sub = artifacts_parser.add_subparsers(dest="artifacts_command", required=True)
@@ -52561,6 +53398,78 @@ def main(argv: list[str]) -> int:
                     print_json(data)
                     return 1
             data = run_storage_hooks(args.stage, payload, enforce=bool(args.enforce), timeout=float(args.timeout))
+            print_json(data)
+            return 0 if data.get("ok") else 1
+        if args.storage_command == "candidates":
+            command = args.storage_candidates_command
+            if command == "refresh":
+                data = storage_candidates_refresh(deep=bool(args.deep), write_latest=True)
+            elif command == "list":
+                data = storage_candidates_list(
+                    verdicts=args.verdict,
+                    owners=args.owner,
+                    blockers=args.blocker,
+                    minimum_bytes=int(args.min_bytes),
+                    changed_only=bool(args.changed),
+                )
+            elif command == "explain":
+                data = storage_candidate_explain(str(args.candidate_id))
+            elif command == "validate":
+                data = storage_candidate_validate(str(args.candidate_id), write_latest=True)
+            elif command == "preflight":
+                data = storage_candidate_operator_preflight(str(args.candidate_id), refresh_validation=True)
+            elif command == "register":
+                data = storage_candidate_register(
+                    path=str(Path(args.path).expanduser()),
+                    owner=str(args.owner),
+                    kind=str(args.kind),
+                    purpose=str(args.purpose),
+                    producer=str(args.producer),
+                    source_id=str(args.source_id),
+                    recovery_command=args.recovery_command,
+                    replacement_ref=args.replacement_ref,
+                    retention_until=args.retention_until,
+                    executor_type=args.executor_type,
+                    unique_data_clear=bool(args.unique_data_clear),
+                    preserved_refs=args.preserved_ref,
+                    archivable=bool(args.archivable),
+                    recovery_verified=bool(args.recovery_verified),
+                    replacement_verified=bool(args.replacement_verified),
+                    archive_digest_match=bool(args.archive_digest_match),
+                    restore_command=args.restore_command,
+                    restore_verified=bool(args.restore_verified),
+                )
+            elif command == "claim":
+                data = storage_candidate_claim(
+                    claim_id=str(args.claim_id),
+                    candidate_id=args.candidate_id,
+                    path=str(Path(args.path).expanduser()) if args.path else None,
+                    owner=str(args.owner),
+                    session_id=args.session_id,
+                    change_id=args.change_id,
+                    purpose=str(args.purpose),
+                    ttl_seconds=int(args.ttl_seconds),
+                )
+            elif command == "release":
+                data = storage_candidate_release(str(args.claim_id))
+            elif command == "approve":
+                data = storage_candidate_approve(
+                    str(args.candidate_id),
+                    approved_by=str(args.approved_by),
+                    ttl_seconds=int(args.ttl_seconds),
+                    note=args.note,
+                )
+            elif command == "receipt":
+                data = storage_candidate_receipt(
+                    str(args.candidate_id),
+                    action=str(args.action),
+                    result=str(args.result),
+                    before_bytes=args.before_bytes,
+                    after_bytes=args.after_bytes,
+                    evidence_refs=args.evidence_ref,
+                )
+            else:
+                parser.error("unknown storage candidates command")
             print_json(data)
             return 0 if data.get("ok") else 1
         if args.storage_command == "podman-preflight":

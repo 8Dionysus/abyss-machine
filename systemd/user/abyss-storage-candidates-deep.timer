@@ -1,0 +1,12 @@
+[Unit]
+Description=Run deep Abyss Machine storage candidate evidence refresh daily
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/storage/AGENTS.md
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
