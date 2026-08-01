@@ -117,6 +117,12 @@ coverage, `.aoa` owner refusal, leases, approval, and external receipts. CLI,
 bootstrap, timer, decision-index, documentation, and full host-contract lanes
 must also pass before landing.
 
+```bash
+abyss-machine storage validate --json
+abyss-machine docs decisions-index --json
+abyss-machine topology validate --json
+```
+
 ## Follow-up Route
 
 Install through the normal bootstrap/change-ledger route, observe several deep

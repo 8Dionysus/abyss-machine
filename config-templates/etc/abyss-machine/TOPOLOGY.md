@@ -28,6 +28,16 @@ abyss-machine must not import or mutate abyss-stack.
 Use the machine-entry and topology sequence in
 [commands.md](commands.md#machine-entry-and-topology).
 
+```bash
+abyss-machine enter --json
+abyss-machine topology validate --json
+abyss-machine topology audit --json
+abyss-machine graph validate --json
+abyss-machine mode plan --json
+abyss-machine mode validate --json
+abyss-machine changes preflight --intent TEXT --surface SURFACE --json
+```
+
 ## Root Classes
 
 | Class | Root | Role |
