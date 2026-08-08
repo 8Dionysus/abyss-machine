@@ -58,7 +58,11 @@ finally:
     os.close(refresh_fd)
 if str(generation) not in sys.path:
     sys.path.insert(0, str(generation))
-runpy.run_module("abyss_machine.cli", run_name="__main__")
+module = "abyss_machine.cli"
+if sys.argv[1:3] == ["resource", "codex-hook"]:
+    del sys.argv[1:3]
+    module = "abyss_machine.resource_codex_hook"
+runpy.run_module(module, run_name="__main__")
 """
 CODE_GENERATIONS_DIR_NAME = ".abyss-machine-code-generations"
 CODE_CURRENT_LINK_NAME = ".abyss-machine-code-current"

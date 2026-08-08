@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 12326934,
+  "allowed_tracked_bytes": 25590084,
+  "approved_by": "repository-owner",
+  "base_ref": "a70b7f3a029c2dc4e86aa7446e4a058aa9e2e83e",
+  "changed_generated_bytes": 12326934,
+  "changed_generated_files": 158,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "fdd9c298bf207213125a00c1aea2f111123417a9168cbd5c6384c6169a149149",
+  "reason": "Refresh the exact owner family for owner-aware runtime admission, bounded PSI coordination, and fail-closed relief contracts without raising standing budgets.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25590084,
+  "tracked_bytes_max": 27262976
+}

@@ -676,6 +676,8 @@ def lease_status(
     unit_active = bool(unit_state.get("active"))
     expired = expires_at <= 0.0 or now_epoch >= expires_at
     runtime_cold_load = lease_kind == "runtime_cold_load"
+    runtime_workload = lease_kind == "runtime_workload"
+    runtime_lease = runtime_cold_load or runtime_workload
     runtime_identity_valid = bool(
         lease.get("owner")
         and lease.get("workload_id")
@@ -683,20 +685,34 @@ def lease_status(
         and lease.get("request_digest")
         and lease.get("release_token_sha256")
     )
-    invalid = not lease_id or (not runtime_cold_load and launcher_pid <= 0) or (runtime_cold_load and not runtime_identity_valid)
+    try:
+        owner_pid = int(lease.get("owner_pid") or 0)
+    except (TypeError, ValueError):
+        owner_pid = 0
+    owner_alive = pid_alive_port(owner_pid) if owner_pid > 0 else False
+    workload_identity_valid = runtime_identity_valid and owner_pid > 0 and bool(lease.get("owner_cgroup"))
+    invalid = not lease_id or (not runtime_lease and launcher_pid <= 0) or (
+        runtime_cold_load and not runtime_identity_valid
+    ) or (runtime_workload and not workload_identity_valid)
     unknown_demand = bool(lease.get("unknown_demand")) or demand_mib is None
-    startup_deadline_elapsed = not runtime_cold_load and expired and (unknown_demand or not unit_active)
+    startup_deadline_elapsed = not runtime_lease and expired and (unknown_demand or not unit_active)
     runtime_deadline_elapsed = runtime_cold_load and expired
+    workload_deadline_elapsed = runtime_workload and expired
+    workload_owner_gone = runtime_workload and not owner_alive
     stale = invalid or runtime_deadline_elapsed or startup_deadline_elapsed or (
-        not runtime_cold_load and not launcher_alive and not unit_active
-    )
+        not runtime_lease and not launcher_alive and not unit_active
+    ) or workload_deadline_elapsed or workload_owner_gone
     if invalid:
         stale_reason = "invalid_identity"
     elif runtime_deadline_elapsed:
         stale_reason = "runtime_lease_deadline_elapsed"
+    elif workload_deadline_elapsed:
+        stale_reason = "workload_lease_deadline_elapsed"
+    elif workload_owner_gone:
+        stale_reason = "workload_owner_gone"
     elif startup_deadline_elapsed:
         stale_reason = "startup_deadline_elapsed"
-    elif not runtime_cold_load and not launcher_alive and not unit_active:
+    elif not runtime_lease and not launcher_alive and not unit_active:
         stale_reason = "launcher_dead_and_unit_inactive"
     else:
         stale_reason = None
@@ -705,8 +721,9 @@ def lease_status(
     return {
         **lease,
         "launcher_alive": launcher_alive,
+        "owner_alive": owner_alive if runtime_workload else None,
         "unit_state": unit_state,
-        "phase": "cold_load" if runtime_cold_load else ("active_unit" if unit_active else "startup"),
+        "phase": "cold_load" if runtime_cold_load else ("workload_active" if runtime_workload else ("active_unit" if unit_active else "startup")),
         "expired": expired,
         "stale": stale,
         "stale_reason": stale_reason,

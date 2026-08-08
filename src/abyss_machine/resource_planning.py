@@ -152,12 +152,19 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
             "runtime_only": True,
             "cold_load_lease_ttl_sec": 120,
             "cold_load_lease_max_ttl_sec": 300,
+            "workload_lease_ttl_sec": 21600,
+            "workload_lease_max_ttl_sec": 86400,
             "socket_mode": "0600",
             "max_request_bytes": 65536,
             "thermal_emergency_c": 109.0,
             "require_explicit_owner_activity": True,
             "fail_closed_when_unavailable": True,
             "gate_background_when_swap_reserve_below_target": True,
+            "owner_relief_enabled": False,
+            "owner_relief_adapters": [],
+            "relief_settle_sec": 0.25,
+            "reserve_check_interval_sec": 30,
+            "recovery_cooldown_sec": 30,
         },
         "protected_contexts": {
             "games": "Active games defer new heavy/sustained work and unattended medium-or-heavier starts.",
@@ -228,7 +235,7 @@ def runtime_admission_request(request: Mapping[str, Any]) -> dict[str, Any]:
         errors.append("release_token_invalid")
 
     operation = str(request.get("operation") or "cold_load").strip().lower()
-    if operation != "cold_load":
+    if operation not in {"cold_load", "workload_start"}:
         errors.append("operation_unsupported")
 
     activity_data = owner_activity(str(request.get("activity") or ""), unattended=False)
@@ -249,6 +256,56 @@ def runtime_admission_request(request: Mapping[str, Any]) -> dict[str, Any]:
     if latency not in {"low", "balanced", "interactive"}:
         errors.append("latency_invalid")
 
+    importance_class = str(
+        request.get("importance_class")
+        or ("protected" if activity_data.get("foreground") else "checkpointable_background")
+    ).strip().lower()
+    if importance_class not in {
+        "protected",
+        "unknown",
+        "warm_capability",
+        "resumable_detached",
+        "reloadable_idle",
+        "checkpointable_background",
+        "explicitly_disposable_emergency",
+    }:
+        errors.append("importance_class_invalid")
+    raw_data_risk = request.get("data_risk", False)
+    if not isinstance(raw_data_risk, bool):
+        errors.append("data_risk_must_be_boolean")
+    data_risk = bool(raw_data_risk)
+    recoverability = str(request.get("recoverability") or "preserve").strip().lower()
+    if recoverability not in {"preserve", "resume", "reload", "checkpoint", "dispose"}:
+        errors.append("recoverability_invalid")
+    if activity_data.get("foreground") and importance_class != "protected":
+        errors.append("foreground_must_be_protected")
+    if data_risk and recoverability != "preserve":
+        errors.append("data_risk_must_be_preserved")
+
+    owner_pid: int | None = None
+    if request.get("owner_pid") is not None:
+        try:
+            owner_pid = int(request.get("owner_pid"))
+        except (TypeError, ValueError):
+            owner_pid = None
+        if owner_pid is None or owner_pid <= 0:
+            errors.append("owner_pid_invalid")
+    owner_cgroup = str(request.get("owner_cgroup") or "").strip()
+    if owner_cgroup and (
+        not owner_cgroup.startswith("/")
+        or ".." in owner_cgroup.split("/")
+        or len(owner_cgroup) > 1024
+    ):
+        errors.append("owner_cgroup_invalid")
+    if operation == "workload_start":
+        if owner_pid is None:
+            errors.append("owner_pid_required_for_workload")
+        if not owner_cgroup:
+            errors.append("owner_cgroup_required_for_workload")
+    demand_key = str(request.get("demand_key") or "").strip()
+    if demand_key and (len(demand_key) > 160 or not _OWNER_IDENTITY_RE.fullmatch(demand_key)):
+        errors.append("demand_key_invalid")
+
     try:
         demand_mib = float(request.get("memory_demand_mib"))
     except (TypeError, ValueError):
@@ -266,12 +323,19 @@ def runtime_admission_request(request: Mapping[str, Any]) -> dict[str, Any]:
         "class": workload_class,
         "kind": kind,
         "latency": latency,
+        "importance_class": importance_class,
+        "data_risk": data_risk,
+        "recoverability": recoverability,
+        "owner_pid": owner_pid,
+        "owner_cgroup": owner_cgroup or None,
+        "demand_key": demand_key or None,
         "memory_demand_mib": None if not math.isfinite(demand_mib) else round(demand_mib, 3),
         "estimate_source": str(request.get("estimate_source") or "explicit_owner_estimate").strip()[:160],
         "estimate_confidence": str(request.get("estimate_confidence") or "owner_provided").strip()[:80],
     }
     identity_material = "\0".join((owner, workload_id, request_id))
-    lease_id = f"runtime-cold-load:{hashlib.sha256(identity_material.encode('utf-8')).hexdigest()[:32]}" if all((owner, workload_id, request_id)) else None
+    lease_prefix = "runtime-cold-load" if operation == "cold_load" else "runtime-workload"
+    lease_id = f"{lease_prefix}:{hashlib.sha256(identity_material.encode('utf-8')).hexdigest()[:32]}" if all((owner, workload_id, request_id)) else None
     digest = hashlib.sha256(
         json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -541,7 +605,7 @@ def startup_demand_projection(
     }
 
 
-def runtime_cold_load_plan(
+def runtime_admission_plan(
     *,
     request: Mapping[str, Any],
     memory_summary: Mapping[str, Any],
@@ -554,6 +618,8 @@ def runtime_cold_load_plan(
     schema_prefix: str = "abyss_machine",
     version: str = "",
 ) -> dict[str, Any]:
+    operation = str(request.get("operation") or "cold_load").strip().lower()
+    operation_label = "cold_load" if operation == "cold_load" else "workload_start"
     activity_data = owner_activity(
         str(request.get("activity") or ""),
         unattended=bool(request.get("unattended")),
@@ -563,7 +629,7 @@ def runtime_cold_load_plan(
         workload_class=str(request.get("class") or "heavy"),
         kind=str(request.get("kind") or "ai"),
         explicit_mib=request.get("memory_demand_mib"),
-        demand_key=f"{request.get('owner')}:{request.get('workload_id')}",
+        demand_key=str(request.get("demand_key") or f"{request.get('owner')}:{request.get('workload_id')}"),
         demand_owner=str(request.get("owner") or ""),
         estimate_source=str(request.get("estimate_source") or "explicit_owner_estimate"),
         estimate_confidence=str(request.get("estimate_confidence") or "owner_provided"),
@@ -601,12 +667,12 @@ def runtime_cold_load_plan(
         swap_reserve_state = "unavailable"
     if gate_background_reserve and activity_data.get("background"):
         if swap_reserve_state == "below_target":
-            blocked.append("runtime_swap_reserve_below_target_for_background_cold_load")
+            blocked.append(f"runtime_swap_reserve_below_target_for_background_{operation_label}")
         elif swap_reserve_state == "unavailable":
             if fail_closed_reserve_unavailable:
-                denied.append("runtime_swap_reserve_unavailable_for_background_cold_load")
+                denied.append(f"runtime_swap_reserve_unavailable_for_background_{operation_label}")
             else:
-                warnings.append("swap_reserve_unavailable_background_cold_load")
+                warnings.append(f"swap_reserve_unavailable_background_{operation_label}")
     elif activity_data.get("foreground"):
         if swap_reserve_state == "below_target":
             warnings.append("swap_reserve_below_target_foreground_owner_activity")
@@ -626,7 +692,7 @@ def runtime_cold_load_plan(
     else:
         decision = "allow"
     return {
-        "schema": f"{schema_prefix}_resource_runtime_cold_load_plan_v1",
+        "schema": f"{schema_prefix}_resource_runtime_admission_plan_v1",
         "version": version,
         "generated_at": generated_at,
         "ok": decision == "allow",
@@ -635,6 +701,10 @@ def runtime_cold_load_plan(
             "owner": request.get("owner"),
             "workload_id": request.get("workload_id"),
             "request_id": request.get("request_id"),
+            "operation": operation,
+            "importance_class": request.get("importance_class"),
+            "data_risk": request.get("data_risk"),
+            "recoverability": request.get("recoverability"),
             "class": demand.get("class"),
             "kind": demand.get("kind"),
             "activity": activity_data,
@@ -660,6 +730,7 @@ def runtime_cold_load_plan(
             "battery_and_power_mode_are_advisory_not_admission_authority": True,
             "thermal_emergency_is_authoritative": True,
             "pressure_facts_assign_workload_importance": False,
+            "swap_reserve_gates_only_background_runtime_demands": gate_background_reserve,
             "swap_reserve_gates_only_background_cold_loads": gate_background_reserve,
             "swap_reserve_unavailable_fails_closed": fail_closed_reserve_unavailable,
             "swap_reserve_assigns_workload_importance": False,
@@ -668,6 +739,12 @@ def runtime_cold_load_plan(
             "resident_memory_controller_required": False,
         },
     }
+
+
+def runtime_cold_load_plan(**kwargs: Any) -> dict[str, Any]:
+    request = dict(kwargs.get("request") or {})
+    request.setdefault("operation", "cold_load")
+    return runtime_admission_plan(**{**kwargs, "request": request})
 
 
 def scope_for_kind(policy: dict[str, Any], kind: str) -> str:

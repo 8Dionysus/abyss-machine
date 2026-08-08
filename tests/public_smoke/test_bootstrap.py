@@ -872,9 +872,10 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert "install_cli" in actions
     assert "install_public_seed" in actions
     assert (libexec_dir / "abyss-machine").is_file()
-    assert 'runpy.run_module("abyss_machine.cli", run_name="__main__")' in (
-        libexec_dir / "abyss-machine"
-    ).read_text(encoding="utf-8")
+    launcher = (libexec_dir / "abyss-machine").read_text(encoding="utf-8")
+    assert 'module = "abyss_machine.cli"' in launcher
+    assert 'module = "abyss_machine.resource_codex_hook"' in launcher
+    assert 'runpy.run_module(module, run_name="__main__")' in launcher
     assert (libexec_dir / "abyss_machine" / "artifact_bundles.py").is_file()
     assert Path(actions["install_cli"]["compiled_cli"]).is_file()
     assert actions["install_cli"]["atomic_visibility"] is True

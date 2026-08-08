@@ -203,6 +203,36 @@ def test_resource_runtime_cold_load_lease_survives_broker_restart_until_deadline
     assert expired["removed"][0]["reason"] == "runtime_lease_deadline_elapsed"
 
 
+def test_resource_runtime_workload_lease_is_removed_when_owner_disappears(tmp_path: Path) -> None:
+    root = tmp_path / "reservations"
+    resource_adapters.atomic_write_lease(
+        root,
+        {
+            "id": "runtime-workload:fixture",
+            "lease_kind": "runtime_workload",
+            "owner": "codex",
+            "workload_id": "session:tool",
+            "request_id": "tool",
+            "request_digest": "a" * 64,
+            "release_token_sha256": "b" * 64,
+            "owner_pid": 4242,
+            "owner_cgroup": "/user.slice/session.scope",
+            "demand_mib": 4096,
+            "expires_at_epoch": 200.0,
+        },
+    )
+
+    snapshot = resource_adapters.reservation_snapshot(
+        root,
+        cleanup=True,
+        now_epoch=100.0,
+        pid_alive_port=lambda _pid: False,
+    )
+
+    assert snapshot["summary"]["active_count"] == 0
+    assert snapshot["removed"][0]["reason"] == "workload_owner_gone"
+
+
 def test_resource_runtime_root_prefers_xdg_and_uses_uid_scoped_fallback(tmp_path: Path) -> None:
     assert resource_adapters.runtime_root({"XDG_RUNTIME_DIR": str(tmp_path)}, uid=1234) == tmp_path
     assert resource_adapters.runtime_root({}, uid=1234, path_exists=lambda _path: False).name == "abyss-machine-1234"

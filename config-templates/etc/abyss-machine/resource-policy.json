@@ -113,12 +113,19 @@
     "runtime_only": true,
     "cold_load_lease_ttl_sec": 120,
     "cold_load_lease_max_ttl_sec": 300,
+    "workload_lease_ttl_sec": 21600,
+    "workload_lease_max_ttl_sec": 86400,
     "socket_mode": "0600",
     "max_request_bytes": 65536,
     "thermal_emergency_c": 109.0,
     "require_explicit_owner_activity": true,
     "fail_closed_when_unavailable": true,
-    "gate_background_when_swap_reserve_below_target": true
+    "gate_background_when_swap_reserve_below_target": true,
+    "owner_relief_enabled": false,
+    "owner_relief_adapters": [],
+    "relief_settle_sec": 0.25,
+    "reserve_check_interval_sec": 30,
+    "recovery_cooldown_sec": 30
   },
   "memory_orchestration": {
     "importance_source": "stable_owner_identity_and_owner_declared_state",
