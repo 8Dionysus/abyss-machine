@@ -1,0 +1,35 @@
+{
+  "schema_version": "abyss_codex_hooks_fragment_v0",
+  "fragment_id": "abyss-machine:memory-admission:v0",
+  "owner": "abyss-machine",
+  "mode": "admission",
+  "description": "Owner-aware memory admission around Codex shell workloads",
+  "bindings": [],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/abyss-machine resource codex-hook pre",
+            "timeout": 5,
+            "statusMessage": "Abyss memory admission"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/abyss-machine resource codex-hook post",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

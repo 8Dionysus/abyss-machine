@@ -1,5 +1,5 @@
 [Unit]
-Description=Abyss Machine owner cold-load admission
+Description=Abyss Machine owner-aware runtime admission
 
 [Service]
 Type=simple
@@ -20,7 +20,9 @@ ProtectHome=read-only
 ProtectControlGroups=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
-RestrictAddressFamilies=AF_UNIX
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
 RestrictRealtime=yes
 LockPersonality=yes
 StandardOutput=null

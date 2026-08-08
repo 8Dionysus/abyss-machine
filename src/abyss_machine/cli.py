@@ -50320,7 +50320,7 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--success-on-block", action="store_true", help="return success when an overrideable gate blocks a scheduled launch")
     resource_launch_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     resource_launch_parser.add_argument("cmd", nargs=argparse.REMAINDER)
-    resource_admission_parser = resource_sub.add_parser("admission", help="reserve host memory before owner-managed cold loads")
+    resource_admission_parser = resource_sub.add_parser("admission", help="coordinate owner-aware runtime memory admission")
     resource_admission_sub = resource_admission_parser.add_subparsers(dest="resource_admission_command", required=True)
     resource_admission_serve_parser = resource_admission_sub.add_parser("serve")
     resource_admission_serve_parser.add_argument("--socket", default=None, help="override the runtime Unix socket path")

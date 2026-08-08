@@ -13,6 +13,7 @@ from . import resource_adapters, resource_planning
 
 
 PlanPort = Callable[[Mapping[str, Any], dict[str, Any]], dict[str, Any]]
+ReliefPort = Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]
 DispatchPort = Callable[[Mapping[str, Any]], tuple[dict[str, Any], bool]]
 SocketFactoryPort = Callable[..., socket.socket]
 TimestampPort = Callable[[], str]
@@ -99,6 +100,12 @@ def _lease_receipt(lease: Mapping[str, Any]) -> dict[str, Any]:
         "activity": lease.get("activity"),
         "class": lease.get("class"),
         "kind": lease.get("kind"),
+        "operation": lease.get("operation"),
+        "importance_class": lease.get("importance_class"),
+        "data_risk": lease.get("data_risk"),
+        "recoverability": lease.get("recoverability"),
+        "owner_pid": lease.get("owner_pid"),
+        "owner_cgroup": lease.get("owner_cgroup"),
         "demand_mib": lease.get("demand_mib"),
         "created_at": lease.get("created_at"),
         "expires_at_epoch": lease.get("expires_at_epoch"),
@@ -131,12 +138,13 @@ def _plan_receipt(plan: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def reserve_cold_load(
+def reserve_runtime_demand(
     request: Mapping[str, Any],
     *,
     reservation_root: Path,
     runtime_policy: Mapping[str, Any],
     plan_port: PlanPort,
+    relief_port: ReliefPort | None = None,
     now_epoch: float | None = None,
     timestamp: TimestampPort,
 ) -> dict[str, Any]:
@@ -162,8 +170,10 @@ def reserve_cold_load(
     normalized = contract["request"]
     lease_id = str(contract["lease_id"])
     resolved_now = time.time() if now_epoch is None else float(now_epoch)
-    ttl_default = max(1.0, float(runtime_policy.get("cold_load_lease_ttl_sec", 120.0)))
-    ttl_max = max(ttl_default, float(runtime_policy.get("cold_load_lease_max_ttl_sec", 300.0)))
+    operation = str(normalized.get("operation") or "cold_load")
+    ttl_prefix = "cold_load" if operation == "cold_load" else "workload"
+    ttl_default = max(1.0, float(runtime_policy.get(f"{ttl_prefix}_lease_ttl_sec", 120.0 if operation == "cold_load" else 21600.0)))
+    ttl_max = max(ttl_default, float(runtime_policy.get(f"{ttl_prefix}_lease_max_ttl_sec", 300.0 if operation == "cold_load" else 86400.0)))
     ttl_sec = min(ttl_default, ttl_max)
 
     with resource_adapters.admission_lock(reservation_root):
@@ -229,6 +239,28 @@ def reserve_cold_load(
                 "error_type": type(exc).__name__,
                 "policy": {"fail_closed": True, "runtime_only": True},
             }
+        relief: dict[str, Any] | None = None
+        if (
+            (plan.get("decision") != "allow" or not plan.get("ok"))
+            and relief_port is not None
+            and bool(runtime_policy.get("owner_relief_enabled", False))
+        ):
+            try:
+                relief = relief_port(normalized, plan)
+            except Exception as exc:
+                relief = {"ok": False, "action_executed": False, "reason": "relief_port_failed", "error_type": type(exc).__name__}
+            if relief.get("action_executed") is True:
+                refreshed = resource_adapters.reservation_snapshot(
+                    reservation_root,
+                    cleanup=True,
+                    cleanup_invalid=False,
+                    now_epoch=resolved_now,
+                )
+                if refreshed.get("ok"):
+                    try:
+                        plan = plan_port(normalized, refreshed)
+                    except Exception as exc:
+                        plan = {"ok": False, "decision": "deny", "denied_reasons": ["host_remeasure_unavailable"], "error_type": type(exc).__name__}
         if plan.get("decision") != "allow" or not plan.get("ok"):
             receipt = _plan_receipt(plan)
             return {
@@ -239,12 +271,13 @@ def reserve_cold_load(
                 "denied_reasons": receipt["denied_reasons"],
                 "warnings": receipt["warnings"],
                 "plan": receipt,
+                "relief": relief,
                 "policy": {"fail_closed": True, "runtime_only": True},
             }
 
         lease = {
             "schema": "abyss_machine_resource_runtime_lease_v1",
-            "lease_kind": "runtime_cold_load",
+            "lease_kind": "runtime_cold_load" if operation == "cold_load" else "runtime_workload",
             "id": lease_id,
             "created_at": timestamp(),
             "created_at_epoch": resolved_now,
@@ -255,9 +288,15 @@ def reserve_cold_load(
             "activity": normalized["activity"],
             "class": normalized["class"],
             "kind": normalized["kind"],
+            "operation": operation,
+            "importance_class": normalized["importance_class"],
+            "data_risk": normalized["data_risk"],
+            "recoverability": normalized["recoverability"],
+            "owner_pid": normalized["owner_pid"],
+            "owner_cgroup": normalized["owner_cgroup"],
             "demand_mib": normalized["memory_demand_mib"],
             "demand_owner": normalized["owner"],
-            "demand_key": f"{normalized['owner']}:{normalized['workload_id']}",
+            "demand_key": normalized.get("demand_key") or f"{normalized['owner']}:{normalized['workload_id']}",
             "estimate_source": normalized["estimate_source"],
             "estimate_confidence": normalized["estimate_confidence"],
             "request_digest": contract["request_digest"],
@@ -273,6 +312,7 @@ def reserve_cold_load(
             "idempotent_replay": False,
             "lease": _lease_receipt(lease),
             "plan": _plan_receipt(plan),
+            "relief": relief,
             "policy": {
                 "runtime_only": True,
                 "release_after_materialization": True,
@@ -282,7 +322,14 @@ def reserve_cold_load(
         }
 
 
-def release_cold_load(
+def reserve_cold_load(
+    request: Mapping[str, Any],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    return reserve_runtime_demand(request, **kwargs)
+
+
+def release_runtime_demand(
     request: Mapping[str, Any],
     *,
     reservation_root: Path,
@@ -315,7 +362,7 @@ def release_cold_load(
                 "command": "release",
                 "denied_reasons": ["lease_state_invalid"],
             }
-        if not isinstance(lease, dict) or lease.get("lease_kind") != "runtime_cold_load":
+        if not isinstance(lease, dict) or lease.get("lease_kind") not in {"runtime_cold_load", "runtime_workload"}:
             return {
                 "ok": False,
                 "decision": "deny",
@@ -332,6 +379,13 @@ def release_cold_load(
                 "class": lease.get("class"),
                 "kind": lease.get("kind"),
                 "memory_demand_mib": lease.get("demand_mib"),
+                "operation": lease.get("operation") or "cold_load",
+                "importance_class": lease.get("importance_class") or "protected",
+                "data_risk": bool(lease.get("data_risk")),
+                "recoverability": lease.get("recoverability") or "preserve",
+                "owner_pid": lease.get("owner_pid"),
+                "owner_cgroup": lease.get("owner_cgroup"),
+                "demand_key": lease.get("demand_key"),
             }
         )
         token_matches = hmac.compare_digest(
@@ -355,6 +409,14 @@ def release_cold_load(
         }
 
 
+def release_cold_load(
+    request: Mapping[str, Any],
+    *,
+    reservation_root: Path,
+) -> dict[str, Any]:
+    return release_runtime_demand(request, reservation_root=reservation_root)
+
+
 def status(*, reservation_root: Path, now_epoch: float | None = None) -> dict[str, Any]:
     with resource_adapters.admission_lock(reservation_root):
         snapshot = resource_adapters.reservation_snapshot(
@@ -366,15 +428,19 @@ def status(*, reservation_root: Path, now_epoch: float | None = None) -> dict[st
     leases = [
         _lease_receipt(item)
         for item in snapshot.get("items", [])
-        if isinstance(item, dict) and item.get("lease_kind") == "runtime_cold_load"
+        if isinstance(item, dict) and item.get("lease_kind") in {"runtime_cold_load", "runtime_workload"}
     ]
+    cold_load_count = sum(item.get("lease_kind") == "runtime_cold_load" for item in leases)
+    workload_count = sum(item.get("lease_kind") == "runtime_workload" for item in leases)
     return {
         "ok": bool(snapshot.get("ok")),
         "decision": "observe",
         "command": "status",
         "leases": leases,
         "summary": {
-            "active_cold_load_leases": len(leases),
+            "active_cold_load_leases": cold_load_count,
+            "active_workload_leases": workload_count,
+            "active_runtime_leases": len(leases),
             "outstanding_mib": round(sum(float(item.get("demand_mib") or 0.0) for item in leases), 3),
         },
         "policy": {
@@ -420,6 +486,7 @@ def run_server_loop(
     dispatch_port: DispatchPort,
     chmod_mode: int = 0o600,
     max_request_bytes: int = 65536,
+    maintenance_port: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     path = Path(path).expanduser()
     if chmod_mode != 0o600:
@@ -493,6 +560,8 @@ def run_server_loop(
         os.chmod(path, 0o600)
         while not getattr(server, "should_shutdown", False):
             server.handle_request()
+            if maintenance_port is not None:
+                maintenance_port()
     finally:
         if server is not None:
             server.server_close()

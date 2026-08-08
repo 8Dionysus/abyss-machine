@@ -6,10 +6,17 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any, Mapping
 
 from . import memory_adapters, memory_contracts
-from . import resource_adapters, resource_admission_adapters, resource_planning
+from . import (
+    resource_adapters,
+    resource_admission_adapters,
+    resource_planning,
+    resource_pressure_coordinator,
+    resource_relief_adapters,
+)
 
 
 def now_iso() -> str:
@@ -142,7 +149,7 @@ def collect_plan(
     memory_summary, current_class = fresh_memory_facts(policy=memory)
     runtime = resources.get("runtime_admission") if isinstance(resources.get("runtime_admission"), dict) else {}
     thermal = fresh_thermal_safety(emergency_c=float(runtime.get("thermal_emergency_c", 109.0)))
-    return resource_planning.runtime_cold_load_plan(
+    return resource_planning.runtime_admission_plan(
         request=request,
         memory_summary=memory_summary,
         current_memory_class=current_class,
@@ -152,6 +159,28 @@ def collect_plan(
         thermal_safety=thermal,
         generated_at=now_iso(),
     )
+
+
+def needed_relief_mib(plan: Mapping[str, Any]) -> float:
+    inputs = plan.get("inputs") if isinstance(plan.get("inputs"), dict) else {}
+    demand = inputs.get("startup_demand") if isinstance(inputs.get("startup_demand"), dict) else {}
+    projected = demand.get("projected") if isinstance(demand.get("projected"), dict) else {}
+    admission = demand.get("admission") if isinstance(demand.get("admission"), dict) else {}
+    swap = inputs.get("swap_reserve") if isinstance(inputs.get("swap_reserve"), dict) else {}
+    try:
+        projected_available = float(projected.get("mem_available_mib") or 0.0)
+        hard_floor = float(admission.get("hard_mem_available_floor_mib") or 0.0)
+        swap_shortfall = float(swap.get("shortfall_mib") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    physical_shortfall = max(0.0, hard_floor - projected_available)
+    reasons = [
+        str(item)
+        for key in ("blocked_reasons", "denied_reasons")
+        for item in (plan.get(key) if isinstance(plan.get(key), list) else [])
+    ]
+    stall_floor = 512.0 if any("active_memory_stall" in item for item in reasons) else 0.0
+    return round(max(physical_shortfall, max(0.0, swap_shortfall), stall_floor), 3)
 
 
 def serve(
@@ -167,7 +196,17 @@ def serve(
             "denied_reasons": ["runtime_admission_server_must_be_unprivileged"],
         }
     policy = runtime_policy(environ)
+    memory_config = memory_policy(environ)
     reservation_root = resource_adapters.reservations_root(environ, uid=os.getuid())
+    coordinator = resource_pressure_coordinator.MemoryCoordinator(
+        check_interval_sec=float(policy.get("reserve_check_interval_sec") or 30.0),
+        recovery_cooldown_sec=float(policy.get("recovery_cooldown_sec") or 30.0),
+    )
+    try:
+        pressure_trigger = resource_pressure_coordinator.PressureTrigger()
+    except OSError:
+        pressure_trigger = None
+        coordinator.psi_trigger_available = False
     max_request_bytes = max(4096, min(int(policy.get("max_request_bytes") or 65536), 1024 * 1024))
     state = {
         "schema": "abyss_machine_resource_admission_server_v1",
@@ -184,7 +223,7 @@ def serve(
     }
 
     def reserve(request: Mapping[str, Any]) -> dict[str, Any]:
-        return resource_admission_adapters.reserve_cold_load(
+        return resource_admission_adapters.reserve_runtime_demand(
             request,
             reservation_root=reservation_root,
             runtime_policy=policy,
@@ -193,17 +232,64 @@ def serve(
                 reservations,
                 environ=environ,
             ),
+            relief_port=lambda _normalized, plan: resource_relief_adapters.coordinate_one(
+                policy,
+                needed_relief_mib=needed_relief_mib(plan),
+                request_id=str(_normalized.get("request_id") or ""),
+            ),
             timestamp=now_iso,
         )
 
     def release(request: Mapping[str, Any]) -> dict[str, Any]:
-        return resource_admission_adapters.release_cold_load(
+        return resource_admission_adapters.release_runtime_demand(
             request,
             reservation_root=reservation_root,
         )
 
     def status() -> dict[str, Any]:
-        return resource_admission_adapters.status(reservation_root=reservation_root)
+        return {
+            **resource_admission_adapters.status(reservation_root=reservation_root),
+            "coordinator": coordinator.status(),
+        }
+
+    def maintenance_once() -> None:
+        now_epoch = time.time()
+        pressure_event = pressure_trigger.event_pending() if pressure_trigger is not None else False
+        if not coordinator.due(now_epoch=now_epoch, pressure_event=pressure_event):
+            return
+        facts, memory_class = fresh_memory_facts(policy=memory_config)
+        coordinator.observe(
+            facts,
+            memory_class=memory_class,
+            pressure_event=pressure_event,
+            now_epoch=now_epoch,
+        )
+        if not bool(policy.get("owner_relief_enabled", False)) or not coordinator.relief_allowed():
+            return
+        receipt = resource_relief_adapters.coordinate_one(
+            policy,
+            needed_relief_mib=coordinator.relief_needed_mib(),
+            request_id=f"pressure-{int(now_epoch // coordinator.check_interval_sec)}",
+        )
+        coordinator.record_action(receipt, now_epoch=now_epoch)
+        if receipt.get("action_executed") is True:
+            print(json.dumps({"event": "owner_memory_relief", "receipt": receipt}, sort_keys=True), file=sys.stderr)
+
+    def maintenance() -> None:
+        try:
+            maintenance_once()
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "event": "memory_coordinator_observation_failed",
+                        "error_type": type(exc).__name__,
+                        "existing_work_preserved": True,
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
 
     def dispatch(payload: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
         return resource_admission_adapters.dispatch(
@@ -215,16 +301,21 @@ def serve(
             allow_shutdown=allow_shutdown,
         )
 
-    return resource_admission_adapters.run_server_loop(
-        path=path,
-        dispatch_port=dispatch,
-        chmod_mode=0o600,
-        max_request_bytes=max_request_bytes,
-    )
+    try:
+        return resource_admission_adapters.run_server_loop(
+            path=path,
+            dispatch_port=dispatch,
+            chmod_mode=0o600,
+            max_request_bytes=max_request_bytes,
+            maintenance_port=maintenance,
+        )
+    finally:
+        if pressure_trigger is not None:
+            pressure_trigger.close()
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Lightweight owner cold-load admission server")
+    parser = argparse.ArgumentParser(description="Lightweight owner-aware runtime admission server")
     parser.add_argument("--socket", default=None)
     parser.add_argument("--allow-shutdown", action="store_true")
     parser.add_argument("--json", action="store_true")

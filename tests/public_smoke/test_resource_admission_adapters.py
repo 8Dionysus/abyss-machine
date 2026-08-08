@@ -16,10 +16,46 @@ SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from abyss_machine import resource_admission_adapters, resource_admission_server
+from abyss_machine import resource_admission_adapters, resource_admission_server, resource_planning
 
 
 TOKEN = "fixture-release-token-1234567890"
+
+
+def test_runtime_admission_relief_asks_only_for_measured_shortfall() -> None:
+    needed = resource_admission_server.needed_relief_mib(
+        {
+            "inputs": {
+                "startup_demand": {
+                    "projected": {"mem_available_mib": 1536},
+                    "admission": {"hard_mem_available_floor_mib": 2048},
+                    "requested": {"demand_mib": 8192},
+                },
+                "swap_reserve": {"shortfall_mib": 256},
+            }
+        }
+    )
+
+    assert needed == 512.0
+
+
+def test_runtime_admission_relief_uses_bounded_floor_for_active_stall() -> None:
+    needed = resource_admission_server.needed_relief_mib(
+        {
+            "ok": False,
+            "decision": "deny",
+            "blocked_reasons": ["runtime_new_unattended_work_during_active_memory_stall"],
+            "inputs": {
+                "startup_demand": {
+                    "projected": {"mem_available_mib": 8192},
+                    "admission": {"hard_mem_available_floor_mib": 2048},
+                },
+                "swap_reserve": {"shortfall_mib": 0},
+            },
+        }
+    )
+
+    assert needed == 512.0
 
 
 def cold_load_request(**overrides: object) -> dict[str, object]:
@@ -35,6 +71,32 @@ def cold_load_request(**overrides: object) -> dict[str, object]:
     }
     request.update(overrides)
     return request
+
+
+def workload_request(**overrides: object) -> dict[str, object]:
+    request = cold_load_request(
+        operation="workload_start",
+        workload_id="codex:session-123:tool-456",
+        request_id="tool-use-456",
+        importance_class="protected",
+        data_risk=True,
+        recoverability="preserve",
+        owner_pid=os.getpid(),
+        owner_cgroup="/user.slice/user-1000.slice/session.scope",
+        demand_key="codex:python-heavy",
+    )
+    request.update(overrides)
+    return request
+
+
+def test_workload_request_requires_observed_owner_process_identity() -> None:
+    missing = resource_planning.runtime_admission_request(
+        workload_request(owner_pid=None, owner_cgroup=None)
+    )
+
+    assert missing["valid"] is False
+    assert "owner_pid_required_for_workload" in missing["errors"]
+    assert "owner_cgroup_required_for_workload" in missing["errors"]
 
 
 def allowed_plan(_request: object, snapshot: dict[str, object]) -> dict[str, object]:
@@ -138,6 +200,31 @@ def test_runtime_admission_identity_conflict_and_release_capability_fail_closed(
     }
 
 
+def test_runtime_workload_lease_tracks_owner_and_releases_with_same_capability(tmp_path: Path) -> None:
+    root = tmp_path / "reservations"
+    granted = resource_admission_adapters.reserve_runtime_demand(
+        workload_request(),
+        reservation_root=root,
+        runtime_policy={"enabled": True, "workload_lease_ttl_sec": 3600},
+        plan_port=allowed_plan,
+        now_epoch=100.0,
+        timestamp=lambda: "2026-08-08T12:00:00Z",
+    )
+    observed = resource_admission_adapters.status(reservation_root=root, now_epoch=101.0)
+    released = resource_admission_adapters.release_runtime_demand(
+        {"lease_id": granted["lease"]["id"], "release_token": TOKEN},
+        reservation_root=root,
+    )
+
+    assert granted["lease"]["lease_kind"] == "runtime_workload"
+    assert granted["lease"]["importance_class"] == "protected"
+    assert granted["lease"]["data_risk"] is True
+    assert TOKEN not in repr(granted)
+    assert observed["summary"]["active_workload_leases"] == 1
+    assert observed["summary"]["active_cold_load_leases"] == 0
+    assert released["released"] is True
+
+
 def test_runtime_admission_denial_and_unavailable_transport_create_no_lease(tmp_path: Path) -> None:
     root = tmp_path / "reservations"
     blocked = resource_admission_adapters.reserve_cold_load(
@@ -176,6 +263,63 @@ def test_runtime_admission_denial_and_unavailable_transport_create_no_lease(tmp_
     assert owner_unavailable["decision"] == "deny"
     assert owner_unavailable["denied_reasons"] == ["host_plan_unavailable"]
     assert list(root.glob("*.json")) == []
+
+
+def test_runtime_admission_executes_one_relief_then_remeasures_before_allow(tmp_path: Path) -> None:
+    root = tmp_path / "reservations"
+    plans = [
+        {
+            "ok": False,
+            "decision": "force_required",
+            "blocked_reasons": ["runtime_projected_mem_available_below_hard_reserve"],
+            "denied_reasons": [],
+            "warnings": [],
+        },
+        allowed_plan({}, {"summary": {"active_count": 0}}),
+    ]
+    relief_calls: list[object] = []
+
+    granted = resource_admission_adapters.reserve_runtime_demand(
+        workload_request(),
+        reservation_root=root,
+        runtime_policy={"enabled": True, "owner_relief_enabled": True},
+        plan_port=lambda _request, _snapshot: plans.pop(0),
+        relief_port=lambda request, plan: relief_calls.append((request, plan)) or {
+            "ok": True,
+            "action_executed": True,
+            "adapter_id": "abyss-stack-reranker",
+        },
+        now_epoch=100.0,
+        timestamp=lambda: "2026-08-08T12:00:00Z",
+    )
+
+    assert granted["ok"] is True
+    assert granted["relief"]["action_executed"] is True
+    assert len(relief_calls) == 1
+    assert plans == []
+
+
+def test_runtime_admission_never_allows_only_because_relief_action_ran(tmp_path: Path) -> None:
+    blocked = {
+        "ok": False,
+        "decision": "force_required",
+        "blocked_reasons": ["runtime_projected_mem_available_below_hard_reserve"],
+        "denied_reasons": [],
+        "warnings": [],
+    }
+    result = resource_admission_adapters.reserve_runtime_demand(
+        workload_request(),
+        reservation_root=tmp_path / "reservations",
+        runtime_policy={"enabled": True, "owner_relief_enabled": True},
+        plan_port=lambda _request, _snapshot: dict(blocked),
+        relief_port=lambda _request, _plan: {"ok": True, "action_executed": True},
+        now_epoch=100.0,
+        timestamp=lambda: "2026-08-08T12:00:00Z",
+    )
+
+    assert result["ok"] is False
+    assert result["decision"] == "force_required"
+    assert list((tmp_path / "reservations").glob("*.json")) == []
 
 
 def test_runtime_admission_preserves_corrupt_lease_and_fails_closed(tmp_path: Path) -> None:
