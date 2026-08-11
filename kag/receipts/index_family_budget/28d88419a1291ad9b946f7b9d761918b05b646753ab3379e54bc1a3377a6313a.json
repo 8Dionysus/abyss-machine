@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 17463170,
+  "allowed_tracked_bytes": 25632696,
+  "approved_by": "repository-owner",
+  "base_ref": "596853ff15a5c13461ba095e8bf74b9eb3b68050",
+  "changed_generated_bytes": 17463170,
+  "changed_generated_files": 238,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "28d88419a1291ad9b946f7b9d761918b05b646753ab3379e54bc1a3377a6313a",
+  "reason": "External actor runtime canary admission adds an exact host artifact manifest, durable decision, owner producer route, generated ABI, and fail-closed proof; deterministic portable family refresh is required while tracked bytes remain below the standing family cap and KAG remains a generated navigation surface rather than owner truth.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25632696,
+  "tracked_bytes_max": 27262976
+}

@@ -210,10 +210,10 @@
       "profile_id": "abyss-stack",
       "owner_repo": "abyss-stack",
       "owner_source_root_hints": ["${AOA_SOURCE_ROOT}", "~/src/abyss-stack"],
-      "owner_route_refs": ["AGENTS.md", "compose/AGENTS.md", "compose/profiles/substrate.txt", "docs/runtime/ARCHITECTURE.md"],
-      "artifact_classes": ["abyss_stack_runtime_config_bundle"],
-      "release_export_triggers": ["runtime config bundle is rendered", "deployable config bundle is exported or released"],
-      "producer_commands": ["python scripts/release_check.py"],
+      "owner_route_refs": ["AGENTS.md", "compose/AGENTS.md", "compose/profiles/substrate.txt", "docs/runtime/ARCHITECTURE.md", "mechanics/governed-execution/parts/external-codex-agent/CONTRACT.md", "mechanics/governed-execution/parts/external-codex-agent/README.md"],
+      "artifact_classes": ["abyss_stack_runtime_config_bundle", "runtime_or_container_artifact"],
+      "release_export_triggers": ["runtime config bundle is rendered", "deployable config bundle is exported or released", "content-addressed external Codex actor runtime is materialized for machine-local canary activation"],
+      "producer_commands": ["python scripts/release_check.py", "python mechanics/governed-execution/parts/external-codex-agent/install_external_codex_runtime.py install"],
       "host_verifier_commands": [
         "abyss-machine artifacts verify BUNDLE_DIR --json",
         "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --json",
@@ -221,7 +221,7 @@
       ],
       "validator_commands": ["python scripts/release_check.py", "abyss-machine artifacts verify BUNDLE_DIR --json"],
       "produced_sidecars": ["artifact.identity.json", "artifact.abi.json", "artifact.sbom.cdx.json", "artifact.provenance.intoto.jsonl", "artifact.verify.json"],
-      "consumer_expectations": ["runtime consumers verify rendered config digest, SBOM-lite inventory, render provenance, source boundary, and trust-gate verdict"],
+      "consumer_expectations": ["runtime consumers verify rendered config digest, SBOM-lite inventory, render provenance, source boundary, and trust-gate verdict", "external actor runtime canaries verify the exact content-addressed release manifest, source ref, signed subject inventory, host-managed trust root, materialized subject, and fresh runtime_canary trust-gate verdict before activation"],
       "owner_boundaries": ["abyss-stack owns runtime/deployable stack source truth; abyss-machine may consume read-only evidence and enforce host gates"],
       "trust_root_modes": ["local_dev", "host_managed", "github_oidc", "oci_registry", "public_release"]
     },
@@ -1228,6 +1228,14 @@
         "mechanics/storage-routing",
         "tools/ai",
         "config-templates/etc/abyss-machine/storage-policy.json"
+      ]
+    },
+    {
+      "id": "abyss-stack-external-codex-agent-admission",
+      "epoch": "v1",
+      "artifact_class": "runtime_or_container_artifact",
+      "source_paths": [
+        "manifests/artifact_bundles/abyss_stack_external_codex_agent.bundle.json"
       ]
     },
     {
