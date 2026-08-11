@@ -30,6 +30,7 @@ SOURCE_PUBLIC_SEED_ROOTS = {
     "generated": REPO_ROOT / "generated",
 }
 PORTABILITY_SCAN_EXCLUDED_PARTS = {
+    ".deps",
     ".git",
     "__pycache__",
     ".pytest_cache",
