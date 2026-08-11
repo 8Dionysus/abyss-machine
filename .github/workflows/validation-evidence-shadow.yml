@@ -1,0 +1,110 @@
+name: Validation Evidence Shadow
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  AOA_STATS_ROOT: ${{ github.workspace }}/.deps/aoa-stats
+  ABYSS_MACHINE_AOA_SDK_ROOT: ${{ github.workspace }}/.deps/aoa-sdk
+
+jobs:
+  dag_scheduler:
+    name: Validation DAG shadow (W${{ matrix.workers }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workers: [2, 3]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Checkout aoa-stats protocol owner
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: 8Dionysus/aoa-stats
+          ref: fb984e66f88abf772fce6aa29587337e2e8efcdc
+          path: .deps/aoa-stats
+          persist-credentials: false
+
+      - name: Checkout pinned aoa-sdk scheduler
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: 8Dionysus/aoa-sdk
+          ref: b73c8aca9ef5275df0ec9e3e55d446db08823fb2
+          path: .deps/aoa-sdk
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -e '.[dev]'
+
+      - name: Run full graph comparison
+        id: comparison
+        continue-on-error: true
+        run: >-
+          python scripts/release_check.py --mode graph
+          --max-workers ${{ matrix.workers }}
+          --receipt validation-dag-w${{ matrix.workers }}.json
+
+      - name: Record comparison outcome
+        if: always()
+        run: echo "DAG W${{ matrix.workers }} outcome=${{ steps.comparison.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload graph receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: validation-dag-shadow-w${{ matrix.workers }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: validation-dag-w${{ matrix.workers }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  pytest_scheduler:
+    name: Pytest scheduler shadow (${{ matrix.method }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        method: [serial, xdist-2, xdist-4, static-2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.12"
+
+      - name: Install comparison dependencies
+        run: python -m pip install -e '.[dev]' pytest-xdist==3.8.0
+
+      - name: Run pytest scheduler comparison
+        id: comparison
+        continue-on-error: true
+        run: >-
+          python scripts/pytest_scheduler_experiment.py
+          --method ${{ matrix.method }}
+          --receipt pytest-${{ matrix.method }}.json
+
+      - name: Record comparison outcome
+        if: always()
+        run: echo "pytest ${{ matrix.method }} outcome=${{ steps.comparison.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload pytest comparison receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pytest-scheduler-shadow-${{ matrix.method }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: pytest-${{ matrix.method }}.json
+          if-no-files-found: warn
+          retention-days: 14

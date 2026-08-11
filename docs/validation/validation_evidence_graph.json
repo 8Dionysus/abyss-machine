@@ -1,0 +1,183 @@
+{
+  "schema_version": "aoa_validation_evidence_graph_v1",
+  "graph_id": "abyss-machine-repo-validation-v1",
+  "owner_repo": "abyss-machine",
+  "default_profile": "full",
+  "unknown_change_policy": "full",
+  "routing_status": "shadow_only",
+  "instant_budget_seconds": 1.0,
+  "max_workers": 3,
+  "claims": [
+    {
+      "id": "validation-graph-integrity",
+      "risk": "A malformed graph, unpinned scheduler, or command-inventory drift could manufacture false sufficiency or omit a serial obligation.",
+      "required_evidence": ["validation-graph-contract"]
+    },
+    {
+      "id": "public-source-contracts",
+      "risk": "Repository topology, manifests, schemas, bootstrap, path, typing, public-boundary, generated-currentness, or compile contracts may drift.",
+      "required_evidence": ["public-source-contract-battery"]
+    },
+    {
+      "id": "fresh-install-portability",
+      "risk": "Source checks may pass while a first isolated install loses CLI, package, policy, or projected public-seed behavior.",
+      "required_evidence": ["first-run-installed-projection"]
+    },
+    {
+      "id": "public-source-behavior",
+      "risk": "The complete public smoke corpus may regress even when structural validators remain green.",
+      "required_evidence": ["public-smoke-corpus"]
+    },
+    {
+      "id": "release-artifact-contracts",
+      "risk": "Artifact signature, ABI, provenance policy, or bundle lifecycle roundtrip may regress after the source gate.",
+      "required_evidence": ["release-artifact-battery"]
+    }
+  ],
+  "profiles": {
+    "instant": ["validation-graph-integrity"],
+    "full": [
+      "validation-graph-integrity",
+      "public-source-contracts",
+      "fresh-install-portability",
+      "public-source-behavior",
+      "release-artifact-contracts"
+    ]
+  },
+  "routes": [
+    {
+      "id": "validation-plane",
+      "patterns": [
+        "docs/validation/**",
+        "scripts/validation_evidence_graph.py",
+        "scripts/validation_lanes.py",
+        "scripts/ci_gate.py",
+        "scripts/release_check.py",
+        ".github/workflows/**",
+        "tests/public_smoke/test_validation_evidence_graph.py"
+      ],
+      "claims": [
+        "validation-graph-integrity",
+        "public-source-contracts",
+        "fresh-install-portability",
+        "public-source-behavior",
+        "release-artifact-contracts"
+      ]
+    },
+    {
+      "id": "public-source-and-tests",
+      "patterns": [
+        "src/**",
+        "scripts/**",
+        "tests/**",
+        "config-templates/**",
+        "public-seed/**",
+        "pyproject.toml"
+      ],
+      "claims": [
+        "public-source-contracts",
+        "fresh-install-portability",
+        "public-source-behavior",
+        "release-artifact-contracts"
+      ]
+    },
+    {
+      "id": "artifact-policy",
+      "patterns": ["artifacts/**", "docs/artifacts/**", "docs/abi/**"],
+      "claims": ["public-source-contracts", "release-artifact-contracts"]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "validation-graph-contract",
+      "tier": "instant",
+      "priority": 100,
+      "depends_on": [],
+      "provides_evidence": ["validation-graph-contract"],
+      "timeout_seconds": 10,
+      "inputs": [
+        "docs/validation/validation_evidence_graph.json",
+        "docs/validation/validation_lanes.json",
+        "scripts/validation_evidence_graph.py",
+        "scripts/validation_lanes.py"
+      ],
+      "steps": [
+        {
+          "id": "validate-owner-manifest-pin-and-serial-inventory",
+          "argv": ["{python}", "scripts/validation_evidence_graph.py", "--validate-only"]
+        }
+      ]
+    },
+    {
+      "id": "first-run-installed-projection",
+      "tier": "semantic",
+      "priority": 90,
+      "depends_on": ["validation-graph-contract"],
+      "provides_evidence": ["first-run-installed-projection"],
+      "timeout_seconds": 900,
+      "inputs": ["**"],
+      "steps": [
+        {
+          "id": "first-run-installed-projection",
+          "argv": ["{python}", "scripts/validators/first_run_installed_projection.py"]
+        }
+      ]
+    },
+    {
+      "id": "public-smoke-tests",
+      "tier": "contextual",
+      "priority": 90,
+      "depends_on": ["validation-graph-contract"],
+      "provides_evidence": ["public-smoke-corpus"],
+      "timeout_seconds": 900,
+      "inputs": ["**"],
+      "steps": [
+        {
+          "id": "public-smoke-tests",
+          "argv": ["{python}", "-m", "pytest", "-q"]
+        }
+      ]
+    },
+    {
+      "id": "public-source-contracts",
+      "tier": "fast",
+      "priority": 80,
+      "depends_on": ["validation-graph-contract"],
+      "provides_evidence": ["public-source-contract-battery"],
+      "timeout_seconds": 300,
+      "inputs": ["**"],
+      "steps": [
+        {"id": "validation-lane-manifest", "argv": ["{python}", "scripts/validation_lanes.py"]},
+        {"id": "repo-topology", "argv": ["{python}", "scripts/validators/repo_topology.py"]},
+        {"id": "mechanics-topology", "argv": ["{python}", "scripts/validators/mechanics_topology.py"]},
+        {"id": "manifest-integrity", "argv": ["{python}", "scripts/validators/manifest_integrity.py"]},
+        {"id": "owner-local-stats-protocol", "argv": ["{python}", "scripts/validate_local_stats_port.py"]},
+        {"id": "schema-integrity", "argv": ["{python}", "scripts/validators/schema_integrity.py"]},
+        {"id": "bootstrap-contract", "argv": ["{python}", "scripts/validators/bootstrap_contract.py"]},
+        {"id": "path-policy", "argv": ["{python}", "scripts/validators/path_policy.py"]},
+        {"id": "typing-nervous-policy", "argv": ["{python}", "scripts/validators/typing_nervous_policy.py"]},
+        {"id": "typing-nervous-refresh-logic", "argv": ["{python}", "scripts/validators/typing_nervous_refresh_logic.py"]},
+        {"id": "public-boundary", "argv": ["{python}", "scripts/validators/public_boundary.py"]},
+        {"id": "source-artifact-signature-policy", "argv": ["{python}", "scripts/validators/artifact_signature_policy.py"]},
+        {"id": "source-contract-abi-signatures", "argv": ["{python}", "scripts/generate_contract_abi_signatures.py", "--check"]},
+        {"id": "scaffold-index", "argv": ["{python}", "scripts/generate_scaffold_index.py", "--check"]},
+        {"id": "compile-source", "argv": ["{python}", "-m", "compileall", "-q", "src", "scripts"]}
+      ]
+    },
+    {
+      "id": "release-artifact-contracts",
+      "tier": "artifact",
+      "priority": 70,
+      "depends_on": ["validation-graph-contract"],
+      "provides_evidence": ["release-artifact-battery"],
+      "timeout_seconds": 300,
+      "inputs": ["**"],
+      "steps": [
+        {"id": "release-artifact-signature-policy", "argv": ["{python}", "scripts/validators/artifact_signature_policy.py"]},
+        {"id": "release-contract-abi-signatures", "argv": ["{python}", "scripts/generate_contract_abi_signatures.py", "--check"]},
+        {"id": "release-artifact-policy", "argv": ["{python}", "scripts/validators/release_artifact_policy.py"]},
+        {"id": "artifact-bundle-roundtrip", "argv": ["{python}", "scripts/validators/artifact_bundle_roundtrip.py"]}
+      ]
+    }
+  ]
+}

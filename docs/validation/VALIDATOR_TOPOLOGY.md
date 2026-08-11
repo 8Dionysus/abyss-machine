@@ -30,6 +30,27 @@ The same entrypoints can run from:
 GitHub CI runs the public and release-artifact lanes on push, pull request,
 manual dispatch, and a weekly public-seed canary schedule.
 
+## Claim/Evidence Scheduler Pilot
+
+- `python scripts/release_check.py --mode serial`
+- `python scripts/release_check.py --mode graph --receipt /tmp/abyss-machine-validation.json`
+- `python scripts/validation_evidence_graph.py --profile instant`
+
+The serial release-public lane remains the exact completeness oracle and the
+protected `Repo Validation` route during shadow admission. The owner-local
+manifest in `validation_evidence_graph.json` maps claims and risks to the same
+leaf-command multiset, then permits only scheduling changes between independent
+nodes. The adapter refuses an omitted or duplicated serial obligation and
+invokes the shared scheduler only from the exact clean `aoa-sdk` commit pinned
+in `scripts/validation_evidence_graph.py`.
+
+The full graph overlaps the isolated first-run projection, the complete public
+pytest corpus, and the short source/artifact batteries. Its receipt binds the
+`abyss-machine` checkout separately from the SDK runner checkout. Changed-path
+routing remains shadow-only, cross-run receipt reuse is absent, and neither a
+partial nor a shadow receipt can replace the full owner gate. Promotion requires
+same-SHA hosted comparison against serial plus retained explicit serial rollback.
+
 ## Host Contract Lane
 
 - `python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"`
