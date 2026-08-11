@@ -27,8 +27,54 @@ The same entrypoints can run from:
 - `os_abyss_host_contract`: local installed-host checks that may read private
   host state and are therefore excluded from public-safe lanes.
 
-GitHub CI runs the public and release-artifact lanes on push, pull request,
-manual dispatch, and a weekly public-seed canary schedule.
+GitHub CI runs the full owner claim/evidence graph on push, pull request,
+manual dispatch, and a weekly public-seed canary schedule. The serial lanes
+remain separately executable as the completeness oracle and rollback.
+
+## Claim/Evidence Scheduler
+
+- `python scripts/release_check.py --mode serial`
+- `python scripts/release_check.py --receipt /tmp/abyss-machine-validation.json`
+- `python scripts/validation_evidence_graph.py --profile instant`
+- `python scripts/validation_scheduler_experiment.py --method xdist-2 --graph-workers 3 --receipt /tmp/abyss-machine-combined-shadow.json`
+
+The full graph is the protected `Repo Validation` route and the default release
+check. The serial release-public lane remains an independent completeness
+oracle and one-command rollback. The owner-local manifest in
+`validation_evidence_graph.json` maps claims and risks to the same leaf scope.
+Every non-pytest command remains an exact multiset match; the sole admitted
+delta is full-suite pytest scheduling through `pytest-xdist==3.8.0` with two
+workers. The adapter rejects a changed selection, omitted or duplicated
+obligation, dependency drift, or an SDK runner other than the exact clean
+`aoa-sdk` commit pinned in `scripts/validation_evidence_graph.py`.
+
+The full graph overlaps the isolated first-run projection, the complete public
+pytest corpus, and the short source/artifact batteries. Its receipt binds the
+`abyss-machine` checkout separately from the SDK runner checkout. Changed-path
+routing remains shadow-only, cross-run receipt reuse is absent, and neither a
+partial nor a shadow receipt can replace the full owner gate. The instant graph
+contract retains a one-second budget; it is edit-loop evidence, not full
+sufficiency.
+
+Scheduler selection is also evidence-driven. The standalone shadow compares
+serial pytest, xdist with two and four workers, and deterministic static
+two-way sharding. The combined shadow then places every non-serial candidate
+inside the complete DAG at graph widths two and three, because isolated pytest
+speed does not prove whole-graph speed under contention. These experiments
+copy and alter only the canonical pytest leaf in an ignored temporary manifest,
+force fail-closed full-scope shadow routing, emit separate manifest and graph
+receipts, and are structurally incapable of authorizing the owner gate.
+
+Hosted same-SHA evidence selected graph width three plus xdist with two workers.
+Its successful whole-graph samples were `79.419s`, `83.035s`, and `81.886s`
+(median `81.886s`). Static two-way sharding had a `89.326s` median and xdist
+with four workers had a `90.466s` median, both with higher imbalance or
+contention. The protected serial source-plus-artifact route took `226s` and
+`241s` on the comparison heads. One xdist repeat exposed a real Unix-socket
+publication race; admission was withheld until socket publication became
+atomic and two same-head post-fix xdist runs supplied all five evidence classes.
+The comparison workflow is manual-only after promotion so ordinary PRs do not
+pay for six redundant experimental jobs.
 
 ## Host Contract Lane
 
@@ -40,9 +86,9 @@ manual dispatch, and a weekly public-seed canary schedule.
 - `python scripts/release_check.py`
 - `python scripts/release_check.py --include-host-contracts`
 
-`release-public` runs the source-fast gate and the release-artifact gate.
-`release-full` adds the fixture-backed host-contract gate.
-Release pipelines should call the same CLI gates before publishing SBOM,
+The default release check runs the full owner graph; `--mode serial` runs
+`release-public`, and `--include-host-contracts` adds the fixture-backed
+host-contract lane after either public route. Release pipelines should call the same CLI gates before publishing SBOM,
 ML-BOM, SLSA/in-toto, Sigstore/Cosign, or C2PA sidecars.
 
 ## Release Artifact Lane

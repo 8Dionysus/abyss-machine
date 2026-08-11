@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 17907376,
+  "allowed_tracked_bytes": 25817582,
+  "approved_by": "repository-owner",
+  "base_ref": "89e9c0c0750dcaa25277c89be45f9d9a108a00d0",
+  "changed_generated_bytes": 17907376,
+  "changed_generated_files": 246,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "d8b87016d01e8b1df2b0e61388f3718a568826c9d22381b9bdd44d27b441c8a8",
+  "reason": "Promote receipt-bound xdist2 W3 owner validation while retaining serial oracle",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25817582,
+  "tracked_bytes_max": 27262976
+}

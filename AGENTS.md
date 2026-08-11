@@ -75,13 +75,27 @@ and report the exact blocker instead of guessing.
 
 ## Validation
 
-Run the narrow public lane first:
+During the edit loop, run the narrowest affected test plus the sub-second graph
+contract. The graph command requires the exact clean `aoa-sdk` scheduler pin
+named by `scripts/validation_evidence_graph.py`:
 
 ```bash
-python -m pytest -q
+python -m pytest -q PATH_TO_AFFECTED_TEST
+python scripts/validation_evidence_graph.py --profile instant --sdk-root PATH_TO_PINNED_AOA_SDK
 scripts/abyss-machine-bootstrap doctor --dry-run --json
 scripts/abyss-machine-bootstrap render --profile linux-systemd-core --dry-run --json
 ```
+
+Before landing, run the complete owner claim/evidence gate. It schedules the
+same owner obligations as the independent serial oracle and writes a bound
+receipt:
+
+```bash
+python scripts/release_check.py --sdk-root PATH_TO_PINNED_AOA_SDK --receipt /tmp/abyss-machine-validation.json
+```
+
+Use `python scripts/release_check.py --mode serial` only as the explicit
+completeness oracle and rollback, not as the ordinary fast path.
 
 For host-contract migration work, also run:
 

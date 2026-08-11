@@ -102,6 +102,7 @@ movement for that decision only.
 | 0023 | [Separate Release Trust From Routing Owner Switch](0023-separate-release-trust-from-routing-owner-switch.md) | `0023-separate-release-trust-from-routing-owner-switch.md` | artifacts, owner-boundary, release-trust, validation-guard | active artifact admission rationale |
 | 0024 | [Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md) | `0024-admit-receipt-bound-sdk-routing-canonical-producer.md` | artifacts, owner-boundary, routing-succession, runtime-admission, validation-guard | active canonical admission rationale |
 | 0025 | [Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md) | `0025-admit-external-actor-runtime-canaries.md` | artifacts, owner-boundary, runtime-admission, agent-runtime, validation-guard | active canary admission rationale |
+| 0026 | [Promote Claim Evidence Validation Graph](0026-promote-claim-evidence-validation-graph.md) | `0026-promote-claim-evidence-validation-graph.md` | validation-scheduler, owner-boundary, proof-sufficiency, rollback-guard | active validation admission rationale |
 
 ## Index By Surface Class
 
@@ -113,6 +114,7 @@ movement for that decision only.
 - [0008 Change Close Decision Review Gate](0008-change-close-decision-review-gate.md)
 - [0009 Decision Record Evolution Route](0009-decision-record-evolution-route.md)
 - [0020 Artifact Evidence Cleanup Route](0020-artifact-evidence-cleanup-route.md)
+- [0026 Promote Claim Evidence Validation Graph](0026-promote-claim-evidence-validation-graph.md)
 
 ### Generated / Readout
 
@@ -141,6 +143,10 @@ movement for that decision only.
 - [0022 Owner-Native Memory Orchestration](0022-owner-native-memory-orchestration.md)
 - [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 - [0025 Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md)
+
+### Validation / Proof
+
+- [0026 Promote Claim Evidence Validation Graph](0026-promote-claim-evidence-validation-graph.md)
 
 ### AI / Resident Selection
 
@@ -227,6 +233,7 @@ Route:
 - release trust versus routing owner-switch authority: [0023](0023-separate-release-trust-from-routing-owner-switch.md)
 - receipt-bound SDK routing canonical admission: [0024](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 - external actor runtime canary admission: [0025](0025-admit-external-actor-runtime-canaries.md)
+- claim/evidence graph sufficiency and serial rollback: [0026](0026-promote-claim-evidence-validation-graph.md)
 
 ## Promotion Path
 

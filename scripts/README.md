@@ -13,7 +13,10 @@ Current public entrypoint:
   signature read model from the artifact signature policy.
 - `validators/release_artifact_policy.py`: validate publishable artifact
   class requirements and public-repo artifact boundaries.
-- `release_check.py`: run public or local-full release gates.
+- `release_check.py`: run the authoritative full owner claim/evidence graph by
+  default, with an explicit independent serial oracle and rollback.
+- `validation_evidence_graph.py`: validate the sub-second graph contract and
+  invoke the exact pinned shared scheduler ABI for owner-local claims.
 - `generate_scaffold_index.py`: regenerate the committed scaffold read model.
 - `validate_local_stats_port.py`: delegate the owner-local stats contract to
   the `aoa-stats` protocol validator selected by the validation environment.

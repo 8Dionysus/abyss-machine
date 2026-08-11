@@ -5,6 +5,8 @@
 - Keep the public seed reproducible and secret-free.
 - Stabilize the source/install mirror around `config-templates/`, `systemd/`,
   `schemas/`, and validation lanes.
+- Keep the full owner claim/evidence gate receipt-bound and parallel while the
+  independent serial oracle remains executable as rollback.
 - Keep typing and nervous intake first-class, opt-in, and backed by a tested
   organ-specific path/service policy plus refresh decision helpers.
 
@@ -19,6 +21,9 @@
 - Add release checks from `docs/testing/RELEASE_CHECK_ROUTE.md` that combine
   public smoke, bootstrap dry-runs, path scans, secret scans, source/install
   projection, and relevant host quick checks.
+- Evaluate changed-path claim routing and cross-run evidence reuse only in
+  shadow with explicit false-negative controls before either can affect full
+  sufficiency.
 
 ## Deferred
 

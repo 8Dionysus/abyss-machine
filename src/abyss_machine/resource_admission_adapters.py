@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import socket
 import socketserver
+import tempfile
 import time
 from typing import Any, Callable, Mapping
 
@@ -553,11 +554,25 @@ def run_server_loop(
         allow_reuse_address = True
 
     server: UnixServer | None = None
+    staging_dir: Path | None = None
+    staging_path: Path | None = None
+    published_identity: tuple[int, int] | None = None
     try:
-        server = UnixServer(str(path), Handler)
+        staging_dir = Path(tempfile.mkdtemp(prefix=".r", dir=path.parent))
+        staging_path = staging_dir / "s"
+        if len(os.fsencode(staging_path)) >= 104:
+            raise ValueError("runtime admission staging socket path is too long")
+        server = UnixServer(str(staging_path), Handler)
         server.should_shutdown = False  # type: ignore[attr-defined]
         server.timeout = 1.0
-        os.chmod(path, 0o600)
+        os.chmod(staging_path, 0o600)
+        os.link(staging_path, path)
+        published = path.lstat()
+        published_identity = (published.st_dev, published.st_ino)
+        staging_path.unlink()
+        staging_dir.rmdir()
+        staging_path = None
+        staging_dir = None
         while not getattr(server, "should_shutdown", False):
             server.handle_request()
             if maintenance_port is not None:
@@ -565,8 +580,21 @@ def run_server_loop(
     finally:
         if server is not None:
             server.server_close()
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+        if staging_path is not None:
+            try:
+                staging_path.unlink()
+            except FileNotFoundError:
+                pass
+        if staging_dir is not None:
+            try:
+                staging_dir.rmdir()
+            except FileNotFoundError:
+                pass
+        if published_identity is not None:
+            try:
+                current = path.lstat()
+            except FileNotFoundError:
+                current = None
+            if current is not None and (current.st_dev, current.st_ino) == published_identity:
+                path.unlink()
     return {"ok": True, "socket": str(path), "stopped": True}
