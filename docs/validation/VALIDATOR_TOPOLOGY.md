@@ -35,6 +35,7 @@ manual dispatch, and a weekly public-seed canary schedule.
 - `python scripts/release_check.py --mode serial`
 - `python scripts/release_check.py --mode graph --receipt /tmp/abyss-machine-validation.json`
 - `python scripts/validation_evidence_graph.py --profile instant`
+- `python scripts/validation_scheduler_experiment.py --method xdist-2 --graph-workers 3 --receipt /tmp/abyss-machine-combined-shadow.json`
 
 The serial release-public lane remains the exact completeness oracle and the
 protected `Repo Validation` route during shadow admission. The owner-local
@@ -50,6 +51,15 @@ pytest corpus, and the short source/artifact batteries. Its receipt binds the
 routing remains shadow-only, cross-run receipt reuse is absent, and neither a
 partial nor a shadow receipt can replace the full owner gate. Promotion requires
 same-SHA hosted comparison against serial plus retained explicit serial rollback.
+
+Scheduler selection is also evidence-driven. The standalone shadow compares
+serial pytest, xdist with two and four workers, and deterministic static
+two-way sharding. The combined shadow then places every non-serial candidate
+inside the complete DAG at graph widths two and three, because isolated pytest
+speed does not prove whole-graph speed under contention. These experiments
+copy and alter only the canonical pytest leaf in an ignored temporary manifest,
+force fail-closed full-scope shadow routing, emit separate manifest and graph
+receipts, and are structurally incapable of authorizing the owner gate.
 
 ## Host Contract Lane
 

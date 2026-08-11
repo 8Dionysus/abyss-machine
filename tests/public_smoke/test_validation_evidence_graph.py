@@ -14,6 +14,9 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 pytest_scheduler_experiment = importlib.import_module("scripts.pytest_scheduler_experiment")
 release_check = importlib.import_module("scripts.release_check")
 validation_evidence_graph = importlib.import_module("scripts.validation_evidence_graph")
+validation_scheduler_experiment = importlib.import_module(
+    "scripts.validation_scheduler_experiment"
+)
 
 
 def _git(root: Path, *args: str) -> str:
@@ -70,6 +73,13 @@ def test_sdk_runner_requires_exact_clean_git_top_level(
     runner.write_text("raise SystemExit(1)\n", encoding="utf-8")
     with pytest.raises(validation_evidence_graph.AdapterError, match="must be clean"):
         validation_evidence_graph.require_pinned_sdk_runner(sdk_root)
+
+
+def test_explicit_sdk_root_propagates_to_nested_graph_contract(tmp_path: Path) -> None:
+    sdk_root = tmp_path / "sdk"
+    environment = validation_evidence_graph.runner_environment(sdk_root)
+
+    assert environment[validation_evidence_graph.SDK_ROOT_ENV] == str(sdk_root.resolve())
 
 
 def test_release_check_keeps_serial_default_and_forwards_explicit_graph(
@@ -137,3 +147,41 @@ def test_static_pytest_shards_are_disjoint_complete_and_deterministic() -> None:
     assert sorted(path for shard in recorded for path in shard) == [
         path.relative_to(REPO_ROOT).as_posix() for path in files
     ]
+
+
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [
+        ("xdist-2", ["{python}", "-m", "pytest", "-q", "-n", "2"]),
+        ("xdist-4", ["{python}", "-m", "pytest", "-q", "-n", "4"]),
+        (
+            "static-2",
+            [
+                "{python}",
+                "scripts/pytest_scheduler_experiment.py",
+                "--method",
+                "static-2",
+                "--receipt",
+                "tmp/pytest.json",
+            ],
+        ),
+    ],
+)
+def test_combined_experiment_changes_only_the_pytest_scheduler(
+    method: str, expected: list[str]
+) -> None:
+    manifest = validation_scheduler_experiment.build_experimental_manifest(
+        method,
+        REPO_ROOT / "tmp" / "pytest.json",
+    )
+    pytest_node = next(
+        node for node in manifest["nodes"] if node["id"] == "public-smoke-tests"
+    )
+    assert pytest_node["steps"][0]["argv"] == expected
+
+    canonical = json.loads(
+        validation_evidence_graph.MANIFEST_PATH.read_text(encoding="utf-8")
+    )
+    pytest_node["steps"][0]["argv"] = validation_scheduler_experiment.CANONICAL_PYTEST_ARGV
+    manifest["graph_id"] = canonical["graph_id"]
+    assert manifest == canonical

@@ -72,6 +72,12 @@ def require_pinned_sdk_runner(sdk_root: Path) -> Path:
     return runner
 
 
+def runner_environment(sdk_root: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    environment[SDK_ROOT_ENV] = str(sdk_root.resolve())
+    return environment
+
+
 def _normalized(command: Sequence[str]) -> tuple[str, ...]:
     return tuple("{python}" if token == sys.executable else token for token in command)
 
@@ -171,7 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     completed = subprocess.run(
         command,
         cwd=REPO_ROOT,
-        env=os.environ.copy(),
+        env=runner_environment(args.sdk_root),
         check=False,
     )
     return completed.returncode
