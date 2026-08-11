@@ -1,6 +1,6 @@
 {
   "schema_version": "aoa_validation_evidence_graph_v1",
-  "graph_id": "abyss-machine-repo-validation-v1",
+  "graph_id": "abyss-machine-repo-validation-v2",
   "owner_repo": "abyss-machine",
   "default_profile": "full",
   "unknown_change_policy": "full",
@@ -10,7 +10,7 @@
   "claims": [
     {
       "id": "validation-graph-integrity",
-      "risk": "A malformed graph, unpinned scheduler, or command-inventory drift could manufacture false sufficiency or omit a serial obligation.",
+      "risk": "A malformed graph, unpinned SDK or pytest scheduler, changed test selection, or command-inventory drift could manufacture false sufficiency or omit a serial obligation.",
       "required_evidence": ["validation-graph-contract"]
     },
     {
@@ -98,6 +98,7 @@
       "inputs": [
         "docs/validation/validation_evidence_graph.json",
         "docs/validation/validation_lanes.json",
+        "pyproject.toml",
         "scripts/validation_evidence_graph.py",
         "scripts/validation_lanes.py"
       ],
@@ -134,7 +135,7 @@
       "steps": [
         {
           "id": "public-smoke-tests",
-          "argv": ["{python}", "-m", "pytest", "-q"]
+          "argv": ["{python}", "-m", "pytest", "-q", "-n", "2"]
         }
       ]
     },

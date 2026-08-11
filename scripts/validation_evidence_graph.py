@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib import metadata
 import json
 import os
 import subprocess
@@ -17,6 +18,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "docs" / "validation" / "validation_evidence_graph.json"
 SDK_ROOT_ENV = "ABYSS_MACHINE_AOA_SDK_ROOT"
 SDK_PIN = "b73c8aca9ef5275df0ec9e3e55d446db08823fb2"
+PYTEST_XDIST_DISTRIBUTION = "pytest-xdist"
+PYTEST_XDIST_PIN = "3.8.0"
+SERIAL_PYTEST_COMMAND = ("{python}", "-m", "pytest", "-q")
+GRAPH_PYTEST_COMMAND = (*SERIAL_PYTEST_COMMAND, "-n", "2")
 SDK_RUNNER_RELATIVE_PATH = Path(
     "mechanics/release-support/parts/validation-evidence-graph/scripts/validation_graph.py"
 )
@@ -108,17 +113,41 @@ def graph_obligation_commands(manifest_path: Path = MANIFEST_PATH) -> list[tuple
     return commands
 
 
-def require_exact_serial_inventory(manifest_path: Path = MANIFEST_PATH) -> None:
+def require_schedule_equivalent_serial_inventory(manifest_path: Path = MANIFEST_PATH) -> None:
     expected = Counter(serial_oracle_commands())
     actual = Counter(graph_obligation_commands(manifest_path))
-    if actual == expected:
+    serial_pytest_count = expected.pop(SERIAL_PYTEST_COMMAND, 0)
+    graph_pytest_count = actual.pop(GRAPH_PYTEST_COMMAND, 0)
+    if serial_pytest_count == graph_pytest_count == 1 and actual == expected:
         return
     missing = [list(command) for command in sorted((expected - actual).elements())]
     extra = [list(command) for command in sorted((actual - expected).elements())]
     raise AdapterError(
-        "validation graph diverges from the exact serial leaf-command inventory: "
-        + json.dumps({"missing": missing, "extra": extra}, sort_keys=True)
+        "validation graph diverges from the schedule-equivalent serial leaf scope: "
+        + json.dumps(
+            {
+                "serial_pytest_count": serial_pytest_count,
+                "graph_xdist2_pytest_count": graph_pytest_count,
+                "missing": missing,
+                "extra": extra,
+            },
+            sort_keys=True,
+        )
     )
+
+
+def require_pinned_pytest_scheduler() -> None:
+    try:
+        actual = metadata.version(PYTEST_XDIST_DISTRIBUTION)
+    except metadata.PackageNotFoundError as exc:
+        raise AdapterError(
+            f"required pytest scheduler is not installed: {PYTEST_XDIST_DISTRIBUTION}"
+        ) from exc
+    if actual != PYTEST_XDIST_PIN:
+        raise AdapterError(
+            "pytest scheduler pin mismatch: "
+            f"expected={PYTEST_XDIST_PIN} actual={actual}"
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -143,7 +172,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        require_exact_serial_inventory()
+        require_schedule_equivalent_serial_inventory()
+        require_pinned_pytest_scheduler()
         runner = require_pinned_sdk_runner(args.sdk_root)
     except (AdapterError, validation_lanes.ManifestError) as exc:
         payload = {"ok": False, "error": str(exc)}

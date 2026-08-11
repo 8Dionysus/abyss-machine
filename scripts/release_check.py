@@ -31,10 +31,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         choices=("graph", "serial"),
-        default=os.environ.get(VALIDATION_MODE_ENV, "serial"),
+        default=os.environ.get(VALIDATION_MODE_ENV, "graph"),
         help=(
-            "serial remains the authoritative completeness oracle during shadow admission; "
-            f"graph uses the pinned scheduler ABI (default: ${VALIDATION_MODE_ENV} or serial)"
+            "graph is the authoritative full owner gate; serial retains the independent "
+            f"completeness oracle and rollback (default: ${VALIDATION_MODE_ENV} or graph)"
         ),
     )
     parser.add_argument(

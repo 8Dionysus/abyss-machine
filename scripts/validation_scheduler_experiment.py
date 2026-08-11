@@ -18,7 +18,7 @@ import validation_evidence_graph
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 METHODS = ("xdist-2", "xdist-4", "static-2")
-CANONICAL_PYTEST_ARGV = ["{python}", "-m", "pytest", "-q"]
+CANONICAL_PYTEST_ARGV = list(validation_evidence_graph.GRAPH_PYTEST_COMMAND)
 
 
 class ExperimentError(ValueError):
@@ -48,7 +48,11 @@ def _artifact_path(receipt: Path, label: str) -> Path:
 
 def experimental_pytest_argv(method: str, static_receipt: Path) -> list[str]:
     if method.startswith("xdist-"):
-        return [*CANONICAL_PYTEST_ARGV, "-n", method.removeprefix("xdist-")]
+        return [
+            *validation_evidence_graph.SERIAL_PYTEST_COMMAND,
+            "-n",
+            method.removeprefix("xdist-"),
+        ]
     if method == "static-2":
         return [
             "{python}",
@@ -62,7 +66,7 @@ def experimental_pytest_argv(method: str, static_receipt: Path) -> list[str]:
 
 
 def build_experimental_manifest(method: str, static_receipt: Path) -> dict[str, Any]:
-    validation_evidence_graph.require_exact_serial_inventory()
+    validation_evidence_graph.require_schedule_equivalent_serial_inventory()
     payload = json.loads(validation_evidence_graph.MANIFEST_PATH.read_text(encoding="utf-8"))
     pytest_node = next(
         (node for node in payload["nodes"] if node["id"] == "public-smoke-tests"),
@@ -77,7 +81,7 @@ def build_experimental_manifest(method: str, static_receipt: Path) -> dict[str, 
             + json.dumps(actual)
         )
     pytest_node["steps"][0]["argv"] = experimental_pytest_argv(method, static_receipt)
-    payload["graph_id"] = f"abyss-machine-repo-validation-{method}-shadow-v1"
+    payload["graph_id"] = f"abyss-machine-repo-validation-{method}-shadow-v2"
     return payload
 
 

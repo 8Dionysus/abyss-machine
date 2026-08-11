@@ -43,8 +43,8 @@ def _sdk_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-def test_owner_graph_preserves_exact_serial_leaf_command_multiset() -> None:
-    validation_evidence_graph.require_exact_serial_inventory()
+def test_owner_graph_preserves_serial_leaf_scope_with_only_pinned_scheduler_delta() -> None:
+    validation_evidence_graph.require_schedule_equivalent_serial_inventory()
 
 
 def test_inventory_guard_reports_an_omitted_serial_obligation(tmp_path: Path) -> None:
@@ -54,8 +54,34 @@ def test_inventory_guard_reports_an_omitted_serial_obligation(tmp_path: Path) ->
     manifest = tmp_path / "validation-graph.json"
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(validation_evidence_graph.AdapterError, match="serial leaf-command inventory"):
-        validation_evidence_graph.require_exact_serial_inventory(manifest)
+    with pytest.raises(validation_evidence_graph.AdapterError, match="serial leaf scope"):
+        validation_evidence_graph.require_schedule_equivalent_serial_inventory(manifest)
+
+
+def test_inventory_guard_rejects_a_pytest_selection_change(tmp_path: Path) -> None:
+    payload = json.loads(validation_evidence_graph.MANIFEST_PATH.read_text(encoding="utf-8"))
+    pytest_node = next(node for node in payload["nodes"] if node["id"] == "public-smoke-tests")
+    pytest_node["steps"][0]["argv"].append("tests/public_smoke/test_bootstrap.py")
+    manifest = tmp_path / "validation-graph.json"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(validation_evidence_graph.AdapterError, match="serial leaf scope"):
+        validation_evidence_graph.require_schedule_equivalent_serial_inventory(manifest)
+
+
+def test_pytest_scheduler_requires_exact_distribution_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        validation_evidence_graph.metadata,
+        "version",
+        lambda _distribution: validation_evidence_graph.PYTEST_XDIST_PIN,
+    )
+    validation_evidence_graph.require_pinned_pytest_scheduler()
+
+    monkeypatch.setattr(validation_evidence_graph.metadata, "version", lambda _name: "9.9.9")
+    with pytest.raises(validation_evidence_graph.AdapterError, match="pin mismatch"):
+        validation_evidence_graph.require_pinned_pytest_scheduler()
 
 
 def test_sdk_runner_requires_exact_clean_git_top_level(
@@ -82,7 +108,7 @@ def test_explicit_sdk_root_propagates_to_nested_graph_contract(tmp_path: Path) -
     assert environment[validation_evidence_graph.SDK_ROOT_ENV] == str(sdk_root.resolve())
 
 
-def test_release_check_keeps_serial_default_and_forwards_explicit_graph(
+def test_release_check_uses_graph_default_and_keeps_explicit_serial_rollback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls: list[tuple[str, tuple[str, ...]]] = []
@@ -95,6 +121,20 @@ def test_release_check_keeps_serial_default_and_forwards_explicit_graph(
     monkeypatch.setattr(release_check, "run_lane", lambda lane: 0)
 
     assert release_check.main([]) == 0
+    assert calls == [
+        (
+            "full owner claim/evidence validation graph",
+            (
+                sys.executable,
+                release_check.GRAPH_ADAPTER,
+                "--profile",
+                "full",
+            ),
+        )
+    ]
+
+    calls.clear()
+    assert release_check.main(["--mode", "serial"]) == 0
     assert calls == []
 
     receipt = tmp_path / "receipt.json"

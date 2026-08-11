@@ -9,12 +9,18 @@ evidence for installed `abyss-machine`.
 Run from the repository root:
 
 ```bash
-PYTHONPATH=src python scripts/ci_gate.py --mode source-fast
+PYTHONPATH=src python scripts/release_check.py --sdk-root PATH_TO_PINNED_AOA_SDK --receipt /tmp/abyss-machine-validation.json
 PYTHONPATH=src python scripts/validators/public_boundary.py
 PYTHONPATH=src python scripts/validators/first_run_installed_projection.py
 PYTHONPATH=src python scripts/generate_contract_abi_signatures.py --check
 PYTHONPATH=src python scripts/generate_scaffold_index.py --check
 ```
+
+The release-check default is the full authoritative owner graph. Its exact
+clean SDK pin and pytest-xdist pin fail closed, and the graph receipt binds
+owner, runner, manifest, inputs, evidence, and sufficiency. Use
+`PYTHONPATH=src python scripts/release_check.py --mode serial` for the
+independent sequential completeness oracle or emergency rollback.
 
 These gates must not read private captures, local indexes, model weights, or
 host-only evidence.

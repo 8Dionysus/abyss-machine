@@ -17,8 +17,8 @@
 
 ## VERIFY
 <!--
-- `python scripts/ci_gate.py --mode source-fast` status
-- `python scripts/ci_gate.py --mode release-public` or narrower release gate status
+- `python scripts/release_check.py --receipt PATH --sdk-root PINNED_AOA_SDK` status
+- focused/instant checks and explicit serial rollback checks when relevant
 - host-contract, typing/nervous, self-awareness, or live checks when touched
 - GitHub `Repo Validation` status when landing
 - what was not run

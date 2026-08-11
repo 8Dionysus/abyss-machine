@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Promote the receipt-bound owner claim/evidence graph to the protected
+  validation route, retaining the exact serial oracle and rollback while
+  overlapping independent obligations and scheduling the full pytest corpus
+  with the repeatedly selected two-worker xdist plan.
+- Publish the resource-admission Unix socket atomically only after private
+  permissions are established, a race exposed by the parallel validation
+  comparison rather than hidden as test noise.
 - Compact the Artifact Trust skill's global routing description while retaining
   its artifact classes, evidence-pressure triggers, and nearest exclusions in
   the host-visible prefix.
