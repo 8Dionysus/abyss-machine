@@ -268,7 +268,10 @@ def test_abyss_machine_manifests_declare_full_consumer_registry_path() -> None:
         commands = [str(command) for command in manifest["consumer_command"]]
         command_text = " ".join(commands)
         artifact_class = str(manifest.get("artifact_class") or "")
-        expected_trust_root_mode = production_trust_root_modes.get(artifact_class, "host_managed")
+        expected_trust_root_mode = str(
+            manifest.get("consumer_trust_root_mode")
+            or production_trust_root_modes.get(artifact_class, "host_managed")
+        )
 
         runtime_owner_override = manifest.get("runtime_owner_override_required") is True
         assert manifest.get("owner_repo") == "abyss-machine", manifest_path
@@ -722,6 +725,142 @@ def test_abyss_machine_official_subject_manifests_roundtrip_registry_materialize
             subject.parent.rmdir()
         except OSError:
             pass
+
+
+def test_external_actor_runtime_manifest_admits_exact_host_canary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_ref = (
+        "manifests/artifact_bundles/"
+        "abyss_stack_external_codex_agent.bundle.json"
+    )
+    manifest = json.loads((ROOT / manifest_ref).read_text(encoding="utf-8"))
+    commands = [str(command) for command in manifest["consumer_command"]]
+    materialize_index = next(
+        index
+        for index, command in enumerate(commands)
+        if "materialize-subjects BUNDLE_DIR" in command
+    )
+    assert any(
+        "evidence-promote BUNDLE_DIR" in command
+        for command in commands[materialize_index + 1 :]
+    )
+    source_ref = "eabb348693af5575fa8800f3544cc1a569a0954d"
+    release_root = tmp_path / "release"
+    release_root.mkdir()
+    (release_root / "release-manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "abyss_stack_external_codex_release_manifest_v1",
+                "release_id": "sha256-" + "a" * 64,
+                "release_digest": "sha256:" + "a" * 64,
+                "files": [],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bundle = tmp_path / "bundle"
+    registry = tmp_path / "registry"
+    store_root = tmp_path / "subject-store"
+    monkeypatch.setenv(
+        "ABYSS_MACHINE_ARTIFACT_SUBJECT_STORE_ROOT",
+        str(store_root),
+    )
+    fake_cosign = tmp_path / "cosign"
+    _write_fake_cosign(fake_cosign)
+    key = tmp_path / "local-test.key"
+    public_key = tmp_path / "local-test.pub"
+    key.write_text("fake-private-key\n", encoding="utf-8")
+    public_key.write_text("fake-public-key\n", encoding="utf-8")
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
+
+    build = artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=manifest_ref,
+        subject_root=release_root,
+        owner_repo="abyss-stack",
+        source_ref=source_ref,
+    )
+    sign = artifact_bundles.sign_bundle(
+        bundle,
+        backend="cosign-local-key",
+    )
+    verify = artifact_bundles.verify_bundle(
+        bundle,
+        subject_root=release_root,
+    )
+    subjects = json.loads(
+        (bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(
+            encoding="utf-8"
+        )
+    )
+    promoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="manually-verified",
+        consumer_refs=["abyss-stack:external-codex-agent-canary"],
+        evidence_refs=[
+            "owner-validator:abyss-stack:external-codex-agent-release"
+        ],
+        source_repo="abyss-stack",
+        source_ref=source_ref,
+        producer="abyss-stack-external-codex-agent-installer",
+        trust_root_mode="host_managed",
+        subject_root=release_root,
+    )
+    materialized = artifact_bundles.materialize_artifact_subjects(
+        bundle,
+        store_root=store_root,
+        registry_dir=registry,
+        manifest_ref=manifest_ref,
+        subject_root=release_root,
+        consumer_intent="runtime_canary",
+        expected_source_repo="abyss-stack",
+        expected_source_ref=source_ref,
+        expected_trust_root_mode="host_managed",
+    )
+    repromoted = artifact_bundles.promote_bundle_evidence(
+        bundle,
+        registry,
+        lifecycle_state="manually-verified",
+        consumer_refs=["abyss-stack:external-codex-agent-canary"],
+        evidence_refs=[
+            "owner-validator:abyss-stack:external-codex-agent-release"
+        ],
+        source_repo="abyss-stack",
+        source_ref=source_ref,
+        producer="abyss-stack-external-codex-agent-installer",
+        trust_root_mode="host_managed",
+        subject_root=release_root,
+    )
+    gate = artifact_bundles.trust_gate(
+        registry,
+        artifact_class="runtime_or_container_artifact",
+        subject_digest=str(subjects["aggregate_digest"]),
+        consumer_intent="runtime_canary",
+        expected_source_repo="abyss-stack",
+        expected_source_ref=source_ref,
+        expected_trust_root_mode="host_managed",
+    )
+
+    assert build["contract_surface_id"] == (
+        "abyss-stack-external-codex-agent-admission"
+    )
+    assert sign["ok"] is True
+    assert verify["ok"] is True
+    assert promoted["record"]["artifact_subject_store"]["ok"] is False
+    assert materialized["ok"] is True
+    assert materialized["materialization_admission"]["verdict"] == "allow"
+    assert repromoted["record"]["artifact_subject_store"]["ok"] is True
+    assert gate["ok"] is True
+    assert gate["verdict"] == "allow"
+    assert gate["record"]["source_repo"] == "abyss-stack"
+    assert gate["record"]["source_ref"] == source_ref
 
 
 def test_trust_coverage_collects_package_named_evidence_dirs(tmp_path: Path) -> None:
@@ -2860,6 +2999,13 @@ def test_artifact_producer_profiles_prefer_owner_source_root_hint(tmp_path: Path
     script = source_root / "scripts" / "release_check.py"
     script.parent.mkdir(parents=True)
     script.write_text("print('ok')\n", encoding="utf-8")
+    installer = (
+        source_root
+        / "mechanics/governed-execution/parts/external-codex-agent"
+        / "install_external_codex_runtime.py"
+    )
+    installer.parent.mkdir(parents=True)
+    installer.write_text("print('ok')\n", encoding="utf-8")
     monkeypatch.setenv("ABYSS_STACK_SOURCE_ROOT_FOR_TEST", str(source_root))
 
     manifest = json.loads((ROOT / artifact_bundles.POLICY_REF).read_text(encoding="utf-8"))
@@ -2896,6 +3042,13 @@ def test_artifact_producer_profiles_continue_past_existing_hint_when_command_ref
     script = owner_root / "scripts" / "release_check.py"
     script.parent.mkdir(parents=True)
     script.write_text("print('ok')\n", encoding="utf-8")
+    installer = (
+        owner_root
+        / "mechanics/governed-execution/parts/external-codex-agent"
+        / "install_external_codex_runtime.py"
+    )
+    installer.parent.mkdir(parents=True)
+    installer.write_text("print('ok')\n", encoding="utf-8")
     monkeypatch.setenv("ABYSS_STACK_SOURCE_ROOT_FOR_TEST", str(workspace))
 
     manifest = json.loads((ROOT / artifact_bundles.POLICY_REF).read_text(encoding="utf-8"))

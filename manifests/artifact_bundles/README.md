@@ -17,6 +17,11 @@ verify. They do not define signing doctrine; controls come from
 - `runtime_tools_bundle.bundle.json`: local release-candidate route for an
   ignored `dist/abyss-machine-runtime-tools-*.tar.gz` archive containing host
   runtime helper scripts, runtime mechanics docs, and storage policy inputs.
+- `abyss_stack_external_codex_agent.bundle.json`: shared runtime-root manifest
+  for the exact content-addressed `abyss-stack` external Codex actor release.
+  The source owner, exact source ref, and immutable release root are supplied
+  at build time; machine-local activation begins as a `runtime_canary` and does
+  not become a public or normal-runtime release claim.
 - `ai_runtime_config_bundle.bundle.json`: local release-candidate route for an
   ignored `dist/abyss-machine-ai-runtime-config-*.tar.gz` archive. It is an
   AI framework-config bundle with ML-BOM identities for referenced models and

@@ -101,6 +101,7 @@ movement for that decision only.
 | 0022 | [Owner-Native Memory Orchestration](0022-owner-native-memory-orchestration.md) | `0022-owner-native-memory-orchestration.md` | memory, resource-gate, owner-boundary, runtime-lifecycle, validation-guard | active owner-boundary rationale |
 | 0023 | [Separate Release Trust From Routing Owner Switch](0023-separate-release-trust-from-routing-owner-switch.md) | `0023-separate-release-trust-from-routing-owner-switch.md` | artifacts, owner-boundary, release-trust, validation-guard | active artifact admission rationale |
 | 0024 | [Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md) | `0024-admit-receipt-bound-sdk-routing-canonical-producer.md` | artifacts, owner-boundary, routing-succession, runtime-admission, validation-guard | active canonical admission rationale |
+| 0025 | [Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md) | `0025-admit-external-actor-runtime-canaries.md` | artifacts, owner-boundary, runtime-admission, agent-runtime, validation-guard | active canary admission rationale |
 
 ## Index By Surface Class
 
@@ -139,6 +140,7 @@ movement for that decision only.
 - [0019 Self-Awareness Full Stack Coverage](0019-self-awareness-full-stack-coverage.md)
 - [0022 Owner-Native Memory Orchestration](0022-owner-native-memory-orchestration.md)
 - [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
+- [0025 Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md)
 
 ### AI / Resident Selection
 
@@ -152,6 +154,7 @@ movement for that decision only.
 - [0020 Artifact Evidence Cleanup Route](0020-artifact-evidence-cleanup-route.md)
 - [0023 Separate Release Trust From Routing Owner Switch](0023-separate-release-trust-from-routing-owner-switch.md)
 - [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
+- [0025 Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md)
 
 ### Typing / Journaling
 
@@ -223,6 +226,7 @@ Route:
 - owner-native memory lifecycle and coordinator admission gate: [0022](0022-owner-native-memory-orchestration.md)
 - release trust versus routing owner-switch authority: [0023](0023-separate-release-trust-from-routing-owner-switch.md)
 - receipt-bound SDK routing canonical admission: [0024](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
+- external actor runtime canary admission: [0025](0025-admit-external-actor-runtime-canaries.md)
 
 ## Promotion Path
 

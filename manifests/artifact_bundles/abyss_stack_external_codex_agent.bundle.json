@@ -1,0 +1,69 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "abyss-stack-external-codex-agent-release",
+  "artifact_class": "runtime_or_container_artifact",
+  "contract_surface_id": "abyss-stack-external-codex-agent-admission",
+  "owner_repo": "abyss-machine",
+  "runtime_owner_override_required": true,
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "consumer_trust_root_mode": "host_managed",
+  "public_safe": true,
+  "subject_repo_root": ".",
+  "artifact_source": {
+    "kind": "external_content_addressed_runtime_release",
+    "content_identity_ref": "release-manifest.json#/release_digest",
+    "source_paths_ref": "release-manifest.json#/files",
+    "private_payload_included": false
+  },
+  "lifecycle": {
+    "initial_state": "built-local",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "published",
+      "superseded",
+      "revoked"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready",
+      "published"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "aoa-external-codex-agent content-addressed release v1",
+    "consumer_expectation": "Agent-runtime canaries bind the exact abyss-stack source ref, release manifest, signed subject inventory, host-managed trust root, materialized release-manifest subject, and fresh runtime_canary trust-gate verdict before activation.",
+    "registry_required": true,
+    "subject_store_required": true,
+    "admission_gate": "fail_closed_consumer_admission",
+    "consumer_verdict": "allow_or_deny_required_before_use"
+  },
+  "abi_subject": {
+    "path": "release-manifest.json"
+  },
+  "artifact_subjects": [
+    {
+      "path": "release-manifest.json",
+      "role": "external_codex_agent_release_manifest"
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:abyss-stack-external-codex-agent-release:v1",
+  "package": {
+    "ecosystem": "content-addressed-runtime",
+    "name": "abyss-stack-external-codex-agent",
+    "purl": "pkg:generic/abyss-stack-external-codex-agent@1"
+  },
+  "consumer_command": [
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/abyss_stack_external_codex_agent.bundle.json --bundle-dir BUNDLE_DIR --subject-root RELEASE_ROOT --owner-repo OWNER_REPO --source-ref SOURCE_REF --json",
+    "abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key --json",
+    "abyss-machine artifacts verify BUNDLE_DIR --subject-root RELEASE_ROOT --json",
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state manually-verified --consumer-ref abyss-stack:external-codex-agent-canary --evidence-ref owner-validator:OWNER_REPO:external-codex-agent-release --source-repo OWNER_REPO --source-ref SOURCE_REF --subject-root RELEASE_ROOT --producer abyss-stack-external-codex-agent-installer --trust-root-mode host_managed --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/abyss_stack_external_codex_agent.bundle.json --subject-root RELEASE_ROOT --consumer-intent runtime_canary --source-repo OWNER_REPO --source-ref SOURCE_REF --trust-root-mode host_managed --json",
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state manually-verified --consumer-ref abyss-stack:external-codex-agent-canary --evidence-ref owner-validator:OWNER_REPO:external-codex-agent-release --source-repo OWNER_REPO --source-ref SOURCE_REF --subject-root RELEASE_ROOT --producer abyss-stack-external-codex-agent-installer --trust-root-mode host_managed --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime_canary --source-repo OWNER_REPO --source-ref SOURCE_REF --trust-root-mode host_managed --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime_canary --source-repo OWNER_REPO --source-ref SOURCE_REF --trust-root-mode host_managed --json"
+  ]
+}
