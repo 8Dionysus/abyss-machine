@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 10355660,
+  "allowed_tracked_bytes": 25768878,
+  "approved_by": "repository-owner",
+  "base_ref": "89e9c0c0750dcaa25277c89be45f9d9a108a00d0",
+  "changed_generated_bytes": 10355660,
+  "changed_generated_files": 140,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "b0136ff1f750b09673ba762df85eced22261d7e0419f6de8a859b4df20f414c8",
+  "reason": "Owner-bound combined scheduler A/B receipts and exact nested SDK runner identity propagation",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25768878,
+  "tracked_bytes_max": 27262976
+}
