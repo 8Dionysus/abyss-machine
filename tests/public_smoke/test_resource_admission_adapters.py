@@ -16,7 +16,11 @@ SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from abyss_machine import resource_admission_adapters, resource_admission_server, resource_planning
+from abyss_machine import (  # noqa: E402
+    resource_admission_adapters,
+    resource_admission_server,
+    resource_planning,
+)
 
 
 TOKEN = "fixture-release-token-1234567890"
@@ -415,6 +419,79 @@ def test_runtime_admission_unix_transport_is_private_bounded_and_stoppable() -> 
     assert thread.is_alive() is False
     assert outcome["ok"] is True
     assert path.exists() is False
+
+
+def test_runtime_admission_socket_is_not_published_before_private_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "admission.sock"
+    chmod_started = threading.Event()
+    allow_chmod = threading.Event()
+    real_chmod = os.chmod
+    outcome: dict[str, object] = {}
+
+    def delayed_chmod(candidate: str | bytes | os.PathLike[str], mode: int) -> None:
+        assert Path(candidate) != path
+        chmod_started.set()
+        assert allow_chmod.wait(timeout=2.0)
+        real_chmod(candidate, mode)
+
+    monkeypatch.setattr(resource_admission_adapters.os, "chmod", delayed_chmod)
+
+    def run() -> None:
+        outcome.update(
+            resource_admission_adapters.run_server_loop(
+                path=path,
+                dispatch_port=lambda payload: (
+                    {"ok": True, "command": payload.get("command")},
+                    payload.get("command") == "shutdown",
+                ),
+            )
+        )
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    assert chmod_started.wait(timeout=2.0)
+    assert path.exists() is False
+
+    allow_chmod.set()
+    deadline = time.monotonic() + 2.0
+    while not path.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert path.exists()
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+
+    shutdown = resource_admission_adapters.client_request(
+        {"command": "shutdown"}, path=path
+    )
+    thread.join(timeout=2.0)
+
+    assert shutdown == {"command": "shutdown", "ok": True}
+    assert thread.is_alive() is False
+    assert outcome["ok"] is True
+    assert path.exists() is False
+    assert not list(tmp_path.glob(".r*"))
+
+
+def test_runtime_admission_does_not_remove_a_competing_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "admission.sock"
+
+    def competing_link(_source: os.PathLike[str], target: os.PathLike[str]) -> None:
+        Path(target).write_text("competing-owner\n", encoding="utf-8")
+        raise FileExistsError(target)
+
+    monkeypatch.setattr(resource_admission_adapters.os, "link", competing_link)
+
+    with pytest.raises(FileExistsError):
+        resource_admission_adapters.run_server_loop(
+            path=path,
+            dispatch_port=lambda _payload: ({"ok": True}, False),
+        )
+
+    assert path.read_text(encoding="utf-8") == "competing-owner\n"
+    assert not list(tmp_path.glob(".r*"))
 
 
 def test_runtime_admission_rejects_insecure_socket_mode(tmp_path: Path) -> None:
