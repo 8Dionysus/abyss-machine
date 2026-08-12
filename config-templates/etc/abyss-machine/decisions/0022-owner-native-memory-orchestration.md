@@ -86,15 +86,22 @@ data-at-risk work is preserved.
 Write admission consumes fresh storage pressure, path protection, target and
 recommended-route capacity, and hook evidence directly. Full cleanup
 inventory, artifact snapshots, process guards, and container inspection are
-not inputs to that decision and remain in the storage-monitor lane. Thermal
-sampling and the request-specific storage proof form a parallel pre-admission
-DAG outside the global startup lock. Their bounded-age receipts are then
-reused while the lock protects the final fresh resource plan, reservation
-snapshot, sufficiency decision, and atomic lease creation. Bounded support
-inputs are reused when fresh; any fail-closed refresh still required by the
-final plan remains inside that atomic section. If a receipt ages out while
-waiting for the lock or while the final plan is computed, it is refreshed
-outside the lock before any lease may be created.
+not inputs to that decision and remain in the storage-monitor lane. A fresh
+request-specific thermal-map and CPU-route attestation, mode plan, game guard,
+and request-specific storage proof form a two-wave pre-admission DAG outside
+the global startup lock. The first wave collects the direct thermal map, mode,
+game, and storage facts concurrently; the second derives the exact requested
+route from its thermal and mode dependencies. The thermal receipt carries the
+complete exact route into the final plan; unavailable direct sensor evidence,
+an unavailable route, or a workload-class, latency, or force identity mismatch
+fails closed. Repeated process attribution and
+desktop/compositor inspection remain available in the full thermal plan as
+operator diagnostics, but they do not influence the launch route or admission
+verdict and therefore are not synchronous launch dependencies. The bounded-age
+receipts are reused while the lock protects the final fresh memory/PSI plan,
+reservation snapshot, sufficiency decision, and atomic lease creation. If a
+receipt ages out while waiting for the lock or while the final plan is
+computed, it is refreshed outside the lock before any lease may be created.
 
 An owner that needs to materialize a model inside an already-running process
 may atomically request a short runtime-only cold-load lease. The request must
@@ -200,6 +207,16 @@ change rather than silently reactivating the removed controller.
   preflight plus `/usr/bin/true` launch in 0.906 seconds inside the route
   (1.26 seconds including cold Python startup), with an allow verdict and no
   weakened gate input.
+- 2026-08-12: Split launch thermal proof from thermal diagnosis after a real
+  session exposed a remaining 10.090-second monolithic thermal node. Compared
+  direct emergency sensing, direct thermal mapping, a request-specific route
+  attestation, and the full diagnostic; retained every method in its valid
+  role. The selected attestation requires a fresh direct thermal map and exact
+  workload route, embeds that route into the final plan, and fails closed on
+  missing or mismatched evidence. Process attribution and desktop/compositor
+  inspection remain operator-callable diagnostics. Three complete source
+  launches planned in 0.623-0.813 seconds, held the final lock for
+  0.080-0.106 seconds, returned `allow`, and executed successfully.
 
 ## Source Surfaces
 

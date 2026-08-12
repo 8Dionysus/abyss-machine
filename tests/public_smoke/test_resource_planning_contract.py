@@ -1054,6 +1054,167 @@ def test_resource_thermal_stale_game_guarded_plan_warns_without_thermal_block() 
     assert warnings == ["ignored_stale_thermal_plan_game_guard"]
 
 
+def test_resource_thermal_admission_projects_only_gate_relevant_route_evidence() -> None:
+    attestation = resource_planning.thermal_admission_attestation(
+        workload_class="medium",
+        thermal_map={
+            "ok": True,
+            "class": "warm",
+            "summary": {
+                "mapped_core_sensors": 16,
+                "route_avoid_cpus": [7],
+                "hard_avoid_cpus": [],
+            },
+            "episode": {"class": "warm_background"},
+            "available_by_role_cpuset": {"p_cores": "0-6"},
+        },
+        route={
+            "schema": "abyss_machine_ai_cpu_route_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": False,
+            "foreground_allowed": True,
+            "foreground_blocked_reasons": [],
+            "requested": {"normalized_class": "medium"},
+            "route": {"cpuset": "0-6", "thread_limit": 4},
+            "reasons": ["thermal_hotspot_routed_away_from_avoid_cpus"],
+        },
+        generated_at="2026-08-12T09:00:00-06:00",
+        version="test",
+    )
+
+    assert attestation["ok"] is True
+    assert attestation["thermal"]["class"] == "warm"
+    assert attestation["recommended_new_work"]["medium"] == {
+        "allowed": True,
+        "unattended_allowed": False,
+        "foreground_allowed": True,
+        "foreground_blocked_reasons": [],
+        "cpuset": "0-6",
+        "thread_limit": 4,
+    }
+    assert attestation["cpu_route"]["requested"] == {
+        "normalized_class": "medium"
+    }
+    assert attestation["diagnostics"]["process_attribution"] == {
+        "collected": False,
+        "role": "diagnostic_only",
+        "command": "abyss-machine processes thermal-attribution --json",
+    }
+    assert attestation["policy"][
+        "diagnostics_are_not_admission_dependencies"
+    ] is True
+
+
+def test_resource_thermal_admission_fails_closed_on_missing_or_mismatched_evidence() -> None:
+    attestation = resource_planning.thermal_admission_attestation(
+        workload_class="heavy",
+        thermal_map={
+            "ok": False,
+            "class": "unknown",
+            "summary": {},
+        },
+        route={
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "foreground_allowed": True,
+            "foreground_blocked_reasons": [],
+            "requested": {"normalized_class": "medium"},
+            "route": {"cpuset": "0-3", "thread_limit": 4},
+        },
+        generated_at="2026-08-12T09:00:00-06:00",
+        version="test",
+    )
+
+    assert attestation["ok"] is False
+    assert attestation["evidence_errors"] == [
+        "thermal_map_unavailable",
+        "cpu_route_request_mismatch",
+    ]
+    assert attestation["recommended_new_work"]["heavy"]["allowed"] is False
+    blocked, warnings = resource_planning.thermal_plan_gate_reasons(
+        attestation,
+        "heavy",
+        unattended=False,
+        force=False,
+        active_game=False,
+        sample_thermal=True,
+        thermal_unattended_cap="light",
+        activity="foreground",
+    )
+    assert blocked == [
+        "thermal_attestation_unavailable",
+        "thermal_plan_denied",
+    ]
+    assert warnings == []
+
+
+def test_resource_thermal_admission_fails_closed_on_route_identity_mismatch() -> None:
+    attestation = resource_planning.thermal_admission_attestation(
+        workload_class="medium",
+        latency="interactive",
+        force=False,
+        thermal_map={"ok": True, "class": "green", "summary": {}},
+        route={
+            "ok": True,
+            "allowed": True,
+            "forced": True,
+            "unattended_allowed": True,
+            "foreground_allowed": True,
+            "foreground_blocked_reasons": [],
+            "requested": {
+                "normalized_class": "medium",
+                "latency": "balanced",
+            },
+            "route": {"cpuset": "0-3", "thread_limit": 4},
+        },
+        generated_at="2026-08-12T09:00:00-06:00",
+        version="test",
+    )
+
+    assert attestation["ok"] is False
+    assert attestation["evidence_errors"] == [
+        "cpu_route_latency_mismatch",
+        "cpu_route_force_mismatch",
+    ]
+    assert attestation["recommended_new_work"]["medium"]["allowed"] is False
+
+
+def test_resource_thermal_admission_fails_closed_on_malformed_route_payload() -> None:
+    attestation = resource_planning.thermal_admission_attestation(
+        workload_class="medium",
+        thermal_map={"ok": True, "class": "green", "summary": {}},
+        route={
+            "ok": True,
+            "allowed": "true",
+            "unattended_allowed": "true",
+            "foreground_allowed": True,
+            "foreground_blocked_reasons": [],
+            "requested": {
+                "normalized_class": "medium",
+                "latency": "balanced",
+            },
+            "route": {},
+        },
+        generated_at="2026-08-12T09:00:00-06:00",
+        version="test",
+    )
+
+    assert attestation["ok"] is False
+    assert attestation["evidence_errors"] == [
+        "cpu_route_payload_unavailable"
+    ]
+    assert attestation["recommended_new_work"]["medium"]["allowed"] is False
+    assert (
+        attestation["recommended_new_work"]["medium"][
+            "unattended_allowed"
+        ]
+        is False
+    )
+
+
 def test_resource_parse_systemd_run_output_contract() -> None:
     parsed = resource_planning.parse_systemd_run_output(
         "Running as unit: fixture.service; invocation ID: abc\n"

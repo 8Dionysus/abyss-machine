@@ -7539,7 +7539,12 @@ def ai_capabilities_latest() -> dict[str, Any]:
     return ai_runtime_contracts.ai_capabilities_latest_document(data, latest_path=str(AI_CAPABILITIES_LATEST_PATH))
 
 
-def ai_policy(write_latest: bool = True, cpu_thermal_map: dict[str, Any] | None = None) -> dict[str, Any]:
+def ai_policy(
+    write_latest: bool = True,
+    cpu_thermal_map: dict[str, Any] | None = None,
+    mode_data: dict[str, Any] | None = None,
+    battery_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return ai_runtime_adapters.policy_readmodel_from_live_inputs(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
@@ -7557,6 +7562,8 @@ def ai_policy(write_latest: bool = True, cpu_thermal_map: dict[str, Any] | None 
         write_latest=write_latest,
         latest_path=AI_POLICY_LATEST_PATH,
         write_json=safe_atomic_write_json,
+        mode_input=mode_data,
+        battery_input=battery_data,
     )
 
 
@@ -15889,6 +15896,76 @@ def process_thermal_plan(seconds: float = 3.0, interval: float = 0.5, top: int =
     return data
 
 
+def resource_thermal_admission_attestation(
+    workload_class: str,
+    latency: str = "balanced",
+    force: bool = False,
+    write_latest: bool = True,
+    thermal_map_data: dict[str, Any] | None = None,
+    mode_data: dict[str, Any] | None = None,
+    battery_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    thermal_map = (
+        thermal_map_data
+        if isinstance(thermal_map_data, dict)
+        else ai_cpu_thermal_map(write_latest=write_latest)
+    )
+    supplied_battery = (
+        battery_data
+        if isinstance(battery_data, dict)
+        else nested_get(mode_data, ["operating", "battery"])
+    )
+    policy = ai_policy(
+        write_latest=write_latest,
+        cpu_thermal_map=thermal_map,
+        mode_data=mode_data,
+        battery_data=(
+            supplied_battery
+            if isinstance(supplied_battery, dict)
+            else None
+        ),
+    )
+    current = policy.get("current") if isinstance(policy.get("current"), dict) else {}
+    current_mode = (
+        current.get("mode") if isinstance(current.get("mode"), dict) else {}
+    )
+    route_mode = (
+        mode_data
+        if isinstance(mode_data, dict)
+        else {
+            "effective_mode": current_mode.get("effective"),
+            "selected_mode": current_mode.get("selected"),
+        }
+    )
+    current_battery = current.get("battery")
+    if isinstance(supplied_battery, dict):
+        route_battery = supplied_battery
+    elif isinstance(current_battery, dict):
+        route_battery = current_battery
+    else:
+        route_battery = battery_summary()
+    route = ai_cpu_route(
+        workload_class=workload_class,
+        latency=latency,
+        force=force,
+        write_latest=write_latest,
+        cpu_thermal_map=thermal_map,
+        policy_data=policy,
+        mode_data=route_mode,
+        battery_data=route_battery,
+    )
+    return resource_planning.thermal_admission_attestation(
+        workload_class=workload_class,
+        latency=latency,
+        force=force,
+        route=route,
+        thermal_map=thermal_map,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+        generated_at=now_iso(),
+    )
+
+
 def ai_cpu_launch(
     command: list[str],
     workload_class: str = "medium",
@@ -16784,10 +16861,12 @@ def resource_plan(
         else None
     )
     if thermal_plan is None and sample_thermal:
-        thermal_policy = policy.get("gates", {}).get("thermal", {}) if isinstance(policy.get("gates"), dict) else {}
-        seconds = float(thermal_policy.get("sample_seconds_for_medium_or_above", 2.0)) if isinstance(thermal_policy, dict) else 2.0
-        interval = float(thermal_policy.get("sample_interval_sec", 0.5)) if isinstance(thermal_policy, dict) else 0.5
-        thermal_plan = process_thermal_plan(seconds=seconds, interval=interval, top=20, write_latest=write_latest)
+        thermal_plan = resource_thermal_admission_attestation(
+            workload_class=normalized_class,
+            latency=latency,
+            force=route_force,
+            write_latest=write_latest,
+        )
     elif thermal_plan is None:
         latest, _ = load_json_document(PROCESS_THERMAL_PLAN_LATEST_PATH)
         thermal_plan = latest if isinstance(latest, dict) else None
@@ -16830,7 +16909,15 @@ def resource_plan(
             "memory": str(MEMORY_PLAN_LATEST_PATH),
             "storage": str(STORAGE_PRESSURE_LATEST_PATH),
             "game_guard": str(PROCESS_GAME_GUARD_LATEST_PATH),
-            "thermal_plan": str(PROCESS_THERMAL_PLAN_LATEST_PATH),
+            "thermal_plan": (
+                None
+                if nested_get(thermal_plan, ["schema"])
+                == (
+                    f"{SCHEMA_PREFIX}_resource_thermal_"
+                    "admission_attestation_v1"
+                )
+                else str(PROCESS_THERMAL_PLAN_LATEST_PATH)
+            ),
         },
         thermal_unattended_cap=ai_cpu_thermal_unattended_cap(thermal_class),
         total_mem_kib=meminfo().get("MemTotal"),
@@ -16854,6 +16941,19 @@ def resource_plan(
     data["policy"]["provided_storage_preflight_reused"] = isinstance(
         write_preflight_data,
         dict,
+    )
+    data["policy"]["thermal_admission_is_request_specific"] = (
+        nested_get(thermal_plan, ["schema"])
+        == (
+            f"{SCHEMA_PREFIX}_resource_thermal_"
+            "admission_attestation_v1"
+        )
+    )
+    data["policy"]["thermal_diagnostics_are_not_gate_dependencies"] = bool(
+        nested_get(
+            thermal_plan,
+            ["policy", "diagnostics_are_not_admission_dependencies"],
+        )
     )
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_PLAN_LATEST_PATH, data, 0o664)
@@ -17002,9 +17102,17 @@ def resource_launch(
         if sample_thermal is None
         else bool(sample_thermal)
     )
-    launch_attestation_max_age_sec = max(
+    configured_launch_attestation_max_age_sec = max(
         1.0,
         float(startup_policy.get("launch_attestation_max_age_sec", 120.0)),
+    )
+    launch_attestation_max_age_sec = (
+        min(
+            configured_launch_attestation_max_age_sec,
+            max(1.0, resource_live_input_coalesce_seconds()),
+        )
+        if effective_sample_thermal
+        else configured_launch_attestation_max_age_sec
     )
     launch_attestations_required = bool(
         effective_sample_thermal
@@ -17043,31 +17151,14 @@ def resource_launch(
         nonlocal launch_attestation_refresh_count
         collectors: dict[str, Callable[[], dict[str, Any]]] = {}
         if effective_sample_thermal:
-            thermal_policy = (
-                policy.get("gates", {}).get("thermal", {})
-                if isinstance(policy.get("gates"), dict)
-                else {}
+            collectors["mode_plan"] = lambda: mode_plan(
+                write_latest=write_latest
             )
-            seconds = (
-                float(
-                    thermal_policy.get(
-                        "sample_seconds_for_medium_or_above",
-                        2.0,
-                    )
-                )
-                if isinstance(thermal_policy, dict)
-                else 2.0
+            collectors["game_guard"] = lambda: process_game_guard(
+                write_latest=write_latest
             )
-            interval = (
-                float(thermal_policy.get("sample_interval_sec", 0.5))
-                if isinstance(thermal_policy, dict)
-                else 0.5
-            )
-            collectors["thermal_plan"] = lambda: process_thermal_plan(
-                seconds=seconds,
-                interval=interval,
-                top=20,
-                write_latest=write_latest,
+            collectors["thermal_map"] = lambda: ai_cpu_thermal_map(
+                write_latest=write_latest
             )
         if bytes_required is not None and target:
             collectors["storage_write_preflight"] = (
@@ -17099,7 +17190,38 @@ def resource_launch(
                         "schema": document.get("schema"),
                         "generated_at": document.get("generated_at"),
                     }
-        plan_kwargs["thermal_plan_data"] = documents.get("thermal_plan")
+        first_wave_nodes = list(node_receipts)
+        if effective_sample_thermal:
+            thermal_admission, elapsed_ms = resource_timed_collect(
+                lambda: resource_thermal_admission_attestation(
+                    workload_class=workload_class,
+                    latency=latency,
+                    force=resource_planning.force_effective_for_request(
+                        force,
+                        effective_unattended,
+                    ),
+                    write_latest=write_latest,
+                    thermal_map_data=documents.get("thermal_map"),
+                    mode_data=documents.get("mode_plan"),
+                )
+            )
+            documents["thermal_admission"] = thermal_admission
+            node_receipts["thermal_admission"] = {
+                "duration_ms": elapsed_ms,
+                "ok": bool(thermal_admission.get("ok", True)),
+                "schema": thermal_admission.get("schema"),
+                "generated_at": thermal_admission.get("generated_at"),
+                "depends_on": ["thermal_map", "mode_plan"],
+            }
+        plan_kwargs["thermal_plan_data"] = documents.get(
+            "thermal_admission"
+        )
+        plan_kwargs["route_data"] = nested_get(
+            documents.get("thermal_admission"),
+            ["cpu_route"],
+        )
+        plan_kwargs["mode_data"] = documents.get("mode_plan")
+        plan_kwargs["game_guard_data"] = documents.get("game_guard")
         plan_kwargs["write_preflight_data"] = documents.get(
             "storage_write_preflight"
         )
@@ -17112,6 +17234,28 @@ def resource_launch(
                     round((time.monotonic() - round_started) * 1000)
                 ),
                 "parallel": len(collectors) > 1,
+                "waves": [
+                    {
+                        "wave": 1,
+                        "parallel": len(first_wave_nodes) > 1,
+                        "nodes": first_wave_nodes,
+                    },
+                    *(
+                        [
+                            {
+                                "wave": 2,
+                                "parallel": False,
+                                "nodes": ["thermal_admission"],
+                                "depends_on": [
+                                    "thermal_map",
+                                    "mode_plan",
+                                ],
+                            }
+                        ]
+                        if effective_sample_thermal
+                        else []
+                    ),
+                ],
                 "nodes": node_receipts,
             }
         )
@@ -17341,6 +17485,9 @@ def resource_launch(
                 "pre_admission_dag": {
                     "parallel_safe": True,
                     "refresh_count": launch_attestation_refresh_count,
+                    "configured_max_age_sec": (
+                        configured_launch_attestation_max_age_sec
+                    ),
                     "max_age_sec": launch_attestation_max_age_sec,
                     "age_at_admission_sec": (
                         round(attestation_age_at_admission_sec, 3)
@@ -17386,6 +17533,9 @@ def resource_launch(
                 "fresh_resource_plan_and_atomic_lease": True,
                 "expensive_preflight_outside_admission_lock": True,
                 "storage_gate_uses_fresh_pressure_and_capacity": True,
+                "thermal_gate_uses_fresh_request_specific_route": True,
+                "mode_and_game_guard_are_parallel_attestations": True,
+                "thermal_diagnostics_outside_launch_critical_path": True,
                 "launch_attestation_max_age_sec": (
                     launch_attestation_max_age_sec
                 ),
