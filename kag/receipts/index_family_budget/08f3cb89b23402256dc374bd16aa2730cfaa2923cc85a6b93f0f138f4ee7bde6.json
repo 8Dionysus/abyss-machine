@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 23304512,
+  "allowed_tracked_bytes": 26115298,
+  "approved_by": "repository-owner",
+  "base_ref": "586306ac72fceffdc03acae9f87c01b9b6aa9909",
+  "changed_generated_bytes": 23304512,
+  "changed_generated_files": 366,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "08f3cb89b23402256dc374bd16aa2730cfaa2923cc85a6b93f0f138f4ee7bde6",
+  "reason": "Reviewed host-contract feedback-loop optimization changes source identities and line anchors across the owner surface; refresh the deterministic portable KAG family without changing its standing generated-delta or tracked-byte budgets.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 26115298,
+  "tracked_bytes_max": 27262976
+}

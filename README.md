@@ -92,7 +92,7 @@ browser WebExtension, AT-SPI, generic GUI, focused-browser, and browser-privacy
 selftest validation status, browser AI transcript selftest status and validation
 status, browser input recency classification/readmodel assembly, status, and validation freshness, AT-SPI text-event
 policy merge and heartbeat status, AT-SPI compact-history record and contract documents, typing
-coverage document assembly plus route-note/gap and status decisions, typing status, validate, and end-to-end proof document assembly,
+coverage document assembly plus route-note/gap and status decisions, full and bounded compact typing status, validate, and end-to-end proof document assembly,
 session-tail latest-status contracts, metadata envelopes, title fingerprints,
 and AI transcript cleanup/role contracts live in
 `abyss_machine.typing_capture_contracts`;
@@ -409,7 +409,7 @@ selftest, browser-privacy record summary, Codex prompt evidence summary, route
 coverage assessment, browser selftest proof summary, browser context fallback
 status, browser input recency classification/readmodel assembly, status, and validation freshness, AT-SPI text-event
 policy merge and heartbeat status, AT-SPI compact-history record and contract documents, typing coverage document assembly plus route-note/gap and status
-decisions, typing status, validate, and end-to-end proof document assembly, saved-text recent-record validation, recent record policy/causal
+decisions, full and bounded compact typing status, validate, and end-to-end proof document assembly, saved-text recent-record validation, recent record policy/causal
 shape status, causal project binding/resolution, causal interaction identity/context-anchor and URL/AI recipient helpers,
 typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, process readmodel assembly, and causal-awareness event/readmodel status, session-tail latest-status
 contracts, Codex prompt/session-tail semantic ingest planning, AT-SPI

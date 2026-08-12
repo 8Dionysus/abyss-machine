@@ -241,6 +241,7 @@ def test_codex_prompt_hook_ingests_user_prompt_submit_event(abyss_machine_module
 
 def test_codex_prompt_hook_status_detects_user_prompt_submit_command(abyss_machine_module, tmp_path, monkeypatch) -> None:
     machine = abyss_machine_module
+    requested_sources: list[dict[str, int]] = []
     hooks = tmp_path / "hooks.json"
     config = tmp_path / "config.toml"
     hooks.write_text(
@@ -269,6 +270,16 @@ def test_codex_prompt_hook_status_detects_user_prompt_submit_command(abyss_machi
     monkeypatch.setattr(machine, "TYPING_CODEX_HOOKS_PATH", hooks)
     monkeypatch.setattr(machine, "TYPING_CODEX_CONFIG_PATH", config)
     monkeypatch.setattr(machine, "typing_latest", lambda: {"ok": False, "error": "missing"})
+    monkeypatch.setattr(machine, "typing_records", lambda _limit: ([], []))
+
+    def records_for_sources(limits, **_kwargs):
+        requested_sources.append(dict(limits))
+        return {
+            source: {"records": [], "errors": [], "scan": {"source_adapter": source}}
+            for source in limits
+        }
+
+    monkeypatch.setattr(machine, "typing_records_for_source_adapters", records_for_sources)
 
     status = machine.typing_codex_prompt_hook_status(write_latest=False)
 
@@ -279,10 +290,12 @@ def test_codex_prompt_hook_status_detects_user_prompt_submit_command(abyss_machi
     assert status["policy"]["native_codex_submit_hook_supported"] is True
     assert status["policy"]["primary_prompt_intake_route"] == "native_codex_submit_hook"
     assert status["policy"]["session_postprocessing"] is False
+    assert requested_sources == [{"codex_session_jsonl_prompt_tail": 160, "codex_user_prompt_submit": 80}]
 
 
 def test_codex_prompt_hook_status_accepts_session_tail_fallback(abyss_machine_module, tmp_path, monkeypatch) -> None:
     machine = abyss_machine_module
+    requested_sources: list[dict[str, int]] = []
     hooks = tmp_path / "hooks.json"
     config = tmp_path / "config.toml"
     hook_latest = tmp_path / "codex-hook-latest.json"
@@ -321,7 +334,15 @@ def test_codex_prompt_hook_status_accepts_session_tail_fallback(abyss_machine_mo
     monkeypatch.setattr(machine, "TYPING_CODEX_SESSION_TAIL_LATEST_PATH", tail_latest)
     monkeypatch.setattr(machine, "typing_latest", lambda: {"ok": True, "source_adapter": "codex_session_jsonl_prompt_tail", "status": "captured"})
     monkeypatch.setattr(machine, "typing_records", lambda _limit: ([], []))
-    monkeypatch.setattr(machine, "typing_records_for_source_adapter", lambda _adapter, **_kwargs: ([], [], {}))
+
+    def records_for_sources(limits, **_kwargs):
+        requested_sources.append(dict(limits))
+        return {
+            source: {"records": [], "errors": [], "scan": {"source_adapter": source}}
+            for source in limits
+        }
+
+    monkeypatch.setattr(machine, "typing_records_for_source_adapters", records_for_sources)
     monkeypatch.setattr(
         machine,
         "typing_codex_recent_prompt_summary",
@@ -345,6 +366,9 @@ def test_codex_prompt_hook_status_accepts_session_tail_fallback(abyss_machine_mo
     assert status["policy"]["direct_foreground_hook_required"] is False
     assert status["policy"]["session_tail_fallback"] is True
     assert status["policy"]["primary_prompt_intake_route"] == "session_tail_fallback"
+    assert status["recent_prompt_evidence"]["scan"]["skipped"] is True
+    assert status["recent_prompt_evidence"]["scan"]["skip_reason"] == "direct_hook_not_configured"
+    assert requested_sources == [{"codex_session_jsonl_prompt_tail": 160}]
 
 
 def test_codex_hook_status_cli_no_write_uses_readonly_status(abyss_machine_module, monkeypatch, capsys) -> None:
@@ -403,8 +427,35 @@ def test_typing_ingest_adds_causal_context_without_action_claims(abyss_machine_m
     assert causal["policy"]["intent_claim"] is False
 
 
-def test_typing_validate_keeps_non_keylogger_contract(abyss_machine_module) -> None:
+def test_typing_validate_keeps_non_keylogger_contract(abyss_machine_module, monkeypatch) -> None:
     machine = abyss_machine_module
+    original_snapshot = machine.typing_coverage_input_snapshot
+    original_process = machine.typing_process_from_records
+    original_coverage = machine.typing_coverage_from_records
+    snapshots: list[dict[str, object]] = []
+    process_by_records: dict[int, dict[str, object]] = {}
+    reused_process_snapshots: list[bool] = []
+
+    def counted_snapshot(policy):
+        snapshot = original_snapshot(policy)
+        snapshots.append(snapshot)
+        return snapshot
+
+    def counted_process(records, *args, **kwargs):
+        process = original_process(records, *args, **kwargs)
+        process_by_records[id(records)] = process
+        return process
+
+    def counted_coverage(records, *args, **kwargs):
+        if kwargs.get("process_snapshot") is not None:
+            reused_process_snapshots.append(
+                kwargs["process_snapshot"] is process_by_records.get(id(records))
+            )
+        return original_coverage(records, *args, **kwargs)
+
+    monkeypatch.setattr(machine, "typing_coverage_input_snapshot", counted_snapshot)
+    monkeypatch.setattr(machine, "typing_process_from_records", counted_process)
+    monkeypatch.setattr(machine, "typing_coverage_from_records", counted_coverage)
 
     validation = machine.typing_validate(write_latest=False)
 
@@ -416,6 +467,8 @@ def test_typing_validate_keeps_non_keylogger_contract(abyss_machine_module) -> N
     assert keys["capture_gate_policy"]["level"] == "ok"
     assert keys["capture_gate_deterministic_routes"]["level"] == "ok"
     assert keys["typing_coverage_readmodel"]["level"] == "ok"
+    assert len(snapshots) == 1
+    assert reused_process_snapshots == [True]
 
 
 def test_heartbeats_expose_typing_as_freshness_input(abyss_machine_module) -> None:

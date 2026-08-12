@@ -118,6 +118,16 @@ same-head combined runs then supplied the complete evidence set.
 
 - 2026-08-11: Initial accepted record after standalone, combined, repeated,
   negative-control, and same-head serial comparisons.
+- 2026-08-12: Owner-local host-contract follow-up retained the exact 239-node
+  quick selection and compared serial, xdist load at widths two through four,
+  loadfile, loadscope, worksteal, file-static, and duration-LPT static methods.
+  All methods had exact, duplicate-free terminal outcome inventories. Three
+  interleaved samples selected bounded xdist-3 (median `9.945s`) over serial
+  (median `18.720s`) and duration-LPT (median `10.817s`), a `46.9%` reduction
+  from the already optimized serial lane. The quick wrapper admits that
+  scheduler only with the exact dependency pin and retains explicit serial
+  rollback; the full owner graph remains width three with its separately
+  admitted xdist-2 leaf.
 
 ## Source Surfaces
 
@@ -126,10 +136,12 @@ same-head combined runs then supplied the complete evidence set.
 - `scripts/release_check.py`
 - `scripts/pytest_scheduler_experiment.py`
 - `scripts/validation_scheduler_experiment.py`
+- `tools/abyss-machine-test`
 - `.github/workflows/repo-validation.yml`
 - `.github/workflows/validation-evidence-shadow.yml`
 - `src/abyss_machine/resource_admission_adapters.py`
 - `tests/public_smoke/test_validation_evidence_graph.py`
+- `tests/public_smoke/test_host_contract_test_runner.py`
 - `tests/public_smoke/test_resource_admission_adapters.py`
 
 ## Validation

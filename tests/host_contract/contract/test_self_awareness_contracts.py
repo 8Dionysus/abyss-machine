@@ -8073,6 +8073,13 @@ def test_self_awareness_objective_coverage_audit_does_not_reopen_absent_capabili
     monkeypatch,
     abyss_machine_module,
 ) -> None:
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "self_awareness_refresh_working_stack_dependent_readmodels",
+        lambda *args, **kwargs: pytest.fail(
+            "an empty working-stack inventory has no dependent link rows to refresh"
+        ),
+    )
     capability_ids = sorted({
         capability_id
         for spec in abyss_machine_module.self_awareness_objective_coverage_specs()
@@ -9229,7 +9236,8 @@ def test_self_awareness_include_coverage_audit_artifact_adds_late_spec(tmp_path:
     )
 
 
-def test_self_awareness_export_manifest_indexes_artifacts(abyss_machine_module) -> None:
+@pytest.mark.live
+def test_self_awareness_live_export_manifest_indexes_artifacts(abyss_machine_module) -> None:
     payload = abyss_machine_module.self_awareness_export(write_latest=False)
 
     assert payload["schema"] == "abyss_machine_self_awareness_export_v1"

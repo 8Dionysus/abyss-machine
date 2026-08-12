@@ -16,13 +16,10 @@ from contextlib import contextmanager
 import datetime as dt
 import fcntl
 import fnmatch
-import http.server
-import html
 import grp
 import hashlib
 import importlib.util
 import json
-import math
 import os
 import platform
 import re
@@ -35,9 +32,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
-sys.dont_write_bytecode = True
 import tempfile
-import threading
 import time
 import urllib.error
 import urllib.parse
@@ -47,112 +42,194 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+
+sys.dont_write_bytecode = True
+
+
+CLI_EAGER_STARTUP_ENV = "ABYSS_MACHINE_CLI_EAGER_STARTUP"
+
+
+def _cli_eager_startup_enabled() -> bool:
+    return os.environ.get(CLI_EAGER_STARTUP_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _lazy_import_module(module_name: str) -> Any:
+    """Bind a real module object while deferring its execution until first use."""
+    loaded = sys.modules.get(module_name)
+    if loaded is not None:
+        return loaded
+    if _cli_eager_startup_enabled():
+        return importlib.import_module(module_name)
+    spec = importlib.util.find_spec(module_name)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"unable to find lazy CLI dependency: {module_name}")
+    spec.loader = importlib.util.LazyLoader(spec.loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _lazy_module_bindings(*module_names: str, **aliases: str) -> dict[str, Any]:
+    bindings = {
+        module_name: _lazy_import_module(f"abyss_machine.{module_name}")
+        for module_name in module_names
+    }
+    bindings.update(
+        {
+            alias: _lazy_import_module(f"abyss_machine.{module_name}")
+            for alias, module_name in aliases.items()
+        }
+    )
+    return bindings
+
+
+class _SkippedArgumentSurface:
+    """Discard nested parser wiring for an unselected top-level command."""
+
+    @property
+    def choices(self) -> "_SkippedArgumentSurface":
+        return self
+
+    def __getitem__(self, _key: Any) -> "_SkippedArgumentSurface":
+        return self
+
+    def add_argument(self, *_args: Any, **_kwargs: Any) -> "_SkippedArgumentSurface":
+        return self
+
+    def add_subparsers(self, *_args: Any, **_kwargs: Any) -> "_SkippedArgumentSurface":
+        return self
+
+    def add_parser(self, *_args: Any, **_kwargs: Any) -> "_SkippedArgumentSurface":
+        return self
+
+    def add_mutually_exclusive_group(self, *_args: Any, **_kwargs: Any) -> "_SkippedArgumentSurface":
+        return self
+
+    def set_defaults(self, **_kwargs: Any) -> None:
+        return None
+
+
+# Most subsystem modules are command-local dependencies. Keep their actual
+# module objects and monkeypatch behavior, but do not execute unrelated organs
+# on every short-lived CLI invocation.
+globals().update(
+    _lazy_module_bindings(
+        "ai_cpu_routing",
+        "ai_runtime_adapters",
+        "ai_tts_adapters",
+        "ai_tts_contracts",
+        "artifact_bundles",
+        "kag_artifacts",
+        "context_contracts",
+        "cooling_adapters",
+        "dictation_contracts",
+        "dictation_docs_adapters",
+        "dictation_execution_adapters",
+        "dictation_lock_adapters",
+        "dictation_notifications_adapters",
+        "dictation_postprocess_adapters",
+        "dictation_profile_adapters",
+        "dictation_replacements_adapters",
+        "dictation_runtime_adapters",
+        "dictation_status_adapters",
+        "dictation_validation_adapters",
+        "doctor_adapters",
+        "doctor_contracts",
+        "http_adapters",
+        "memory_adapters",
+        "memory_contracts",
+        "mode_adapters",
+        "observability_contracts",
+        "nervous_capture_adapters",
+        "nervous_clipboard_adapters",
+        "nervous_events_adapters",
+        "nervous_index_adapters",
+        "nervous_privacy_adapters",
+        "nervous_quality_adapters",
+        "nervous_redaction",
+        "nervous_retrieval_adapters",
+        "nervous_rerank_adapters",
+        "nervous_retention_adapters",
+        "nervous_screenshot_adapters",
+        "nervous_semantic_adapters",
+        "nervous_source_adapters",
+        "nervous_status_adapters",
+        "nervous_synthesis_adapters",
+        "resource_adapters",
+        "resource_admission_adapters",
+        "resource_planning",
+        "self_awareness_adapters",
+        "self_awareness_activation_contracts",
+        "self_awareness_activation_smoke_contracts",
+        "self_awareness_alert_contracts",
+        "self_awareness_autolink_contracts",
+        "self_awareness_body_trace_contracts",
+        "self_awareness_brief_contracts",
+        "self_awareness_causal_readmodel_contracts",
+        "self_awareness_causal_overlay_contracts",
+        "self_awareness_cognitive_contracts",
+        "self_awareness_cycle_proof_contracts",
+        "self_awareness_entity_context_contracts",
+        "self_awareness_completion_contracts",
+        "self_awareness_completion_document_contracts",
+        "self_awareness_completion_graph_contracts",
+        "self_awareness_contracts",
+        "self_awareness_coverage_contracts",
+        "self_awareness_export_handoff_contracts",
+        "self_awareness_failure_matrix_contracts",
+        "self_awareness_lineage_contracts",
+        "self_awareness_query_correlation_contracts",
+        "self_awareness_requirement_contracts",
+        "self_awareness_resident_cognitive_contracts",
+        "self_awareness_resident_worker_contracts",
+        "self_awareness_response_contracts",
+        "self_awareness_stack_closure_contracts",
+        "self_awareness_stack_probe_adapters",
+        "self_awareness_trace_context_contracts",
+        "self_awareness_validation_contracts",
+        "stack_bridge_contracts",
+        "storage_adapters",
+        "storage_contracts",
+        "topology_contracts",
+        "typing_atspi_adapters",
+        "typing_browser_adapters",
+        "typing_codex_semantics",
+        "typing_editor_adapters",
+        "typing_nervous_adapters",
+        "typing_saved_text_adapters",
+        "typing_shell_adapters",
+        "validation_contracts",
+        nervous_brief_contracts="nervous_brief",
+        nervous_events_contracts="nervous_events",
+        nervous_privacy_contracts="nervous_privacy",
+        nervous_quality_contracts="nervous_quality",
+        nervous_recall_contracts="nervous_recall",
+        nervous_rerank_contracts="nervous_rerank",
+        nervous_retention_contracts="nervous_retention",
+        nervous_screenshot_contracts="nervous_screenshot",
+        nervous_synthesis_contracts="nervous_synthesis",
+    )
+)
+
+
 try:
-    from . import ai_cpu_routing
-    from . import ai_runtime_adapters
     from . import ai_runtime_contracts
-    from . import ai_tts_adapters
-    from . import ai_tts_contracts
-    from . import artifact_bundles
-    from . import kag_artifacts
     from . import changes_contracts
-    from . import context_contracts
-    from . import cooling_adapters
     from . import cooling_contracts
-    from . import dictation_contracts
-    from . import dictation_docs_adapters
-    from . import dictation_execution_adapters
-    from . import dictation_lock_adapters
-    from . import dictation_notifications_adapters
-    from . import dictation_postprocess_adapters
-    from . import dictation_profile_adapters
-    from . import dictation_replacements_adapters
-    from . import dictation_runtime_adapters
-    from . import dictation_status_adapters
-    from . import dictation_validation_adapters
-    from . import doctor_adapters
-    from . import doctor_contracts
     from . import docs_contracts
-    from . import http_adapters
-    from . import memory_adapters
-    from . import memory_contracts
-    from . import mode_adapters
     from . import mode_contracts
-    from . import observability_contracts
-    from . import process_adapters
     from . import nervous_browser_content_adapters
-    from . import nervous_brief as nervous_brief_contracts
-    from . import nervous_capture_adapters
-    from . import nervous_clipboard_adapters
-    from . import nervous_events as nervous_events_contracts
-    from . import nervous_events_adapters
-    from . import nervous_index_adapters
-    from . import nervous_privacy as nervous_privacy_contracts
-    from . import nervous_privacy_adapters
-    from . import nervous_quality as nervous_quality_contracts
-    from . import nervous_quality_adapters
-    from . import nervous_redaction
-    from . import nervous_recall as nervous_recall_contracts
-    from . import nervous_retrieval_adapters
-    from . import nervous_rerank as nervous_rerank_contracts
-    from . import nervous_rerank_adapters
-    from . import nervous_retention as nervous_retention_contracts
-    from . import nervous_retention_adapters
-    from . import nervous_screenshot as nervous_screenshot_contracts
-    from . import nervous_screenshot_adapters
-    from . import nervous_semantic_adapters
-    from . import nervous_source_adapters
     from . import nervous_sources as nervous_source_contracts
-    from . import nervous_status_adapters
-    from . import nervous_synthesis as nervous_synthesis_contracts
-    from . import nervous_synthesis_adapters
+    from . import process_adapters
     from . import process_contracts
-    from . import resource_adapters
-    from . import resource_admission_adapters
-    from . import resource_planning
     from . import runtime_evidence_contracts
-    from . import self_awareness_adapters
-    from . import self_awareness_activation_contracts
-    from . import self_awareness_activation_smoke_contracts
-    from . import self_awareness_alert_contracts
-    from . import self_awareness_autolink_contracts
-    from . import self_awareness_body_trace_contracts
-    from . import self_awareness_brief_contracts
-    from . import self_awareness_causal_readmodel_contracts
-    from . import self_awareness_causal_overlay_contracts
-    from . import self_awareness_cognitive_contracts
-    from . import self_awareness_cycle_proof_contracts
-    from . import self_awareness_entity_context_contracts
-    from . import self_awareness_completion_contracts
-    from . import self_awareness_completion_document_contracts
-    from . import self_awareness_completion_graph_contracts
-    from . import self_awareness_contracts
-    from . import self_awareness_coverage_contracts
-    from . import self_awareness_export_handoff_contracts
-    from . import self_awareness_failure_matrix_contracts
-    from . import self_awareness_lineage_contracts
-    from . import self_awareness_query_correlation_contracts
-    from . import self_awareness_requirement_contracts
-    from . import self_awareness_resident_cognitive_contracts
-    from . import self_awareness_resident_worker_contracts
-    from . import self_awareness_response_contracts
-    from . import self_awareness_stack_closure_contracts
-    from . import self_awareness_stack_probe_adapters
-    from . import self_awareness_trace_context_contracts
-    from . import self_awareness_validation_contracts
-    from . import stack_bridge_contracts
-    from . import storage_adapters
-    from . import storage_contracts
-    from . import topology_contracts
-    from . import typing_atspi_adapters
-    from . import typing_browser_adapters
-    from . import typing_codex_semantics
     from . import typing_capture_contracts
-    from . import typing_editor_adapters
-    from . import typing_nervous_adapters
-    from . import typing_saved_text_adapters
-    from . import typing_shell_adapters
-    from . import validation_contracts
     from .nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
         build_index_build_document as build_nervous_index_build_document,
@@ -226,6 +303,7 @@ try:
     )
     from .typing_nervous_refresh import (
         typing_nervous_deferred_recent_index_safe,
+        typing_nervous_index_latest_evidence,
         typing_nervous_index_resource_gated,
         typing_nervous_processing_acceptance_status,
         typing_nervous_processing_status_document as build_typing_nervous_processing_status_document,
@@ -244,111 +322,17 @@ try:
         typing_nervous_refresh_synthesis_action,
     )
 except ImportError:  # pragma: no cover - supports direct execution of an installed script copy.
-    from abyss_machine import ai_cpu_routing
-    from abyss_machine import ai_runtime_adapters
     from abyss_machine import ai_runtime_contracts
-    from abyss_machine import ai_tts_adapters
-    from abyss_machine import ai_tts_contracts
-    from abyss_machine import artifact_bundles
-    from abyss_machine import kag_artifacts
     from abyss_machine import changes_contracts
-    from abyss_machine import context_contracts
-    from abyss_machine import cooling_adapters
     from abyss_machine import cooling_contracts
-    from abyss_machine import dictation_contracts
-    from abyss_machine import dictation_docs_adapters
-    from abyss_machine import dictation_execution_adapters
-    from abyss_machine import dictation_lock_adapters
-    from abyss_machine import dictation_notifications_adapters
-    from abyss_machine import dictation_postprocess_adapters
-    from abyss_machine import dictation_profile_adapters
-    from abyss_machine import dictation_replacements_adapters
-    from abyss_machine import dictation_runtime_adapters
-    from abyss_machine import dictation_status_adapters
-    from abyss_machine import dictation_validation_adapters
-    from abyss_machine import doctor_adapters
-    from abyss_machine import doctor_contracts
     from abyss_machine import docs_contracts
-    from abyss_machine import http_adapters
-    from abyss_machine import memory_adapters
-    from abyss_machine import memory_contracts
-    from abyss_machine import mode_adapters
     from abyss_machine import mode_contracts
-    from abyss_machine import observability_contracts
     from abyss_machine import nervous_browser_content_adapters
-    from abyss_machine import nervous_brief as nervous_brief_contracts
-    from abyss_machine import nervous_capture_adapters
-    from abyss_machine import nervous_clipboard_adapters
-    from abyss_machine import nervous_events as nervous_events_contracts
-    from abyss_machine import nervous_events_adapters
-    from abyss_machine import nervous_index_adapters
-    from abyss_machine import nervous_privacy as nervous_privacy_contracts
-    from abyss_machine import nervous_privacy_adapters
-    from abyss_machine import nervous_quality as nervous_quality_contracts
-    from abyss_machine import nervous_quality_adapters
-    from abyss_machine import nervous_redaction
-    from abyss_machine import nervous_recall as nervous_recall_contracts
-    from abyss_machine import nervous_retrieval_adapters
-    from abyss_machine import nervous_rerank as nervous_rerank_contracts
-    from abyss_machine import nervous_rerank_adapters
-    from abyss_machine import nervous_retention as nervous_retention_contracts
-    from abyss_machine import nervous_retention_adapters
-    from abyss_machine import nervous_screenshot as nervous_screenshot_contracts
-    from abyss_machine import nervous_screenshot_adapters
-    from abyss_machine import nervous_semantic_adapters
-    from abyss_machine import nervous_source_adapters
     from abyss_machine import nervous_sources as nervous_source_contracts
-    from abyss_machine import nervous_status_adapters
-    from abyss_machine import nervous_synthesis as nervous_synthesis_contracts
-    from abyss_machine import nervous_synthesis_adapters
     from abyss_machine import process_adapters
     from abyss_machine import process_contracts
-    from abyss_machine import resource_adapters
-    from abyss_machine import resource_admission_adapters
-    from abyss_machine import resource_planning
     from abyss_machine import runtime_evidence_contracts
-    from abyss_machine import self_awareness_adapters
-    from abyss_machine import self_awareness_activation_contracts
-    from abyss_machine import self_awareness_activation_smoke_contracts
-    from abyss_machine import self_awareness_alert_contracts
-    from abyss_machine import self_awareness_autolink_contracts
-    from abyss_machine import self_awareness_body_trace_contracts
-    from abyss_machine import self_awareness_brief_contracts
-    from abyss_machine import self_awareness_causal_readmodel_contracts
-    from abyss_machine import self_awareness_causal_overlay_contracts
-    from abyss_machine import self_awareness_cognitive_contracts
-    from abyss_machine import self_awareness_cycle_proof_contracts
-    from abyss_machine import self_awareness_entity_context_contracts
-    from abyss_machine import self_awareness_completion_contracts
-    from abyss_machine import self_awareness_completion_document_contracts
-    from abyss_machine import self_awareness_completion_graph_contracts
-    from abyss_machine import self_awareness_contracts
-    from abyss_machine import self_awareness_coverage_contracts
-    from abyss_machine import self_awareness_export_handoff_contracts
-    from abyss_machine import self_awareness_failure_matrix_contracts
-    from abyss_machine import self_awareness_lineage_contracts
-    from abyss_machine import self_awareness_query_correlation_contracts
-    from abyss_machine import self_awareness_requirement_contracts
-    from abyss_machine import self_awareness_resident_cognitive_contracts
-    from abyss_machine import self_awareness_resident_worker_contracts
-    from abyss_machine import self_awareness_response_contracts
-    from abyss_machine import self_awareness_stack_closure_contracts
-    from abyss_machine import self_awareness_stack_probe_adapters
-    from abyss_machine import self_awareness_trace_context_contracts
-    from abyss_machine import self_awareness_validation_contracts
-    from abyss_machine import stack_bridge_contracts
-    from abyss_machine import storage_adapters
-    from abyss_machine import storage_contracts
-    from abyss_machine import topology_contracts
-    from abyss_machine import typing_atspi_adapters
-    from abyss_machine import typing_browser_adapters
-    from abyss_machine import typing_codex_semantics
     from abyss_machine import typing_capture_contracts
-    from abyss_machine import typing_editor_adapters
-    from abyss_machine import typing_nervous_adapters
-    from abyss_machine import typing_saved_text_adapters
-    from abyss_machine import typing_shell_adapters
-    from abyss_machine import validation_contracts
     from abyss_machine.nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
         build_index_build_document as build_nervous_index_build_document,
@@ -422,6 +406,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     )
     from abyss_machine.typing_nervous_refresh import (
         typing_nervous_deferred_recent_index_safe,
+        typing_nervous_index_latest_evidence,
         typing_nervous_index_resource_gated,
         typing_nervous_processing_acceptance_status,
         typing_nervous_processing_status_document as build_typing_nervous_processing_status_document,
@@ -5170,14 +5155,40 @@ def memory_pressure(
     write_latest: bool = False,
     podman_timeout_sec: float | None = None,
     podman_enabled: bool = True,
+    include_processes: bool = True,
 ) -> dict[str, Any]:
     status_data = memory_status(write_latest=False)
-    process_kwargs: dict[str, Any] = {"top": top, "smaps": True, "write_latest": False}
-    if podman_timeout_sec is not None:
-        process_kwargs["podman_timeout_sec"] = podman_timeout_sec
-    if not podman_enabled:
-        process_kwargs["podman_enabled"] = False
-    processes = memory_process_snapshot(**process_kwargs)
+    if include_processes:
+        process_kwargs: dict[str, Any] = {
+            "top": top,
+            "smaps": True,
+            "write_latest": False,
+        }
+        if podman_timeout_sec is not None:
+            process_kwargs["podman_timeout_sec"] = podman_timeout_sec
+        if not podman_enabled:
+            process_kwargs["podman_enabled"] = False
+        processes = memory_process_snapshot(**process_kwargs)
+    else:
+        processes = {
+            "ok": True,
+            "summary": {
+                "processes": None,
+                "top_pss_total_kib": None,
+                "top_cgroup_memory_total_kib": None,
+                "top_swap_total_kib": None,
+                "top_cgroup_swap_total_kib": None,
+                "cgroup_memory_read": None,
+                "cgroup_swap_read": None,
+                "attribution_collected": False,
+                "collection_basis": "omitted_for_bounded_plan",
+            },
+            "top": {
+                "processes": [],
+                "cgroup_memory": [],
+                "cgroup_swap": [],
+            },
+        }
     mem_summary = nested_get(status_data, ["meminfo", "summary"]) or {}
     zram_summary = nested_get(status_data, ["zram", "summary"]) or {}
     process_summary = processes.get("summary", {}) if isinstance(processes.get("summary"), dict) else {}
@@ -5234,6 +5245,7 @@ def memory_pressure(
             "do_not_kill_or_tune_from_this_result": True,
             "launchers_should_consume_fresh_pressure_and_reserve_facts": True,
             "pressure_assigns_workload_importance": False,
+            "process_attribution_collected": include_processes,
         },
         "non_claims": [
             "MemAvailable and PSI are pressure signals, not proof of a leak.",
@@ -5547,6 +5559,42 @@ def memory_headroom(
     return data
 
 
+def memory_plan_mode_snapshot(
+    max_age_sec: float = 120.0,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    mode, error = load_json_document(MODE_LATEST_PATH)
+    age_sec = memory_document_age_seconds(mode) if isinstance(mode, dict) else None
+    if (
+        isinstance(mode, dict)
+        and mode.get("schema") == f"{SCHEMA_PREFIX}_mode_status_v1"
+        and mode.get("ok") is not False
+        and age_sec is not None
+        and age_sec <= max_age_sec
+    ):
+        return mode, {
+            "status": "fresh_latest_reused",
+            "path": str(MODE_LATEST_PATH),
+            "generated_at": mode.get("generated_at"),
+            "age_sec": round(age_sec, 3),
+            "max_age_sec": max_age_sec,
+        }
+    refreshed = mode_status(write_latest=False)
+    return refreshed, {
+        "status": "live_refresh",
+        "path": str(MODE_LATEST_PATH),
+        "refresh_reason": "latest_unavailable"
+        if not isinstance(mode, dict)
+        else "latest_schema_mismatch"
+        if mode.get("schema") != f"{SCHEMA_PREFIX}_mode_status_v1"
+        else "latest_age_unknown"
+        if age_sec is None
+        else "latest_stale",
+        "latest_age_sec": round(age_sec, 3) if age_sec is not None else None,
+        "max_age_sec": max_age_sec,
+        "load_error": error,
+    }
+
+
 def memory_plan(
     write_latest: bool = False,
     pressure_input: dict[str, Any] | None = None,
@@ -5557,13 +5605,23 @@ def memory_plan(
         pressure = pressure_input
         pressure_freshness = {"status": "provided_by_caller"}
     else:
-        pressure = memory_pressure(top=30, write_latest=False)
+        pressure = memory_pressure(
+            top=30,
+            write_latest=False,
+            include_processes=False,
+        )
         pressure_freshness = {
-            "status": "fresh_collect_without_write",
+            "status": "fresh_live_status_without_process_attribution",
             "generated_at": pressure.get("generated_at"),
+            "process_attribution": "omitted_for_bounded_plan",
+            "full_attribution_command": "abyss-machine memory pressure --json",
         }
     policy = memory_policy_document()
-    mode = mode_input if isinstance(mode_input, dict) else mode_status()
+    if isinstance(mode_input, dict):
+        mode = mode_input
+        mode_freshness = {"status": "provided_by_caller"}
+    else:
+        mode, mode_freshness = memory_plan_mode_snapshot()
     game_guard = game_guard_input if isinstance(game_guard_input, dict) else process_game_guard(write_latest=False)
     data = memory_contracts.plan_document(
         schema_prefix=SCHEMA_PREFIX,
@@ -5579,7 +5637,7 @@ def memory_plan(
     )
     data["input_freshness"] = {
         "pressure": pressure_freshness,
-        "mode": {"status": "provided_by_caller" if isinstance(mode_input, dict) else "live_refresh"},
+        "mode": mode_freshness,
         "game_guard": {"status": "provided_by_caller" if isinstance(game_guard_input, dict) else "live_refresh"},
     }
     if write_latest:
@@ -21365,6 +21423,21 @@ def nervous_index_db_counts() -> dict[str, Any]:
     return nervous_index_adapters.db_counts(NERVOUS_SEARCH_INDEX_DB_PATH)
 
 
+def nervous_index_db_counts_bounded(busy_timeout_ms: int = 100) -> dict[str, Any]:
+    return nervous_index_adapters.db_counts_bounded(
+        NERVOUS_SEARCH_INDEX_DB_PATH,
+        busy_timeout_ms=busy_timeout_ms,
+    )
+
+
+def nervous_index_source_present(source_id: str, busy_timeout_ms: int = 100) -> dict[str, Any]:
+    return nervous_index_adapters.source_present(
+        NERVOUS_SEARCH_INDEX_DB_PATH,
+        source_id,
+        busy_timeout_ms=busy_timeout_ms,
+    )
+
+
 def nervous_index_scan(db_path: Path, *, smoke_match_query: str) -> dict[str, Any]:
     return nervous_index_adapters.scan_index(db_path, smoke_match_query=smoke_match_query)
 
@@ -21482,18 +21555,22 @@ def nervous_duration_seconds(value: Any, default: float | None = None) -> float 
 def nervous_index_freshness(meta: dict[str, Any] | None = None, config: dict[str, Any] | None = None) -> dict[str, Any]:
     meta = meta if isinstance(meta, dict) else {}
     config = config if isinstance(config, dict) else nervous_index_config()
+    fact_files = nervous_fact_jsonl_files()
+    event_files = nervous_event_jsonl_files()
+    episode_files = nervous_episode_jsonl_files()
     return nervous_index_adapters.freshness_document_from_paths(
         meta=meta,
         config=config,
         facts_latest_path=NERVOUS_FACTS_LATEST_PATH,
         events_latest_path=NERVOUS_EVENTS_LATEST_PATH,
         episodes_latest_path=NERVOUS_EPISODES_LATEST_PATH,
-        fact_files=nervous_fact_jsonl_files(),
-        event_files=nervous_event_jsonl_files(),
-        episode_files=nervous_episode_jsonl_files(),
+        fact_files=fact_files,
+        event_files=event_files,
+        episode_files=episode_files,
         now=dt.datetime.now(dt.timezone.utc).astimezone(),
         latest_reader=load_json_document,
         line_counter=count_file_lines,
+        line_counts_reader=count_file_lines_snapshot,
     )
 
 
@@ -23687,6 +23764,7 @@ This directory is the host-side entrypoint for safe typed-text intake.
 ## Commands
 
 - `abyss-machine typing status --json`
+- `abyss-machine typing status --compact --json`
 - `abyss-machine typing paths --json`
 - `abyss-machine typing policy --json`
 - `abyss-machine typing ingest --stdin --source SOURCE --json`
@@ -23916,6 +23994,38 @@ def ensure_typing_docs() -> list[dict[str, Any]]:
     return errors
 
 
+def typing_docs_read_errors() -> list[dict[str, Any]]:
+    """Inspect required typing documents without repairing or refreshing them."""
+    errors: list[dict[str, Any]] = []
+    try:
+        agents_text = TYPING_AGENTS_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        errors.append({"path": str(TYPING_AGENTS_PATH), "error": "missing"})
+    except OSError as exc:
+        errors.append({"path": str(TYPING_AGENTS_PATH), "error": str(exc)})
+    else:
+        if agents_text != typing_agents_doc():
+            errors.append({"path": str(TYPING_AGENTS_PATH), "error": "content_drift"})
+
+    for path, expected_schema in (
+        (TYPING_POLICY_PATH, f"{SCHEMA_PREFIX}_typing_policy_v1"),
+        (TYPING_INDEX_PATH, f"{SCHEMA_PREFIX}_typing_index_v1"),
+    ):
+        document, error = load_json_document(path)
+        if error:
+            errors.append({"path": str(path), "error": error})
+        elif not isinstance(document, dict) or document.get("schema") != expected_schema:
+            errors.append(
+                {
+                    "path": str(path),
+                    "error": "schema_mismatch",
+                    "expected_schema": expected_schema,
+                    "observed_schema": document.get("schema") if isinstance(document, dict) else None,
+                }
+            )
+    return errors
+
+
 def typing_zsh_hook_expected_markers() -> list[str]:
     return typing_shell_adapters.zsh_hook_expected_markers()
 
@@ -24110,19 +24220,37 @@ def typing_codex_prompt_hook_status(write_latest: bool = True) -> dict[str, Any]
     latest_selftest, latest_selftest_error = load_json_document(TYPING_CODEX_HOOK_SELFTEST_LATEST_PATH)
     latest_tail, latest_tail_error = load_json_document(TYPING_CODEX_SESSION_TAIL_LATEST_PATH)
     recent_records, recent_parse_errors = typing_records(200)
-    codex_records, codex_parse_errors, codex_scan = typing_records_for_source_adapter(
-        "codex_user_prompt_submit",
-        limit=80,
+    direct_hook_ready = bool(hooks_exists and matching)
+    source_limits = {"codex_session_jsonl_prompt_tail": 160}
+    if direct_hook_ready:
+        source_limits["codex_user_prompt_submit"] = 80
+    source_records = typing_records_for_source_adapters(
+        source_limits,
         max_scan_records=12000,
     )
-    tail_records, tail_parse_errors, tail_scan = typing_records_for_source_adapter(
-        "codex_session_jsonl_prompt_tail",
-        limit=160,
-        max_scan_records=12000,
-    )
+    codex_result = source_records.get("codex_user_prompt_submit") or {
+        "records": [],
+        "errors": [],
+        "scan": {
+            "source_adapter": "codex_user_prompt_submit",
+            "limit": 80,
+            "max_scan_records": 12000,
+            "scanned_records": 0,
+            "files_scanned": 0,
+            "exhausted": False,
+            "skipped": True,
+            "skip_reason": "direct_hook_not_configured",
+        },
+    }
+    codex_records = codex_result["records"]
+    codex_parse_errors = codex_result["errors"]
+    codex_scan = codex_result["scan"]
+    tail_result = source_records["codex_session_jsonl_prompt_tail"]
+    tail_records = tail_result["records"]
+    tail_parse_errors = tail_result["errors"]
+    tail_scan = tail_result["scan"]
     prompt_summary = typing_codex_recent_prompt_summary(codex_records)
     tail_summary = typing_codex_session_tail_recent_prompt_summary(tail_records)
-    direct_hook_ready = bool(hooks_exists and matching)
     tail_latest_status = latest_tail.get("status") if isinstance(latest_tail, dict) else None
     tail_fallback_ready = (
         tail_summary.get("live_prompt_observed") is True
@@ -27694,6 +27822,17 @@ def typing_records_for_source_adapter(
     )
 
 
+def typing_records_for_source_adapters(
+    source_limits: Mapping[str, int],
+    max_scan_records: int = 12000,
+) -> dict[str, dict[str, Any]]:
+    return typing_nervous_adapters.read_recent_jsonl_records_for_sources(
+        TYPING_EVENTS_ROOT,
+        source_limits,
+        max_scan_records=max_scan_records,
+    )
+
+
 def typing_tail(lines: int = 20) -> dict[str, Any]:
     requested = max(1, int(lines))
     limit = min(requested, 1000)
@@ -28370,6 +28509,8 @@ def typing_coverage_from_records(
     policy: dict[str, Any],
     latest: dict[str, Any] | None = None,
     generated_at: str | None = None,
+    coverage_snapshot: dict[str, Any] | None = None,
+    process_snapshot: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     generated = generated_at or now_iso()
     return typing_capture_contracts.typing_coverage_document_from_records(
@@ -28378,7 +28519,12 @@ def typing_coverage_from_records(
         policy,
         latest=latest,
         generated_at=generated,
-        coverage_snapshot=typing_coverage_input_snapshot(policy),
+        coverage_snapshot=(
+            coverage_snapshot
+            if isinstance(coverage_snapshot, dict)
+            else typing_coverage_input_snapshot(policy)
+        ),
+        process_snapshot=process_snapshot,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         home_path=str(Path.home()),
@@ -28431,22 +28577,18 @@ def typing_nervous_processing_status() -> dict[str, Any]:
     source = nervous_source_lookup(source_id) or {}
     facts_latest, facts_error = load_json_document(NERVOUS_FACTS_LATEST_PATH)
     index_latest, index_error = load_json_document(NERVOUS_SEARCH_INDEX_LATEST_PATH)
-    index_sources = nested_get(index_latest, ["sources", "enabled_private_connector_sources"]) if isinstance(index_latest, dict) else []
-    if not isinstance(index_sources, list):
-        index_sources = nested_get(index_latest, ["sources", "enabled_sources"]) if isinstance(index_latest, dict) else []
-    if not isinstance(index_sources, list):
-        index_sources = []
-    index_source_ids = {str(item) for item in index_sources if str(item or "").strip()}
-    counts = index_latest.get("counts") if isinstance(index_latest, dict) and isinstance(index_latest.get("counts"), dict) else {}
+    index_evidence = typing_nervous_index_latest_evidence(index_latest, source_id=source_id)
+    index_source_ids = {
+        str(item)
+        for item in index_evidence.get("source_ids", [])
+        if str(item or "").strip()
+    }
+    counts = index_evidence.get("counts") if isinstance(index_evidence.get("counts"), dict) else {}
     if not counts or counts.get("fts_chunks") is None:
-        counts = nervous_index_db_counts()
-    sqlite_index_source_ids: set[str] = set()
+        counts = nervous_index_db_counts_bounded()
+    source_probe: dict[str, Any] = {}
     if source_id not in index_source_ids and NERVOUS_SEARCH_INDEX_DB_PATH.exists():
-        try:
-            scan = nervous_index_scan(NERVOUS_SEARCH_INDEX_DB_PATH, smoke_match_query='"typed"')
-            sqlite_index_source_ids = {str(item) for item in scan.get("indexed_source_ids", []) if str(item or "").strip()}
-        except sqlite3.Error:
-            pass
+        source_probe = nervous_index_source_present(source_id)
     return build_typing_nervous_processing_status_document(
         source=source,
         facts_latest=facts_latest,
@@ -28456,7 +28598,7 @@ def typing_nervous_processing_status() -> dict[str, Any]:
         facts_latest_path=NERVOUS_FACTS_LATEST_PATH,
         index_latest_path=NERVOUS_SEARCH_INDEX_LATEST_PATH,
         counts_fallback=counts,
-        extra_index_source_ids=sqlite_index_source_ids,
+        source_probe=source_probe,
         source_id=source_id,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
@@ -29220,14 +29362,21 @@ def typing_end_to_end(
 
 
 def typing_status(write_latest: bool = False) -> dict[str, Any]:
-    ensure_errors = ensure_typing_docs()
+    ensure_errors = typing_docs_read_errors()
     policy = typing_policy(write_latest=False)
     latest = typing_latest()
     coverage_limit = 500
     records, errors = typing_records(coverage_limit)
     generated_at = now_iso()
-    coverage = typing_coverage_from_records(records, errors, policy, latest=latest, generated_at=generated_at)
     process = typing_process_from_records(records, errors, policy, generated_at=generated_at)
+    coverage = typing_coverage_from_records(
+        records,
+        errors,
+        policy,
+        latest=latest,
+        generated_at=generated_at,
+        process_snapshot=process,
+    )
     browser_content_latest, browser_content_error = load_json_document(NERVOUS_BROWSER_CONTENT_LATEST_PATH)
     return typing_capture_contracts.typing_status_document(
         records,
@@ -29251,6 +29400,14 @@ def typing_status(write_latest: bool = False) -> dict[str, Any]:
         browser_content_error=browser_content_error,
         browser_content_latest_path=str(NERVOUS_BROWSER_CONTENT_LATEST_PATH),
         paths=typing_paths(generated_at=generated_at),
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
+
+
+def typing_status_compact(status: Mapping[str, Any]) -> dict[str, Any]:
+    return typing_capture_contracts.typing_status_compact_document(
+        status,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
     )
@@ -29577,6 +29734,7 @@ def typing_validate(strict: bool = False, write_latest: bool = True) -> dict[str
     ensure_errors = ensure_typing_docs()
     add("fail" if ensure_errors else "ok", "typing_docs", "typing docs, policy, and index are present", {"errors": ensure_errors})
     policy = typing_policy(write_latest=False)
+    coverage_snapshot = typing_coverage_input_snapshot(policy)
     add("ok" if policy.get("schema") == f"{SCHEMA_PREFIX}_typing_policy_v1" and policy.get("ok") else "fail", "typing_policy_schema", "typing policy schema is valid", {"path": str(TYPING_POLICY_PATH), "ok": policy.get("ok")})
     capture_policy = nested_get(policy, ["capture"])
     add("ok" if nested_get(policy, ["capture", "raw_keylogging"]) is False else "fail", "no_raw_keylogging", "typing policy forbids raw keylogging", capture_policy)
@@ -29942,6 +30100,7 @@ def typing_validate(strict: bool = False, write_latest: bool = True) -> dict[str
         policy,
         latest=ai_title_followup,
         generated_at=now_iso(),
+        coverage_snapshot=coverage_snapshot,
     )
     ai_title_coverage_latest = nested_get(ai_title_coverage, ["browser_input_recency", "latest_atspi_browser_fallback"])
     add(
@@ -30255,7 +30414,9 @@ def typing_validate(strict: bool = False, write_latest: bool = True) -> dict[str
             "error": zsh_selftest_error,
         },
     )
-    codex_hook = typing_codex_prompt_hook_status(write_latest=False)
+    codex_hook = coverage_snapshot.get("codex_hook_status")
+    if not isinstance(codex_hook, dict):
+        codex_hook = typing_codex_prompt_hook_status(write_latest=False)
     add(
         "ok" if codex_hook.get("ok") else "warn",
         "codex_hook_status",
@@ -31107,7 +31268,22 @@ def typing_validate(strict: bool = False, write_latest: bool = True) -> dict[str
     )
     records, parse_errors = typing_records(500)
     add("ok" if not parse_errors else "fail", "jsonl_parse", "typing JSONL parses", {"parse_errors": parse_errors[:20], "parse_error_count": len(parse_errors)})
-    coverage = typing_coverage_from_records(records, parse_errors, policy, latest=latest if isinstance(latest, dict) else None)
+    generated_at = now_iso()
+    process = typing_process_from_records(
+        records,
+        parse_errors,
+        policy,
+        generated_at=generated_at,
+    )
+    coverage = typing_coverage_from_records(
+        records,
+        parse_errors,
+        policy,
+        latest=latest if isinstance(latest, dict) else None,
+        generated_at=generated_at,
+        coverage_snapshot=coverage_snapshot,
+        process_snapshot=process,
+    )
     coverage_policy = coverage.get("policy") if isinstance(coverage.get("policy"), dict) else {}
     add(
         "ok"
@@ -31164,7 +31340,6 @@ def typing_validate(strict: bool = False, write_latest: bool = True) -> dict[str
         else "AT-SPI compact event history is missing required search or causal-binding keys",
         atspi_compact_contract,
     )
-    process = typing_process_from_records(records, parse_errors, policy)
     process_summary = process.get("summary") if isinstance(process.get("summary"), dict) else {}
     process_policy = process.get("policy") if isinstance(process.get("policy"), dict) else {}
     process_awareness = process.get("awareness") if isinstance(process.get("awareness"), dict) else {}
@@ -43032,11 +43207,50 @@ def changes_latest() -> dict[str, Any]:
 
 
 def enter_status() -> dict[str, Any]:
-    topology = topology_status(write_latest=True)
-    status_data = status()
+    topology = topology_status(write_latest=False)
+    mode_data, mode_load_error = load_json_document(MODE_LATEST_PATH)
+    if (
+        isinstance(mode_data, dict)
+        and mode_data.get("schema") == f"{SCHEMA_PREFIX}_mode_status_v1"
+    ):
+        mode_basis = "persisted_owner_latest"
+    else:
+        mode_data = mode_status(write_latest=False)
+        mode_basis = "live_fallback"
+    cooling_data, cooling_load_error = load_json_document(COOLING_LATEST_PATH)
+    if (
+        isinstance(cooling_data, dict)
+        and cooling_data.get("schema") == f"{SCHEMA_PREFIX}_cooling_status_v1"
+    ):
+        cooling_basis = "persisted_owner_latest"
+    else:
+        cooling_data = cooling_status(write_latest=False)
+        cooling_basis = "live_fallback"
+    dictation_data = dictation_status()
+    power_data = {
+        "profile": mode_data.get("actual_power_profile") or power_profile(),
+        "battery": mode_data.get("battery")
+        if isinstance(mode_data.get("battery"), dict)
+        else battery_summary(),
+        "auto_timer": systemd_unit("abyss-power-profile-auto.timer"),
+        "power_profiles_daemon": systemd_unit("power-profiles-daemon.service"),
+    }
     storage_latest, storage_error = load_json_document(STORAGE_PRESSURE_LATEST_PATH)
     nervous_latest, nervous_error = load_json_document(NERVOUS_LATEST_PATH)
-    changes = changes_status(write_latest=True)
+    changes_index_latest, changes_index_error = load_json_document(CHANGE_INDEX_PATH)
+    if (
+        isinstance(changes_index_latest, dict)
+        and changes_index_latest.get("schema")
+        == f"{SCHEMA_PREFIX}_changes_index_v1"
+    ):
+        changes = changes_contracts.status_document(
+            changes_index_latest,
+            schema_prefix=SCHEMA_PREFIX,
+        )
+        changes_basis = "persisted_owner_index"
+    else:
+        changes = changes_status(write_latest=False)
+        changes_basis = "live_fallback"
     return {
         "schema": f"{SCHEMA_PREFIX}_enter_v1",
         "version": VERSION,
@@ -43058,19 +43272,27 @@ def enter_status() -> dict[str, Any]:
             "surface_states": [item.get("state") for item in topology.get("surface_states", [])],
         },
         "status": {
-            "power": status_data.get("power"),
+            "power": power_data,
             "mode": {
-                "selected_mode": nested_get(status_data, ["mode", "selected_mode"]),
-                "effective_mode": nested_get(status_data, ["mode", "effective_mode"]),
-                "actual_power_profile": nested_get(status_data, ["mode", "actual_power_profile"]),
+                "selected_mode": mode_data.get("selected_mode"),
+                "effective_mode": mode_data.get("effective_mode"),
+                "actual_power_profile": mode_data.get("actual_power_profile"),
+                "basis": mode_basis,
+                "generated_at": mode_data.get("generated_at"),
+                "load_error": mode_load_error,
+                "full_status_command": "abyss-machine mode status --json",
             },
             "cooling": {
-                "ok": nested_get(status_data, ["cooling", "ok"]),
-                "profile": nested_get(status_data, ["cooling", "profile"]),
+                "ok": cooling_data.get("ok"),
+                "profile": cooling_data.get("profile"),
+                "basis": cooling_basis,
+                "generated_at": cooling_data.get("generated_at"),
+                "load_error": cooling_load_error,
+                "full_status_command": "abyss-machine cooling status --json",
             },
             "dictation": {
                 "status_command": "abyss-machine dictation status --json",
-                "hotkeys": nested_get(status_data, ["dictation", "hotkeys"]),
+                "hotkeys": dictation_data.get("hotkeys"),
             },
             "storage_pressure_latest": {
                 "path": str(STORAGE_PRESSURE_LATEST_PATH),
@@ -43085,6 +43307,13 @@ def enter_status() -> dict[str, Any]:
                 "load_error": nervous_error,
             },
             "changes": changes.get("summary"),
+            "changes_index": {
+                "path": str(CHANGE_INDEX_PATH),
+                "basis": changes_basis,
+                "generated_at": changes.get("generated_at"),
+                "load_error": changes_index_error,
+                "full_status_command": "abyss-machine changes status --json",
+            },
         },
         "safe_read_commands": [
             "abyss-machine topology --json",
@@ -43332,6 +43561,18 @@ def observability_paths() -> dict[str, Any]:
     )
 
 
+def _unterminated_line_adjustment(path: Path) -> int | None:
+    try:
+        size = path.stat().st_size
+        if size == 0:
+            return 0
+        with path.open("rb") as handle:
+            handle.seek(-1, os.SEEK_END)
+            return 0 if handle.read(1) == b"\n" else 1
+    except OSError:
+        return None
+
+
 def count_file_lines(path: Path, max_bytes: int = 4_000_000) -> int | None:
     if not path.exists() or not path.is_file():
         return None
@@ -43339,12 +43580,62 @@ def count_file_lines(path: Path, max_bytes: int = 4_000_000) -> int | None:
         if path.stat().st_size > max_bytes:
             out = run(["wc", "-l", str(path)], timeout=2.0)
             if out["ok"] and out["stdout"]:
-                return int(out["stdout"].split()[0])
+                adjustment = _unterminated_line_adjustment(path)
+                return int(out["stdout"].split()[0]) + adjustment if adjustment is not None else None
             return None
         with path.open("rb") as handle:
             return sum(1 for _ in handle)
     except (OSError, ValueError):
         return None
+
+
+def count_file_lines_snapshot(
+    paths: list[Path],
+    *,
+    batch_size: int = 256,
+) -> tuple[dict[Path, int | None], str]:
+    if batch_size <= 0:
+        raise ValueError("line-count batch size must be positive")
+    ordered = sorted(set(paths), key=lambda path: path.as_posix())
+    counts: dict[Path, int | None] = {
+        path: None
+        for path in ordered
+    }
+    existing = [path for path in ordered if path.exists() and path.is_file()]
+    used_fallback = False
+    for offset in range(0, len(existing), batch_size):
+        batch = existing[offset : offset + batch_size]
+        result = run(
+            ["wc", "-l", "--", *(str(path) for path in batch)],
+            timeout=30.0,
+        )
+        lines = str(result.get("stdout") or "").splitlines()
+        parsed: list[int] = []
+        if result.get("ok") and len(lines) >= len(batch):
+            try:
+                parsed = [int(line.lstrip().split(maxsplit=1)[0]) for line in lines[: len(batch)]]
+            except (IndexError, ValueError):
+                parsed = []
+        if len(parsed) == len(batch):
+            adjusted = []
+            for path, line_count in zip(batch, parsed, strict=True):
+                adjustment = _unterminated_line_adjustment(path)
+                if adjustment is None:
+                    adjusted = []
+                    break
+                adjusted.append(line_count + adjustment)
+            if len(adjusted) == len(batch):
+                counts.update(zip(batch, adjusted, strict=True))
+                continue
+        used_fallback = True
+        for path in batch:
+            counts[path] = count_file_lines(path)
+    method = (
+        "batched_wc_l_with_per_file_exact_fallback"
+        if used_fallback
+        else "batched_wc_l_exact"
+    )
+    return counts, method
 
 
 def parse_time(value: Any) -> dt.datetime | None:
@@ -46488,11 +46779,15 @@ def heartbeat_compact_typing_status() -> dict[str, Any]:
     process = load_latest_json(TYPING_PROCESS_LATEST_PATH, f"{SCHEMA_PREFIX}_typing_process_v1")
     policy = typing_policy(write_latest=False)
     policy_contract = policy.get("policy") if isinstance(policy.get("policy"), dict) else {}
-    return {
-        "schema": f"{SCHEMA_PREFIX}_typing_status_compact_v1",
+    status = {
+        "schema": f"{SCHEMA_PREFIX}_typing_status_v1",
+        "version": VERSION,
+        "generated_at": coverage.get("generated_at") or process.get("generated_at") or latest.get("generated_at"),
         "ok": bool(latest.get("ok") and coverage.get("ok") and process.get("ok")),
         "summary": {
             "recent_records": nested_get(coverage, ["summary", "records"]),
+            "coverage_status": coverage.get("status"),
+            "process_status": process.get("status"),
         },
         "policy": {
             "enabled": policy.get("enabled"),
@@ -46502,8 +46797,11 @@ def heartbeat_compact_typing_status() -> dict[str, Any]:
         "latest": latest,
         "coverage": coverage,
         "process": process,
-        "compact_latest_only": True,
     }
+    compact = typing_status_compact(status)
+    compact["compact_latest_only"] = True
+    compact["projection"]["input_mode"] = "persisted_latest_only"
+    return compact
 
 
 def heartbeat_pulse(
@@ -50004,8 +50302,33 @@ def print_mode_list_text(data: dict[str, Any]) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Abyss OS host-machine bridge")
     sub = parser.add_subparsers(dest="command", required=True)
+    known_top_level_commands = {
+        "doctor", "facts", "status", "bridge", "enter", "modes", "snapshots",
+        "topology", "graph", "maps", "rag", "stack-bridge", "self-awareness",
+        "docs", "test", "changes", "storage", "artifacts", "memory", "resource",
+        "heartbeats", "reactions", "responses", "processes", "nervous", "ai",
+        "observability", "cooling", "mode", "typing", "dictation",
+    }
+    selected_top_level_command = (
+        argv[0]
+        if not _cli_eager_startup_enabled()
+        and argv
+        and argv[0] in known_top_level_commands
+        else None
+    )
+    skipped_argument_surface = _SkippedArgumentSurface()
 
-    doctor_parser = sub.add_parser("doctor", help="run host self-maintenance diagnostics and safe oneshot repair")
+    def add_top_level_parser(name: str, **kwargs: Any) -> Any:
+        if selected_top_level_command is not None and name != selected_top_level_command:
+            return skipped_argument_surface
+        return sub.add_parser(name, **kwargs)
+
+    def selected_parser_choices(command: str, factory: Callable[[], Any]) -> Any:
+        if selected_top_level_command is None or selected_top_level_command == command:
+            return factory()
+        return ()
+
+    doctor_parser = add_top_level_parser("doctor", help="run host self-maintenance diagnostics and safe oneshot repair")
     doctor_parser.add_argument("doctor_command", nargs="?", choices=["status", "paths", "report", "machine-report", "validate"], default="status")
     doctor_parser.add_argument("--repair", action="store_true", help="run allowlisted safe repairs when a check needs them")
     doctor_parser.add_argument("--safe-only", action="store_true", default=True, help="restrict repair to host-owned non-privileged generated/read-model refreshes")
@@ -50015,21 +50338,21 @@ def main(argv: list[str]) -> int:
     doctor_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
     for name in ("facts", "status", "bridge", "enter", "modes", "snapshots"):
-        p = sub.add_parser(name)
+        p = add_top_level_parser(name)
         p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    topology_parser = sub.add_parser("topology", help="inspect, audit and validate host-machine topology")
+    topology_parser = add_top_level_parser("topology", help="inspect, audit and validate host-machine topology")
     topology_parser.add_argument("topology_command", nargs="?", choices=["status", "paths", "validate", "audit"], default="status")
     topology_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     topology_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    graph_parser = sub.add_parser("graph", help="inspect generated host-machine graph")
+    graph_parser = add_top_level_parser("graph", help="inspect generated host-machine graph")
     graph_parser.add_argument("graph_command", nargs="?", choices=["status", "query", "validate"], default="status")
     graph_parser.add_argument("--node", default=None, help="node/subsystem query for graph query")
     graph_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     graph_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    maps_parser = sub.add_parser("maps", help="inspect generated host-machine atlas maps")
+    maps_parser = add_top_level_parser("maps", help="inspect generated host-machine atlas maps")
     maps_parser.add_argument("maps_command", nargs="?", choices=["status", "paths", "policy", "build", "query", "packet", "validate"], default="status")
     maps_parser.add_argument("--axis", default=None, help="axis id for maps query, for example by-freshness")
     maps_parser.add_argument("--query", default=None, help="substring query across generated map entries")
@@ -50039,7 +50362,7 @@ def main(argv: list[str]) -> int:
     maps_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     maps_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    rag_parser = sub.add_parser("rag", help="run read-only machine RAG trace loops over maps and bounded evidence")
+    rag_parser = add_top_level_parser("rag", help="run read-only machine RAG trace loops over maps and bounded evidence")
     rag_parser.add_argument("rag_command", nargs="?", choices=["status", "paths", "policy", "trace", "refresh", "latest", "eval", "validate"], default="status")
     rag_parser.add_argument("--query", default="machine RAG trace", help="for trace/refresh: focused query or intent")
     rag_parser.add_argument("--axis", default=None, help="for trace/refresh: maps axis, default by-rag-run")
@@ -50049,13 +50372,13 @@ def main(argv: list[str]) -> int:
     rag_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     rag_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    stack_bridge_parser = sub.add_parser("stack-bridge", help="export and validate read-only host-to-stack handoff contracts")
+    stack_bridge_parser = add_top_level_parser("stack-bridge", help="export and validate read-only host-to-stack handoff contracts")
     stack_bridge_parser.add_argument("stack_bridge_command", nargs="?", choices=["status", "paths", "export", "latest", "validate", "observability", "sync-static"], default="status")
     stack_bridge_parser.add_argument("--dry-run", action="store_true", help="for sync-static: compute static manifest sync without writing")
     stack_bridge_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     stack_bridge_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    self_awareness_parser = sub.add_parser("self-awareness", help="build causal-temporal-spatial self-awareness over read-only stack evidence")
+    self_awareness_parser = add_top_level_parser("self-awareness", help="build causal-temporal-spatial self-awareness over read-only stack evidence")
     self_awareness_parser.add_argument(
         "self_awareness_command",
         nargs="?",
@@ -50074,18 +50397,18 @@ def main(argv: list[str]) -> int:
     self_awareness_parser.add_argument("--refresh", action="store_true", help="for coverage-audit/validate: refresh readmodels before auditing")
     self_awareness_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    docs_parser = sub.add_parser("docs", help="audit abyss-machine documentation contracts, agent mesh, and freshness")
+    docs_parser = add_top_level_parser("docs", help="audit abyss-machine documentation contracts, agent mesh, and freshness")
     docs_parser.add_argument("docs_command", nargs="?", choices=["status", "paths", "audit", "mesh", "mesh-validate", "decisions-index"], default="status")
     docs_parser.add_argument("--strict", action="store_true", help="treat warnings as non-zero")
     docs_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    test_parser = sub.add_parser("test", help="run layered abyss-machine test lanes")
+    test_parser = add_top_level_parser("test", help="run layered abyss-machine test lanes")
     test_sub = test_parser.add_subparsers(dest="test_lane", required=True)
     for name in ("quick", "full", "live", "long", "manual"):
         p = test_sub.add_parser(name)
         p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    changes_parser = sub.add_parser("changes", help="inspect and record host-machine change ledger entries")
+    changes_parser = add_top_level_parser("changes", help="inspect and record host-machine change ledger entries")
     changes_sub = changes_parser.add_subparsers(dest="changes_command", required=True)
     for name in ("status", "paths", "latest", "index"):
         p = changes_sub.add_parser(name)
@@ -50118,7 +50441,7 @@ def main(argv: list[str]) -> int:
     changes_preflight_parser.add_argument("--owner-route", action="store_true", help="explicit owner route for project/work surfaces; downgrades protected boundary from deny to warn")
     changes_preflight_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    storage_parser = sub.add_parser("storage", help="inspect host storage routing, policy, hooks and cache pressure")
+    storage_parser = add_top_level_parser("storage", help="inspect host storage routing, policy, hooks and cache pressure")
     storage_sub = storage_parser.add_subparsers(dest="storage_command", required=True)
     storage_status_parser = storage_sub.add_parser("status")
     storage_status_parser.add_argument("--full", action="store_true", help="run a fresh AI model/cache storage scan")
@@ -50175,7 +50498,7 @@ def main(argv: list[str]) -> int:
     storage_apply_parser.add_argument("--age-days", type=float, default=7.0, help="minimum age for age-based generated temp cleanup")
     storage_apply_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    artifacts_parser = sub.add_parser("artifacts", help="inspect large host-local artifact evidence before cleanup/offload decisions")
+    artifacts_parser = add_top_level_parser("artifacts", help="inspect large host-local artifact evidence before cleanup/offload decisions")
     artifacts_sub = artifacts_parser.add_subparsers(dest="artifacts_command", required=True)
     artifacts_paths_parser = artifacts_sub.add_parser("paths")
     artifacts_paths_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -50263,7 +50586,7 @@ def main(argv: list[str]) -> int:
     artifacts_update_verify_parser.add_argument(
         "--trust-root-mode",
         default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        choices=selected_parser_choices("artifacts", lambda: ("", *artifact_bundles.TRUST_ROOT_MODES)),
         help="expected trust root mode for update target registry evidence",
     )
     artifacts_update_verify_gate = artifacts_update_verify_parser.add_mutually_exclusive_group()
@@ -50309,7 +50632,7 @@ def main(argv: list[str]) -> int:
     artifacts_update_repo_verify_parser.add_argument(
         "--trust-root-mode",
         default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        choices=selected_parser_choices("artifacts", lambda: ("", *artifact_bundles.TRUST_ROOT_MODES)),
         help="expected trust root mode for update target registry evidence",
     )
     artifacts_update_repo_verify_parser.add_argument("--require-trusted-root", action="store_true", help="deny repository verification unless a trusted root bootstrap is supplied")
@@ -50355,7 +50678,7 @@ def main(argv: list[str]) -> int:
     artifacts_oci_verify_parser.add_argument(
         "--trust-root-mode",
         default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        choices=selected_parser_choices("artifacts", lambda: ("", *artifact_bundles.TRUST_ROOT_MODES)),
         help="expected trust root mode for durable registry evidence",
     )
     artifacts_oci_verify_parser.add_argument("--consumer-intent", default="runtime", help="trust-gate consumer intent")
@@ -50406,7 +50729,7 @@ def main(argv: list[str]) -> int:
     artifacts_oci_consume_parser.add_argument(
         "--trust-root-mode",
         default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        choices=selected_parser_choices("artifacts", lambda: ("", *artifact_bundles.TRUST_ROOT_MODES)),
         help="expected trust root mode for durable registry evidence",
     )
     artifacts_oci_consume_parser.add_argument("--consumer-intent", default="runtime", help="trust-gate consumer intent")
@@ -50477,7 +50800,7 @@ def main(argv: list[str]) -> int:
     artifacts_materialize_subjects_parser.add_argument(
         "--trust-root-mode",
         default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        choices=selected_parser_choices("artifacts", lambda: ("", *artifact_bundles.TRUST_ROOT_MODES)),
         help="expected trust root mode",
     )
     artifacts_materialize_subjects_parser.add_argument("--record-id", default="", help="specific registry record id")
@@ -50489,7 +50812,7 @@ def main(argv: list[str]) -> int:
     artifacts_release_check_parser.add_argument(
         "--enforcement",
         default="blocking",
-        choices=sorted(artifact_bundles.RELEASE_ENFORCEMENT_LEVELS),
+        choices=selected_parser_choices("artifacts", lambda: sorted(artifact_bundles.RELEASE_ENFORCEMENT_LEVELS)),
     )
     artifacts_release_check_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     artifacts_bundle_register_parser = artifacts_sub.add_parser("bundle-register")
@@ -50498,7 +50821,7 @@ def main(argv: list[str]) -> int:
     artifacts_bundle_register_parser.add_argument(
         "--lifecycle-state",
         default="manually-verified",
-        choices=artifact_bundles.BUNDLE_LIFECYCLE_STATES,
+        choices=selected_parser_choices("artifacts", lambda: artifact_bundles.BUNDLE_LIFECYCLE_STATES),
     )
     artifacts_bundle_register_parser.add_argument("--consumer-ref", action="append", default=[], help="consumer evidence reference")
     artifacts_bundle_register_parser.add_argument("--evidence-ref", action="append", default=[], help="manual or machine evidence reference")
@@ -50516,7 +50839,7 @@ def main(argv: list[str]) -> int:
     artifacts_bundle_register_parser.add_argument(
         "--trust-root-mode",
         default="local_dev",
-        choices=artifact_bundles.TRUST_ROOT_MODES,
+        choices=selected_parser_choices("artifacts", lambda: artifact_bundles.TRUST_ROOT_MODES),
         help="trust root mode for this registry record",
     )
     artifacts_bundle_register_parser.add_argument(
@@ -50531,7 +50854,7 @@ def main(argv: list[str]) -> int:
     artifacts_evidence_promote_parser.add_argument(
         "--lifecycle-state",
         default="manually-verified",
-        choices=artifact_bundles.BUNDLE_LIFECYCLE_STATES,
+        choices=selected_parser_choices("artifacts", lambda: artifact_bundles.BUNDLE_LIFECYCLE_STATES),
     )
     artifacts_evidence_promote_parser.add_argument("--consumer-ref", action="append", default=[], help="consumer evidence reference")
     artifacts_evidence_promote_parser.add_argument("--evidence-ref", action="append", default=[], help="manual or machine evidence reference")
@@ -50549,7 +50872,7 @@ def main(argv: list[str]) -> int:
     artifacts_evidence_promote_parser.add_argument(
         "--trust-root-mode",
         default="local_dev",
-        choices=artifact_bundles.TRUST_ROOT_MODES,
+        choices=selected_parser_choices("artifacts", lambda: artifact_bundles.TRUST_ROOT_MODES),
         help="trust root mode for this promoted evidence record",
     )
     artifacts_evidence_promote_parser.add_argument(
@@ -50573,7 +50896,7 @@ def main(argv: list[str]) -> int:
     artifacts_registry_latest_parser.add_argument(
         "--trust-root-mode",
         default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        choices=selected_parser_choices("artifacts", lambda: ("", *artifact_bundles.TRUST_ROOT_MODES)),
         help="expected trust root mode",
     )
     artifacts_registry_latest_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -50585,7 +50908,7 @@ def main(argv: list[str]) -> int:
     artifacts_bundle_registry_upgrade_parser.add_argument(
         "--trust-root-mode",
         default="host_managed",
-        choices=artifact_bundles.TRUST_ROOT_MODES,
+        choices=selected_parser_choices("artifacts", lambda: artifact_bundles.TRUST_ROOT_MODES),
         help="trust root mode asserted for upgraded legacy registry records",
     )
     artifacts_bundle_registry_upgrade_parser.add_argument("--dry-run", action="store_true", help="report upgrades without writing records")
@@ -50617,7 +50940,7 @@ def main(argv: list[str]) -> int:
     artifacts_trust_gate_parser.add_argument(
         "--trust-root-mode",
         default="",
-        choices=("", *artifact_bundles.TRUST_ROOT_MODES),
+        choices=selected_parser_choices("artifacts", lambda: ("", *artifact_bundles.TRUST_ROOT_MODES)),
         help="expected trust root mode",
     )
     artifacts_trust_gate_parser.add_argument("--allow-non-latest", action="store_true", help="permit selecting a non-latest non-terminal record")
@@ -50656,7 +50979,7 @@ def main(argv: list[str]) -> int:
     artifacts_validate_parser.add_argument("--strict", action="store_true", help="treat warnings as non-zero")
     artifacts_validate_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    memory_parser = sub.add_parser("memory", help="inspect RAM, zram, PSI, OOM and memory launch policy")
+    memory_parser = add_top_level_parser("memory", help="inspect RAM, zram, PSI, OOM and memory launch policy")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
     for name in ("paths", "status", "policy", "validate"):
         p = memory_sub.add_parser(name)
@@ -50694,7 +51017,7 @@ def main(argv: list[str]) -> int:
     memory_hotpath_parser.add_argument("--top", type=int, default=40, help="top process limit for supporting pressure attribution")
     memory_hotpath_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    resource_parser = sub.add_parser("resource", help="plan and launch new work through unified resource gates and systemd-run")
+    resource_parser = add_top_level_parser("resource", help="plan and launch new work through unified resource gates and systemd-run")
     resource_sub = resource_parser.add_subparsers(dest="resource_command", required=True)
     for name in ("paths", "status", "policy", "validate"):
         p = resource_sub.add_parser(name)
@@ -50779,25 +51102,25 @@ def main(argv: list[str]) -> int:
     resource_admission_release_parser.add_argument("--release-token", required=True)
     resource_admission_release_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    heartbeats_parser = sub.add_parser("heartbeats", help="write and inspect recurring OS Abyss heartbeat pulses")
+    heartbeats_parser = add_top_level_parser("heartbeats", help="write and inspect recurring OS Abyss heartbeat pulses")
     heartbeats_parser.add_argument("heartbeats_command", nargs="?", choices=["pulse", "status", "paths", "validate"], default="pulse")
     heartbeats_parser.add_argument("--no-refresh-reactions", action="store_true", help="read latest reactions instead of refreshing them during pulse")
     heartbeats_parser.add_argument("--compact", action="store_true", help="read bounded latest projections without refreshing heavy owner readmodels")
     heartbeats_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     heartbeats_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    reactions_parser = sub.add_parser("reactions", help="inspect non-executing reaction candidates from host evidence")
+    reactions_parser = add_top_level_parser("reactions", help="inspect non-executing reaction candidates from host evidence")
     reactions_parser.add_argument("reactions_command", nargs="?", choices=["status", "paths", "validate"], default="status")
     reactions_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     reactions_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    responses_parser = sub.add_parser("responses", help="inspect owner-gated response routes for reaction candidates")
+    responses_parser = add_top_level_parser("responses", help="inspect owner-gated response routes for reaction candidates")
     responses_parser.add_argument("responses_command", nargs="?", choices=["status", "paths", "validate"], default="status")
     responses_parser.add_argument("--no-refresh-reactions", action="store_true", help="read latest reactions instead of refreshing them before routing responses")
     responses_parser.add_argument("--strict", action="store_true", help="for validate: treat warnings as non-zero")
     responses_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    processes_parser = sub.add_parser("processes", help="capture low-level /proc process snapshots")
+    processes_parser = add_top_level_parser("processes", help="capture low-level /proc process snapshots")
     processes_sub = processes_parser.add_subparsers(dest="processes_command", required=True)
     processes_paths_parser = processes_sub.add_parser("paths")
     processes_paths_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -50829,7 +51152,7 @@ def main(argv: list[str]) -> int:
     processes_desktop_compositor_parser.add_argument("--interval", type=float, default=0.5, help="GNOME Shell CPU sampling interval in seconds")
     processes_desktop_compositor_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    nervous_parser = sub.add_parser("nervous", help="inspect the future host-side Abyss nervous-system contracts")
+    nervous_parser = add_top_level_parser("nervous", help="inspect the future host-side Abyss nervous-system contracts")
     nervous_sub = nervous_parser.add_subparsers(dest="nervous_command", required=True)
     for name in (
         "status",
@@ -51001,7 +51324,7 @@ def main(argv: list[str]) -> int:
     nervous_snapshot_parser.add_argument("--trigger", choices=["manual", "timer", "test", "typing_nervous_refresh", "typing_end_to_end"], default=None)
     nervous_snapshot_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    ai_parser = sub.add_parser("ai", help="inspect local AI host topology, devices, models and smoke benchmarks")
+    ai_parser = add_top_level_parser("ai", help="inspect local AI host topology, devices, models and smoke benchmarks")
     ai_sub = ai_parser.add_subparsers(dest="ai_command", required=True)
     for name in ("status", "paths", "validate", "devices", "models", "capabilities", "policy", "storage", "runtime", "report"):
         p = ai_sub.add_parser(name)
@@ -51158,13 +51481,13 @@ def main(argv: list[str]) -> int:
     ai_config_get_parser = ai_config_sub.add_parser("get")
     ai_config_get_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    observability_parser = sub.add_parser("observability", help="inspect lightweight thermal/battery observability")
+    observability_parser = add_top_level_parser("observability", help="inspect lightweight thermal/battery observability")
     observability_sub = observability_parser.add_subparsers(dest="observability_command", required=True)
     for name in ("status", "paths", "latest", "collect"):
         p = observability_sub.add_parser(name)
         p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    cooling_parser = sub.add_parser("cooling", help="inspect and apply safe host cooling policy")
+    cooling_parser = add_top_level_parser("cooling", help="inspect and apply safe host cooling policy")
     cooling_sub = cooling_parser.add_subparsers(dest="cooling_command", required=True)
     for name in ("status", "paths", "validate", "recommend"):
         p = cooling_sub.add_parser(name)
@@ -51201,7 +51524,7 @@ def main(argv: list[str]) -> int:
     cooling_rapl_parser.add_argument("--apply", action="store_true", help="run one guarded adaptive PL1 smoothing decision; root is required for writes")
     cooling_rapl_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    mode_parser = sub.add_parser("mode", help="manage Abyss machine work modes")
+    mode_parser = add_top_level_parser("mode", help="manage Abyss machine work modes")
     mode_sub = mode_parser.add_subparsers(dest="mode_command", required=True)
     mode_list = mode_sub.add_parser("list")
     mode_list.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -51225,9 +51548,12 @@ def main(argv: list[str]) -> int:
     mode_reconcile.add_argument("--light", action="store_true", help="skip full mode plan/status rebuild; intended for periodic timer ticks")
     mode_reconcile.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    typing_parser = sub.add_parser("typing", help="safe committed typed-text intake without raw keylogging")
+    typing_parser = add_top_level_parser("typing", help="safe committed typed-text intake without raw keylogging")
     typing_sub = typing_parser.add_subparsers(dest="typing_command", required=True)
-    for name in ("status", "paths", "policy", "latest"):
+    typing_status_parser = typing_sub.add_parser("status")
+    typing_status_parser.add_argument("--compact", action="store_true", help="emit a bounded session-facing projection; full status remains the detailed owner readmodel")
+    typing_status_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    for name in ("paths", "policy", "latest"):
         p = typing_sub.add_parser(name)
         p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     typing_tail_parser = typing_sub.add_parser("tail")
@@ -51344,7 +51670,7 @@ def main(argv: list[str]) -> int:
     typing_ingest_parser.add_argument("--url", default=None)
     typing_ingest_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
-    dictation_parser = sub.add_parser("dictation", help="record, transcribe and insert local speech-to-text")
+    dictation_parser = add_top_level_parser("dictation", help="record, transcribe and insert local speech-to-text")
     dictation_sub = dictation_parser.add_subparsers(dest="dictation_command", required=True)
     dictation_status_parser = dictation_sub.add_parser("status")
     dictation_status_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -54724,6 +55050,8 @@ def main(argv: list[str]) -> int:
     if args.command == "typing":
         if args.typing_command == "status":
             data = typing_status(write_latest=False)
+            if getattr(args, "compact", False):
+                data = typing_status_compact(data)
             if args.json:
                 print_json(data)
             else:

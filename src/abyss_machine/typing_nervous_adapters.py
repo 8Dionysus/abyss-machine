@@ -165,43 +165,71 @@ def read_recent_jsonl_records_for_source(
     max_scan_records: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     target = str(source_adapter or "")
-    records: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
-    scanned = 0
-    files_scanned = 0
+    result = read_recent_jsonl_records_for_sources(
+        root,
+        {target: limit},
+        max_scan_records=max_scan_records,
+    )[target]
+    return result["records"], result["errors"], result["scan"]
+
+
+def read_recent_jsonl_records_for_sources(
+    root: Path,
+    source_limits: Mapping[str, int],
+    *,
+    max_scan_records: int,
+) -> dict[str, dict[str, Any]]:
+    """Find several recent source lanes in one newest-first journal pass."""
+    bounded_max_scan = max(1, int(max_scan_records))
+    states = {
+        str(source_adapter or ""): {
+            "limit": max(1, int(limit)),
+            "records": [],
+            "errors": [],
+            "scanned_records": 0,
+            "files_scanned": 0,
+            "complete": False,
+            "exhausted": False,
+        }
+        for source_adapter, limit in source_limits.items()
+    }
+
     for path in sorted(jsonl_files(root), reverse=True):
+        active = [state for state in states.values() if not state["complete"]]
+        if not active:
+            break
         parsed, parse_errors = load_jsonl_records(path)
-        files_scanned += 1
-        errors.extend(parse_errors)
+        for state in active:
+            state["files_scanned"] += 1
+            state["errors"].extend(parse_errors)
         for record in reversed(parsed):
-            scanned += 1
-            if isinstance(record, dict) and record.get("source_adapter") == target:
-                records.append(record)
-                if len(records) >= limit:
-                    return records, errors, {
-                        "source_adapter": target,
-                        "limit": limit,
-                        "max_scan_records": max_scan_records,
-                        "scanned_records": scanned,
-                        "files_scanned": files_scanned,
-                        "exhausted": False,
-                    }
-            if scanned >= max_scan_records:
-                return records, errors, {
-                    "source_adapter": target,
-                    "limit": limit,
-                    "max_scan_records": max_scan_records,
-                    "scanned_records": scanned,
-                    "files_scanned": files_scanned,
-                    "exhausted": True,
-                }
-    return records, errors, {
-        "source_adapter": target,
-        "limit": limit,
-        "max_scan_records": max_scan_records,
-        "scanned_records": scanned,
-        "files_scanned": files_scanned,
-        "exhausted": False,
+            for target, state in states.items():
+                if state["complete"]:
+                    continue
+                state["scanned_records"] += 1
+                if isinstance(record, dict) and record.get("source_adapter") == target:
+                    state["records"].append(record)
+                    if len(state["records"]) >= state["limit"]:
+                        state["complete"] = True
+                        continue
+                if state["scanned_records"] >= bounded_max_scan:
+                    state["complete"] = True
+                    state["exhausted"] = True
+
+    return {
+        target: {
+            "records": state["records"],
+            "errors": state["errors"],
+            "scan": {
+                "source_adapter": target,
+                "limit": state["limit"],
+                "max_scan_records": bounded_max_scan,
+                "scanned_records": state["scanned_records"],
+                "files_scanned": state["files_scanned"],
+                "exhausted": state["exhausted"],
+            },
+        }
+        for target, state in states.items()
     }
 
 

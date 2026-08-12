@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib import metadata
 import json
 import os
 import subprocess
@@ -11,7 +12,7 @@ from pathlib import Path
 
 
 SCHEMA = "abyss_machine_test_run_v1"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEST_ROOT = REPO_ROOT / "tests" / "host_contract"
 if not DEFAULT_TEST_ROOT.exists():
@@ -19,6 +20,10 @@ if not DEFAULT_TEST_ROOT.exists():
 TEST_ROOT = Path(os.environ.get("ABYSS_MACHINE_TEST_ROOT", str(DEFAULT_TEST_ROOT)))
 PYTEST_INI = Path(os.environ.get("ABYSS_MACHINE_PYTEST_INI", str(REPO_ROOT / "pytest.ini")))
 SOURCE_CLI = REPO_ROOT / "src" / "abyss_machine" / "cli.py"
+SCHEDULER_ENV = "ABYSS_MACHINE_TEST_SCHEDULER"
+PYTEST_XDIST_DISTRIBUTION = "pytest-xdist"
+PYTEST_XDIST_PIN = "3.8.0"
+SCHEDULERS = ("auto", "serial", "xdist-3")
 
 LANES = {
     "quick": "quick and not live and not long and not manual",
@@ -29,13 +34,90 @@ LANES = {
 }
 
 
-def run_lane(lane: str, *, extra_args: list[str], json_output: bool) -> int:
+def installed_xdist_version() -> str | None:
+    try:
+        return metadata.version(PYTEST_XDIST_DISTRIBUTION)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def scheduler_plan(
+    lane: str,
+    requested: str,
+    *,
+    xdist_version: str | None,
+) -> dict[str, object]:
+    if requested not in SCHEDULERS:
+        return {
+            "ok": False,
+            "requested": requested,
+            "effective": None,
+            "reason": "unknown_scheduler",
+            "error": f"unknown scheduler {requested!r}; expected one of {', '.join(SCHEDULERS)}",
+        }
+    if requested == "serial":
+        return {
+            "ok": True,
+            "requested": requested,
+            "effective": "serial",
+            "reason": "explicit_serial_rollback",
+            "pytest_args": [],
+        }
+    if lane != "quick":
+        if requested == "xdist-3":
+            return {
+                "ok": False,
+                "requested": requested,
+                "effective": None,
+                "reason": "scheduler_not_admitted_for_lane",
+                "error": "xdist-3 is admitted only for the measured quick lane",
+            }
+        return {
+            "ok": True,
+            "requested": requested,
+            "effective": "serial",
+            "reason": "non_quick_lane_keeps_serial_authority",
+            "pytest_args": [],
+        }
+    if xdist_version == PYTEST_XDIST_PIN:
+        return {
+            "ok": True,
+            "requested": requested,
+            "effective": "xdist-3",
+            "reason": "measured_bounded_quick_scheduler",
+            "pytest_args": ["-n", "3", "--dist", "load"],
+        }
+    if requested == "xdist-3":
+        actual = xdist_version or "missing"
+        return {
+            "ok": False,
+            "requested": requested,
+            "effective": None,
+            "reason": "pytest_xdist_pin_unavailable",
+            "error": f"pytest-xdist pin mismatch: expected={PYTEST_XDIST_PIN} actual={actual}",
+        }
+    return {
+        "ok": True,
+        "requested": requested,
+        "effective": "serial",
+        "reason": "safe_serial_fallback_without_exact_xdist_pin",
+        "pytest_args": [],
+    }
+
+
+def pytest_command(
+    lane: str,
+    *,
+    scheduler: dict[str, object],
+    extra_args: list[str],
+) -> list[str]:
     marker = LANES[lane]
-    command = [
+    return [
         sys.executable,
         "-m",
         "pytest",
         "-q",
+        *[str(value) for value in scheduler.get("pytest_args", [])],
         "-c",
         str(PYTEST_INI),
         str(TEST_ROOT),
@@ -43,6 +125,53 @@ def run_lane(lane: str, *, extra_args: list[str], json_output: bool) -> int:
         marker,
         *extra_args,
     ]
+
+
+def run_lane(
+    lane: str,
+    *,
+    extra_args: list[str],
+    json_output: bool,
+    requested_scheduler: str,
+) -> int:
+    marker = LANES[lane]
+    xdist_version = installed_xdist_version()
+    scheduler = scheduler_plan(
+        lane,
+        requested_scheduler,
+        xdist_version=xdist_version,
+    )
+    scheduler.update(
+        {
+            "dependency": PYTEST_XDIST_DISTRIBUTION,
+            "expected_version": PYTEST_XDIST_PIN,
+            "installed_version": xdist_version,
+            "selection_changed": False,
+            "serial_rollback": (
+                f"{SCHEDULER_ENV}=serial tools/abyss-machine-test {lane} --json"
+            ),
+        }
+    )
+    if not scheduler["ok"]:
+        payload = {
+            "schema": SCHEMA,
+            "version": VERSION,
+            "ok": False,
+            "lane": lane,
+            "marker": marker,
+            "command": None,
+            "returncode": 2,
+            "duration_sec": 0.0,
+            "stdout": "",
+            "stderr": str(scheduler["error"]),
+            "scheduler": scheduler,
+        }
+        if json_output:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(payload["stderr"], file=sys.stderr)
+        return 2
+    command = pytest_command(lane, scheduler=scheduler, extra_args=extra_args)
     started = time.time()
     completed = subprocess.run(command, text=True, capture_output=True, check=False)
     duration = round(time.time() - started, 3)
@@ -58,11 +187,14 @@ def run_lane(lane: str, *, extra_args: list[str], json_output: bool) -> int:
         "duration_sec": duration,
         "stdout": completed.stdout[-8000:],
         "stderr": completed.stderr[-8000:],
+        "scheduler": scheduler,
         "policy": {
             "quick_and_full_are_non_mutating": lane in {"quick", "full"},
             "does_not_invoke_sudo_or_pkexec": True,
             "does_not_execute_live_restarts": True,
             "test_root": str(TEST_ROOT),
+            "scheduler_changes_order_not_selection": True,
+            "quick_scheduler_max_workers": 3,
         },
     }
     if json_output:
@@ -78,6 +210,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run layered abyss-machine tests.")
     parser.add_argument("lane", choices=sorted(LANES), help="test lane to run")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    parser.add_argument(
+        "--scheduler",
+        choices=SCHEDULERS,
+        default=os.environ.get(SCHEDULER_ENV, "auto"),
+        help=(
+            "quick-lane scheduler; auto admits pinned xdist-3 and otherwise "
+            f"falls back to serial (default: ${SCHEDULER_ENV} or auto)"
+        ),
+    )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER, help="extra pytest args after --")
     return parser
 
@@ -92,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         build_parser().parse_args([lane])
         return 64
     json_output = False
+    requested_scheduler = os.environ.get(SCHEDULER_ENV, "auto")
     if "--" in raw:
         split_at = raw.index("--")
         option_args = raw[:split_at]
@@ -99,15 +241,28 @@ def main(argv: list[str] | None = None) -> int:
     else:
         option_args = raw
         extra = []
-    for item in option_args:
+    index = 0
+    while index < len(option_args):
+        item = option_args[index]
         if item == "--json":
             json_output = True
+        elif item == "--scheduler":
+            index += 1
+            if index >= len(option_args):
+                raise SystemExit("--scheduler requires a value")
+            requested_scheduler = option_args[index]
         else:
             raise SystemExit(f"unknown abyss-machine-test option before --: {item}")
+        index += 1
     os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     if SOURCE_CLI.exists():
         os.environ.setdefault("ABYSS_MACHINE_BIN", str(SOURCE_CLI))
-    return run_lane(str(lane), extra_args=extra, json_output=json_output)
+    return run_lane(
+        str(lane),
+        extra_args=extra,
+        json_output=json_output,
+        requested_scheduler=requested_scheduler,
+    )
 
 
 if __name__ == "__main__":

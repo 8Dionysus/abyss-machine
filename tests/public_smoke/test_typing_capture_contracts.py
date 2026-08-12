@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -61,6 +63,7 @@ from abyss_machine.typing_capture_contracts import (
     typing_saved_text_recent_records_status,
     typing_saved_text_scan_policy_status,
     typing_status_document,
+    typing_status_compact_document,
     typing_validate_document,
     typing_browser_ai_transcript_selftest_status,
     typing_browser_ai_transcript_selftest_validation_status,
@@ -2819,13 +2822,29 @@ def test_typing_status_document_is_module_owned_with_cli_input_adapter(monkeypat
         **status_inputs,
     )
 
-    monkeypatch.setattr(cli, "ensure_typing_docs", lambda: [])
+    monkeypatch.setattr(cli, "typing_docs_read_errors", lambda: [])
+    monkeypatch.setattr(
+        cli,
+        "ensure_typing_docs",
+        lambda: pytest.fail("typing status must not repair or rewrite owner documents"),
+    )
     monkeypatch.setattr(cli, "typing_policy", lambda write_latest=False: policy)
     monkeypatch.setattr(cli, "typing_latest", lambda: latest)
     monkeypatch.setattr(cli, "typing_records", lambda limit: (records, []))
     monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
-    monkeypatch.setattr(cli, "typing_coverage_from_records", lambda *args, **kwargs: coverage)
-    monkeypatch.setattr(cli, "typing_process_from_records", lambda *args, **kwargs: process)
+    process_calls = []
+    coverage_calls = []
+
+    def fake_process(*args, **kwargs):
+        process_calls.append((args, kwargs))
+        return process
+
+    def fake_coverage(*args, **kwargs):
+        coverage_calls.append((args, kwargs))
+        return coverage
+
+    monkeypatch.setattr(cli, "typing_coverage_from_records", fake_coverage)
+    monkeypatch.setattr(cli, "typing_process_from_records", fake_process)
     monkeypatch.setattr(cli, "typing_gnome_accessibility_status", lambda: status_inputs["gnome_accessibility"])
     monkeypatch.setattr(cli, "typing_nervous_processing_status", lambda: status_inputs["nervous_processing"])
     monkeypatch.setattr(cli, "typing_focused_snapshot_latest_status", lambda: status_inputs["focused_snapshot"])
@@ -2844,6 +2863,183 @@ def test_typing_status_document_is_module_owned_with_cli_input_adapter(monkeypat
     assert expected["summary"]["browser_content_capture_captures"] == 2
     assert expected["policy"]["raw_keylogging"] is False
     assert expected["paths"] == paths
+    assert len(process_calls) == 1
+    assert len(coverage_calls) == 1
+    assert coverage_calls[0][1]["process_snapshot"] is process
+
+
+def test_typing_status_document_preflight_is_read_only(monkeypatch, tmp_path) -> None:
+    from abyss_machine import cli
+
+    agents_path = tmp_path / "typing" / "AGENTS.md"
+    policy_path = tmp_path / "etc" / "typing-policy.json"
+    index_path = tmp_path / "typing" / "index.json"
+    for path in (agents_path, policy_path, index_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(cli, "TYPING_AGENTS_PATH", agents_path)
+    monkeypatch.setattr(cli, "TYPING_POLICY_PATH", policy_path)
+    monkeypatch.setattr(cli, "TYPING_INDEX_PATH", index_path)
+    agents_path.write_text(cli.typing_agents_doc(), encoding="utf-8")
+    policy_path.write_text(
+        json.dumps({"schema": "abyss_machine_typing_policy_v1"}) + "\n",
+        encoding="utf-8",
+    )
+    index_path.write_text(
+        json.dumps({"schema": "abyss_machine_typing_index_v1"}) + "\n",
+        encoding="utf-8",
+    )
+    before = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in (agents_path, policy_path, index_path)
+    }
+
+    assert cli.typing_docs_read_errors() == []
+    assert {
+        path: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in (agents_path, policy_path, index_path)
+    } == before
+
+    index_path.write_text('{"schema": "wrong"}\n', encoding="utf-8")
+    assert cli.typing_docs_read_errors()[-1] == {
+        "path": str(index_path),
+        "error": "schema_mismatch",
+        "expected_schema": "abyss_machine_typing_index_v1",
+        "observed_schema": "wrong",
+    }
+
+
+def test_typing_status_compact_document_preserves_verdicts_without_heavy_event_details() -> None:
+    generated_at = "2026-06-26T11:00:00Z"
+    full = {
+        "schema": "abyss_machine_typing_status_v1",
+        "version": "test",
+        "generated_at": generated_at,
+        "ok": True,
+        "summary": {
+            "recent_records": 3,
+            "coverage_status": "covered",
+            "process_status": "processed",
+        },
+        "policy": {
+            "enabled": True,
+            "raw_keylogging": False,
+            "password_fields_captured": False,
+        },
+        "latest": {
+            "ok": True,
+            "generated_at": generated_at,
+            "status": "captured",
+            "source_adapter": "codex_session_jsonl_prompt_tail",
+            "capture_gate": {
+                "decision": "allow_text",
+                "confidence": "explicit_committed_text",
+                "agent": {"network_access": False},
+                "matches": ["heavy-gate-detail-sentinel"],
+            },
+            "causal_context": {
+                "where": {
+                    "kind": "agent_session",
+                    "project": {"id": "abyss-machine", "basis": "project_root"},
+                    "context_anchor": {"id": "anchor-1", "kind": "project_root"},
+                    "interaction": {"id": "interaction-1", "kind": "agent_turn"},
+                    "path": "/private/source/detail",
+                },
+                "recipient": {"id": "codex", "kind": "ai_agent", "name": "Codex"},
+                "task": {
+                    "binding": "active_change",
+                    "confidence": "high",
+                    "active_changes": ["heavy-task-detail-sentinel"],
+                },
+                "correlation": {"event_id": "event-1", "timeline_key": "timeline-1"},
+            },
+        },
+        "coverage": {
+            "schema": "abyss_machine_typing_coverage_v1",
+            "ok": True,
+            "status": "covered",
+            "summary": {"records": 3, "gaps": 0},
+            "coverage_routes": {"heavy-route-detail-sentinel": {"records": [1, 2, 3]}},
+        },
+        "process": {
+            "schema": "abyss_machine_typing_process_v1",
+            "ok": True,
+            "status": "processed",
+            "summary": {"records_processed": 3, "lanes": 2},
+            "entries": [{"text": "heavy-process-entry-sentinel"}],
+            "lanes": {"heavy-process-lane-sentinel": {}},
+        },
+        "processing": {"ok": True, "status": "ready", "summary": {"facts_ready": True}},
+        "paths": {
+            "policy": "/etc/abyss-machine/typing/policy.json",
+            "events": {
+                "latest": "/var/lib/abyss-machine/typing/events/latest.json",
+                "today": "/var/lib/abyss-machine/typing/events/private-session.jsonl",
+            },
+        },
+        "errors": [],
+    }
+
+    compact = typing_status_compact_document(full)
+    encoded = json.dumps(compact, sort_keys=True)
+
+    assert compact["schema"] == "abyss_machine_typing_status_compact_v1"
+    assert compact["source_schema"] == "abyss_machine_typing_status_v1"
+    assert compact["ok"] is True
+    assert compact["summary"] == full["summary"]
+    assert compact["policy"] == full["policy"]
+    assert compact["latest"]["capture_gate"] == {
+        "decision": "allow_text",
+        "confidence": "explicit_committed_text",
+    }
+    assert compact["latest"]["causal_context"]["where"]["project"]["id"] == "abyss-machine"
+    assert compact["latest"]["causal_context"]["recipient"]["kind"] == "ai_agent"
+    assert compact["latest"]["causal_context"]["task"]["binding"] == "active_change"
+    assert compact["components"]["coverage"]["summary"] == {"records": 3, "gaps": 0}
+    assert compact["components"]["process"]["summary"] == {"records_processed": 3, "lanes": 2}
+    assert compact["evidence_refs"] == [
+        {"ref": "paths.policy", "path": "/etc/abyss-machine/typing/policy.json"},
+        {"ref": "paths.events.latest", "path": "/var/lib/abyss-machine/typing/events/latest.json"},
+    ]
+    for omitted in (
+        "heavy-gate-detail-sentinel",
+        "heavy-task-detail-sentinel",
+        "heavy-route-detail-sentinel",
+        "heavy-process-entry-sentinel",
+        "heavy-process-lane-sentinel",
+        "/private/source/detail",
+        "/var/lib/abyss-machine/typing/events/private-session.jsonl",
+    ):
+        assert omitted not in encoded
+
+
+def test_typing_status_cli_compact_flag_projects_without_changing_full_route(monkeypatch, capsys) -> None:
+    from abyss_machine import cli
+
+    full = {
+        "schema": "abyss_machine_typing_status_v1",
+        "version": "test",
+        "generated_at": "2026-06-26T11:00:00Z",
+        "ok": True,
+        "summary": {"recent_records": 1},
+        "policy": {"enabled": True, "raw_keylogging": False, "password_fields_captured": False},
+        "latest": {},
+        "coverage": {"summary": {}, "entries": ["omitted"]},
+        "process": {"summary": {}, "lanes": {"omitted": True}},
+        "paths": {},
+        "errors": [],
+    }
+    monkeypatch.setattr(cli, "typing_status", lambda write_latest=False: full)
+
+    assert cli.main(["typing", "status", "--json"]) == 0
+    full_output = json.loads(capsys.readouterr().out)
+    assert full_output == full
+
+    assert cli.main(["typing", "status", "--compact", "--json"]) == 0
+    compact_output = json.loads(capsys.readouterr().out)
+    assert compact_output["schema"] == "abyss_machine_typing_status_compact_v1"
+    assert compact_output["source_schema"] == full["schema"]
+    assert "entries" not in compact_output["components"]["coverage"]
+    assert "lanes" not in compact_output["components"]["process"]
 
 
 def test_typing_validate_document_is_module_owned_with_cli_input_adapter(monkeypatch) -> None:

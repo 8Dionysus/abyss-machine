@@ -72,11 +72,20 @@ or live adapters, add the relevant host-side checks:
 PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --summary --json
 PYTHONPATH=src python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"
 PYTHONDONTWRITEBYTECODE=1 tools/abyss-machine-test quick --json
+ABYSS_MACHINE_TEST_SCHEDULER=serial tools/abyss-machine-test quick --json
 abyss-machine enter --json
 abyss-machine topology --json
 abyss-machine doctor --json
 abyss-machine doctor machine-report --json --no-thermal-sample
 ```
+
+The host-contract wrapper preserves the direct command's exact marker
+selection. It admits three-worker xdist scheduling only for `quick` and only
+with exact `pytest-xdist==3.8.0`; the environment-prefixed command is the serial
+rollback. `enter` is a bounded navigation surface: it may reuse explicitly
+labelled owner latest/index documents and points to the full status commands.
+It is not a substitute for fresh topology, mode, cooling, or change-ledger
+health evidence.
 
 For a richer installed-host closeout, use module-owned runtime profiles instead
 of hand-maintaining command lists in the validator script:
@@ -154,6 +163,12 @@ and bounded local HTTP JSON/status transport. Live-host closeout may use compact
 summaries; report only ok/class/status/counts and never raw prompts, container
 environment, local model payloads, full process command lines, or full process
 lists.
+
+`memory plan --json` deliberately collects fresh pressure without the expensive
+per-process attribution scan because the admission decision does not consume
+those rows. Its receipt labels the omission. Use full `memory pressure --json`
+when process or cgroup attribution is the question; the bounded plan must not be
+presented as attribution evidence.
 
 For process container-health adapter changes, public CI should rely on
 fake-runner tests for Podman unavailable/failure/invalid-JSON behavior,
@@ -617,9 +632,12 @@ contract ports. Cover stack-owned blockers, capability-covered absent
 requirements, objective/covered/blocked planes, linkage integrity, write/no-
 write behavior, closure-acceptance identity/owner/policy, summary-plane
 consistency, malformed impact rejection, and no-mutation policy. Live closeout
-must use one fixed latest
-snapshot and report only status, row/plane/blocker counts, completion, and
-policy.
+must use one fixed latest snapshot and report only status,
+row/plane/blocker counts, completion, and policy. A valid working-stack
+inventory with no service-bearing organs is a stable negative control: there
+are no dependent link rows to refresh, so coverage audit must not launch the
+working-stack dependent refresh chain merely because an empty link readmodel is
+stale.
 
 For self-awareness requirement contract changes, public CI should use
 synthetic requirement, capability, external-closure, readiness, and action-map
@@ -807,7 +825,7 @@ For typing/nervous changes, prefer bounded JSON status and validation commands:
 
 ```bash
 PYTHONPATH=src python scripts/validators/source_install_runtime_parity.py --runtime-profile typing-nervous-refresh --allow-runtime-refresh --json
-abyss-machine typing status --json
+abyss-machine typing status --compact --json
 abyss-machine typing validate --json
 abyss-machine nervous status --json
 abyss-machine nervous quality-audit --json

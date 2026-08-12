@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import datetime as dt
+import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +50,7 @@ from abyss_machine.nervous_index import (
     search_options,
     search_refused_result,
     sort_source_records,
+    source_present,
     status_document,
     validation_check,
     validation_document,
@@ -69,6 +71,71 @@ def test_nervous_index_schema_sql_is_module_owned_contract() -> None:
     assert "CREATE TABLE IF NOT EXISTS documents" in schema
     assert "CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5" in schema
     assert "source_ids_json TEXT NOT NULL" in schema
+
+
+def test_nervous_index_bounded_counts_fail_fast_under_exclusive_writer(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    conn = connect_db(db_path, create=True)
+    initialize_db(conn, schema_prefix="abyss_machine", version="test-version")
+    conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.close()
+
+    blocker = sqlite3.connect(str(db_path), timeout=0)
+    blocker.execute("BEGIN EXCLUSIVE")
+    try:
+        result = counts(
+            db_path,
+            busy_timeout_ms=25,
+            allow_expensive_fts_fallback=False,
+        )
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+    assert "locked" in str(result.get("error", "")).lower()
+    assert result["read"]["busy_timeout_ms"] == 25
+    assert result["read"]["elapsed_ms"] < 750
+
+
+def test_nervous_index_counts_preserves_strict_fts_fallback_for_legacy_schema(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    conn = connect_db(db_path, create=True)
+    initialize_db(conn, schema_prefix="abyss_machine", version="test-version")
+    conn.execute("DROP TABLE fts_chunks")
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE fts_chunks USING fts5(
+          chunk_id UNINDEXED,
+          doc_id UNINDEXED,
+          source_id UNINDEXED,
+          title,
+          body,
+          tokenize='unicode61',
+          columnsize=0
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO fts_chunks(chunk_id, doc_id, source_id, title, body) VALUES (?, ?, ?, ?, ?)",
+        ("chunk-1", "doc-1", "typed_text_autolog", "title", "body"),
+    )
+    conn.commit()
+    conn.close()
+
+    strict = counts(db_path)
+    bounded = counts(
+        db_path,
+        busy_timeout_ms=25,
+        allow_expensive_fts_fallback=False,
+    )
+
+    assert strict["fts_chunks"] == 1
+    assert strict["read"]["fts_count_basis"] == "fts5_virtual_table_rows_fallback"
+    assert "no such table" in strict["read"]["fts_docsize_error"].lower()
+    assert bounded.get("fts_chunks") is None
+    assert "expensive virtual-table fallback skipped" in bounded["fts_chunks_error"]
 
 
 def test_nervous_index_source_discovery_and_jsonl_parsing_are_module_owned(tmp_path: Path) -> None:
@@ -1178,6 +1245,7 @@ def test_nervous_index_store_search_and_scan_contracts_are_module_owned(tmp_path
     assert db_counts["documents"] == 2
     assert db_counts["chunks"] == 3
     assert db_counts["fts_chunks"] == 3
+    assert db_counts["read"]["fts_count_basis"] == "fts5_docsize_rows"
     assert db_counts["index_runs"] == 1
     assert db_counts["last_successful_index_run"]["run_id"] == "index-run-1"
     assert db_counts["last_successful_index_run"]["details"] == {"parse_errors": [], "skipped_records": []}
@@ -1185,6 +1253,8 @@ def test_nervous_index_store_search_and_scan_contracts_are_module_owned(tmp_path
     assert scan["indexed_source_ids"] == ["browser_active_tab", "nervous_events"]
     assert scan["documents_by_schema"]["abyss_machine_nervous_event_v1"] == 1
     assert scan["smoke_results"] == 3
+    assert source_present(db_path, "nervous_events")["present"] is True
+    assert source_present(db_path, "missing-source")["present"] is False
     assert result["ok"] is True
     assert result["schema"] == "abyss_machine_nervous_search_v1"
     assert result["version"] == "test-version"

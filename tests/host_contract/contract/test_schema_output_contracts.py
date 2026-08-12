@@ -47,7 +47,7 @@ def test_host_policy_config_schema_names_are_pinned() -> None:
 
 @pytest.mark.quick
 @pytest.mark.contract
-def test_core_policy_read_commands_preserve_schema_envelopes(run_abyss_machine) -> None:
+def test_memory_policy_read_preserves_schema_envelope(run_abyss_machine) -> None:
     memory = parse_json_stdout(run_abyss_machine("memory", "policy", "--json"))
     assert_envelope(memory, "abyss_machine_memory_policy_v1")
     assert isinstance(memory.get("classes"), list)
@@ -55,6 +55,10 @@ def test_core_policy_read_commands_preserve_schema_envelopes(run_abyss_machine) 
     assert isinstance(memory.get("thresholds"), dict)
     assert isinstance(memory.get("swap_reserve"), dict)
 
+
+@pytest.mark.quick
+@pytest.mark.contract
+def test_resource_policy_read_preserves_schema_envelope(run_abyss_machine) -> None:
     resource = parse_json_stdout(run_abyss_machine("resource", "policy", "--json"))
     assert_envelope(resource, "abyss_machine_resource_policy_v1")
     assert "default_demand_mib" not in resource["startup_admission"]
@@ -69,6 +73,10 @@ def test_core_policy_read_commands_preserve_schema_envelopes(run_abyss_machine) 
     assert isinstance(resource.get("gates"), dict)
     assert isinstance(resource.get("launch"), dict)
 
+
+@pytest.mark.quick
+@pytest.mark.contract
+def test_storage_policy_read_preserves_schema_envelope(run_abyss_machine) -> None:
     storage = parse_json_stdout(run_abyss_machine("storage", "policy", "--json"))
     assert_envelope(storage, "abyss_machine_storage_policy_read_v1")
     assert storage.get("ok") is True
@@ -79,6 +87,10 @@ def test_core_policy_read_commands_preserve_schema_envelopes(run_abyss_machine) 
     assert isinstance(document.get("cache_environment_routes"), dict)
     assert isinstance(document.get("hook_points"), dict)
 
+
+@pytest.mark.quick
+@pytest.mark.contract
+def test_maps_policy_read_preserves_schema_envelope(run_abyss_machine) -> None:
     maps = parse_json_stdout(run_abyss_machine("maps", "policy", "--json"))
     assert_envelope(maps, "abyss_machine_maps_policy_v1")
     assert isinstance(maps.get("axes"), list)
@@ -88,6 +100,10 @@ def test_core_policy_read_commands_preserve_schema_envelopes(run_abyss_machine) 
     assert maps.get("policy", {}).get("automatic_action") is False
     assert maps.get("policy", {}).get("automatic_response") is False
 
+
+@pytest.mark.quick
+@pytest.mark.contract
+def test_maps_packet_read_preserves_schema_envelope(run_abyss_machine) -> None:
     maps_packet = parse_json_stdout(
         run_abyss_machine("maps", "packet", "--axis", "by-eval-packet", "--consumer", "aoa-evals", "--json")
     )
@@ -98,35 +114,6 @@ def test_core_policy_read_commands_preserve_schema_envelopes(run_abyss_machine) 
     assert maps_packet.get("summary", {}).get("automatic_action") is False
     assert maps_packet.get("summary", {}).get("proof_verdict") is False
     assert isinstance(maps_packet.get("entries"), list) and maps_packet["entries"]
-
-
-@pytest.mark.quick
-@pytest.mark.contract
-def test_planning_outputs_keep_non_apply_schema_contracts(run_abyss_machine) -> None:
-    memory_plan = parse_json_stdout(run_abyss_machine("memory", "plan", "--json", timeout=30.0))
-    assert_envelope(memory_plan, "abyss_machine_memory_plan_v1")
-    assert memory_plan.get("ok") is True
-    assert isinstance(memory_plan.get("pressure"), dict)
-    assert "recommended_new_work" not in memory_plan
-    assert memory_plan["policy"]["numeric_workload_gating"] is False
-    assert memory_plan.get("executed") is None
-
-    resource_plan = parse_json_stdout(
-        run_abyss_machine(
-            "resource",
-            "plan",
-            "--class",
-            "probe",
-            "--kind",
-            "generic",
-            "--json",
-            timeout=30.0,
-        )
-    )
-    assert_envelope(resource_plan, "abyss_machine_resource_plan_v1")
-    assert resource_plan.get("ok") is True
-    assert resource_plan.get("executed") is None
-    assert resource_plan.get("permission_required") is not True
 
 
 @pytest.mark.live
