@@ -867,6 +867,137 @@ def game_guard_block_reasons(
     return blocked
 
 
+def thermal_admission_attestation(
+    *,
+    workload_class: str,
+    latency: str = "balanced",
+    force: bool = False,
+    route: dict[str, Any],
+    thermal_map: dict[str, Any],
+    generated_at: str,
+    schema_prefix: str = "abyss_machine",
+    version: str = "",
+) -> dict[str, Any]:
+    """Project only the fresh thermal evidence needed by launch admission."""
+    normalized_class = normalize_class(workload_class)
+    requested_class = str(
+        _nested_get(route, ["requested", "normalized_class"]) or ""
+    )
+    normalized_latency = str(latency or "balanced").strip().lower()
+    if normalized_latency not in {"background", "balanced", "interactive"}:
+        normalized_latency = "balanced"
+    requested_latency = str(
+        _nested_get(route, ["requested", "latency"]) or "balanced"
+    )
+    route_matches = requested_class == normalized_class
+    route_latency_matches = requested_latency == normalized_latency
+    route_force_compatible = bool(force) or not bool(route.get("forced"))
+    thermal_ok = thermal_map.get("ok") is True
+    route_ok = route.get("ok") is True
+    route_payload = route.get("route")
+    route_payload_ok = (
+        isinstance(route_payload, dict)
+        and bool(str(route_payload.get("cpuset") or "").strip())
+    )
+    evidence_errors: list[str] = []
+    if not thermal_ok:
+        evidence_errors.append("thermal_map_unavailable")
+    if not route_ok:
+        evidence_errors.append("cpu_route_unavailable")
+    if not route_matches:
+        evidence_errors.append("cpu_route_request_mismatch")
+    if not route_latency_matches:
+        evidence_errors.append("cpu_route_latency_mismatch")
+    if not route_force_compatible:
+        evidence_errors.append("cpu_route_force_mismatch")
+    if not route_payload_ok:
+        evidence_errors.append("cpu_route_payload_unavailable")
+    evidence_ok = not evidence_errors
+    foreground_blocked_reasons = list(
+        route.get("foreground_blocked_reasons") or []
+    )
+    foreground_blocked_reasons.extend(evidence_errors)
+    foreground_blocked_reasons = list(
+        dict.fromkeys(str(item) for item in foreground_blocked_reasons)
+    )
+    recommendation = {
+        "allowed": evidence_ok and route.get("allowed") is True,
+        "unattended_allowed": (
+            evidence_ok and route.get("unattended_allowed") is True
+        ),
+        "foreground_allowed": (
+            evidence_ok and route.get("foreground_allowed") is True
+        ),
+        "foreground_blocked_reasons": foreground_blocked_reasons,
+        "cpuset": _nested_get(route, ["route", "cpuset"]),
+        "thread_limit": _nested_get(route, ["route", "thread_limit"]),
+    }
+    return {
+        "schema": (
+            f"{schema_prefix}_resource_thermal_admission_attestation_v1"
+        ),
+        "version": version,
+        "generated_at": generated_at,
+        "ok": evidence_ok,
+        "scope": "request-specific launch thermal admission",
+        "request": {
+            "class": workload_class,
+            "normalized_class": normalized_class,
+            "latency": latency,
+            "normalized_route_latency": normalized_latency,
+            "force": bool(force),
+        },
+        "thermal": {
+            "class": thermal_map.get("class"),
+            "summary": thermal_map.get("summary"),
+            "episode": thermal_map.get("episode"),
+            "available_by_role_cpuset": thermal_map.get(
+                "available_by_role_cpuset"
+            ),
+        },
+        "recommended_new_work": {
+            normalized_class: recommendation,
+        },
+        "route": {
+            "schema": route.get("schema"),
+            "generated_at": route.get("generated_at"),
+            "requested": route.get("requested"),
+            "reasons": route.get("reasons"),
+            "route": route.get("route"),
+        },
+        "cpu_route": route,
+        "evidence_errors": evidence_errors,
+        "diagnostics": {
+            "process_attribution": {
+                "collected": False,
+                "role": "diagnostic_only",
+                "command": (
+                    "abyss-machine processes thermal-attribution --json"
+                ),
+            },
+            "desktop_compositor": {
+                "collected": False,
+                "role": "diagnostic_only",
+                "command": (
+                    "abyss-machine processes desktop-compositor --json"
+                ),
+            },
+            "full_thermal_plan": {
+                "collected": False,
+                "role": "operator_diagnostic",
+                "command": "abyss-machine processes thermal-plan --json",
+            },
+        },
+        "policy": {
+            "fresh_direct_thermal_map_required": True,
+            "request_specific_cpu_route_required": True,
+            "fail_closed_on_missing_gate_evidence": True,
+            "diagnostics_are_not_admission_dependencies": True,
+            "does_not_mutate_existing_processes": True,
+        },
+    }
+
+
 def thermal_plan_gate_reasons(
     thermal_plan: dict[str, Any] | None,
     normalized_class: str,
@@ -882,6 +1013,8 @@ def thermal_plan_gate_reasons(
         return [], []
     blocked: list[str] = []
     warnings: list[str] = []
+    if sample_thermal and thermal_plan.get("ok") is False:
+        blocked.append("thermal_attestation_unavailable")
     activity_data = owner_activity(activity, unattended=unattended)
     foreground = bool(activity_data.get("foreground"))
     thermal_class = str(_nested_get(thermal_plan, ["thermal", "class"]) or "")
@@ -937,7 +1070,7 @@ def build_plan(
     thermal_plan: dict[str, Any] | None,
     write_preflight: dict[str, Any] | None,
     paths: dict[str, Any],
-    input_latest_paths: dict[str, str],
+    input_latest_paths: dict[str, str | None],
     thermal_unattended_cap: str,
     total_mem_kib: int | None,
     environ: Mapping[str, str] | None = None,
@@ -1090,9 +1223,16 @@ def build_plan(
             },
             "thermal_plan": {
                 "sampled": bool(sample_thermal),
+                "schema": thermal_plan.get("schema") if isinstance(thermal_plan, dict) else None,
+                "generated_at": thermal_plan.get("generated_at") if isinstance(thermal_plan, dict) else None,
+                "ok": thermal_plan.get("ok") if isinstance(thermal_plan, dict) else None,
+                "request": thermal_plan.get("request") if isinstance(thermal_plan, dict) else None,
                 "thermal": thermal_plan.get("thermal") if isinstance(thermal_plan, dict) else None,
                 "recommended": _nested_get(thermal_plan, ["recommended_new_work", normalized_class]) if isinstance(thermal_plan, dict) else None,
                 "incident": thermal_plan.get("incident") if isinstance(thermal_plan, dict) else None,
+                "evidence_errors": thermal_plan.get("evidence_errors") if isinstance(thermal_plan, dict) else None,
+                "diagnostics": thermal_plan.get("diagnostics") if isinstance(thermal_plan, dict) else None,
+                "policy": thermal_plan.get("policy") if isinstance(thermal_plan, dict) else None,
                 "latest": input_latest_paths.get("thermal_plan"),
             },
             "cpu_route": route,

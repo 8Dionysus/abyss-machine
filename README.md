@@ -200,12 +200,18 @@ execs into the lightweight module, so the monolithic process is not retained.
 Memory admission is evaluated synchronously from fresh host facts; exhausted
 swap reserve defers only new background cold loads, while foreground activity
 continues through physical-memory, PSI, and thermal gates. Reclaim and sleep
-remain with workload owners instead of a resident host controller. Independent
-request-specific storage and thermal proof is collected in a bounded-age
-pre-admission DAG outside the startup lock; write admission reads current
-pressure and capacity directly and leaves full cleanup/process/container
-inspection in the operator-facing storage-monitor lane. Launch receipts expose
-planning, lock wait/hold, execution, and total wall time separately. AI CPU route selection, routed-heavy policy,
+remain with workload owners instead of a resident host controller.
+Request-specific storage, thermal-map/CPU-route, mode, and game-guard proof is
+collected in a bounded-age, two-wave pre-admission DAG outside the startup lock:
+the direct thermal map and mode plan precede their exact route projection. The
+thermal receipt carries the exact requested route into the final plan and
+fails closed when direct sensor evidence is unavailable or the route identity
+does not match. Process attribution and desktop/compositor inspection remain
+available in the full thermal diagnostic without delaying every launch; write
+admission reads current pressure and capacity directly and leaves full
+cleanup/process/container inspection in the operator-facing storage-monitor
+lane. Launch receipts expose planning, lock wait/hold, execution, and total
+wall time separately. AI CPU route selection, routed-heavy policy,
 thread/env hints, and route contract assembly live in
 `abyss_machine.ai_cpu_routing`. AI runtime env/cache/resource-profile, model inventory, LLM
 paths/registry/validate/runtime/profile status, OpenVINO benchmark-plan/probe/eval command/result contracts, AI eval

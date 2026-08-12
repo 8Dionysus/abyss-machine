@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 21511810,
+  "allowed_tracked_bytes": 25908040,
+  "approved_by": "repository-owner",
+  "base_ref": "55c0dd25a8eee91d562659e30787329c6574da07",
+  "changed_generated_bytes": 21511810,
+  "changed_generated_files": 336,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "8d97da3da4dc119ad38f2375f158f42994aabd26ae711fdd8aeded023bfa1e3a",
+  "reason": "Replace launch-time monolithic thermal diagnosis with a fresh request-specific thermal-map and exact CPU-route admission DAG, retain all diagnostic commands, strengthen malformed and request-identity fail-closed controls, add reproducible method comparison and live receipt observability, and refresh the deterministic portable KAG family while tracked bytes remain below the standing cap and KAG authority is unchanged.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25908040,
+  "tracked_bytes_max": 27262976
+}

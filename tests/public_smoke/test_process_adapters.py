@@ -11,7 +11,7 @@ SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from abyss_machine import process_adapters
+from abyss_machine import process_adapters, resource_planning
 
 
 def _stat_text(comm: str, *, ppid: int = 1, utime: int = 10, stime: int = 5, threads: int = 3) -> str:
@@ -838,3 +838,84 @@ def test_process_thermal_plan_document_routes_new_work_without_mutation() -> Non
     assert data["recommended_new_work"]["heavy"]["foreground_allowed"] is True
     assert data["attribution"]["top_focus_cpu_candidates"][0]["pid"] == 321
     assert data["desktop_compositor"]["source"] == "fake"
+
+
+def test_request_thermal_attestation_matches_full_plan_gate_projection() -> None:
+    thermal_map = _thermal_map()
+    routes: dict[str, dict[str, object]] = {}
+
+    def route_port(
+        workload: str,
+        _thermal_map_data: dict[str, object],
+        _policy: dict[str, object],
+        _route_mode: dict[str, object],
+        _route_battery: dict[str, object],
+    ) -> dict[str, object]:
+        allowed = workload not in {"heavy", "sustained"}
+        route = {
+            "schema": "abyss_machine_ai_cpu_route_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "ok": True,
+            "allowed": allowed,
+            "unattended_allowed": allowed and workload != "medium",
+            "foreground_allowed": allowed,
+            "foreground_blocked_reasons": (
+                [] if allowed else ["package_critical"]
+            ),
+            "requested": {
+                "normalized_class": resource_planning.normalize_class(workload),
+            },
+            "route": {"cpuset": "0-6", "thread_limit": 2},
+            "reasons": ["fixture_route"],
+        }
+        routes[workload] = route
+        return route
+
+    full = process_adapters.process_thermal_plan_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-08-12T09:00:00-06:00",
+        paths={"thermal_plan": {"latest": "/tmp/plan.json"}},
+        seconds=0.5,
+        interval=0.2,
+        top=5,
+        attribution_port=lambda: {
+            "ok": True,
+            "summary": {},
+            "incident": {},
+            "cpu_distribution": {},
+            "top": {"focus_cpu_candidates": []},
+        },
+        thermal_map_port=lambda: thermal_map,
+        game_guard_port=lambda: {"active": False},
+        mode_port=lambda: {
+            "selected_mode": "balanced",
+            "effective_mode": "balanced",
+        },
+        policy_port=lambda _thermal: {
+            "class": "routed",
+            "current": {"battery": {"ac_online": True}},
+        },
+        route_port=route_port,
+        battery_port=lambda: {"ac_online": True},
+        desktop_compositor_port=lambda: {
+            "ok": True,
+            "_bounded_source": "fixture",
+        },
+        thermal_attribution_latest_path="/tmp/thermal-attribution.json",
+        game_guard_latest_path="/tmp/game-guard.json",
+        desktop_compositor_latest_path="/tmp/desktop.json",
+    )
+
+    for workload, route in routes.items():
+        normalized_class = resource_planning.normalize_class(workload)
+        fast = resource_planning.thermal_admission_attestation(
+            workload_class=workload,
+            route=route,
+            thermal_map=thermal_map,
+            generated_at="2026-08-12T09:00:00-06:00",
+            version="test",
+        )
+        assert fast["recommended_new_work"][normalized_class] == (
+            full["recommended_new_work"][workload]
+        )

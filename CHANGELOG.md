@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Replace the monolithic launch-time thermal diagnostic with a fresh,
+  request-specific thermal-map and CPU-route attestation; keep process
+  attribution and desktop/compositor analysis available outside the critical
+  path, carry the exact attested route into the atomic plan, and fail closed on
+  unavailable or mismatched thermal evidence.
 - Remove full cleanup/process/container inspection from resource-launch write
   admission, run independent storage and thermal attestations concurrently
   outside the startup lock, refresh aged proof fail closed, and expose complete

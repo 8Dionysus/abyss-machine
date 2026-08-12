@@ -358,6 +358,15 @@ does not kill, throttle, re-affinitize, lower desktop quality, toggle cooling,
 or authorize unattended background work by itself; it only reports facts and
 new-work route hints for explicit consumers.
 
+`abyss_machine.resource_planning` separately owns the compact
+request-specific thermal admission projection used by `resource launch`. It
+requires a fresh direct CPU thermal map and the exact route for the requested
+workload class, latency, and force identity, fails closed on missing,
+mismatched, or malformed evidence, and carries that route into the final
+atomic plan. The `/proc` attribution and
+desktop/compositor evidence above remain operator diagnostics and are not
+inputs to this compact gate.
+
 ## Extracted Memory Read Seam
 
 `abyss_machine.memory_adapters` owns the bounded memory read IO used by

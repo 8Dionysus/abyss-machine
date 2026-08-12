@@ -7,3 +7,8 @@ development and migration work.
 Use [RELEASE_CHECK_ROUTE.md](RELEASE_CHECK_ROUTE.md) when a change must prove
 public-seed portability, source/install parity, and relevant host evidence
 without publishing private runtime state.
+
+Use
+[RESOURCE_THERMAL_ADMISSION_COMPARISON.md](RESOURCE_THERMAL_ADMISSION_COMPARISON.md)
+for the measured method comparison and claim/evidence boundary behind the fast
+thermal node in `resource launch`.

@@ -976,12 +976,24 @@ def policy_readmodel_from_live_inputs(
     write_latest: bool,
     latest_path: Path,
     write_json: JsonWritePort,
+    mode_input: Mapping[str, Any] | None = None,
+    battery_input: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     thermal_policy = config.get("thermal_policy", {}) if isinstance(config.get("thermal_policy"), Mapping) else {}
     observability = dict(observability_status())
     latest = observability.get("latest") if isinstance(observability.get("latest"), Mapping) else {}
     battery = latest.get("battery") if isinstance(latest.get("battery"), Mapping) else None
-    selected_battery = battery if isinstance(battery, Mapping) and battery else battery_summary()
+    if isinstance(battery_input, Mapping):
+        selected_battery = battery_input
+    elif isinstance(battery, Mapping) and battery:
+        selected_battery = battery
+    else:
+        selected_battery = battery_summary()
+    selected_mode = (
+        mode_input
+        if isinstance(mode_input, Mapping)
+        else mode_status()
+    )
     selected_cpu_thermal_map = (
         cpu_thermal_map_input
         if isinstance(cpu_thermal_map_input, Mapping)
@@ -994,7 +1006,7 @@ def policy_readmodel_from_live_inputs(
         config=config,
         telemetry_age_sec=latest.get("age_sec"),
         battery=selected_battery,
-        mode=mode_status(),
+        mode=selected_mode,
         thermal=thermal_policy_snapshot(observability_latest(), thermal_policy),
         cpu_thermal_map=selected_cpu_thermal_map,
         observability_latest_path=observability_latest_path,

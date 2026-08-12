@@ -61,6 +61,98 @@ def test_ai_cpu_launch_is_only_a_resource_launch_compatibility_wrapper(abyss_mac
     assert "gate" not in result["memory"]
 
 
+def test_resource_thermal_admission_uses_fresh_gate_inputs_without_diagnostics(
+    abyss_machine_module,
+    monkeypatch,
+):
+    thermal_map = {
+        "ok": True,
+        "class": "warm",
+        "summary": {
+            "mapped_core_sensors": 16,
+            "route_avoid_cpus": [],
+            "hard_avoid_cpus": [],
+        },
+        "episode": {"class": "warm_background"},
+        "available_by_role_cpuset": {"p_cores": "0-3"},
+    }
+    route = {
+        "schema": "abyss_machine_ai_cpu_route_v1",
+        "generated_at": "2026-08-12T09:00:00-06:00",
+        "ok": True,
+        "allowed": True,
+        "unattended_allowed": True,
+        "foreground_allowed": True,
+        "foreground_blocked_reasons": [],
+        "requested": {
+            "normalized_class": "medium",
+            "latency": "balanced",
+        },
+        "route": {"cpuset": "0-3", "thread_limit": 4},
+        "reasons": ["balanced_medium_hybrid_safe"],
+    }
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "ai_cpu_thermal_map",
+        lambda **_kwargs: thermal_map,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "ai_policy",
+        lambda **_kwargs: {
+            "ok": True,
+            "current": {
+                "mode": {
+                    "effective": "balanced",
+                    "selected": "balanced",
+                },
+                "battery": {"ac_online": True},
+            },
+        },
+    )
+
+    def collect_route(**kwargs):
+        captured.update(kwargs)
+        return route
+
+    monkeypatch.setattr(abyss_machine_module, "ai_cpu_route", collect_route)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "process_thermal_attribution",
+        lambda **_kwargs: pytest.fail(
+            "process attribution is diagnostic, not launch admission"
+        ),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "process_desktop_compositor_bounded",
+        lambda **_kwargs: pytest.fail(
+            "desktop analysis is diagnostic, not launch admission"
+        ),
+    )
+
+    result = abyss_machine_module.resource_thermal_admission_attestation(
+        workload_class="medium",
+        latency="balanced",
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert result["schema"] == (
+        "abyss_machine_resource_thermal_admission_attestation_v1"
+    )
+    assert result["recommended_new_work"]["medium"]["allowed"] is True
+    assert result["diagnostics"]["process_attribution"]["collected"] is False
+    assert result["diagnostics"]["desktop_compositor"]["collected"] is False
+    assert captured["cpu_thermal_map"] is thermal_map
+    assert captured["mode_data"] == {
+        "effective_mode": "balanced",
+        "selected_mode": "balanced",
+    }
+
+
 def test_resource_plan_keeps_unattended_medium_indexing_without_static_memory_caps(abyss_machine_module):
     plan = abyss_machine_module.resource_plan(
         workload_class="medium",
@@ -470,7 +562,7 @@ def test_resource_plan_reuses_supplied_storage_and_thermal_attestations(
     )
     monkeypatch.setattr(
         abyss_machine_module,
-        "process_thermal_plan",
+        "resource_thermal_admission_attestation",
         lambda **_kwargs: pytest.fail(
             "supplied thermal proof must not be recomputed"
         ),
@@ -481,12 +573,23 @@ def test_resource_plan_reuses_supplied_storage_and_thermal_attestations(
         "reasons": ["target_matches_policy"],
     }
     thermal_proof = {
+        "schema": "abyss_machine_resource_thermal_admission_attestation_v1",
+        "ok": True,
+        "request": {
+            "normalized_class": "medium",
+            "normalized_route_latency": "balanced",
+            "force": False,
+        },
         "thermal": {"class": "green"},
         "recommended_new_work": {
             "medium": {
                 "allowed": True,
                 "unattended_allowed": True,
             }
+        },
+        "evidence_errors": [],
+        "policy": {
+            "fail_closed_on_missing_gate_evidence": True,
         },
     }
 
@@ -532,11 +635,18 @@ def test_resource_plan_reuses_supplied_storage_and_thermal_attestations(
 
     assert plan["decision"] == "allow"
     assert plan["inputs"]["storage"]["write_preflight"] == storage_proof
+    assert plan["inputs"]["thermal_plan"]["ok"] is True
+    assert plan["inputs"]["thermal_plan"]["request"] is thermal_proof[
+        "request"
+    ]
+    assert plan["inputs"]["thermal_plan"]["policy"] is thermal_proof[
+        "policy"
+    ]
     assert plan["policy"]["provided_thermal_attestation_reused"] is True
     assert plan["policy"]["provided_storage_preflight_reused"] is True
 
 
-def test_resource_launch_collects_independent_attestations_outside_atomic_lock(
+def test_resource_launch_collects_attestation_dag_outside_atomic_lock(
     abyss_machine_module,
     monkeypatch,
     tmp_path,
@@ -551,18 +661,39 @@ def test_resource_launch_collects_independent_attestations_outside_atomic_lock(
         lambda: policy,
     )
     inside_lock = False
-    collector_barrier = threading.Barrier(2)
+    collector_barrier = threading.Barrier(4)
     collector_threads: set[int] = set()
 
-    def collect_thermal(**_kwargs):
+    def collect_thermal_map(**_kwargs):
         assert inside_lock is False
         collector_threads.add(threading.get_ident())
         collector_barrier.wait(timeout=1)
         return {
             "ok": True,
+            "schema": "fixture_thermal_map_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "class": "green",
+        }
+
+    def assemble_thermal(**kwargs):
+        assert inside_lock is False
+        assert kwargs["thermal_map_data"]["schema"] == (
+            "fixture_thermal_map_v1"
+        )
+        assert kwargs["mode_data"]["schema"] == "fixture_mode_plan_v1"
+        return {
+            "ok": True,
             "schema": "fixture_thermal_plan_v1",
             "generated_at": "2026-08-12T09:00:00-06:00",
             "thermal": {"class": "green"},
+            "cpu_route": {
+                "ok": True,
+                "schema": "fixture_cpu_route_v1",
+                "requested": {"normalized_class": "medium"},
+                "allowed": True,
+                "unattended_allowed": True,
+                "route": {"cpuset": "0-1", "env": {}},
+            },
         }
 
     def collect_storage(**_kwargs):
@@ -575,6 +706,29 @@ def test_resource_launch_collects_independent_attestations_outside_atomic_lock(
             "generated_at": "2026-08-12T09:00:00-06:00",
             "decision": "allow",
             "reasons": ["target_matches_policy"],
+        }
+
+    def collect_mode(**_kwargs):
+        assert inside_lock is False
+        collector_threads.add(threading.get_ident())
+        collector_barrier.wait(timeout=1)
+        return {
+            "ok": True,
+            "schema": "fixture_mode_plan_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "effective_mode": "balanced",
+            "launch_policy": {"max_unattended_class": "medium"},
+        }
+
+    def collect_game_guard(**_kwargs):
+        assert inside_lock is False
+        collector_threads.add(threading.get_ident())
+        collector_barrier.wait(timeout=1)
+        return {
+            "ok": True,
+            "schema": "fixture_game_guard_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "active": False,
         }
 
     @contextlib.contextmanager
@@ -593,6 +747,10 @@ def test_resource_launch_collects_independent_attestations_outside_atomic_lock(
         assert kwargs["thermal_plan_data"]["schema"] == (
             "fixture_thermal_plan_v1"
         )
+        assert kwargs["route_data"] is kwargs["thermal_plan_data"]["cpu_route"]
+        assert kwargs["route_data"]["schema"] == "fixture_cpu_route_v1"
+        assert kwargs["mode_data"]["schema"] == "fixture_mode_plan_v1"
+        assert kwargs["game_guard_data"]["schema"] == "fixture_game_guard_v1"
         assert kwargs["write_preflight_data"]["schema"] == (
             "fixture_storage_preflight_v1"
         )
@@ -627,13 +785,24 @@ def test_resource_launch_collects_independent_attestations_outside_atomic_lock(
 
     monkeypatch.setattr(
         abyss_machine_module,
-        "process_thermal_plan",
-        collect_thermal,
+        "resource_thermal_admission_attestation",
+        assemble_thermal,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "ai_cpu_thermal_map",
+        collect_thermal_map,
     )
     monkeypatch.setattr(
         abyss_machine_module,
         "storage_write_preflight",
         collect_storage,
+    )
+    monkeypatch.setattr(abyss_machine_module, "mode_plan", collect_mode)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "process_game_guard",
+        collect_game_guard,
     )
     monkeypatch.setattr(
         abyss_machine_module.resource_adapters,
@@ -675,10 +844,42 @@ def test_resource_launch_collects_independent_attestations_outside_atomic_lock(
     )
 
     assert result["ok"] is True
-    assert len(collector_threads) == 2
+    assert len(collector_threads) == 4
     assert result["planning"]["pre_admission_dag"]["rounds"][0][
         "parallel"
     ] is True
+    assert result["planning"]["pre_admission_dag"]["rounds"][0][
+        "nodes"
+    ]["thermal_admission"]["schema"] == "fixture_thermal_plan_v1"
+    assert set(
+        result["planning"]["pre_admission_dag"]["rounds"][0]["nodes"]
+    ) == {
+        "mode_plan",
+        "game_guard",
+        "thermal_map",
+        "thermal_admission",
+        "storage_write_preflight",
+    }
+    assert result["planning"]["pre_admission_dag"]["rounds"][0][
+        "waves"
+    ] == [
+        {
+            "wave": 1,
+            "parallel": True,
+            "nodes": [
+                "mode_plan",
+                "game_guard",
+                "thermal_map",
+                "storage_write_preflight",
+            ],
+        },
+        {
+            "wave": 2,
+            "parallel": False,
+            "nodes": ["thermal_admission"],
+            "depends_on": ["thermal_map", "mode_plan"],
+        },
+    ]
     assert result["planning"]["admission_lock"][
         "contains_expensive_preflight"
     ] is False
