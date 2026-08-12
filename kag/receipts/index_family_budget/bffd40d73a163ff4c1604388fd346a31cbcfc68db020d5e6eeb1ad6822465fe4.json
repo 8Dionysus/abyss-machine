@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 20985820,
+  "allowed_tracked_bytes": 25849441,
+  "approved_by": "repository-owner",
+  "base_ref": "67a0f3cc8d50faacf0ceef9daecf72ecd29da519",
+  "changed_generated_bytes": 20985820,
+  "changed_generated_files": 316,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "bffd40d73a163ff4c1604388fd346a31cbcfc68db020d5e6eeb1ad6822465fe4",
+  "reason": "Bound resource-launch preflight separates independent thermal and storage admission, reuses freshness-bound attestations, preserves the final fail-closed locked plan and lease boundary, and adds timing plus adversarial regression proof; refresh the deterministic portable KAG family for implementation, policy, decision, documentation, tests, and ABI while tracked bytes remain below the standing cap and KAG authority is unchanged.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 25849441,
+  "tracked_bytes_max": 27262976
+}
