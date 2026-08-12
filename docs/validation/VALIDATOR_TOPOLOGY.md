@@ -80,6 +80,26 @@ pay for six redundant experimental jobs.
 
 - `python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"`
 - `PYTHONDONTWRITEBYTECODE=1 tools/abyss-machine-test quick --json`
+- `ABYSS_MACHINE_TEST_SCHEDULER=serial tools/abyss-machine-test quick --json`
+
+The direct pytest command is the serial completeness oracle. The wrapper keeps
+the identical marker selection but, for `quick` only, automatically uses
+`pytest-xdist==3.8.0` with `-n 3 --dist load` when that exact pin is available.
+If the dependency is absent or has another version, `auto` reports the reason
+and executes the serial oracle; an explicitly requested `xdist-3` fails closed.
+The environment command above is the one-command serial rollback. Full, live,
+long, and manual lanes remain serial because their concurrency has not been
+admitted.
+
+The 2026-08-12 owner-host comparison ran the same exact 239-node quick corpus.
+Every candidate reported one terminal successful outcome per node, with no
+missing, extra, or duplicated nodeids. Three interleaved samples measured
+serial at a `18.720s` median, xdist-3 at `9.945s`, and duration-LPT static
+sharding at `10.817s`; xdist-3 reduced the already optimized serial median by
+`46.9%`. The broader one-pass comparison also retained xdist-2, xdist-4,
+loadfile, loadscope, worksteal, and file-static methods; none beat xdist-3.
+This admission changes execution order only and does not alter the full owner
+graph's separately selected xdist-2 leaf.
 
 ## Release Lane
 

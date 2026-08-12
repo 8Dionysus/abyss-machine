@@ -189,6 +189,166 @@ def test_static_pytest_shards_are_disjoint_complete_and_deterministic() -> None:
     ]
 
 
+def test_duration_node_shards_are_disjoint_complete_deterministic_and_balanced() -> None:
+    nodeids = ["tests/a.py::test_a", "tests/b.py::test_b", "tests/c.py::test_c", "tests/d.py::test_d"]
+    durations = {
+        nodeids[0]: 8.0,
+        nodeids[1]: 6.0,
+        nodeids[2]: 2.0,
+        nodeids[3]: 1.0,
+    }
+
+    first, first_profile = pytest_scheduler_experiment.duration_node_shards(
+        nodeids,
+        durations,
+    )
+    second, second_profile = pytest_scheduler_experiment.duration_node_shards(
+        nodeids,
+        durations,
+    )
+    commands, recorded, command_profile = pytest_scheduler_experiment.duration_shard_commands(
+        nodeids,
+        durations,
+    )
+
+    assert first == second == recorded == [
+        [nodeids[0], nodeids[3]],
+        [nodeids[1], nodeids[2]],
+    ]
+    assert first_profile == second_profile == command_profile
+    assert set(first[0]).isdisjoint(first[1])
+    assert sorted([*first[0], *first[1]]) == sorted(nodeids)
+    assert first_profile["matching_nodeids"] == 4
+    assert first_profile["missing_nodeids"] == []
+    assert first_profile["extra_nodeids"] == []
+    assert first_profile["shard_estimated_seconds"] == [9.0, 8.0]
+    assert [command[4:] for command in commands] == first
+
+
+def test_host_contract_scheduler_keeps_exact_quick_suite_and_disjoint_static_shards() -> None:
+    files = pytest_scheduler_experiment.suite_test_files("host-contract-quick")
+    commands, recorded = pytest_scheduler_experiment.method_commands(
+        "static-2",
+        "host-contract-quick",
+    )
+
+    assert len(commands) == len(recorded) == 2
+    assert sorted(path for shard in recorded for path in shard) == [
+        path.relative_to(REPO_ROOT).as_posix() for path in files
+    ]
+    assert set(recorded[0]).isdisjoint(recorded[1])
+    for command in commands:
+        assert command[-2:] == [
+            "-m",
+            pytest_scheduler_experiment.HOST_CONTRACT_QUICK_MARKERS,
+        ]
+
+
+@pytest.mark.parametrize(
+    ("method", "workers", "distribution"),
+    [
+        ("xdist-2", "2", "load"),
+        ("xdist-3", "3", "load"),
+        ("xdist-4", "4", "load"),
+        ("xdist-2-loadfile", "2", "loadfile"),
+        ("xdist-2-loadscope", "2", "loadscope"),
+        ("xdist-2-worksteal", "2", "worksteal"),
+    ],
+)
+def test_host_contract_scheduler_names_worker_count_and_distribution(
+    method: str,
+    workers: str,
+    distribution: str,
+) -> None:
+    commands, recorded = pytest_scheduler_experiment.method_commands(
+        method,
+        "host-contract-quick",
+    )
+
+    assert recorded == []
+    assert len(commands) == 1
+    assert commands[0][3:8] == ["-q", "-n", workers, "--dist", distribution]
+    assert pytest_scheduler_experiment._collection_command(commands[0]) == [
+        sys.executable,
+        "-m",
+        "pytest",
+        "--collect-only",
+        "-q",
+        "tests/host_contract",
+        "-m",
+        pytest_scheduler_experiment.HOST_CONTRACT_QUICK_MARKERS,
+    ]
+
+
+def test_scheduler_inventory_comparison_fails_closed_on_missing_extra_or_duplicate_nodes() -> None:
+    exact = pytest_scheduler_experiment._inventory_comparison(
+        ["tests/a.py::test_a", "tests/b.py::test_b"],
+        [["tests/b.py::test_b"], ["tests/a.py::test_a"]],
+    )
+    changed = pytest_scheduler_experiment._inventory_comparison(
+        ["tests/a.py::test_a", "tests/b.py::test_b"],
+        [["tests/a.py::test_a", "tests/a.py::test_a", "tests/c.py::test_c"]],
+    )
+
+    assert exact["exact"] is True
+    assert exact["expected_sha256"] == exact["actual_sha256"]
+    assert changed["exact"] is False
+    assert changed["duplicates"] == ["tests/a.py::test_a"]
+    assert changed["missing"] == ["tests/b.py::test_b"]
+    assert changed["extra"] == ["tests/a.py::test_a", "tests/c.py::test_c"]
+
+
+def test_scheduler_execution_inventory_requires_one_terminal_report_per_expected_node() -> None:
+    expected = ["tests/a.py::test_a", "tests/b.py::test_b"]
+    exact = pytest_scheduler_experiment._execution_inventory_from_events(
+        expected,
+        [
+            {"event": "collection", "worker": "gw0", "nodeids": expected},
+            {"event": "collection", "worker": "gw1", "nodeids": expected},
+            {"event": "report", "nodeid": expected[0], "when": "setup", "outcome": "passed", "duration_seconds": 0.1, "worker": "gw0"},
+            {"event": "report", "nodeid": expected[0], "when": "call", "outcome": "passed", "duration_seconds": 0.4, "worker": "gw0"},
+            {"event": "report", "nodeid": expected[0], "when": "teardown", "outcome": "passed", "duration_seconds": 0.1, "worker": "gw0"},
+            {"event": "report", "nodeid": expected[1], "when": "setup", "outcome": "skipped", "duration_seconds": 0.2, "worker": "gw1"},
+        ],
+    )
+    duplicate = pytest_scheduler_experiment._execution_inventory_from_events(
+        expected,
+        [
+            {"event": "collection", "worker": "gw0", "nodeids": expected},
+            {"event": "report", "nodeid": expected[0], "when": "call", "outcome": "passed"},
+            {"event": "report", "nodeid": expected[0], "when": "call", "outcome": "passed"},
+            {"event": "report", "nodeid": expected[1], "when": "call", "outcome": "passed"},
+        ],
+    )
+
+    assert exact["passed"] is True
+    assert exact["terminal_outcomes"] == {"passed": 1, "skipped": 1}
+    assert exact["duration_summary"] == {
+        "test_phase_total_seconds": 0.8,
+        "worker_test_phase_seconds": {"gw0": 0.6, "gw1": 0.2},
+        "slowest": [
+            {"nodeid": expected[0], "duration_seconds": 0.6, "worker": "gw0"},
+            {"nodeid": expected[1], "duration_seconds": 0.2, "worker": "gw1"},
+        ],
+    }
+    assert duplicate["passed"] is False
+    assert duplicate["ambiguous_terminal_nodeids"] == [expected[0]]
+    assert duplicate["comparison"]["duplicates"] == [expected[0]]
+
+
+def test_scheduler_timeout_terminates_only_its_owned_process_group() -> None:
+    result = pytest_scheduler_experiment._run_captured_process(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        env=pytest_scheduler_experiment._test_environment(),
+        timeout_seconds=0.05,
+    )
+
+    assert result["returncode"] == 124
+    assert result["timed_out"] is True
+    assert result["timeout_seconds"] == 0.05
+    assert "scheduler process group timed out" in result["stderr"]
+
+
 @pytest.mark.parametrize(
     ("method", "expected"),
     [

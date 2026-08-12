@@ -123,6 +123,52 @@ def test_index_adapter_db_counts_uses_count_port(tmp_path: Path) -> None:
     assert calls == [db_path]
 
 
+def test_index_adapter_bounded_counts_disables_expensive_fts_fallback(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    captured: dict[str, Any] = {}
+
+    def fake_count(path: Path, **kwargs: Any) -> dict[str, Any]:
+        captured["path"] = path
+        captured.update(kwargs)
+        return {"fts_chunks": 7}
+
+    result = nervous_index_adapters.db_counts_bounded(
+        db_path,
+        busy_timeout_ms=75,
+        count=fake_count,
+    )
+
+    assert result == {"fts_chunks": 7}
+    assert captured == {
+        "path": db_path,
+        "busy_timeout_ms": 75,
+        "allow_expensive_fts_fallback": False,
+    }
+
+
+def test_index_adapter_source_present_uses_bounded_target_probe(tmp_path: Path) -> None:
+    db_path = tmp_path / "nervous.db"
+    captured: dict[str, Any] = {}
+
+    def fake_probe(path: Path, source_id: str, **kwargs: Any) -> dict[str, Any]:
+        captured.update({"path": path, "source_id": source_id, **kwargs})
+        return {"present": True}
+
+    result = nervous_index_adapters.source_present(
+        db_path,
+        "typed_text_autolog",
+        busy_timeout_ms=80,
+        probe=fake_probe,
+    )
+
+    assert result == {"present": True}
+    assert captured == {
+        "path": db_path,
+        "source_id": "typed_text_autolog",
+        "busy_timeout_ms": 80,
+    }
+
+
 def test_index_adapter_scan_index_uses_scan_port(tmp_path: Path) -> None:
     db_path = tmp_path / "nervous.db"
     calls: list[dict[str, Any]] = []
@@ -302,6 +348,49 @@ def test_index_adapter_freshness_reads_latest_and_counts_history_layers(tmp_path
     assert line_calls == [fact_path, event_path, episode_path]
 
 
+def test_index_adapter_freshness_batches_counts_after_latest_snapshot(tmp_path: Path) -> None:
+    facts_latest_path = tmp_path / "facts-latest.json"
+    events_latest_path = tmp_path / "events-latest.json"
+    episodes_latest_path = tmp_path / "episodes-latest.json"
+    fact_path = tmp_path / "facts.jsonl"
+    event_path = tmp_path / "events.jsonl"
+    episode_path = tmp_path / "episodes.jsonl"
+    calls: list[tuple[str, Any]] = []
+
+    def latest_reader(path: Path) -> tuple[dict[str, Any], None]:
+        calls.append(("latest", path))
+        return {"generated_at": "2026-06-25T12:00:00+00:00"}, None
+
+    def line_counts_reader(paths: list[Path]) -> tuple[dict[Path, int | None], str]:
+        calls.append(("counts", paths))
+        return {fact_path: 2, event_path: 3, episode_path: 4}, "batched_wc_l_exact"
+
+    result = nervous_index_adapters.freshness_document_from_paths(
+        meta={"built_at": "2026-06-25T12:00:00+00:00", "records_seen": "5"},
+        config={"automation": {"interval": "45m"}},
+        facts_latest_path=facts_latest_path,
+        events_latest_path=events_latest_path,
+        episodes_latest_path=episodes_latest_path,
+        fact_files=[fact_path],
+        event_files=[event_path],
+        episode_files=[episode_path],
+        now=dt.datetime(2026, 6, 25, 13, 0, tzinfo=dt.timezone.utc),
+        latest_reader=latest_reader,
+        line_counter=lambda path: (_ for _ in ()).throw(AssertionError(f"unexpected fallback: {path}")),
+        line_counts_reader=line_counts_reader,
+    )
+
+    assert calls == [
+        ("latest", facts_latest_path),
+        ("latest", events_latest_path),
+        ("latest", episodes_latest_path),
+        ("counts", [fact_path, event_path, episode_path]),
+    ]
+    assert result["history_records"] == 9
+    assert result["history_records_by_layer"] == {"facts": 2, "events": 3, "episodes": 4}
+    assert result["history_count_method"] == "batched_wc_l_exact"
+
+
 def test_index_adapter_status_collects_latest_counts_freshness_and_timer_ports(tmp_path: Path) -> None:
     config_path = tmp_path / "nervous-index.json"
     db_path = tmp_path / "index" / "nervous.db"
@@ -417,7 +506,11 @@ def test_index_adapter_validation_collects_storage_scan_and_record_ports(tmp_pat
         "fts_chunks": 4,
         "meta": {"schema": "abyss_machine_nervous_search_index_v1"},
     }
-    freshness = {"stale": False, "lag_sec": 0}
+    freshness = {
+        "stale": False,
+        "lag_sec": 0,
+        "history_records_by_layer": {"facts": 3, "events": 1, "episodes": 2},
+    }
     scan = {
         "indexed_source_ids": ["abyss_machine_facts", "browser_active_tab", "nervous_events", "nervous_episodes"],
         "documents_by_schema": {
@@ -497,8 +590,6 @@ def test_index_adapter_validation_collects_storage_scan_and_record_ports(tmp_pat
         ("counts", None),
         ("freshness", {"meta": counts_doc["meta"], "config": config}),
         ("scan", {"path": db_path, "query": '"nervous" OR "storage" OR "thermal" OR "episode"'}),
-        ("line", event_path),
-        ("line", episode_path),
     ]
 
 
@@ -1004,8 +1095,11 @@ def test_cli_nervous_index_freshness_binds_adapter_paths_and_ports(monkeypatch, 
     def forbidden_latest_reader(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         raise AssertionError(f"CLI must pass latest reader to adapter, not call it directly: {path}")
 
-    def forbidden_line_counter(path: Path) -> int | None:
-        raise AssertionError(f"CLI must pass line counter to adapter, not call it directly: {path}")
+    line_counts = {fact_path: 1, event_path: 2, episode_path: 3}
+
+    def fake_line_count_snapshot(paths: list[Path]) -> tuple[dict[Path, int | None], str]:
+        captured["line_count_paths"] = paths
+        return line_counts, "batched_wc_l_exact"
 
     monkeypatch.setattr(cli, "NERVOUS_FACTS_LATEST_PATH", facts_latest)
     monkeypatch.setattr(cli, "NERVOUS_EVENTS_LATEST_PATH", events_latest)
@@ -1014,7 +1108,12 @@ def test_cli_nervous_index_freshness_binds_adapter_paths_and_ports(monkeypatch, 
     monkeypatch.setattr(cli, "nervous_event_jsonl_files", lambda: [event_path])
     monkeypatch.setattr(cli, "nervous_episode_jsonl_files", lambda: [episode_path])
     monkeypatch.setattr(cli, "load_json_document", forbidden_latest_reader)
-    monkeypatch.setattr(cli, "count_file_lines", forbidden_line_counter)
+    monkeypatch.setattr(
+        cli,
+        "count_file_lines",
+        lambda path: (_ for _ in ()).throw(AssertionError(f"batched line-count route must own {path}")),
+    )
+    monkeypatch.setattr(cli, "count_file_lines_snapshot", fake_line_count_snapshot)
     monkeypatch.setattr(cli.nervous_index_adapters, "freshness_document_from_paths", fake_freshness)
 
     result = cli.nervous_index_freshness(meta=meta, config=config)
@@ -1029,7 +1128,62 @@ def test_cli_nervous_index_freshness_binds_adapter_paths_and_ports(monkeypatch, 
     assert captured["event_files"] == [event_path]
     assert captured["episode_files"] == [episode_path]
     assert captured["latest_reader"] is forbidden_latest_reader
-    assert captured["line_counter"] is forbidden_line_counter
+    assert captured["line_counter"] is cli.count_file_lines
+    assert captured["line_counts_reader"] is fake_line_count_snapshot
+
+
+def test_cli_line_count_snapshot_batches_exact_wc_output(monkeypatch, tmp_path: Path) -> None:
+    first = tmp_path / "first.jsonl"
+    second = tmp_path / "second file.jsonl"
+    first.write_text("a\nb", encoding="utf-8")
+    second.write_text("c\n", encoding="utf-8")
+    calls: list[dict[str, Any]] = []
+
+    def fake_run(cmd: list[str], timeout: float = 3.0, env: dict[str, str] | None = None) -> dict[str, Any]:
+        calls.append({"cmd": cmd, "timeout": timeout, "env": env})
+        return {
+            "ok": True,
+            "returncode": 0,
+            "stdout": f"1 {first}\n1 {second}\n2 total",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(cli, "run", fake_run)
+
+    counts, method = cli.count_file_lines_snapshot([second, first], batch_size=10)
+
+    assert counts == {first: 2, second: 1}
+    assert method == "batched_wc_l_exact"
+    assert calls == [
+        {
+            "cmd": ["wc", "-l", "--", str(first), str(second)],
+            "timeout": 30.0,
+            "env": None,
+        }
+    ]
+
+
+def test_cli_line_count_snapshot_preserves_exact_per_file_fallback(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text("a\nb\n", encoding="utf-8")
+    fallback_calls: list[Path] = []
+
+    monkeypatch.setattr(
+        cli,
+        "run",
+        lambda cmd, timeout=3.0, env=None: {"ok": False, "stdout": "", "stderr": "wc failed"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "count_file_lines",
+        lambda item: fallback_calls.append(item) or 2,
+    )
+
+    counts, method = cli.count_file_lines_snapshot([path])
+
+    assert counts == {path: 2}
+    assert method == "batched_wc_l_with_per_file_exact_fallback"
+    assert fallback_calls == [path]
 
 
 def test_cli_nervous_index_status_binds_adapter_ports(monkeypatch, tmp_path: Path) -> None:

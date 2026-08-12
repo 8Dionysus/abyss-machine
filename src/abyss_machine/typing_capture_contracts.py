@@ -3915,6 +3915,7 @@ def typing_coverage_document_from_records(
     latest: Mapping[str, Any] | None = None,
     generated_at: str,
     coverage_snapshot: Mapping[str, Any] | None = None,
+    process_snapshot: Mapping[str, Any] | None = None,
     schema_prefix: str = "abyss_machine",
     version: str = "0.0.0",
     home_path: str | None = None,
@@ -3945,14 +3946,18 @@ def typing_coverage_document_from_records(
     by_gate = collections.Counter(str(nested_get(item, ["capture_gate", "decision"]) or "missing") for item in valid_records)
     by_recipient = collections.Counter(str(nested_get(item, ["causal_context", "recipient", "kind"]) or "missing") for item in valid_records)
     by_project = collections.Counter(str(nested_get(item, ["causal_context", "where", "project", "id"]) or "unknown") for item in valid_records)
-    process_readmodel = typing_process_from_records(
-        valid_records,
-        parse_errors,
-        policy_data,
-        generated_at=generated_at,
-        schema_prefix=schema_prefix,
-        version=version,
-        home_path=home_path,
+    process_readmodel = (
+        process_snapshot
+        if isinstance(process_snapshot, Mapping)
+        else typing_process_from_records(
+            valid_records,
+            parse_errors,
+            policy_data,
+            generated_at=generated_at,
+            schema_prefix=schema_prefix,
+            version=version,
+            home_path=home_path,
+        )
     )
     effective_entry_index = typing_process_entry_index(process_readmodel)
     effective_by_recipient = process_readmodel.get("by_recipient") if isinstance(process_readmodel.get("by_recipient"), Mapping) else {}
@@ -4758,6 +4763,182 @@ def typing_status_document(
         },
         "paths": dict(paths),
         "errors": ensure_error_items + parse_error_items[:20],
+    }
+
+
+def _typing_status_compact_select(
+    value: Any,
+    keys: Iterable[str],
+) -> dict[str, Any]:
+    data = value if isinstance(value, Mapping) else {}
+    return {key: data.get(key) for key in keys if key in data}
+
+
+def _typing_status_compact_component(value: Any) -> dict[str, Any]:
+    data = value if isinstance(value, Mapping) else {}
+    component = _typing_status_compact_select(
+        data,
+        (
+            "schema",
+            "version",
+            "generated_at",
+            "ok",
+            "status",
+            "enabled",
+            "exists",
+            "skipped",
+            "skip_reason",
+            "error",
+        ),
+    )
+    summary = data.get("summary")
+    if isinstance(summary, Mapping):
+        component["summary"] = dict(summary)
+    return component
+
+
+def _typing_status_compact_latest(value: Any) -> dict[str, Any]:
+    data = value if isinstance(value, Mapping) else {}
+    capture_gate = data.get("capture_gate") if isinstance(data.get("capture_gate"), Mapping) else {}
+    causal = data.get("causal_context") if isinstance(data.get("causal_context"), Mapping) else {}
+    where = causal.get("where") if isinstance(causal.get("where"), Mapping) else {}
+    recipient = causal.get("recipient") if isinstance(causal.get("recipient"), Mapping) else {}
+    task = causal.get("task") if isinstance(causal.get("task"), Mapping) else {}
+    correlation = causal.get("correlation") if isinstance(causal.get("correlation"), Mapping) else {}
+    project = where.get("project") if isinstance(where.get("project"), Mapping) else {}
+    context_anchor = where.get("context_anchor") if isinstance(where.get("context_anchor"), Mapping) else {}
+    interaction = where.get("interaction") if isinstance(where.get("interaction"), Mapping) else {}
+
+    latest = _typing_status_compact_select(
+        data,
+        ("ok", "generated_at", "status", "source_adapter"),
+    )
+    latest["capture_gate"] = _typing_status_compact_select(
+        capture_gate,
+        ("decision", "confidence"),
+    )
+    latest["causal_context"] = {
+        "where": {
+            **_typing_status_compact_select(where, ("kind",)),
+            "project": _typing_status_compact_select(
+                project,
+                ("id", "name", "basis", "confidence"),
+            ),
+            "context_anchor": _typing_status_compact_select(
+                context_anchor,
+                ("id", "kind", "basis", "confidence"),
+            ),
+            "interaction": _typing_status_compact_select(
+                interaction,
+                ("id", "kind", "basis", "confidence"),
+            ),
+        },
+        "recipient": _typing_status_compact_select(
+            recipient,
+            ("id", "kind", "name", "confidence"),
+        ),
+        "task": _typing_status_compact_select(
+            task,
+            ("binding", "confidence"),
+        ),
+        "correlation": _typing_status_compact_select(
+            correlation,
+            (
+                "id",
+                "event_id",
+                "interaction_id",
+                "project_id",
+                "recipient_id",
+                "task_anchor_id",
+                "timeline_key",
+            ),
+        ),
+    }
+    return latest
+
+
+def _typing_status_compact_evidence_refs(value: Any, *, limit: int = 24) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def walk(item: Any, prefix: tuple[str, ...]) -> None:
+        if len(refs) >= limit:
+            return
+        if isinstance(item, Mapping):
+            for key, child in item.items():
+                walk(child, (*prefix, str(key)))
+        elif (
+            isinstance(item, str)
+            and item.startswith("/")
+            and prefix[-1] in {"agent_entrypoint", "policy", "index", "latest"}
+            and item not in seen
+        ):
+            seen.add(item)
+            refs.append({"ref": ".".join(prefix), "path": item})
+
+    walk(value, ("paths",))
+    return refs
+
+
+def typing_status_compact_document(
+    status: Mapping[str, Any],
+    *,
+    schema_prefix: str = "abyss_machine",
+    version: str = "0.0.0",
+) -> dict[str, Any]:
+    """Project full typing status into a bounded session-facing read contract."""
+    status_data = status if isinstance(status, Mapping) else {}
+    summary = status_data.get("summary") if isinstance(status_data.get("summary"), Mapping) else {}
+    policy = status_data.get("policy") if isinstance(status_data.get("policy"), Mapping) else {}
+    errors = status_data.get("errors") if isinstance(status_data.get("errors"), list) else []
+    paths = status_data.get("paths") if isinstance(status_data.get("paths"), Mapping) else {}
+    component_names = (
+        "coverage",
+        "process",
+        "gnome_accessibility",
+        "processing",
+        "focused_snapshot",
+        "saved_text_scan",
+        "codex_session_tail",
+        "editor_extension",
+        "nervous_refresh",
+        "browser_content_capture",
+    )
+    return {
+        "schema": f"{schema_prefix}_typing_status_compact_v1",
+        "version": status_data.get("version") or version,
+        "generated_at": status_data.get("generated_at"),
+        "ok": status_data.get("ok") is True,
+        "source_schema": status_data.get("schema"),
+        "summary": dict(summary),
+        "policy": dict(policy),
+        "latest": _typing_status_compact_latest(status_data.get("latest")),
+        "components": {
+            name: _typing_status_compact_component(status_data.get(name))
+            for name in component_names
+        },
+        "evidence_refs": _typing_status_compact_evidence_refs(paths),
+        "errors": {
+            "count": len(errors),
+            "details_omitted": bool(errors),
+            "detail_route": "abyss-machine typing status --json",
+        },
+        "commands": {
+            "compact": "abyss-machine typing status --compact --json",
+            "full": "abyss-machine typing status --json",
+        },
+        "projection": {
+            "kind": "bounded_session_readmodel",
+            "authoritative_detail": False,
+            "source_status_authoritative": True,
+            "omits_event_entries_and_causal_lanes": True,
+            "widens_capture": False,
+        },
+        "non_claims": [
+            "This compact document is a bounded projection; the full typing status remains the detailed owner readmodel.",
+            "Omitted event entries and causal lanes are not evidence that they are absent.",
+            "This projection does not widen capture, weaken capture-gate policy, or authorize action.",
+        ],
     }
 
 

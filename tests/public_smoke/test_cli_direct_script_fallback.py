@@ -8,9 +8,29 @@ ROOT = Path(__file__).resolve().parents[2]
 CLI = ROOT / "src" / "abyss_machine" / "cli.py"
 
 
-def test_direct_script_fallback_imports_all_simple_package_modules() -> None:
+def test_direct_script_package_bindings_cover_lazy_and_eager_modules() -> None:
     tree = ast.parse(CLI.read_text(encoding="utf-8"))
+    lazy_modules = {
+        value.value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "_lazy_module_bindings"
+        for value in (
+            [*call.args]
+            + [keyword.value for keyword in call.keywords]
+        )
+        if isinstance(value, ast.Constant) and isinstance(value.value, str)
+    }
 
+    assert "doctor_adapters" in lazy_modules
+    assert "self_awareness_adapters" in lazy_modules
+    assert all(
+        (ROOT / "src" / "abyss_machine" / f"{module_name}.py").is_file()
+        for module_name in lazy_modules
+    )
+
+    fallback_block_found = False
     for node in tree.body:
         if not isinstance(node, ast.Try):
             continue
@@ -36,7 +56,6 @@ def test_direct_script_fallback_imports_all_simple_package_modules() -> None:
         }
 
         assert relative_imports <= fallback_imports
-        assert "doctor_adapters" in fallback_imports
-        return
+        fallback_block_found = True
 
-    raise AssertionError("cli.py package import fallback block was not found")
+    assert fallback_block_found, "cli.py package import fallback block was not found"

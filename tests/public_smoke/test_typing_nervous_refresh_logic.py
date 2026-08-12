@@ -13,6 +13,7 @@ from abyss_machine import cli
 from abyss_machine.typing_nervous_refresh import (
     TYPING_NERVOUS_INDEX_RESOURCE_GATE_REASONS,
     typing_nervous_deferred_recent_index_safe,
+    typing_nervous_index_latest_evidence,
     typing_nervous_index_resource_gated,
     typing_nervous_processing_acceptance_status,
     typing_nervous_processing_status_document,
@@ -941,6 +942,127 @@ def test_typing_nervous_processing_status_document_distinguishes_stale_and_missi
     assert missing["search_index"]["source_enabled_in_index"] is False
 
 
+def test_typing_nervous_processing_uses_persisted_validation_evidence_without_false_freshness() -> None:
+    facts_latest = {
+        "generated_at": "2026-06-20T05:03:00+00:00",
+        "facts": [
+            {
+                "source_id": "typed_text_autolog",
+                "observed_at": "2026-06-20T05:03:00+00:00",
+                "summary": {"latest_exists": True, "entries_indexed": 1, "parse_errors": 0},
+                "entries": [{"event_id": "event-1", "generated_at": "2026-06-20T05:02:00+00:00"}],
+            }
+        ],
+    }
+    index_latest = {
+        "schema": "abyss_machine_nervous_index_validate_v1",
+        "generated_at": "2026-06-20T05:10:00+00:00",
+        "ok": True,
+        "freshness": {"index_built_at": "2026-06-20T05:01:00+00:00"},
+        "summary": {"documents": 5, "chunks": 7, "fts_chunks": 7},
+        "checks": [
+            {
+                "key": "private_connector_sources",
+                "level": "ok",
+                "details": {"private_present": ["typed_text_autolog"]},
+            }
+        ],
+    }
+
+    evidence = typing_nervous_index_latest_evidence(index_latest)
+    status = typing_nervous_processing_status_document(
+        source={"enabled": True, "allowed": True},
+        facts_latest=facts_latest,
+        facts_error=None,
+        index_latest=index_latest,
+        index_error=None,
+        facts_latest_path="facts.json",
+        index_latest_path="index.json",
+    )
+
+    assert evidence["counts"] == {
+        "documents": 5,
+        "chunks": 7,
+        "fts_chunks": 7,
+        "meta": {"built_at": "2026-06-20T05:01:00+00:00"},
+    }
+    assert evidence["source_present"] is True
+    assert evidence["counts_basis"] == "persisted_validation_summary"
+    assert evidence["source_ids_basis"] == "persisted_validation_source_presence"
+    assert status["status"] == "facts_ready_index_stale"
+    assert status["search_index"]["built_at"] == "2026-06-20T05:01:00+00:00"
+    assert status["search_index"]["generated_at"] == "2026-06-20T05:10:00+00:00"
+    assert status["search_index"]["counts_basis"] == "persisted_validation_summary"
+
+
+def test_cli_typing_nervous_processing_avoids_live_index_scan_when_latest_proves_state(monkeypatch) -> None:
+    source = {"enabled": True, "allowed": True, "group": "typing", "content": "typed_text"}
+    facts_latest = {
+        "generated_at": "2026-06-20T05:00:00+00:00",
+        "facts": [
+            {
+                "source_id": "typed_text_autolog",
+                "observed_at": "2026-06-20T04:59:30+00:00",
+                "summary": {"latest_exists": True, "entries_indexed": 2, "parse_errors": 0},
+                "entries": [{"event_id": "event-1", "generated_at": "2026-06-20T04:59:00+00:00"}],
+            }
+        ],
+    }
+    index_latest = {
+        "schema": "abyss_machine_nervous_index_validate_v1",
+        "generated_at": "2026-06-20T05:02:00+00:00",
+        "ok": True,
+        "freshness": {"index_built_at": "2026-06-20T05:01:00+00:00"},
+        "summary": {"documents": 5, "chunks": 7, "fts_chunks": 7},
+        "checks": [
+            {"key": "private_connector_sources", "details": {"private_present": ["typed_text_autolog"]}}
+        ],
+    }
+
+    def fake_load_json_document(path: Path) -> tuple[dict, None]:
+        if path == cli.NERVOUS_FACTS_LATEST_PATH:
+            return facts_latest, None
+        if path == cli.NERVOUS_SEARCH_INDEX_LATEST_PATH:
+            return index_latest, None
+        return {}, None
+
+    def forbidden_live_read(*args: object, **kwargs: object) -> dict:
+        raise AssertionError("persisted latest evidence must avoid a live SQLite diagnostic scan")
+
+    monkeypatch.setattr(cli, "nervous_source_lookup", lambda source_id: source)
+    monkeypatch.setattr(cli, "load_json_document", fake_load_json_document)
+    monkeypatch.setattr(cli, "nervous_index_db_counts_bounded", forbidden_live_read)
+    monkeypatch.setattr(cli, "nervous_index_source_present", forbidden_live_read)
+
+    status = cli.typing_nervous_processing_status()
+
+    assert status["ok"] is True
+    assert status["search_index"]["counts_basis"] == "persisted_validation_summary"
+    assert status["search_index"]["source_ids_basis"] == "persisted_validation_source_presence"
+
+
+def test_typing_nervous_processing_rejects_failed_cached_validation_as_proof() -> None:
+    evidence = typing_nervous_index_latest_evidence(
+        {
+            "schema": "abyss_machine_nervous_index_validate_v1",
+            "ok": False,
+            "freshness": {"index_built_at": "2026-06-20T05:01:00+00:00"},
+            "summary": {"documents": 0, "chunks": 0, "fts_chunks": 0},
+            "checks": [
+                {
+                    "key": "private_connector_sources",
+                    "details": {"private_present": ["typed_text_autolog"]},
+                }
+            ],
+        }
+    )
+
+    assert evidence["counts"] == {}
+    assert evidence["source_ids"] == []
+    assert evidence["counts_basis"] is None
+    assert evidence["source_ids_basis"] is None
+
+
 def test_cli_typing_nervous_processing_status_uses_module_document(monkeypatch) -> None:
     source = {"enabled": True, "allowed": True, "group": "typing", "content": "typed_text"}
     facts_latest = {
@@ -991,6 +1113,7 @@ def test_cli_typing_nervous_processing_status_uses_module_document(monkeypatch) 
 
 
 def test_cli_exports_typing_nervous_refresh_helpers_from_module() -> None:
+    assert cli.typing_nervous_index_latest_evidence is typing_nervous_index_latest_evidence
     assert cli.typing_nervous_index_resource_gated is typing_nervous_index_resource_gated
     assert cli.typing_nervous_deferred_recent_index_safe is typing_nervous_deferred_recent_index_safe
     assert cli.typing_nervous_processing_acceptance_status is typing_nervous_processing_acceptance_status

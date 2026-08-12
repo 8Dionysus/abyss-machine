@@ -16,7 +16,7 @@ from . import nervous_index
 DEFAULT_STATE_GROUP = "wheel"
 
 ConnectDb = Callable[[Path, bool], sqlite3.Connection]
-CountDb = Callable[[Path], dict[str, Any]]
+CountDb = Callable[..., dict[str, Any]]
 CountsReader = Callable[[], dict[str, Any]]
 DerivedRefreshSummaryBuilder = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 EpisodesRefreshBuilder = Callable[..., dict[str, Any]]
@@ -25,6 +25,7 @@ FreshnessReader = Callable[..., dict[str, Any]]
 InitializeDb = Callable[..., str | None]
 LatestReader = Callable[[Path], tuple[dict[str, Any] | None, str | None]]
 LineCounter = Callable[[Path], int | None]
+LineCountsReader = Callable[[list[Path]], tuple[dict[Path, int | None], str]]
 LockFactory = Callable[[Path], Any]
 MetaReader = Callable[[Path], dict[str, Any]]
 ModeApplier = Callable[..., None]
@@ -149,6 +150,29 @@ def path_has_symlink_tail(path: Path, *, stop_at: Path | None = None) -> bool:
 
 def db_counts(db_path: Path, count: CountDb = nervous_index.counts) -> dict[str, Any]:
     return count(db_path)
+
+
+def db_counts_bounded(
+    db_path: Path,
+    *,
+    busy_timeout_ms: int,
+    count: CountDb = nervous_index.counts,
+) -> dict[str, Any]:
+    return count(
+        db_path,
+        busy_timeout_ms=busy_timeout_ms,
+        allow_expensive_fts_fallback=False,
+    )
+
+
+def source_present(
+    db_path: Path,
+    source_id: str,
+    *,
+    busy_timeout_ms: int,
+    probe: Callable[..., dict[str, Any]] = nervous_index.source_present,
+) -> dict[str, Any]:
+    return probe(db_path, source_id, busy_timeout_ms=busy_timeout_ms)
 
 
 def scan_index(
@@ -307,6 +331,8 @@ def freshness_document_from_paths(
     now: Any,
     latest_reader: LatestReader,
     line_counter: LineCounter,
+    line_counts_reader: LineCountsReader | None = None,
+    history_count_method: str = "latest_documents_plus_jsonl_line_counts",
 ) -> dict[str, Any]:
     latest_fact, _latest_fact_error = latest_reader(facts_latest_path)
     latest_event, _latest_event_error = latest_reader(events_latest_path)
@@ -314,13 +340,23 @@ def freshness_document_from_paths(
     history_records = 0
     history_parse_errors = 0
     history_records_by_layer = {"facts": 0, "events": 0, "episodes": 0}
-    for layer, files in (
+    layered_files = (
         ("facts", fact_files),
         ("events", event_files),
         ("episodes", episode_files),
-    ):
+    )
+    if line_counts_reader is not None:
+        line_counts, history_count_method = line_counts_reader(
+            [path for _layer, files in layered_files for path in files]
+        )
+
+        def effective_line_counter(path: Path) -> int | None:
+            return line_counts.get(path)
+    else:
+        effective_line_counter = line_counter
+    for layer, files in layered_files:
         for path in files:
-            lines = line_counter(path)
+            lines = effective_line_counter(path)
             if lines is None:
                 history_parse_errors += 1
                 continue
@@ -336,6 +372,7 @@ def freshness_document_from_paths(
         history_records_by_layer=history_records_by_layer,
         history_parse_errors=history_parse_errors,
         now=now,
+        history_count_method=history_count_method,
     )
 
 
@@ -436,8 +473,13 @@ def validation_document_from_ports(
             scan = scan_reader(db_path, smoke_match_query=smoke_match_query)
     except sqlite3.Error as exc:
         scan_error = str(exc)
-    event_records = sum(line_counter(path) or 0 for path in event_files)
-    episode_records = sum(line_counter(path) or 0 for path in episode_files)
+    history_by_layer = freshness.get("history_records_by_layer")
+    if isinstance(history_by_layer, dict):
+        event_records = int(history_by_layer.get("events") or 0)
+        episode_records = int(history_by_layer.get("episodes") or 0)
+    else:
+        event_records = sum(line_counter(path) or 0 for path in event_files)
+        episode_records = sum(line_counter(path) or 0 for path in episode_files)
     return nervous_index.validation_document(
         schema_prefix=schema_prefix,
         version=version,

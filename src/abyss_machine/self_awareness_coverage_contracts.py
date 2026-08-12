@@ -1097,10 +1097,22 @@ def objective_coverage_audit(
         coverage_gap_rows=[],
         generated_at=generated_at,
     )
-    if not contract_port.dependent_link_readmodels_fresh(
-        dependency_probe_link_integrity
-    ) or not contract_port.link_integrity_matches_working_stack(
-        working_stack, dependency_probe_link_integrity
+    working_stack_organs = (
+        working_stack.get("organs")
+        if isinstance(working_stack.get("organs"), list)
+        else []
+    )
+    has_working_stack_organs = any(
+        isinstance(organ, dict) and organ.get("service")
+        for organ in working_stack_organs
+    )
+    if has_working_stack_organs and (
+        not contract_port.dependent_link_readmodels_fresh(
+            dependency_probe_link_integrity
+        )
+        or not contract_port.link_integrity_matches_working_stack(
+            working_stack, dependency_probe_link_integrity
+        )
     ):
         if working_stack_doc_supplied:
             refresh_port.refresh_working_stack_dependent_readmodels(

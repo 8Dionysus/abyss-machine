@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,6 +27,11 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _sqlite_busy_error(exc: sqlite3.Error) -> bool:
+    message = str(exc).lower()
+    return "locked" in message or "busy" in message
 
 
 def parse_time(value: Any) -> dt.datetime | None:
@@ -1036,6 +1042,7 @@ def freshness_document(
     history_records_by_layer: dict[str, int],
     history_parse_errors: int,
     now: dt.datetime,
+    history_count_method: str = "latest_documents_plus_jsonl_line_counts",
 ) -> dict[str, Any]:
     meta = meta if isinstance(meta, dict) else {}
     config = config if isinstance(config, dict) else {}
@@ -1096,7 +1103,7 @@ def freshness_document(
         "history_records": int(history_records),
         "history_records_by_layer": history_records_by_layer,
         "history_parse_errors": int(history_parse_errors),
-        "history_count_method": "latest_documents_plus_jsonl_line_counts",
+        "history_count_method": history_count_method,
         "index_records_seen": index_records_seen,
         "records_lag": records_lag,
         "records_lag_tolerance": records_lag_tolerance,
@@ -1275,13 +1282,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
 """.strip()
 
 
-def connect_db(db_path: Path, create: bool = False) -> sqlite3.Connection:
+def connect_db(
+    db_path: Path,
+    create: bool = False,
+    *,
+    busy_timeout_ms: int = 5000,
+) -> sqlite3.Connection:
     if create:
         db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    normalized_busy_timeout_ms = max(int(busy_timeout_ms), 0)
+    conn = sqlite3.connect(str(db_path), timeout=normalized_busy_timeout_ms / 1000.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute(f"PRAGMA busy_timeout={normalized_busy_timeout_ms}")
     if create:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -1342,60 +1355,141 @@ def _index_run_from_row(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def counts(db_path: Path) -> dict[str, Any]:
+def counts(
+    db_path: Path,
+    *,
+    busy_timeout_ms: int = 5000,
+    allow_expensive_fts_fallback: bool = True,
+) -> dict[str, Any]:
+    started = time.monotonic()
     data: dict[str, Any] = {
         "db_path": str(db_path),
         "db_exists": db_path.exists(),
         "db_size_bytes": db_path.stat().st_size if db_path.exists() else None,
+        "read": {
+            "basis": "sqlite_live_snapshot",
+            "busy_timeout_ms": max(int(busy_timeout_ms), 0),
+        },
     }
     if not db_path.exists():
+        data["read"]["elapsed_ms"] = round((time.monotonic() - started) * 1000.0, 3)
         return data
     try:
-        conn = connect_db(db_path, create=False)
+        conn = connect_db(db_path, create=False, busy_timeout_ms=busy_timeout_ms)
         try:
-            for table in ("documents", "chunks", "fts_chunks", "index_runs"):
+            conn.execute("BEGIN")
+            for table in ("documents", "chunks", "index_runs"):
                 try:
                     row = conn.execute(f"SELECT count(*) FROM {table}").fetchone()
                     data[table] = int(row[0]) if row else None
                 except sqlite3.Error as exc:
                     data[f"{table}_error"] = str(exc)
+                    if _sqlite_busy_error(exc):
+                        data["error"] = str(exc)
+                        break
+            if not data.get("error"):
+                try:
+                    # Reading the FTS5 virtual table materializes every stored column and is
+                    # orders of magnitude slower than counting its one-row-per-document
+                    # docsize shadow table. This schema always keeps columnsize enabled.
+                    row = conn.execute("SELECT count(*) FROM fts_chunks_docsize").fetchone()
+                    data["fts_chunks"] = int(row[0]) if row else None
+                    data["read"]["fts_count_basis"] = "fts5_docsize_rows"
+                except sqlite3.Error as docsize_exc:
+                    data["read"]["fts_docsize_error"] = str(docsize_exc)
+                    if _sqlite_busy_error(docsize_exc):
+                        data["error"] = str(docsize_exc)
+                    elif allow_expensive_fts_fallback:
+                        try:
+                            row = conn.execute("SELECT count(*) FROM fts_chunks").fetchone()
+                            data["fts_chunks"] = int(row[0]) if row else None
+                            data["read"]["fts_count_basis"] = "fts5_virtual_table_rows_fallback"
+                        except sqlite3.Error as exc:
+                            data["fts_chunks_error"] = str(exc)
+                            if _sqlite_busy_error(exc):
+                                data["error"] = str(exc)
+                    else:
+                        data["fts_chunks_error"] = "fts5 docsize count unavailable; expensive virtual-table fallback skipped"
             meta: dict[str, Any] = {}
-            try:
-                for row in conn.execute("SELECT key, value FROM meta"):
-                    meta[str(row["key"])] = row["value"]
-            except sqlite3.Error as exc:
-                data["meta_error"] = str(exc)
+            if not data.get("error"):
+                try:
+                    for row in conn.execute("SELECT key, value FROM meta"):
+                        meta[str(row["key"])] = row["value"]
+                except sqlite3.Error as exc:
+                    data["meta_error"] = str(exc)
+                    if _sqlite_busy_error(exc):
+                        data["error"] = str(exc)
             data["meta"] = meta
-            try:
-                row = conn.execute(
-                    """
-                    SELECT run_id, started_at, finished_at, ok, source_files, records_seen, records_indexed,
-                           documents_indexed, chunks_indexed, errors_json
-                    FROM index_runs
-                    ORDER BY COALESCE(finished_at, started_at) DESC
-                    LIMIT 1
-                    """
-                ).fetchone()
-                if row:
-                    data["last_index_run"] = _index_run_from_row(row)
-                row = conn.execute(
-                    """
-                    SELECT run_id, started_at, finished_at, ok, source_files, records_seen, records_indexed,
-                           documents_indexed, chunks_indexed, errors_json
-                    FROM index_runs
-                    WHERE ok = 1
-                    ORDER BY COALESCE(finished_at, started_at) DESC
-                    LIMIT 1
-                    """
-                ).fetchone()
-                if row:
-                    data["last_successful_index_run"] = _index_run_from_row(row)
-            except sqlite3.Error as exc:
-                data["last_index_run_error"] = str(exc)
+            if not data.get("error"):
+                try:
+                    row = conn.execute(
+                        """
+                        SELECT run_id, started_at, finished_at, ok, source_files, records_seen, records_indexed,
+                               documents_indexed, chunks_indexed, errors_json
+                        FROM index_runs
+                        ORDER BY COALESCE(finished_at, started_at) DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    if row:
+                        data["last_index_run"] = _index_run_from_row(row)
+                    row = conn.execute(
+                        """
+                        SELECT run_id, started_at, finished_at, ok, source_files, records_seen, records_indexed,
+                               documents_indexed, chunks_indexed, errors_json
+                        FROM index_runs
+                        WHERE ok = 1
+                        ORDER BY COALESCE(finished_at, started_at) DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    if row:
+                        data["last_successful_index_run"] = _index_run_from_row(row)
+                except sqlite3.Error as exc:
+                    data["last_index_run_error"] = str(exc)
+                    if _sqlite_busy_error(exc):
+                        data["error"] = str(exc)
         finally:
             conn.close()
     except sqlite3.Error as exc:
         data["error"] = str(exc)
+    data["read"]["elapsed_ms"] = round((time.monotonic() - started) * 1000.0, 3)
+    return data
+
+
+def source_present(
+    db_path: Path,
+    source_id: str,
+    *,
+    busy_timeout_ms: int = 100,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    data: dict[str, Any] = {
+        "db_path": str(db_path),
+        "db_exists": db_path.exists(),
+        "source_id": str(source_id),
+        "present": False,
+        "read": {
+            "basis": "sqlite_chunks_source_id_index_probe",
+            "busy_timeout_ms": max(int(busy_timeout_ms), 0),
+        },
+    }
+    if not db_path.exists():
+        data["read"]["elapsed_ms"] = round((time.monotonic() - started) * 1000.0, 3)
+        return data
+    try:
+        conn = connect_db(db_path, create=False, busy_timeout_ms=busy_timeout_ms)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM chunks WHERE source_id = ? LIMIT 1",
+                (str(source_id),),
+            ).fetchone()
+            data["present"] = row is not None
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        data["error"] = str(exc)
+    data["read"]["elapsed_ms"] = round((time.monotonic() - started) * 1000.0, 3)
     return data
 
 

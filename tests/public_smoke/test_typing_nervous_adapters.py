@@ -169,6 +169,87 @@ def test_read_recent_jsonl_records_for_source_tracks_scan_exhaustion(tmp_path):
     }
 
 
+def test_read_recent_jsonl_records_for_sources_shares_one_ordered_scan(tmp_path, monkeypatch):
+    root = tmp_path / "typing-events"
+    path = root / "2026" / "06" / "2026-06-28.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "\n".join([
+            json.dumps({"event_id": "direct-old", "source_adapter": "direct"}),
+            json.dumps({"event_id": "tail-old", "source_adapter": "tail"}),
+            json.dumps({"event_id": "other", "source_adapter": "other"}),
+            json.dumps({"event_id": "direct-new", "source_adapter": "direct"}),
+            json.dumps({"event_id": "tail-new", "source_adapter": "tail"}),
+        ])
+        + "\n",
+        encoding="utf-8",
+    )
+    original_loader = typing_nervous_adapters.load_jsonl_records
+    loader_calls = []
+
+    def counted_loader(source_path):
+        loader_calls.append(source_path)
+        return original_loader(source_path)
+
+    monkeypatch.setattr(typing_nervous_adapters, "load_jsonl_records", counted_loader)
+
+    result = typing_nervous_adapters.read_recent_jsonl_records_for_sources(
+        root,
+        {"direct": 1, "tail": 2},
+        max_scan_records=10,
+    )
+
+    assert loader_calls == [path]
+    assert [record["event_id"] for record in result["direct"]["records"]] == ["direct-new"]
+    assert [record["event_id"] for record in result["tail"]["records"]] == ["tail-new", "tail-old"]
+    assert result["direct"]["errors"] == []
+    assert result["tail"]["errors"] == []
+    assert result["direct"]["scan"] == {
+        "source_adapter": "direct",
+        "limit": 1,
+        "max_scan_records": 10,
+        "scanned_records": 2,
+        "files_scanned": 1,
+        "exhausted": False,
+    }
+    assert result["tail"]["scan"] == {
+        "source_adapter": "tail",
+        "limit": 2,
+        "max_scan_records": 10,
+        "scanned_records": 4,
+        "files_scanned": 1,
+        "exhausted": False,
+    }
+
+
+def test_read_recent_jsonl_records_for_sources_preserves_active_lane_parse_errors(tmp_path):
+    root = tmp_path / "typing-events"
+    older = root / "2026" / "06" / "2026-06-27.jsonl"
+    newer = root / "2026" / "06" / "2026-06-28.jsonl"
+    older.parent.mkdir(parents=True)
+    older.write_text(
+        "not-json\n" + json.dumps({"event_id": "tail-old", "source_adapter": "tail"}) + "\n",
+        encoding="utf-8",
+    )
+    newer.write_text(
+        "broken-newer\n" + json.dumps({"event_id": "direct-new", "source_adapter": "direct"}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = typing_nervous_adapters.read_recent_jsonl_records_for_sources(
+        root,
+        {"direct": 1, "tail": 1},
+        max_scan_records=10,
+    )
+
+    assert [record["event_id"] for record in result["direct"]["records"]] == ["direct-new"]
+    assert [record["event_id"] for record in result["tail"]["records"]] == ["tail-old"]
+    assert len(result["direct"]["errors"]) == 1
+    assert len(result["tail"]["errors"]) == 2
+    assert result["direct"]["scan"]["files_scanned"] == 1
+    assert result["tail"]["scan"]["files_scanned"] == 2
+
+
 def test_codex_session_tail_files_includes_recent_state_files_inside_sessions_root(tmp_path):
     root = tmp_path / ".codex" / "sessions"
     recent = root / "2026" / "06" / "session-new-11111111-1111-1111-1111-111111111111.jsonl"

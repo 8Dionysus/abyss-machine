@@ -6387,6 +6387,22 @@ def test_export_orchestration_routes_refresh_and_final_persistence_independently
     assert document["summary"]["run_id"] == "run-fixture"
     assert document["portable_contract"]["actions_executed"] is False
     assert document["policy"]["host_layer_mutates_stack"] is False
+    manifest = document["manifest"]
+    artifact_list = document["artifact_list"]
+    artifacts = document["artifacts"]
+    assert manifest["schema"] == "abyss_machine_self_awareness_export_manifest_v1"
+    assert manifest["manifest_digest"] == document["summary"]["manifest_digest"]
+    assert manifest["artifact_count"] == len(artifact_list) == len(artifacts)
+    assert manifest["artifact_names"] == [row["name"] for row in artifact_list]
+    assert manifest["artifact_hashes"] == {
+        row["name"]: row["sha256"] for row in artifact_list
+    }
+    assert {row["name"] for row in artifact_list} == set(artifacts)
+    assert all(row["exists"] is True for row in artifact_list)
+    assert all(row["schema_ok"] is True for row in artifact_list)
+    assert all(row["sha256"] for row in artifact_list)
+    assert manifest["portable_contract"]["artifacts_are_machine_owned_readmodels"] is True
+    assert manifest["owner_boundary"]["host_layer_mutates_stack"] is False
     assert "refresh:working_stack" in calls
     assert calls[-3:] == ["refresh:alerts", "refresh:reactions", "refresh:responses"]
     assert ("working_stack", True) in refresh_write_intents

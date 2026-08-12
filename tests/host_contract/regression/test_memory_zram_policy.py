@@ -129,6 +129,48 @@ def test_memory_pressure_read_only_does_not_promote_child_writes(
     }
 
 
+def test_memory_pressure_bounded_plan_skips_process_attribution(
+    monkeypatch: pytest.MonkeyPatch,
+    abyss_machine_module,
+) -> None:
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "memory_status",
+        lambda write_latest=False: {
+            "ok": True,
+            "class": "green",
+            "reasons": [],
+            "meminfo": {"summary": {}},
+            "psi": {"some": {"avg10": 0.0}, "full": {"avg10": 0.0}},
+            "swap": {},
+            "swap_reserve": {},
+            "zram": {"summary": {}},
+            "zswap": {},
+            "oomd": {},
+        },
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "memory_process_snapshot",
+        lambda **kwargs: pytest.fail(
+            "bounded memory plan pressure must not scan process attribution"
+        ),
+    )
+
+    result = abyss_machine_module.memory_pressure(
+        top=30,
+        write_latest=False,
+        include_processes=False,
+    )
+
+    assert result["ok"] is True
+    assert result["summary"]["processes"] is None
+    assert result["processes"]["summary"]["collection_basis"] == (
+        "omitted_for_bounded_plan"
+    )
+    assert result["policy"]["process_attribution_collected"] is False
+
+
 def test_memory_plan_read_only_keeps_live_pressure_and_game_guard_read_only(
     monkeypatch: pytest.MonkeyPatch,
     abyss_machine_module,
@@ -147,17 +189,26 @@ def test_memory_plan_read_only_keeps_live_pressure_and_game_guard_read_only(
     monkeypatch.setattr(abyss_machine_module, "process_game_guard", game_guard)
     monkeypatch.setattr(
         abyss_machine_module,
-        "mode_status",
-        lambda: {"selected_mode": "balanced", "effective_mode": "balanced"},
+        "memory_plan_mode_snapshot",
+        lambda: (
+            {"selected_mode": "balanced", "effective_mode": "balanced"},
+            {"status": "fresh_latest_reused"},
+        ),
     )
 
     result = abyss_machine_module.memory_plan(write_latest=False)
 
     assert result["ok"] is True
     assert calls == {
-        "pressure": [{"top": 30, "write_latest": False}],
+        "pressure": [
+            {"top": 30, "write_latest": False, "include_processes": False}
+        ],
         "game_guard": [{"write_latest": False}],
     }
+    assert result["input_freshness"]["pressure"]["process_attribution"] == (
+        "omitted_for_bounded_plan"
+    )
+    assert result["input_freshness"]["mode"]["status"] == "fresh_latest_reused"
 
 
 @pytest.mark.parametrize(

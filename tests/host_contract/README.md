@@ -19,6 +19,12 @@ prompts, restart services, mutate TTS/dictation, tune memory, or change stack
 services. `live` may refresh generated evidence through existing read-only
 validators, but it still must not apply changes.
 
+The `quick` wrapper changes scheduling, never marker selection. In `auto` mode
+it uses the exact `pytest-xdist==3.8.0` pin with three bounded workers when that
+dependency is available, and otherwise records a serial fallback. Use
+`ABYSS_MACHINE_TEST_SCHEDULER=serial tools/abyss-machine-test quick --json` for
+the explicit completeness-oracle rollback. The other four lanes remain serial.
+
 ## Layout
 
 - `contract/`: CLI JSON, stable schema names, bridge, and output-shape contracts.

@@ -658,6 +658,7 @@ def typing_paths_document(
         },
         "commands": {
             "status": "abyss-machine typing status --json",
+            "status_compact": "abyss-machine typing status --compact --json",
             "paths": "abyss-machine typing paths --json",
             "policy": "abyss-machine typing policy --json",
             "ingest": "printf %s TEXT | abyss-machine typing ingest --stdin --source SOURCE --json",

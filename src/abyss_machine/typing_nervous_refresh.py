@@ -105,6 +105,104 @@ def typing_nervous_source_facts(document: Any, source_id: str) -> list[dict[str,
     return _typing_nervous_source_facts(document, source_id)
 
 
+def typing_nervous_index_latest_evidence(
+    index_latest: Any,
+    *,
+    source_id: str = "typed_text_autolog",
+) -> dict[str, Any]:
+    """Extract bounded index evidence without reopening the SQLite projection."""
+    current = index_latest if isinstance(index_latest, dict) else None
+    seen: set[int] = set()
+    counts: dict[str, Any] = {}
+    source_ids: list[str] = []
+    built_at: Any = None
+    counts_basis: str | None = None
+    source_ids_basis: str | None = None
+    evidence_schema: Any = None
+    evidence_generated_at: Any = None
+
+    for _ in range(4):
+        if not isinstance(current, dict) or id(current) in seen:
+            break
+        seen.add(id(current))
+        schema = str(current.get("schema") or "")
+        summary = current.get("summary") if isinstance(current.get("summary"), dict) else {}
+        direct_counts = current.get("counts") if isinstance(current.get("counts"), dict) else {}
+        freshness = current.get("freshness") if isinstance(current.get("freshness"), dict) else {}
+        evidence_usable = not (
+            (schema.endswith("_nervous_index_validate_v1") and current.get("ok") is not True)
+            or (schema.endswith("_nervous_index_status_v1") and current.get("ready") is not True)
+        )
+
+        candidate_counts = dict(direct_counts)
+        if candidate_counts.get("documents") is None:
+            candidate_counts["documents"] = summary.get("documents", summary.get("records_indexed"))
+        if candidate_counts.get("chunks") is None:
+            candidate_counts["chunks"] = summary.get("chunks", summary.get("chunks_indexed"))
+        if candidate_counts.get("fts_chunks") is None:
+            candidate_counts["fts_chunks"] = summary.get("fts_chunks")
+        candidate_built_at = (
+            _nested_get(candidate_counts, ["meta", "built_at"])
+            or freshness.get("index_built_at")
+            or _nested_get(candidate_counts, ["last_successful_index_run", "finished_at"])
+            or current.get("finished_at")
+        )
+        if candidate_built_at and not isinstance(candidate_counts.get("meta"), dict):
+            candidate_counts["meta"] = {"built_at": candidate_built_at}
+        elif candidate_built_at and candidate_counts.get("meta", {}).get("built_at") is None:
+            candidate_counts["meta"] = {**candidate_counts["meta"], "built_at": candidate_built_at}
+
+        if evidence_usable and counts_basis is None and candidate_counts.get("fts_chunks") is not None:
+            counts = candidate_counts
+            counts_basis = (
+                "persisted_validation_summary"
+                if schema.endswith("_nervous_index_validate_v1")
+                else "persisted_index_counts"
+            )
+            built_at = candidate_built_at
+            evidence_schema = schema or None
+            evidence_generated_at = current.get("generated_at")
+
+        direct_sources = current.get("sources") if isinstance(current.get("sources"), dict) else {}
+        candidate_source_ids: list[str] = []
+        candidate_source_basis: str | None = None
+        for key in ("enabled_private_connector_sources", "enabled_sources"):
+            values = direct_sources.get(key)
+            if isinstance(values, list):
+                candidate_source_ids.extend(str(item) for item in values if str(item or "").strip())
+                candidate_source_basis = "persisted_index_build_sources"
+        checks = current.get("checks") if isinstance(current.get("checks"), list) else []
+        for check in checks:
+            if not isinstance(check, dict) or check.get("key") != "private_connector_sources":
+                continue
+            details = check.get("details") if isinstance(check.get("details"), dict) else {}
+            values = details.get("private_present")
+            if isinstance(values, list):
+                candidate_source_ids.extend(str(item) for item in values if str(item or "").strip())
+                candidate_source_basis = "persisted_validation_source_presence"
+        if evidence_usable and source_ids_basis is None and candidate_source_basis is not None:
+            source_ids = sorted(set(candidate_source_ids))
+            source_ids_basis = candidate_source_basis
+            if evidence_schema is None:
+                evidence_schema = schema or None
+                evidence_generated_at = current.get("generated_at")
+
+        nested_latest = current.get("latest")
+        current = nested_latest if isinstance(nested_latest, dict) else None
+
+    return {
+        "counts": counts,
+        "source_ids": source_ids,
+        "source_present": source_id in set(source_ids),
+        "built_at": built_at,
+        "counts_basis": counts_basis,
+        "source_ids_basis": source_ids_basis,
+        "document_schema": evidence_schema,
+        "document_generated_at": evidence_generated_at,
+        "bounded_latest_depth": len(seen),
+    }
+
+
 def typing_nervous_refresh_fact_state(
     *,
     facts_latest: Any,
@@ -145,6 +243,7 @@ def typing_nervous_processing_status_document(
     index_latest_path: Any,
     counts_fallback: Any | None = None,
     extra_index_source_ids: Any | None = None,
+    source_probe: Any | None = None,
     source_id: str = "typed_text_autolog",
     schema_prefix: str = "abyss_machine",
     version: str = "",
@@ -158,19 +257,30 @@ def typing_nervous_processing_status_document(
     typed_summary = typed_fact.get("summary") if isinstance(typed_fact.get("summary"), dict) else {}
     typed_process = typed_fact.get("process") if isinstance(typed_fact.get("process"), dict) else {}
 
-    index_sources = _nested_get(index_data, ["sources", "enabled_private_connector_sources"]) if index_data else []
-    if not isinstance(index_sources, list):
-        index_sources = _nested_get(index_data, ["sources", "enabled_sources"]) if index_data else []
-    if not isinstance(index_sources, list):
-        index_sources = []
-    index_source_ids = {str(item) for item in index_sources if str(item or "").strip()}
+    latest_evidence = typing_nervous_index_latest_evidence(index_data, source_id=source_id)
+    index_source_ids = {
+        str(item)
+        for item in latest_evidence.get("source_ids", [])
+        if str(item or "").strip()
+    }
     if isinstance(extra_index_source_ids, (list, tuple, set)):
         index_source_ids |= {str(item) for item in extra_index_source_ids if str(item or "").strip()}
+    source_probe_data = source_probe if isinstance(source_probe, dict) else {}
+    if source_probe_data.get("present") is True:
+        index_source_ids.add(source_id)
 
     index_summary = index_data.get("summary") if isinstance(index_data.get("summary"), dict) else {}
-    counts = index_data.get("counts") if isinstance(index_data.get("counts"), dict) else {}
+    counts = latest_evidence.get("counts") if isinstance(latest_evidence.get("counts"), dict) else {}
+    counts_basis = latest_evidence.get("counts_basis")
     if (not counts or counts.get("fts_chunks") is None) and isinstance(counts_fallback, dict):
-        counts = counts_fallback
+        counts = {**counts, **counts_fallback}
+        counts_basis = _nested_get(counts_fallback, ["read", "basis"]) or "sqlite_counts_fallback"
+    source_ids_basis = latest_evidence.get("source_ids_basis")
+    if source_probe_data:
+        source_ids_basis = (
+            _nested_get(source_probe_data, ["read", "basis"])
+            or "sqlite_source_presence_fallback"
+        )
 
     fact_time = _parse_time(facts_data.get("generated_at")) if facts_data else None
     typed_entries = typed_fact.get("entries") if isinstance(typed_fact.get("entries"), list) else []
@@ -183,10 +293,10 @@ def typing_nervous_processing_status_document(
     typed_fact_observed_time = _parse_time(typed_fact.get("observed_at")) if isinstance(typed_fact, dict) else None
     typed_index_required_time = typed_latest_entry_time or typed_fact_observed_time or fact_time
     index_time = (
-        _parse_time(index_data.get("finished_at"))
+        _parse_time(latest_evidence.get("built_at"))
+        or _parse_time(index_data.get("finished_at"))
         or _parse_time(_nested_get(index_data, ["counts", "meta", "built_at"]))
         or _parse_time(_nested_get(counts, ["meta", "built_at"]))
-        or _parse_time(index_data.get("generated_at"))
         if index_data
         else None
     )
@@ -268,7 +378,7 @@ def typing_nervous_processing_status_document(
             "exists": isinstance(index_latest, dict),
             "generated_at": index_data.get("generated_at") if index_data else None,
             "finished_at": index_data.get("finished_at") if index_data else None,
-            "built_at": (_nested_get(index_data, ["counts", "meta", "built_at"]) or _nested_get(counts, ["meta", "built_at"])) if index_data else None,
+            "built_at": latest_evidence.get("built_at") or _nested_get(counts, ["meta", "built_at"]),
             "error": index_error,
             "source_enabled_in_index": source_id in index_source_ids,
             "index_covers_latest_fact": index_covers_latest_fact,
@@ -277,8 +387,12 @@ def typing_nervous_processing_status_document(
             "records_indexed": records_indexed,
             "chunks_indexed": chunks_indexed,
             "fts_chunks": fts_chunks,
-            "source_ids_basis": "latest_or_sqlite_chunks",
-            "counts_basis": "latest_or_sqlite_counts",
+            "source_ids_basis": source_ids_basis,
+            "counts_basis": counts_basis,
+            "counts_error": counts.get("error"),
+            "source_probe_error": source_probe_data.get("error"),
+            "evidence_document_schema": latest_evidence.get("document_schema"),
+            "evidence_document_generated_at": latest_evidence.get("document_generated_at"),
         },
         "policy": {
             "raw_keylogging": False,
