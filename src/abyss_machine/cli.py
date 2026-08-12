@@ -14796,8 +14796,15 @@ def storage_write_preflight(
 ) -> dict[str, Any]:
     target_path = Path(target).expanduser()
     requested_bytes = max(0, int(bytes_required))
-    monitor = storage_monitor(process_guard=True, interval=0.0, top=30, write_latest=write_latest)
-    pressure_summary = monitor.get("summary", {}) if isinstance(monitor.get("summary"), dict) else {}
+    pressure = storage_pressure(
+        refresh_inventory=False,
+        write_latest=write_latest,
+    )
+    pressure_summary = (
+        pressure.get("summary", {})
+        if isinstance(pressure.get("summary"), dict)
+        else {}
+    )
     protection = storage_path_protection(target_path)
     recommended = storage_preflight_recommended_target(kind, target_path)
     recommended_path = Path(recommended)
@@ -14833,12 +14840,17 @@ def storage_write_preflight(
         "schema": f"{SCHEMA_PREFIX}_storage_write_preflight_v1",
         "version": VERSION,
         "generated_at": now_iso(),
-        "ok": decision != "deny" and bool(monitor.get("ok")) and bool(hooks.get("ok", True)),
+        "ok": (
+            decision != "deny"
+            and bool(pressure.get("ok"))
+            and bool(hooks.get("ok", True))
+        ),
         "decision": decision,
         "reasons": reasons,
         "paths": {
             "latest": str(STORAGE_WRITE_PREFLIGHT_LATEST_PATH),
             "daily_glob": str(STORAGE_WRITE_PREFLIGHT_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
+            "pressure_latest": str(STORAGE_PRESSURE_LATEST_PATH),
             "monitor_latest": str(STORAGE_MONITOR_LATEST_PATH),
             "policy": str(STORAGE_POLICY_PATH),
         },
@@ -14855,8 +14867,16 @@ def storage_write_preflight(
         "pressure": {
             "root_pressure_class": pressure_summary.get("root_pressure_class"),
             "srv_pressure_class": pressure_summary.get("srv_pressure_class"),
-            "root_used_percent": pressure_summary.get("root_used_percent"),
-            "srv_used_percent": pressure_summary.get("srv_used_percent"),
+            "root_used_percent": nested_get(
+                pressure,
+                ["roots", "system", "used_percent"],
+            ),
+            "srv_used_percent": nested_get(
+                pressure,
+                ["roots", "srv", "used_percent"],
+            ),
+            "source_schema": pressure.get("schema"),
+            "source_generated_at": pressure.get("generated_at"),
         },
         "target": {
             "protection": protection,
@@ -14878,6 +14898,9 @@ def storage_write_preflight(
             "no_work_writes": True,
             "no_abyss_stack_mutation": True,
             "no_games_mutation": True,
+            "fresh_pressure_and_capacity_gate": True,
+            "full_cleanup_monitor_not_required": True,
+            "process_guard_not_a_write_admission_input": True,
         },
         "hooks": {"pre_large_write": hooks},
         "commands": {
@@ -16527,6 +16550,7 @@ def resource_plan(
     game_guard_data: dict[str, Any] | None = None,
     route_data: dict[str, Any] | None = None,
     thermal_plan_data: dict[str, Any] | None = None,
+    write_preflight_data: dict[str, Any] | None = None,
     reservation_data: dict[str, Any] | None = None,
     force_fresh_live_inputs: bool = False,
 ) -> dict[str, Any]:
@@ -16567,6 +16591,8 @@ def resource_plan(
         ("storage", storage),
         ("game_guard", game_guard),
         ("cpu_route", route),
+        ("thermal_plan", thermal_plan_data),
+        ("write_preflight", write_preflight_data),
     ):
         if isinstance(value, dict):
             input_freshness[name] = {"status": "provided_by_caller"}
@@ -16752,26 +16778,32 @@ def resource_plan(
 
     if sample_thermal is None:
         sample_thermal = resource_planning.should_sample_thermal(normalized_class)
-    thermal_plan: dict[str, Any] | None = None
-    if sample_thermal:
+    thermal_plan: dict[str, Any] | None = (
+        thermal_plan_data
+        if isinstance(thermal_plan_data, dict)
+        else None
+    )
+    if thermal_plan is None and sample_thermal:
         thermal_policy = policy.get("gates", {}).get("thermal", {}) if isinstance(policy.get("gates"), dict) else {}
         seconds = float(thermal_policy.get("sample_seconds_for_medium_or_above", 2.0)) if isinstance(thermal_policy, dict) else 2.0
         interval = float(thermal_policy.get("sample_interval_sec", 0.5)) if isinstance(thermal_policy, dict) else 0.5
         thermal_plan = process_thermal_plan(seconds=seconds, interval=interval, top=20, write_latest=write_latest)
-    else:
-        if isinstance(thermal_plan_data, dict):
-            thermal_plan = thermal_plan_data
-        else:
-            latest, _ = load_json_document(PROCESS_THERMAL_PLAN_LATEST_PATH)
-            thermal_plan = latest if isinstance(latest, dict) else None
-    write_preflight = None
+    elif thermal_plan is None:
+        latest, _ = load_json_document(PROCESS_THERMAL_PLAN_LATEST_PATH)
+        thermal_plan = latest if isinstance(latest, dict) else None
+    write_preflight = (
+        write_preflight_data
+        if isinstance(write_preflight_data, dict)
+        else None
+    )
     if bytes_required is not None and target:
-        write_preflight = storage_write_preflight(
-            kind="artifact",
-            bytes_required=int(bytes_required),
-            target=str(target),
-            write_latest=write_latest,
-        )
+        if write_preflight is None:
+            write_preflight = storage_write_preflight(
+                kind="artifact",
+                bytes_required=int(bytes_required),
+                target=str(target),
+                write_latest=write_latest,
+            )
 
     thermal_class = str(nested_get(thermal_plan, ["thermal", "class"]) or "") if isinstance(thermal_plan, dict) else ""
     data = resource_planning.build_plan(
@@ -16815,6 +16847,14 @@ def resource_plan(
     data["policy"]["subsecond_live_input_coalescing"] = True
     data["policy"]["launch_admission_uses_fresh_live_inputs"] = bool(force_fresh_live_inputs)
     data["policy"]["bounded_latest_reuse_for_expensive_inputs"] = True
+    data["policy"]["provided_thermal_attestation_reused"] = isinstance(
+        thermal_plan_data,
+        dict,
+    )
+    data["policy"]["provided_storage_preflight_reused"] = isinstance(
+        write_preflight_data,
+        dict,
+    )
     if write_latest:
         latest_error = safe_atomic_write_json(RESOURCE_PLAN_LATEST_PATH, data, 0o664)
         index_error = safe_atomic_write_json(RESOURCE_INDEX_PATH, resource_paths(), 0o664)
@@ -16923,6 +16963,8 @@ def resource_launch(
     write_latest: bool = True,
     execution_delegate: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
+    request_started_at = now_iso()
+    request_started_monotonic = time.monotonic()
     clean_command = [str(item) for item in command if str(item)]
     activity_data = resource_planning.owner_activity(activity, unattended=unattended)
     effective_unattended = bool(activity_data.get("background"))
@@ -16953,6 +16995,28 @@ def resource_launch(
     lease_path: Path | None = None
     lease_released = False
     reservation_snapshot: dict[str, Any] = resource_adapters.reservation_snapshot(reservation_root, cleanup=False)
+    effective_sample_thermal = (
+        resource_planning.should_sample_thermal(
+            resource_valid_class(workload_class)
+        )
+        if sample_thermal is None
+        else bool(sample_thermal)
+    )
+    launch_attestation_max_age_sec = max(
+        1.0,
+        float(startup_policy.get("launch_attestation_max_age_sec", 120.0)),
+    )
+    launch_attestations_required = bool(
+        effective_sample_thermal
+        or (bytes_required is not None and target)
+    )
+    launch_attestation_collected_at = time.monotonic()
+    launch_attestation_rounds: list[dict[str, Any]] = []
+    launch_attestation_refresh_count = 0
+    admission_lock_wait_sec = 0.0
+    admission_lock_held_sec = 0.0
+    admission_lock_attempts = 0
+    attestation_age_at_admission_sec: float | None = None
 
     plan_kwargs = {
         "workload_class": workload_class,
@@ -16969,69 +17033,240 @@ def resource_launch(
         "estimate_source": estimate_source,
         "estimate_confidence": estimate_confidence,
         "unit_type": unit_type,
-        "sample_thermal": sample_thermal,
+        "sample_thermal": effective_sample_thermal,
         "policy_data": policy,
         "write_latest": write_latest,
     }
+
+    def collect_launch_attestations() -> None:
+        nonlocal launch_attestation_collected_at
+        nonlocal launch_attestation_refresh_count
+        collectors: dict[str, Callable[[], dict[str, Any]]] = {}
+        if effective_sample_thermal:
+            thermal_policy = (
+                policy.get("gates", {}).get("thermal", {})
+                if isinstance(policy.get("gates"), dict)
+                else {}
+            )
+            seconds = (
+                float(
+                    thermal_policy.get(
+                        "sample_seconds_for_medium_or_above",
+                        2.0,
+                    )
+                )
+                if isinstance(thermal_policy, dict)
+                else 2.0
+            )
+            interval = (
+                float(thermal_policy.get("sample_interval_sec", 0.5))
+                if isinstance(thermal_policy, dict)
+                else 0.5
+            )
+            collectors["thermal_plan"] = lambda: process_thermal_plan(
+                seconds=seconds,
+                interval=interval,
+                top=20,
+                write_latest=write_latest,
+            )
+        if bytes_required is not None and target:
+            collectors["storage_write_preflight"] = (
+                lambda: storage_write_preflight(
+                    kind="artifact",
+                    bytes_required=int(bytes_required),
+                    target=str(target),
+                    write_latest=write_latest,
+                )
+            )
+
+        round_started = time.monotonic()
+        node_receipts: dict[str, Any] = {}
+        documents: dict[str, dict[str, Any]] = {}
+        if collectors:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(collectors)
+            ) as executor:
+                futures = {
+                    name: executor.submit(resource_timed_collect, collector)
+                    for name, collector in collectors.items()
+                }
+                for name, future in futures.items():
+                    document, elapsed_ms = future.result()
+                    documents[name] = document
+                    node_receipts[name] = {
+                        "duration_ms": elapsed_ms,
+                        "ok": bool(document.get("ok", True)),
+                        "schema": document.get("schema"),
+                        "generated_at": document.get("generated_at"),
+                    }
+        plan_kwargs["thermal_plan_data"] = documents.get("thermal_plan")
+        plan_kwargs["write_preflight_data"] = documents.get(
+            "storage_write_preflight"
+        )
+        launch_attestation_collected_at = time.monotonic()
+        launch_attestation_refresh_count += 1
+        launch_attestation_rounds.append(
+            {
+                "round": launch_attestation_refresh_count,
+                "elapsed_ms": int(
+                    round((time.monotonic() - round_started) * 1000)
+                ),
+                "parallel": len(collectors) > 1,
+                "nodes": node_receipts,
+            }
+        )
+
+    if not dry_run and clean_command and launch_attestations_required:
+        collect_launch_attestations()
 
     if dry_run or not clean_command:
         plan = resource_plan(**plan_kwargs, reservation_data=reservation_snapshot)
     else:
         while True:
+            if (
+                launch_attestations_required
+                and (
+                    time.monotonic()
+                    - launch_attestation_collected_at
+                    > launch_attestation_max_age_sec
+                )
+            ):
+                collect_launch_attestations()
             should_wait = False
+            refresh_attestations = False
             wait_started = time.monotonic()
+            lock_wait_started = time.monotonic()
             with resource_adapters.admission_lock(reservation_root):
-                reservation_snapshot = resource_adapters.reservation_snapshot(
-                    reservation_root,
-                    cleanup=True,
-                    cleanup_invalid=False,
+                lock_acquired_at = time.monotonic()
+                admission_lock_wait_sec += max(
+                    0.0,
+                    lock_acquired_at - lock_wait_started,
                 )
-                plan = resource_plan(
-                    **plan_kwargs,
-                    reservation_data=reservation_snapshot,
-                    force_fresh_live_inputs=True,
-                )
-                blocked_now = list(plan.get("blocked_reasons") or [])
-                denied_now = list(plan.get("denied_reasons") or [])
-                unknown_conflict = "startup_unknown_demand_in_progress" in blocked_now
-                active_stall_defer = "startup_new_unattended_work_during_active_memory_stall" in blocked_now
-                waitable_reasons = {
-                    "startup_unknown_demand_in_progress",
-                    "startup_new_unattended_work_during_active_memory_stall",
-                }
-                only_waitable = bool(unknown_conflict or active_stall_defer) and not denied_now and set(blocked_now).issubset(waitable_reasons)
-                if only_waitable and time.monotonic() < wait_deadline:
-                    should_wait = True
-                elif not blocked_now and not denied_now:
-                    requested = nested_get(plan, ["inputs", "startup_demand", "requested"])
-                    requested = requested if isinstance(requested, dict) else {}
-                    if requested.get("reservation_required") and not should_wait:
-                        now_epoch = time.time()
-                        known = bool(requested.get("calibrated"))
-                        ttl_key = "known_demand_ttl_sec" if known else "unknown_demand_ttl_sec"
-                        ttl_sec = max(1.0, float(startup_policy.get(ttl_key, 120.0 if known else 15.0)))
-                        lease = {
-                            "schema": f"{SCHEMA_PREFIX}_resource_startup_lease_v1",
-                            "version": VERSION,
-                            "id": f"{launch_unit or 'resource-launch'}:{os.getpid()}:{time.time_ns()}",
-                            "created_at": now_iso(),
-                            "created_at_epoch": now_epoch,
-                            "expires_at_epoch": now_epoch + ttl_sec,
-                            "launcher_pid": os.getpid(),
-                            "unit": launch_unit,
-                            "class": requested.get("class"),
-                            "kind": requested.get("kind"),
-                            "demand_mib": requested.get("demand_mib"),
-                            "demand_key": requested.get("key") or launch_unit,
-                            "demand_owner": requested.get("owner"),
-                            "estimate_source": requested.get("estimate_source"),
-                            "estimate_confidence": requested.get("estimate_confidence"),
-                            "calibration": requested.get("calibration"),
-                            "activity": nested_get(plan, ["request", "activity", "normalized"]),
-                            "unknown_demand": not known,
-                            "startup_ttl_sec": ttl_sec,
+                admission_lock_attempts += 1
+                try:
+                    attestation_age = max(
+                        0.0,
+                        lock_acquired_at - launch_attestation_collected_at,
+                    )
+                    if (
+                        launch_attestations_required
+                        and attestation_age
+                        > launch_attestation_max_age_sec
+                    ):
+                        refresh_attestations = True
+                    else:
+                        reservation_snapshot = resource_adapters.reservation_snapshot(
+                            reservation_root,
+                            cleanup=True,
+                            cleanup_invalid=False,
+                        )
+                        plan = resource_plan(
+                            **plan_kwargs,
+                            reservation_data=reservation_snapshot,
+                            force_fresh_live_inputs=True,
+                        )
+                        attestation_age = max(
+                            0.0,
+                            time.monotonic()
+                            - launch_attestation_collected_at,
+                        )
+                        if (
+                            launch_attestations_required
+                            and (
+                                attestation_age
+                                > launch_attestation_max_age_sec
+                            )
+                        ):
+                            refresh_attestations = True
+                            continue
+                        attestation_age_at_admission_sec = attestation_age
+                        blocked_now = list(plan.get("blocked_reasons") or [])
+                        denied_now = list(plan.get("denied_reasons") or [])
+                        unknown_conflict = (
+                            "startup_unknown_demand_in_progress"
+                            in blocked_now
+                        )
+                        active_stall_defer = (
+                            "startup_new_unattended_work_during_active_memory_stall"
+                            in blocked_now
+                        )
+                        waitable_reasons = {
+                            "startup_unknown_demand_in_progress",
+                            "startup_new_unattended_work_during_active_memory_stall",
                         }
-                        lease_path = resource_adapters.atomic_write_lease(reservation_root, lease)
+                        only_waitable = (
+                            bool(unknown_conflict or active_stall_defer)
+                            and not denied_now
+                            and set(blocked_now).issubset(waitable_reasons)
+                        )
+                        if (
+                            only_waitable
+                            and time.monotonic() < wait_deadline
+                        ):
+                            should_wait = True
+                        elif not blocked_now and not denied_now:
+                            requested = nested_get(
+                                plan,
+                                ["inputs", "startup_demand", "requested"],
+                            )
+                            requested = (
+                                requested
+                                if isinstance(requested, dict)
+                                else {}
+                            )
+                            if (
+                                requested.get("reservation_required")
+                                and not should_wait
+                            ):
+                                now_epoch = time.time()
+                                known = bool(requested.get("calibrated"))
+                                ttl_key = (
+                                    "known_demand_ttl_sec"
+                                    if known
+                                    else "unknown_demand_ttl_sec"
+                                )
+                                ttl_sec = max(
+                                    1.0,
+                                    float(
+                                        startup_policy.get(
+                                            ttl_key,
+                                            120.0 if known else 15.0,
+                                        )
+                                    ),
+                                )
+                                lease = {
+                                    "schema": f"{SCHEMA_PREFIX}_resource_startup_lease_v1",
+                                    "version": VERSION,
+                                    "id": f"{launch_unit or 'resource-launch'}:{os.getpid()}:{time.time_ns()}",
+                                    "created_at": now_iso(),
+                                    "created_at_epoch": now_epoch,
+                                    "expires_at_epoch": now_epoch + ttl_sec,
+                                    "launcher_pid": os.getpid(),
+                                    "unit": launch_unit,
+                                    "class": requested.get("class"),
+                                    "kind": requested.get("kind"),
+                                    "demand_mib": requested.get("demand_mib"),
+                                    "demand_key": requested.get("key") or launch_unit,
+                                    "demand_owner": requested.get("owner"),
+                                    "estimate_source": requested.get("estimate_source"),
+                                    "estimate_confidence": requested.get("estimate_confidence"),
+                                    "calibration": requested.get("calibration"),
+                                    "activity": nested_get(plan, ["request", "activity", "normalized"]),
+                                    "unknown_demand": not known,
+                                    "startup_ttl_sec": ttl_sec,
+                                }
+                                lease_path = resource_adapters.atomic_write_lease(
+                                    reservation_root,
+                                    lease,
+                                )
+                finally:
+                    admission_lock_held_sec += max(
+                        0.0,
+                        time.monotonic() - lock_acquired_at,
+                    )
+            if refresh_attestations:
+                collect_launch_attestations()
+                continue
             if not should_wait:
                 break
             wait_attempts += 1
@@ -17043,6 +17278,11 @@ def resource_launch(
     if not clean_command:
         denied.append("missing_command")
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
+    planning_elapsed_sec = max(
+        0.0,
+        time.monotonic() - request_started_monotonic,
+    )
+    started_at = now_iso()
 
     def build_launch_document(
         execution: dict[str, Any] | None,
@@ -17058,8 +17298,16 @@ def resource_launch(
             "generated_at": now_iso(),
             "ok": not denied and not blocked and (dry_run or bool(execution and execution.get("ok"))),
             "dry_run": bool(dry_run),
+            "request_started_at": request_started_at,
             "started_at": started_at,
             "elapsed_sec": elapsed_sec,
+            "total_elapsed_sec": round(
+                max(
+                    0.0,
+                    time.monotonic() - request_started_monotonic,
+                ),
+                3,
+            ),
             "request": {
                 "class": workload_class,
                 "kind": kind,
@@ -17088,6 +17336,29 @@ def resource_launch(
             "plan": plan,
             "argv": systemd_cmd,
             "execution": execution,
+            "planning": {
+                "elapsed_sec": round(planning_elapsed_sec, 3),
+                "pre_admission_dag": {
+                    "parallel_safe": True,
+                    "refresh_count": launch_attestation_refresh_count,
+                    "max_age_sec": launch_attestation_max_age_sec,
+                    "age_at_admission_sec": (
+                        round(attestation_age_at_admission_sec, 3)
+                        if attestation_age_at_admission_sec is not None
+                        else None
+                    ),
+                    "rounds": launch_attestation_rounds,
+                },
+                "admission_lock": {
+                    "attempts": admission_lock_attempts,
+                    "wait_sec": round(admission_lock_wait_sec, 3),
+                    "held_sec": round(admission_lock_held_sec, 3),
+                    "contains_expensive_preflight": False,
+                    "atomic_scope": (
+                        "fresh_resource_plan_reservation_recheck_and_lease"
+                    ),
+                },
+            },
             "startup_admission": {
                 "reservation_root": str(reservation_root),
                 "snapshot": reservation_snapshot,
@@ -17113,6 +17384,11 @@ def resource_launch(
                 "unknown_demand_serializes_startup_only": True,
                 "no_memory_max_or_swap_max_added": True,
                 "fresh_resource_plan_and_atomic_lease": True,
+                "expensive_preflight_outside_admission_lock": True,
+                "storage_gate_uses_fresh_pressure_and_capacity": True,
+                "launch_attestation_max_age_sec": (
+                    launch_attestation_max_age_sec
+                ),
                 "resident_memory_controller_required": False,
                 "runtime_peak_learning": True,
                 "runtime_profile_is_bounded_and_ephemeral": True,
@@ -17123,7 +17399,6 @@ def resource_launch(
 
     result: dict[str, Any] | None = None
     demand_observation: dict[str, Any] | None = None
-    started_at = now_iso()
     elapsed = 0.0
     if not dry_run and not denied and not blocked and clean_command:
         if execution_delegate is not None:
@@ -17138,6 +17413,7 @@ def resource_launch(
                 ),
                 "execution": {
                     "systemd_command": systemd_cmd,
+                    "request_started_monotonic": request_started_monotonic,
                     "launch_unit": launch_unit,
                     "generated_unit": generated_unit,
                     "unit_type": unit_type,

@@ -88,6 +88,7 @@
   "startup_admission": {
     "enabled": true,
     "runtime_only": true,
+    "launch_attestation_max_age_sec": 120,
     "known_demand_ttl_sec": 120,
     "unknown_demand_ttl_sec": 15,
     "unknown_wait_timeout_sec": 20,

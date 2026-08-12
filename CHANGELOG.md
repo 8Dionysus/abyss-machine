@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Remove full cleanup/process/container inspection from resource-launch write
+  admission, run independent storage and thermal attestations concurrently
+  outside the startup lock, refresh aged proof fail closed, and expose complete
+  planning, lock, execution, and total latency in the launch receipt.
 - Promote the receipt-bound owner claim/evidence graph to the protected
   validation route, retaining the exact serial oracle and rollback while
   overlapping independent obligations and scheduling the full pytest corpus
