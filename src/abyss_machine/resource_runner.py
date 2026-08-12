@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 try:
@@ -80,6 +81,30 @@ def finish_document(handoff: dict[str, Any]) -> dict[str, Any]:
     result = outcome.get("execution") if isinstance(outcome.get("execution"), dict) else None
     document["generated_at"] = now_iso()
     document["elapsed_sec"] = float(outcome.get("elapsed_sec") or 0.0)
+    planning = (
+        document.get("planning")
+        if isinstance(document.get("planning"), dict)
+        else {}
+    )
+    request_started_monotonic = execution.get(
+        "request_started_monotonic"
+    )
+    finished_monotonic = monotonic()
+    if (
+        isinstance(request_started_monotonic, (int, float))
+        and not isinstance(request_started_monotonic, bool)
+        and request_started_monotonic > 0
+        and request_started_monotonic <= finished_monotonic
+    ):
+        total_elapsed_sec = (
+            finished_monotonic - request_started_monotonic
+        )
+    else:
+        total_elapsed_sec = (
+            float(planning.get("elapsed_sec") or 0.0)
+            + document["elapsed_sec"]
+        )
+    document["total_elapsed_sec"] = round(total_elapsed_sec, 3)
     document["execution"] = result
     document["ok"] = not document.get("denied_reasons") and not document.get("blocked_reasons") and bool(result and result.get("ok"))
     startup = document.get("startup_admission") if isinstance(document.get("startup_admission"), dict) else {}

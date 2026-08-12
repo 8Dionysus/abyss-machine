@@ -129,6 +129,7 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
         "startup_admission": {
             "enabled": True,
             "runtime_only": True,
+            "launch_attestation_max_age_sec": 120,
             "known_demand_ttl_sec": 120,
             "unknown_demand_ttl_sec": 15,
             "unknown_wait_timeout_sec": 20,

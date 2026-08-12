@@ -18,7 +18,7 @@ accepted
 
 ## Current Applicability
 
-As of 2026-07-14, `abyss-machine` owns live pressure and swap-reserve facts,
+As of 2026-08-12, `abyss-machine` owns live pressure and swap-reserve facts,
 synchronous launch admission, runtime-only startup reservations, bounded
 runtime peak learning, one canonical resource-launch path, a narrow runtime
 cold-load admission lease for existing owner processes, and shadow-only
@@ -82,6 +82,19 @@ retain atomic latest-only documents; historical telemetry belongs to journald
 or the configured metrics retention instead of daily control-plane JSONL.
 Owner-native lifecycle is preferred; unknown, active, protected, or
 data-at-risk work is preserved.
+
+Write admission consumes fresh storage pressure, path protection, target and
+recommended-route capacity, and hook evidence directly. Full cleanup
+inventory, artifact snapshots, process guards, and container inspection are
+not inputs to that decision and remain in the storage-monitor lane. Thermal
+sampling and the request-specific storage proof form a parallel pre-admission
+DAG outside the global startup lock. Their bounded-age receipts are then
+reused while the lock protects the final fresh resource plan, reservation
+snapshot, sufficiency decision, and atomic lease creation. Bounded support
+inputs are reused when fresh; any fail-closed refresh still required by the
+final plan remains inside that atomic section. If a receipt ages out while
+waiting for the lock or while the final plan is computed, it is refreshed
+outside the lock before any lease may be created.
 
 An owner that needs to materialize a model inside an already-running process
 may atomically request a short runtime-only cold-load lease. The request must
@@ -173,6 +186,20 @@ change rather than silently reactivating the removed controller.
   authorization. Normal green/warm routes no longer impose cpuset or thread
   caps; placement is applied only when the owner requires it or reports CPUs to
   avoid, while physical-memory reserve and emergency gates remain authoritative.
+- 2026-08-12: Removed full storage monitor, process/container inspection, and
+  cleanup planning from the write-admission dependency set; preserved fresh
+  pressure, capacity, protection, and hook proof. Moved request-specific
+  storage and thermal evidence into a bounded-age parallel DAG outside the
+  admission lock, leaving the final fresh plan, reserve recheck, and atomic
+  lease creation as the serialized critical section. Receipts that age while
+  that final plan runs are also refreshed outside the lock. Added planning,
+  lock-wait, lock-held, and total-elapsed receipt fields so pre-execution
+  latency is no longer hidden. On the same live host, the triggering installed
+  path spent about 293 seconds before its transient unit started; the final
+  source candidate admitted and completed the same bounded 1.1 GB target
+  preflight plus `/usr/bin/true` launch in 0.906 seconds inside the route
+  (1.26 seconds including cold Python startup), with an allow verdict and no
+  weakened gate input.
 
 ## Source Surfaces
 

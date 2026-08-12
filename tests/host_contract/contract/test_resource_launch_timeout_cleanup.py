@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
 from pathlib import Path
 import subprocess
+import threading
 import time
 
 import pytest
@@ -113,20 +115,37 @@ def test_storage_write_preflight_no_write_is_transitive(
         "used_percent": 25.0,
     }
 
-    def fake_storage_monitor(**kwargs):
-        calls["monitor"] = kwargs
+    def fake_storage_pressure(**kwargs):
+        calls["pressure"] = kwargs
         return {
             "ok": True,
+            "schema": "abyss_machine_storage_pressure_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
             "summary": {
                 "root_pressure_class": "green",
                 "srv_pressure_class": "green",
+            },
+            "roots": {
+                "system": {"used_percent": 25.0},
+                "srv": {"used_percent": 25.0},
             },
         }
 
     def unexpected_write(*_args, **_kwargs):
         pytest.fail("write_latest=False must not persist storage state")
 
-    monkeypatch.setattr(abyss_machine_module, "storage_monitor", fake_storage_monitor)
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_pressure",
+        fake_storage_pressure,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_monitor",
+        lambda **_kwargs: pytest.fail(
+            "write admission must not run the cleanup monitor"
+        ),
+    )
     monkeypatch.setattr(
         abyss_machine_module,
         "storage_path_protection",
@@ -159,14 +178,13 @@ def test_storage_write_preflight_no_write_is_transitive(
         write_latest=False,
     )
 
-    assert calls["monitor"] == {
-        "process_guard": True,
-        "interval": 0.0,
-        "top": 30,
+    assert calls["pressure"] == {
+        "refresh_inventory": False,
         "write_latest": False,
     }
     assert result["ok"] is True
     assert result["decision"] == "allow"
+    assert result["policy"]["full_cleanup_monitor_not_required"] is True
 
 
 def test_storage_monitor_no_write_is_transitive(
@@ -437,6 +455,356 @@ def test_resource_plan_no_write_propagates_to_storage_preflight(
         "write_latest": False,
     }
     assert plan["decision"] == "allow"
+
+
+def test_resource_plan_reuses_supplied_storage_and_thermal_attestations(
+    abyss_machine_module,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_write_preflight",
+        lambda **_kwargs: pytest.fail(
+            "supplied storage proof must not be recomputed"
+        ),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "process_thermal_plan",
+        lambda **_kwargs: pytest.fail(
+            "supplied thermal proof must not be recomputed"
+        ),
+    )
+    storage_proof = {
+        "ok": True,
+        "decision": "allow",
+        "reasons": ["target_matches_policy"],
+    }
+    thermal_proof = {
+        "thermal": {"class": "green"},
+        "recommended_new_work": {
+            "medium": {
+                "allowed": True,
+                "unattended_allowed": True,
+            }
+        },
+    }
+
+    plan = abyss_machine_module.resource_plan(
+        workload_class="medium",
+        kind="agent",
+        bytes_required=1024,
+        target="/srv/abyss-machine/tmp/fixture",
+        sample_thermal=True,
+        write_latest=False,
+        mode_data={
+            "effective_mode": "balanced",
+            "launch_policy": {"max_unattended_class": "medium"},
+        },
+        memory_data={
+            "class": "green",
+            "pressure": {
+                "summary": {
+                    "class": "green",
+                    "mem_available_mib": 8192,
+                    "mem_total_mib": 16384,
+                    "psi_some_avg10": 0.0,
+                    "psi_full_avg10": 0.0,
+                }
+            },
+        },
+        storage_data={
+            "summary": {
+                "root_pressure_class": "green",
+                "srv_pressure_class": "green",
+            }
+        },
+        game_guard_data={"active": False},
+        route_data={
+            "ok": True,
+            "allowed": True,
+            "unattended_allowed": True,
+            "route": {"cpuset": "0-1", "env": {}},
+        },
+        thermal_plan_data=thermal_proof,
+        write_preflight_data=storage_proof,
+    )
+
+    assert plan["decision"] == "allow"
+    assert plan["inputs"]["storage"]["write_preflight"] == storage_proof
+    assert plan["policy"]["provided_thermal_attestation_reused"] is True
+    assert plan["policy"]["provided_storage_preflight_reused"] is True
+
+
+def test_resource_launch_collects_independent_attestations_outside_atomic_lock(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(
+        version="test"
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_policy_document",
+        lambda: policy,
+    )
+    inside_lock = False
+    collector_barrier = threading.Barrier(2)
+    collector_threads: set[int] = set()
+
+    def collect_thermal(**_kwargs):
+        assert inside_lock is False
+        collector_threads.add(threading.get_ident())
+        collector_barrier.wait(timeout=1)
+        return {
+            "ok": True,
+            "schema": "fixture_thermal_plan_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "thermal": {"class": "green"},
+        }
+
+    def collect_storage(**_kwargs):
+        assert inside_lock is False
+        collector_threads.add(threading.get_ident())
+        collector_barrier.wait(timeout=1)
+        return {
+            "ok": True,
+            "schema": "fixture_storage_preflight_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "decision": "allow",
+            "reasons": ["target_matches_policy"],
+        }
+
+    @contextlib.contextmanager
+    def observed_lock(_root):
+        nonlocal inside_lock
+        assert inside_lock is False
+        inside_lock = True
+        try:
+            yield
+        finally:
+            inside_lock = False
+
+    def fake_plan(**kwargs):
+        assert inside_lock is True
+        assert kwargs["force_fresh_live_inputs"] is True
+        assert kwargs["thermal_plan_data"]["schema"] == (
+            "fixture_thermal_plan_v1"
+        )
+        assert kwargs["write_preflight_data"]["schema"] == (
+            "fixture_storage_preflight_v1"
+        )
+        requested = (
+            abyss_machine_module.resource_planning.resolve_startup_demand(
+                policy,
+                workload_class=kwargs["workload_class"],
+                kind=kwargs["kind"],
+                explicit_mib=kwargs.get("memory_demand_mib"),
+                demand_key=kwargs.get("demand_key"),
+                demand_owner=kwargs.get("demand_owner"),
+            )
+        )
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {
+                "normalized_class": "medium",
+                "normalized_kind": "benchmark",
+                "activity": {"normalized": "foreground"},
+            },
+            "inputs": {"startup_demand": {"requested": requested}},
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-benchmarks.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "process_thermal_plan",
+        collect_thermal,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_write_preflight",
+        collect_storage,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "admission_lock",
+        observed_lock,
+    )
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            0,
+            "Finished with result: success\n",
+            "",
+        ),
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda unit, **_kwargs: {
+            "ok": False,
+            "unit": unit,
+            "error": "fixture_no_peak",
+        },
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="benchmark",
+        activity="foreground",
+        bytes_required=1024,
+        target="/srv/abyss-machine/tmp/fixture",
+        sample_thermal=True,
+        memory_demand_mib=512,
+        demand_owner="fixture-owner",
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert len(collector_threads) == 2
+    assert result["planning"]["pre_admission_dag"]["rounds"][0][
+        "parallel"
+    ] is True
+    assert result["planning"]["admission_lock"][
+        "contains_expensive_preflight"
+    ] is False
+    assert result["planning"]["admission_lock"]["attempts"] == 1
+    assert result["total_elapsed_sec"] >= result["elapsed_sec"]
+
+
+def test_resource_launch_refreshes_attestation_that_ages_during_atomic_plan(
+    abyss_machine_module,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    policy = abyss_machine_module.resource_planning.default_policy(
+        version="test"
+    )
+    policy["startup_admission"]["launch_attestation_max_age_sec"] = 1.0
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "resource_policy_document",
+        lambda: policy,
+    )
+    inside_lock = False
+    collector_calls = 0
+    plan_calls = 0
+
+    def collect_storage(**_kwargs):
+        nonlocal collector_calls
+        assert inside_lock is False
+        collector_calls += 1
+        return {
+            "ok": True,
+            "schema": "fixture_storage_preflight_v1",
+            "generated_at": "2026-08-12T09:00:00-06:00",
+            "decision": "allow",
+            "reasons": ["target_matches_policy"],
+        }
+
+    @contextlib.contextmanager
+    def observed_lock(_root):
+        nonlocal inside_lock
+        assert inside_lock is False
+        inside_lock = True
+        try:
+            yield
+        finally:
+            inside_lock = False
+
+    def fake_plan(**kwargs):
+        nonlocal plan_calls
+        assert inside_lock is True
+        assert kwargs["write_preflight_data"]["schema"] == (
+            "fixture_storage_preflight_v1"
+        )
+        plan_calls += 1
+        if plan_calls == 1:
+            time.sleep(1.05)
+        return {
+            "ok": True,
+            "decision": "allow",
+            "blocked_reasons": [],
+            "denied_reasons": [],
+            "request": {
+                "normalized_class": "medium",
+                "normalized_kind": "benchmark",
+                "activity": {"normalized": "foreground"},
+            },
+            "inputs": {
+                "startup_demand": {
+                    "requested": {
+                        "demand_mib": 512,
+                        "reservation_required": False,
+                    }
+                }
+            },
+            "systemd": {
+                "unit_type": "service",
+                "slice": "abyss-machine-benchmarks.slice",
+                "properties": {},
+                "env": {},
+            },
+        }
+
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_write_preflight",
+        collect_storage,
+    )
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "admission_lock",
+        observed_lock,
+    )
+    monkeypatch.setattr(abyss_machine_module, "resource_plan", fake_plan)
+    monkeypatch.setattr(
+        abyss_machine_module.resource_adapters,
+        "execute_systemd_launch",
+        lambda **_kwargs: {
+            "elapsed_sec": 0.01,
+            "execution": {"ok": True, "returncode": 0},
+            "lease_released": True,
+            "demand_observation": None,
+        },
+    )
+
+    result = abyss_machine_module.resource_launch(
+        ["/usr/bin/true"],
+        workload_class="medium",
+        kind="benchmark",
+        activity="foreground",
+        bytes_required=1024,
+        target="/srv/abyss-machine/tmp/fixture",
+        sample_thermal=False,
+        memory_demand_mib=512,
+        demand_owner="fixture-owner",
+        write_latest=False,
+    )
+
+    assert result["ok"] is True
+    assert collector_calls == 2
+    assert plan_calls == 2
+    assert result["planning"]["pre_admission_dag"]["refresh_count"] == 2
+    assert result["planning"]["admission_lock"]["attempts"] == 2
+    assert result["planning"]["pre_admission_dag"][
+        "age_at_admission_sec"
+    ] <= 1.0
 
 
 def test_resource_plan_reuses_bounded_inputs_but_refreshes_memory_and_game_guard(
@@ -779,6 +1147,7 @@ def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monk
         ["/bin/sleep", "60"],
         workload_class="heavy",
         kind="ai",
+        sample_thermal=False,
         timeout_sec=0.1,
         write_latest=False,
     )
@@ -792,6 +1161,8 @@ def test_resource_launch_timeout_stops_transient_unit(abyss_machine_module, monk
     assert cleanup["unit"] == result["request"]["launch_unit"]
     assert cleanup["stop"]["returncode"] == 0
     assert cleanup["state"]["value"] == "inactive"
+    assert result["planning"]["pre_admission_dag"]["refresh_count"] == 0
+    assert result["planning"]["pre_admission_dag"]["rounds"] == []
     assert any(call[:3] == ["systemctl", "--user", "stop"] for call in calls)
 
 
@@ -854,6 +1225,7 @@ def test_unattended_resource_launch_remeasures_after_active_stall(
         workload_class="medium",
         kind="agent",
         unattended=True,
+        sample_thermal=False,
         memory_demand_mib=512,
         demand_owner="agent-owner",
         startup_wait_sec=1,
@@ -913,6 +1285,7 @@ def test_resource_launch_releases_startup_lease_after_submit(monkeypatch, tmp_pa
         workload_class="medium",
         kind="ai",
         unit="explicit-fixture",
+        sample_thermal=False,
         memory_demand_mib=4096,
         write_latest=False,
     )
@@ -984,6 +1357,7 @@ def test_unattended_resource_launch_uses_direct_reservation_without_resident_con
         workload_class="medium",
         kind="agent",
         unattended=True,
+        sample_thermal=False,
         memory_demand_mib=2048,
         demand_owner="agent-owner",
         startup_wait_sec=1,
@@ -1048,6 +1422,7 @@ def test_lightweight_resource_runner_finishes_receipt_and_bounded_writes(
             "demand_observation": {"recorded": True},
         },
     )
+    monkeypatch.setattr(resource_runner, "monotonic", lambda: 100.0)
     latest = tmp_path / "runs" / "latest.json"
     index = tmp_path / "index.json"
     handoff = {
@@ -1055,11 +1430,13 @@ def test_lightweight_resource_runner_finishes_receipt_and_bounded_writes(
             "ok": False,
             "blocked_reasons": [],
             "denied_reasons": [],
+            "planning": {"elapsed_sec": 1.5},
             "startup_admission": {"lease_released": False},
             "policy": {"long_waiter": "inline_cli"},
         },
         "execution": {
             "systemd_command": ["systemd-run", "--user", "/usr/bin/true"],
+            "request_started_monotonic": 90.0,
             "launch_unit": "fixture.service",
             "generated_unit": None,
             "unit_type": "service",
@@ -1084,6 +1461,7 @@ def test_lightweight_resource_runner_finishes_receipt_and_bounded_writes(
 
     assert result["ok"] is True
     assert result["elapsed_sec"] == 3.25
+    assert result["total_elapsed_sec"] == 10.0
     assert result["startup_admission"]["lease_released"] is True
     assert result["startup_admission"]["demand_observation"] == {"recorded": True}
     assert result["policy"]["long_waiter"] == "lightweight_exec_handoff"
@@ -1134,6 +1512,7 @@ def test_resource_launch_releases_lease_when_exec_handoff_fails(abyss_machine_mo
             workload_class="medium",
             kind="agent",
             unattended=True,
+            sample_thermal=False,
             memory_demand_mib=512,
             demand_owner="fixture-owner",
             startup_wait_sec=0,
