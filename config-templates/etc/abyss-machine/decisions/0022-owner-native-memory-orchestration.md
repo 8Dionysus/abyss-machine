@@ -18,11 +18,13 @@ accepted
 
 ## Current Applicability
 
-As of 2026-08-12, `abyss-machine` owns live pressure and swap-reserve facts,
+As of 2026-08-13, `abyss-machine` owns live pressure and swap-reserve facts,
 synchronous launch admission, runtime-only startup reservations, bounded
 runtime peak learning, one canonical resource-launch path, a narrow runtime
 cold-load admission lease for existing owner processes, and shadow-only
-owner-cgroup reclaim offers. The cold-load route accepts explicit owner
+owner-cgroup reclaim offers. Request-specific storage admission avoids the full
+monitor lane, and inventory measurement retains truthful unmeasured results
+inside one per-path time budget. The cold-load route accepts explicit owner
 activity and demand through a private same-user Unix socket; it does not import
 the monolithic CLI while idle or gain model lifecycle authority. The older AI
 CPU launch command is only a compatibility wrapper over that path. It does not
@@ -102,6 +104,13 @@ receipts are reused while the lock protects the final fresh memory/PSI plan,
 reservation snapshot, sufficiency decision, and atomic lease creation. If a
 receipt ages out while waiting for the lock or while the final plan is
 computed, it is refreshed outside the lock before any lease may be created.
+
+Storage inventory measurement outside that critical path must also remain
+bounded and truthful. `du` and its portable fallback share one per-path time
+budget; a `du` timeout does not trigger a second traversal, and an incomplete
+fallback yields an unmeasured item rather than a partial byte count presented
+as complete. Fast tool failures may still use the remaining budget, preserving
+the portable recovery path instead of discarding it prematurely.
 
 An owner that needs to materialize a model inside an already-running process
 may atomically request a short runtime-only cold-load lease. The request must
@@ -217,6 +226,12 @@ change rather than silently reactivating the removed controller.
   inspection remain operator-callable diagnostics. Three complete source
   launches planned in 0.623-0.813 seconds, held the final lock for
   0.080-0.106 seconds, returned `allow`, and executed successfully.
+- 2026-08-13: Preserved the portable inventory fallback but bounded it by the
+  same per-path budget as `du`. The triggering installed path had converted a
+  20-second `du` timeout into an unbounded Python traversal and remained in
+  pre-launch admission for more than 312 seconds. Explicit tool timeout now
+  remains unmeasured, fast tool failure may spend only the remaining budget,
+  and incomplete traversal cannot publish a partial size as complete.
 
 ## Source Surfaces
 

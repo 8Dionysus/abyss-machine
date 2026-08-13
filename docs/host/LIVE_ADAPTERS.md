@@ -244,7 +244,8 @@ mechanics:
   mapping, timeout/OSError mapping, and enforce-block summaries through a
   fakeable hook-runner port;
 - filesystem size measurement through a fakeable `du`/command-runner port with
-  directory-walk fallback;
+  one shared per-path timeout, no second traversal after `du` timeout, and a
+  remaining-budget directory fallback that returns no partial byte count;
 - disk usage summaries rooted at the nearest existing ancestor through a
   fakeable disk-usage port;
 - storage path status and inventory item measurement including mtime, age,

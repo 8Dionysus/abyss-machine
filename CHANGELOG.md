@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep storage inventory measurement inside one per-path latency budget: an
+  explicit `du` timeout now remains unmeasured instead of starting an unbounded
+  Python walk, while fast failures may use only the remaining budget and an
+  incomplete fallback never publishes a partial byte count as complete.
 - Replace the monolithic launch-time thermal diagnostic with a fresh,
   request-specific thermal-map and CPU-route attestation; keep process
   attribution and desktop/compositor analysis available outside the critical
