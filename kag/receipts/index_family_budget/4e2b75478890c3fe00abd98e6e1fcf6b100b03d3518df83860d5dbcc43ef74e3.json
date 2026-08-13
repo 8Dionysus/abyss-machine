@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 9811586,
+  "allowed_tracked_bytes": 26128236,
+  "approved_by": "repository-owner",
+  "base_ref": "22cbec3cb592343298aa59ba7deb011b4c74b961",
+  "changed_generated_bytes": 9811586,
+  "changed_generated_files": 128,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "4e2b75478890c3fe00abd98e6e1fcf6b100b03d3518df83860d5dbcc43ef74e3",
+  "reason": "Refresh the exact owner family for the bounded storage-inventory latency contract; the semantic source and generated ABI update deterministically re-shard the content-addressed family, while tracked bytes remain below the repository cap and no standing budget is raised.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 26128236,
+  "tracked_bytes_max": 27262976
+}

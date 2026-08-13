@@ -21,6 +21,7 @@ CommandExistsPort = Callable[[str], bool]
 DiskUsagePort = Callable[[Path], Any]
 PathChildrenPort = Callable[[Path], Sequence[Path]]
 SizeBytesPort = Callable[[Path, float], int | None]
+BoundedSizeBytesPort = Callable[[Path, float], int | None]
 EuidPort = Callable[[], int]
 ClockPort = Callable[[], float]
 HookRunnerPort = Callable[[Path, str, Mapping[str, str], float], Mapping[str, Any]]
@@ -73,17 +74,62 @@ def directory_size(path: Path) -> int:
     return total
 
 
+def bounded_directory_size(
+    path: Path,
+    timeout: float,
+    *,
+    clock: ClockPort = time.monotonic,
+) -> int | None:
+    deadline = clock() + max(0.0, float(timeout))
+    if clock() >= deadline:
+        return None
+    if path.is_file():
+        try:
+            return path.stat().st_size
+        except OSError:
+            return None
+
+    total = 0
+    stack = [path]
+    while stack:
+        if clock() >= deadline:
+            return None
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if clock() >= deadline:
+                        return None
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        else:
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        return None
+        except OSError:
+            return None
+    return total
+
+
 def measure_path_size_bytes(
     path: Path,
     timeout: float = 20.0,
     *,
     command_exists: CommandExistsPort = tool_available,
     command_runner: CommandRunnerPort = run_tool_process,
+    bounded_size: BoundedSizeBytesPort = bounded_directory_size,
+    clock: ClockPort = time.monotonic,
 ) -> int | None:
+    budget = max(0.0, float(timeout))
+    started = clock()
     if not path.exists():
         return None
+    remaining = budget - max(0.0, clock() - started)
+    if remaining <= 0.0:
+        return None
     if command_exists("du"):
-        out = dict(command_runner(["du", "-sbx", str(path)], timeout))
+        out = dict(command_runner(["du", "-sbx", str(path)], remaining))
         if out.get("ok"):
             first_line = str(out.get("stdout") or "").splitlines()
             first = first_line[0].split() if first_line else []
@@ -92,10 +138,12 @@ def measure_path_size_bytes(
                     return int(first[0])
                 except ValueError:
                     pass
-    try:
-        return path.stat().st_size if path.is_file() else directory_size(path)
-    except OSError:
+        if out.get("returncode") == 124:
+            return None
+    remaining = budget - max(0.0, clock() - started)
+    if remaining <= 0.0:
         return None
+    return bounded_size(path, remaining)
 
 
 def path_mtime_iso(path: Path) -> str | None:

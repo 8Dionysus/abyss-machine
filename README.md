@@ -210,8 +210,11 @@ does not match. Process attribution and desktop/compositor inspection remain
 available in the full thermal diagnostic without delaying every launch; write
 admission reads current pressure and capacity directly and leaves full
 cleanup/process/container inspection in the operator-facing storage-monitor
-lane. Launch receipts expose planning, lock wait/hold, execution, and total
-wall time separately. AI CPU route selection, routed-heavy policy,
+lane. Inventory size probes share one bounded per-path budget across `du` and
+their portable fallback; timeout or incomplete traversal remains explicitly
+unmeasured instead of becoming a second unbounded scan. Launch receipts expose
+planning, lock wait/hold, execution, and total wall time separately. AI CPU
+route selection, routed-heavy policy,
 thread/env hints, and route contract assembly live in
 `abyss_machine.ai_cpu_routing`. AI runtime env/cache/resource-profile, model inventory, LLM
 paths/registry/validate/runtime/profile status, OpenVINO benchmark-plan/probe/eval command/result contracts, AI eval

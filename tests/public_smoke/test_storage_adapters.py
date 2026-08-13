@@ -106,7 +106,9 @@ def test_storage_measure_path_size_bytes_prefers_fake_du_runner(tmp_path: Path) 
     )
 
     assert size == 42
-    assert calls == [(["du", "-sbx", str(target)], 3.0)]
+    assert len(calls) == 1
+    assert calls[0][0] == ["du", "-sbx", str(target)]
+    assert 0.0 < calls[0][1] <= 3.0
 
 
 def test_storage_measure_path_size_bytes_falls_back_to_directory_walk(tmp_path: Path) -> None:
@@ -124,6 +126,71 @@ def test_storage_measure_path_size_bytes_falls_back_to_directory_walk(tmp_path: 
     )
 
     assert size == 5
+
+
+def test_storage_measure_path_size_bytes_does_not_walk_after_du_timeout(tmp_path: Path) -> None:
+    target = tmp_path / "cache"
+    target.mkdir()
+    fallback_calls: list[tuple[Path, float]] = []
+
+    size = storage_adapters.measure_path_size_bytes(
+        target,
+        timeout=3.0,
+        command_exists=lambda name: name == "du",
+        command_runner=lambda command, timeout: {
+            "ok": False,
+            "returncode": 124,
+            "stderr": "timeout",
+        },
+        bounded_size=lambda path, timeout: fallback_calls.append((path, timeout)) or 99,
+    )
+
+    assert size is None
+    assert fallback_calls == []
+
+
+def test_storage_measure_path_size_bytes_uses_only_remaining_fallback_budget(tmp_path: Path) -> None:
+    target = tmp_path / "cache"
+    target.mkdir()
+    fallback_calls: list[tuple[Path, float]] = []
+    clock_values = iter([10.0, 10.10, 10.25])
+
+    size = storage_adapters.measure_path_size_bytes(
+        target,
+        timeout=3.0,
+        command_exists=lambda name: name == "du",
+        command_runner=lambda command, timeout: {
+            "ok": False,
+            "returncode": 1,
+            "stderr": "bounded failure",
+        },
+        bounded_size=lambda path, timeout: fallback_calls.append((path, timeout)) or 7,
+        clock=lambda: next(clock_values),
+    )
+
+    assert size == 7
+    assert fallback_calls == [(target, 2.75)]
+
+
+def test_storage_bounded_directory_size_returns_no_partial_value_after_deadline(tmp_path: Path) -> None:
+    target = tmp_path / "cache"
+    target.mkdir()
+    (target / "a.bin").write_bytes(b"abc")
+    clock_value = 0.0
+
+    def advancing_clock() -> float:
+        nonlocal clock_value
+        clock_value += 0.4
+        return clock_value
+
+    assert (
+        storage_adapters.bounded_directory_size(
+            target,
+            timeout=1.0,
+            clock=advancing_clock,
+        )
+        is None
+    )
 
 
 def test_storage_disk_usage_summary_uses_existing_ancestor_and_fake_usage(tmp_path: Path) -> None:
@@ -166,6 +233,20 @@ def test_storage_inventory_item_status_uses_fake_size_and_clock(tmp_path: Path) 
     assert item["size_bytes"] == 123
     assert item["age_days"] == 3.0
     assert item["resolved"] == str(target)
+
+
+def test_storage_inventory_item_status_keeps_failed_measurement_size_unknown(tmp_path: Path) -> None:
+    target = tmp_path / "cache"
+    target.mkdir()
+
+    item = storage_adapters.inventory_item_status(
+        {"id": "cache", "path": str(target), "category": "rebuildable_cache"},
+        measure=True,
+        size_bytes=lambda path, timeout: None,
+    )
+
+    assert item["measured"] is True
+    assert item["size_bytes"] is None
 
 
 def test_storage_home_review_inventory_specs_skip_existing_and_make_safe_ids(tmp_path: Path) -> None:

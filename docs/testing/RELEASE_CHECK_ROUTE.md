@@ -131,12 +131,19 @@ compact summary and never copy hook payloads or local generated evidence into
 the repository.
 
 For storage inventory measurement adapter changes, public CI should rely on
-fake-port tests for `du`/fallback size measurement, disk usage, path status, and
-home-review scanning plus live-safe compact `storage inventory --json` or
+fake-port tests for `du`/fallback size measurement, timeout-without-second-walk,
+remaining-budget exhaustion without partial counts, disk usage, path status,
+and home-review scanning plus live-safe compact `storage inventory --json` or
 `storage status --json` summaries. Prefer light inventory for closeout; use
 `storage inventory --full --json` only when the operator explicitly wants a
 broader home-review scan, and never copy generated inventory payloads into the
 repository.
+
+Unix-socket publication tests must use a short isolated runtime directory when
+their claim is atomic publication, private mode, or competing-path preservation.
+Keep the platform path-length refusal as a separate explicit negative test so a
+long checkout or pytest worker temp root cannot silently change which contract
+the test exercises.
 
 For process `/proc` adapter changes, public CI should rely on synthetic proc-root
 tests for stat/status/cmdline/io/cgroup/fd parsing, storage/game classification
