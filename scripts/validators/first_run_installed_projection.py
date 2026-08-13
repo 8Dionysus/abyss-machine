@@ -25,6 +25,8 @@ PROFILE_MANIFEST = REPO_ROOT / "manifests" / "bootstrap_profiles.manifest.json"
 SOURCE_PACKAGE_ROOT = SRC_ROOT / "abyss_machine"
 CLI_REFRESH_LOCK_NAME = ".abyss-machine-code-refresh.lock"
 CLI_CURRENT_GENERATION_NAME = ".abyss-machine-code-current"
+CLI_GENERATION_ACTIVE_LOCK_NAME = ".active.lock"
+CLI_LOCK_MODE = 0o644
 SOURCE_PUBLIC_SEED_ROOTS = {
     "manifests": REPO_ROOT / "manifests",
     "generated": REPO_ROOT / "generated",
@@ -977,11 +979,17 @@ def content_parity_report(
         if source_digest != installed_digest:
             cli_row["status"] = "digest_mismatch"
             failures.append(f"{label} CLI digest mismatch: {installed_cli}")
-    refresh_lock = installed_cli.parent / CLI_REFRESH_LOCK_NAME
+    installed_cli_target = (
+        installed_cli.resolve(strict=True)
+        if installed_cli.is_file()
+        else installed_cli
+    )
+    cli_row["resolved_installed"] = str(installed_cli_target)
+    refresh_lock = installed_cli_target.parent / CLI_REFRESH_LOCK_NAME
     lock_row = {
         "path": str(refresh_lock),
         "status": "ok",
-        "required_mode": "0600",
+        "required_mode": f"{CLI_LOCK_MODE:04o}",
     }
     if not refresh_lock.is_file():
         lock_row["status"] = "missing"
@@ -989,7 +997,7 @@ def content_parity_report(
     else:
         mode = refresh_lock.stat().st_mode & 0o777
         lock_row["mode"] = f"{mode:04o}"
-        if mode != 0o600:
+        if mode != CLI_LOCK_MODE:
             lock_row["status"] = "mode_mismatch"
             failures.append(
                 f"{label} CLI refresh lock mode mismatch: {refresh_lock} mode={mode:04o}"
@@ -1004,6 +1012,24 @@ def content_parity_report(
     )
     package_row["source"] = str(SOURCE_PACKAGE_ROOT)
     package_row["installed"] = str(installed_package_root)
+    active_lock = installed_package_root.parent / CLI_GENERATION_ACTIVE_LOCK_NAME
+    active_lock_row = {
+        "path": str(active_lock),
+        "status": "ok",
+        "required_mode": f"{CLI_LOCK_MODE:04o}",
+    }
+    if not active_lock.is_file():
+        active_lock_row["status"] = "missing"
+        failures.append(f"{label} active generation lock missing: {active_lock}")
+    else:
+        mode = active_lock.stat().st_mode & 0o777
+        active_lock_row["mode"] = f"{mode:04o}"
+        if mode != CLI_LOCK_MODE:
+            active_lock_row["status"] = "mode_mismatch"
+            failures.append(
+                f"{label} active generation lock mode mismatch: {active_lock} mode={mode:04o}"
+            )
+    package_row["active_lock"] = active_lock_row
 
     public_seed_rows: dict[str, dict[str, Any]] = {}
     for root_id, source_root in SOURCE_PUBLIC_SEED_ROOTS.items():
