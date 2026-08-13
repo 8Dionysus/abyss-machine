@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 11536541,
+  "allowed_tracked_bytes": 26131641,
+  "approved_by": "repository-owner",
+  "base_ref": "22cbec3cb592343298aa59ba7deb011b4c74b961",
+  "changed_generated_bytes": 11536541,
+  "changed_generated_files": 149,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "1963e4a91b71d5d43b6f6f8f7beeea1109203604be5fb531555bb2e8e7a695bc",
+  "reason": "Refresh the exact owner family for bounded storage measurement and checkout-length-independent socket proof; the source, decision, and ABI changes deterministically re-shard the content-addressed family, while tracked bytes remain below the repository cap and no standing budget is raised.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 26131641,
+  "tracked_bytes_max": 27262976
+}
