@@ -74,7 +74,7 @@ def test_content_parity_report_detects_installed_cli_digest_drift(tmp_path: Path
     libexec.mkdir(parents=True)
     (libexec / "abyss-machine").write_text(module.expected_cli_launcher(), encoding="utf-8")
     refresh_lock = libexec / module.CLI_REFRESH_LOCK_NAME
-    refresh_lock.touch(mode=0o600)
+    refresh_lock.touch(mode=0o644)
     shutil.copytree(ROOT / "src" / "abyss_machine", libexec / "abyss_machine")
     shutil.copytree(ROOT / "manifests", share_root / "manifests")
     shutil.copytree(ROOT / "generated", share_root / "generated")
@@ -91,6 +91,41 @@ def test_content_parity_report_detects_installed_cli_digest_drift(tmp_path: Path
     assert report["status"] == "failed"
     assert report["cli"]["status"] == "digest_mismatch"
     assert any("fixture-installed CLI digest mismatch" in failure for failure in report["failures"])
+
+
+def test_content_parity_report_resolves_systemwide_cli_symlink(tmp_path: Path) -> None:
+    module = load_validator_module()
+    bin_dir = tmp_path / "bin"
+    libexec = tmp_path / "libexec"
+    share_root = tmp_path / "share" / "abyss-machine"
+    generation = libexec / ".abyss-machine-code-generations" / ("a" * 64)
+    package = generation / "abyss_machine"
+    bin_dir.mkdir()
+    libexec.mkdir()
+    shutil.copytree(ROOT / "src" / "abyss_machine", package)
+    shutil.copytree(ROOT / "manifests", share_root / "manifests")
+    shutil.copytree(ROOT / "generated", share_root / "generated")
+    launcher = libexec / "abyss-machine"
+    launcher.write_text(module.expected_cli_launcher(), encoding="utf-8")
+    launcher.chmod(0o755)
+    (libexec / module.CLI_REFRESH_LOCK_NAME).touch(mode=module.CLI_LOCK_MODE)
+    (generation / module.CLI_GENERATION_ACTIVE_LOCK_NAME).touch(
+        mode=module.CLI_LOCK_MODE
+    )
+    installed = bin_dir / "abyss-machine"
+    installed.symlink_to(launcher)
+
+    report = module.content_parity_report(
+        label="systemwide-symlink",
+        installed_cli=installed,
+        installed_package_root=package,
+        installed_share_root=share_root,
+    )
+
+    assert report["status"] == "ok"
+    assert report["cli"]["resolved_installed"] == str(launcher)
+    assert report["cli"]["refresh_lock"]["status"] == "ok"
+    assert report["package"]["active_lock"]["status"] == "ok"
 
 
 def test_command_result_reports_timeout_without_raising(tmp_path: Path) -> None:

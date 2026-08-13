@@ -882,7 +882,10 @@ def test_bootstrap_install_projects_cli_modules_and_public_seed(tmp_path: Path) 
     assert actions["install_public_seed"]["atomic_visibility"] is True
     refresh_lock = Path(actions["install_cli"]["refresh_lock"])
     assert refresh_lock.is_file()
-    assert refresh_lock.stat().st_mode & 0o777 == 0o600
+    assert refresh_lock.stat().st_mode & 0o777 == 0o644
+    generation_active_lock = Path(actions["install_cli"]["generation_active_lock"])
+    assert generation_active_lock.is_file()
+    assert generation_active_lock.stat().st_mode & 0o777 == 0o644
     assert not list(tmp_path.rglob(".*.abyss-stage-*"))
     assert run_root.is_dir()
     assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()

@@ -373,12 +373,15 @@ def _commit_projection(staged: list[tuple[Path, Path]]) -> None:
 
 def _open_code_refresh_lock(path: Path, *, user: str) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
     try:
         if os.geteuid() == 0:
             account = pwd.getpwnam(user)
             os.fchown(fd, account.pw_uid, account.pw_gid)
-        os.fchmod(fd, 0o600)
+        # The installed launcher is a system-wide entrypoint and opens these
+        # locks read-only. Keep mutation owner-only while allowing a runtime
+        # user other than the privileged installer to acquire shared locks.
+        os.fchmod(fd, 0o644)
     except Exception:
         os.close(fd)
         raise

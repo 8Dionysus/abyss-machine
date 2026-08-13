@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 6061916,
+  "allowed_tracked_bytes": 26138498,
+  "approved_by": "repository-owner",
+  "base_ref": "f614245ff48a7efe63a2b5a8b07afa11cea94074",
+  "changed_generated_bytes": 6061916,
+  "changed_generated_files": 76,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "aba41926871f1d7b9bf52020ca18f0e8ad9f112d2457bb152ec1d35aced899ca",
+  "reason": "Regenerate the source-linked abyss-machine provider family for the system-wide bootstrap lock-mode contract and installed-projection validator; the content-addressed shard rebalance exceeds the changed-byte threshold while the complete tracked family remains below its unchanged hard cap.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 26138498,
+  "tracked_bytes_max": 27262976
+}
