@@ -18,12 +18,14 @@ accepted
 
 ## Current Applicability
 
-As of 2026-08-11, the complete owner claim/evidence graph is the default local
+As of 2026-08-13, the complete owner claim/evidence graph is the default local
 release check and protected GitHub `Repo Validation` route. It uses the exact
 clean `aoa-sdk` scheduler pin, graph width three, and
 `pytest-xdist==3.8.0` with two workers. The serial release-public route remains
 the independent completeness oracle and explicit rollback. Changed-path routing
-is shadow-only, and cross-run receipt reuse is not admitted.
+is shadow-only, and cross-run receipt reuse is not admitted. Socket publication
+tests use a short isolated runtime root for their intended race claims, while a
+separate negative contract preserves the Unix path-length refusal.
 
 ## Context
 
@@ -128,6 +130,14 @@ same-head combined runs then supplied the complete evidence set.
   scheduler only with the exact dependency pin and retains explicit serial
   rollback; the full owner graph remains width three with its separately
   admitted xdist-2 leaf.
+- 2026-08-13: A full graph from a long agent checkout passed 1,570 tests but
+  exposed two false failures where the pytest worker temp path crossed the
+  104-byte Unix-socket limit before atomic-publication assertions ran. The
+  intended tests now use an isolated short runtime directory, and an explicit
+  overlong-path negative test retains the refused behavior instead of weakening
+  it. On the same host, the exact 239-node quick lane measured `29.656s` in
+  serial fallback and `13.536s` with admitted xdist-3, with unchanged selection;
+  the higher memory peak keeps serial as the explicit rollback.
 
 ## Source Surfaces
 

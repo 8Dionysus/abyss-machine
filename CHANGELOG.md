@@ -6,6 +6,9 @@
   explicit `du` timeout now remains unmeasured instead of starting an unbounded
   Python walk, while fast failures may use only the remaining budget and an
   incomplete fallback never publishes a partial byte count as complete.
+- Isolate Unix-socket publication tests from checkout-path length while keeping
+  overlong-path rejection as its own negative contract, preventing false full
+  gate failures in long agent worktrees and xdist temp roots.
 - Replace the monolithic launch-time thermal diagnostic with a fresh,
   request-specific thermal-map and CPU-route attestation; keep process
   attribution and desktop/compositor analysis available outside the critical

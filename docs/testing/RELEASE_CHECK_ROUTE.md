@@ -139,6 +139,12 @@ and home-review scanning plus live-safe compact `storage inventory --json` or
 broader home-review scan, and never copy generated inventory payloads into the
 repository.
 
+Unix-socket publication tests must use a short isolated runtime directory when
+their claim is atomic publication, private mode, or competing-path preservation.
+Keep the platform path-length refusal as a separate explicit negative test so a
+long checkout or pytest worker temp root cannot silently change which contract
+the test exercises.
+
 For process `/proc` adapter changes, public CI should rely on synthetic proc-root
 tests for stat/status/cmdline/io/cgroup/fd parsing, storage/game classification
 binding, and CPU interval sampling. Live-host closeout may use compact

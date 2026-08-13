@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 import socket
 import sys
+import tempfile
 import threading
 import time
+from collections.abc import Iterator
 
 import pytest
 
@@ -24,6 +26,13 @@ from abyss_machine import (  # noqa: E402
 
 
 TOKEN = "fixture-release-token-1234567890"
+
+
+@pytest.fixture
+def short_runtime_dir() -> Iterator[Path]:
+    runtime_root = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
+    with tempfile.TemporaryDirectory(prefix="am-ra-", dir=runtime_root) as path:
+        yield Path(path)
 
 
 def test_runtime_admission_relief_asks_only_for_measured_shortfall() -> None:
@@ -422,9 +431,9 @@ def test_runtime_admission_unix_transport_is_private_bounded_and_stoppable() -> 
 
 
 def test_runtime_admission_socket_is_not_published_before_private_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    short_runtime_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = tmp_path / "admission.sock"
+    path = short_runtime_dir / "admission.sock"
     chmod_started = threading.Event()
     allow_chmod = threading.Event()
     real_chmod = os.chmod
@@ -470,13 +479,13 @@ def test_runtime_admission_socket_is_not_published_before_private_mode(
     assert thread.is_alive() is False
     assert outcome["ok"] is True
     assert path.exists() is False
-    assert not list(tmp_path.glob(".r*"))
+    assert not list(short_runtime_dir.glob(".r*"))
 
 
 def test_runtime_admission_does_not_remove_a_competing_publish(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    short_runtime_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = tmp_path / "admission.sock"
+    path = short_runtime_dir / "admission.sock"
 
     def competing_link(_source: os.PathLike[str], target: os.PathLike[str]) -> None:
         Path(target).write_text("competing-owner\n", encoding="utf-8")
@@ -491,7 +500,7 @@ def test_runtime_admission_does_not_remove_a_competing_publish(
         )
 
     assert path.read_text(encoding="utf-8") == "competing-owner\n"
-    assert not list(tmp_path.glob(".r*"))
+    assert not list(short_runtime_dir.glob(".r*"))
 
 
 def test_runtime_admission_rejects_insecure_socket_mode(tmp_path: Path) -> None:
@@ -505,6 +514,17 @@ def test_runtime_admission_rejects_insecure_socket_mode(tmp_path: Path) -> None:
         )
 
     assert path.exists() is False
+
+
+def test_runtime_admission_rejects_overlong_socket_path() -> None:
+    path = Path("/") / ("x" * 104)
+    assert len(os.fsencode(path)) >= 104
+
+    with pytest.raises(ValueError, match="socket path is too long"):
+        resource_admission_adapters.run_server_loop(
+            path=path,
+            dispatch_port=lambda _payload: ({"ok": True}, False),
+        )
 
 
 def test_lightweight_server_reads_fresh_memory_and_cpu_emergency_facts(tmp_path: Path) -> None:
