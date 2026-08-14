@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 23481111,
+  "allowed_tracked_bytes": 26583777,
+  "approved_by": "repository-owner",
+  "base_ref": "7417e4b1b422e7af6ebe9a85e76c7e5d95824932",
+  "changed_generated_bytes": 23481111,
+  "changed_generated_files": 348,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "2754a56c64c1aa22980372fbe6cd8361d0e3d71f24a89b0d35237cbd081b3ee0",
+  "reason": "The owner-reviewed nervous session incremental DAG changes event, episode, index, benchmark, test, and operator surfaces; exact synthetic and real-history oracle parity plus the complete authoritative owner gate passed, and the refreshed portable family remains below its standing tracked-byte cap without changing KAG authority.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 26583777,
+  "tracked_bytes_max": 27262976
+}
