@@ -493,11 +493,20 @@ SQLite/FTS lifecycle adapter boundary:
 - index build derived-refresh orchestration through fakeable event and episode
   build ports;
 - index build source-input collection through fakeable source-file discovery,
-  JSONL source-record loading, redacted projection, and build-document ports;
+  stable stat observations, exact hashes, tail reads, append attestations,
+  redacted projection, and build-document ports;
+- projection/source-manifest/FTS identity admission with forced-full,
+  file-partition, record-append, and attested record-append routes;
+- pre-write source partition/stat revalidation so a changed snapshot refuses
+  without opening the database;
 - index build write-stage execution under the index lock, including semantic
-  pre-write deferral, DB connect/init/schema write, meta construction, content
-  replacement, generated DB file-mode normalization, counts, and build
-  success/error wrapping through fakeable ports;
+  pre-write deferral, DB connect/init/schema migration, meta construction,
+  atomic full replacement or replace/append delta mutation, FTS rowid identity,
+  generated DB file-mode normalization, counts, and build success/error
+  wrapping through fakeable ports;
+- source-path-indexed relational replacement, primary-key-targeted FTS
+  insertion/verification, changed-value manifest/meta upserts, and a locked
+  fixed-point route that verifies the prior run without touching the database;
 - vacuum execution (`PRAGMA optimize` and `VACUUM`) through fakeable
   connection/count ports.
 
@@ -520,6 +529,11 @@ boundary for derived nervous events and episodes:
 - daily JSONL path selection from observed/start/generated timestamps;
 - derived event/episode replacement writes that preserve records with other
   `derived_by` values and report bounded parse/write errors;
+- deterministic event append-state derivation, exact fixed-point no-write
+  behavior, and typed source-delta attestations for the downstream index;
+- partition-local episode derivation that rereads and replaces only the
+  affected event/episode days while retaining a complete forced oracle;
+- stat-gated exact-hash reuse and post-derivation source-snapshot refusal;
 - latest build/read envelopes for events and episodes;
 - build/validate latest write routing through fakeable writer ports;
 - global-pause build refusal routing that writes the refused latest document

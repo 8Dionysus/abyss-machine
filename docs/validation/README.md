@@ -26,6 +26,10 @@ cross-run receipt is accepted as current proof.
 Host-contract tests exist for development and migration, but they are separate
 from the public install smoke lane.
 
+The nervous real-session fixed-point and full/file/record method comparison is
+documented in `docs/testing/NERVOUS_INCREMENTAL_DAG.md`; its timing receipts are
+shadow evidence and never replace the owner claim/evidence graph.
+
 Artifact signature policy and generated contract ABI signatures are part of the
 public lane. They classify what should be ABI-fingerprinted, SBOMed, attested,
 signed, or C2PA-tagged when an artifact class becomes publishable.

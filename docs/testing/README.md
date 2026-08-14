@@ -12,3 +12,7 @@ Use
 [RESOURCE_THERMAL_ADMISSION_COMPARISON.md](RESOURCE_THERMAL_ADMISSION_COMPARISON.md)
 for the measured method comparison and claim/evidence boundary behind the fast
 thermal node in `resource launch`.
+
+Use [NERVOUS_INCREMENTAL_DAG.md](NERVOUS_INCREMENTAL_DAG.md) for the
+full/file/record comparison, cross-stage append attestation, forced oracle, and
+fail-closed boundaries behind the fast real-session nervous refresh route.

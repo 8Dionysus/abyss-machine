@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import datetime as dt
+import hashlib
 import json
 import sqlite3
 import sys
@@ -14,6 +15,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from abyss_machine import cli
+from abyss_machine import nervous_events
 from abyss_machine import nervous_index
 from abyss_machine import nervous_index_adapters
 
@@ -627,10 +629,58 @@ def test_index_adapter_derived_refresh_orchestrates_event_episode_ports() -> Non
     assert enabled == summary_result
     assert disabled == {}
     assert calls == [
-        ("events", {"write_latest": True}),
-        ("episodes", {"write_latest": True, "refresh_events": False}),
+        ("events", {"write_latest": True, "force_full": False}),
+        (
+            "episodes",
+            {"write_latest": True, "refresh_events": False, "force_full": False},
+        ),
         ("summary", {"events": events_result, "episodes": episodes_result}),
     ]
+
+
+def test_index_derived_refresh_exposes_attestations_only_on_internal_route() -> None:
+    attestation = {"schema": "attestation", "path": "/facts/current.jsonl"}
+
+    def events_builder(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "summary": {"events": 1},
+            "incremental": {"delta_attestations": [attestation]},
+        }
+
+    def episodes_builder(**_kwargs: Any) -> dict[str, Any]:
+        return {"ok": True, "summary": {"episodes": 1}}
+
+    public = nervous_index_adapters.derived_refresh_from_ports(
+        refresh_enabled=True,
+        events_builder=events_builder,
+        episodes_builder=episodes_builder,
+    )
+    internal = nervous_index_adapters.derived_refresh_from_ports(
+        refresh_enabled=True,
+        include_internal_attestations=True,
+        events_builder=events_builder,
+        episodes_builder=episodes_builder,
+    )
+
+    assert "_internal_source_delta_attestations" not in public
+    assert internal["_internal_source_delta_attestations"] == [attestation]
+
+
+def test_index_derived_refresh_rejects_attestation_from_failed_event_stage() -> None:
+    attestation = {"schema": "attestation", "path": "/facts/current.jsonl"}
+
+    result = nervous_index_adapters.derived_refresh_from_ports(
+        refresh_enabled=True,
+        include_internal_attestations=True,
+        events_builder=lambda **_kwargs: {
+            "ok": False,
+            "incremental": {"delta_attestations": [attestation]},
+        },
+        episodes_builder=lambda **_kwargs: {"ok": True},
+    )
+
+    assert result["_internal_source_delta_attestations"] == []
 
 
 def test_index_adapter_build_document_collects_source_inputs_through_ports(tmp_path: Path) -> None:
@@ -833,12 +883,17 @@ def test_index_adapter_write_build_projection_executes_db_write_stage_through_po
         apply_mode=fake_apply,
     )
 
-    assert result == nervous_index.with_index_write_success(
-        data,
-        finished_at="2026-06-25T12:02:00+00:00",
-        counts=counts_doc,
-        parse_errors=[],
-    )
+    assert result["ok"] is True
+    assert result["finished_at"] == "2026-06-25T12:02:00+00:00"
+    assert result["counts"] == counts_doc
+    assert result["execution"]["write_mode"] == "full"
+    assert set(result["execution"]["timings_ms"]) == {
+        "write_lock_wait",
+        "db_initialize",
+        "db_write",
+        "post_write_counts",
+        "write_stage_total",
+    }
     replace_call = [item for item in calls if item[0] == "replace"][0][1]
     assert replace_call["documents"] == [{"doc_id": "doc-1"}]
     assert replace_call["chunks"] == [{"chunk_id": "chunk-1"}]
@@ -1406,6 +1461,14 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
             "projection": projection,
             "parse_errors": parse_errors,
             "enabled_sources": ["abyss_machine_facts", "nervous_events", "nervous_episodes"],
+            "manifest_entries": {str(source_path): {"source_sha256": "source-1"}},
+            "projection_identity": "projection-1",
+            "changed_source_paths": [str(source_path)],
+            "replace_source_paths": [],
+            "append_source_paths": [str(source_path)],
+            "source_observations": {str(source_path): {"size_bytes": 1}},
+            "write_mode": "delta",
+            "base_run_id": "index-base-1",
         }
 
     def fake_write_stage(data: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
@@ -1446,13 +1509,17 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     monkeypatch.setattr(cli, "nervous_index_connect", forbidden_write_stage)
     monkeypatch.setattr(cli, "nervous_index_initialize", forbidden_write_stage)
     monkeypatch.setattr(cli.nervous_index_adapters, "derived_refresh_from_ports", fake_derived_refresh)
-    monkeypatch.setattr(cli.nervous_index_adapters, "build_document_from_source_roots", fake_source_input_stage)
+    monkeypatch.setattr(cli.nervous_index_adapters, "build_incremental_document_from_source_roots", fake_source_input_stage)
     monkeypatch.setattr(cli.nervous_index_adapters, "write_build_projection", fake_write_stage)
 
     result = cli.nervous_index_build(write_latest=False, refresh_derived=True)
 
-    assert result == {"ok": True, "from_adapter": True}
+    assert result["ok"] is True
+    assert result["from_adapter"] is True
+    assert result["execution"]["timings_ms"]["total_before_latest_write"] >= 0
     assert captured["derived_refresh"]["refresh_enabled"] is True
+    assert captured["derived_refresh"]["force_full"] is False
+    assert captured["derived_refresh"]["include_internal_attestations"] is True
     assert captured["derived_refresh"]["events_builder"] is forbidden_derived_refresh
     assert captured["derived_refresh"]["episodes_builder"] is forbidden_derived_refresh
     assert captured["source_input"]["schema_prefix"] == cli.SCHEMA_PREFIX
@@ -1467,6 +1534,8 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     assert captured["source_input"]["source_roots"] == (facts_root, events_root, episodes_root)
     assert captured["source_input"]["derived_refresh"] == derived_refresh
     assert captured["source_input"]["redact_text"] is cli.nervous_redact_index_text
+    assert captured["source_input"]["force_full"] is False
+    assert captured["source_input"]["source_delta_attestations"] == []
     assert captured["data"] is build_data
     assert captured["db_path"] == db_path
     assert captured["root"] == root
@@ -1488,3 +1557,945 @@ def test_cli_nervous_index_build_binds_write_stage_adapter(monkeypatch, tmp_path
     assert captured["semantic_lock_active"] is cli.nervous_semantic_lock_active
     assert captured["now"] is cli.now_iso
     assert captured["counts_reader"] is cli.nervous_index_db_counts
+    assert captured["manifest_entries"] == {str(source_path): {"source_sha256": "source-1"}}
+    assert captured["projection_identity"] == "projection-1"
+    assert captured["changed_source_paths"] == [str(source_path)]
+    assert captured["replace_source_paths"] == []
+    assert captured["append_source_paths"] == [str(source_path)]
+    assert captured["source_observations"] == {str(source_path): {"size_bytes": 1}}
+    assert captured["write_mode"] == "delta"
+    assert captured["base_run_id"] == "index-base-1"
+
+
+def _incremental_event(event_id: str, observed_at: str, body: str) -> dict[str, Any]:
+    return {
+        "schema": "abyss_machine_nervous_event_v1",
+        "raw_private_content": False,
+        "source_ids": ["abyss_machine_facts"],
+        "event_id": event_id,
+        "observed_at": observed_at,
+        "generated_at": observed_at,
+        "event_type": "validation.test",
+        "category": "validation",
+        "severity": "info",
+        "sensitivity": "machine_metadata",
+        "title": body,
+        "summary": body,
+    }
+
+
+def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(record, sort_keys=True) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+
+def _index_plan(
+    *,
+    db_path: Path,
+    facts_root: Path,
+    events_root: Path,
+    episodes_root: Path,
+    sources: dict[str, Any],
+    run_id: str,
+    at: str,
+    force_full: bool = False,
+    source_bytes_reader: Any = None,
+    source_delta_attestations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    optional: dict[str, Any] = {}
+    if source_bytes_reader is not None:
+        optional["source_bytes_reader"] = source_bytes_reader
+    if source_delta_attestations is not None:
+        optional["source_delta_attestations"] = source_delta_attestations
+    return nervous_index_adapters.build_incremental_document_from_source_roots(
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at=at,
+        run_id=run_id,
+        started_at=at,
+        db_path=db_path,
+        config_path=db_path.parent / "index.json",
+        privacy={"global_pause": False, "private_mode": False},
+        sources=sources,
+        source_roots=(facts_root, events_root, episodes_root),
+        derived_refresh={},
+        redact_text=lambda text: (text, 0),
+        force_full=force_full,
+        **optional,
+    )
+
+
+def _write_index_plan(
+    *,
+    plan: dict[str, Any],
+    db_path: Path,
+    facts_root: Path,
+    events_root: Path,
+    episodes_root: Path,
+    run_id: str,
+    at: str,
+) -> dict[str, Any]:
+    return nervous_index_adapters.write_build_projection(
+        plan["data"],
+        db_path=db_path,
+        root=db_path.parent,
+        schema_path=db_path.parent / "schema.sql",
+        schema_sql=nervous_index.nervous_index_schema_sql(),
+        schema_prefix="abyss_machine",
+        version="test-version",
+        group="missing-test-group",
+        run_id=run_id,
+        started_at=at,
+        source_files=plan["source_files"],
+        projection=plan["projection"],
+        parse_errors=plan["parse_errors"],
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        source_state_change_id="source-change-1",
+        privacy_state_change_id="privacy-change-1",
+        semantic_lock_active=lambda: False,
+        now=lambda: at,
+        counts_reader=lambda: nervous_index.counts(db_path),
+        manifest_entries=plan["manifest_entries"],
+        projection_identity=plan["projection_identity"],
+        changed_source_paths=plan["changed_source_paths"],
+        replace_source_paths=plan["replace_source_paths"],
+        append_source_paths=plan["append_source_paths"],
+        source_observations=plan["source_observations"],
+        write_mode=plan["write_mode"],
+        base_run_id=plan["base_run_id"],
+    )
+
+
+def _logical_index_rows(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
+    conn = nervous_index.connect_db(db_path, create=False)
+    try:
+        documents = conn.execute(
+            """
+            SELECT doc_id, source_path, source_line, source_sha256, record_sha256, schema,
+                   generated_at, capture_trigger, global_pause, private_mode, heartbeat,
+                   source_ids_json, title, body
+            FROM documents ORDER BY doc_id
+            """
+        ).fetchall()
+        chunks = conn.execute(
+            """
+            SELECT chunk_id, doc_id, chunk_index, source_id, title, body, generated_at,
+                   privacy_mode, provenance_json
+            FROM chunks ORDER BY chunk_id
+            """
+        ).fetchall()
+        fts = conn.execute(
+            "SELECT chunk_id, doc_id, source_id, title, body FROM fts_chunks ORDER BY chunk_id"
+        ).fetchall()
+        manifest = conn.execute(
+            """
+            SELECT source_path, source_sha256, source_size_bytes, source_line_count,
+                   source_observation_json, projection_identity,
+                   summary_json, parse_errors_json, skipped_records_json
+            FROM source_manifest ORDER BY source_path
+            """
+        ).fetchall()
+        return {
+            "documents": [tuple(row) for row in documents],
+            "chunks": [tuple(row) for row in chunks],
+            "fts": [tuple(row) for row in fts],
+            "manifest": [tuple(row) for row in manifest],
+        }
+    finally:
+        conn.close()
+
+
+def test_index_append_delta_matches_full_oracle_and_removes_partitions(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    stable_path = events_root / "2026" / "08" / "2026-08-12.jsonl"
+    changing_path = events_root / "2026" / "08" / "2026-08-13.jsonl"
+    _write_jsonl(stable_path, [_incremental_event("stable-1", "2026-08-12T12:00:00+00:00", "stable alpha")])
+    _write_jsonl(changing_path, [_incremental_event("changing-1", "2026-08-13T12:00:00+00:00", "changing beta")])
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+        "state": {"last_change_id": "source-change-1"},
+    }
+    delta_db = tmp_path / "delta" / "nervous.db"
+    full_plan = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="full-seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+    assert full_plan["write_mode"] == "full"
+    seeded = _write_index_plan(
+        plan=full_plan,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="full-seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+    assert seeded["ok"] is True
+
+    _write_jsonl(
+        changing_path,
+        [
+            _incremental_event("changing-1", "2026-08-13T12:00:00+00:00", "changing beta"),
+            _incremental_event("changing-2", "2026-08-13T12:02:00+00:00", "delta gamma"),
+        ],
+    )
+    delta_plan = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="delta-1",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert delta_plan["write_mode"] == "delta"
+    assert delta_plan["data"]["execution"]["strategy"] == "record_append_delta"
+    assert delta_plan["data"]["execution"]["source_partitions"] == {
+        "total": 2,
+        "changed": 1,
+        "unchanged": 1,
+        "removed": 0,
+        "replaced": 0,
+        "appended": 1,
+        "metadata_refreshed": 0,
+    }
+    assert delta_plan["data"]["execution"]["delta"] == {"documents": 1, "chunks": 1}
+    assert delta_plan["replace_source_paths"] == []
+    assert delta_plan["append_source_paths"] == [str(changing_path)]
+    delta_result = _write_index_plan(
+        plan=delta_plan,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="delta-1",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert delta_result["ok"] is True
+    assert delta_result["counts"]["documents"] == 3
+    assert delta_result["counts"]["chunks"] == 3
+    assert delta_result["counts"]["fts_chunks"] == 3
+    assert delta_result["execution"]["database_touched"] is True
+    assert {
+        "db_delta_prepare_replacements",
+        "db_delta_delete_fts",
+        "db_delta_delete_relational",
+        "db_delta_insert_relational",
+        "db_delta_insert_fts",
+        "db_delta_verify_fts",
+        "db_delta_update_manifest",
+        "db_delta_update_run_metadata",
+        "db_delta_drop_temp_tables",
+        "db_delta_commit",
+    }.issubset(delta_result["execution"]["timings_ms"])
+    conn = nervous_index.connect_db(delta_db, create=False)
+    try:
+        assert conn.execute(
+            "SELECT count(*) FROM documents WHERE source_sha256 IS NOT NULL"
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT count(*) FROM source_manifest WHERE source_sha256 = ''"
+        ).fetchone()[0] == 0
+    finally:
+        conn.close()
+
+    oracle_db = tmp_path / "oracle" / "nervous.db"
+    oracle_plan = _index_plan(
+        db_path=oracle_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="full-oracle",
+        at="2026-08-13T12:04:00+00:00",
+        force_full=True,
+    )
+    _write_index_plan(
+        plan=oracle_plan,
+        db_path=oracle_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="full-oracle",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    assert _logical_index_rows(delta_db) == _logical_index_rows(oracle_db)
+    delta_search = nervous_index.search_index(
+        db_path=delta_db,
+        query="gamma",
+        final_limit=10,
+        dedupe=False,
+        order="latest",
+        freshness={"stale": False},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-08-13T12:05:00+00:00",
+    )
+    oracle_search = nervous_index.search_index(
+        db_path=oracle_db,
+        query="gamma",
+        final_limit=10,
+        dedupe=False,
+        order="latest",
+        freshness={"stale": False},
+        schema_prefix="abyss_machine",
+        version="test-version",
+        generated_at="2026-08-13T12:05:00+00:00",
+    )
+    assert delta_search["results"] == oracle_search["results"]
+
+    stable_path.unlink()
+    removal_plan = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="delta-remove",
+        at="2026-08-13T12:06:00+00:00",
+    )
+    assert removal_plan["write_mode"] == "delta"
+    assert removal_plan["data"]["execution"]["source_partitions"]["removed"] == 1
+    removed = _write_index_plan(
+        plan=removal_plan,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="delta-remove",
+        at="2026-08-13T12:06:00+00:00",
+    )
+    assert removed["counts"]["documents"] == 2
+    assert removed["counts"]["chunks"] == removed["counts"]["fts_chunks"] == 2
+
+
+def test_index_incremental_plan_falls_back_on_policy_or_manifest_identity_drift(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = events_root / "2026" / "08" / "events.jsonl"
+    _write_jsonl(source_path, [_incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha")])
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+    }
+    db_path = tmp_path / "index" / "nervous.db"
+    seed = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+    _write_index_plan(
+        plan=seed,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+
+    changed_policy = {
+        **sources,
+        "safe_now": {"abyss_machine_facts": {"enabled": False, "allowed": True}},
+    }
+    policy_plan = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=changed_policy,
+        run_id="policy-drift",
+        at="2026-08-13T12:02:00+00:00",
+    )
+    assert policy_plan["write_mode"] == "full"
+    assert "projection_identity_mismatch" in policy_plan["eligibility"]["reasons"]
+
+    conn = nervous_index.connect_db(db_path, create=False)
+    conn.execute("UPDATE meta SET value = 'tampered' WHERE key = 'source_manifest_identity'")
+    conn.commit()
+    conn.close()
+    tampered_plan = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="manifest-drift",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert tampered_plan["write_mode"] == "full"
+    assert "source_manifest_identity_mismatch" in tampered_plan["eligibility"]["reasons"]
+
+
+def test_index_delta_rolls_back_partial_mutation_and_rejects_stale_base(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = events_root / "2026" / "08" / "events.jsonl"
+    _write_jsonl(source_path, [_incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha")])
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+    }
+    db_path = tmp_path / "index" / "nervous.db"
+    seed = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+    _write_index_plan(
+        plan=seed,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+    before = _logical_index_rows(db_path)
+
+    _write_jsonl(
+        source_path,
+        [
+            _incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha"),
+            _incremental_event("event-2", "2026-08-13T12:02:00+00:00", "beta"),
+        ],
+    )
+    broken_plan = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="broken-delta",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    broken_plan["projection"]["chunks"].append(dict(broken_plan["projection"]["chunks"][0]))
+    broken = _write_index_plan(
+        plan=broken_plan,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="broken-delta",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert broken["ok"] is False
+    assert "UNIQUE constraint failed" in broken["error"]
+    assert _logical_index_rows(db_path) == before
+
+    stale_plan = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="stale-delta",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    conn = nervous_index.connect_db(db_path, create=False)
+    conn.execute("UPDATE meta SET value = 'concurrent-run' WHERE key = 'run_id'")
+    conn.commit()
+    conn.close()
+    stale = _write_index_plan(
+        plan=stale_plan,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="stale-delta",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    assert stale["ok"] is False
+    assert stale["error"] == "incremental index base run changed before write"
+    assert _logical_index_rows(db_path) == before
+
+
+def test_index_modified_partition_uses_replace_delta_and_matches_full_oracle(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = events_root / "2026" / "08" / "events.jsonl"
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+    }
+    original = [
+        _incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha"),
+        _incremental_event("event-2", "2026-08-13T12:01:00+00:00", "beta"),
+    ]
+    _write_jsonl(source_path, original)
+    delta_db = tmp_path / "delta" / "nervous.db"
+    seed = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="seed",
+        at="2026-08-13T12:02:00+00:00",
+    )
+    _write_index_plan(
+        plan=seed,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="seed",
+        at="2026-08-13T12:02:00+00:00",
+    )
+
+    modified = [
+        _incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha corrected"),
+        original[1],
+    ]
+    _write_jsonl(source_path, modified)
+    delta = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="replace-delta",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert delta["data"]["execution"]["strategy"] == "file_partition_delta"
+    assert delta["replace_source_paths"] == [str(source_path)]
+    assert delta["append_source_paths"] == []
+    assert delta["data"]["execution"]["delta"] == {"documents": 2, "chunks": 2}
+    result = _write_index_plan(
+        plan=delta,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="replace-delta",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert result["ok"] is True
+
+    oracle_db = tmp_path / "oracle" / "nervous.db"
+    oracle = _index_plan(
+        db_path=oracle_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="oracle",
+        at="2026-08-13T12:04:00+00:00",
+        force_full=True,
+    )
+    _write_index_plan(
+        plan=oracle,
+        db_path=oracle_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="oracle",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    assert _logical_index_rows(delta_db) == _logical_index_rows(oracle_db)
+
+
+def test_index_unchanged_partition_reuses_exact_hash_without_content_read(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = events_root / "2026" / "08" / "events.jsonl"
+    _write_jsonl(
+        source_path,
+        [_incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha")],
+    )
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+    }
+    db_path = tmp_path / "index" / "nervous.db"
+    seed = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+    _write_index_plan(
+        plan=seed,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="seed",
+        at="2026-08-13T12:01:00+00:00",
+    )
+
+    def forbidden_content_read(path: Path) -> bytes:
+        raise AssertionError(f"unchanged source content must not be read: {path}")
+
+    fixed_point = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="fixed-point",
+        at="2026-08-13T12:02:00+00:00",
+        source_bytes_reader=forbidden_content_read,
+    )
+
+    assert fixed_point["write_mode"] == "noop"
+    assert fixed_point["data"]["execution"]["strategy"] == "fixed_point_noop"
+    assert fixed_point["changed_source_paths"] == []
+    assert fixed_point["data"]["execution"]["delta"] == {"documents": 0, "chunks": 0}
+    assert fixed_point["data"]["execution"]["source_scan"] == {
+        "partitions_reused_by_observation": 1,
+        "content_bytes_reused": source_path.stat().st_size,
+        "content_bytes_hashed": 0,
+        "append_prefix_bytes_verified": 0,
+        "attested_tail_bytes_read": 0,
+        "attested_prefix_bytes_reused": 0,
+        "source_delta_attestations_admitted": 0,
+        "observation_fields": ["device", "inode", "size_bytes", "mtime_ns", "ctime_ns"],
+    }
+
+    db_sha256_before = hashlib.sha256(db_path.read_bytes()).hexdigest()
+    fixed_result = _write_index_plan(
+        plan=fixed_point,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="fixed-point",
+        at="2026-08-13T12:02:00+00:00",
+    )
+    db_sha256_after = hashlib.sha256(db_path.read_bytes()).hexdigest()
+    assert fixed_result["ok"] is True
+    assert fixed_result["execution"]["write_mode"] == "noop"
+    assert fixed_result["execution"]["database_touched"] is False
+    assert fixed_result["execution"]["timings_ms"]["db_write"] == 0.0
+    assert fixed_result["counts"]["meta"]["run_id"] == "seed"
+    assert db_sha256_after == db_sha256_before
+
+
+def test_index_admits_events_append_attestation_and_reads_only_tail(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = facts_root / "2026" / "08" / "facts.jsonl"
+    first = _incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha")
+    second = _incremental_event("event-2", "2026-08-13T12:01:00+00:00", "beta")
+    _write_jsonl(source_path, [first])
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+    }
+    db_path = tmp_path / "index" / "nervous.db"
+    seed = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="seed",
+        at="2026-08-13T12:02:00+00:00",
+    )
+    _write_index_plan(
+        plan=seed,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="seed",
+        at="2026-08-13T12:02:00+00:00",
+    )
+    previous = seed["manifest_entries"][str(source_path)]
+    previous_size = int(previous["source_size_bytes"])
+    with source_path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(second, sort_keys=True) + "\n")
+    raw = source_path.read_bytes()
+    observation = nervous_index_adapters.source_file_observation(source_path)
+    current = {
+        "path": str(source_path),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+        "line_count": len(raw.splitlines()),
+        "observation": observation,
+    }
+    attestation = nervous_events.source_delta_attestation(
+        path=str(source_path),
+        basis="append_only",
+        base={
+            "sha256": previous["source_sha256"],
+            "size_bytes": previous_size,
+            "line_count": previous["source_line_count"],
+        },
+        current=current,
+    )
+
+    full_reads: list[Path] = []
+
+    def observed_full_read(path: Path) -> bytes:
+        full_reads.append(path)
+        return path.read_bytes()
+
+    tampered = {**attestation, "proof_sha256": "0" * 64}
+    rejected_attestation = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="tampered-attestation",
+        at="2026-08-13T12:03:00+00:00",
+        source_bytes_reader=observed_full_read,
+        source_delta_attestations=[tampered],
+    )
+    rejected_scan = rejected_attestation["data"]["execution"]["source_scan"]
+    assert full_reads == [source_path]
+    assert rejected_scan["content_bytes_hashed"] == len(raw)
+    assert rejected_scan["source_delta_attestations_admitted"] == 0
+
+    def forbidden_full_read(path: Path) -> bytes:
+        raise AssertionError(f"admitted append attestation must avoid full read: {path}")
+
+    delta = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="attested-delta",
+        at="2026-08-13T12:03:00+00:00",
+        source_bytes_reader=forbidden_full_read,
+        source_delta_attestations=[attestation],
+    )
+    assert delta["data"]["execution"]["strategy"] == "record_append_delta"
+    assert delta["data"]["execution"]["delta"] == {"documents": 1, "chunks": 1}
+    scan = delta["data"]["execution"]["source_scan"]
+    assert scan["content_bytes_hashed"] == 0
+    assert scan["attested_tail_bytes_read"] == len(raw) - previous_size
+    assert scan["attested_prefix_bytes_reused"] == previous_size
+    assert scan["source_delta_attestations_admitted"] == 1
+    result = _write_index_plan(
+        plan=delta,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="attested-delta",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert result["ok"] is True
+    assert result["counts"]["documents"] == 2
+
+
+def test_index_source_change_after_plan_refuses_write_then_recovers_by_append(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = events_root / "2026" / "08" / "events.jsonl"
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+    }
+    first = _incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha")
+    second = _incremental_event("event-2", "2026-08-13T12:01:00+00:00", "beta")
+    third = _incremental_event("event-3", "2026-08-13T12:02:00+00:00", "gamma")
+    _write_jsonl(source_path, [first])
+    db_path = tmp_path / "delta" / "nervous.db"
+    seed = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="seed",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    _write_index_plan(
+        plan=seed,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="seed",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    before = _logical_index_rows(db_path)
+
+    _write_jsonl(source_path, [first, second])
+    stale_plan = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="stale-plan",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    _write_jsonl(source_path, [first, second, third])
+    refused = _write_index_plan(
+        plan=stale_plan,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="stale-plan",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    assert refused["ok"] is False
+    assert refused["refused"] is True
+    assert refused["decision"] == "source_snapshot_changed"
+    assert "changed after index planning" in refused["error"]
+    assert _logical_index_rows(db_path) == before
+
+    recovery = _index_plan(
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="recovery",
+        at="2026-08-13T12:05:00+00:00",
+    )
+    assert recovery["data"]["execution"]["strategy"] == "record_append_delta"
+    assert recovery["data"]["execution"]["delta"] == {"documents": 2, "chunks": 2}
+    recovered = _write_index_plan(
+        plan=recovery,
+        db_path=db_path,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="recovery",
+        at="2026-08-13T12:05:00+00:00",
+    )
+    assert recovered["ok"] is True
+    assert recovered["counts"]["documents"] == 3
+
+
+def test_index_append_delta_preserves_parse_errors_and_matches_full_oracle(tmp_path: Path) -> None:
+    facts_root = tmp_path / "facts"
+    events_root = tmp_path / "events"
+    episodes_root = tmp_path / "episodes"
+    source_path = events_root / "2026" / "08" / "events.jsonl"
+    sources = {
+        "safe_now": {"abyss_machine_facts": {"enabled": True, "allowed": True}},
+        "deferred_until_privacy_controls": {},
+    }
+    first = _incremental_event("event-1", "2026-08-13T12:00:00+00:00", "alpha")
+    second = _incremental_event("event-2", "2026-08-13T12:01:00+00:00", "beta")
+    _write_jsonl(source_path, [first])
+    delta_db = tmp_path / "delta" / "nervous.db"
+    seed = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="seed",
+        at="2026-08-13T12:02:00+00:00",
+    )
+    _write_index_plan(
+        plan=seed,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="seed",
+        at="2026-08-13T12:02:00+00:00",
+    )
+
+    with source_path.open("a", encoding="utf-8") as stream:
+        stream.write("not-json\n")
+    malformed = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="malformed",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert malformed["data"]["execution"]["strategy"] == "record_append_delta"
+    assert malformed["data"]["summary"]["parse_errors"] == 1
+    malformed_result = _write_index_plan(
+        plan=malformed,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="malformed",
+        at="2026-08-13T12:03:00+00:00",
+    )
+    assert malformed_result["ok"] is False
+    assert malformed_result["counts"]["documents"] == 1
+
+    with source_path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(second, sort_keys=True) + "\n")
+    continued = _index_plan(
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="continued",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    assert continued["data"]["summary"]["parse_errors"] == 1
+    continued_result = _write_index_plan(
+        plan=continued,
+        db_path=delta_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="continued",
+        at="2026-08-13T12:04:00+00:00",
+    )
+    assert continued_result["ok"] is False
+    assert continued_result["counts"]["documents"] == 2
+
+    oracle_db = tmp_path / "oracle" / "nervous.db"
+    oracle = _index_plan(
+        db_path=oracle_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        sources=sources,
+        run_id="oracle",
+        at="2026-08-13T12:05:00+00:00",
+        force_full=True,
+    )
+    oracle_result = _write_index_plan(
+        plan=oracle,
+        db_path=oracle_db,
+        facts_root=facts_root,
+        events_root=events_root,
+        episodes_root=episodes_root,
+        run_id="oracle",
+        at="2026-08-13T12:05:00+00:00",
+    )
+    assert oracle_result["ok"] is False
+    assert _logical_index_rows(delta_db) == _logical_index_rows(oracle_db)

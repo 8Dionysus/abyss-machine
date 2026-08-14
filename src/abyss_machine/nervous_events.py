@@ -13,6 +13,110 @@ SEVERITY_RANK = {
     "warning": 3,
     "critical": 4,
 }
+EVENT_DERIVATION_INCREMENTAL_ABI = "abyss_machine_nervous_events_append_state_v4"
+EVENT_SOURCE_DELTA_ATTESTATION_ABI = "abyss_machine_nervous_source_delta_attestation_v1"
+EPISODE_DERIVATION_INCREMENTAL_ABI = "abyss_machine_nervous_episodes_partition_v2"
+
+
+def event_derivation_identity(
+    *,
+    thresholds: dict[str, Any],
+    deferred_source_ids: set[str],
+    schema_prefix: str,
+    version: str,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "abi": EVENT_DERIVATION_INCREMENTAL_ABI,
+                "schema_prefix": str(schema_prefix),
+                "version": str(version),
+                "thermal_thresholds": thresholds,
+                "deferred_source_ids": sorted(str(item) for item in deferred_source_ids),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8", errors="replace")
+    ).hexdigest()
+
+
+def episode_derivation_identity(*, schema_prefix: str, version: str) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "abi": EPISODE_DERIVATION_INCREMENTAL_ABI,
+                "schema_prefix": str(schema_prefix),
+                "version": str(version),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8", errors="replace")
+    ).hexdigest()
+
+
+def merge_event_summaries(previous: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
+    merged = {
+        "input_snapshots": int(previous.get("input_snapshots") or 0) + int(delta.get("input_snapshots") or 0),
+        "events": int(previous.get("events") or 0) + int(delta.get("events") or 0),
+        "by_category": {},
+        "by_severity": {},
+    }
+    for key in ("by_category", "by_severity"):
+        target = merged[key]
+        for source in (previous, delta):
+            values = source.get(key) if isinstance(source.get(key), dict) else {}
+            for name, value in values.items():
+                name_text = str(name)
+                target[name_text] = int(target.get(name_text) or 0) + int(value or 0)
+    return merged
+
+
+def merge_episode_summaries(
+    items: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {
+        "input_events": 0,
+        "episodes": 0,
+        "by_category": {},
+        "by_severity": {},
+    }
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        merged["input_events"] += int(item.get("input_events") or 0)
+        merged["episodes"] += int(item.get("episodes") or 0)
+        for key in ("by_category", "by_severity"):
+            values = item.get(key) if isinstance(item.get(key), dict) else {}
+            for name, value in values.items():
+                name_text = str(name)
+                merged[key][name_text] = int(merged[key].get(name_text) or 0) + int(value or 0)
+    return merged
+
+
+def source_delta_attestation(
+    *,
+    path: str,
+    basis: str,
+    base: dict[str, Any] | None,
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    core = {
+        "schema": EVENT_SOURCE_DELTA_ATTESTATION_ABI,
+        "path": str(path),
+        "basis": str(basis),
+        "base": base if isinstance(base, dict) else None,
+        "current": current,
+    }
+    encoded = json.dumps(
+        core,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8", errors="replace")
+    return {**core, "proof_sha256": hashlib.sha256(encoded).hexdigest()}
 
 
 def now_iso() -> str:
@@ -101,7 +205,6 @@ def snapshot_evidence(item: dict[str, Any], record: dict[str, Any]) -> dict[str,
         "path": item.get("path"),
         "line": item.get("line"),
         "record_sha256": item.get("record_sha256"),
-        "source_sha256": item.get("source_sha256"),
         "generated_at": record.get("generated_at"),
         "schema": record.get("schema"),
     }
@@ -562,9 +665,10 @@ def private_capture_events(
     return events
 
 
-def events_from_fact_records(
+def events_from_fact_records_with_state(
     items: list[dict[str, Any]],
     *,
+    initial_state: dict[str, Any] | None = None,
     thresholds: dict[str, float] | None = None,
     fact_source_id: Callable[[dict[str, Any]], str] = default_fact_source_id,
     deferred_source_ids: set[str] | None = None,
@@ -572,18 +676,29 @@ def events_from_fact_records(
     schema_prefix: str = "abyss_machine",
     version: str = "",
     generated_at: str | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    event_generated_at = generated_at or now_iso()
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    requested_generated_at = generated_at
     events: list[dict[str, Any]] = []
-    previous_storage: dict[str, Any] | None = None
-    previous_power_token: tuple[Any, ...] | None = None
-    previous_thermal_class: str | None = None
-    previous_units: dict[str, tuple[Any, ...]] = {}
-    previous_tokens: dict[str, Any] = {}
+    state = initial_state if isinstance(initial_state, dict) else {}
+    previous_storage = dict(state["previous_storage"]) if isinstance(state.get("previous_storage"), dict) else None
+    power_token = state.get("previous_power_token")
+    previous_power_token = tuple(power_token) if isinstance(power_token, (list, tuple)) else None
+    previous_thermal_class = str(state.get("previous_thermal_class")) if state.get("previous_thermal_class") is not None else None
+    units_state = state.get("previous_units") if isinstance(state.get("previous_units"), dict) else {}
+    previous_units: dict[str, tuple[Any, ...]] = {
+        str(key): tuple(value) if isinstance(value, (list, tuple)) else (value,)
+        for key, value in units_state.items()
+    }
+    tokens_state = state.get("previous_tokens") if isinstance(state.get("previous_tokens"), dict) else {}
+    previous_tokens = {
+        str(key): tuple(value) if isinstance(value, (list, tuple)) else value
+        for key, value in tokens_state.items()
+    }
     for item in items:
         record = item.get("record") if isinstance(item.get("record"), dict) else {}
         if record.get("schema") != f"{schema_prefix}_nervous_fact_snapshot_v1":
             continue
+        event_generated_at = requested_generated_at or record.get("generated_at") or now_iso()
         capture = record.get("capture") if isinstance(record.get("capture"), dict) else {}
         privacy = record.get("privacy") if isinstance(record.get("privacy"), dict) else {}
         summary = record.get("summary") if isinstance(record.get("summary"), dict) else {}
@@ -665,12 +780,47 @@ def events_from_fact_records(
     final_events = sorted(deduped.values(), key=lambda item: (item.get("observed_at") or "", item.get("event_id") or ""))
     categories = sorted({str(event.get("category")) for event in final_events})
     severities = sorted({str(event.get("severity")) for event in final_events})
-    return final_events, {
+    summary = {
         "input_snapshots": len(items),
         "events": len(final_events),
         "by_category": {category: sum(1 for event in final_events if event.get("category") == category) for category in categories},
         "by_severity": {severity: sum(1 for event in final_events if event.get("severity") == severity) for severity in severities},
     }
+    final_state = {
+        "previous_storage": previous_storage,
+        "previous_power_token": list(previous_power_token) if previous_power_token is not None else None,
+        "previous_thermal_class": previous_thermal_class,
+        "previous_units": {key: list(value) for key, value in sorted(previous_units.items())},
+        "previous_tokens": {
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in sorted(previous_tokens.items())
+        },
+    }
+    return final_events, summary, final_state
+
+
+def events_from_fact_records(
+    items: list[dict[str, Any]],
+    *,
+    thresholds: dict[str, float] | None = None,
+    fact_source_id: Callable[[dict[str, Any]], str] = default_fact_source_id,
+    deferred_source_ids: set[str] | None = None,
+    compact_json_func: Callable[..., str] = compact_json,
+    schema_prefix: str = "abyss_machine",
+    version: str = "",
+    generated_at: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    events, summary, _ = events_from_fact_records_with_state(
+        items,
+        thresholds=thresholds,
+        fact_source_id=fact_source_id,
+        deferred_source_ids=deferred_source_ids,
+        compact_json_func=compact_json_func,
+        schema_prefix=schema_prefix,
+        version=version,
+        generated_at=generated_at,
+    )
+    return events, summary
 
 
 def events_build_refused_result(
@@ -880,7 +1030,7 @@ def episodes_from_events(
     generated_at: str | None = None,
     now: dt.datetime | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    episode_generated_at = generated_at or now_iso()
+    requested_generated_at = generated_at
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for event in events:
         observed = parse_time(event.get("observed_at")) or parse_time(event.get("generated_at")) or now or dt.datetime.now(dt.timezone.utc).astimezone()
@@ -894,7 +1044,17 @@ def episodes_from_events(
             day,
             schema_prefix=schema_prefix,
             version=version,
-            generated_at=episode_generated_at,
+            generated_at=(
+                requested_generated_at
+                or max(
+                    (
+                        str(event.get("generated_at") or event.get("observed_at") or "")
+                        for event in items
+                    ),
+                    default="",
+                )
+                or now_iso()
+            ),
         )
         for (day, category), items in sorted(grouped.items())
     ]

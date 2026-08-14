@@ -11,6 +11,9 @@ from typing import Any, Callable
 
 
 JSONL_SOURCE_GLOB = "*/*/*.jsonl"
+INDEX_PROJECTION_ABI = "abyss_machine_nervous_index_projection_v2"
+INDEX_SOURCE_MANIFEST_SCHEMA = "abyss_machine_nervous_index_source_manifest_v3"
+INDEX_FTS_ROWID_IDENTITY = "chunks_rowid_v1"
 
 
 def _nested_get(data: Any, path: list[str]) -> Any:
@@ -27,6 +30,48 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def stable_json_sha256(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8", errors="replace")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def index_projection_identity(
+    sources: dict[str, Any],
+    enabled_sources: set[str],
+    *,
+    schema_prefix: str = "abyss_machine",
+    projection_abi: str = INDEX_PROJECTION_ABI,
+) -> str:
+    source_policy: dict[str, dict[str, dict[str, bool]]] = {}
+    for group_name in ("safe_now", "deferred_until_privacy_controls"):
+        group = sources.get(group_name) if isinstance(sources, dict) else None
+        if not isinstance(group, dict):
+            source_policy[group_name] = {}
+            continue
+        source_policy[group_name] = {
+            str(source_id): {
+                "enabled": bool(item.get("enabled")),
+                "allowed": bool(item.get("allowed", True)),
+            }
+            for source_id, item in sorted(group.items(), key=lambda pair: str(pair[0]))
+            if isinstance(item, dict)
+        }
+    return stable_json_sha256(
+        {
+            "schema": f"{schema_prefix}_nervous_index_projection_identity_v1",
+            "projection_abi": projection_abi,
+            "source_policy": source_policy,
+            "enabled_sources": sorted(str(item) for item in enabled_sources),
+        }
+    )
 
 
 def _sqlite_busy_error(exc: sqlite3.Error) -> bool:
@@ -107,11 +152,12 @@ def parse_jsonl_records_with_metadata(
     text: str,
     *,
     source_sha256: str | None = None,
+    line_offset: int = 0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     records: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     path_text = str(path)
-    for line_no, line in enumerate(text.splitlines(), start=1):
+    for line_no, line in enumerate(text.splitlines(), start=1 + max(int(line_offset), 0)):
         raw = line.strip()
         if not raw:
             continue
@@ -191,6 +237,192 @@ def source_record_sort_key(item: dict[str, Any]) -> tuple[Any, str, int]:
 
 def sort_source_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=source_record_sort_key)
+
+
+def empty_index_summary() -> dict[str, Any]:
+    return {
+        "records_seen": 0,
+        "records_indexed": 0,
+        "documents_indexed": 0,
+        "chunks_indexed": 0,
+        "parse_errors": 0,
+        "skipped_records": 0,
+        "disabled_chunks": 0,
+        "redactions": 0,
+        "records_seen_by_schema": {},
+        "records_indexed_by_schema": {},
+    }
+
+
+def merge_index_summaries(items: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    merged = empty_index_summary()
+    scalar_keys = (
+        "records_seen",
+        "records_indexed",
+        "documents_indexed",
+        "chunks_indexed",
+        "parse_errors",
+        "skipped_records",
+        "disabled_chunks",
+        "redactions",
+    )
+    map_keys = ("records_seen_by_schema", "records_indexed_by_schema")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in scalar_keys:
+            merged[key] = int(merged[key]) + _safe_int(item.get(key), 0)
+        for key in map_keys:
+            values = item.get(key) if isinstance(item.get(key), dict) else {}
+            target = merged[key]
+            for name, value in values.items():
+                name_text = str(name)
+                target[name_text] = _safe_int(target.get(name_text), 0) + _safe_int(value, 0)
+    return merged
+
+
+def source_manifest_identity(entries: dict[str, dict[str, Any]]) -> str:
+    normalized = [
+        {
+            "source_path": str(path),
+            "source_sha256": str(entry.get("source_sha256") or ""),
+            "source_size_bytes": _safe_int(entry.get("source_size_bytes"), 0),
+            "source_line_count": _safe_int(entry.get("source_line_count"), 0),
+            "source_observation": (
+                entry.get("source_observation")
+                if isinstance(entry.get("source_observation"), dict)
+                else {}
+            ),
+            "projection_identity": str(entry.get("projection_identity") or ""),
+            "summary": entry.get("summary") if isinstance(entry.get("summary"), dict) else {},
+            "parse_errors": entry.get("parse_errors") if isinstance(entry.get("parse_errors"), list) else [],
+            "skipped_records": entry.get("skipped_records") if isinstance(entry.get("skipped_records"), list) else [],
+        }
+        for path, entry in sorted(entries.items())
+    ]
+    return stable_json_sha256(
+        {
+            "schema": INDEX_SOURCE_MANIFEST_SCHEMA,
+            "entries": normalized,
+        }
+    )
+
+
+def aggregate_manifest_entries(entries: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    summaries = [
+        entry.get("summary") if isinstance(entry.get("summary"), dict) else {}
+        for _, entry in sorted(entries.items())
+    ]
+    summary = merge_index_summaries(summaries)
+    parse_errors: list[dict[str, Any]] = []
+    skipped_records: list[dict[str, Any]] = []
+    for _, entry in sorted(entries.items()):
+        for item in entry.get("parse_errors") if isinstance(entry.get("parse_errors"), list) else []:
+            if isinstance(item, dict) and len(parse_errors) < 20:
+                parse_errors.append(item)
+        for item in entry.get("skipped_records") if isinstance(entry.get("skipped_records"), list) else []:
+            if isinstance(item, dict) and len(skipped_records) < 20:
+                skipped_records.append(item)
+    return {
+        "summary": summary,
+        "parse_errors": parse_errors,
+        "skipped_records": skipped_records,
+    }
+
+
+def build_source_manifest_entries(
+    file_identities: dict[str, dict[str, Any]],
+    source_summaries: dict[str, dict[str, Any]],
+    parse_errors: list[dict[str, Any]],
+    *,
+    projection_identity: str,
+    updated_at: str,
+) -> dict[str, dict[str, Any]]:
+    errors_by_path: dict[str, list[dict[str, Any]]] = {}
+    error_counts: dict[str, int] = {}
+    for item in parse_errors:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "")
+        error_counts[path] = error_counts.get(path, 0) + 1
+        if len(errors_by_path.setdefault(path, [])) < 20:
+            errors_by_path[path].append(item)
+
+    entries: dict[str, dict[str, Any]] = {}
+    for path, identity in sorted(file_identities.items()):
+        source_data = source_summaries.get(path) if isinstance(source_summaries.get(path), dict) else {}
+        summary = dict(source_data.get("summary")) if isinstance(source_data.get("summary"), dict) else empty_index_summary()
+        for key, default in empty_index_summary().items():
+            if isinstance(default, dict):
+                summary[key] = dict(summary.get(key)) if isinstance(summary.get(key), dict) else {}
+            else:
+                summary[key] = _safe_int(summary.get(key), 0)
+        summary["parse_errors"] = error_counts.get(path, 0)
+        skipped = source_data.get("skipped_records") if isinstance(source_data.get("skipped_records"), list) else []
+        entries[path] = {
+            "schema": INDEX_SOURCE_MANIFEST_SCHEMA,
+            "source_path": path,
+            "source_sha256": str(identity.get("source_sha256") or ""),
+            "source_size_bytes": _safe_int(identity.get("source_size_bytes"), 0),
+            "source_line_count": _safe_int(identity.get("source_line_count"), 0),
+            "source_observation": (
+                dict(identity.get("source_observation"))
+                if isinstance(identity.get("source_observation"), dict)
+                else {}
+            ),
+            "projection_identity": str(projection_identity),
+            "summary": summary,
+            "parse_errors": errors_by_path.get(path, []),
+            "skipped_records": [item for item in skipped[:20] if isinstance(item, dict)],
+            "updated_at": str(updated_at),
+        }
+    return entries
+
+
+def incremental_index_eligibility(
+    *,
+    meta: dict[str, Any],
+    manifest_entries: dict[str, dict[str, Any]],
+    projection_identity: str,
+    counts: dict[str, Any],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    if not manifest_entries:
+        reasons.append("source_manifest_missing_or_empty")
+    if str(meta.get("projection_identity") or "") != str(projection_identity):
+        reasons.append("projection_identity_mismatch")
+    if str(meta.get("fts_rowid_identity") or "") != INDEX_FTS_ROWID_IDENTITY:
+        reasons.append("fts_rowid_identity_unproven")
+    expected_manifest_identity = source_manifest_identity(manifest_entries) if manifest_entries else ""
+    if str(meta.get("source_manifest_identity") or "") != expected_manifest_identity:
+        reasons.append("source_manifest_identity_mismatch")
+    if any(
+        str(entry.get("projection_identity") or "") != str(projection_identity)
+        or not str(entry.get("source_sha256") or "")
+        or not isinstance(entry.get("source_observation"), dict)
+        or not entry.get("source_observation")
+        or not isinstance(entry.get("summary"), dict)
+        for entry in manifest_entries.values()
+    ):
+        reasons.append("source_manifest_entry_invalid")
+
+    aggregate = aggregate_manifest_entries(manifest_entries)["summary"] if manifest_entries else empty_index_summary()
+    expected_counts = {
+        "documents": _safe_int(aggregate.get("documents_indexed"), 0),
+        "chunks": _safe_int(aggregate.get("chunks_indexed"), 0),
+        "fts_chunks": _safe_int(aggregate.get("chunks_indexed"), 0),
+    }
+    for key, expected in expected_counts.items():
+        actual = counts.get(key)
+        if actual is None or _safe_int(actual, -1) != expected:
+            reasons.append(f"{key}_count_mismatch")
+    return {
+        "eligible": not reasons,
+        "reasons": reasons,
+        "projection_identity": str(projection_identity),
+        "source_manifest_identity": expected_manifest_identity,
+        "expected_counts": expected_counts,
+    }
 
 
 def enabled_safe_source_ids(sources: dict[str, Any]) -> set[str]:
@@ -637,7 +869,10 @@ def document_rows_from_record(
         "doc_id": doc_id,
         "source_path": item["path"],
         "source_line": item["line"],
-        "source_sha256": item.get("source_sha256"),
+        # The exact record identity is document-local. The mutable whole-partition
+        # identity belongs to source_manifest; duplicating it here would require
+        # rewriting every prior document on each append.
+        "source_sha256": None,
         "record_sha256": item["record_sha256"],
         "schema": record.get("schema"),
         "generated_at": document_generated_at,
@@ -685,21 +920,37 @@ def build_index_projection(
     documents: list[dict[str, Any]] = []
     all_chunks: list[dict[str, Any]] = []
     skipped_records: list[dict[str, Any]] = []
-    records_seen_by_schema: dict[str, int] = {}
-    records_indexed_by_schema: dict[str, int] = {}
-    redactions = 0
-    disabled_chunks = 0
+    source_summaries: dict[str, dict[str, Any]] = {}
+
+    def source_entry(path: Any) -> dict[str, Any]:
+        path_text = str(path or "")
+        if path_text not in source_summaries:
+            source_summaries[path_text] = {
+                "summary": empty_index_summary(),
+                "skipped_records": [],
+            }
+        return source_summaries[path_text]
 
     for item in sort_source_records(source_records):
+        entry = source_entry(item.get("path"))
+        source_summary = entry["summary"]
+        source_summary["records_seen"] += 1
         record = item.get("record") if isinstance(item.get("record"), dict) else None
         if record is None:
-            skipped_records.append({"path": item.get("path"), "line": item.get("line"), "reason": "record is not an object"})
+            skipped = {"path": item.get("path"), "line": item.get("line"), "reason": "record is not an object"}
+            skipped_records.append(skipped)
+            entry["skipped_records"].append(skipped)
+            source_summary["skipped_records"] += 1
             continue
         schema = str(record.get("schema") or "unknown")
-        records_seen_by_schema[schema] = records_seen_by_schema.get(schema, 0) + 1
+        seen_by_schema = source_summary["records_seen_by_schema"]
+        seen_by_schema[schema] = seen_by_schema.get(schema, 0) + 1
         safe, reason = record_is_safe_for_index(record, sources, schema_prefix=schema_prefix)
         if not safe:
-            skipped_records.append({"path": item.get("path"), "line": item.get("line"), "reason": reason})
+            skipped = {"path": item.get("path"), "line": item.get("line"), "reason": reason}
+            skipped_records.append(skipped)
+            entry["skipped_records"].append(skipped)
+            source_summary["skipped_records"] += 1
             continue
         chunks, chunk_stats = chunks_from_record(
             record,
@@ -707,10 +958,17 @@ def build_index_projection(
             schema_prefix=schema_prefix,
             redact_text=redact_text,
         )
-        disabled_chunks += int(chunk_stats.get("disabled_chunks") or 0)
-        redactions += int(chunk_stats.get("redactions") or 0)
+        source_summary["disabled_chunks"] += int(chunk_stats.get("disabled_chunks") or 0)
+        source_summary["redactions"] += int(chunk_stats.get("redactions") or 0)
         if not chunks:
-            skipped_records.append({"path": item.get("path"), "line": item.get("line"), "reason": "no chunks after source policy filtering"})
+            skipped = {
+                "path": item.get("path"),
+                "line": item.get("line"),
+                "reason": "no chunks after source policy filtering",
+            }
+            skipped_records.append(skipped)
+            entry["skipped_records"].append(skipped)
+            source_summary["skipped_records"] += 1
             continue
         projection = document_rows_from_record(
             item,
@@ -722,24 +980,23 @@ def build_index_projection(
         )
         documents.append(projection["document"])
         all_chunks.extend(projection["chunks"])
-        redactions += int(projection.get("redactions") or 0)
-        records_indexed_by_schema[schema] = records_indexed_by_schema.get(schema, 0) + 1
+        source_summary["records_indexed"] += 1
+        source_summary["documents_indexed"] += 1
+        source_summary["chunks_indexed"] += len(projection["chunks"])
+        source_summary["redactions"] += int(projection.get("redactions") or 0)
+        indexed_by_schema = source_summary["records_indexed_by_schema"]
+        indexed_by_schema[schema] = indexed_by_schema.get(schema, 0) + 1
+
+    summary = merge_index_summaries(
+        [entry["summary"] for _, entry in sorted(source_summaries.items())]
+    )
 
     return {
         "documents": documents,
         "chunks": all_chunks,
         "skipped_records": skipped_records,
-        "summary": {
-            "records_seen": len(source_records),
-            "records_indexed": len(documents),
-            "documents_indexed": len(documents),
-            "chunks_indexed": len(all_chunks),
-            "skipped_records": len(skipped_records),
-            "disabled_chunks": disabled_chunks,
-            "redactions": redactions,
-            "records_seen_by_schema": records_seen_by_schema,
-            "records_indexed_by_schema": records_indexed_by_schema,
-        },
+        "summary": summary,
+        "source_summaries": source_summaries,
     }
 
 
@@ -905,11 +1162,11 @@ def build_index_build_document(
         "summary": {
             "source_files": len(source_files),
             "records_seen": projection_summary["records_seen"],
-            "records_indexed": len(documents),
-            "documents_indexed": len(documents),
-            "chunks_indexed": len(chunks),
-            "parse_errors": len(parse_errors),
-            "skipped_records": len(skipped_records),
+            "records_indexed": projection_summary.get("records_indexed", len(documents)),
+            "documents_indexed": projection_summary.get("documents_indexed", len(documents)),
+            "chunks_indexed": projection_summary.get("chunks_indexed", len(chunks)),
+            "parse_errors": projection_summary.get("parse_errors", len(parse_errors)),
+            "skipped_records": projection_summary.get("skipped_records", len(skipped_records)),
             "disabled_chunks": projection_summary["disabled_chunks"],
             "redactions": projection_summary["redactions"],
             "records_seen_by_schema": projection_summary["records_seen_by_schema"],
@@ -946,8 +1203,8 @@ def build_index_meta_values(
         "built_at": built_at,
         "source_files": str(len(source_files)),
         "records_seen": str(projection_summary["records_seen"]),
-        "records_indexed": str(len(documents)),
-        "chunks_indexed": str(len(chunks)),
+        "records_indexed": str(projection_summary.get("records_indexed", len(documents))),
+        "chunks_indexed": str(projection_summary.get("chunks_indexed", len(chunks))),
         "facts_root": str(facts_root),
         "events_root": str(events_root),
         "episodes_root": str(episodes_root),
@@ -964,9 +1221,10 @@ def with_index_write_success(
     finished_at: str,
     counts: dict[str, Any],
     parse_errors: list[dict[str, Any]],
+    parse_error_count: int | None = None,
 ) -> dict[str, Any]:
     updated = dict(data)
-    updated["ok"] = len(parse_errors) == 0
+    updated["ok"] = (len(parse_errors) if parse_error_count is None else int(parse_error_count)) == 0
     updated["finished_at"] = finished_at
     updated["counts"] = counts
     return updated
@@ -1256,6 +1514,18 @@ CREATE TABLE IF NOT EXISTS documents (
   body TEXT NOT NULL,
   indexed_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS source_manifest (
+  source_path TEXT PRIMARY KEY,
+  source_sha256 TEXT NOT NULL,
+  source_size_bytes INTEGER NOT NULL,
+  source_line_count INTEGER NOT NULL,
+  source_observation_json TEXT NOT NULL,
+  projection_identity TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  parse_errors_json TEXT NOT NULL,
+  skipped_records_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chunks (
   chunk_id TEXT PRIMARY KEY,
   doc_id TEXT NOT NULL,
@@ -1269,6 +1539,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   FOREIGN KEY(doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_documents_generated_at ON documents(generated_at);
+CREATE INDEX IF NOT EXISTS idx_documents_source_path ON documents(source_path);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
@@ -1308,6 +1579,20 @@ def initialize_db(
     version: str = "",
 ) -> None:
     conn.executescript(nervous_index_schema_sql())
+    manifest_columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(source_manifest)")
+    }
+    if "source_line_count" not in manifest_columns:
+        conn.execute(
+            "ALTER TABLE source_manifest "
+            "ADD COLUMN source_line_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "source_observation_json" not in manifest_columns:
+        conn.execute(
+            "ALTER TABLE source_manifest "
+            "ADD COLUMN source_observation_json TEXT NOT NULL DEFAULT '{}'"
+        )
     put_meta(
         conn,
         {
@@ -1320,7 +1605,14 @@ def initialize_db(
 
 def put_meta(conn: sqlite3.Connection, values: dict[str, Any]) -> None:
     for key, value in values.items():
-        conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, str(value)))
+        conn.execute(
+            """
+            INSERT INTO meta(key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            WHERE meta.value IS NOT excluded.value
+            """,
+            (key, str(value)),
+        )
 
 
 def read_meta(db_path: Path) -> dict[str, Any]:
@@ -1333,6 +1625,124 @@ def read_meta(db_path: Path) -> dict[str, Any]:
         return {}
     finally:
         conn.close()
+
+
+def source_manifest_rows(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+    for row in conn.execute(
+        """
+        SELECT source_path, source_sha256, source_size_bytes, source_line_count,
+               source_observation_json, projection_identity,
+               summary_json, parse_errors_json, skipped_records_json, updated_at
+        FROM source_manifest
+        ORDER BY source_path
+        """
+    ):
+        path = str(row["source_path"])
+        try:
+            summary = json.loads(str(row["summary_json"] or "{}"))
+        except json.JSONDecodeError:
+            summary = None
+        try:
+            parse_errors = json.loads(str(row["parse_errors_json"] or "[]"))
+        except json.JSONDecodeError:
+            parse_errors = None
+        try:
+            skipped_records = json.loads(str(row["skipped_records_json"] or "[]"))
+        except json.JSONDecodeError:
+            skipped_records = None
+        try:
+            source_observation = json.loads(str(row["source_observation_json"] or "{}"))
+        except json.JSONDecodeError:
+            source_observation = None
+        entries[path] = {
+            "schema": INDEX_SOURCE_MANIFEST_SCHEMA,
+            "source_path": path,
+            "source_sha256": str(row["source_sha256"] or ""),
+            "source_size_bytes": _safe_int(row["source_size_bytes"], 0),
+            "source_line_count": _safe_int(row["source_line_count"], 0),
+            "source_observation": source_observation,
+            "projection_identity": str(row["projection_identity"] or ""),
+            "summary": summary,
+            "parse_errors": parse_errors,
+            "skipped_records": skipped_records,
+            "updated_at": str(row["updated_at"] or ""),
+        }
+    return entries
+
+
+def read_source_manifest(db_path: Path, *, busy_timeout_ms: int = 5000) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "db_path": str(db_path),
+        "db_exists": db_path.exists(),
+        "meta": {},
+        "entries": {},
+    }
+    if not db_path.exists():
+        return result
+    try:
+        conn = connect_db(db_path, create=False, busy_timeout_ms=busy_timeout_ms)
+        try:
+            result["meta"] = {str(row["key"]): row["value"] for row in conn.execute("SELECT key, value FROM meta")}
+            result["entries"] = source_manifest_rows(conn)
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def put_source_manifest_entries(
+    conn: sqlite3.Connection,
+    entries: dict[str, dict[str, Any]],
+) -> None:
+    conn.executemany(
+        """
+        INSERT INTO source_manifest (
+          source_path, source_sha256, source_size_bytes, source_line_count,
+          source_observation_json, projection_identity,
+          summary_json, parse_errors_json, skipped_records_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_path) DO UPDATE SET
+          source_sha256 = excluded.source_sha256,
+          source_size_bytes = excluded.source_size_bytes,
+          source_line_count = excluded.source_line_count,
+          source_observation_json = excluded.source_observation_json,
+          projection_identity = excluded.projection_identity,
+          summary_json = excluded.summary_json,
+          parse_errors_json = excluded.parse_errors_json,
+          skipped_records_json = excluded.skipped_records_json,
+          updated_at = excluded.updated_at
+        WHERE source_manifest.source_sha256 IS NOT excluded.source_sha256
+           OR source_manifest.source_size_bytes IS NOT excluded.source_size_bytes
+           OR source_manifest.source_line_count IS NOT excluded.source_line_count
+           OR source_manifest.source_observation_json IS NOT excluded.source_observation_json
+           OR source_manifest.projection_identity IS NOT excluded.projection_identity
+           OR source_manifest.summary_json IS NOT excluded.summary_json
+           OR source_manifest.parse_errors_json IS NOT excluded.parse_errors_json
+           OR source_manifest.skipped_records_json IS NOT excluded.skipped_records_json
+           OR source_manifest.updated_at IS NOT excluded.updated_at
+        """,
+        [
+            (
+                str(path),
+                str(entry.get("source_sha256") or ""),
+                _safe_int(entry.get("source_size_bytes"), 0),
+                _safe_int(entry.get("source_line_count"), 0),
+                json.dumps(
+                    entry.get("source_observation") or {},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                str(entry.get("projection_identity") or ""),
+                json.dumps(entry.get("summary") or {}, ensure_ascii=False, sort_keys=True),
+                json.dumps(entry.get("parse_errors") or [], ensure_ascii=False, sort_keys=True),
+                json.dumps(entry.get("skipped_records") or [], ensure_ascii=False, sort_keys=True),
+                str(entry.get("updated_at") or ""),
+            )
+            for path, entry in sorted(entries.items())
+        ],
+    )
 
 
 def _index_run_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -1501,7 +1911,7 @@ def replace_index_contents(
     meta_values: dict[str, Any],
     run_id: str,
     started_at: str,
-    finished_at: str,
+    finished_at: str | Callable[[], str],
     ok: bool,
     source_files: int,
     records_seen: int,
@@ -1509,46 +1919,61 @@ def replace_index_contents(
     documents_indexed: int,
     chunks_indexed: int,
     errors: dict[str, Any],
+    source_manifest_entries: dict[str, dict[str, Any]] | None = None,
+    projection_identity: str | None = None,
 ) -> None:
     conn.execute("BEGIN")
     try:
         conn.execute("DELETE FROM fts_chunks")
         conn.execute("DELETE FROM chunks")
         conn.execute("DELETE FROM documents")
-        for doc in documents:
-            conn.execute(
-                """
-                INSERT INTO documents (
-                  doc_id, source_path, source_line, source_sha256, record_sha256, schema, generated_at,
-                  capture_trigger, global_pause, private_mode, heartbeat, source_ids_json, title, body, indexed_at
-                ) VALUES (
-                  :doc_id, :source_path, :source_line, :source_sha256, :record_sha256, :schema, :generated_at,
-                  :capture_trigger, :global_pause, :private_mode, :heartbeat, :source_ids_json, :title, :body, :indexed_at
-                )
-                """,
-                doc,
+        conn.execute("DELETE FROM source_manifest")
+        conn.executemany(
+            """
+            INSERT INTO documents (
+              doc_id, source_path, source_line, source_sha256, record_sha256, schema, generated_at,
+              capture_trigger, global_pause, private_mode, heartbeat, source_ids_json, title, body, indexed_at
+            ) VALUES (
+              :doc_id, :source_path, :source_line, :source_sha256, :record_sha256, :schema, :generated_at,
+              :capture_trigger, :global_pause, :private_mode, :heartbeat, :source_ids_json, :title, :body, :indexed_at
             )
-        for chunk in chunks:
-            conn.execute(
-                """
-                INSERT INTO chunks (
-                  chunk_id, doc_id, chunk_index, source_id, title, body, generated_at, privacy_mode, provenance_json
-                ) VALUES (
-                  :chunk_id, :doc_id, :chunk_index, :source_id, :title, :body, :generated_at, :privacy_mode, :provenance_json
-                )
-                """,
-                chunk,
+            """,
+            documents,
+        )
+        conn.executemany(
+            """
+            INSERT INTO chunks (
+              chunk_id, doc_id, chunk_index, source_id, title, body, generated_at, privacy_mode, provenance_json
+            ) VALUES (
+              :chunk_id, :doc_id, :chunk_index, :source_id, :title, :body, :generated_at, :privacy_mode, :provenance_json
             )
-            conn.execute(
-                "INSERT INTO fts_chunks(chunk_id, doc_id, source_id, title, body) VALUES (?, ?, ?, ?, ?)",
-                (chunk["chunk_id"], chunk["doc_id"], chunk["source_id"], chunk["title"], chunk["body"]),
-            )
-        put_meta(conn, meta_values)
+            """,
+            chunks,
+        )
+        conn.execute(
+            """
+            INSERT INTO fts_chunks(rowid, chunk_id, doc_id, source_id, title, body)
+            SELECT rowid, chunk_id, doc_id, source_id, title, body
+            FROM chunks
+            ORDER BY rowid
+            """
+        )
+        manifest = source_manifest_entries or {}
+        if manifest:
+            put_source_manifest_entries(conn, manifest)
+            meta_values = {
+                **meta_values,
+                "projection_identity": str(projection_identity or ""),
+                "source_manifest_identity": source_manifest_identity(manifest),
+                "fts_rowid_identity": INDEX_FTS_ROWID_IDENTITY,
+            }
+        resolved_finished_at = str(finished_at() if callable(finished_at) else finished_at)
+        put_meta(conn, {**meta_values, "built_at": resolved_finished_at})
         record_index_run(
             conn,
             run_id=run_id,
             started_at=started_at,
-            finished_at=finished_at,
+            finished_at=resolved_finished_at,
             ok=ok,
             source_files=source_files,
             records_seen=records_seen,
@@ -1558,6 +1983,209 @@ def replace_index_contents(
             errors=errors,
         )
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def update_index_contents_delta(
+    conn: sqlite3.Connection,
+    *,
+    changed_source_paths: list[str] | tuple[str, ...] | None = None,
+    replace_source_paths: list[str] | tuple[str, ...] | None = None,
+    append_source_paths: list[str] | tuple[str, ...] | None = None,
+    documents: list[dict[str, Any]],
+    chunks: list[dict[str, Any]],
+    source_manifest_entries: dict[str, dict[str, Any]],
+    projection_identity: str,
+    meta_values: dict[str, Any],
+    run_id: str,
+    started_at: str,
+    finished_at: str | Callable[[], str],
+    ok: bool,
+    source_files: int,
+    records_seen: int,
+    records_indexed: int,
+    documents_indexed: int,
+    chunks_indexed: int,
+    errors: dict[str, Any],
+) -> dict[str, float]:
+    replace_paths = sorted({
+        str(path)
+        for path in (
+            replace_source_paths
+            if replace_source_paths is not None
+            else changed_source_paths or []
+        )
+    })
+    append_paths = sorted({str(path) for path in append_source_paths or []})
+    overlap = sorted(set(replace_paths) & set(append_paths))
+    if overlap:
+        raise sqlite3.IntegrityError(
+            "incremental source path cannot be both replaced and appended: "
+            + ", ".join(overlap)
+        )
+    mutation_paths = set(replace_paths) | set(append_paths)
+    unexpected_document_paths = sorted({
+        str(document.get("source_path") or "")
+        for document in documents
+        if str(document.get("source_path") or "") not in mutation_paths
+    })
+    if unexpected_document_paths:
+        raise sqlite3.IntegrityError(
+            "incremental projection contains an unplanned source path: "
+            + ", ".join(unexpected_document_paths)
+        )
+    timings: dict[str, float] = {}
+
+    def mark(stage: str, started: float) -> None:
+        timings[stage] = round((time.monotonic() - started) * 1000.0, 3)
+
+    conn.execute("BEGIN")
+    try:
+        stage_started = time.monotonic()
+        stale_fts_rowids: list[tuple[int]] = []
+        for path in replace_paths:
+            stale_fts_rowids.extend(
+                (_safe_int(row[0], 0),)
+                for row in conn.execute(
+                    """
+                    SELECT c.rowid
+                    FROM documents AS d INDEXED BY idx_documents_source_path
+                    JOIN chunks AS c INDEXED BY idx_chunks_doc_id ON c.doc_id = d.doc_id
+                    WHERE d.source_path = ?
+                    """,
+                    (path,),
+                )
+            )
+        mark("prepare_replacements", stage_started)
+
+        stage_started = time.monotonic()
+        if stale_fts_rowids:
+            conn.executemany("DELETE FROM fts_chunks WHERE rowid = ?", stale_fts_rowids)
+        mark("delete_fts", stage_started)
+
+        stage_started = time.monotonic()
+        conn.executemany(
+            "DELETE FROM documents WHERE source_path = ?",
+            [(path,) for path in replace_paths],
+        )
+        mark("delete_relational", stage_started)
+        for path in append_paths:
+            entry = source_manifest_entries.get(path)
+            if not isinstance(entry, dict) or not str(entry.get("source_sha256") or ""):
+                raise sqlite3.IntegrityError(
+                    f"incremental append manifest identity missing for {path}"
+                )
+        stage_started = time.monotonic()
+        conn.executemany(
+            """
+            INSERT INTO documents (
+              doc_id, source_path, source_line, source_sha256, record_sha256, schema, generated_at,
+              capture_trigger, global_pause, private_mode, heartbeat, source_ids_json, title, body, indexed_at
+            ) VALUES (
+              :doc_id, :source_path, :source_line, :source_sha256, :record_sha256, :schema, :generated_at,
+              :capture_trigger, :global_pause, :private_mode, :heartbeat, :source_ids_json, :title, :body, :indexed_at
+            )
+            """,
+            documents,
+        )
+        conn.executemany(
+            """
+            INSERT INTO chunks (
+              chunk_id, doc_id, chunk_index, source_id, title, body, generated_at, privacy_mode, provenance_json
+            ) VALUES (
+              :chunk_id, :doc_id, :chunk_index, :source_id, :title, :body, :generated_at, :privacy_mode, :provenance_json
+            )
+            """,
+            chunks,
+        )
+        mark("insert_relational", stage_started)
+
+        stage_started = time.monotonic()
+        fts_rows: list[tuple[Any, ...]] = []
+        for chunk in chunks:
+            row = conn.execute(
+                "SELECT rowid FROM chunks WHERE chunk_id = ?",
+                (str(chunk["chunk_id"]),),
+            ).fetchone()
+            if row is None:
+                raise sqlite3.IntegrityError(
+                    f"incremental chunk rowid missing: {chunk['chunk_id']}"
+                )
+            fts_rows.append(
+                (
+                    _safe_int(row[0], 0),
+                    str(chunk["chunk_id"]),
+                    str(chunk["doc_id"]),
+                    str(chunk["source_id"]),
+                    str(chunk["title"]),
+                    str(chunk["body"]),
+                )
+            )
+        conn.executemany(
+            """
+            INSERT INTO fts_chunks(rowid, chunk_id, doc_id, source_id, title, body)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            fts_rows,
+        )
+        mark("insert_fts", stage_started)
+
+        stage_started = time.monotonic()
+        for rowid, expected_chunk_id, *_rest in fts_rows:
+            row = conn.execute(
+                "SELECT chunk_id FROM fts_chunks WHERE rowid = ?",
+                (rowid,),
+            ).fetchone()
+            if row is None or str(row[0]) != expected_chunk_id:
+                raise sqlite3.IntegrityError("incremental FTS rowid identity mismatch")
+        mark("verify_fts", stage_started)
+
+        stage_started = time.monotonic()
+        removed_manifest_paths = [
+            path for path in replace_paths if path not in source_manifest_entries
+        ]
+        conn.executemany(
+            "DELETE FROM source_manifest WHERE source_path = ?",
+            [(path,) for path in removed_manifest_paths],
+        )
+        put_source_manifest_entries(conn, source_manifest_entries)
+        mark("update_manifest", stage_started)
+
+        stage_started = time.monotonic()
+        resolved_finished_at = str(finished_at() if callable(finished_at) else finished_at)
+        put_meta(
+            conn,
+            {
+                **meta_values,
+                "built_at": resolved_finished_at,
+                "projection_identity": str(projection_identity),
+                "source_manifest_identity": source_manifest_identity(source_manifest_entries),
+                "fts_rowid_identity": INDEX_FTS_ROWID_IDENTITY,
+            },
+        )
+        record_index_run(
+            conn,
+            run_id=run_id,
+            started_at=started_at,
+            finished_at=resolved_finished_at,
+            ok=ok,
+            source_files=source_files,
+            records_seen=records_seen,
+            records_indexed=records_indexed,
+            documents_indexed=documents_indexed,
+            chunks_indexed=chunks_indexed,
+            errors=errors,
+        )
+        mark("update_run_metadata", stage_started)
+
+        timings["drop_temp_tables"] = 0.0
+
+        stage_started = time.monotonic()
+        conn.commit()
+        mark("commit", stage_started)
+        return timings
     except Exception:
         conn.rollback()
         raise
