@@ -21217,12 +21217,51 @@ def nervous_events_from_fact_records(items: list[dict[str, Any]]) -> tuple[list[
         compact_json_func=nervous_compact_json_for_index,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
-        generated_at=now_iso(),
     )
 
 
-def nervous_events_build(write_latest: bool = True) -> dict[str, Any]:
+def nervous_events_from_fact_records_with_state(
+    items: list[dict[str, Any]],
+    *,
+    initial_state: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    return nervous_events_contracts.events_from_fact_records_with_state(
+        items,
+        initial_state=initial_state,
+        thresholds=nervous_thermal_event_thresholds(),
+        fact_source_id=nervous_fact_source_id,
+        deferred_source_ids=nervous_deferred_source_ids(),
+        compact_json_func=nervous_compact_json_for_index,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
+
+
+def nervous_events_build(
+    write_latest: bool = True,
+    force_full: bool = False,
+) -> dict[str, Any]:
     privacy = nervous_effective_privacy(write_latest=False)
+    thresholds = nervous_thermal_event_thresholds()
+    sources = nervous_effective_sources(write_latest=False)
+    deferred_source_ids = nervous_deferred_source_ids(sources)
+
+    def stateful_builder(
+        items: list[dict[str, Any]],
+        *,
+        initial_state: dict[str, Any] | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+        return nervous_events_contracts.events_from_fact_records_with_state(
+            items,
+            initial_state=initial_state,
+            thresholds=thresholds,
+            fact_source_id=nervous_fact_source_id,
+            deferred_source_ids=deferred_source_ids,
+            compact_json_func=nervous_compact_json_for_index,
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+        )
+
     return nervous_events_adapters.run_events_build(
         privacy=privacy,
         facts_root=NERVOUS_FACTS_ROOT,
@@ -21234,6 +21273,14 @@ def nervous_events_build(write_latest: bool = True) -> dict[str, Any]:
         generated_at=now_iso(),
         write_latest_enabled=write_latest,
         latest_writer=safe_atomic_write_json,
+        events_from_fact_records_with_state=stateful_builder,
+        derivation_identity=nervous_events_contracts.event_derivation_identity(
+            thresholds=thresholds,
+            deferred_source_ids=deferred_source_ids,
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+        ),
+        force_full=force_full,
     )
 
 
@@ -21283,11 +21330,14 @@ def nervous_episodes_from_events(events: list[dict[str, Any]]) -> tuple[list[dic
         events,
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
-        generated_at=now_iso(),
     )
 
 
-def nervous_episodes_build(write_latest: bool = True, refresh_events: bool = True) -> dict[str, Any]:
+def nervous_episodes_build(
+    write_latest: bool = True,
+    refresh_events: bool = True,
+    force_full: bool = False,
+) -> dict[str, Any]:
     privacy = nervous_effective_privacy(write_latest=False)
     return nervous_events_adapters.run_episodes_build(
         privacy=privacy,
@@ -21301,6 +21351,8 @@ def nervous_episodes_build(write_latest: bool = True, refresh_events: bool = Tru
         generated_at=now_iso(),
         events_builder=nervous_events_build,
         refresh_events=refresh_events,
+        incremental_enabled=True,
+        force_full=force_full,
         write_latest_enabled=write_latest,
         latest_writer=safe_atomic_write_json,
     )
@@ -21446,7 +21498,12 @@ def nervous_index_write_latest(data: dict[str, Any]) -> dict[str, Any]:
     return nervous_index_adapters.write_latest(data, NERVOUS_SEARCH_INDEX_LATEST_PATH, group=MODE_STATE_GROUP)
 
 
-def nervous_index_build(write_latest: bool = True, refresh_derived: bool = True) -> dict[str, Any]:
+def nervous_index_build(
+    write_latest: bool = True,
+    refresh_derived: bool = True,
+    force_full: bool = False,
+) -> dict[str, Any]:
+    run_started_monotonic = time.monotonic()
     started_at = now_iso()
     run_id = nervous_change_id("index")
     config = nervous_index_config()
@@ -21492,13 +21549,21 @@ def nervous_index_build(write_latest: bool = True, refresh_derived: bool = True)
         )
         return nervous_index_write_latest(data) if write_latest else data
 
+    derived_started_monotonic = time.monotonic()
     derived_refresh = nervous_index_adapters.derived_refresh_from_ports(
         refresh_enabled=refresh_derived,
+        force_full=force_full,
+        include_internal_attestations=True,
         events_builder=nervous_events_build,
         episodes_builder=nervous_episodes_build,
     )
+    source_delta_attestations = derived_refresh.pop(
+        "_internal_source_delta_attestations",
+        [],
+    )
+    derived_finished_monotonic = time.monotonic()
 
-    build_inputs = nervous_index_adapters.build_document_from_source_roots(
+    build_inputs = nervous_index_adapters.build_incremental_document_from_source_roots(
         schema_prefix=SCHEMA_PREFIX,
         version=VERSION,
         generated_at=now_iso(),
@@ -21511,8 +21576,19 @@ def nervous_index_build(write_latest: bool = True, refresh_derived: bool = True)
         source_roots=(NERVOUS_FACTS_ROOT, NERVOUS_EVENTS_ROOT, NERVOUS_EPISODES_ROOT),
         derived_refresh=derived_refresh,
         redact_text=nervous_redact_index_text,
+        force_full=force_full,
+        source_delta_attestations=source_delta_attestations,
     )
     data: dict[str, Any] = build_inputs["data"]
+    execution = data.get("execution") if isinstance(data.get("execution"), dict) else {}
+    execution_timings = execution.get("timings_ms") if isinstance(execution.get("timings_ms"), dict) else {}
+    data["execution"] = {
+        **execution,
+        "timings_ms": {
+            **execution_timings,
+            "derived_refresh": round((derived_finished_monotonic - derived_started_monotonic) * 1000.0, 3),
+        },
+    }
     files = build_inputs["source_files"]
     projection = build_inputs["projection"]
     parse_errors = build_inputs["parse_errors"]
@@ -21539,7 +21615,25 @@ def nervous_index_build(write_latest: bool = True, refresh_derived: bool = True)
         semantic_lock_active=nervous_semantic_lock_active,
         now=now_iso,
         counts_reader=nervous_index_db_counts,
+        manifest_entries=build_inputs["manifest_entries"],
+        projection_identity=build_inputs["projection_identity"],
+        changed_source_paths=build_inputs["changed_source_paths"],
+        replace_source_paths=build_inputs["replace_source_paths"],
+        append_source_paths=build_inputs["append_source_paths"],
+        source_observations=build_inputs["source_observations"],
+        write_mode=build_inputs["write_mode"],
+        base_run_id=build_inputs["base_run_id"],
     )
+
+    execution = data.get("execution") if isinstance(data.get("execution"), dict) else {}
+    execution_timings = execution.get("timings_ms") if isinstance(execution.get("timings_ms"), dict) else {}
+    data["execution"] = {
+        **execution,
+        "timings_ms": {
+            **execution_timings,
+            "total_before_latest_write": round((time.monotonic() - run_started_monotonic) * 1000.0, 3),
+        },
+    }
 
     return nervous_index_write_latest(data) if write_latest else data
 
@@ -51193,6 +51287,14 @@ def main(argv: list[str]) -> int:
         if name == "quality-audit":
             p.add_argument("--refresh", action="store_true", help="refresh derived events/episodes/synthesis/eval before auditing")
             p.add_argument("--refresh-index", action="store_true", help="refresh the local search index before auditing")
+        if name in {"events-build", "episodes-build", "index-build"}:
+            p.add_argument(
+                "--full-rebuild",
+                action="store_true",
+                help="use the complete serial rebuild oracle and refresh incremental state",
+            )
+        if name == "index-build":
+            p.add_argument("--no-refresh-derived", action="store_true", help="do not refresh derived events/episodes before this explicit index build")
         p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     nervous_search_parser = nervous_sub.add_parser("search")
     nervous_search_parser.add_argument("--query", required=True)
@@ -54079,7 +54181,10 @@ def main(argv: list[str]) -> int:
                 print(f"nervous quality: {summary.get('status')} ({summary.get('fails')} fail, {summary.get('warnings')} warn, {summary.get('checks')} checks)")
             return 0 if data.get("ok") else 1
         if args.nervous_command == "events-build":
-            data = nervous_events_build(write_latest=True)
+            data = nervous_events_build(
+                write_latest=True,
+                force_full=bool(getattr(args, "full_rebuild", False)),
+            )
             if args.json:
                 print_json(data)
             else:
@@ -54103,7 +54208,10 @@ def main(argv: list[str]) -> int:
                 print(f"events validate: ok={data.get('ok')} fails={summary.get('fails')} warnings={summary.get('warnings')} events={summary.get('events')}")
             return 0 if data.get("ok") else 1
         if args.nervous_command == "episodes-build":
-            data = nervous_episodes_build(write_latest=True)
+            data = nervous_episodes_build(
+                write_latest=True,
+                force_full=bool(getattr(args, "full_rebuild", False)),
+            )
             if args.json:
                 print_json(data)
             else:
@@ -54166,7 +54274,11 @@ def main(argv: list[str]) -> int:
                 print(f"index: ok={data.get('ok')} ready={data.get('ready')} docs={counts.get('documents')} chunks={counts.get('chunks')}")
             return 0 if data.get("ok") else 1
         if args.nervous_command == "index-build":
-            data = nervous_index_build(write_latest=True)
+            data = nervous_index_build(
+                write_latest=True,
+                refresh_derived=not bool(getattr(args, "no_refresh_derived", False)),
+                force_full=bool(getattr(args, "full_rebuild", False)),
+            )
             if args.json:
                 print_json(data)
             else:

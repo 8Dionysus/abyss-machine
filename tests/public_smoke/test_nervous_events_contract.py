@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from abyss_machine import cli
+from abyss_machine import nervous_events
 from abyss_machine.nervous_events import (
     episode_record,
     episodes_build_document,
@@ -17,6 +19,7 @@ from abyss_machine.nervous_events import (
     event_record,
     events_build_document,
     events_from_fact_records,
+    events_from_fact_records_with_state,
     events_validate_document,
     private_capture_events,
     thermal_event_classification,
@@ -25,6 +28,34 @@ from abyss_machine.nervous_events import (
 
 
 GENERATED_AT = "2026-06-25T12:00:00+00:00"
+
+
+def test_event_and_episode_derivation_identities_bind_policy_and_output_version() -> None:
+    event_v1 = nervous_events.event_derivation_identity(
+        thresholds={"watch_c": 105.0},
+        deferred_source_ids={"clipboard"},
+        schema_prefix="abyss_machine",
+        version="v1",
+    )
+    assert event_v1 == nervous_events.event_derivation_identity(
+        thresholds={"watch_c": 105.0},
+        deferred_source_ids={"clipboard"},
+        schema_prefix="abyss_machine",
+        version="v1",
+    )
+    assert event_v1 != nervous_events.event_derivation_identity(
+        thresholds={"watch_c": 106.0},
+        deferred_source_ids={"clipboard"},
+        schema_prefix="abyss_machine",
+        version="v1",
+    )
+    assert nervous_events.episode_derivation_identity(
+        schema_prefix="abyss_machine",
+        version="v1",
+    ) != nervous_events.episode_derivation_identity(
+        schema_prefix="abyss_machine",
+        version="v2",
+    )
 
 
 def fixture_snapshot_item() -> dict[str, object]:
@@ -142,6 +173,71 @@ def test_nervous_events_from_fact_records_derive_known_event_classes() -> None:
         generated_at=GENERATED_AT,
     )
     assert [event["event_id"] for event in events] == [event["event_id"] for event in second]
+
+
+def test_nervous_event_and_episode_default_derivation_timestamps_are_source_stable() -> None:
+    events, _ = events_from_fact_records(
+        [fixture_snapshot_item()],
+        deferred_source_ids={"browser_active_tab"},
+        version="test",
+    )
+    assert events
+    assert {event["generated_at"] for event in events} == {"2026-06-25T10:00:00+00:00"}
+
+    episodes, _ = episodes_from_events(events, version="test")
+    assert episodes
+    assert {episode["generated_at"] for episode in episodes} == {"2026-06-25T10:00:00+00:00"}
+
+
+def test_nervous_event_boundary_state_survives_json_roundtrip_without_duplicate_tokens() -> None:
+    def item(line: int, generated_at: str) -> dict[str, object]:
+        return {
+            "path": "/facts/2026-06-25.jsonl",
+            "line": line,
+            "record_sha256": f"record-{line}",
+            "record": {
+                "schema": "abyss_machine_nervous_fact_snapshot_v1",
+                "generated_at": generated_at,
+                "capture": {"sources": ["abyss_machine_facts"], "trigger": "test"},
+                "privacy": {"global_pause": False, "private_mode": False},
+                "summary": {"facts": 1, "skipped": 0},
+                "facts": [
+                    {
+                        "name": "process_latest",
+                        "summary": {
+                            "processes": 10,
+                            "threads": 20,
+                            "development_processes": 2,
+                            "ai_runtime_processes": 1,
+                            "container_processes": 0,
+                        },
+                    }
+                ],
+            },
+        }
+
+    first_item = item(1, "2026-06-25T10:00:00+00:00")
+    second_item = item(2, "2026-06-25T10:01:00+00:00")
+    first_events, _, state = events_from_fact_records_with_state(
+        [first_item],
+        version="test",
+    )
+    restored_state = json.loads(json.dumps(state))
+    second_events, _, _ = events_from_fact_records_with_state(
+        [second_item],
+        initial_state=restored_state,
+        version="test",
+    )
+    full_events, _, _ = events_from_fact_records_with_state(
+        [first_item, second_item],
+        version="test",
+    )
+
+    assert sum(event["event_type"] == "process.snapshot_summary" for event in first_events) == 1
+    assert all(event["event_type"] != "process.snapshot_summary" for event in second_events)
+    assert [event["event_id"] for event in [*first_events, *second_events]] == [
+        event["event_id"] for event in full_events
+    ]
 
 
 def test_nervous_private_capture_events_omit_raw_private_content() -> None:

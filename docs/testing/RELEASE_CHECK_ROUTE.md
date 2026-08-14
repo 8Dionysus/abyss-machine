@@ -889,7 +889,9 @@ Do not run live capture as validation for a readmodel-only capture-status seam.
 
 For nervous event/episode file/write adapter changes, public CI should rely on
 fake-root tests for JSONL root reads, derived-record replacement writes, latest
-read envelopes, and build/validate latest write routing. Live-host closeout may
+read envelopes, append-state boundary continuity, partition-local episode
+replacement, fixed-point no-write behavior, source-snapshot race refusal, and
+full-oracle parity. Live-host closeout may
 use compact `abyss-machine nervous events-build --json`,
 `abyss-machine nervous events-validate --json`,
 `abyss-machine nervous episodes-build --json`, and
@@ -900,13 +902,30 @@ records or raw source payloads into the repository.
 For nervous lexical index lifecycle adapter changes, public CI should rely on
 fake-port tests for source discovery/loading, derived-refresh orchestration,
 SQLite write stages, status/freshness, validation fact collection, and vacuum
-routing. Live-host closeout should prefer compact
+routing. Incremental changes must also prove full/file/append route selection,
+logical document/chunk/FTS/search parity with the forced full oracle, manifest
+and FTS drift fallback, attestation rejection, source-snapshot race refusal,
+and atomic rollback after a partial mutation. Live-host closeout should prefer compact
 `abyss-machine nervous index-status --json` and
-`abyss-machine nervous index-validate --json` summaries. Run a full
-`abyss-machine nervous index-build --json` only when the slice intentionally
+`abyss-machine nervous index-validate --json` summaries. Run
+`abyss-machine nervous index-build --full-rebuild --json` only when the slice intentionally
 changes live rebuild behavior or the operator explicitly accepts the host cost;
 never copy raw local index rows, source records, browser content, or generated
 JSONL payloads into the repository.
+
+Synthetic method comparisons use
+`scripts/benchmark_nervous_index_dag.py` through `abyss-machine resource
+launch`. Its receipts may publish fixture sizes, timings, resource peaks, and
+logical digests, but not source rows or private host paths. Benchmark timing is
+selection evidence only; the owner gate remains bound to correctness and
+negative-control tests.
+
+The real-session shadow uses `scripts/benchmark_nervous_pipeline_dag.py`. It
+must run from a resource-admitted, isolated full snapshot of local fact history
+and compare delta, forced oracle, and fixed point in one invocation. Only
+aggregate receipt fields may leave the host. Logical parity across events,
+episodes, and index is mandatory; a speedup with any digest mismatch is a
+failed experiment, not an optimization result.
 
 For nervous semantic-maintain orchestration adapter changes, public CI should
 rely on fake-port tests for source-index pre-refresh assessment, dry-run/launch

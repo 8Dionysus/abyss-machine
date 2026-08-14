@@ -70,7 +70,50 @@ def test_nervous_index_schema_sql_is_module_owned_contract() -> None:
 
     assert "CREATE TABLE IF NOT EXISTS documents" in schema
     assert "CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5" in schema
+    assert "CREATE INDEX IF NOT EXISTS idx_documents_source_path ON documents(source_path)" in schema
     assert "source_ids_json TEXT NOT NULL" in schema
+
+
+def test_nervous_index_initialize_migrates_legacy_source_manifest_in_place(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE source_manifest (
+          source_path TEXT PRIMARY KEY,
+          source_sha256 TEXT NOT NULL,
+          source_size_bytes INTEGER NOT NULL,
+          projection_identity TEXT NOT NULL,
+          summary_json TEXT NOT NULL,
+          parse_errors_json TEXT NOT NULL,
+          skipped_records_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO source_manifest (
+          source_path, source_sha256, source_size_bytes, projection_identity,
+          summary_json, parse_errors_json, skipped_records_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("/facts/legacy.jsonl", "legacy-sha", 123, "legacy-projection", "{}", "[]", "[]", "legacy-at"),
+    )
+
+    initialize_db(conn, schema_prefix="abyss_machine", version="test-version")
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(source_manifest)")}
+    row = conn.execute(
+        """
+        SELECT source_path, source_sha256, source_line_count, source_observation_json
+        FROM source_manifest
+        """
+    ).fetchone()
+    conn.close()
+
+    assert "source_line_count" in columns
+    assert "source_observation_json" in columns
+    assert tuple(row) == ("/facts/legacy.jsonl", "legacy-sha", 0, "{}")
 
 
 def test_nervous_index_bounded_counts_fail_fast_under_exclusive_writer(tmp_path: Path) -> None:
@@ -1014,6 +1057,8 @@ def test_nervous_index_record_policy_and_chunk_projection_are_module_owned() -> 
     assert projection["redactions"] == 1
     assert projection["document"]["schema"] == "abyss_machine_nervous_event_v1"
     assert projection["document"]["source_line"] == 7
+    assert projection["document"]["source_sha256"] is None
+    assert projection["document"]["record_sha256"] == "record-hash"
     assert projection["document"]["source_ids_json"] == json.dumps(["nervous_events"])
     assert projection["chunks"][0]["doc_id"] == projection["document"]["doc_id"]
     assert json.loads(projection["chunks"][0]["provenance_json"])["event_id"] == "event-1"

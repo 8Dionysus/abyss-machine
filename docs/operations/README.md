@@ -44,3 +44,25 @@ requires change-ledger preflight before live `/usr/local` mutation and a closeou
 with rollback notes after parity and touched-organ smoke checks. Live-root
 refresh uses the same admitted install-bundle selector as full install; the
 artifact-gate skip remains limited to isolated projection rehearsals.
+
+## Nervous Rebuild Control
+
+Normal event, episode, and lexical-index builds use their incremental fixed
+point. Use `--full-rebuild` on the corresponding `nervous ...-build` command
+only for an explicit oracle comparison, manifest recovery, or rollback. A full
+index build is host-expensive and must use `abyss-machine resource launch` when
+run outside the installed scheduler.
+
+Incremental state is policy-bound. A changed derivation ABI, output version,
+thermal threshold set, source policy, stale or tampered append witness, or
+cross-partition episode group automatically expands the work to a file or full
+oracle. Do not suppress that fallback to recover latency.
+
+If no source or policy vertex changed, the index verifies the locked source
+snapshot and previous run identity without a write transaction. This no-op does
+not advance the database `built_at`; it preserves the last run that actually
+proved and stored new index content.
+
+`nervous index-build --no-refresh-derived` is an experiment/debug route for an
+index-only comparison. It must not replace the normal session path, which
+refreshes events and episodes before indexing.
