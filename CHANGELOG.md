@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Record decision `0027`: active-organ work remains subject to independent
+  host resource/storage/model admission, and the machine layer remains
+  project-neutral even when it returns deny, defer, or soften.
+
 - Keep storage inventory measurement inside one per-path latency budget: an
   explicit `du` timeout now remains unmeasured instead of starting an unbounded
   Python walk, while fast failures may use only the remaining budget and an

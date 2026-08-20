@@ -50,6 +50,10 @@ time, and subsystem-specific facts.
 The artifact bundle/trust lane remains owned by
 `abyss_machine.artifact_bundles`; the CLI only supplies collected checks,
 paths, latest refs, and write adapters for `artifacts validate`.
+Strict active-organ C18 capability-snapshot and C19 resource/storage-plan
+reference contracts live in the public schemas, with pure cross-field checks
+in `abyss_machine.active_organ_contracts`. They are reference-only and do not
+activate live host collection, launch, stack consumption, or project mutation.
 Consumer verification commands for update metadata, external TUF repositories,
 and OCI/ORAS publication evidence are fail-closed by default: use
 `--inspect-only` only when checking evidence shape without consuming the

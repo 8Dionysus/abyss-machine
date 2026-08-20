@@ -21,7 +21,9 @@ collapse into one public mirror.
 - `config-templates/`: public-safe source for rendered host config.
 - `systemd/`: installable Linux/systemd unit skeletons.
 - `env/`: public-safe environment examples.
-- `schemas/`: permissive v1 data-shape anchors.
+- `schemas/`: public data-shape anchors; established v1 host telemetry remains
+  permissive while security-boundary contracts such as active-organ C18/C19
+  are strict and versioned.
 - `stats/`: host-owned statistical questions and their shared-protocol port.
 - `skills/`: admitted host-owned callable procedures; global runtime copies are
   derived OS-user projections rather than source truth.
@@ -50,3 +52,5 @@ repo source
 - Do not remove typing/nervous machinery to make publication easy.
 - Do not claim cross-OS parity; this seed is Linux/systemd first.
 - Do not convert every helper into a mechanic until ownership is real.
+- Do not turn host capability or resource-plan references into memory,
+  semantic, launch, project, or stack authority.

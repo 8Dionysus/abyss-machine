@@ -103,6 +103,7 @@ movement for that decision only.
 | 0024 | [Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md) | `0024-admit-receipt-bound-sdk-routing-canonical-producer.md` | artifacts, owner-boundary, routing-succession, runtime-admission, validation-guard | active canonical admission rationale |
 | 0025 | [Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md) | `0025-admit-external-actor-runtime-canaries.md` | artifacts, owner-boundary, runtime-admission, agent-runtime, validation-guard | active canary admission rationale |
 | 0026 | [Promote Claim Evidence Validation Graph](0026-promote-claim-evidence-validation-graph.md) | `0026-promote-claim-evidence-validation-graph.md` | validation-scheduler, owner-boundary, proof-sufficiency, rollback-guard | active validation admission rationale |
+| 0027 | [Memory Work Remains Host-Admitted And Project-Neutral](0027-memory-work-remains-host-admitted-and-project-neutral.md) | `0027-memory-work-remains-host-admitted-and-project-neutral.md` | memory, resource-gate, owner-boundary, storage-topology, runtime-admission, validation-guard | active host-admission rationale |
 
 ## Index By Surface Class
 
@@ -143,6 +144,7 @@ movement for that decision only.
 - [0022 Owner-Native Memory Orchestration](0022-owner-native-memory-orchestration.md)
 - [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 - [0025 Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md)
+- [0027 Memory Work Remains Host-Admitted And Project-Neutral](0027-memory-work-remains-host-admitted-and-project-neutral.md)
 
 ### Validation / Proof
 
@@ -161,6 +163,7 @@ movement for that decision only.
 - [0023 Separate Release Trust From Routing Owner Switch](0023-separate-release-trust-from-routing-owner-switch.md)
 - [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 - [0025 Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md)
+- [0027 Memory Work Remains Host-Admitted And Project-Neutral](0027-memory-work-remains-host-admitted-and-project-neutral.md)
 
 ### Typing / Journaling
 
@@ -234,6 +237,7 @@ Route:
 - receipt-bound SDK routing canonical admission: [0024](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 - external actor runtime canary admission: [0025](0025-admit-external-actor-runtime-canaries.md)
 - claim/evidence graph sufficiency and serial rollback: [0026](0026-promote-claim-evidence-validation-graph.md)
+- active-organ host admission and project-neutrality: [0027](0027-memory-work-remains-host-admitted-and-project-neutral.md)
 
 ## Promotion Path
 

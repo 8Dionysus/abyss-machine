@@ -7,7 +7,7 @@ Storage routing owns where host-local mutable and large artifacts belong.
 ### Trigger
 
 Storage policy, cache placement, runtime roots, backup routing, and reclaim
-audit changes.
+audit changes, including the C19 storage-plan reference boundary.
 
 ### abyss-machine owns
 
@@ -26,12 +26,14 @@ Storage policy, disk inventories, process refs, cache/runtime paths.
 ### Outputs
 
 Reclaim reports, storage warnings, route recommendations, and public policy
-templates.
+templates. C19 may cite an existing write-preflight decision but does not
+perform a write.
 
 ### Must not claim
 
 Large paths are safe to delete, vault contents are public, or project roots can
-be moved by host-layer automation.
+be moved by host-layer automation. C19 can never widen the allowlisted
+machine-owned root set.
 
 ### Validation
 
