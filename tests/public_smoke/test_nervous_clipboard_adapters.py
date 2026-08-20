@@ -76,6 +76,24 @@ def test_clipboard_fact_skips_when_wayland_socket_is_absent() -> None:
     assert error["wayland_display_present"] is True
 
 
+def test_wayland_clipboard_socket_honors_explicit_empty_environ(monkeypatch) -> None:
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-live")
+    calls: list[Path] = []
+
+    socket, status = adapters.wayland_clipboard_socket(
+        environ={},
+        path_exists=lambda path: calls.append(path) or True,
+    )
+
+    assert socket is None
+    assert status["runtime_dir_present"] is False
+    assert status["wayland_display_present"] is False
+    assert status["socket_path"] is None
+    assert status["socket_exists"] is False
+    assert calls == []
+
+
 def test_clipboard_fact_captures_text_through_fake_wl_paste_ports() -> None:
     calls: list[list[str]] = []
 

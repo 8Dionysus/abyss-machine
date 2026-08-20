@@ -19,7 +19,7 @@ def wayland_clipboard_socket(
     environ: Mapping[str, str] | None = None,
     path_exists: PathExistsPort = Path.exists,
 ) -> tuple[Path | None, dict[str, Any]]:
-    env = environ or os.environ
+    env = os.environ if environ is None else environ
     runtime_dir = env.get("XDG_RUNTIME_DIR")
     wayland_display = env.get("WAYLAND_DISPLAY")
     wayland_socket = None
