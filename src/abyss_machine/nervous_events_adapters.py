@@ -150,7 +150,7 @@ def write_jsonl_records(path: Path, records: list[dict[str, Any]], *, mode: int 
         os.chmod(tmp_name, mode)
         try:
             os.chown(tmp_name, -1, grp.getgrnam(group).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         os.replace(tmp_name, path)
         return None

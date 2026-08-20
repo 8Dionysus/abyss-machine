@@ -1251,7 +1251,7 @@ def safe_append_jsonl(path: Path, data: dict[str, Any], mode: int = 0o664) -> di
             pass
         try:
             os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         return None
     except OSError as exc:
@@ -1286,7 +1286,7 @@ def safe_append_text(path: Path, text: str, mode: int = 0o664) -> dict[str, Any]
             pass
         try:
             os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         return None
     except OSError as exc:
@@ -1308,7 +1308,7 @@ def safe_atomic_write_text(path: Path, text: str, mode: int = 0o664) -> dict[str
         os.chmod(tmp_name, mode)
         try:
             os.chown(tmp_name, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         os.replace(tmp_name, path)
         return None
@@ -23059,7 +23059,7 @@ def nervous_forget(minutes: float, dry_run: bool = False, reason: str | None = N
                 os.chmod(tmp_name, 0o664)
                 try:
                     os.chown(tmp_name, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-                except (KeyError, PermissionError):
+                except (KeyError, OSError):
                     pass
                 os.replace(tmp_name, path)
                 file_report["rewritten"] = True
@@ -42991,7 +42991,7 @@ def write_text_if_missing(path: Path, text: str, mode: int = 0o664) -> dict[str,
                 pass
             try:
                 os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-            except (KeyError, PermissionError):
+            except (KeyError, OSError):
                 pass
         return None
     except OSError as exc:
