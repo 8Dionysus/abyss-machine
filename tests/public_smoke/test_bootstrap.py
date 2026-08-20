@@ -321,7 +321,11 @@ def test_bootstrap_refresh_code_skip_checks_only_refresh_mutation_targets(tmp_pa
     assert "render" not in action_names
     assert (bin_dir / "abyss-machine").is_symlink()
     assert (libexec_dir / "abyss-machine").is_file()
-    assert (tmp_path / "share" / "abyss-machine" / "manifests" / "artifact_signature_policy.manifest.json").is_file()
+    share_root = tmp_path / "share" / "abyss-machine"
+    assert (share_root / "manifests" / "artifact_signature_policy.manifest.json").is_file()
+    assert (share_root / artifact_bundles.COSIGN_LOCAL_SIGNING_CONFIG_REF).is_file()
+    assert (share_root / artifact_bundles.COSIGN_LOCAL_TRUSTED_ROOT_REF).is_file()
+    assert artifact_bundles._cosign_local_trust_config_errors(repo_root=share_root) == []
 
 
 def test_refreshed_cli_execs_admission_server_from_installed_package(tmp_path: Path) -> None:

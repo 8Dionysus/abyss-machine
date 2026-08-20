@@ -1,0 +1,495 @@
+{
+  "schema_version": "abyss_machine_active_organ_host_examples_v1",
+  "schemas": {
+    "C18": "schemas/active-organ-host-capability-snapshot-reference.schema.json",
+    "C19": "schemas/active-organ-host-resource-storage-plan-reference.schema.json"
+  },
+  "valid_cases": [
+    {
+      "case_id": "current_sanitized_capability_snapshot",
+      "contract_id": "C18",
+      "payload": {
+        "schema_version": "1.0.0",
+        "contract_id": "C18",
+        "contract_name": "HostCapabilitySnapshotReference",
+        "reference_id": "host-capability:run-a",
+        "reference_version": 1,
+        "idempotency_key": "host-capability:run-a:v1",
+        "owner": "abyss-machine",
+        "host_identity_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "snapshot_generation": "host-generation:2026-07-28T19:30:00-06:00",
+        "captured_at": "2026-07-28T19:30:00-06:00",
+        "produced_at": "2026-07-28T19:30:01-06:00",
+        "expires_at": "2026-07-28T19:35:00-06:00",
+        "freshness_state": "current",
+        "capture_command_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "repo:abyss-machine/commands/active-organ-host-snapshot",
+          "artifact_version": "1.0.0",
+          "artifact_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "capability_refs": [
+          {
+            "capability_class": "memory",
+            "artifact": {
+              "owner_repo": "abyss-machine",
+              "artifact_ref": "host-state:memory/latest",
+              "artifact_version": "abyss_machine_memory_status_v1",
+              "artifact_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "observed_at": "2026-07-28T19:29:58-06:00",
+            "freshness_state": "current",
+            "sanitized_aggregate": true
+          },
+          {
+            "capability_class": "storage",
+            "artifact": {
+              "owner_repo": "abyss-machine",
+              "artifact_ref": "host-state:storage/monitor/latest",
+              "artifact_version": "abyss_machine_storage_monitor_v1",
+              "artifact_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+            },
+            "observed_at": "2026-07-28T19:29:57-06:00",
+            "freshness_state": "current",
+            "sanitized_aggregate": true
+          },
+          {
+            "capability_class": "thermal",
+            "artifact": {
+              "owner_repo": "abyss-machine",
+              "artifact_ref": "host-state:processes/thermal-plan/latest",
+              "artifact_version": "abyss_machine_process_thermal_plan_v1",
+              "artifact_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+            },
+            "observed_at": "2026-07-28T19:29:59-06:00",
+            "freshness_state": "current",
+            "sanitized_aggregate": true
+          }
+        ],
+        "source_refs": [
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "repo:abyss-machine/commands/active-organ-host-snapshot",
+            "artifact_version": "1.0.0",
+            "artifact_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "host-state:memory/latest",
+            "artifact_version": "abyss_machine_memory_status_v1",
+            "artifact_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "host-state:storage/monitor/latest",
+            "artifact_version": "abyss_machine_storage_monitor_v1",
+            "artifact_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "host-state:processes/thermal-plan/latest",
+            "artifact_version": "abyss_machine_process_thermal_plan_v1",
+            "artifact_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        ],
+        "policy_pin": {
+          "policy_id": "abyss-machine.active-organ-host-evidence",
+          "policy_version": "1.0.0",
+          "decision_ref": "repo:abyss-machine/schemas/active-organ-host-capability-snapshot-reference",
+          "policy_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        },
+        "allowed_consumers": [
+          "aoa-sdk",
+          "abyss-stack",
+          "aoa-evals"
+        ],
+        "validation_status": "valid",
+        "privacy_class": "D0",
+        "public_safe": true,
+        "raw_host_data_included": false,
+        "content_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "evidence_only": true,
+        "semantic_authority": "none",
+        "effect_authority": "none"
+      }
+    },
+    {
+      "case_id": "start_without_storage_write",
+      "contract_id": "C19",
+      "payload": {
+        "schema_version": "1.0.0",
+        "contract_id": "C19",
+        "contract_name": "HostResourceStoragePlanReference",
+        "reference_id": "host-plan:run-a",
+        "reference_version": 1,
+        "idempotency_key": "host-plan:run-a:v1",
+        "owner": "abyss-machine",
+        "request": {
+          "request_owner": "aoa-evals",
+          "workload_id": "active-organ-lab:run-a",
+          "workload_class": "medium",
+          "kind": "eval",
+          "activity": "foreground",
+          "memory_demand_mib": 2048,
+          "storage_write_required": false,
+          "requested_bytes": null,
+          "target_class": "none",
+          "target_ref": null,
+          "data_class": "D0",
+          "risk_class": "R2"
+        },
+        "capability_snapshot_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "receipt:abyss-machine/active-organ/c18/run-a",
+          "artifact_version": "1.0.0",
+          "artifact_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+        },
+        "resource_plan_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "host-state:resource/plans/run-a",
+          "artifact_version": "abyss_machine_resource_plan_v1",
+          "artifact_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+        },
+        "storage_write_preflight_ref": null,
+        "resource_plan_decision": "allow",
+        "host_disposition": "start",
+        "softening_constraints": [],
+        "blocked_reasons": [],
+        "denied_reasons": [],
+        "warnings": [],
+        "source_refs": [
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "receipt:abyss-machine/active-organ/c18/run-a",
+            "artifact_version": "1.0.0",
+            "artifact_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "host-state:resource/plans/run-a",
+            "artifact_version": "abyss_machine_resource_plan_v1",
+            "artifact_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "repo:abyss-machine/resource/rollback/no-launch",
+            "artifact_version": "v1",
+            "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "resource_policy_pin": {
+          "policy_id": "abyss-machine.resource-policy",
+          "policy_version": "0.8.92",
+          "decision_ref": "repo:abyss-machine/config-templates/etc/abyss-machine/resource-policy.json",
+          "policy_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "storage_policy_pin": {
+          "policy_id": "abyss-machine.storage-policy",
+          "policy_version": "0.2.6",
+          "decision_ref": "repo:abyss-machine/config-templates/etc/abyss-machine/storage-policy.json",
+          "policy_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "rollback_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "repo:abyss-machine/resource/rollback/no-launch",
+          "artifact_version": "v1",
+          "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "produced_at": "2026-07-28T19:30:02-06:00",
+        "expires_at": "2026-07-28T19:35:00-06:00",
+        "plan_freshness": "current",
+        "validation_status": "valid",
+        "content_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "launch_executed": false,
+        "machine_owned_roots_only": true,
+        "project_root_mutation": "forbidden",
+        "stack_root_mutation": "forbidden",
+        "memory_semantic_authority": "none",
+        "effect_authority": "host_admission_only",
+        "owner_workload_effect": "start_defer_soften_or_deny_only"
+      }
+    },
+    {
+      "case_id": "softened_host_storage_write",
+      "contract_id": "C19",
+      "payload": {
+        "schema_version": "1.0.0",
+        "contract_id": "C19",
+        "contract_name": "HostResourceStoragePlanReference",
+        "reference_id": "host-plan:run-b",
+        "reference_version": 1,
+        "idempotency_key": "host-plan:run-b:v1",
+        "owner": "abyss-machine",
+        "request": {
+          "request_owner": "aoa-evals",
+          "workload_id": "active-organ-lab:run-b",
+          "workload_class": "heavy",
+          "kind": "eval",
+          "activity": "background",
+          "memory_demand_mib": 4096,
+          "storage_write_required": true,
+          "requested_bytes": 1048576,
+          "target_class": "host_storage",
+          "target_ref": {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "host-root:storage/active-organ-labs",
+            "artifact_version": "storage-policy:0.2.6",
+            "artifact_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "data_class": "D1",
+          "risk_class": "R4"
+        },
+        "capability_snapshot_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "receipt:abyss-machine/active-organ/c18/run-b",
+          "artifact_version": "1.0.0",
+          "artifact_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "resource_plan_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "host-state:resource/plans/run-b",
+          "artifact_version": "abyss_machine_resource_plan_v1",
+          "artifact_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010"
+        },
+        "storage_write_preflight_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "host-state:storage/write-preflight/run-b",
+          "artifact_version": "abyss_machine_storage_write_preflight_v1",
+          "artifact_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "resource_plan_decision": "allow",
+        "host_disposition": "soften",
+        "softening_constraints": [
+          {
+            "kind": "reduce_batch",
+            "constraint_ref": {
+              "owner_repo": "abyss-machine",
+              "artifact_ref": "receipt:abyss-machine/resource/constraints/run-b",
+              "artifact_version": "v1",
+              "artifact_digest": "sha256:1212121212121212121212121212121212121212121212121212121212121212"
+            }
+          }
+        ],
+        "blocked_reasons": [],
+        "denied_reasons": [],
+        "warnings": [
+          "background_batch_softened"
+        ],
+        "source_refs": [
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "receipt:abyss-machine/active-organ/c18/run-b",
+            "artifact_version": "1.0.0",
+            "artifact_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "host-state:resource/plans/run-b",
+            "artifact_version": "abyss_machine_resource_plan_v1",
+            "artifact_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "host-state:storage/write-preflight/run-b",
+            "artifact_version": "abyss_machine_storage_write_preflight_v1",
+            "artifact_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "repo:abyss-machine/resource/rollback/no-launch",
+            "artifact_version": "v1",
+            "artifact_digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313"
+          }
+        ],
+        "resource_policy_pin": {
+          "policy_id": "abyss-machine.resource-policy",
+          "policy_version": "0.8.92",
+          "decision_ref": "repo:abyss-machine/config-templates/etc/abyss-machine/resource-policy.json",
+          "policy_digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414"
+        },
+        "storage_policy_pin": {
+          "policy_id": "abyss-machine.storage-policy",
+          "policy_version": "0.2.6",
+          "decision_ref": "repo:abyss-machine/config-templates/etc/abyss-machine/storage-policy.json",
+          "policy_digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515"
+        },
+        "rollback_ref": {
+          "owner_repo": "abyss-machine",
+          "artifact_ref": "repo:abyss-machine/resource/rollback/no-launch",
+          "artifact_version": "v1",
+          "artifact_digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313"
+        },
+        "produced_at": "2026-07-28T19:40:00-06:00",
+        "expires_at": "2026-07-28T19:45:00-06:00",
+        "plan_freshness": "current",
+        "validation_status": "valid",
+        "content_digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616",
+        "launch_executed": false,
+        "machine_owned_roots_only": true,
+        "project_root_mutation": "forbidden",
+        "stack_root_mutation": "forbidden",
+        "memory_semantic_authority": "none",
+        "effect_authority": "host_admission_only",
+        "owner_workload_effect": "start_defer_soften_or_deny_only"
+      }
+    }
+  ],
+  "invalid_cases": [
+    {
+      "case_id": "c18_unknown_version",
+      "base_case": "current_sanitized_capability_snapshot",
+      "mutation": {
+        "op": "replace",
+        "path": "/schema_version",
+        "value": "2.0.0"
+      },
+      "expected_failure": "schema"
+    },
+    {
+      "case_id": "c18_raw_host_data",
+      "base_case": "current_sanitized_capability_snapshot",
+      "mutation": {
+        "op": "replace",
+        "path": "/raw_host_data_included",
+        "value": true
+      },
+      "expected_failure": "schema"
+    },
+    {
+      "case_id": "c18_current_with_stale_capability",
+      "base_case": "current_sanitized_capability_snapshot",
+      "mutation": {
+        "op": "replace",
+        "path": "/capability_refs/1/freshness_state",
+        "value": "stale"
+      },
+      "expected_failure": "current C18 requires every"
+    },
+    {
+      "case_id": "c18_host_local_artifact_path",
+      "base_case": "current_sanitized_capability_snapshot",
+      "mutation": {
+        "op": "replace",
+        "path": "/capability_refs/0/artifact/artifact_ref",
+        "value": "/var/lib/abyss-machine/memory/latest.json"
+      },
+      "expected_failure": "non-portable artifact_ref"
+    },
+    {
+      "case_id": "c18_missing_source_ref",
+      "base_case": "current_sanitized_capability_snapshot",
+      "mutation": {
+        "op": "replace",
+        "path": "/source_refs",
+        "value": [
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "repo:abyss-machine/commands/active-organ-host-snapshot",
+            "artifact_version": "1.0.0",
+            "artifact_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        ]
+      },
+      "expected_failure": "source_refs must retain"
+    },
+    {
+      "case_id": "c19_start_with_block",
+      "base_case": "start_without_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/blocked_reasons",
+        "value": [
+          "memory_reserve"
+        ]
+      },
+      "expected_failure": "start requires current valid allow"
+    },
+    {
+      "case_id": "c19_force_required_start",
+      "base_case": "start_without_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/resource_plan_decision",
+        "value": "force_required"
+      },
+      "expected_failure": "force_required must remain deferred"
+    },
+    {
+      "case_id": "c19_write_without_preflight",
+      "base_case": "softened_host_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/storage_write_preflight_ref",
+        "value": null
+      },
+      "expected_failure": "storage write requires"
+    },
+    {
+      "case_id": "c19_no_write_with_target",
+      "base_case": "softened_host_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/request/storage_write_required",
+        "value": false
+      },
+      "expected_failure": "no-write request must not carry"
+    },
+    {
+      "case_id": "c19_project_root_target",
+      "base_case": "softened_host_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/request/target_ref/artifact_ref",
+        "value": "/srv/AbyssOS/aoa-memo"
+      },
+      "expected_failure": "non-portable artifact_ref"
+    },
+    {
+      "case_id": "c19_soften_without_constraint",
+      "base_case": "softened_host_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/softening_constraints",
+        "value": []
+      },
+      "expected_failure": "soften requires current valid allow"
+    },
+    {
+      "case_id": "c19_launch_claim",
+      "base_case": "start_without_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/launch_executed",
+        "value": true
+      },
+      "expected_failure": "schema"
+    },
+    {
+      "case_id": "c19_memory_authority_widened",
+      "base_case": "start_without_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/memory_semantic_authority",
+        "value": "allowed"
+      },
+      "expected_failure": "schema"
+    },
+    {
+      "case_id": "c19_missing_plan_source",
+      "base_case": "start_without_storage_write",
+      "mutation": {
+        "op": "replace",
+        "path": "/source_refs",
+        "value": [
+          {
+            "owner_repo": "abyss-machine",
+            "artifact_ref": "receipt:abyss-machine/active-organ/c18/run-a",
+            "artifact_version": "1.0.0",
+            "artifact_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          }
+        ]
+      },
+      "expected_failure": "source_refs must retain every"
+    }
+  ]
+}

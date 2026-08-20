@@ -28,6 +28,10 @@ Sibling AoA repositories own their doctrine, source records, proofs, memory
 surfaces, and playbooks. This repo may expose host context to them; it does not
 replace their source truth.
 
+C18 may expose sanitized host-capability refs and C19 may expose a host
+resource/storage disposition. Neither contract contains raw host state or
+authorizes memory semantics, stack/project mutation, or launch execution.
+
 ## Installation Boundary
 
 Bootstrap may render `/etc/abyss-machine`, install CLI entrypoints, and create

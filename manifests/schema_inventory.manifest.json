@@ -1,6 +1,9 @@
 {
   "schema": "abyss_machine_schema_inventory_manifest_v1",
   "schemas": [
+    "schemas/active-organ-host-capability-snapshot-reference.schema.json",
+    "schemas/active-organ-host-erasure-owner-extension-v0.schema.json",
+    "schemas/active-organ-host-resource-storage-plan-reference.schema.json",
     "schemas/bootstrap-report.schema.json",
     "schemas/host-profile.schema.json",
     "schemas/storage-policy.schema.json",

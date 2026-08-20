@@ -3,6 +3,11 @@
 - `docs/host/`
 - `src/abyss_machine/cli.py`
 - `src/abyss_machine/process_adapters.py`
+- `src/abyss_machine/active_organ_contracts.py`
 - `schemas/bootstrap-report.schema.json`
+- `schemas/active-organ-host-capability-snapshot-reference.schema.json`
+- `schemas/active-organ-host-resource-storage-plan-reference.schema.json`
+- `mechanics/host-facts/examples/active_organ_host_contracts_v1.examples.json`
 - `tests/host_contract/`
+- `tests/public_smoke/test_active_organ_host_contracts.py`
 - `tests/public_smoke/test_process_adapters.py`

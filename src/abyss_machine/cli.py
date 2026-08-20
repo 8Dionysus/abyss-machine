@@ -1190,7 +1190,7 @@ def ensure_state_history_dir(path: Path) -> None:
         pass
     try:
         os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-    except (KeyError, PermissionError):
+    except (KeyError, OSError):
         pass
 
 
@@ -1210,7 +1210,7 @@ def atomic_write_json(path: Path, data: dict[str, Any], mode: int = 0o644) -> No
     os.chmod(tmp_name, mode)
     try:
         os.chown(tmp_name, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-    except (KeyError, PermissionError):
+    except (KeyError, OSError):
         pass
     os.replace(tmp_name, path)
 
@@ -1251,7 +1251,7 @@ def safe_append_jsonl(path: Path, data: dict[str, Any], mode: int = 0o664) -> di
             pass
         try:
             os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         return None
     except OSError as exc:
@@ -1286,7 +1286,7 @@ def safe_append_text(path: Path, text: str, mode: int = 0o664) -> dict[str, Any]
             pass
         try:
             os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         return None
     except OSError as exc:
@@ -1308,7 +1308,7 @@ def safe_atomic_write_text(path: Path, text: str, mode: int = 0o664) -> dict[str
         os.chmod(tmp_name, mode)
         try:
             os.chown(tmp_name, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         os.replace(tmp_name, path)
         return None
@@ -23059,7 +23059,7 @@ def nervous_forget(minutes: float, dry_run: bool = False, reason: str | None = N
                 os.chmod(tmp_name, 0o664)
                 try:
                     os.chown(tmp_name, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-                except (KeyError, PermissionError):
+                except (KeyError, OSError):
                     pass
                 os.replace(tmp_name, path)
                 file_report["rewritten"] = True
@@ -28134,13 +28134,29 @@ def typing_process_from_records(
     )
 
 
+def typing_process_compact_history_document(process: dict[str, Any]) -> dict[str, Any]:
+    return typing_capture_contracts.typing_process_compact_history_document(
+        process,
+        schema_prefix=SCHEMA_PREFIX,
+        version=VERSION,
+    )
+
+
 def typing_process(limit: int = 240, write_latest: bool = True) -> dict[str, Any]:
     bounded_limit = max(1, min(int(limit), 1000))
     policy = typing_policy(write_latest=False)
     records, errors = typing_records(bounded_limit)
     data = typing_process_from_records(records, errors, policy)
     if write_latest:
-        write_errors = write_latest_and_history(data, TYPING_PROCESS_LATEST_PATH, TYPING_PROCESS_ROOT)
+        history = typing_process_compact_history_document(data)
+        write_errors = [
+            error
+            for error in [
+                safe_atomic_write_json(TYPING_PROCESS_LATEST_PATH, data, 0o664),
+                safe_append_jsonl(ai_daily_jsonl_path(TYPING_PROCESS_ROOT), history, 0o664),
+            ]
+            if error
+        ]
         index_error = safe_atomic_write_json(TYPING_INDEX_PATH, typing_index_document(), 0o664)
         write_errors = write_errors + ([index_error] if index_error else [])
         if write_errors:
@@ -42975,7 +42991,7 @@ def write_text_if_missing(path: Path, text: str, mode: int = 0o664) -> dict[str,
                 pass
             try:
                 os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
-            except (KeyError, PermissionError):
+            except (KeyError, OSError):
                 pass
         return None
     except OSError as exc:

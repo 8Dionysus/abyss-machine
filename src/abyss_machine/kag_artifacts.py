@@ -279,8 +279,11 @@ def verify_kag_identity_signature(
     if artifact_class == OS_COMPOSITION_ARTIFACT_CLASS and str(signature.get("key_id") or "") != key_id:
         errors.append("KAG OS composition key_id does not match the signing public key")
     cosign = artifact_bundles._cosign_binary()
+    trust_config_errors = artifact_bundles._cosign_local_trust_config_errors()
     if not cosign:
         errors.append("cosign binary is unavailable")
+    elif trust_config_errors:
+        errors.extend(f"local Cosign trust configuration invalid: {item}" for item in trust_config_errors)
     elif all(paths[label].is_file() for label in ("subject", "sigstore", "public_key")):
         proc = subprocess.run(
             [
@@ -290,6 +293,7 @@ def verify_kag_identity_signature(
                 str(paths["public_key"]),
                 "--bundle",
                 str(paths["sigstore"]),
+                *artifact_bundles._cosign_local_verify_args(),
                 str(paths["subject"]),
             ],
             check=False,
@@ -344,6 +348,7 @@ def sign_kag_identity(
         missing.append("ABYSS_MACHINE_COSIGN_KEY file")
     if not public_key_path.is_file():
         missing.append("ABYSS_MACHINE_COSIGN_PUB file")
+    missing.extend(artifact_bundles._cosign_local_trust_config_errors())
     if missing:
         return {
             "ok": False,
@@ -365,6 +370,7 @@ def sign_kag_identity(
             str(key_path),
             "--bundle",
             str(paths["sigstore"]),
+            *artifact_bundles._cosign_local_sign_args(),
             str(paths["subject"]),
         ],
         check=False,

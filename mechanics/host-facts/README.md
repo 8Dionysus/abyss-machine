@@ -7,7 +7,7 @@ Host facts owns how the machine reports capabilities and posture to agents.
 ### Trigger
 
 Host fact probes, stack bridge records, resource posture, hardware capability,
-and evidence shape changes.
+active-organ C18/C19 references, and evidence shape changes.
 
 ### abyss-machine owns
 
@@ -25,12 +25,14 @@ Local probes, OS metadata, profile intent, generated latest records.
 
 ### Outputs
 
-Machine facts, bridge records, warnings, and agent-readable host posture.
+Machine facts, bridge records, warnings, agent-readable host posture, and
+reference-only active-organ capability/admission envelopes.
 
 ### Must not claim
 
-Host facts are public-safe, a stale fact is current truth, or a recommendation
-is service health proof.
+Host facts are public-safe, a stale fact is current truth, a recommendation is
+service health proof, or C18/C19 grants memory, launch, project, or stack
+authority.
 
 ### Validation
 

@@ -173,7 +173,7 @@ def _ensure_state_dir(path: Path, *, group: str = DEFAULT_STATE_GROUP) -> None:
         pass
     try:
         os.chown(path, -1, grp.getgrnam(group).gr_gid)
-    except (KeyError, PermissionError):
+    except (KeyError, OSError):
         pass
 
 
@@ -201,7 +201,7 @@ def safe_atomic_write_json(path: Path, data: dict[str, Any], mode: int = 0o664) 
         os.chmod(tmp_name, mode)
         try:
             os.chown(tmp_name, -1, grp.getgrnam(DEFAULT_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         os.replace(tmp_name, path)
         return None
@@ -224,7 +224,7 @@ def safe_atomic_write_text(path: Path, text: str, mode: int = 0o664) -> dict[str
         os.chmod(tmp_name, mode)
         try:
             os.chown(tmp_name, -1, grp.getgrnam(DEFAULT_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         os.replace(tmp_name, path)
         return None
@@ -260,7 +260,7 @@ def safe_append_text(path: Path, text: str, mode: int = 0o664) -> dict[str, Any]
             pass
         try:
             os.chown(path, -1, grp.getgrnam(DEFAULT_STATE_GROUP).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         return None
     except OSError as exc:

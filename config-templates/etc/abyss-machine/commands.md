@@ -1107,7 +1107,9 @@ events into causal lanes by surface, recipient, task binding, project, and
 context anchor. URL origins, operator-home paths, and application surfaces can
 bind non-project input without being promoted to project claims; missing anchors
 remain quality gaps. The readmodel stores no extra text, widens no capture, and
-authorizes no action.
+authorizes no action. Its full current state is written only to `latest.json`;
+daily history keeps a compact aggregate projection without individual lanes,
+recent entries, context-anchor identities, or parse-error payloads.
 `status` also reports GNOME toolkit accessibility and typed-text nervous
 processing: whether `typed_text_autolog` is represented in nervous facts and the
 local FTS index.
@@ -1123,6 +1125,7 @@ Persistent paths:
 {{ABYSS_MACHINE_STATE}}/typing/capture-gate/latest.json
 {{ABYSS_MACHINE_STATE}}/typing/coverage/latest.json
 {{ABYSS_MACHINE_STATE}}/typing/process/latest.json
+{{ABYSS_MACHINE_STATE}}/typing/process/YYYY/MM/YYYY-MM-DD.jsonl
 {{ABYSS_MACHINE_STATE}}/typing/focused-snapshot/latest.json
 {{ABYSS_MACHINE_STATE}}/typing/atspi-text-events/latest.json
 {{ABYSS_MACHINE_STATE}}/typing/validate/latest.json

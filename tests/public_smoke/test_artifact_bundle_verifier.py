@@ -30,6 +30,7 @@ def _write_fake_cosign(path: Path) -> None:
         """#!/usr/bin/env python3
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -44,6 +45,10 @@ def digest(path):
 
 
 args = sys.argv[1:]
+capture = os.environ.get("FAKE_COSIGN_ARGV_CAPTURE")
+if capture:
+    with Path(capture).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(args) + "\\n")
 command = args[0]
 if command == "sign-blob":
     bundle = Path(option_value(args, "--bundle"))
@@ -457,6 +462,18 @@ def test_artifacts_validate_cli_entrypoint_writes_public_contract(tmp_path: Path
     latest = json.loads((validate_root / "latest.json").read_text(encoding="utf-8"))
     assert latest["schema"] == data["schema"]
     assert (tmp_path / "index.json").is_file()
+
+
+def test_state_history_append_survives_unavailable_optional_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    history = tmp_path / "history" / "events.jsonl"
+
+    def unavailable_chown(*_args: object, **_kwargs: object) -> None:
+        raise OSError(22, "group is not mapped in this user namespace")
+
+    monkeypatch.setattr(cli.os, "chown", unavailable_chown)
+
+    assert cli.safe_append_jsonl(history, {"ok": True}) is None
+    assert json.loads(history.read_text(encoding="utf-8")) == {"ok": True}
 
 
 def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
@@ -6873,6 +6890,24 @@ def test_bundle_registry_rejects_unverified_latest_candidate(tmp_path: Path) -> 
     assert not (registry / artifact_bundles.BUNDLE_REGISTRY_INDEX).exists()
 
 
+def test_local_cosign_profile_is_service_free_and_fails_closed_if_missing(
+    tmp_path: Path,
+) -> None:
+    signing_config_path, trusted_root_path = artifact_bundles._cosign_local_trust_paths()
+
+    assert artifact_bundles._cosign_local_trust_config_errors() == []
+    assert json.loads(signing_config_path.read_text(encoding="utf-8")) == (
+        artifact_bundles.COSIGN_LOCAL_SIGNING_CONFIG
+    )
+    assert json.loads(trusted_root_path.read_text(encoding="utf-8")) == (
+        artifact_bundles.COSIGN_LOCAL_TRUSTED_ROOT
+    )
+    assert artifact_bundles._cosign_local_trust_config_errors(repo_root=tmp_path) == [
+        f"missing {artifact_bundles.COSIGN_LOCAL_SIGNING_CONFIG_REF}",
+        f"missing {artifact_bundles.COSIGN_LOCAL_TRUSTED_ROOT_REF}",
+    ]
+
+
 def test_required_cosign_bundle_roundtrip_and_tamper_check(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -6886,6 +6921,8 @@ def test_required_cosign_bundle_roundtrip_and_tamper_check(
     monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
     monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
     monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
+    argv_capture = tmp_path / "cosign-argv.jsonl"
+    monkeypatch.setenv("FAKE_COSIGN_ARGV_CAPTURE", str(argv_capture))
 
     dist = tmp_path / "dist"
     dist.mkdir()
@@ -6928,6 +6965,9 @@ def test_required_cosign_bundle_roundtrip_and_tamper_check(
     assert sign["ok"] is True
     assert sign["status"] == "signed"
     assert sign["subject_ref"] == artifact_bundles.SUBJECTS_SIDECAR
+    assert sign["signing_config_ref"] == artifact_bundles.COSIGN_LOCAL_SIGNING_CONFIG_REF
+    assert sign["trusted_root_ref"] == artifact_bundles.COSIGN_LOCAL_TRUSTED_ROOT_REF
+    assert sign["transparency_log_mode"] == "not_claimed_local_key_domain"
     assert verify["ok"] is True
     assert verify["required_controls"] == ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"]
     assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"]
@@ -6935,6 +6975,14 @@ def test_required_cosign_bundle_roundtrip_and_tamper_check(
     assert (bundle / artifact_bundles.SIGSTORE_BUNDLE_SIDECAR).is_file()
     assert (bundle / artifact_bundles.COSIGN_SIGNATURE_SIDECAR).is_file()
     assert (bundle / artifact_bundles.COSIGN_PUBLIC_KEY_SIDECAR).is_file()
+    cosign_argv = [json.loads(line) for line in argv_capture.read_text(encoding="utf-8").splitlines()]
+    sign_argv = next(row for row in cosign_argv if row[0] == "sign-blob")
+    verify_argv = next(row for row in cosign_argv if row[0] == "verify-blob")
+    signing_config_path, trusted_root_path = artifact_bundles._cosign_local_trust_paths()
+    assert sign_argv[sign_argv.index("--signing-config") + 1] == str(signing_config_path)
+    assert sign_argv[sign_argv.index("--trusted-root") + 1] == str(trusted_root_path)
+    assert "--insecure-ignore-tlog=true" in verify_argv
+    assert verify_argv[verify_argv.index("--trusted-root") + 1] == str(trusted_root_path)
 
     (bundle / artifact_bundles.COSIGN_PUBLIC_KEY_SIDECAR).unlink()
     missing_public_key = artifact_bundles.verify_bundle(bundle, write=False)

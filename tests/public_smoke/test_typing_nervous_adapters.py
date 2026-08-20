@@ -1,10 +1,36 @@
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import json
 import os
 
 from abyss_machine import typing_nervous_adapters
+
+
+def test_writers_keep_atomic_write_when_optional_group_ownership_is_unavailable(tmp_path, monkeypatch):
+    def unavailable_group_ownership(*_args):
+        raise OSError(errno.EINVAL, "group is not mapped in this user namespace")
+
+    monkeypatch.setattr(typing_nervous_adapters.os, "chown", unavailable_group_ownership)
+    latest = tmp_path / "typing" / "latest.json"
+    index_path = tmp_path / "typing" / "index.json"
+    payload = {"schema": "test_typing_payload_v1", "ok": True}
+
+    returned = typing_nervous_adapters.store_latest_history_and_index(
+        payload,
+        write_latest=True,
+        latest_path=latest,
+        history_root=tmp_path / "typing" / "history",
+        index_path=index_path,
+        index_document={"schema": "test_typing_index_v1"},
+        group="wheel",
+    )
+
+    assert returned is payload
+    assert "write_errors" not in returned
+    assert json.loads(latest.read_text(encoding="utf-8")) == payload
+    assert json.loads(index_path.read_text(encoding="utf-8")) == {"schema": "test_typing_index_v1"}
 
 
 def test_store_latest_history_and_index_writes_public_safe_files(tmp_path):

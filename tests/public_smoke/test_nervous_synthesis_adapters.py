@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import errno
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,17 @@ from abyss_machine import nervous_synthesis_adapters as adapters
 
 def _jsonl_records(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_text_writer_ignores_unavailable_optional_group_ownership(tmp_path: Path, monkeypatch) -> None:
+    def unavailable_group_ownership(*_args):
+        raise OSError(errno.EINVAL, "group is not mapped in this user namespace")
+
+    monkeypatch.setattr(adapters.os, "chown", unavailable_group_ownership)
+    path = tmp_path / "synthesis" / "AGENTS.md"
+
+    assert adapters.write_text_atomic(path, "portable\n", group="wheel") is None
+    assert path.read_text(encoding="utf-8") == "portable\n"
 
 
 def test_replace_period_record_preserves_other_periods_and_replaces_same_period(tmp_path: Path) -> None:

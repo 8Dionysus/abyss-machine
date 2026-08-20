@@ -50,6 +50,10 @@ time, and subsystem-specific facts.
 The artifact bundle/trust lane remains owned by
 `abyss_machine.artifact_bundles`; the CLI only supplies collected checks,
 paths, latest refs, and write adapters for `artifacts validate`.
+Strict active-organ C18 capability-snapshot and C19 resource/storage-plan
+reference contracts live in the public schemas, with pure cross-field checks
+in `abyss_machine.active_organ_contracts`. They are reference-only and do not
+activate live host collection, launch, stack consumption, or project mutation.
 Consumer verification commands for update metadata, external TUF repositories,
 and OCI/ORAS publication evidence are fail-closed by default: use
 `--inspect-only` only when checking evidence shape without consuming the
@@ -83,7 +87,7 @@ browser-history fact summary routing live in
 saved-text scan policy status, saved-text recent-record validation,
 recent record policy/causal shape status,
 causal project binding/resolution, causal interaction identity/context-anchor and URL/AI recipient helpers,
-typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, process readmodel assembly, and causal-awareness event/readmodel status,
+typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, full process readmodel plus compact history projection, and causal-awareness event/readmodel status,
 capture-gate policy and decision documents, safe URL checks, recent browser-content
 context inference, focused-browser selftest and browser-privacy record summaries,
 Codex prompt hook/session-tail evidence summaries, prompt route coverage
@@ -414,7 +418,7 @@ status, browser input recency classification/readmodel assembly, status, and val
 policy merge and heartbeat status, AT-SPI compact-history record and contract documents, typing coverage document assembly plus route-note/gap and status
 decisions, full and bounded compact typing status, validate, and end-to-end proof document assembly, saved-text recent-record validation, recent record policy/causal
 shape status, causal project binding/resolution, causal interaction identity/context-anchor and URL/AI recipient helpers,
-typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, process readmodel assembly, and causal-awareness event/readmodel status, session-tail latest-status
+typing process project/dedupe/interaction/continuity/lane/context/recipient helpers, causal-context readmodel assembly, full process readmodel plus compact history projection, and causal-awareness event/readmodel status, session-tail latest-status
 contracts, Codex prompt/session-tail semantic ingest planning, AT-SPI
 focused/text-event/generic GUI semantic plans, editor callback selftest runtime,
 saved-text scan filesystem mechanics, and resource plan/launch
