@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 23096793,
+  "allowed_tracked_bytes": 26781319,
+  "approved_by": "repository-owner",
+  "base_ref": "031c27f2e0575d3ab6e7b205523ba16c61ec1d1d",
+  "changed_generated_bytes": 23096793,
+  "changed_generated_files": 349,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "5a89c862dbf68621f19bcf3e48843bf8056ae48810a1335563887cd326cda21c",
+  "reason": "Wave 2 source-owned typing, clipboard, active-organ host-contract, portable-writer, and local Cosign trust changes update deterministic source identities and line anchors; refresh the canonical repo-local family with the existing standing budgets and preserve KAG authority boundaries.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 26781319,
+  "tracked_bytes_max": 27262976
+}
