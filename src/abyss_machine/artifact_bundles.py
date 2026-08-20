@@ -48,6 +48,16 @@ SLSA_INTOTO_SIDECAR = "artifact.provenance.intoto.jsonl"
 COSIGN_SIGNATURE_SIDECAR = "artifact.cosign.signature"
 COSIGN_PUBLIC_KEY_SIDECAR = "artifact.cosign.pub"
 SIGSTORE_BUNDLE_SIDECAR = "artifact.sigstore.json"
+COSIGN_LOCAL_SIGNING_CONFIG_REF = "manifests/artifact_bundles/cosign-local.signing-config.json"
+COSIGN_LOCAL_TRUSTED_ROOT_REF = "manifests/artifact_bundles/cosign-local.trusted-root.json"
+COSIGN_LOCAL_SIGNING_CONFIG = {
+    "mediaType": "application/vnd.dev.sigstore.signingconfig.v0.2+json",
+    "rekorTlogConfig": {},
+    "tsaConfig": {},
+}
+COSIGN_LOCAL_TRUSTED_ROOT = {
+    "mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+}
 MLBOM_CYCLONEDX_SIDECAR = "artifact.mlbom.cdx.json"
 C2PA_MANIFEST_SIDECAR = "artifact.c2pa"
 C2PA_REPORT_SIDECAR = "artifact.c2pa.json"
@@ -6361,6 +6371,52 @@ def _cosign_binary() -> str | None:
     return shutil.which("cosign")
 
 
+def _cosign_local_trust_paths(*, repo_root: Path = REPO_ROOT) -> tuple[Path, Path]:
+    return (
+        repo_root / COSIGN_LOCAL_SIGNING_CONFIG_REF,
+        repo_root / COSIGN_LOCAL_TRUSTED_ROOT_REF,
+    )
+
+
+def _cosign_local_trust_config_errors(*, repo_root: Path = REPO_ROOT) -> list[str]:
+    signing_config_path, trusted_root_path = _cosign_local_trust_paths(repo_root=repo_root)
+    errors: list[str] = []
+    for label, path, expected in (
+        (COSIGN_LOCAL_SIGNING_CONFIG_REF, signing_config_path, COSIGN_LOCAL_SIGNING_CONFIG),
+        (COSIGN_LOCAL_TRUSTED_ROOT_REF, trusted_root_path, COSIGN_LOCAL_TRUSTED_ROOT),
+    ):
+        if not path.is_file():
+            errors.append(f"missing {label}")
+            continue
+        try:
+            payload = _read_json(path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(f"invalid {label}: {exc}")
+            continue
+        if payload != expected:
+            errors.append(f"{label} must declare the network-independent local-key profile")
+    return errors
+
+
+def _cosign_local_sign_args(*, repo_root: Path = REPO_ROOT) -> list[str]:
+    signing_config_path, trusted_root_path = _cosign_local_trust_paths(repo_root=repo_root)
+    return [
+        "--signing-config",
+        str(signing_config_path),
+        "--trusted-root",
+        str(trusted_root_path),
+    ]
+
+
+def _cosign_local_verify_args(*, repo_root: Path = REPO_ROOT) -> list[str]:
+    _signing_config_path, trusted_root_path = _cosign_local_trust_paths(repo_root=repo_root)
+    return [
+        "--insecure-ignore-tlog=true",
+        "--trusted-root",
+        str(trusted_root_path),
+    ]
+
+
 def _c2patool_binary() -> str | None:
     env_binary = os.environ.get("ABYSS_MACHINE_C2PATOOL_BINARY")
     if env_binary:
@@ -6734,6 +6790,7 @@ def _cosign_claim_limits(*, backend: str) -> list[str]:
     return [
         "The signed blob is the bundle subject manifest, not a keyless public transparency-log release proof.",
         "Consumers must compare the release artifact digest against artifact.subjects.json before trusting the artifact.",
+        "The host-local backend disables remote signing services and public transparency-log upload; verification binds the configured public key, Sigstore bundle, and exact subject bytes.",
         f"{backend} proves possession of the configured local Cosign key at signing time; it does not prove Fulcio/Rekor identity.",
     ]
 
@@ -6793,7 +6850,14 @@ def sign_bundle(
         cosign = _cosign_binary()
         key_path = Path(os.environ.get("ABYSS_MACHINE_COSIGN_KEY") or "")
         public_key_path = Path(os.environ.get("ABYSS_MACHINE_COSIGN_PUB") or "")
-        if not cosign or not key_path.is_file() or not public_key_path.is_file() or not subject_path.is_file():
+        trust_config_errors = _cosign_local_trust_config_errors(repo_root=repo_root)
+        if (
+            not cosign
+            or not key_path.is_file()
+            or not public_key_path.is_file()
+            or not subject_path.is_file()
+            or trust_config_errors
+        ):
             missing_parts = []
             if not cosign:
                 missing_parts.append("cosign binary")
@@ -6803,6 +6867,7 @@ def sign_bundle(
                 missing_parts.append("ABYSS_MACHINE_COSIGN_PUB file")
             if not subject_path.is_file():
                 missing_parts.append("signature subject sidecar")
+            missing_parts.extend(trust_config_errors)
             decision = _missing_cosign_backend_decision(
                 artifact_class=artifact_class,
                 backend=backend,
@@ -6828,6 +6893,7 @@ def sign_bundle(
                 str(key_path),
                 "--bundle",
                 str(sigstore_bundle_path),
+                *_cosign_local_sign_args(repo_root=repo_root),
                 str(subject_path),
             ],
             check=False,
@@ -6864,13 +6930,16 @@ def sign_bundle(
             "backend": backend,
             "status": "signed",
             "required": True,
-            "reason": "sigstore_cosign is required by policy and was signed with a configured local Cosign key",
+            "reason": "sigstore_cosign is required by policy and was signed with a configured local Cosign key without remote signing services",
             "subject_ref": subject_path.name,
             "subject_digest": _file_digest(subject_path),
             "signature_scope": "bundle_subject_manifest",
             "signature_ref": COSIGN_SIGNATURE_SIDECAR,
             "sigstore_bundle_ref": SIGSTORE_BUNDLE_SIDECAR,
             "public_key_ref": COSIGN_PUBLIC_KEY_SIDECAR,
+            "signing_config_ref": COSIGN_LOCAL_SIGNING_CONFIG_REF,
+            "trusted_root_ref": COSIGN_LOCAL_TRUSTED_ROOT_REF,
+            "transparency_log_mode": "not_claimed_local_key_domain",
             "claim_limits": _cosign_claim_limits(backend=backend),
         }
         _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
@@ -7600,6 +7669,8 @@ def _validate_cosign_signature(
     signature: dict[str, Any],
     missing: list[str],
     errors: list[str],
+    *,
+    repo_root: Path = REPO_ROOT,
 ) -> None:
     if signature.get("required") is not True:
         return
@@ -7646,6 +7717,10 @@ def _validate_cosign_signature(
     if not cosign:
         errors.append("cosign binary not found for required sigstore_cosign verification")
         return
+    trust_config_errors = _cosign_local_trust_config_errors(repo_root=repo_root)
+    if trust_config_errors:
+        errors.extend(f"local Cosign trust configuration invalid: {item}" for item in trust_config_errors)
+        return
     proc = subprocess.run(
         [
             cosign,
@@ -7654,6 +7729,7 @@ def _validate_cosign_signature(
             str(sidecar_paths["public_key_ref"]),
             "--bundle",
             str(sidecar_paths["sigstore_bundle_ref"]),
+            *_cosign_local_verify_args(repo_root=repo_root),
             str(subject_path),
         ],
         check=False,
@@ -7856,7 +7932,7 @@ def verify_bundle(
                 "KAG outer signature must bind artifact.abi.json, including "
                 "the external identity, source ref, and subject aggregate"
             )
-        _validate_cosign_signature(bundle, signature, missing, errors)
+        _validate_cosign_signature(bundle, signature, missing, errors, repo_root=repo_root)
     _validate_subject_aggregate_binding(subjects, provenance, errors)
 
     for control in required_controls:

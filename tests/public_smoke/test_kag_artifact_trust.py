@@ -21,6 +21,7 @@ def _write_fake_cosign(path: Path) -> None:
         """#!/usr/bin/env python3
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,6 +36,10 @@ def digest(path):
 
 
 args = sys.argv[1:]
+capture = os.environ.get("FAKE_COSIGN_ARGV_CAPTURE")
+if capture:
+    with Path(capture).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(args) + "\\n")
 if args[0] == "sign-blob":
     bundle = Path(option_value(args, "--bundle"))
     subject = args[-1]
@@ -144,6 +149,40 @@ def test_kag_identity_subject_rejects_conflicting_exact_source_ref() -> None:
 
     with pytest.raises(ValueError, match="source refs do not match"):
         kag_artifacts.kag_identity_signature_subject(release)
+
+
+def test_kag_identity_uses_network_independent_local_cosign_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_cosign = tmp_path / "cosign"
+    _write_fake_cosign(fake_cosign)
+    key = tmp_path / "local-test.key"
+    public_key = tmp_path / "local-test.pub"
+    argv_capture = tmp_path / "cosign-argv.jsonl"
+    key.write_text("fake-private-key\n", encoding="utf-8")
+    public_key.write_text("fake-public-key\n", encoding="utf-8")
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_KEY", str(key))
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_PUB", str(public_key))
+    monkeypatch.setenv("FAKE_COSIGN_ARGV_CAPTURE", str(argv_capture))
+    release_path = tmp_path / kag_artifacts.OWNER_RELEASE_FILENAME
+    release_path.write_text(
+        json.dumps(_owner_release("owner-a", "a"), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    signed = kag_artifacts.sign_kag_identity(release_path)
+
+    assert signed["ok"] is True
+    cosign_argv = [json.loads(line) for line in argv_capture.read_text(encoding="utf-8").splitlines()]
+    sign_argv = next(row for row in cosign_argv if row[0] == "sign-blob")
+    verify_argv = next(row for row in cosign_argv if row[0] == "verify-blob")
+    signing_config_path, trusted_root_path = artifact_bundles._cosign_local_trust_paths()
+    assert sign_argv[sign_argv.index("--signing-config") + 1] == str(signing_config_path)
+    assert sign_argv[sign_argv.index("--trusted-root") + 1] == str(trusted_root_path)
+    assert "--insecure-ignore-tlog=true" in verify_argv
+    assert verify_argv[verify_argv.index("--trusted-root") + 1] == str(trusted_root_path)
 
 
 def _build_signed_family(

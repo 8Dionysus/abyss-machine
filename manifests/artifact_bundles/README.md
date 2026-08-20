@@ -81,6 +81,20 @@ registry latest records and consumer `trust-gate` verdicts still work after the
 tmp/manual evidence layer is ignored; the default coverage mode still requires
 manual positive and negative evidence before claiming `FULLY_COVERED`.
 
+## Host-Local Cosign Profile
+
+The `cosign-local-key` backend is deliberately network-independent. It uses
+`cosign-local.signing-config.json` and `cosign-local.trusted-root.json`, which
+disable remote Fulcio, OIDC, Rekor, and TSA services for this host-managed trust
+domain. Signing therefore does not contact or upload to a public transparency
+log. Verification explicitly ignores transparency-log inclusion while still
+checking the exact subject bytes, Sigstore bundle, and configured public key.
+
+This profile proves possession of the host-managed local key; it is not a
+keyless public release identity and must not be described as Fulcio/Rekor proof.
+Organization-backed public publication remains a separate trust-root and
+credential-onboarding route.
+
 ## Pre-Organization Operating Mode
 
 OS Abyss can run artifact trust for the next transition window before an
