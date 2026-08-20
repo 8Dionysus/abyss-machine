@@ -464,7 +464,7 @@ def ensure_state_history_dir(path: Path, *, group: str = DEFAULT_STATE_GROUP) ->
         pass
     try:
         os.chown(path, -1, grp.getgrnam(group).gr_gid)
-    except (KeyError, PermissionError):
+    except (KeyError, OSError):
         pass
 
 
@@ -484,7 +484,7 @@ def atomic_write_json(path: Path, data: dict[str, Any], mode: int = 0o644, *, gr
     os.chmod(tmp_name, mode)
     try:
         os.chown(tmp_name, -1, grp.getgrnam(group).gr_gid)
-    except (KeyError, PermissionError):
+    except (KeyError, OSError):
         pass
     os.replace(tmp_name, path)
 
@@ -537,7 +537,7 @@ def safe_append_jsonl(
             pass
         try:
             os.chown(path, -1, grp.getgrnam(group).gr_gid)
-        except (KeyError, PermissionError):
+        except (KeyError, OSError):
             pass
         return None
     except OSError as exc:
