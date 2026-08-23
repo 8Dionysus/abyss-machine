@@ -2,22 +2,28 @@
 """Run a bounded, evidence-preserving validation slice for a source candidate.
 
 This route is intentionally contextual.  It selects only owner-mapped checks,
-records what it selected and skipped, and always states that the source-fast
-gate remains required.  It never edits installed state, starts services, or
-reuses a receipt without an explicit candidate/environment match.
+records what it selected and skipped, and keeps the unchanged source-fast gate
+as the fail-closed escalation.  Dirty inputs, policy/runner/test surfaces,
+ambiguous identities, incomplete resource decisions, and incomplete execution
+receipts never become a contextual success.
 """
 
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
+import importlib.metadata
+import importlib.util
 import json
 import os
 from pathlib import Path
 import platform
-import resource
+import stat
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
@@ -27,6 +33,40 @@ SCHEMA = "abyss_machine_validation_fastpath_v1"
 VERSION = "0.1.0"
 MAX_OUTPUT_CHARS = 2000
 FULL_GATE_ID = "owner-source-fast-gate"
+RECEIPT_ROOT_ENV = "ABYSS_MACHINE_VALIDATION_RECEIPT_ROOT"
+RESOURCE_FIELDS = ("admission", "class", "kind", "latency", "activity")
+RESOURCE_ADMISSIONS = {"allow", "deny", "not-provided"}
+ENVIRONMENT_KEYS = (
+    "PATH",
+    "PYTHONPATH",
+    "PYTHONDONTWRITEBYTECODE",
+    "PYTHONNOUSERSITE",
+    "PYTEST_ADDOPTS",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+    "PYTEST_PLUGINS",
+    "VIRTUAL_ENV",
+    "CONDA_PREFIX",
+)
+
+
+class ValidationInputError(ValueError):
+    """Raised when a receipt would otherwise make an unbound claim."""
+
+
+class ReceiptPathError(ValueError):
+    """Raised when receipt output is outside the approved task-local boundary."""
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _digest_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _digest_value(value: Any) -> str:
+    return _digest_bytes(_canonical_json(value).encode("utf-8"))
 
 
 def _sha256(path: Path) -> str | None:
@@ -39,39 +79,159 @@ def _sha256(path: Path) -> str | None:
     return digest.hexdigest()
 
 
-def _git(repo_root: Path, *args: str, check: bool = True) -> str:
+def _git_bytes(repo_root: Path, *args: str, check: bool = True) -> bytes:
     result = subprocess.run(
         ["git", *args],
         cwd=repo_root,
         check=False,
         capture_output=True,
-        text=True,
     )
     if check and result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "git command failed"
+        detail = result.stderr.decode("utf-8", "replace").strip() or "git command failed"
         raise RuntimeError(f"git {' '.join(args)}: {detail}")
-    return result.stdout.strip()
+    return result.stdout
+
+
+def _git(repo_root: Path, *args: str, check: bool = True) -> str:
+    return _git_bytes(repo_root, *args, check=check).decode("utf-8", "strict").strip()
+
+
+def _split_nul_paths(value: bytes) -> list[str]:
+    return [part.decode("utf-8", "surrogateescape") for part in value.split(b"\0") if part]
+
+
+def _update_labeled(digest: Any, label: str, value: bytes) -> None:
+    label_bytes = label.encode("utf-8")
+    digest.update(len(label_bytes).to_bytes(8, "big"))
+    digest.update(label_bytes)
+    digest.update(len(value).to_bytes(8, "big"))
+    digest.update(value)
+
+
+def _digest_path_inputs(repo_root: Path, paths: Iterable[str]) -> str:
+    """Hash path names, types, modes and bytes without publishing their content."""
+
+    digest = hashlib.sha256()
+    for raw_path in sorted(set(paths)):
+        path_bytes = raw_path.encode("utf-8", "surrogateescape")
+        _update_labeled(digest, "path", path_bytes)
+        path = repo_root / raw_path
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            _update_labeled(digest, "missing", b"1")
+            continue
+        _update_labeled(digest, "mode", str(info.st_mode).encode("ascii"))
+        if stat.S_ISREG(info.st_mode):
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    _update_labeled(digest, "bytes", chunk)
+        elif stat.S_ISLNK(info.st_mode):
+            _update_labeled(digest, "symlink", os.readlink(path).encode("utf-8", "surrogateescape"))
+        else:
+            _update_labeled(digest, "special", str(info.st_size).encode("ascii"))
+    return digest.hexdigest()
+
+
+def _combine_digests(parts: Mapping[str, str]) -> str:
+    digest = hashlib.sha256()
+    for label in sorted(parts):
+        _update_labeled(digest, label, parts[label].encode("ascii"))
+    return digest.hexdigest()
+
+
+def _worktree_snapshot(repo_root: Path, candidate_ref: str) -> dict[str, Any]:
+    normal_status = _git_bytes(
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    )
+    ignored_status = _git_bytes(
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignored=matching",
+    )
+    index = _git_bytes(repo_root, "ls-files", "--stage", "-z")
+    staged_diff = _git_bytes(
+        repo_root,
+        "diff",
+        "--binary",
+        "--no-renames",
+        "--cached",
+        candidate_ref,
+    )
+    unstaged_diff = _git_bytes(
+        repo_root,
+        "diff",
+        "--binary",
+        "--no-renames",
+    )
+    staged_paths_bytes = _git_bytes(
+        repo_root,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--cached",
+        "-z",
+        candidate_ref,
+    )
+    unstaged_paths = _split_nul_paths(
+        _git_bytes(
+            repo_root,
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "-z",
+        )
+    )
+    untracked_paths = _split_nul_paths(
+        _git_bytes(repo_root, "ls-files", "--others", "--exclude-standard", "-z")
+    )
+    ignored_paths = _split_nul_paths(
+        _git_bytes(repo_root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+    )
+    parts = {
+        "index": _digest_bytes(index),
+        "staged_diff": _digest_bytes(staged_diff),
+        "unstaged_diff": _digest_bytes(unstaged_diff),
+        # The index is authoritative for staged content.  Reading these paths
+        # from the worktree here would silently fold a later unstaged edit into
+        # the staged identity.
+        "staged_paths": _digest_bytes(staged_paths_bytes),
+        "unstaged_paths": _digest_path_inputs(repo_root, unstaged_paths),
+        "untracked_paths": _digest_path_inputs(repo_root, untracked_paths),
+        "ignored_paths": _digest_path_inputs(repo_root, ignored_paths),
+    }
+    return {
+        "dirty": bool(normal_status or ignored_status),
+        "normal_status_sha256": _digest_bytes(normal_status),
+        "ignored_status_sha256": _digest_bytes(ignored_status),
+        "index_sha256": parts["index"],
+        "staged_content_sha256": _combine_digests(
+            {"diff": parts["staged_diff"], "paths": parts["staged_paths"]}
+        ),
+        "unstaged_content_sha256": _combine_digests(
+            {"diff": parts["unstaged_diff"], "paths": parts["unstaged_paths"]}
+        ),
+        "untracked_content_sha256": parts["untracked_paths"],
+        "ignored_content_sha256": parts["ignored_paths"],
+        "overall_sha256": _combine_digests(
+            {
+                "normal_status": _digest_bytes(normal_status),
+                "ignored_status": _digest_bytes(ignored_status),
+                **parts,
+            }
+        ),
+    }
 
 
 def _worktree_digest(repo_root: Path, candidate_ref: str) -> str:
-    """Bind dirty tracked and untracked source bytes without publishing them."""
+    """Return the exact combined index/worktree/untracked/ignored digest."""
 
-    digest = hashlib.sha256()
-    diff = subprocess.run(
-        ["git", "diff", "--binary", candidate_ref],
-        cwd=repo_root,
-        check=False,
-        capture_output=True,
-    )
-    digest.update(diff.stdout)
-    for raw_path in _git(repo_root, "ls-files", "--others", "--exclude-standard").splitlines():
-        path = repo_root / raw_path
-        digest.update(raw_path.encode())
-        if path.is_file():
-            digest.update(path.read_bytes())
-        else:
-            digest.update(b"<missing>")
-    return digest.hexdigest()
+    return _worktree_snapshot(repo_root, candidate_ref)["overall_sha256"]
 
 
 def _ref(repo_root: Path, value: str, suffix: str = "") -> str:
@@ -79,20 +239,26 @@ def _ref(repo_root: Path, value: str, suffix: str = "") -> str:
 
 
 def candidate_identity(repo_root: Path, base_ref: str, candidate_ref: str) -> dict[str, Any]:
-    """Return exact Git identity plus a non-mutating worktree state."""
+    """Return exact Git identity plus all source inputs that can affect routing."""
 
-    status = _git(repo_root, "status", "--porcelain=v1", "--untracked-files=all")
+    snapshot = _worktree_snapshot(repo_root, candidate_ref)
     return {
-        "workspace": str(repo_root),
+        "workspace": str(repo_root.resolve()),
         "base_ref": base_ref,
         "base_sha": _ref(repo_root, base_ref, "^{commit}"),
         "base_tree": _ref(repo_root, base_ref, "^{tree}"),
         "candidate_ref": candidate_ref,
         "candidate_sha": _ref(repo_root, candidate_ref, "^{commit}"),
         "candidate_tree": _ref(repo_root, candidate_ref, "^{tree}"),
-        "worktree_state": "clean" if not status else "dirty",
-        "worktree_status_sha256": hashlib.sha256(status.encode()).hexdigest(),
-        "worktree_content_sha256": _worktree_digest(repo_root, candidate_ref),
+        "worktree_state": "dirty" if snapshot["dirty"] else "clean",
+        "worktree_status_sha256": snapshot["normal_status_sha256"],
+        "worktree_ignored_status_sha256": snapshot["ignored_status_sha256"],
+        "index_sha256": snapshot["index_sha256"],
+        "staged_content_sha256": snapshot["staged_content_sha256"],
+        "unstaged_content_sha256": snapshot["unstaged_content_sha256"],
+        "untracked_content_sha256": snapshot["untracked_content_sha256"],
+        "ignored_content_sha256": snapshot["ignored_content_sha256"],
+        "worktree_content_sha256": snapshot["overall_sha256"],
     }
 
 
@@ -103,32 +269,50 @@ def changed_paths(
     *,
     include_worktree: bool = False,
 ) -> list[str]:
-    """List candidate paths, optionally including explicitly requested worktree edits."""
+    """List candidate paths, including every requested dirty input category."""
 
     names = set(
-        filter(
-            None,
-            _git(
+        _split_nul_paths(
+            _git_bytes(
                 repo_root,
                 "diff",
                 "--name-only",
                 "--no-renames",
+                "-z",
                 base_ref,
                 candidate_ref,
-            ).splitlines(),
+            )
         )
     )
     if include_worktree:
         names.update(
-            filter(
-                None,
-                _git(repo_root, "diff", "--name-only", "--no-renames", candidate_ref).splitlines(),
+            _split_nul_paths(
+                _git_bytes(
+                    repo_root,
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "-z",
+                )
             )
         )
         names.update(
-            filter(
-                None,
-                _git(repo_root, "ls-files", "--others", "--exclude-standard").splitlines(),
+            _split_nul_paths(
+                _git_bytes(
+                    repo_root,
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--cached",
+                    "-z",
+                    candidate_ref,
+                )
+            )
+        )
+        names.update(_split_nul_paths(_git_bytes(repo_root, "ls-files", "--others", "--exclude-standard", "-z")))
+        names.update(
+            _split_nul_paths(
+                _git_bytes(repo_root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
             )
         )
     return sorted(names)
@@ -141,6 +325,7 @@ def _command_for_test(
     marker_expression: str | None = None,
     python_executable: str,
 ) -> list[str]:
+    del repo_root
     command = [
         python_executable,
         "-m",
@@ -190,6 +375,35 @@ def _full_gate_node(python_executable: str) -> dict[str, Any]:
     )
 
 
+def _high_risk_reason(path_text: str) -> str | None:
+    if path_text.startswith("tests/"):
+        return "changed tests require the unchanged owner full gate"
+    if path_text.startswith("scripts/"):
+        return "changed validator/runner scripts require the unchanged owner full gate"
+    if path_text.startswith("docs/validation/"):
+        return "changed validation policy requires the unchanged owner full gate"
+    return None
+
+
+def _plan_payload(plan: Mapping[str, Any]) -> dict[str, Any]:
+    full_gate = dict(plan["full_gate"])
+    full_gate.pop("status", None)
+    return {
+        "python_executable": plan["python_executable"],
+        "changed_paths": list(plan["changed_paths"]),
+        "selected": list(plan["selected"]),
+        "skipped": list(plan["skipped"]),
+        "fallback": dict(plan["fallback"]),
+        "full_gate": full_gate,
+        "unmapped_paths": list(plan["unmapped_paths"]),
+        "unmapped_reasons": dict(plan["unmapped_reasons"]),
+    }
+
+
+def _plan_digest(plan: Mapping[str, Any]) -> str:
+    return _digest_value(_plan_payload(plan))
+
+
 def build_plan(
     changed: Sequence[str],
     repo_root: Path,
@@ -201,6 +415,7 @@ def build_plan(
     selected: dict[str, dict[str, Any]] = {}
     skipped: list[dict[str, Any]] = []
     unmapped: list[str] = []
+    unmapped_reasons: dict[str, str] = {}
 
     def add(node: dict[str, Any]) -> None:
         previous = selected.get(node["node_id"])
@@ -211,65 +426,16 @@ def build_plan(
                 set(previous["matched_paths"]) | set(node["matched_paths"])
             )
 
+    def mark_unmapped(path_text: str, reason: str) -> None:
+        unmapped.append(path_text)
+        unmapped_reasons[path_text] = reason
+
     for raw_path in sorted(set(changed)):
         path = Path(raw_path)
         path_text = path.as_posix()
-
-        if path_text.startswith("tests/public_smoke/") and path.suffix == ".py":
-            if (repo_root / path).is_file():
-                add(
-                    _node(
-                        f"public-smoke:{path_text}",
-                        "changed public smoke test selected exactly",
-                        [path_text],
-                        _command_for_test(
-                            repo_root,
-                            path_text,
-                            python_executable=python_executable,
-                        ),
-                        evidence_class="public-source-contextual",
-                        claims=[f"the changed public smoke surface {path_text}"],
-                        risk="bounded",
-                    )
-                )
-            else:
-                unmapped.append(path_text)
-            continue
-
-        if path_text.startswith("tests/host_contract/") and path.suffix == ".py":
-            if (repo_root / path).is_file():
-                add(
-                    _node(
-                        f"host-contract:{path_text}",
-                        "changed host-contract test selected without live/manual/long markers",
-                        [path_text],
-                        _command_for_test(
-                            repo_root,
-                            path_text,
-                            marker_expression="not live and not manual and not long",
-                            python_executable=python_executable,
-                        ),
-                        evidence_class="host-contract-contextual",
-                        claims=[f"the changed host contract surface {path_text}"],
-                        risk="bounded; host-installed assumptions remain unproven",
-                    )
-                )
-            else:
-                unmapped.append(path_text)
-            continue
-
-        if path_text in {"scripts/validation_lanes.py", "docs/validation/validation_lanes.json"}:
-            add(
-                _node(
-                    "validation-lane-manifest",
-                    "lane manifest semantics are checked directly",
-                    [path_text],
-                    [python_executable, "scripts/validation_lanes.py"],
-                    evidence_class="manifest-contextual",
-                    claims=["validation lane manifest is internally valid"],
-                    risk="bounded; declared checks are not executed by this node",
-                )
-            )
+        high_risk_reason = _high_risk_reason(path_text)
+        if high_risk_reason:
+            mark_unmapped(path_text, high_risk_reason)
             continue
 
         if path_text.startswith("src/abyss_machine/") and path.suffix == ".py":
@@ -292,42 +458,17 @@ def build_plan(
                     )
                 )
             else:
-                unmapped.append(path_text)
+                mark_unmapped(path_text, "source module has no owner-mapped contextual check")
             continue
 
-        if path_text == "scripts/validation_fastpath.py":
-            test_path = Path("tests/public_smoke/test_validation_fastpath.py")
-            if (repo_root / test_path).is_file():
-                test_text = test_path.as_posix()
-                add(
-                    _node(
-                        f"public-smoke:{test_text}",
-                        "fast-path implementation is checked by its focused contract tests",
-                        [path_text],
-                        _command_for_test(
-                            repo_root,
-                            test_text,
-                            python_executable=python_executable,
-                        ),
-                        evidence_class="fastpath-contract",
-                        claims=["selection, fallback, receipt, and full-gate boundary contracts"],
-                        risk="bounded; this does not prove the selected owner checks themselves",
-                    )
-                )
-            else:
-                unmapped.append(path_text)
-            continue
-
-        # Runner, policy, schema, generated, build, and unknown surfaces must
-        # expand to the full gate instead of receiving an optimistic shortcut.
-        unmapped.append(path_text)
+        mark_unmapped(path_text, "unknown or unmapped surface requires the unchanged owner full gate")
 
     if not changed:
         skipped.append(
             {
                 "surface": "candidate",
-                "reason": "no_changed_paths",
-                "action": "no_contextual_node_selected",
+                "reason": "no_changed_paths_requires_full_gate",
+                "action": "expand_to_full_gate",
             }
         )
     if unmapped:
@@ -335,20 +476,25 @@ def build_plan(
             {
                 "surface": "unmapped_changed_paths",
                 "paths": sorted(unmapped),
+                "reasons": {path: unmapped_reasons[path] for path in sorted(unmapped)},
                 "reason": "unknown_or_high_risk_surface_requires_full_gate",
                 "action": "expand_to_full_gate",
             }
         )
 
     full_gate = _full_gate_node(python_executable)
-    return {
+    plan: dict[str, Any] = {
+        "python_executable": python_executable,
+        "changed_paths": sorted(set(changed)),
         "selected": list(selected.values()),
         "skipped": skipped,
         "fallback": {
-            "required": bool(unmapped),
+            "required": bool(unmapped) or not changed,
             "reason": (
                 "unmapped_or_high_risk_changed_surface"
                 if unmapped
+                else "no_changed_paths_requires_full_gate"
+                if not changed
                 else "no_fallback_for_mapped_contextual_slice"
             ),
             "command": full_gate["command"],
@@ -361,107 +507,597 @@ def build_plan(
             "node": full_gate,
         },
         "unmapped_paths": sorted(unmapped),
+        "unmapped_reasons": {path: unmapped_reasons[path] for path in sorted(unmapped_reasons)},
+    }
+    plan["plan_sha256"] = _plan_digest(plan)
+    return plan
+
+
+def _execution_environment(repo_root: Path) -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items()}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
+    source_path = str(repo_root / "src")
+    env["PYTHONPATH"] = source_path + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    return env
+
+
+def _package_version(package_name: str) -> str | None:
+    try:
+        return importlib.metadata.version(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _module_identity(module_name: str) -> dict[str, Any]:
+    try:
+        spec = importlib.util.find_spec(module_name)
+    except (ImportError, ValueError):
+        spec = None
+    origin = None if spec is None else spec.origin
+    path = Path(origin) if origin and origin not in {"built-in", "frozen"} else None
+    return {
+        "module": module_name,
+        "path": str(path.resolve()) if path and path.exists() else origin,
+        "sha256": _sha256(path) if path else None,
+        "version": _package_version(module_name),
     }
 
 
-def _environment_identity(repo_root: Path) -> dict[str, Any]:
-    return {
-        "python_executable": sys.executable,
+def _environment_identity(
+    repo_root: Path,
+    env: Mapping[str, str] | None = None,
+    *,
+    python_executable: str = sys.executable,
+) -> dict[str, Any]:
+    effective = {
+        str(key): str(value)
+        for key, value in dict(_execution_environment(repo_root) if env is None else env).items()
+    }
+    projection = {key: effective.get(key, "") for key in ENVIRONMENT_KEYS}
+    effective_environment_sha256 = _digest_value(effective)
+    effective_projection_sha256 = _digest_value(projection)
+    executable = Path(python_executable).resolve()
+    dependency_files = [_module_identity("pytest")]
+    identity_payload = {
+        "python_executable": str(executable),
+        "python_executable_sha256": _sha256(executable),
         "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
         "platform": platform.platform(),
         "pytest_ini_sha256": _sha256(repo_root / "pytest.ini"),
         "validation_lane_manifest_sha256": _sha256(
             repo_root / "docs" / "validation" / "validation_lanes.json"
         ),
-        "bytecode": "disabled",
-        "pytest_cache": "disabled",
+        "effective_environment": projection,
+        "effective_environment_keys": sorted(effective),
+        "effective_environment_sha256": effective_environment_sha256,
+        "dependencies": dependency_files,
+    }
+    return {
+        **identity_payload,
+        "effective_environment_projection_sha256": effective_projection_sha256,
+        "identity_sha256": _digest_value(identity_payload),
     }
 
 
-def _tail(value: str) -> str:
-    return value[-MAX_OUTPUT_CHARS:]
+class _OutputCapture:
+    def __init__(self) -> None:
+        self.digest = hashlib.sha256()
+        self.bytes_seen = 0
+        self.tail = ""
+        self.decode_error: str | None = None
+        self.transport_error: str | None = None
+        self._decoder = codecs.getincrementaldecoder("utf-8")()
+
+    def feed(self, chunk: bytes) -> None:
+        self.digest.update(chunk)
+        self.bytes_seen += len(chunk)
+        try:
+            decoded = self._decoder.decode(chunk)
+        except UnicodeDecodeError as exc:
+            self.decode_error = self.decode_error or str(exc)[:240]
+            decoded = chunk.decode("utf-8", "replace")
+            self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.tail = (self.tail + decoded)[-MAX_OUTPUT_CHARS:]
+
+    def finish(self) -> None:
+        try:
+            decoded = self._decoder.decode(b"", final=True)
+        except UnicodeDecodeError as exc:
+            self.decode_error = self.decode_error or str(exc)[:240]
+            decoded = ""
+        self.tail = (self.tail + decoded)[-MAX_OUTPUT_CHARS:]
+
+    def result(self) -> dict[str, Any]:
+        return {
+            "sha256": self.digest.hexdigest(),
+            "tail": self.tail,
+            "bytes": self.bytes_seen,
+            "decode_error": self.decode_error,
+            "transport_error": self.transport_error,
+        }
 
 
-def _run_node(repo_root: Path, node: Mapping[str, Any], timeout_sec: float) -> dict[str, Any]:
-    command = list(node["command"])
-    env = os.environ.copy()
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
-    source_path = str(repo_root / "src")
-    env["PYTHONPATH"] = source_path + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    started = time.perf_counter()
-    before_children = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+def _drain_pipe(pipe: Any, capture: _OutputCapture) -> None:
     try:
-        result = subprocess.run(
+        for chunk in iter(lambda: pipe.read(64 * 1024), b""):
+            capture.feed(chunk)
+    except OSError as exc:
+        capture.transport_error = str(exc)[:240]
+    finally:
+        capture.finish()
+        pipe.close()
+
+
+def _read_proc_rss_kib(pid: int) -> int | None:
+    if os.name != "posix":
+        return None
+    try:
+        status_path = Path(f"/proc/{pid}/status")
+        for line in status_path.read_text(encoding="ascii", errors="replace").splitlines():
+            if line.startswith("VmHWM:"):
+                fields = line.split()
+                return int(fields[1]) if len(fields) >= 2 else None
+            if line.startswith("VmRSS:"):
+                fields = line.split()
+                return int(fields[1]) if len(fields) >= 2 else None
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    return None
+
+
+def _short_error(value: str) -> str:
+    return value.replace("\x00", "")[:400]
+
+
+def _run_node(
+    repo_root: Path,
+    node: Mapping[str, Any],
+    timeout_sec: float,
+    *,
+    env: Mapping[str, str] | None = None,
+    environment_identity: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    command = list(node.get("command", ()))
+    stdout_capture = _OutputCapture()
+    stderr_capture = _OutputCapture()
+    started = time.perf_counter()
+    try:
+        process = subprocess.Popen(
             command,
             cwd=repo_root,
-            env=env,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
+            env=dict(_execution_environment(repo_root) if env is None else env),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        timed_out = False
-        returncode = result.returncode
-        stdout = result.stdout
-        stderr = result.stderr
-    except subprocess.TimeoutExpired as exc:
+    except (IndexError, OSError, TypeError, ValueError) as exc:
+        elapsed = time.perf_counter() - started
+        return {
+            "node_id": node.get("node_id"),
+            "command": command,
+            "ok": False,
+            "returncode": None,
+            "timed_out": False,
+            "elapsed_sec": round(elapsed, 6),
+            "children_max_rss_kib": None,
+            "rss_measurement": {
+                "method": "proc_status_vm_hwm",
+                "scope": "direct_child_pid",
+                "status": "unavailable_spawn_failed",
+                "peak_rss_kib": None,
+            },
+            "stdout_sha256": stdout_capture.digest.hexdigest(),
+            "stderr_sha256": stderr_capture.digest.hexdigest(),
+            "stdout_tail": "",
+            "stderr_tail": "",
+            "stdout_bytes": 0,
+            "stderr_bytes": 0,
+            "error": {"type": "spawn_error", "detail": _short_error(str(exc))},
+            "environment_sha256": None if environment_identity is None else environment_identity.get("identity_sha256"),
+        }
+
+    assert process.stdout is not None
+    assert process.stderr is not None
+    readers = [
+        threading.Thread(target=_drain_pipe, args=(process.stdout, stdout_capture), daemon=True),
+        threading.Thread(target=_drain_pipe, args=(process.stderr, stderr_capture), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    peak_rss: int | None = _read_proc_rss_kib(process.pid)
+    timed_out = False
+    while process.poll() is None:
+        observed = _read_proc_rss_kib(process.pid)
+        if observed is not None:
+            peak_rss = observed if peak_rss is None else max(peak_rss, observed)
+        if time.perf_counter() - started >= timeout_sec:
+            timed_out = True
+            try:
+                process.kill()
+            except OSError:
+                pass
+            break
+        time.sleep(min(0.01, max(timeout_sec / 100.0, 0.001)))
+
+    try:
+        returncode = process.wait(timeout=1.0)
+    except subprocess.TimeoutExpired:
         timed_out = True
-        returncode = 124
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
+        try:
+            process.kill()
+        except OSError:
+            pass
+        returncode = process.wait()
+    for reader in readers:
+        reader.join(timeout=1.0)
     elapsed = time.perf_counter() - started
-    after_children = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    stdout = stdout_capture.result()
+    stderr = stderr_capture.result()
+    errors: list[tuple[str, str]] = []
+    if timed_out:
+        errors.append(("timeout", "node exceeded timeout_sec"))
+    if stdout["decode_error"]:
+        errors.append(("decode_error", f"stdout: {stdout['decode_error']}"))
+    if stderr["decode_error"]:
+        errors.append(("decode_error", f"stderr: {stderr['decode_error']}"))
+    if stdout["transport_error"]:
+        errors.append(("transport_error", f"stdout: {stdout['transport_error']}"))
+    if stderr["transport_error"]:
+        errors.append(("transport_error", f"stderr: {stderr['transport_error']}"))
+    error = None if not errors else {"type": errors[0][0], "detail": _short_error(errors[0][1])}
     return {
-        "node_id": node["node_id"],
+        "node_id": node.get("node_id"),
         "command": command,
-        "ok": returncode == 0 and not timed_out,
-        "returncode": returncode,
+        "ok": returncode == 0 and not timed_out and not errors,
+        "returncode": 124 if timed_out else returncode,
         "timed_out": timed_out,
         "elapsed_sec": round(elapsed, 6),
-        "children_max_rss_kib": max(before_children, after_children),
-        "stdout_sha256": hashlib.sha256(stdout.encode()).hexdigest(),
-        "stderr_sha256": hashlib.sha256(stderr.encode()).hexdigest(),
-        "stdout_tail": _tail(stdout),
-        "stderr_tail": _tail(stderr),
+        "children_max_rss_kib": peak_rss,
+        "rss_measurement": {
+            "method": "proc_status_vm_hwm",
+            "scope": "direct_child_pid",
+            "status": "measured" if peak_rss is not None else "unavailable",
+            "peak_rss_kib": peak_rss,
+        },
+        "stdout_sha256": stdout["sha256"],
+        "stderr_sha256": stderr["sha256"],
+        "stdout_tail": stdout["tail"],
+        "stderr_tail": stderr["tail"],
+        "stdout_bytes": stdout["bytes"],
+        "stderr_bytes": stderr["bytes"],
+        "error": error,
+        "environment_sha256": None if environment_identity is None else environment_identity.get("identity_sha256"),
     }
+
+
+def _normalize_resource_decision(value: Any) -> tuple[dict[str, Any] | None, list[str]]:
+    if not isinstance(value, Mapping):
+        return None, ["resource_decision must be a JSON object"]
+    if not all(isinstance(key, str) for key in value):
+        return None, ["resource_decision keys must be strings"]
+    try:
+        normalized = json.loads(_canonical_json(dict(value)))
+    except (TypeError, ValueError) as exc:
+        return None, [f"resource_decision is not JSON-safe: {_short_error(str(exc))}"]
+    errors = [
+        f"resource_decision missing {field}"
+        for field in RESOURCE_FIELDS
+        if not isinstance(normalized.get(field), str) or not normalized[field]
+    ]
+    if normalized.get("admission") not in RESOURCE_ADMISSIONS:
+        errors.append("resource_decision admission must be allow, deny, or not-provided")
+    return (normalized, errors) if errors else (normalized, [])
+
+
+def _command_graph_digest(nodes: Sequence[Mapping[str, Any]]) -> str:
+    return _digest_value(
+        [{"node_id": node.get("node_id"), "command": list(node.get("command", ()))} for node in nodes]
+    )
+
+
+def _resource_input(
+    resource_admission: str | None,
+    resource_decision: Mapping[str, Any] | None,
+) -> Any:
+    if resource_decision is not None:
+        if resource_admission is not None and resource_decision.get("admission") != resource_admission:
+            return {"_error": "resource_admission and resource_decision admission disagree"}
+        return resource_decision
+    if resource_admission is None:
+        return None
+    return {"admission": resource_admission}
 
 
 def execute_plan(
     repo_root: Path,
     plan: Mapping[str, Any],
     *,
-    resource_admission: str,
+    resource_admission: str | None = None,
     run_full: bool = False,
     timeout_sec: float = 300.0,
+    resource_decision: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute serially only after an explicit caller-owned admission."""
+    """Execute serially only after a complete caller-owned resource decision."""
 
-    if resource_admission != "allow":
+    resource_input = _resource_input(resource_admission, resource_decision)
+    normalized_resource, resource_errors = _normalize_resource_decision(resource_input)
+    if normalized_resource is None or resource_errors:
+        admission = None if normalized_resource is None else normalized_resource.get("admission")
+        status = "not_run_resource_admission" if admission in {"deny", "not-provided"} else "not_run_resource_decision"
         return {
-            "status": "not_run_resource_admission",
-            "resource_admission": resource_admission,
+            "status": status,
+            "resource_admission": admission,
+            "resource_decision": normalized_resource,
+            "resource_decision_input": resource_input,
+            "resource_decision_errors": resource_errors,
             "steps": [],
             "ok": False,
-            "reason": "resource_admission_must_be_explicit_allow",
+            "reason": "complete_resource_decision_required",
+        }
+    if normalized_resource["admission"] != "allow":
+        return {
+            "status": "not_run_resource_admission",
+            "resource_admission": normalized_resource["admission"],
+            "resource_decision": normalized_resource,
+            "resource_decision_sha256": _digest_value(normalized_resource),
+            "steps": [],
+            "ok": False,
+            "reason": "resource_admission_must_be_allow",
         }
 
+    env = _execution_environment(repo_root)
+    python_executable = str(plan.get("python_executable", sys.executable))
+    environment_identity = _environment_identity(repo_root, env, python_executable=python_executable)
     nodes = list(plan["selected"])
-    fallback_required = bool(plan["fallback"]["required"])
-    if fallback_required or run_full:
+    if bool(plan["fallback"]["required"]) or run_full:
         nodes.append(plan["full_gate"]["node"])
-
-    steps = [_run_node(repo_root, node, timeout_sec) for node in nodes]
+    steps: list[dict[str, Any]] = []
+    for node in nodes:
+        step = _run_node(
+            repo_root,
+            node,
+            timeout_sec,
+            env=env,
+            environment_identity=environment_identity,
+        )
+        step.setdefault("environment_sha256", environment_identity["identity_sha256"])
+        steps.append(step)
     full_step = next((step for step in steps if step["node_id"] == FULL_GATE_ID), None)
     if full_step is not None:
         plan["full_gate"]["status"] = "passed" if full_step["ok"] else "failed"
     return {
         "status": "completed",
-        "resource_admission": resource_admission,
+        "resource_admission": normalized_resource["admission"],
+        "resource_decision": normalized_resource,
+        "resource_decision_sha256": _digest_value(normalized_resource),
+        "environment": environment_identity,
+        "command_graph_sha256": _command_graph_digest(nodes),
         "steps": steps,
-        "ok": all(step["ok"] for step in steps),
+        "ok": bool(steps) and all(step["ok"] for step in steps),
         "reason": None,
     }
+
+
+def _validate_identity(repo_root: Path, identity: Mapping[str, Any]) -> dict[str, Any]:
+    required = {
+        "workspace",
+        "base_ref",
+        "base_sha",
+        "base_tree",
+        "candidate_ref",
+        "candidate_sha",
+        "candidate_tree",
+        "worktree_state",
+        "worktree_status_sha256",
+        "worktree_ignored_status_sha256",
+        "index_sha256",
+        "staged_content_sha256",
+        "unstaged_content_sha256",
+        "untracked_content_sha256",
+        "ignored_content_sha256",
+        "worktree_content_sha256",
+    }
+    missing = sorted(key for key in required if key not in identity)
+    if missing:
+        raise ValidationInputError(f"candidate identity missing: {', '.join(missing)}")
+    try:
+        workspace = Path(str(identity["workspace"])).resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ValidationInputError(f"candidate workspace is invalid: {_short_error(str(exc))}") from exc
+    if workspace != repo_root.resolve():
+        raise ValidationInputError("candidate workspace identity does not match receipt repository")
+    expected = candidate_identity(repo_root, str(identity["base_ref"]), str(identity["candidate_ref"]))
+    for key, expected_value in expected.items():
+        if identity.get(key) != expected_value:
+            raise ValidationInputError(f"candidate identity mismatch: {key}")
+    return expected
+
+
+def _validate_plan(
+    repo_root: Path,
+    plan: Mapping[str, Any],
+    identity: Mapping[str, Any],
+) -> None:
+    required = {
+        "plan_sha256",
+        "python_executable",
+        "changed_paths",
+        "selected",
+        "skipped",
+        "fallback",
+        "full_gate",
+        "unmapped_paths",
+        "unmapped_reasons",
+    }
+    missing = sorted(key for key in required if key not in plan)
+    if missing:
+        raise ValidationInputError(f"validation plan missing: {', '.join(missing)}")
+    if not isinstance(plan["changed_paths"], list):
+        raise ValidationInputError("validation plan changed_paths must be a list")
+    if not isinstance(plan["selected"], list) or not isinstance(plan["skipped"], list):
+        raise ValidationInputError("validation plan selection fields must be lists")
+    if not isinstance(plan["full_gate"], Mapping) or not isinstance(plan["fallback"], Mapping):
+        raise ValidationInputError("validation plan gate fields must be mappings")
+    if plan["plan_sha256"] != _plan_digest(plan):
+        raise ValidationInputError("validation plan digest mismatch")
+    if plan["full_gate"]["required"] is not True or plan["fallback"]["node_id"] != FULL_GATE_ID:
+        raise ValidationInputError("validation plan full-gate boundary is invalid")
+    python_executable = str(plan["python_executable"])
+    expected = build_plan(
+        list(plan["changed_paths"]),
+        repo_root,
+        python_executable=python_executable,
+    )
+    if identity.get("worktree_state") != "clean":
+        _force_full_gate_for_dirty_worktree(expected, identity)
+    if _plan_payload(expected) != _plan_payload(plan):
+        raise ValidationInputError("validation plan routing or command binding does not match source")
+
+
+def _is_sha256_text(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _step_validation_errors(index: int, step: Mapping[str, Any]) -> list[str]:
+    errors: list[str] = []
+    prefix = f"step[{index}]"
+    returncode = step.get("returncode")
+    if returncode is not None and (not isinstance(returncode, int) or isinstance(returncode, bool)):
+        errors.append(f"{prefix} returncode is invalid")
+    if not isinstance(step.get("timed_out"), bool):
+        errors.append(f"{prefix} timed_out must be boolean")
+    for field in ("stdout_sha256", "stderr_sha256"):
+        if not _is_sha256_text(step.get(field)):
+            errors.append(f"{prefix} {field} is invalid")
+    for field in ("stdout_tail", "stderr_tail"):
+        value = step.get(field)
+        if not isinstance(value, str) or len(value) > MAX_OUTPUT_CHARS:
+            errors.append(f"{prefix} {field} is not bounded")
+    for field in ("stdout_bytes", "stderr_bytes"):
+        value = step.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            errors.append(f"{prefix} {field} is invalid")
+    error = step.get("error")
+    if error is not None and (
+        not isinstance(error, Mapping)
+        or not isinstance(error.get("type"), str)
+        or not isinstance(error.get("detail"), str)
+    ):
+        errors.append(f"{prefix} error envelope is invalid")
+    rss = step.get("rss_measurement")
+    if not isinstance(rss, Mapping):
+        errors.append(f"{prefix} rss_measurement is not bound")
+    else:
+        if rss.get("scope") != "direct_child_pid":
+            errors.append(f"{prefix} rss_measurement scope is not direct_child_pid")
+        if not isinstance(rss.get("method"), str) or not isinstance(rss.get("status"), str):
+            errors.append(f"{prefix} rss_measurement metadata is invalid")
+        peak = rss.get("peak_rss_kib")
+        if peak is not None and (not isinstance(peak, int) or isinstance(peak, bool) or peak < 0):
+            errors.append(f"{prefix} rss_measurement peak is invalid")
+    legacy_peak = step.get("children_max_rss_kib")
+    if legacy_peak is not None and (
+        not isinstance(legacy_peak, int) or isinstance(legacy_peak, bool) or legacy_peak < 0
+    ):
+        errors.append(f"{prefix} children_max_rss_kib is invalid")
+    if not _is_sha256_text(step.get("environment_sha256")):
+        errors.append(f"{prefix} environment identity is not bound")
+    return errors
+
+
+def _normalize_execution(
+    plan: Mapping[str, Any],
+    execution: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str], dict[str, Any] | None, list[str]]:
+    if not isinstance(execution, Mapping):
+        raise ValidationInputError("execution must be a mapping")
+    status = execution.get("status")
+    allowed_statuses = {"completed", "plan_only", "not_run_resource_admission", "not_run_resource_decision"}
+    if status not in allowed_statuses:
+        raise ValidationInputError("execution status is not recognized")
+    raw_steps = execution.get("steps", [])
+    if not isinstance(raw_steps, list):
+        raise ValidationInputError("execution steps must be a list")
+    expected_nodes = {
+        node["node_id"]: node
+        for node in list(plan["selected"]) + [plan["full_gate"]["node"]]
+    }
+    normalized_steps: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for index, raw_step in enumerate(raw_steps):
+        if not isinstance(raw_step, Mapping):
+            errors.append(f"step[{index}] is not an object")
+            continue
+        node_id = raw_step.get("node_id")
+        if node_id not in expected_nodes:
+            errors.append(f"step[{index}] node is not in the plan")
+        elif node_id in seen:
+            errors.append(f"step[{index}] node is duplicated")
+        else:
+            seen.add(node_id)
+        step = dict(raw_step)
+        expected_command = expected_nodes.get(node_id, {}).get("command")
+        if "command" not in step:
+            errors.append(f"step[{index}] command is not bound")
+        elif step["command"] != expected_command:
+            errors.append(f"step[{index}] command does not match the plan")
+        if not isinstance(step.get("ok"), bool):
+            errors.append(f"step[{index}] ok must be boolean")
+        if (
+            not isinstance(step.get("elapsed_sec"), (int, float))
+            or isinstance(step.get("elapsed_sec"), bool)
+            or step.get("elapsed_sec", -1) < 0
+        ):
+            errors.append(f"step[{index}] elapsed_sec is invalid")
+        errors.extend(_step_validation_errors(index, step))
+        normalized_steps.append(step)
+
+    actual_ids = [step.get("node_id") for step in normalized_steps]
+    required_ids = [node["node_id"] for node in plan["selected"]]
+    if plan["fallback"]["required"]:
+        allowed_sequences = [required_ids + [FULL_GATE_ID]]
+    else:
+        allowed_sequences = [required_ids, required_ids + [FULL_GATE_ID]]
+    if status == "completed":
+        if actual_ids not in allowed_sequences:
+            errors.append("completed execution does not contain the exact planned node sequence")
+    elif actual_ids:
+        errors.append("non-completed execution must not contain validation steps")
+
+    normalized_resource, resource_errors = _normalize_resource_decision(execution.get("resource_decision"))
+    errors.extend(resource_errors)
+    if normalized_resource is None:
+        errors.append("execution resource decision is not bound")
+    else:
+        if execution.get("resource_admission") != normalized_resource["admission"]:
+            errors.append("execution resource admission does not match its decision")
+        supplied_resource_hash = execution.get("resource_decision_sha256")
+        expected_resource_hash = _digest_value(normalized_resource)
+        if supplied_resource_hash != expected_resource_hash:
+            errors.append("execution resource decision digest does not match its decision")
+    expected_ok = status == "completed" and bool(normalized_steps) and not errors and all(
+        step.get("ok") is True for step in normalized_steps
+    )
+    claimed_ok = execution.get("ok")
+    if not isinstance(claimed_ok, bool):
+        errors.append("execution ok must be boolean")
+    elif claimed_ok != expected_ok:
+        errors.append("execution ok does not match step aggregate")
+    normalized = dict(execution)
+    normalized["steps"] = normalized_steps
+    normalized["ok"] = expected_ok
+    normalized["claimed_ok"] = claimed_ok
+    normalized["validation_errors"] = errors
+    return normalized, errors, normalized_resource, resource_errors
 
 
 def make_receipt(
@@ -470,18 +1106,77 @@ def make_receipt(
     plan: dict[str, Any],
     execution: Mapping[str, Any],
 ) -> dict[str, Any]:
-    selected_steps = list(execution.get("steps", []))
-    full_step = next((step for step in selected_steps if step["node_id"] == FULL_GATE_ID), None)
-    if execution.get("status") == "plan_only":
+    validated_identity = _validate_identity(repo_root, identity)
+    _validate_plan(repo_root, plan, validated_identity)
+    normalized_execution, execution_errors, resource_decision, resource_errors = _normalize_execution(plan, execution)
+    expected_environment = _environment_identity(
+        repo_root,
+        _execution_environment(repo_root),
+        python_executable=str(plan["python_executable"]),
+    )
+    supplied_environment = normalized_execution.get("environment")
+    if supplied_environment is not None and supplied_environment != expected_environment:
+        execution_errors.append("execution environment identity does not match current environment")
+    normalized_execution["environment"] = expected_environment
+    for index, step in enumerate(normalized_execution.get("steps", [])):
+        if step.get("environment_sha256") != expected_environment["identity_sha256"]:
+            execution_errors.append(f"step[{index}] environment identity does not match current environment")
+    if normalized_execution.get("status") == "completed":
+        expected_by_id = {
+            node["node_id"]: node
+            for node in list(plan["selected"]) + [plan["full_gate"]["node"]]
+        }
+        expected_nodes = [expected_by_id[step["node_id"]] for step in normalized_execution["steps"] if step.get("node_id") in expected_by_id]
+        expected_graph = _command_graph_digest(expected_nodes)
+        supplied_graph = normalized_execution.get("command_graph_sha256")
+        if supplied_graph is not None and supplied_graph != expected_graph:
+            execution_errors.append("execution command graph does not match the plan")
+        normalized_execution["command_graph_sha256"] = expected_graph
+    normalized_execution["validation_errors"] = execution_errors
+    normalized_execution["ok"] = (
+        normalized_execution.get("status") == "completed"
+        and bool(normalized_execution.get("steps"))
+        and not execution_errors
+        and all(step.get("ok") is True for step in normalized_execution["steps"])
+    )
+
+    steps = list(normalized_execution.get("steps", []))
+    failed_steps = [step.get("node_id") for step in steps if step.get("ok") is not True]
+    full_step = next((step for step in steps if step.get("node_id") == FULL_GATE_ID), None)
+    selected_failures = [node_id for node_id in failed_steps if node_id != FULL_GATE_ID]
+    if full_step is None:
+        full_gate_status = "not_run"
+    else:
+        full_gate_status = "passed" if full_step.get("ok") is True else "failed"
+    if normalized_execution.get("status") == "plan_only":
         proof_status = "plan_only"
-    elif full_step is not None:
-        proof_status = "full_gate_passed" if full_step["ok"] else "full_gate_failed"
-    elif execution.get("status") == "not_run_resource_admission":
+    elif normalized_execution.get("status") == "not_run_resource_admission":
         proof_status = "not_run_resource_admission"
-    elif execution.get("ok"):
+    elif normalized_execution.get("status") == "not_run_resource_decision":
+        proof_status = "not_run_resource_decision"
+    elif execution_errors:
+        proof_status = "incomplete_execution"
+    elif failed_steps:
+        proof_status = "required_step_failed"
+    elif full_step is not None:
+        proof_status = "full_gate_passed"
+    elif steps:
         proof_status = "contextual_candidate_passed"
     else:
-        proof_status = "contextual_candidate_failed"
+        proof_status = "not_run"
+
+    resource_payload: dict[str, Any] = {
+        "decision": resource_decision,
+        "decision_sha256": None if resource_decision is None else _digest_value(resource_decision),
+        "validation": "passed" if resource_decision is not None and not resource_errors else "failed",
+        "validation_errors": resource_errors,
+        "mutation_scope": "isolated_source_checkout_only",
+    }
+    if resource_decision is not None and not resource_errors:
+        for field in RESOURCE_FIELDS:
+            resource_payload[field] = resource_decision[field]
+        if "source" in resource_decision:
+            resource_payload["source"] = resource_decision["source"]
 
     return {
         "schema": SCHEMA,
@@ -491,14 +1186,19 @@ def make_receipt(
             "kind": "contextual_changed_surface",
             "serial_execution": True,
             "selection_is_not_sufficiency": True,
+            "dirty_worktree_is_fail_closed": True,
+            "changed_tests_and_validators_require_full_gate": True,
         },
-        "candidate": dict(identity),
-        "environment": _environment_identity(repo_root),
+        "candidate": validated_identity,
+        "environment": expected_environment,
         "selection": {
+            "plan_sha256": plan["plan_sha256"],
+            "changed_paths": plan["changed_paths"],
             "selected": plan["selected"],
             "skipped": plan["skipped"],
             "fallback": plan["fallback"],
             "unmapped_paths": plan["unmapped_paths"],
+            "unmapped_reasons": plan["unmapped_reasons"],
         },
         "cache": {
             "pytest_cache": "disabled",
@@ -506,19 +1206,15 @@ def make_receipt(
             "receipt_reuse": "not_implemented",
             "reuse_decision": "not_used; exact sealed receipt reuse is outside this bounded slice",
         },
-        "resource": {
-            "admission": execution.get("resource_admission", "not_provided"),
-            "admission_source": "caller_owned_and_recorded",
-            "class": "light",
-            "kind": "agent",
-            "latency": "interactive",
-            "activity": "foreground",
-            "mutation_scope": "isolated_source_checkout_only",
-        },
-        "execution": dict(execution),
+        "resource": resource_payload,
+        "execution": normalized_execution,
         "proof": {
             "status": proof_status,
             "full_gate_required": True,
+            "full_gate_status": full_gate_status,
+            "failed_steps": failed_steps,
+            "selected_failures": selected_failures,
+            "execution_validation_errors": execution_errors,
             "owner_acceptance": False,
             "unvalidated_claims": [
                 "owner-wide coverage outside selected changed surfaces",
@@ -526,8 +1222,74 @@ def make_receipt(
                 "freshness/trust of any external or generated evidence",
             ],
         },
-        "ok": bool(execution.get("ok")),
+        "ok": bool(normalized_execution["ok"]),
     }
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _approved_receipt_path(repo_root: Path, receipt_path: Path) -> Path:
+    root_text = os.environ.get(RECEIPT_ROOT_ENV)
+    if not root_text:
+        raise ReceiptPathError(f"{RECEIPT_ROOT_ENV} must name the approved task-local root")
+    root = Path(root_text)
+    if not root.is_absolute():
+        raise ReceiptPathError("approved receipt root must be absolute")
+    try:
+        root = root.resolve(strict=True)
+        repo = repo_root.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ReceiptPathError(f"receipt root cannot be resolved: {_short_error(str(exc))}") from exc
+    if root == Path(root.anchor) or root == repo or _is_relative_to(root, repo) or _is_relative_to(repo, root):
+        raise ReceiptPathError("receipt root must be a narrow task-local root outside the source checkout")
+    if not stat.S_ISDIR(root.stat().st_mode):
+        raise ReceiptPathError("approved receipt root must be a directory")
+    target = receipt_path if receipt_path.is_absolute() else root / receipt_path
+    target = target.resolve(strict=False)
+    if _is_relative_to(target, repo):
+        raise ReceiptPathError("receipt path may not target the source checkout")
+    if not _is_relative_to(target, root):
+        raise ReceiptPathError("receipt path escapes the approved task-local root")
+    parent = target.parent
+    if not parent.is_dir():
+        raise ReceiptPathError("receipt parent must already exist")
+    if os.path.lexists(target):
+        raise ReceiptPathError("receipt path already exists; refusing overwrite")
+    return target
+
+
+def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> Path:
+    """Write a new task-local receipt atomically without replacing an existing file."""
+
+    target = _approved_receipt_path(repo_root, receipt_path)
+    fd, temporary_name = tempfile.mkstemp(prefix=".validation-receipt.", dir=target.parent, text=True)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, target)
+        except FileExistsError as exc:
+            raise ReceiptPathError("receipt path appeared during atomic create; refusing overwrite") from exc
+        temporary.unlink()
+        directory_fd = os.open(target.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except Exception:
+        if temporary.exists():
+            temporary.unlink()
+        raise
+    return target
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -538,75 +1300,132 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--include-worktree",
         action="store_true",
-        help="include staged/unstaged/untracked paths and require an explicit dirty candidate",
+        help="include staged, unstaged, untracked and ignored paths in the identity",
     )
     parser.add_argument(
         "--allow-dirty",
         action="store_true",
-        help="allow execution against a worktree explicitly included with --include-worktree",
+        help="compatibility flag; dirty worktrees still fail closed to the full gate",
     )
     parser.add_argument(
         "--resource-admission",
         choices=("allow", "deny", "not-provided"),
         default="not-provided",
-        help="caller-owned resource admission; only allow executes nodes",
+        help="compatibility admission value; allow still requires --resource-decision",
+    )
+    parser.add_argument(
+        "--resource-decision",
+        help="complete caller-owned resource decision as a JSON object",
     )
     parser.add_argument("--run-full", action="store_true", help="append the unchanged source-fast gate")
     parser.add_argument("--plan-only", action="store_true", help="emit selection without executing commands")
     parser.add_argument("--timeout-sec", type=float, default=300.0)
-    parser.add_argument("--receipt", type=Path, help="optional task-local JSON receipt path")
+    parser.add_argument("--receipt", type=Path, help="task-local JSON receipt path under the approved root")
     return parser
+
+
+def _resource_decision_argument(args: argparse.Namespace) -> Any:
+    if args.resource_decision is None:
+        return {"admission": args.resource_admission}
+    try:
+        value = json.loads(args.resource_decision)
+    except json.JSONDecodeError as exc:
+        return {"admission": args.resource_admission, "_parse_error": _short_error(str(exc))}
+    if args.resource_admission != "not-provided" and isinstance(value, Mapping):
+        if value.get("admission") != args.resource_admission:
+            return {"admission": args.resource_admission, "_error": "CLI admission disagrees with JSON decision"}
+    return value
+
+
+def _plan_only_execution(repo_root: Path, plan: Mapping[str, Any], resource_input: Any) -> dict[str, Any]:
+    normalized, errors = _normalize_resource_decision(resource_input)
+    return {
+        "status": "plan_only",
+        "resource_admission": None if normalized is None else normalized.get("admission"),
+        "resource_decision": normalized,
+        "resource_decision_sha256": None if normalized is None else _digest_value(normalized),
+        "resource_decision_input": resource_input,
+        "resource_decision_errors": errors,
+        "environment": _environment_identity(
+            repo_root,
+            _execution_environment(repo_root),
+            python_executable=str(plan["python_executable"]),
+        ),
+        "steps": [],
+        "ok": False,
+        "reason": "plan_only_does_not_execute_validation",
+    }
+
+
+def _force_full_gate_for_dirty_worktree(plan: dict[str, Any], identity: Mapping[str, Any]) -> None:
+    if identity.get("worktree_state") == "clean":
+        return
+    plan["selected"] = []
+    plan["skipped"].append(
+        {
+            "surface": "worktree",
+            "reason": "dirty_index_staged_unstaged_untracked_or_ignored_inputs_require_full_gate",
+            "action": "expand_to_full_gate",
+            "identity_fields": [
+                "index_sha256",
+                "staged_content_sha256",
+                "unstaged_content_sha256",
+                "untracked_content_sha256",
+                "ignored_content_sha256",
+            ],
+        }
+    )
+    plan["fallback"] = {
+        "required": True,
+        "reason": "dirty_worktree_requires_unchanged_full_gate",
+        "command": plan["full_gate"]["node"]["command"],
+        "node_id": FULL_GATE_ID,
+    }
+    plan["plan_sha256"] = _plan_digest(plan)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     repo_root = args.repo.resolve()
-    identity = candidate_identity(repo_root, args.base, args.candidate)
-    dirty = identity["worktree_state"] == "dirty"
-    include_worktree = bool(args.include_worktree)
-    paths = changed_paths(
-        repo_root,
-        args.base,
-        args.candidate,
-        include_worktree=include_worktree,
-    )
-    plan = build_plan(paths, repo_root)
-    if dirty and not (include_worktree and args.allow_dirty):
-        plan["selected"] = []
-        plan["skipped"].append(
-            {
-                "surface": "worktree",
-                "reason": "dirty_worktree_requires_explicit_candidate_binding",
-                "action": "expand_to_full_gate_or_clean_worktree",
-            }
-        )
-        plan["fallback"] = {
-            "required": True,
-            "reason": "dirty_worktree_not_explicitly_allowed",
-            "command": plan["full_gate"]["node"]["command"],
-            "node_id": FULL_GATE_ID,
-        }
-
-    if args.plan_only:
-        execution: dict[str, Any] = {
-            "status": "plan_only",
-            "resource_admission": args.resource_admission,
-            "steps": [],
-            "ok": True,
-            "reason": None,
-        }
-    else:
-        execution = execute_plan(
+    try:
+        identity = candidate_identity(repo_root, args.base, args.candidate)
+        paths = changed_paths(
             repo_root,
-            plan,
-            resource_admission=args.resource_admission,
-            run_full=args.run_full,
-            timeout_sec=args.timeout_sec,
+            args.base,
+            args.candidate,
+            include_worktree=bool(args.include_worktree),
         )
-    receipt = make_receipt(repo_root, identity, plan, execution)
-    rendered = json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+        plan = build_plan(paths, repo_root)
+        _force_full_gate_for_dirty_worktree(plan, identity)
+        resource_input = _resource_decision_argument(args)
+        if args.plan_only:
+            execution = _plan_only_execution(repo_root, plan, resource_input)
+        else:
+            normalized, errors = _normalize_resource_decision(resource_input)
+            if errors:
+                execution = execute_plan(
+                    repo_root,
+                    plan,
+                    resource_decision=resource_input if isinstance(resource_input, Mapping) else None,
+                )
+            else:
+                execution = execute_plan(repo_root, plan, resource_decision=normalized)
+        receipt = make_receipt(repo_root, identity, plan, execution)
+    except (RuntimeError, ValidationInputError) as exc:
+        print(json.dumps({"schema": SCHEMA, "ok": False, "error": str(exc)}, sort_keys=True))
+        return 1
+
     if args.receipt:
-        args.receipt.write_text(rendered, encoding="utf-8")
+        try:
+            write_receipt_atomic(repo_root, args.receipt, json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        except ReceiptPathError as exc:
+            receipt["ok"] = False
+            receipt["proof"]["status"] = "receipt_delivery_failed"
+            receipt["proof"]["execution_validation_errors"].append(str(exc))
+            receipt["execution"]["ok"] = False
+            receipt["execution"]["validation_errors"].append(str(exc))
+
+    rendered = json.dumps(receipt, indent=2, sort_keys=True) + "\n"
     print(rendered, end="")
     return 0 if receipt["ok"] else 1
 
