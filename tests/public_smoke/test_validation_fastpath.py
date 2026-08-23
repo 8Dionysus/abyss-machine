@@ -8,6 +8,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -67,6 +68,8 @@ def _step(node: dict[str, object], *, ok: bool) -> dict[str, object]:
             "execution_timeout_sec": 1.0,
             "cleanup_safety_window_sec": fastpath.PROCESS_CLEANUP_WINDOW_SEC,
             "performance_target_sec": fastpath.FAST_NODE_BUDGET_SEC,
+            "measurement_scope": "node_wall_including_launch_identity_and_cleanup",
+            "excluded_intervals_sec": 0.0,
             "classification": "fast",
             "target_met": True,
         },
@@ -454,12 +457,14 @@ def test_receipt_rejects_missing_timeout_and_cleanup_envelope(tmp_path: Path) ->
     step = _step(plan["selected"][0], ok=True)
     execution = _execution(repo_root, plan, [step], ok=True)
     execution.pop("timeout_sec")
+    execution.pop("environment")
     step.pop("cleanup")
     receipt = make_receipt(repo_root, identity, plan, execution)
 
     assert receipt["ok"] is False
     assert receipt["proof"]["status"] == "incomplete_execution"
     assert any("timeout_sec is required" in error for error in receipt["proof"]["execution_validation_errors"])
+    assert any("environment envelope is required" in error for error in receipt["proof"]["execution_validation_errors"])
     assert any("cleanup envelope is required" in error for error in receipt["proof"]["execution_validation_errors"])
 
 
@@ -613,6 +618,71 @@ def test_runner_result_is_single_use_and_replay_is_rejected(tmp_path: Path) -> N
     assert any("not minted by _run_node" in error for error in replay["proof"]["execution_validation_errors"])
 
 
+def test_runner_origin_uses_atomic_snapshot_against_concurrent_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
+    original_elapsed = execution["steps"][0]["elapsed_sec"]
+    original_validate = fastpath._runner_origin_errors
+
+    def validate_then_mutate(index: int, step: dict[str, object]) -> list[str]:
+        errors = original_validate(index, step)
+
+        def mutate() -> None:
+            step["elapsed_sec"] = 0.000001
+            timing = dict(step["timing"])
+            timing["classification"] = "fast"
+            timing["target_met"] = True
+            step["timing"] = timing
+
+        mutation = threading.Thread(target=mutate)
+        mutation.start()
+        mutation.join()
+        return errors
+
+    monkeypatch.setattr(fastpath, "_runner_origin_errors", validate_then_mutate)
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is True
+    assert receipt["execution"]["steps"][0]["elapsed_sec"] == original_elapsed
+
+
+def test_low_level_runner_rejects_environment_label_forgery(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, _identity = _candidate_plan(repo_root)
+    python_executable = str(plan["python_executable"])
+    effective_env = fastpath._execution_environment(repo_root)
+    forged_env = dict(effective_env)
+    forged_env["FASTPATH_FORGED_ENVIRONMENT"] = "1"
+    claimed_identity = fastpath._environment_identity(
+        repo_root,
+        effective_env,
+        python_executable=python_executable,
+    )
+
+    result = fastpath._run_node(
+        repo_root,
+        plan["selected"][0],
+        timeout_sec=2.0,
+        env=forged_env,
+        environment_identity=claimed_identity,
+        python_executable=python_executable,
+    )
+    actual_identity = fastpath._environment_identity(
+        repo_root,
+        forged_env,
+        python_executable=python_executable,
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["type"] == "environment_identity"
+    assert result["environment_sha256"] == actual_identity["identity_sha256"]
+    assert result["environment_sha256"] != claimed_identity["identity_sha256"]
+
+
 def test_full_gate_status_cannot_be_green_when_execution_identity_fails(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     plan, identity = _candidate_plan(repo_root)
@@ -757,6 +827,34 @@ def test_receipt_target_fd_survives_post_publication_replacement(tmp_path: Path,
     assert (nested / "result.json").is_symlink()
 
 
+def test_receipt_target_replacement_before_open_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    receipt_root.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_open = fastpath._open_receipt_target
+
+    def replace_target_before_open(name: str, *, dir_fd: int) -> int:
+        os.unlink(name, dir_fd=dir_fd)
+        attacker_fd = os.open(
+            name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+            0o600,
+            dir_fd=dir_fd,
+        )
+        try:
+            os.write(attacker_fd, b"ATTACKER\n")
+        finally:
+            os.close(attacker_fd)
+        return original_open(name, dir_fd=dir_fd)
+
+    monkeypatch.setattr(fastpath, "_open_receipt_target", replace_target_before_open)
+
+    with pytest.raises(fastpath.ReceiptPathError, match="inode|payload"):
+        fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n")
+
+    assert (receipt_root / "result.json").read_bytes() == b"ATTACKER\n"
+
+
 def test_receipt_temp_unlink_failure_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     receipt_root = tmp_path / "receipts"
     receipt_root.mkdir()
@@ -801,7 +899,57 @@ def test_receipt_directory_fd_close_failure_is_reported(tmp_path: Path, monkeypa
     with pytest.raises(fastpath.ReceiptPathError, match="fd close failed"):
         placement.close()
 
-    assert (receipt_root / "result.json").exists()
+    published = json.loads((receipt_root / "result.json").read_text(encoding="utf-8"))
+    assert published["ok"] is False
+    assert published["receipt_finalization"]["status"] == "invalid"
+    assert published["proof"]["status"] == "receipt_finalization_failed"
+
+
+def test_cli_close_failure_cannot_leave_a_green_published_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    _commit_source_change(repo_root, "VALUE = 2\n")
+    receipt_root = tmp_path / "receipts"
+    receipt_root.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_open = fastpath._open_receipt_directory
+    original_close = fastpath.os.close
+    directory_fds: set[int] = set()
+
+    def capture_directory_fd(name: str, *, dir_fd: int | None = None) -> int:
+        file_descriptor = original_open(name, dir_fd=dir_fd)
+        directory_fds.add(file_descriptor)
+        return file_descriptor
+
+    def fail_directory_close(file_descriptor: int) -> None:
+        if file_descriptor in directory_fds:
+            raise OSError("synthetic CLI directory close failure")
+        original_close(file_descriptor)
+
+    monkeypatch.setattr(fastpath, "_open_receipt_directory", capture_directory_fd)
+    monkeypatch.setattr(fastpath.os, "close", fail_directory_close)
+    return_code = fastpath.main(
+        [
+            "--repo",
+            str(repo_root),
+            "--base",
+            "HEAD^",
+            "--candidate",
+            "HEAD",
+            "--resource-decision",
+            json.dumps(VALID_RESOURCE, sort_keys=True),
+            "--receipt",
+            "result.json",
+        ]
+    )
+
+    published = json.loads((receipt_root / "result.json").read_text(encoding="utf-8"))
+    assert return_code == 1
+    assert published["ok"] is False
+    assert published["receipt_finalization"]["status"] == "invalid"
+    assert published["proof"]["status"] == "receipt_finalization_failed"
 
 
 def test_run_node_bounds_output_and_measures_one_child() -> None:
@@ -836,6 +984,67 @@ def test_run_node_converts_launch_decode_and_timeout_failures_to_receipts(
     assert result["ok"] is False
     assert result["error"]["type"] == error_type
     assert len(result["stdout_tail"]) <= fastpath.MAX_OUTPUT_CHARS
+
+
+def test_node_elapsed_includes_launch_overhead(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_popen = fastpath.subprocess.Popen
+
+    def delayed_popen(*args, **kwargs):
+        time.sleep(fastpath.FAST_NODE_BUDGET_SEC + 0.05)
+        return original_popen(*args, **kwargs)
+
+    monkeypatch.setattr(fastpath.subprocess, "Popen", delayed_popen)
+    result = fastpath._run_node(
+        REPO_ROOT,
+        {"node_id": "launch-overhead", "command": [sys.executable, "-c", "pass"]},
+        timeout_sec=3.0,
+    )
+
+    assert result["ok"] is True
+    assert result["elapsed_sec"] > fastpath.FAST_NODE_BUDGET_SEC
+    assert result["timing"]["measurement_scope"] == "node_wall_including_launch_identity_and_cleanup"
+    assert result["timing"]["excluded_intervals_sec"] == 0.0
+    assert result["timing"]["classification"] == "contextual"
+    assert result["timing"]["target_met"] is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="detached descendant cleanup is POSIX-specific")
+def test_normal_success_quiet_detached_descendant_is_not_green(tmp_path: Path) -> None:
+    marker = tmp_path / "quiet-detached.pid"
+    child_code = (
+        "import os,time; os.setsid(); "
+        f"open({str(marker)!r}, 'w').write(str(os.getpid())); "
+        "time.sleep(5)"
+    )
+    parent_code = (
+        "import os,subprocess,sys; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "os._exit(0)"
+    )
+    result = fastpath._run_node(
+        REPO_ROOT,
+        {"node_id": "quiet-detached-normal-success", "command": [sys.executable, "-c", parent_code]},
+        timeout_sec=2.0,
+    )
+
+    detached_pid = int(marker.read_text(encoding="utf-8")) if marker.exists() else None
+    detached_alive = False
+    if detached_pid is not None:
+        try:
+            os.kill(detached_pid, 0)
+            detached_alive = True
+        except OSError:
+            pass
+        if detached_alive:
+            os.kill(detached_pid, signal.SIGKILL)
+
+    assert result["ok"] is False
+    assert result["timed_out"] is False
+    assert result["error"]["type"] == "cleanup_error"
+    assert any("retained descendants" in error for error in result["cleanup_errors"])
+    assert result["cleanup"]["descendant_processes_alive"] == []
+    assert detached_alive is False
 
 
 def test_timeout_terminates_descendants_and_drains_readers_within_bound() -> None:

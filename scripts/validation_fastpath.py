@@ -83,7 +83,11 @@ class ReceiptPlacement:
         "root_identity",
         "parent_identity",
         "target_identity",
+        "payload_sha256",
+        "payload_bytes",
         "_open_fds",
+        "_invalidation_parent_fd",
+        "_invalidation_target_fd",
     )
 
     def __init__(
@@ -96,6 +100,8 @@ class ReceiptPlacement:
         root_identity: os.stat_result,
         parent_identity: os.stat_result,
         target_identity: os.stat_result,
+        payload_sha256: str,
+        payload_bytes: int,
     ) -> None:
         self.path = path
         self.root_fd = root_fd
@@ -104,7 +110,25 @@ class ReceiptPlacement:
         self.root_identity = self._identity(root_identity)
         self.parent_identity = self._identity(parent_identity)
         self.target_identity = self._identity(target_identity)
+        self.payload_sha256 = payload_sha256
+        self.payload_bytes = payload_bytes
         self._open_fds = {root_fd, parent_fd, target_fd}
+        invalidation_parent_fd: int | None = None
+        invalidation_target_fd: int | None = None
+        try:
+            invalidation_parent_fd = os.dup(parent_fd)
+            invalidation_target_fd = os.dup(target_fd)
+        except OSError:
+            for file_descriptor in (invalidation_parent_fd, invalidation_target_fd):
+                if file_descriptor is None:
+                    continue
+                try:
+                    os.close(file_descriptor)
+                except OSError:
+                    pass
+            raise
+        self._invalidation_parent_fd = invalidation_parent_fd
+        self._invalidation_target_fd = invalidation_target_fd
 
     @staticmethod
     def _identity(info: os.stat_result) -> dict[str, int]:
@@ -128,6 +152,8 @@ class ReceiptPlacement:
             "root_identity": dict(self.root_identity),
             "parent_identity": dict(self.parent_identity),
             "target_identity": dict(self.target_identity),
+            "payload_sha256": self.payload_sha256,
+            "payload_bytes": self.payload_bytes,
         }
 
     def __fspath__(self) -> str:
@@ -151,7 +177,11 @@ class ReceiptPlacement:
 
     def close(self) -> None:
         errors: list[str] = []
-        for file_descriptor in (self.target_fd, self.parent_fd, self.root_fd):
+        # Keep the target and duplicate invalidation handles available until
+        # every ordinary close has been attempted.  If finalization fails, a
+        # green receipt must be converted into an explicit invalid artifact
+        # before this placement can report failure.
+        for file_descriptor in (self.parent_fd, self.root_fd):
             if file_descriptor not in self._open_fds:
                 continue
             try:
@@ -161,7 +191,84 @@ class ReceiptPlacement:
             else:
                 self._open_fds.discard(file_descriptor)
         if errors:
+            try:
+                self._invalidate("; ".join(errors))
+            except (OSError, ReceiptPathError) as exc:
+                errors.append(f"receipt invalidation failed: {_short_error(str(exc))}")
+        if self.target_fd in self._open_fds:
+            try:
+                os.close(self.target_fd)
+            except OSError as exc:
+                errors.append(f"receipt placement fd close failed: {_short_error(str(exc))}")
+                try:
+                    self._invalidate("; ".join(errors))
+                except (OSError, ReceiptPathError) as invalidate_exc:
+                    errors.append(f"receipt invalidation failed: {_short_error(str(invalidate_exc))}")
+            else:
+                self._open_fds.discard(self.target_fd)
+        for file_descriptor in (self._invalidation_parent_fd, self._invalidation_target_fd):
+            if file_descriptor is None:
+                continue
+            try:
+                os.close(file_descriptor)
+            except OSError as exc:
+                errors.append(f"receipt invalidation fd close failed: {_short_error(str(exc))}")
+            else:
+                if file_descriptor == self._invalidation_parent_fd:
+                    self._invalidation_parent_fd = None
+                if file_descriptor == self._invalidation_target_fd:
+                    self._invalidation_target_fd = None
+        if errors:
             raise ReceiptPathError("; ".join(errors))
+
+    def _invalidate(self, reason: str) -> None:
+        """Replace a published green receipt with a fail-closed marker."""
+
+        invalid_payload = (
+            json.dumps(
+                {
+                    "schema": SCHEMA,
+                    "version": VERSION,
+                    "ok": False,
+                    "receipt_finalization": {
+                        "status": "invalid",
+                        "reason": _short_error(reason),
+                    },
+                    "proof": {
+                        "status": "receipt_finalization_failed",
+                        "owner_acceptance": False,
+                        "execution_validation_errors": [_short_error(reason)],
+                    },
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        invalidation_parent_fd = self._invalidation_parent_fd
+        invalidation_target_fd = self._invalidation_target_fd
+        if invalidation_parent_fd is None or invalidation_target_fd is None:
+            raise ReceiptPathError("receipt invalidation handles are unavailable")
+        try:
+            current = os.stat(self.path.name, dir_fd=invalidation_parent_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise ReceiptPathError(f"published receipt cannot be inspected for invalidation: {_short_error(str(exc))}") from exc
+        target_stat = os.fstat(invalidation_target_fd)
+        if not _same_file(target_stat, current):
+            marker_name = f"{self.path.name}.invalid"
+            marker_fd = os.open(
+                marker_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=invalidation_parent_fd,
+            )
+            try:
+                _write_fd_bytes(marker_fd, invalid_payload)
+                os.fsync(invalidation_parent_fd)
+            finally:
+                os.close(marker_fd)
+            return
+        _write_fd_bytes(invalidation_target_fd, invalid_payload, truncate=True)
+        os.fsync(invalidation_parent_fd)
 
     def __enter__(self) -> "ReceiptPlacement":
         return self
@@ -181,32 +288,56 @@ class _RunnerStep(dict[str, Any]):
 
 
 _RUNNER_ORIGINS: dict[int, tuple[weakref.ReferenceType, str]] = {}
+_RUNNER_SNAPSHOTS: dict[int, tuple[weakref.ReferenceType, dict[str, Any]]] = {}
+_RUNNER_ORIGIN_LOCK = threading.RLock()
 
 
 def _register_runner_origin(step: _RunnerStep) -> _RunnerStep:
     key = id(step)
 
     def forget(reference: weakref.ReferenceType, *, key: int = key) -> None:
-        current = _RUNNER_ORIGINS.get(key)
-        if current is not None and current[0] is reference:
-            _RUNNER_ORIGINS.pop(key, None)
+        with _RUNNER_ORIGIN_LOCK:
+            current = _RUNNER_ORIGINS.get(key)
+            if current is not None and current[0] is reference:
+                _RUNNER_ORIGINS.pop(key, None)
 
-    _RUNNER_ORIGINS[key] = (weakref.ref(step, forget), _digest_value(step))
+    digest = _digest_value(step)
+    with _RUNNER_ORIGIN_LOCK:
+        _RUNNER_ORIGINS[key] = (weakref.ref(step, forget), digest)
     return step
 
 
 def _runner_origin_errors(index: int, step: Mapping[str, Any]) -> list[str]:
     prefix = f"step[{index}]"
-    current = _RUNNER_ORIGINS.pop(id(step), None)
-    if current is None or current[0]() is not step:
-        return [f"{prefix} execution was not minted by _run_node"]
-    try:
-        actual_digest = _digest_value(step)
-    except (TypeError, ValueError, OverflowError) as exc:
-        return [f"{prefix} runner-origin result is not JSON-safe: {_short_error(str(exc))}"]
-    if actual_digest != current[1]:
-        return [f"{prefix} runner-origin result was modified or replayed"]
+    key = id(step)
+    with _RUNNER_ORIGIN_LOCK:
+        current = _RUNNER_ORIGINS.get(key)
+        if current is None or current[0]() is not step:
+            return [f"{prefix} execution was not minted by _run_node"]
+        try:
+            # Deep-copy the JSON-compatible runner result while the origin
+            # token is still held.  Normalization must consume this snapshot,
+            # never re-read a mutable Mapping after authority validation.
+            snapshot = json.loads(_canonical_json(dict(step)))
+            actual_digest = _digest_value(snapshot)
+        except (TypeError, ValueError, OverflowError) as exc:
+            _RUNNER_ORIGINS.pop(key, None)
+            _RUNNER_SNAPSHOTS.pop(key, None)
+            return [f"{prefix} runner-origin result is not JSON-safe: {_short_error(str(exc))}"]
+        _RUNNER_ORIGINS.pop(key, None)
+        if actual_digest != current[1]:
+            _RUNNER_SNAPSHOTS.pop(key, None)
+            return [f"{prefix} runner-origin result was modified or replayed"]
+        _RUNNER_SNAPSHOTS[key] = (current[0], snapshot)
     return []
+
+
+def _take_runner_snapshot(step: Mapping[str, Any]) -> dict[str, Any] | None:
+    with _RUNNER_ORIGIN_LOCK:
+        current = _RUNNER_SNAPSHOTS.pop(id(step), None)
+        if current is None or current[0]() is not step:
+            return None
+        return current[1]
 
 
 def _validate_timeout_sec(value: Any) -> float:
@@ -757,10 +888,14 @@ def _environment_identity(
     *,
     python_executable: str = sys.executable,
 ) -> dict[str, Any]:
-    effective = {
-        str(key): str(value)
-        for key, value in dict(_execution_environment(repo_root) if env is None else env).items()
-    }
+    supplied = _execution_environment(repo_root) if env is None else env
+    if not isinstance(supplied, Mapping) or any(
+        not isinstance(key, str) or not isinstance(value, str) for key, value in supplied.items()
+    ):
+        raise ValidationInputError("execution environment must contain only string keys and values")
+    # Keep the exact mapping passed to Popen.  Coercing values here would let a
+    # caller label one environment while executing another.
+    effective = dict(supplied)
     projection = {key: effective.get(key, "") for key in ENVIRONMENT_KEYS}
     effective_environment_sha256 = _digest_value(effective)
     effective_projection_sha256 = _digest_value(projection)
@@ -985,7 +1120,7 @@ def _terminate_descendants(
     timeout_sec: float,
     runner_pid: int | None = None,
     protected_runner_children: set[int] | None = None,
-) -> tuple[list[str], list[int]]:
+) -> tuple[list[str], list[int], bool]:
     """Terminate node descendants, including late setsid() children adopted by us.
 
     A node can fork after the last snapshot taken below its PID and detach its
@@ -996,12 +1131,12 @@ def _terminate_descendants(
     """
 
     if os.name != "posix":
-        return [], []
+        return [], [], False
     deadline = time.perf_counter() + timeout_sec
     errors: list[str] = []
     tracked = dict(tracked)
     protected_runner_children = set() if protected_runner_children is None else set(protected_runner_children)
-    empty_snapshots = 0
+    descendants_observed = False
     while time.perf_counter() < deadline:
         snapshot = _process_snapshot()
         if runner_pid is not None:
@@ -1020,16 +1155,15 @@ def _terminate_descendants(
         descendants = _descendant_processes_from_roots(set(active), snapshot)
         candidates = {**active, **descendants}
         if not candidates:
-            empty_snapshots += 1
-            # A child created while the direct process is being terminated is
-            # reparented asynchronously.  Require two empty observations so
-            # that the final teardown window cannot become a false clean
-            # result merely because the first snapshot raced adoption.
-            if runner_pid is None or empty_snapshots >= 2:
-                return errors, []
+            # A quiet child can be adopted after the direct process exits.
+            # Spend the complete bounded cleanup window observing the runner
+            # process tree instead of treating one empty snapshot as proof of
+            # a clean normal-success exit.
+            if runner_pid is None:
+                return errors, [], descendants_observed
             time.sleep(0.005)
             continue
-        empty_snapshots = 0
+        descendants_observed = True
         for descendant_pid, start_ticks in candidates.items():
             current = _process_snapshot().get(descendant_pid)
             if current is None or current[1] != start_ticks:
@@ -1102,7 +1236,7 @@ def _terminate_descendants(
     }
     remaining = _descendant_processes_from_roots(set(active), snapshot)
     remaining.update(active)
-    return errors, sorted(remaining)
+    return errors, sorted(remaining), descendants_observed
 
 
 def _wait_for_process_group_exit(pid: int, timeout_sec: float) -> bool:
@@ -1154,12 +1288,29 @@ def _short_error(value: str) -> str:
     return value.replace("\x00", "")[:400]
 
 
+def _write_fd_bytes(file_descriptor: int, payload: bytes, *, truncate: bool = False) -> None:
+    if truncate:
+        os.ftruncate(file_descriptor, 0)
+        os.lseek(file_descriptor, 0, os.SEEK_SET)
+    offset = 0
+    while offset < len(payload):
+        written = os.write(file_descriptor, payload[offset:])
+        if written <= 0:
+            raise OSError("receipt write made no progress")
+        offset += written
+    if truncate:
+        os.ftruncate(file_descriptor, len(payload))
+    os.fsync(file_descriptor)
+
+
 def _timing_metadata(elapsed_sec: float, timeout_sec: float) -> dict[str, Any]:
     target_met = elapsed_sec <= FAST_NODE_BUDGET_SEC
     return {
         "execution_timeout_sec": timeout_sec,
         "cleanup_safety_window_sec": PROCESS_CLEANUP_WINDOW_SEC,
         "performance_target_sec": FAST_NODE_BUDGET_SEC,
+        "measurement_scope": "node_wall_including_launch_identity_and_cleanup",
+        "excluded_intervals_sec": 0.0,
         "classification": "fast" if target_met else "contextual",
         "target_met": target_met,
     }
@@ -1172,12 +1323,40 @@ def _run_node(
     *,
     env: Mapping[str, str] | None = None,
     environment_identity: Mapping[str, Any] | None = None,
+    python_executable: str | None = None,
 ) -> dict[str, Any]:
+    node_started = time.perf_counter()
     timeout_sec = _validate_timeout_sec(timeout_sec)
     command = list(node.get("command", ()))
+    effective_env = _execution_environment(repo_root) if env is None else dict(env)
+    if any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in effective_env.items()
+    ):
+        raise ValidationInputError("execution environment must contain only string keys and values")
+    bound_python_executable = _validate_owner_python_executable(
+        _owner_python_executable() if python_executable is None else python_executable
+    )
+    actual_environment_identity = _environment_identity(
+        repo_root,
+        effective_env,
+        python_executable=bound_python_executable,
+    )
+    environment_identity_errors: list[str] = []
+    if environment_identity is not None:
+        try:
+            supplied_environment_identity = dict(environment_identity)
+        except (TypeError, ValueError) as exc:
+            environment_identity_errors.append(
+                f"caller-supplied environment identity is not a mapping: {_short_error(str(exc))}"
+            )
+        else:
+            if supplied_environment_identity != actual_environment_identity:
+                environment_identity_errors.append(
+                    "caller-supplied environment identity does not match the effective Popen environment"
+                )
     stdout_capture = _OutputCapture()
     stderr_capture = _OutputCapture()
-    launch_started = time.perf_counter()
     popen_options: dict[str, Any] = {}
     if os.name == "posix":
         popen_options["start_new_session"] = True
@@ -1199,13 +1378,13 @@ def _run_node(
         process = subprocess.Popen(
             command,
             cwd=repo_root,
-            env=dict(_execution_environment(repo_root) if env is None else env),
+            env=effective_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             **popen_options,
         )
     except (IndexError, OSError, TypeError, ValueError) as exc:
-        elapsed = time.perf_counter() - launch_started
+        elapsed = time.perf_counter() - node_started
         cleanup_errors = [] if subreaper_error is None else [f"descendant cleanup control unavailable: {subreaper_error}"]
         if previous_subreaper is False:
             restore_error = _set_child_subreaper(False)
@@ -1217,7 +1396,7 @@ def _run_node(
             "ok": False,
             "returncode": None,
             "timed_out": False,
-            "elapsed_sec": round(elapsed, 6),
+            "elapsed_sec": elapsed,
             "timing": _timing_metadata(elapsed, timeout_sec),
             "children_max_rss_kib": None,
             "rss_measurement": {
@@ -1232,8 +1411,13 @@ def _run_node(
             "stderr_tail": "",
             "stdout_bytes": 0,
             "stderr_bytes": 0,
-            "error": {"type": "spawn_error", "detail": _short_error(str(exc))},
-            "environment_sha256": None if environment_identity is None else environment_identity.get("identity_sha256"),
+            "error": {
+                "type": "environment_identity" if environment_identity_errors else "spawn_error",
+                "detail": _short_error(
+                    "; ".join(environment_identity_errors) if environment_identity_errors else str(exc)
+                ),
+            },
+            "environment_sha256": actual_environment_identity["identity_sha256"],
             "cleanup": {
                 "process_group": "not_started",
                 "process_group_termination_attempted": False,
@@ -1250,8 +1434,8 @@ def _run_node(
     assert process.stdout is not None
     assert process.stderr is not None
     tracked_descendants = _descendant_processes(process.pid)
-    # Exclude process-tree discovery from the node timeout.  The bound applies
-    # to execution and cleanup, not to the local identity snapshot itself.
+    # The execution timeout starts after launch and the initial identity
+    # snapshot, while elapsed_sec remains the end-to-end node wall time.
     started = time.perf_counter()
     readers = [
         threading.Thread(target=_drain_pipe, args=(process.stdout, stdout_capture), daemon=True),
@@ -1312,16 +1496,15 @@ def _run_node(
         group_termination_attempted = True
         cleanup_errors.append("validation process tree retained descendants after direct exit")
 
-    if timed_out or group_termination_attempted:
-        descendant_cleanup_errors, descendant_processes_alive = _terminate_descendants(
-            tracked=tracked_descendants,
-            timeout_sec=PROCESS_CLEANUP_WINDOW_SEC,
-            runner_pid=runner_pid,
-            protected_runner_children=protected_runner_children,
-        )
-    else:
-        descendant_cleanup_errors, descendant_processes_alive = [], []
+    descendant_cleanup_errors, descendant_processes_alive, descendants_observed = _terminate_descendants(
+        tracked=tracked_descendants,
+        timeout_sec=PROCESS_CLEANUP_WINDOW_SEC,
+        runner_pid=runner_pid,
+        protected_runner_children=protected_runner_children,
+    )
     cleanup_errors.extend(descendant_cleanup_errors)
+    if descendants_observed and not timed_out:
+        cleanup_errors.append("validation process tree retained descendants after direct exit")
     if subreaper_error:
         cleanup_errors.append(f"descendant cleanup control unavailable: {subreaper_error}")
     if descendant_processes_alive:
@@ -1357,7 +1540,7 @@ def _run_node(
         restore_error = _set_child_subreaper(False)
         if restore_error:
             cleanup_errors.append(f"child subreaper restore failed: {restore_error}")
-    elapsed = time.perf_counter() - started
+    elapsed = time.perf_counter() - node_started
     stdout = stdout_capture.result()
     stderr = stderr_capture.result()
     errors: list[tuple[str, str]] = []
@@ -1371,6 +1554,8 @@ def _run_node(
         errors.append(("transport_error", f"stdout: {stdout['transport_error']}"))
     if stderr["transport_error"]:
         errors.append(("transport_error", f"stderr: {stderr['transport_error']}"))
+    for environment_identity_error in environment_identity_errors:
+        errors.append(("environment_identity", environment_identity_error))
     if cleanup_errors:
         errors.append(("cleanup_error", "; ".join(cleanup_errors)))
     error = None if not errors else {"type": errors[0][0], "detail": _short_error(errors[0][1])}
@@ -1380,7 +1565,7 @@ def _run_node(
         "ok": returncode == 0 and not timed_out and not errors,
         "returncode": 124 if timed_out else returncode,
         "timed_out": timed_out,
-        "elapsed_sec": round(elapsed, 6),
+        "elapsed_sec": elapsed,
         "timing": _timing_metadata(elapsed, timeout_sec),
         "children_max_rss_kib": peak_rss,
         "rss_measurement": {
@@ -1396,7 +1581,7 @@ def _run_node(
         "stdout_bytes": stdout["bytes"],
         "stderr_bytes": stderr["bytes"],
         "error": error,
-        "environment_sha256": None if environment_identity is None else environment_identity.get("identity_sha256"),
+        "environment_sha256": actual_environment_identity["identity_sha256"],
         "cleanup": {
             "process_group": "isolated" if os.name == "posix" or hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP") else "direct_process",
             "process_group_termination_attempted": group_termination_attempted,
@@ -1505,6 +1690,7 @@ def execute_plan(
             timeout_sec,
             env=env,
             environment_identity=environment_identity,
+            python_executable=python_executable,
         )
         step.setdefault("environment_sha256", environment_identity["identity_sha256"])
         steps.append(step)
@@ -1657,6 +1843,10 @@ def _step_validation_errors(index: int, step: Mapping[str, Any]) -> list[str]:
         for field in ("execution_timeout_sec", "cleanup_safety_window_sec", "performance_target_sec"):
             if not _valid_elapsed_sec(timing.get(field)) or float(timing[field]) <= 0:
                 errors.append(f"{prefix} timing {field} is invalid")
+        if timing.get("measurement_scope") != "node_wall_including_launch_identity_and_cleanup":
+            errors.append(f"{prefix} timing measurement scope is not end-to-end")
+        if not _valid_elapsed_sec(timing.get("excluded_intervals_sec")) or timing.get("excluded_intervals_sec") != 0.0:
+            errors.append(f"{prefix} timing contains excluded wall intervals")
         classification = timing.get("classification")
         if classification not in {"fast", "contextual"}:
             errors.append(f"{prefix} timing classification is invalid")
@@ -1807,7 +1997,13 @@ def _normalize_execution(
         else:
             seen.add(node_id)
         errors.extend(_runner_origin_errors(index, raw_step))
-        step = dict(raw_step)
+        step = _take_runner_snapshot(raw_step)
+        if step is None:
+            try:
+                step = dict(raw_step)
+            except (TypeError, ValueError) as exc:
+                errors.append(f"step[{index}] could not be snapshotted: {_short_error(str(exc))}")
+                step = {}
         expected_command = expected_nodes.get(node_id, {}).get("command")
         if "command" not in step:
             errors.append(f"step[{index}] command is not bound")
@@ -1859,6 +2055,8 @@ def _normalize_execution(
             timing = step.get("timing")
             if isinstance(timing, Mapping) and timing.get("execution_timeout_sec") != normalized_timeout:
                 errors.append(f"step[{index}] timing execution timeout does not match execution timeout_sec")
+    if status == "completed" and not isinstance(execution.get("environment"), Mapping):
+        errors.append("completed execution environment envelope is required")
     if status == "completed" and (
         normalized_resource is None
         or normalized_resource.get("admission") != "allow"
@@ -2070,8 +2268,8 @@ def _approved_receipt_path(repo_root: Path, receipt_path: Path) -> Path:
     return target
 
 
-def _receipt_open_flags(*, directory: bool = False) -> int:
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+def _receipt_open_flags(*, directory: bool = False, writable: bool = False) -> int:
+    flags = (os.O_RDWR if writable else os.O_RDONLY) | getattr(os, "O_CLOEXEC", 0)
     if directory:
         flags |= getattr(os, "O_DIRECTORY", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -2085,6 +2283,58 @@ def _same_directory(left: os.stat_result, right: os.stat_result) -> bool:
         and left.st_dev == right.st_dev
         and left.st_ino == right.st_ino
     )
+
+
+def _same_file(left: os.stat_result, right: os.stat_result) -> bool:
+    return (
+        stat.S_ISREG(left.st_mode)
+        and stat.S_ISREG(right.st_mode)
+        and left.st_dev == right.st_dev
+        and left.st_ino == right.st_ino
+    )
+
+
+def _read_fd_payload(file_descriptor: int, size: int) -> bytes:
+    if size < 0:
+        raise ReceiptPathError("receipt payload size is invalid")
+    chunks: list[bytes] = []
+    offset = 0
+    while offset < size:
+        chunk = os.pread(file_descriptor, min(1024 * 1024, size - offset), offset)
+        if not chunk:
+            raise ReceiptPathError("published receipt payload is truncated")
+        chunks.append(chunk)
+        offset += len(chunk)
+    return b"".join(chunks)
+
+
+def _published_target_binding_errors(
+    *,
+    parent_fd: int,
+    target_name: str,
+    target_fd: int,
+    target_identity: os.stat_result,
+    temporary_identity: os.stat_result,
+    payload: bytes,
+) -> list[str]:
+    errors: list[str] = []
+    current_target = os.fstat(target_fd)
+    if not _same_file(current_target, temporary_identity):
+        errors.append("published receipt target inode does not match the written temporary inode")
+    if current_target.st_size != len(payload):
+        errors.append("published receipt target size does not match the written payload")
+    else:
+        actual_payload = _read_fd_payload(target_fd, len(payload))
+        expected_payload_sha256 = hashlib.sha256(payload).hexdigest()
+        actual_payload_sha256 = hashlib.sha256(actual_payload).hexdigest()
+        if actual_payload != payload or actual_payload_sha256 != expected_payload_sha256:
+            errors.append("published receipt target payload digest/bytes do not match the written payload")
+    if not _same_file(current_target, target_identity):
+        errors.append("published receipt target inode changed after it was opened")
+    path_target = os.stat(target_name, dir_fd=parent_fd, follow_symlinks=False)
+    if not _same_file(path_target, current_target):
+        errors.append("published receipt pathname no longer names the opened target inode")
+    return errors
 
 
 def _fd_realpath(fd: int) -> Path | None:
@@ -2130,7 +2380,7 @@ def _open_receipt_directory(name: str, *, dir_fd: int | None = None) -> int:
 
 
 def _open_receipt_target(name: str, *, dir_fd: int) -> int:
-    return os.open(name, _receipt_open_flags(), dir_fd=dir_fd)
+    return os.open(name, _receipt_open_flags(writable=True), dir_fd=dir_fd)
 
 
 def _receipt_context(
@@ -2189,7 +2439,10 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
     root_fd: int | None = None
     parent_fd: int | None = None
     target_fd: int | None = None
+    temporary_fd: int | None = None
     temporary_name: str | None = None
+    temporary_identity: os.stat_result | None = None
+    payload = rendered.encode("utf-8")
     target_name = parts[-1]
     linked = False
     committed = False
@@ -2222,11 +2475,10 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
             raise ReceiptPathError("receipt path already exists; refusing overwrite")
 
         temporary_fd, temporary_name = _open_receipt_temp(parent_fd)
-        payload = rendered.encode("utf-8")
-        with os.fdopen(temporary_fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
+        _write_fd_bytes(temporary_fd, payload)
+        temporary_identity = os.fstat(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = None
 
         binding_errors = _receipt_binding_errors(
             root_fd,
@@ -2257,10 +2509,32 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
         target_identity = os.fstat(target_fd)
         if not stat.S_ISREG(target_identity.st_mode):
             raise ReceiptPathError("receipt target placement is not a regular file")
+        if temporary_identity is None:
+            raise ReceiptPathError("receipt temporary inode identity is unavailable")
+        binding_errors = _published_target_binding_errors(
+            parent_fd=parent_fd,
+            target_name=target_name,
+            target_fd=target_fd,
+            target_identity=target_identity,
+            temporary_identity=temporary_identity,
+            payload=payload,
+        )
+        if binding_errors:
+            raise ReceiptPathError("; ".join(binding_errors))
 
         os.unlink(temporary_name, dir_fd=parent_fd)
         temporary_name = None
         os.fsync(parent_fd)
+        binding_errors = _published_target_binding_errors(
+            parent_fd=parent_fd,
+            target_name=target_name,
+            target_fd=target_fd,
+            target_identity=target_identity,
+            temporary_identity=temporary_identity,
+            payload=payload,
+        )
+        if binding_errors:
+            raise ReceiptPathError("; ".join(binding_errors))
         placement = ReceiptPlacement(
             target,
             root_fd=root_fd,
@@ -2269,6 +2543,8 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
             root_identity=expected_root,
             parent_identity=expected_parent,
             target_identity=target_identity,
+            payload_sha256=hashlib.sha256(payload).hexdigest(),
+            payload_bytes=len(payload),
         )
         committed = True
     except ReceiptPathError as exc:
@@ -2276,9 +2552,18 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
     except (OSError, TypeError, ValueError, RuntimeError) as exc:
         delivery_error = ReceiptPathError(f"receipt delivery failed: {_short_error(str(exc))}")
     finally:
+        if temporary_fd is not None:
+            try:
+                os.close(temporary_fd)
+            except OSError as exc:
+                cleanup_errors.append(f"receipt temporary fd close failed: {_short_error(str(exc))}")
         if not committed and linked and parent_fd is not None:
             try:
-                os.unlink(target_name, dir_fd=parent_fd)
+                current_target = os.stat(target_name, dir_fd=parent_fd, follow_symlinks=False)
+                if temporary_identity is None or not _same_file(current_target, temporary_identity):
+                    cleanup_errors.append("receipt target cleanup skipped after inode replacement")
+                else:
+                    os.unlink(target_name, dir_fd=parent_fd)
             except FileNotFoundError:
                 pass
             except OSError as exc:
