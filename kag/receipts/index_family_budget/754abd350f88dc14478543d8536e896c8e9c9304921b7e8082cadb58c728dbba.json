@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 11191478,
+  "allowed_tracked_bytes": 27129235,
+  "approved_by": "repository-owner",
+  "base_ref": "a9f52d8bfe23e28167c01dd2a059af231fff77a0",
+  "changed_generated_bytes": 11191478,
+  "changed_generated_files": 132,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "754abd350f88dc14478543d8536e896c8e9c9304921b7e8082cadb58c728dbba",
+  "reason": "Landing the independently reviewed validation fastpath series adds two public source and test surfaces and their required deterministic ABI and repo-local KAG projections; refresh the portable family while tracked bytes remain below the standing cap and KAG authority and claim boundaries remain unchanged.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 27129235,
+  "tracked_bytes_max": 27262976
+}
