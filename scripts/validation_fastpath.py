@@ -28,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -52,6 +53,7 @@ ENVIRONMENT_KEYS = (
 )
 RECEIPT_TEMP_ATTEMPTS = 8
 PROCESS_CLEANUP_WINDOW_SEC = 0.05
+FAST_NODE_BUDGET_SEC = 1.0
 PR_SET_CHILD_SUBREAPER = 36
 PR_GET_CHILD_SUBREAPER = 37
 
@@ -62,6 +64,149 @@ class ValidationInputError(ValueError):
 
 class ReceiptPathError(ValueError):
     """Raised when receipt output is outside the approved task-local boundary."""
+
+
+class ReceiptPlacement:
+    """An atomically published receipt whose authority is bound to open fds.
+
+    ``path`` is retained as a display-compatible name only.  The placement
+    itself is the target inode reached through the bound root/parent fds; this
+    avoids claiming that a mutable ancestor path remains stable after the
+    final check.  Callers must close the placement when delivery is complete.
+    """
+
+    __slots__ = (
+        "path",
+        "root_fd",
+        "parent_fd",
+        "target_fd",
+        "root_identity",
+        "parent_identity",
+        "target_identity",
+        "_open_fds",
+    )
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        root_fd: int,
+        parent_fd: int,
+        target_fd: int,
+        root_identity: os.stat_result,
+        parent_identity: os.stat_result,
+        target_identity: os.stat_result,
+    ) -> None:
+        self.path = path
+        self.root_fd = root_fd
+        self.parent_fd = parent_fd
+        self.target_fd = target_fd
+        self.root_identity = self._identity(root_identity)
+        self.parent_identity = self._identity(parent_identity)
+        self.target_identity = self._identity(target_identity)
+        self._open_fds = {root_fd, parent_fd, target_fd}
+
+    @staticmethod
+    def _identity(info: os.stat_result) -> dict[str, int]:
+        return {
+            "st_dev": int(info.st_dev),
+            "st_ino": int(info.st_ino),
+            "st_mode": int(stat.S_IFMT(info.st_mode)),
+        }
+
+    @property
+    def binding(self) -> str:
+        return "fd_bound"
+
+    def descriptor(self) -> dict[str, Any]:
+        """Return serializable metadata without promoting ``path`` to authority."""
+
+        return {
+            "binding": self.binding,
+            "path": str(self.path),
+            "path_authority": "display_only",
+            "root_identity": dict(self.root_identity),
+            "parent_identity": dict(self.parent_identity),
+            "target_identity": dict(self.target_identity),
+        }
+
+    def __fspath__(self) -> str:
+        return str(self.path)
+
+    def __str__(self) -> str:
+        return str(self.path)
+
+    def __repr__(self) -> str:
+        return f"ReceiptPlacement(path={self.path!s}, binding={self.binding!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ReceiptPlacement):
+            return self.path == other.path
+        try:
+            return self.path == Path(os.fspath(other))  # type: ignore[arg-type]
+        except TypeError:
+            return NotImplemented
+
+    __hash__ = None
+
+    def close(self) -> None:
+        errors: list[str] = []
+        for file_descriptor in (self.target_fd, self.parent_fd, self.root_fd):
+            if file_descriptor not in self._open_fds:
+                continue
+            try:
+                os.close(file_descriptor)
+            except OSError as exc:
+                errors.append(f"receipt placement fd close failed: {_short_error(str(exc))}")
+            else:
+                self._open_fds.discard(file_descriptor)
+        if errors:
+            raise ReceiptPathError("; ".join(errors))
+
+    def __enter__(self) -> "ReceiptPlacement":
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except (OSError, ReceiptPathError):
+            pass
+
+
+class _RunnerStep(dict[str, Any]):
+    """A JSON-compatible step whose object identity is tracked privately."""
+
+
+_RUNNER_ORIGINS: dict[int, tuple[weakref.ReferenceType, str]] = {}
+
+
+def _register_runner_origin(step: _RunnerStep) -> _RunnerStep:
+    key = id(step)
+
+    def forget(reference: weakref.ReferenceType, *, key: int = key) -> None:
+        current = _RUNNER_ORIGINS.get(key)
+        if current is not None and current[0] is reference:
+            _RUNNER_ORIGINS.pop(key, None)
+
+    _RUNNER_ORIGINS[key] = (weakref.ref(step, forget), _digest_value(step))
+    return step
+
+
+def _runner_origin_errors(index: int, step: Mapping[str, Any]) -> list[str]:
+    prefix = f"step[{index}]"
+    current = _RUNNER_ORIGINS.pop(id(step), None)
+    if current is None or current[0]() is not step:
+        return [f"{prefix} execution was not minted by _run_node"]
+    try:
+        actual_digest = _digest_value(step)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return [f"{prefix} runner-origin result is not JSON-safe: {_short_error(str(exc))}"]
+    if actual_digest != current[1]:
+        return [f"{prefix} runner-origin result was modified or replayed"]
+    return []
 
 
 def _validate_timeout_sec(value: Any) -> float:
@@ -1009,6 +1154,17 @@ def _short_error(value: str) -> str:
     return value.replace("\x00", "")[:400]
 
 
+def _timing_metadata(elapsed_sec: float, timeout_sec: float) -> dict[str, Any]:
+    target_met = elapsed_sec <= FAST_NODE_BUDGET_SEC
+    return {
+        "execution_timeout_sec": timeout_sec,
+        "cleanup_safety_window_sec": PROCESS_CLEANUP_WINDOW_SEC,
+        "performance_target_sec": FAST_NODE_BUDGET_SEC,
+        "classification": "fast" if target_met else "contextual",
+        "target_met": target_met,
+    }
+
+
 def _run_node(
     repo_root: Path,
     node: Mapping[str, Any],
@@ -1055,13 +1211,14 @@ def _run_node(
             restore_error = _set_child_subreaper(False)
             if restore_error:
                 cleanup_errors.append(f"child subreaper restore failed: {restore_error}")
-        return {
+        return _register_runner_origin(_RunnerStep({
             "node_id": node.get("node_id"),
             "command": command,
             "ok": False,
             "returncode": None,
             "timed_out": False,
             "elapsed_sec": round(elapsed, 6),
+            "timing": _timing_metadata(elapsed, timeout_sec),
             "children_max_rss_kib": None,
             "rss_measurement": {
                 "method": "proc_status_vm_hwm",
@@ -1088,7 +1245,7 @@ def _run_node(
                 "errors": cleanup_errors,
             },
             "cleanup_errors": cleanup_errors,
-        }
+        }))
 
     assert process.stdout is not None
     assert process.stderr is not None
@@ -1217,13 +1374,14 @@ def _run_node(
     if cleanup_errors:
         errors.append(("cleanup_error", "; ".join(cleanup_errors)))
     error = None if not errors else {"type": errors[0][0], "detail": _short_error(errors[0][1])}
-    return {
+    return _register_runner_origin(_RunnerStep({
         "node_id": node.get("node_id"),
         "command": command,
         "ok": returncode == 0 and not timed_out and not errors,
         "returncode": 124 if timed_out else returncode,
         "timed_out": timed_out,
         "elapsed_sec": round(elapsed, 6),
+        "timing": _timing_metadata(elapsed, timeout_sec),
         "children_max_rss_kib": peak_rss,
         "rss_measurement": {
             "method": "proc_status_vm_hwm",
@@ -1250,7 +1408,7 @@ def _run_node(
             "errors": cleanup_errors[:8],
         },
         "cleanup_errors": cleanup_errors[:8],
-    }
+    }))
 
 
 def _normalize_resource_decision(value: Any) -> tuple[dict[str, Any] | None, list[str]]:
@@ -1492,6 +1650,28 @@ def _step_validation_errors(index: int, step: Mapping[str, Any]) -> list[str]:
             errors.append(f"{prefix} {field} is invalid")
     if not _valid_elapsed_sec(step.get("elapsed_sec")):
         errors.append(f"{prefix} elapsed_sec is invalid")
+    timing = step.get("timing")
+    if not isinstance(timing, Mapping):
+        errors.append(f"{prefix} timing envelope is not bound")
+    else:
+        for field in ("execution_timeout_sec", "cleanup_safety_window_sec", "performance_target_sec"):
+            if not _valid_elapsed_sec(timing.get(field)) or float(timing[field]) <= 0:
+                errors.append(f"{prefix} timing {field} is invalid")
+        classification = timing.get("classification")
+        if classification not in {"fast", "contextual"}:
+            errors.append(f"{prefix} timing classification is invalid")
+        target_met = timing.get("target_met")
+        if not isinstance(target_met, bool):
+            errors.append(f"{prefix} timing target_met is invalid")
+        elif _valid_elapsed_sec(step.get("elapsed_sec")) and classification in {"fast", "contextual"}:
+            expected_target_met = float(step["elapsed_sec"]) <= FAST_NODE_BUDGET_SEC
+            if target_met != expected_target_met:
+                errors.append(f"{prefix} timing target_met contradicts elapsed_sec")
+            expected_classification = "fast" if expected_target_met else "contextual"
+            if classification != expected_classification:
+                errors.append(f"{prefix} timing classification contradicts elapsed_sec")
+        if timing.get("performance_target_sec") != FAST_NODE_BUDGET_SEC:
+            errors.append(f"{prefix} timing performance target is not the Goal fast budget")
     error = step.get("error")
     if error is not None and (
         not isinstance(error, Mapping)
@@ -1626,6 +1806,7 @@ def _normalize_execution(
             errors.append(f"step[{index}] node is duplicated")
         else:
             seen.add(node_id)
+        errors.extend(_runner_origin_errors(index, raw_step))
         step = dict(raw_step)
         expected_command = expected_nodes.get(node_id, {}).get("command")
         if "command" not in step:
@@ -1673,6 +1854,11 @@ def _normalize_execution(
     else:
         normalized_timeout = None
         errors.append("execution timeout_sec is required")
+    if normalized_timeout is not None:
+        for index, step in enumerate(normalized_steps):
+            timing = step.get("timing")
+            if isinstance(timing, Mapping) and timing.get("execution_timeout_sec") != normalized_timeout:
+                errors.append(f"step[{index}] timing execution timeout does not match execution timeout_sec")
     if status == "completed" and (
         normalized_resource is None
         or normalized_resource.get("admission") != "allow"
@@ -1748,7 +1934,18 @@ def make_receipt(
     else:
         full_step_index = next(index for index, step in enumerate(steps) if step is full_step)
         full_step_status_errors = _step_validation_errors(full_step_index, full_step)
-        full_gate_status = "passed" if not full_step_status_errors else "failed"
+        # A field-level green status is only meaningful after the complete
+        # execution, candidate and environment validations have passed.  The
+        # full-gate node can run successfully while a selected node, identity,
+        # or envelope fails; that must not leak a nested green proof.
+        full_gate_status = (
+            "passed"
+            if not full_step_status_errors
+            and not execution_errors
+            and not failed_steps
+            and normalized_execution.get("ok") is True
+            else "failed"
+        )
     if normalized_execution.get("status") == "plan_only":
         proof_status = "plan_only"
     elif normalized_execution.get("status") == "not_run_resource_admission":
@@ -1925,50 +2122,15 @@ def _receipt_binding_errors(
     return errors
 
 
-def _receipt_path_binding_errors(root: Path, parts: Sequence[str], expected_root: os.stat_result, expected_parent: os.stat_result) -> list[str]:
-    """Re-check the approved path, not only the directory fds, before commit."""
-
-    errors: list[str] = []
-    try:
-        actual_root = root.lstat()
-    except OSError as exc:
-        return [f"approved receipt root path could not be checked: {_short_error(str(exc))}"]
-    if not _same_directory(actual_root, expected_root):
-        errors.append("approved receipt root path changed during delivery")
-    current = root
-    for component in parts[:-1]:
-        current = current / component
-        try:
-            info = current.lstat()
-        except OSError as exc:
-            errors.append(f"receipt parent path could not be checked: {_short_error(str(exc))}")
-            break
-        if not stat.S_ISDIR(info.st_mode):
-            errors.append("receipt parent path is no longer a directory")
-            break
-    else:
-        try:
-            actual_parent = current.lstat()
-        except OSError as exc:
-            errors.append(f"receipt parent path could not be checked: {_short_error(str(exc))}")
-        else:
-            if not _same_directory(actual_parent, expected_parent):
-                errors.append("receipt parent path changed during delivery")
-        try:
-            target_info = (current / parts[-1]).lstat()
-        except OSError as exc:
-            errors.append(f"receipt target path could not be checked: {_short_error(str(exc))}")
-        else:
-            if not stat.S_ISREG(target_info.st_mode):
-                errors.append("receipt target path is not a regular file")
-    return errors
-
-
 def _open_receipt_directory(name: str, *, dir_fd: int | None = None) -> int:
     flags = _receipt_open_flags(directory=True)
     if dir_fd is None:
         return os.open(name, flags)
     return os.open(name, flags, dir_fd=dir_fd)
+
+
+def _open_receipt_target(name: str, *, dir_fd: int) -> int:
+    return os.open(name, _receipt_open_flags(), dir_fd=dir_fd)
 
 
 def _receipt_context(
@@ -2009,8 +2171,14 @@ def _open_receipt_temp(parent_fd: int) -> tuple[int, str]:
     raise ReceiptPathError("could not allocate a unique receipt temporary file")
 
 
-def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> Path:
-    """Write a new task-local receipt atomically without replacing an existing file."""
+def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> ReceiptPlacement:
+    """Publish a new task-local receipt as an atomic FD-bound placement.
+
+    The final publication is a dir-fd-relative hard-link operation.  Once that
+    operation begins, the return value no longer claims that the display path
+    remains stable across mutable ancestor renames; callers receive the bound
+    root, parent, and target fds instead and must close the placement.
+    """
 
     try:
         root, target, parts, expected_root, expected_parent = _receipt_context(repo_root, receipt_path)
@@ -2020,10 +2188,12 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
         raise ReceiptPathError(f"receipt delivery failed: {_short_error(str(exc))}") from exc
     root_fd: int | None = None
     parent_fd: int | None = None
+    target_fd: int | None = None
     temporary_name: str | None = None
     target_name = parts[-1]
     linked = False
     committed = False
+    placement: ReceiptPlacement | None = None
     delivery_error: ReceiptPathError | None = None
     cleanup_errors: list[str] = []
     try:
@@ -2067,6 +2237,10 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
         )
         if binding_errors:
             raise ReceiptPathError("; ".join(binding_errors))
+
+        # This is the final pathname/FD validation.  The next operation is the
+        # atomic dir-fd-relative publication; no later mutable-path check is
+        # used as a success authority.
         try:
             os.link(
                 temporary_name,
@@ -2079,45 +2253,23 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
         except FileExistsError as exc:
             raise ReceiptPathError("receipt path appeared during atomic create; refusing overwrite") from exc
 
-        binding_errors = _receipt_binding_errors(
-            root_fd,
-            parent_fd,
-            root,
-            expected_root,
-            expected_parent,
-        )
-        if binding_errors:
-            raise ReceiptPathError("; ".join(binding_errors))
+        target_fd = _open_receipt_target(target_name, dir_fd=parent_fd)
+        target_identity = os.fstat(target_fd)
+        if not stat.S_ISREG(target_identity.st_mode):
+            raise ReceiptPathError("receipt target placement is not a regular file")
 
         os.unlink(temporary_name, dir_fd=parent_fd)
         temporary_name = None
         os.fsync(parent_fd)
-        binding_errors = _receipt_binding_errors(
-            root_fd,
-            parent_fd,
-            root,
-            expected_root,
-            expected_parent,
+        placement = ReceiptPlacement(
+            target,
+            root_fd=root_fd,
+            parent_fd=parent_fd,
+            target_fd=target_fd,
+            root_identity=expected_root,
+            parent_identity=expected_parent,
+            target_identity=target_identity,
         )
-        if binding_errors:
-            raise ReceiptPathError("; ".join(binding_errors))
-        path_binding_errors = _receipt_path_binding_errors(root, parts, expected_root, expected_parent)
-        if path_binding_errors:
-            raise ReceiptPathError("; ".join(path_binding_errors))
-        # The path check above is intentionally not the commit authority.  A
-        # concurrent rename can happen after it returns, so bind once more to
-        # the already-open root/parent identities before declaring the fd-bound
-        # link committed.  The actual link/unlink operations remain dir-fd
-        # relative and cannot follow a replacement symlink.
-        binding_errors = _receipt_binding_errors(
-            root_fd,
-            parent_fd,
-            root,
-            expected_root,
-            expected_parent,
-        )
-        if binding_errors:
-            raise ReceiptPathError("; ".join(binding_errors))
         committed = True
     except ReceiptPathError as exc:
         delivery_error = exc
@@ -2138,16 +2290,22 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
                 pass
             except OSError as exc:
                 cleanup_errors.append(f"receipt temporary unlink failed: {_short_error(str(exc))}")
-        if parent_fd is not None and parent_fd != root_fd:
+        if not committed and target_fd is not None:
             try:
-                os.close(parent_fd)
+                os.close(target_fd)
             except OSError as exc:
-                cleanup_errors.append(f"receipt parent fd close failed: {_short_error(str(exc))}")
-        if root_fd is not None:
-            try:
-                os.close(root_fd)
-            except OSError as exc:
-                cleanup_errors.append(f"receipt root fd close failed: {_short_error(str(exc))}")
+                cleanup_errors.append(f"receipt target fd close failed: {_short_error(str(exc))}")
+        if not committed:
+            if parent_fd is not None and parent_fd != root_fd:
+                try:
+                    os.close(parent_fd)
+                except OSError as exc:
+                    cleanup_errors.append(f"receipt parent fd close failed: {_short_error(str(exc))}")
+            if root_fd is not None:
+                try:
+                    os.close(root_fd)
+                except OSError as exc:
+                    cleanup_errors.append(f"receipt root fd close failed: {_short_error(str(exc))}")
     if cleanup_errors:
         cleanup_detail = "; ".join(cleanup_errors)
         if delivery_error is None:
@@ -2155,7 +2313,9 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
         raise ReceiptPathError(f"{delivery_error}; cleanup failure: {cleanup_detail}") from delivery_error
     if delivery_error is not None:
         raise delivery_error
-    return target
+    if placement is None:
+        raise ReceiptPathError("receipt placement was not committed")
+    return placement
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -2304,7 +2464,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.receipt:
         try:
-            write_receipt_atomic(repo_root, args.receipt, json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            placement = write_receipt_atomic(repo_root, args.receipt, json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            placement.close()
         except ReceiptPathError as exc:
             receipt["ok"] = False
             receipt["proof"]["status"] = "receipt_delivery_failed"

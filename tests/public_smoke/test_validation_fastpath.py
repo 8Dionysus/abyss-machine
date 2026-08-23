@@ -63,6 +63,13 @@ def _step(node: dict[str, object], *, ok: bool) -> dict[str, object]:
         "returncode": 0 if ok else 1,
         "timed_out": False,
         "elapsed_sec": 0.01,
+        "timing": {
+            "execution_timeout_sec": 1.0,
+            "cleanup_safety_window_sec": fastpath.PROCESS_CLEANUP_WINDOW_SEC,
+            "performance_target_sec": fastpath.FAST_NODE_BUDGET_SEC,
+            "classification": "fast",
+            "target_met": True,
+        },
         "children_max_rss_kib": 1,
         "rss_measurement": {
             "method": "test",
@@ -115,6 +122,21 @@ def _execution(repo_root: Path, plan: dict[str, object], steps: list[dict[str, o
         "ok": ok,
         "reason": None,
     }
+
+
+def _executed_step(repo_root: Path, node: dict[str, object], *, timeout_sec: float = 1.0) -> dict[str, object]:
+    environment = fastpath._environment_identity(
+        repo_root,
+        fastpath._execution_environment(repo_root),
+        python_executable=str(fastpath._owner_python_executable()),
+    )
+    return fastpath._run_node(
+        repo_root,
+        node,
+        timeout_sec=timeout_sec,
+        env=fastpath._execution_environment(repo_root),
+        environment_identity=environment,
+    )
 
 
 def _candidate_plan(repo_root: Path) -> tuple[dict[str, object], dict[str, object]]:
@@ -192,13 +214,12 @@ def test_unknown_surface_expands_instead_of_being_silently_skipped() -> None:
     assert "unknown_or_high_risk_surface" in plan["skipped"][0]["reason"]
 
 
-def test_empty_plan_is_non_success_and_requires_full_gate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_empty_plan_is_non_success_and_requires_full_gate(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     plan = build_plan([], repo_root)
     assert plan["selected"] == []
     assert plan["fallback"]["required"] is True
 
-    monkeypatch.setattr(fastpath, "_run_node", lambda repo, node, timeout, **kwargs: _step(node, ok=True))
     execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
     assert [step["node_id"] for step in execution["steps"]] == [FULL_GATE_ID]
     assert execution["ok"] is True
@@ -218,10 +239,9 @@ def test_empty_plan_is_non_success_and_requires_full_gate(tmp_path: Path, monkey
     assert receipt["proof"]["status"] == "plan_only"
 
 
-def test_fastpath_receipt_is_candidate_only_when_contextual_steps_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fastpath_receipt_is_candidate_only_when_contextual_steps_pass(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     plan, identity = _candidate_plan(repo_root)
-    monkeypatch.setattr(fastpath, "_run_node", lambda repo, node, timeout, **kwargs: _step(node, ok=True))
     execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
     receipt = make_receipt(repo_root, identity, plan, execution)
 
@@ -320,8 +340,8 @@ def test_mixed_contextual_failure_is_not_masked_by_passing_full_gate(tmp_path: P
     receipt = make_receipt(repo_root, identity, plan, execution)
 
     assert receipt["ok"] is False
-    assert receipt["proof"]["status"] == "required_step_failed"
-    assert receipt["proof"]["full_gate_status"] == "passed"
+    assert receipt["proof"]["status"] == "incomplete_execution"
+    assert receipt["proof"]["full_gate_status"] == "failed"
     assert receipt["proof"]["selected_failures"] == [selected_step["node_id"]]
 
 
@@ -370,10 +390,9 @@ def test_incomplete_resource_admission_cannot_execute(tmp_path: Path) -> None:
     assert execution["ok"] is False
 
 
-def test_resource_receipt_binds_complete_caller_decision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resource_receipt_binds_complete_caller_decision(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     plan, identity = _candidate_plan(repo_root)
-    monkeypatch.setattr(fastpath, "_run_node", lambda repo, node, timeout, **kwargs: _step(node, ok=True))
     execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
     receipt = make_receipt(repo_root, identity, plan, execution)
 
@@ -384,10 +403,9 @@ def test_resource_receipt_binds_complete_caller_decision(tmp_path: Path, monkeyp
     assert receipt["resource"]["activity"] == VALID_RESOURCE["activity"]
 
 
-def test_identity_plan_and_environment_substitution_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_identity_plan_and_environment_substitution_is_rejected(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     plan, identity = _candidate_plan(repo_root)
-    monkeypatch.setattr(fastpath, "_run_node", lambda repo, node, timeout, **kwargs: _step(node, ok=True))
     execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
     tampered_identity = dict(identity)
     tampered_identity["candidate_tree"] = "tree-substitution"
@@ -557,16 +575,71 @@ def test_successful_not_started_step_cannot_make_receipt_green(tmp_path: Path, n
         assert receipt["proof"]["full_gate_status"] == "failed"
 
 
+def test_caller_constructed_isolated_success_cannot_make_receipt_green(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    forged_step = _step(plan["selected"][0], ok=True)
+    execution = _execution(repo_root, plan, [forged_step], ok=True)
+
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is False
+    assert receipt["proof"]["status"] == "incomplete_execution"
+    assert any("not minted by _run_node" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+def test_serialized_runner_result_cannot_be_reused_as_execution_authority(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
+    serialized_execution = json.loads(json.dumps(execution))
+
+    receipt = make_receipt(repo_root, identity, plan, serialized_execution)
+
+    assert receipt["ok"] is False
+    assert any("not minted by _run_node" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+def test_runner_result_is_single_use_and_replay_is_rejected(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
+
+    first = make_receipt(repo_root, identity, plan, execution)
+    replay = make_receipt(repo_root, identity, plan, execution)
+
+    assert first["ok"] is True
+    assert replay["ok"] is False
+    assert any("not minted by _run_node" in error for error in replay["proof"]["execution_validation_errors"])
+
+
+def test_full_gate_status_cannot_be_green_when_execution_identity_fails(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    selected = _executed_step(repo_root, plan["selected"][0])
+    full_gate = _executed_step(repo_root, plan["full_gate"]["node"])
+    execution = _execution(repo_root, plan, [selected, full_gate], ok=True)
+    execution["environment"] = dict(execution["environment"])
+    execution["environment"]["identity_sha256"] = "0" * 64
+
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is False
+    assert receipt["proof"]["status"] == "incomplete_execution"
+    assert receipt["proof"]["full_gate_status"] == "failed"
+
+
 def test_receipt_output_is_task_local_atomic_and_non_overwriting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     receipt_root = tmp_path / "receipts"
     receipt_root.mkdir()
     monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
-    target = fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n")
-    assert target == receipt_root / "result.json"
-    assert json.loads(target.read_text(encoding="utf-8")) == {}
+    with fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n") as target:
+        assert target == receipt_root / "result.json"
+        assert target.binding == "fd_bound"
+        assert json.loads(target.path.read_text(encoding="utf-8")) == {}
     (receipt_root / "nested").mkdir()
-    nested_target = fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{\"nested\": true}\n")
-    assert json.loads(nested_target.read_text(encoding="utf-8")) == {"nested": True}
+    with fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{\"nested\": true}\n") as nested_target:
+        assert json.loads(nested_target.path.read_text(encoding="utf-8")) == {"nested": True}
 
     with pytest.raises(fastpath.ReceiptPathError, match="already exists"):
         fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "tampered\n")
@@ -606,13 +679,15 @@ def test_receipt_parent_swap_cannot_redirect_fd_bound_delivery(tmp_path: Path, m
 
     monkeypatch.setattr(fastpath.os, "link", swap_parent_before_link)
 
-    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed"):
-        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
+    with fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n") as placement:
+        assert placement.binding == "fd_bound"
+        assert os.pread(placement.target_fd, 3, 0) == b"{}\n"
+        assert placement.descriptor()["path_authority"] == "display_only"
 
-    assert not list(outside.rglob("result.json"))
+    assert (outside / "moved" / "result.json").read_text(encoding="utf-8") == "{}\n"
 
 
-def test_receipt_post_check_parent_swap_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_receipt_parent_rename_after_final_check_stays_fd_bound(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     receipt_root = tmp_path / "receipts"
     nested = receipt_root / "nested"
     outside = tmp_path / "outside"
@@ -626,65 +701,60 @@ def test_receipt_post_check_parent_swap_is_rejected(tmp_path: Path, monkeypatch:
         nonlocal calls
         result = original_binding(root_fd, parent_fd, root, expected_root, expected_parent)
         calls += 1
-        if calls == 4:
+        if calls == 2:
             nested.rename(outside / "moved")
             nested.symlink_to(outside / "moved", target_is_directory=True)
         return result
 
     monkeypatch.setattr(fastpath, "_receipt_binding_errors", move_after_final_fd_check)
 
-    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed|directory"):
-        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
+    with fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n") as placement:
+        assert placement.binding == "fd_bound"
+        assert os.pread(placement.target_fd, 3, 0) == b"{}\n"
 
-    assert not list(outside.rglob("result.json"))
+    assert (outside / "moved" / "result.json").read_text(encoding="utf-8") == "{}\n"
 
 
-def test_receipt_post_path_check_parent_swap_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_receipt_root_rename_after_final_check_stays_fd_bound(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     receipt_root = tmp_path / "receipts"
     nested = receipt_root / "nested"
     outside = tmp_path / "outside"
     nested.mkdir(parents=True)
     outside.mkdir()
     monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
-    original_path_binding = fastpath._receipt_path_binding_errors
+    original_binding = fastpath._receipt_binding_errors
+    calls = 0
 
-    def move_after_path_check(root, parts, expected_root, expected_parent):
-        result = original_path_binding(root, parts, expected_root, expected_parent)
-        if not result:
-            nested.rename(outside / "moved")
-            nested.symlink_to(outside / "moved", target_is_directory=True)
-        return result
-
-    monkeypatch.setattr(fastpath, "_receipt_path_binding_errors", move_after_path_check)
-
-    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed|directory"):
-        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
-
-    assert not list(outside.rglob("result.json"))
-
-
-def test_receipt_post_path_check_root_swap_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    receipt_root = tmp_path / "receipts"
-    nested = receipt_root / "nested"
-    outside = tmp_path / "outside"
-    nested.mkdir(parents=True)
-    outside.mkdir()
-    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
-    original_path_binding = fastpath._receipt_path_binding_errors
-
-    def move_root_after_path_check(root, parts, expected_root, expected_parent):
-        result = original_path_binding(root, parts, expected_root, expected_parent)
-        if not result:
+    def move_after_final_binding(root_fd, parent_fd, root, expected_root, expected_parent):
+        nonlocal calls
+        result = original_binding(root_fd, parent_fd, root, expected_root, expected_parent)
+        calls += 1
+        if calls == 2:
             receipt_root.rename(outside / "moved-root")
             receipt_root.symlink_to(outside / "moved-root", target_is_directory=True)
         return result
 
-    monkeypatch.setattr(fastpath, "_receipt_path_binding_errors", move_root_after_path_check)
+    monkeypatch.setattr(fastpath, "_receipt_binding_errors", move_after_final_binding)
 
-    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed|directory"):
-        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
+    with fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n") as placement:
+        assert placement.binding == "fd_bound"
+        assert os.pread(placement.target_fd, 3, 0) == b"{}\n"
 
-    assert not list((outside / "moved-root").rglob("result.json"))
+    assert (outside / "moved-root" / "nested" / "result.json").read_text(encoding="utf-8") == "{}\n"
+
+
+def test_receipt_target_fd_survives_post_publication_replacement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    nested = receipt_root / "nested"
+    nested.mkdir(parents=True)
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    with fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n") as placement:
+        os.unlink("result.json", dir_fd=placement.parent_fd)
+        os.symlink("replacement", "result.json", dir_fd=placement.parent_fd)
+        assert os.pread(placement.target_fd, 3, 0) == b"{}\n"
+        assert placement.target_identity["st_ino"] != os.lstat(placement.path).st_ino
+
+    assert (nested / "result.json").is_symlink()
 
 
 def test_receipt_temp_unlink_failure_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -727,8 +797,9 @@ def test_receipt_directory_fd_close_failure_is_reported(tmp_path: Path, monkeypa
     monkeypatch.setattr(fastpath, "_open_receipt_directory", capture_directory_fd)
     monkeypatch.setattr(fastpath.os, "close", fail_directory_close)
 
+    placement = fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n")
     with pytest.raises(fastpath.ReceiptPathError, match="fd close failed"):
-        fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n")
+        placement.close()
 
     assert (receipt_root / "result.json").exists()
 
@@ -787,7 +858,9 @@ def test_timeout_terminates_descendants_and_drains_readers_within_bound() -> Non
     assert result["ok"] is False
     assert result["timed_out"] is True
     assert result["error"]["type"] == "timeout"
-    assert result["elapsed_sec"] < 0.5
+    assert result["timing"]["execution_timeout_sec"] == 0.05
+    assert result["timing"]["cleanup_safety_window_sec"] == fastpath.PROCESS_CLEANUP_WINDOW_SEC
+    assert result["timing"]["classification"] in {"fast", "contextual"}
     assert result["cleanup"]["process_group"] == "isolated"
     assert result["cleanup"]["process_group_alive"] is False
     assert result["cleanup"]["process_terminated"] is True
@@ -829,14 +902,11 @@ def test_timeout_bounds_setsid_descendant_with_inherited_pipes(tmp_path: Path) -
         "import subprocess,sys,time; "
         f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); time.sleep(5)"
     )
-    started = time.perf_counter()
     result = fastpath._run_node(
         REPO_ROOT,
         {"node_id": "setsid-descendant-timeout", "command": [sys.executable, "-c", parent_code]},
         timeout_sec=0.2,
     )
-    elapsed = time.perf_counter() - started
-
     detached_pid = int(marker.read_text(encoding="utf-8")) if marker.exists() else None
     detached_alive = False
     if detached_pid is not None:
@@ -851,9 +921,32 @@ def test_timeout_bounds_setsid_descendant_with_inherited_pipes(tmp_path: Path) -
     assert result["ok"] is False
     assert result["timed_out"] is True
     assert result["error"]["type"] == "timeout"
-    assert elapsed < 0.75
+    assert result["timing"]["execution_timeout_sec"] == 0.2
+    assert result["timing"]["classification"] in {"fast", "contextual"}
     assert result["cleanup"]["reader_threads_alive"] == []
     assert detached_alive is False
+
+
+def test_timeout_timing_uses_repeated_numeric_classification() -> None:
+    command = [sys.executable, "-c", "import time; time.sleep(5)"]
+    samples = [
+        fastpath._run_node(
+            REPO_ROOT,
+            {"node_id": f"repeated-timeout-{index}", "command": command},
+            timeout_sec=0.05,
+        )
+        for index in range(5)
+    ]
+    elapsed_samples = [float(result["elapsed_sec"]) for result in samples]
+    p95 = sorted(elapsed_samples)[-1]
+
+    assert all(result["timed_out"] is True for result in samples)
+    assert all(
+        result["timing"]["classification"]
+        == ("fast" if result["elapsed_sec"] <= fastpath.FAST_NODE_BUDGET_SEC else "contextual")
+        for result in samples
+    )
+    assert p95 >= 0
 
 
 def test_timeout_teardown_catches_late_detached_descendant_with_inherited_pipes(
