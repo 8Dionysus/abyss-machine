@@ -753,6 +753,22 @@ def _descendant_processes_from_roots(
     return descendants
 
 
+def _runner_child_processes(
+    runner_pid: int,
+    snapshot: Mapping[int, tuple[int, int]],
+    *,
+    excluded: set[int] | None = None,
+) -> dict[int, int]:
+    """Return newly adopted children of this runner by PID/start identity."""
+
+    excluded = set() if excluded is None else excluded
+    return {
+        pid: start_ticks
+        for pid, (parent_pid, start_ticks) in snapshot.items()
+        if parent_pid == runner_pid and pid not in excluded
+    }
+
+
 def _descendant_processes(root_pid: int, *, excluded: set[int] | None = None) -> dict[int, int]:
     return _descendant_processes_from_roots(
         {root_pid},
@@ -822,16 +838,35 @@ def _terminate_descendants(
     *,
     tracked: Mapping[int, int],
     timeout_sec: float,
+    runner_pid: int | None = None,
+    protected_runner_children: set[int] | None = None,
 ) -> tuple[list[str], list[int]]:
-    """Terminate node descendants, including setsid() children adopted by us."""
+    """Terminate node descendants, including late setsid() children adopted by us.
+
+    A node can fork after the last snapshot taken below its PID and detach its
+    session before the original process group is killed.  On POSIX, the
+    subreaper then adopts that child directly under this runner.  Reconcile
+    those children by process identity, while protecting every runner child
+    that existed before this node was launched.
+    """
 
     if os.name != "posix":
         return [], []
     deadline = time.perf_counter() + timeout_sec
     errors: list[str] = []
     tracked = dict(tracked)
+    protected_runner_children = set() if protected_runner_children is None else set(protected_runner_children)
+    empty_snapshots = 0
     while time.perf_counter() < deadline:
         snapshot = _process_snapshot()
+        if runner_pid is not None:
+            tracked.update(
+                _runner_child_processes(
+                    runner_pid,
+                    snapshot,
+                    excluded=protected_runner_children,
+                )
+            )
         active = {
             pid: start_ticks
             for pid, start_ticks in tracked.items()
@@ -840,7 +875,16 @@ def _terminate_descendants(
         descendants = _descendant_processes_from_roots(set(active), snapshot)
         candidates = {**active, **descendants}
         if not candidates:
-            return errors, []
+            empty_snapshots += 1
+            # A child created while the direct process is being terminated is
+            # reparented asynchronously.  Require two empty observations so
+            # that the final teardown window cannot become a false clean
+            # result merely because the first snapshot raced adoption.
+            if runner_pid is None or empty_snapshots >= 2:
+                return errors, []
+            time.sleep(0.005)
+            continue
+        empty_snapshots = 0
         for descendant_pid, start_ticks in candidates.items():
             current = _process_snapshot().get(descendant_pid)
             if current is None or current[1] != start_ticks:
@@ -854,6 +898,14 @@ def _terminate_descendants(
         time.sleep(0.005)
         _reap_adopted_children(candidates)
         snapshot = _process_snapshot()
+        if runner_pid is not None:
+            tracked.update(
+                _runner_child_processes(
+                    runner_pid,
+                    snapshot,
+                    excluded=protected_runner_children,
+                )
+            )
         active = {
             pid: start_ticks
             for pid, start_ticks in tracked.items()
@@ -873,6 +925,14 @@ def _terminate_descendants(
                 errors.append(f"descendant kill failed: {_short_error(str(exc))}")
         _reap_adopted_children(remaining)
     snapshot = _process_snapshot()
+    if runner_pid is not None:
+        tracked.update(
+            _runner_child_processes(
+                runner_pid,
+                snapshot,
+                excluded=protected_runner_children,
+            )
+        )
     active = {
         pid: start_ticks
         for pid, start_ticks in tracked.items()
@@ -882,6 +942,14 @@ def _terminate_descendants(
     remaining.update(active)
     _reap_adopted_children(set(tracked) | set(remaining))
     snapshot = _process_snapshot()
+    if runner_pid is not None:
+        tracked.update(
+            _runner_child_processes(
+                runner_pid,
+                snapshot,
+                excluded=protected_runner_children,
+            )
+        )
     active = {
         pid: start_ticks
         for pid, start_ticks in tracked.items()
@@ -959,6 +1027,14 @@ def _run_node(
         popen_options["start_new_session"] = True
     elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
         popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    runner_pid = os.getpid()
+    protected_runner_children: set[int] = set()
+    if os.name == "posix":
+        protected_runner_children = {
+            pid
+            for pid, (parent_pid, _start_ticks) in _process_snapshot().items()
+            if parent_pid == runner_pid
+        }
     previous_subreaper = _child_subreaper_state()
     subreaper_error: str | None = None
     if previous_subreaper is False:
@@ -1083,6 +1159,8 @@ def _run_node(
         descendant_cleanup_errors, descendant_processes_alive = _terminate_descendants(
             tracked=tracked_descendants,
             timeout_sec=PROCESS_CLEANUP_WINDOW_SEC,
+            runner_pid=runner_pid,
+            protected_runner_children=protected_runner_children,
         )
     else:
         descendant_cleanup_errors, descendant_processes_alive = [], []
@@ -1468,8 +1546,16 @@ def _step_validation_errors(index: int, step: Mapping[str, Any]) -> list[str]:
     if not isinstance(cleanup, Mapping):
         errors.append(f"{prefix} cleanup envelope is required")
     else:
-        if cleanup.get("process_group") not in {"isolated", "direct_process", "not_started"}:
+        process_group = cleanup.get("process_group")
+        if process_group not in {"isolated", "direct_process", "not_started"}:
             errors.append(f"{prefix} process group cleanup mode is invalid")
+        if (
+            process_group == "not_started"
+            and returncode == 0
+            and timed_out is False
+            and error is None
+        ):
+            errors.append(f"{prefix} successful step does not prove that a process started")
         for field in ("process_group_termination_attempted", "process_group_alive", "process_terminated"):
             if not isinstance(cleanup.get(field), bool):
                 errors.append(f"{prefix} cleanup field {field} is invalid")
@@ -1657,8 +1743,12 @@ def make_receipt(
     selected_failures = [node_id for node_id in failed_steps if node_id != FULL_GATE_ID]
     if full_step is None:
         full_gate_status = "not_run"
+    elif full_step.get("ok") is not True:
+        full_gate_status = "failed"
     else:
-        full_gate_status = "passed" if full_step.get("ok") is True else "failed"
+        full_step_index = next(index for index, step in enumerate(steps) if step is full_step)
+        full_step_status_errors = _step_validation_errors(full_step_index, full_step)
+        full_gate_status = "passed" if not full_step_status_errors else "failed"
     if normalized_execution.get("status") == "plan_only":
         proof_status = "plan_only"
     elif normalized_execution.get("status") == "not_run_resource_admission":
@@ -2014,6 +2104,20 @@ def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> 
         path_binding_errors = _receipt_path_binding_errors(root, parts, expected_root, expected_parent)
         if path_binding_errors:
             raise ReceiptPathError("; ".join(path_binding_errors))
+        # The path check above is intentionally not the commit authority.  A
+        # concurrent rename can happen after it returns, so bind once more to
+        # the already-open root/parent identities before declaring the fd-bound
+        # link committed.  The actual link/unlink operations remain dir-fd
+        # relative and cannot follow a replacement symlink.
+        binding_errors = _receipt_binding_errors(
+            root_fd,
+            parent_fd,
+            root,
+            expected_root,
+            expected_parent,
+        )
+        if binding_errors:
+            raise ReceiptPathError("; ".join(binding_errors))
         committed = True
     except ReceiptPathError as exc:
         delivery_error = exc

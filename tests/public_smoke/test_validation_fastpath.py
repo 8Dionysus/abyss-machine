@@ -533,6 +533,30 @@ def test_full_gate_rejects_interpreter_substitution(tmp_path: Path) -> None:
         make_receipt(repo_root, identity, tampered_plan, execution)
 
 
+@pytest.mark.parametrize("node_kind", ["selected", "full_gate"])
+def test_successful_not_started_step_cannot_make_receipt_green(tmp_path: Path, node_kind: str) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    node = plan["full_gate"]["node"] if node_kind == "full_gate" else plan["selected"][0]
+    step = _step(node, ok=True)
+    step["cleanup"]["process_group"] = "not_started"
+    steps = [step]
+    if node_kind == "full_gate":
+        steps.insert(0, _step(plan["selected"][0], ok=True))
+    execution = _execution(repo_root, plan, steps, ok=True)
+
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is False
+    assert receipt["proof"]["status"] == "incomplete_execution"
+    assert any(
+        "successful step does not prove that a process started" in error
+        for error in receipt["proof"]["execution_validation_errors"]
+    )
+    if node_kind == "full_gate":
+        assert receipt["proof"]["full_gate_status"] == "failed"
+
+
 def test_receipt_output_is_task_local_atomic_and_non_overwriting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     receipt_root = tmp_path / "receipts"
     receipt_root.mkdir()
@@ -613,6 +637,54 @@ def test_receipt_post_check_parent_swap_is_rejected(tmp_path: Path, monkeypatch:
         fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
 
     assert not list(outside.rglob("result.json"))
+
+
+def test_receipt_post_path_check_parent_swap_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    nested = receipt_root / "nested"
+    outside = tmp_path / "outside"
+    nested.mkdir(parents=True)
+    outside.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_path_binding = fastpath._receipt_path_binding_errors
+
+    def move_after_path_check(root, parts, expected_root, expected_parent):
+        result = original_path_binding(root, parts, expected_root, expected_parent)
+        if not result:
+            nested.rename(outside / "moved")
+            nested.symlink_to(outside / "moved", target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(fastpath, "_receipt_path_binding_errors", move_after_path_check)
+
+    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed|directory"):
+        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
+
+    assert not list(outside.rglob("result.json"))
+
+
+def test_receipt_post_path_check_root_swap_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    nested = receipt_root / "nested"
+    outside = tmp_path / "outside"
+    nested.mkdir(parents=True)
+    outside.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_path_binding = fastpath._receipt_path_binding_errors
+
+    def move_root_after_path_check(root, parts, expected_root, expected_parent):
+        result = original_path_binding(root, parts, expected_root, expected_parent)
+        if not result:
+            receipt_root.rename(outside / "moved-root")
+            receipt_root.symlink_to(outside / "moved-root", target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(fastpath, "_receipt_path_binding_errors", move_root_after_path_check)
+
+    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed|directory"):
+        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
+
+    assert not list((outside / "moved-root").rglob("result.json"))
 
 
 def test_receipt_temp_unlink_failure_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -781,4 +853,56 @@ def test_timeout_bounds_setsid_descendant_with_inherited_pipes(tmp_path: Path) -
     assert result["error"]["type"] == "timeout"
     assert elapsed < 0.75
     assert result["cleanup"]["reader_threads_alive"] == []
+    assert detached_alive is False
+
+
+def test_timeout_teardown_catches_late_detached_descendant_with_inherited_pipes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker = tmp_path / "late-detached.pid"
+    child_code = f"import os,time; os.setsid(); open({str(marker)!r}, 'w').write(str(os.getpid())); time.sleep(5)"
+    parent_code = (
+        "import signal,subprocess,sys,time\n"
+        f"child_code={child_code!r}\n"
+        "def handler(sig, frame):\n"
+        "    subprocess.Popen([sys.executable, '-c', child_code])\n"
+        "signal.signal(signal.SIGUSR1, handler)\n"
+        "time.sleep(5)\n"
+    )
+    original_terminate = fastpath._terminate_process_group
+
+    def create_descendant_after_final_snapshot(pid: int, process: object) -> list[str]:
+        os.kill(pid, signal.SIGUSR1)
+        deadline = time.perf_counter() + 1.0
+        while time.perf_counter() < deadline and not marker.exists():
+            time.sleep(0.001)
+        assert marker.exists()
+        return original_terminate(pid, process)
+
+    monkeypatch.setattr(fastpath, "_terminate_process_group", create_descendant_after_final_snapshot)
+
+    result = fastpath._run_node(
+        REPO_ROOT,
+        {"node_id": "late-detached-descendant", "command": [sys.executable, "-c", parent_code]},
+        timeout_sec=0.2,
+    )
+
+    detached_pid = int(marker.read_text(encoding="utf-8")) if marker.exists() else None
+    detached_alive = False
+    if detached_pid is not None:
+        try:
+            os.kill(detached_pid, 0)
+            detached_alive = True
+        except OSError:
+            pass
+        if detached_alive:
+            os.kill(detached_pid, signal.SIGKILL)
+
+    assert result["ok"] is False
+    assert result["timed_out"] is True
+    assert result["error"]["type"] == "timeout"
+    assert result["cleanup"]["descendant_processes_alive"] == []
+    assert result["cleanup"]["reader_threads_alive"] == []
+    assert result["cleanup_errors"] == []
     assert detached_alive is False
