@@ -16,13 +16,15 @@ import hashlib
 import importlib.metadata
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import platform
+import secrets
+import signal
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -47,6 +49,8 @@ ENVIRONMENT_KEYS = (
     "VIRTUAL_ENV",
     "CONDA_PREFIX",
 )
+RECEIPT_TEMP_ATTEMPTS = 8
+PROCESS_CLEANUP_WINDOW_SEC = 0.05
 
 
 class ValidationInputError(ValueError):
@@ -55,6 +59,15 @@ class ValidationInputError(ValueError):
 
 class ReceiptPathError(ValueError):
     """Raised when receipt output is outside the approved task-local boundary."""
+
+
+def _validate_timeout_sec(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValidationInputError("timeout_sec must be a finite positive number")
+    timeout_sec = float(value)
+    if not math.isfinite(timeout_sec) or timeout_sec <= 0:
+        raise ValidationInputError("timeout_sec must be a finite positive number")
+    return timeout_sec
 
 
 def _canonical_json(value: Any) -> str:
@@ -623,11 +636,69 @@ def _drain_pipe(pipe: Any, capture: _OutputCapture) -> None:
     try:
         for chunk in iter(lambda: pipe.read(64 * 1024), b""):
             capture.feed(chunk)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         capture.transport_error = str(exc)[:240]
     finally:
         capture.finish()
+        try:
+            pipe.close()
+        except (OSError, ValueError) as exc:
+            capture.transport_error = capture.transport_error or str(exc)[:240]
+
+
+def _process_group_alive(pid: int) -> bool:
+    if os.name != "posix":
+        return False
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _terminate_process_group(pid: int, process: Any) -> list[str]:
+    errors: list[str] = []
+    if os.name == "posix":
+        for value in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pid, value)
+            except ProcessLookupError:
+                break
+            except OSError as exc:
+                errors.append(f"process group signal failed: {_short_error(str(exc))}")
+    else:
+        try:
+            process.kill()
+        except OSError as exc:
+            errors.append(f"process termination failed: {_short_error(str(exc))}")
+    return errors
+
+
+def _wait_for_process_group_exit(pid: int, timeout_sec: float) -> bool:
+    deadline = time.perf_counter() + timeout_sec
+    while _process_group_alive(pid) and time.perf_counter() < deadline:
+        time.sleep(0.005)
+    return _process_group_alive(pid)
+
+
+def _close_pipe(pipe: Any) -> str | None:
+    try:
         pipe.close()
+    except (OSError, ValueError) as exc:
+        return _short_error(str(exc))
+    return None
+
+
+def _join_readers(readers: Sequence[threading.Thread], timeout_sec: float) -> list[str]:
+    """Join all readers against one deadline, never one full timeout per reader."""
+
+    deadline = time.perf_counter() + timeout_sec
+    for reader in readers:
+        remaining = max(0.0, deadline - time.perf_counter())
+        reader.join(timeout=remaining)
+    return [reader.name for reader in readers if reader.is_alive()]
 
 
 def _read_proc_rss_kib(pid: int) -> int | None:
@@ -659,10 +730,16 @@ def _run_node(
     env: Mapping[str, str] | None = None,
     environment_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    timeout_sec = _validate_timeout_sec(timeout_sec)
     command = list(node.get("command", ()))
     stdout_capture = _OutputCapture()
     stderr_capture = _OutputCapture()
     started = time.perf_counter()
+    popen_options: dict[str, Any] = {}
+    if os.name == "posix":
+        popen_options["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     try:
         process = subprocess.Popen(
             command,
@@ -670,6 +747,7 @@ def _run_node(
             env=dict(_execution_environment(repo_root) if env is None else env),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **popen_options,
         )
     except (IndexError, OSError, TypeError, ValueError) as exc:
         elapsed = time.perf_counter() - started
@@ -695,6 +773,15 @@ def _run_node(
             "stderr_bytes": 0,
             "error": {"type": "spawn_error", "detail": _short_error(str(exc))},
             "environment_sha256": None if environment_identity is None else environment_identity.get("identity_sha256"),
+            "cleanup": {
+                "process_group": "not_started",
+                "process_group_termination_attempted": False,
+                "process_group_alive": False,
+                "process_terminated": True,
+                "reader_threads_alive": [],
+                "errors": [],
+            },
+            "cleanup_errors": [],
         }
 
     assert process.stdout is not None
@@ -708,30 +795,58 @@ def _run_node(
 
     peak_rss: int | None = _read_proc_rss_kib(process.pid)
     timed_out = False
+    cleanup_errors: list[str] = []
+    group_termination_attempted = False
     while process.poll() is None:
         observed = _read_proc_rss_kib(process.pid)
         if observed is not None:
             peak_rss = observed if peak_rss is None else max(peak_rss, observed)
         if time.perf_counter() - started >= timeout_sec:
             timed_out = True
-            try:
-                process.kill()
-            except OSError:
-                pass
+            group_termination_attempted = True
+            cleanup_errors.extend(_terminate_process_group(process.pid, process))
             break
         time.sleep(min(0.01, max(timeout_sec / 100.0, 0.001)))
 
     try:
-        returncode = process.wait(timeout=1.0)
+        returncode = process.wait(timeout=PROCESS_CLEANUP_WINDOW_SEC)
     except subprocess.TimeoutExpired:
         timed_out = True
+        group_termination_attempted = True
+        cleanup_errors.extend(_terminate_process_group(process.pid, process))
         try:
-            process.kill()
-        except OSError:
-            pass
-        returncode = process.wait()
-    for reader in readers:
-        reader.join(timeout=1.0)
+            returncode = process.wait(timeout=PROCESS_CLEANUP_WINDOW_SEC)
+        except subprocess.TimeoutExpired:
+            returncode = process.poll()
+            cleanup_errors.append("direct validation process did not terminate within cleanup window")
+
+    if not timed_out and _process_group_alive(process.pid):
+        group_termination_attempted = True
+        cleanup_errors.append("validation process group retained descendants after direct exit")
+        cleanup_errors.extend(_terminate_process_group(process.pid, process))
+        try:
+            process.wait(timeout=PROCESS_CLEANUP_WINDOW_SEC)
+        except subprocess.TimeoutExpired:
+            cleanup_errors.append("descendant process group did not terminate within cleanup window")
+
+    reader_threads_alive = _join_readers(readers, PROCESS_CLEANUP_WINDOW_SEC)
+    if reader_threads_alive:
+        for pipe in (process.stdout, process.stderr):
+            close_error = _close_pipe(pipe)
+            if close_error:
+                cleanup_errors.append(f"pipe close failed: {close_error}")
+        reader_threads_alive = _join_readers(readers, PROCESS_CLEANUP_WINDOW_SEC)
+    if reader_threads_alive:
+        cleanup_errors.append(
+            "reader threads remained alive: " + ",".join(reader_threads_alive)
+        )
+
+    process_group_alive = _wait_for_process_group_exit(process.pid, PROCESS_CLEANUP_WINDOW_SEC)
+    if process_group_alive:
+        cleanup_errors.append("validation process group remained alive after cleanup")
+    process_terminated = process.poll() is not None
+    if not process_terminated:
+        cleanup_errors.append("validation process remained alive after cleanup")
     elapsed = time.perf_counter() - started
     stdout = stdout_capture.result()
     stderr = stderr_capture.result()
@@ -746,6 +861,8 @@ def _run_node(
         errors.append(("transport_error", f"stdout: {stdout['transport_error']}"))
     if stderr["transport_error"]:
         errors.append(("transport_error", f"stderr: {stderr['transport_error']}"))
+    if cleanup_errors:
+        errors.append(("cleanup_error", "; ".join(cleanup_errors)))
     error = None if not errors else {"type": errors[0][0], "detail": _short_error(errors[0][1])}
     return {
         "node_id": node.get("node_id"),
@@ -769,6 +886,15 @@ def _run_node(
         "stderr_bytes": stderr["bytes"],
         "error": error,
         "environment_sha256": None if environment_identity is None else environment_identity.get("identity_sha256"),
+        "cleanup": {
+            "process_group": "isolated" if os.name == "posix" or hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP") else "direct_process",
+            "process_group_termination_attempted": group_termination_attempted,
+            "process_group_alive": process_group_alive,
+            "process_terminated": process_terminated,
+            "reader_threads_alive": reader_threads_alive,
+            "errors": cleanup_errors[:8],
+        },
+        "cleanup_errors": cleanup_errors[:8],
     }
 
 
@@ -821,6 +947,7 @@ def execute_plan(
 ) -> dict[str, Any]:
     """Execute serially only after a complete caller-owned resource decision."""
 
+    timeout_sec = _validate_timeout_sec(timeout_sec)
     resource_input = _resource_input(resource_admission, resource_decision)
     normalized_resource, resource_errors = _normalize_resource_decision(resource_input)
     if normalized_resource is None or resource_errors:
@@ -832,6 +959,7 @@ def execute_plan(
             "resource_decision": normalized_resource,
             "resource_decision_input": resource_input,
             "resource_decision_errors": resource_errors,
+            "timeout_sec": timeout_sec,
             "steps": [],
             "ok": False,
             "reason": "complete_resource_decision_required",
@@ -842,6 +970,7 @@ def execute_plan(
             "resource_admission": normalized_resource["admission"],
             "resource_decision": normalized_resource,
             "resource_decision_sha256": _digest_value(normalized_resource),
+            "timeout_sec": timeout_sec,
             "steps": [],
             "ok": False,
             "reason": "resource_admission_must_be_allow",
@@ -872,6 +1001,7 @@ def execute_plan(
         "resource_admission": normalized_resource["admission"],
         "resource_decision": normalized_resource,
         "resource_decision_sha256": _digest_value(normalized_resource),
+        "timeout_sec": timeout_sec,
         "environment": environment_identity,
         "command_graph_sha256": _command_graph_digest(nodes),
         "steps": steps,
@@ -972,7 +1102,8 @@ def _step_validation_errors(index: int, step: Mapping[str, Any]) -> list[str]:
     returncode = step.get("returncode")
     if returncode is not None and (not isinstance(returncode, int) or isinstance(returncode, bool)):
         errors.append(f"{prefix} returncode is invalid")
-    if not isinstance(step.get("timed_out"), bool):
+    timed_out = step.get("timed_out")
+    if not isinstance(timed_out, bool):
         errors.append(f"{prefix} timed_out must be boolean")
     for field in ("stdout_sha256", "stderr_sha256"):
         if not _is_sha256_text(step.get(field)):
@@ -989,9 +1120,29 @@ def _step_validation_errors(index: int, step: Mapping[str, Any]) -> list[str]:
     if error is not None and (
         not isinstance(error, Mapping)
         or not isinstance(error.get("type"), str)
+        or not error.get("type")
         or not isinstance(error.get("detail"), str)
     ):
         errors.append(f"{prefix} error envelope is invalid")
+    error_type = error.get("type") if isinstance(error, Mapping) else None
+    if (
+        isinstance(timed_out, bool)
+        and (returncode is None or (isinstance(returncode, int) and not isinstance(returncode, bool)))
+    ):
+        expected_ok = returncode == 0 and not timed_out and error is None
+        if isinstance(step.get("ok"), bool) and step["ok"] != expected_ok:
+            errors.append(f"{prefix} ok is inconsistent with returncode, timeout, and error")
+    if returncode is None and error is None:
+        errors.append(f"{prefix} missing returncode requires an error envelope")
+    if timed_out is True:
+        if returncode != 124:
+            errors.append(f"{prefix} timeout must use returncode 124")
+        if error_type != "timeout":
+            errors.append(f"{prefix} timeout requires a timeout error envelope")
+    elif error_type == "timeout":
+        errors.append(f"{prefix} timeout error requires timed_out=true")
+    if error_type == "spawn_error" and returncode is not None:
+        errors.append(f"{prefix} spawn error must not have a returncode")
     rss = step.get("rss_measurement")
     if not isinstance(rss, Mapping):
         errors.append(f"{prefix} rss_measurement is not bound")
@@ -1010,6 +1161,40 @@ def _step_validation_errors(index: int, step: Mapping[str, Any]) -> list[str]:
         errors.append(f"{prefix} children_max_rss_kib is invalid")
     if not _is_sha256_text(step.get("environment_sha256")):
         errors.append(f"{prefix} environment identity is not bound")
+    cleanup_errors = step.get("cleanup_errors")
+    if cleanup_errors is not None and (
+        not isinstance(cleanup_errors, list)
+        or any(not isinstance(value, str) or len(value) > 400 for value in cleanup_errors)
+    ):
+        errors.append(f"{prefix} cleanup error list is invalid")
+    cleanup = step.get("cleanup")
+    if cleanup is not None:
+        if not isinstance(cleanup, Mapping):
+            errors.append(f"{prefix} cleanup envelope is invalid")
+        else:
+            if cleanup.get("process_group") not in {"isolated", "direct_process", "not_started"}:
+                errors.append(f"{prefix} process group cleanup mode is invalid")
+            for field in ("process_group_termination_attempted", "process_group_alive", "process_terminated"):
+                if not isinstance(cleanup.get(field), bool):
+                    errors.append(f"{prefix} cleanup field {field} is invalid")
+            if cleanup.get("process_terminated") is not True:
+                errors.append(f"{prefix} process cleanup is incomplete")
+            if cleanup.get("process_group_alive") is True:
+                errors.append(f"{prefix} process group cleanup is incomplete")
+            reader_threads = cleanup.get("reader_threads_alive")
+            if not isinstance(reader_threads, list) or any(not isinstance(value, str) for value in reader_threads):
+                errors.append(f"{prefix} reader cleanup state is invalid")
+            elif reader_threads:
+                errors.append(f"{prefix} reader cleanup is incomplete")
+            reported_errors = cleanup.get("errors")
+            if not isinstance(reported_errors, list) or any(
+                not isinstance(value, str) or len(value) > 400 for value in reported_errors
+            ):
+                errors.append(f"{prefix} cleanup envelope errors are invalid")
+            elif reported_errors:
+                errors.append(f"{prefix} cleanup envelope reports failure")
+    elif cleanup_errors:
+        errors.append(f"{prefix} cleanup error list reports failure")
     return errors
 
 
@@ -1084,6 +1269,16 @@ def _normalize_execution(
         expected_resource_hash = _digest_value(normalized_resource)
         if supplied_resource_hash != expected_resource_hash:
             errors.append("execution resource decision digest does not match its decision")
+    supplied_timeout = execution.get("timeout_sec")
+    if supplied_timeout is not None:
+        try:
+            normalized_timeout = _validate_timeout_sec(supplied_timeout)
+        except ValidationInputError as exc:
+            errors.append(str(exc))
+        else:
+            normalized_timeout = float(normalized_timeout)
+    else:
+        normalized_timeout = None
     expected_ok = status == "completed" and bool(normalized_steps) and not errors and all(
         step.get("ok") is True for step in normalized_steps
     )
@@ -1094,6 +1289,8 @@ def _normalize_execution(
         errors.append("execution ok does not match step aggregate")
     normalized = dict(execution)
     normalized["steps"] = normalized_steps
+    if normalized_timeout is not None:
+        normalized["timeout_sec"] = normalized_timeout
     normalized["ok"] = expected_ok
     normalized["claimed_ok"] = claimed_ok
     normalized["validation_errors"] = errors
@@ -1248,7 +1445,11 @@ def _approved_receipt_path(repo_root: Path, receipt_path: Path) -> Path:
         raise ReceiptPathError(f"receipt root cannot be resolved: {_short_error(str(exc))}") from exc
     if root == Path(root.anchor) or root == repo or _is_relative_to(root, repo) or _is_relative_to(repo, root):
         raise ReceiptPathError("receipt root must be a narrow task-local root outside the source checkout")
-    if not stat.S_ISDIR(root.stat().st_mode):
+    try:
+        root_info = root.stat()
+    except OSError as exc:
+        raise ReceiptPathError(f"approved receipt root cannot be inspected: {_short_error(str(exc))}") from exc
+    if not stat.S_ISDIR(root_info.st_mode):
         raise ReceiptPathError("approved receipt root must be a directory")
     target = receipt_path if receipt_path.is_absolute() else root / receipt_path
     target = target.resolve(strict=False)
@@ -1257,38 +1458,240 @@ def _approved_receipt_path(repo_root: Path, receipt_path: Path) -> Path:
     if not _is_relative_to(target, root):
         raise ReceiptPathError("receipt path escapes the approved task-local root")
     parent = target.parent
-    if not parent.is_dir():
+    try:
+        parent_is_dir = parent.is_dir()
+    except OSError as exc:
+        raise ReceiptPathError(f"receipt parent cannot be inspected: {_short_error(str(exc))}") from exc
+    if not parent_is_dir:
         raise ReceiptPathError("receipt parent must already exist")
     if os.path.lexists(target):
         raise ReceiptPathError("receipt path already exists; refusing overwrite")
     return target
 
 
+def _receipt_open_flags(*, directory: bool = False) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if directory:
+        flags |= getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    return flags
+
+
+def _same_directory(left: os.stat_result, right: os.stat_result) -> bool:
+    return (
+        stat.S_ISDIR(left.st_mode)
+        and stat.S_ISDIR(right.st_mode)
+        and left.st_dev == right.st_dev
+        and left.st_ino == right.st_ino
+    )
+
+
+def _fd_realpath(fd: int) -> Path | None:
+    if os.name != "posix":
+        return None
+    try:
+        return Path(os.path.realpath(f"/proc/self/fd/{fd}"))
+    except OSError:
+        return None
+
+
+def _receipt_binding_errors(
+    root_fd: int,
+    parent_fd: int,
+    root: Path,
+    expected_root: os.stat_result,
+    expected_parent: os.stat_result,
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        actual_root = os.fstat(root_fd)
+        actual_parent = os.fstat(parent_fd)
+    except OSError as exc:
+        return [f"receipt directory identity could not be checked: {_short_error(str(exc))}"]
+    if not _same_directory(actual_root, expected_root):
+        errors.append("approved receipt root changed during delivery")
+    if not _same_directory(actual_parent, expected_parent):
+        errors.append("receipt parent changed during delivery")
+    root_path = _fd_realpath(root_fd)
+    if root_path is not None and root_path != root:
+        errors.append("approved receipt root moved outside its validated path")
+    parent_path = _fd_realpath(parent_fd)
+    if parent_path is not None and not (parent_path == root or _is_relative_to(parent_path, root)):
+        errors.append("receipt parent moved outside the approved root")
+    return errors
+
+
+def _open_receipt_directory(name: str, *, dir_fd: int | None = None) -> int:
+    flags = _receipt_open_flags(directory=True)
+    if dir_fd is None:
+        return os.open(name, flags)
+    return os.open(name, flags, dir_fd=dir_fd)
+
+
+def _receipt_context(
+    repo_root: Path,
+    receipt_path: Path,
+) -> tuple[Path, Path, tuple[str, ...], os.stat_result, os.stat_result]:
+    target = _approved_receipt_path(repo_root, receipt_path)
+    root_text = os.environ.get(RECEIPT_ROOT_ENV)
+    if not root_text:
+        raise ReceiptPathError(f"{RECEIPT_ROOT_ENV} must name the approved task-local root")
+    root = Path(root_text).resolve(strict=True)
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise ReceiptPathError("receipt path escapes the approved task-local root") from exc
+    parts = relative.parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ReceiptPathError("receipt path must name a file below the approved task-local root")
+    try:
+        expected_root = root.stat()
+        expected_parent = target.parent.stat()
+    except OSError as exc:
+        raise ReceiptPathError(f"receipt directory identity could not be captured: {_short_error(str(exc))}") from exc
+    if not stat.S_ISDIR(expected_root.st_mode) or not stat.S_ISDIR(expected_parent.st_mode):
+        raise ReceiptPathError("receipt root and parent must be directories")
+    return root, target, parts, expected_root, expected_parent
+
+
+def _open_receipt_temp(parent_fd: int) -> tuple[int, str]:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    for _ in range(RECEIPT_TEMP_ATTEMPTS):
+        name = f".validation-receipt.{secrets.token_hex(12)}"
+        try:
+            return os.open(name, flags, 0o600, dir_fd=parent_fd), name
+        except FileExistsError:
+            continue
+    raise ReceiptPathError("could not allocate a unique receipt temporary file")
+
+
 def write_receipt_atomic(repo_root: Path, receipt_path: Path, rendered: str) -> Path:
     """Write a new task-local receipt atomically without replacing an existing file."""
 
-    target = _approved_receipt_path(repo_root, receipt_path)
-    fd, temporary_name = tempfile.mkstemp(prefix=".validation-receipt.", dir=target.parent, text=True)
-    temporary = Path(temporary_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(rendered)
+        root, target, parts, expected_root, expected_parent = _receipt_context(repo_root, receipt_path)
+    except ReceiptPathError:
+        raise
+    except (OSError, TypeError, ValueError, RuntimeError) as exc:
+        raise ReceiptPathError(f"receipt delivery failed: {_short_error(str(exc))}") from exc
+    root_fd: int | None = None
+    parent_fd: int | None = None
+    temporary_name: str | None = None
+    target_name = parts[-1]
+    linked = False
+    committed = False
+    try:
+        root_fd = _open_receipt_directory(str(root))
+        parent_fd = root_fd
+        for component in parts[:-1]:
+            next_fd = _open_receipt_directory(component, dir_fd=parent_fd)
+            if parent_fd != root_fd:
+                os.close(parent_fd)
+            parent_fd = next_fd
+        binding_errors = _receipt_binding_errors(
+            root_fd,
+            parent_fd,
+            root,
+            expected_root,
+            expected_parent,
+        )
+        if binding_errors:
+            raise ReceiptPathError("; ".join(binding_errors))
+
+        try:
+            os.stat(target_name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise ReceiptPathError("receipt path already exists; refusing overwrite")
+
+        temporary_fd, temporary_name = _open_receipt_temp(parent_fd)
+        payload = rendered.encode("utf-8")
+        with os.fdopen(temporary_fd, "wb") as handle:
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+
+        binding_errors = _receipt_binding_errors(
+            root_fd,
+            parent_fd,
+            root,
+            expected_root,
+            expected_parent,
+        )
+        if binding_errors:
+            raise ReceiptPathError("; ".join(binding_errors))
         try:
-            os.link(temporary, target)
+            os.link(
+                temporary_name,
+                target_name,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+            linked = True
         except FileExistsError as exc:
             raise ReceiptPathError("receipt path appeared during atomic create; refusing overwrite") from exc
-        temporary.unlink()
-        directory_fd = os.open(target.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    except Exception:
-        if temporary.exists():
-            temporary.unlink()
+
+        binding_errors = _receipt_binding_errors(
+            root_fd,
+            parent_fd,
+            root,
+            expected_root,
+            expected_parent,
+        )
+        if binding_errors:
+            try:
+                os.unlink(target_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            raise ReceiptPathError("; ".join(binding_errors))
+
+        os.unlink(temporary_name, dir_fd=parent_fd)
+        temporary_name = None
+        os.fsync(parent_fd)
+        binding_errors = _receipt_binding_errors(
+            root_fd,
+            parent_fd,
+            root,
+            expected_root,
+            expected_parent,
+        )
+        if binding_errors:
+            try:
+                os.unlink(target_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            raise ReceiptPathError("; ".join(binding_errors))
+        committed = True
+    except ReceiptPathError:
         raise
+    except (OSError, TypeError, ValueError, RuntimeError) as exc:
+        raise ReceiptPathError(f"receipt delivery failed: {_short_error(str(exc))}") from exc
+    finally:
+        if not committed and linked and parent_fd is not None:
+            try:
+                os.unlink(target_name, dir_fd=parent_fd)
+            except (FileNotFoundError, OSError):
+                pass
+        if temporary_name is not None and parent_fd is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+        if parent_fd is not None and parent_fd != root_fd:
+            try:
+                os.close(parent_fd)
+            except OSError:
+                pass
+        if root_fd is not None:
+            try:
+                os.close(root_fd)
+            except OSError:
+                pass
     return target
 
 
@@ -1337,7 +1740,14 @@ def _resource_decision_argument(args: argparse.Namespace) -> Any:
     return value
 
 
-def _plan_only_execution(repo_root: Path, plan: Mapping[str, Any], resource_input: Any) -> dict[str, Any]:
+def _plan_only_execution(
+    repo_root: Path,
+    plan: Mapping[str, Any],
+    resource_input: Any,
+    *,
+    timeout_sec: float,
+) -> dict[str, Any]:
+    timeout_sec = _validate_timeout_sec(timeout_sec)
     normalized, errors = _normalize_resource_decision(resource_input)
     return {
         "status": "plan_only",
@@ -1346,6 +1756,7 @@ def _plan_only_execution(repo_root: Path, plan: Mapping[str, Any], resource_inpu
         "resource_decision_sha256": None if normalized is None else _digest_value(normalized),
         "resource_decision_input": resource_input,
         "resource_decision_errors": errors,
+        "timeout_sec": timeout_sec,
         "environment": _environment_identity(
             repo_root,
             _execution_environment(repo_root),
@@ -1388,6 +1799,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     repo_root = args.repo.resolve()
     try:
+        timeout_sec = _validate_timeout_sec(args.timeout_sec)
         identity = candidate_identity(repo_root, args.base, args.candidate)
         paths = changed_paths(
             repo_root,
@@ -1399,17 +1811,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         _force_full_gate_for_dirty_worktree(plan, identity)
         resource_input = _resource_decision_argument(args)
         if args.plan_only:
-            execution = _plan_only_execution(repo_root, plan, resource_input)
+            execution = _plan_only_execution(
+                repo_root,
+                plan,
+                resource_input,
+                timeout_sec=timeout_sec,
+            )
         else:
             normalized, errors = _normalize_resource_decision(resource_input)
             if errors:
                 execution = execute_plan(
                     repo_root,
                     plan,
+                    run_full=args.run_full,
+                    timeout_sec=timeout_sec,
                     resource_decision=resource_input if isinstance(resource_input, Mapping) else None,
                 )
             else:
-                execution = execute_plan(repo_root, plan, resource_decision=normalized)
+                execution = execute_plan(
+                    repo_root,
+                    plan,
+                    run_full=args.run_full,
+                    timeout_sec=timeout_sec,
+                    resource_decision=normalized,
+                )
         receipt = make_receipt(repo_root, identity, plan, execution)
     except (RuntimeError, ValidationInputError) as exc:
         print(json.dumps({"schema": SCHEMA, "ok": False, "error": str(exc)}, sort_keys=True))

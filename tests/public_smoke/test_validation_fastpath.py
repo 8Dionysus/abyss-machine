@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -33,11 +34,16 @@ def _fixture_repo(tmp_path: Path) -> Path:
     (repo_root / "src/abyss_machine").mkdir(parents=True)
     (repo_root / "tests/public_smoke").mkdir(parents=True)
     (repo_root / "docs/validation").mkdir(parents=True)
+    (repo_root / "scripts").mkdir(parents=True)
     (repo_root / "src/abyss_machine/module.py").write_text("VALUE = 1\n", encoding="utf-8")
     (repo_root / "tests/public_smoke/test_module.py").write_text("def test_module():\n    assert True\n", encoding="utf-8")
     (repo_root / "pytest.ini").write_text("[pytest]\ntestpaths = tests/public_smoke\n", encoding="utf-8")
     (repo_root / ".gitignore").write_text("ignored-input.txt\n", encoding="utf-8")
     (repo_root / "docs/validation/validation_lanes.json").write_text("{}\n", encoding="utf-8")
+    (repo_root / "scripts/ci_gate.py").write_text(
+        "print('full-gate-ran')\n",
+        encoding="utf-8",
+    )
     _git(repo_root, "init", "-q")
     _git(repo_root, "config", "user.email", "fastpath@example.invalid")
     _git(repo_root, "config", "user.name", "fastpath-test")
@@ -95,6 +101,31 @@ def _execution(repo_root: Path, plan: dict[str, object], steps: list[dict[str, o
         "ok": ok,
         "reason": None,
     }
+
+
+def _commit_source_change(repo_root: Path, content: str) -> None:
+    (repo_root / "src/abyss_machine/module.py").write_text(content, encoding="utf-8")
+    _git(repo_root, "add", "src/abyss_machine/module.py", "tests/public_smoke/test_module.py")
+    _git(repo_root, "commit", "-qm", "candidate")
+
+
+def _run_cli(repo_root: Path, *args: str) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
+    command = [
+        sys.executable,
+        str(REPO_ROOT / "scripts/validation_fastpath.py"),
+        "--repo",
+        str(repo_root),
+        "--base",
+        "HEAD^",
+        "--candidate",
+        "HEAD",
+        "--resource-decision",
+        json.dumps(VALID_RESOURCE, sort_keys=True),
+        *args,
+    ]
+    result = subprocess.run(command, cwd=repo_root, check=False, capture_output=True, text=True)
+    payload = json.loads(result.stdout)
+    return result, payload
 
 
 def test_mapped_source_surface_selects_contextual_node_and_keeps_full_gate_required(tmp_path: Path) -> None:
@@ -177,6 +208,83 @@ def test_fastpath_receipt_is_candidate_only_when_contextual_steps_pass(tmp_path:
     assert receipt["cache"]["receipt_reuse"] == "not_implemented"
     assert receipt["resource"]["decision"] == VALID_RESOURCE
     assert receipt["resource"]["decision_sha256"] == fastpath._digest_value(VALID_RESOURCE)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda step: step.update(returncode=7),
+        lambda step: step.update(error={"type": "synthetic", "detail": "forged failure"}),
+        lambda step: step.update(timed_out=True, returncode=124, error={"type": "timeout", "detail": "forged timeout"}),
+    ],
+)
+def test_receipt_rejects_contradictory_step_outcomes(tmp_path: Path, mutate) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+    step = _step(plan["selected"][0], ok=True)
+    mutate(step)
+    execution = _execution(repo_root, plan, [step], ok=True)
+
+    receipt = make_receipt(repo_root, candidate_identity(repo_root, "HEAD", "HEAD"), plan, execution)
+
+    assert receipt["ok"] is False
+    assert receipt["proof"]["status"] == "incomplete_execution"
+    assert any("inconsistent" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+@pytest.mark.parametrize("timeout_sec", [0, -1, float("nan"), float("inf")])
+def test_execute_plan_rejects_nonfinite_or_nonpositive_timeout(tmp_path: Path, timeout_sec: float) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+
+    with pytest.raises(fastpath.ValidationInputError, match="finite positive"):
+        fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE, timeout_sec=timeout_sec)
+
+
+def test_cli_run_full_is_forwarded_and_executed_end_to_end(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    _commit_source_change(repo_root, "VALUE = 2\n")
+
+    result, receipt = _run_cli(repo_root, "--run-full", "--timeout-sec", "2")
+
+    assert result.returncode == 0, result.stderr
+    assert [step["node_id"] for step in receipt["execution"]["steps"]] == [
+        "public-smoke:tests/public_smoke/test_module.py",
+        FULL_GATE_ID,
+    ]
+    assert receipt["execution"]["timeout_sec"] == 2.0
+    assert receipt["proof"]["full_gate_status"] == "passed"
+    assert receipt["execution"]["steps"][1]["stdout_tail"].strip() == "full-gate-ran"
+
+
+def test_cli_timeout_is_forwarded_and_bounds_selected_child(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "tests/public_smoke/test_module.py").write_text(
+        "import time\n\ndef test_module():\n    time.sleep(0.2)\n",
+        encoding="utf-8",
+    )
+    _commit_source_change(repo_root, "VALUE = 2\n")
+
+    result, receipt = _run_cli(repo_root, "--timeout-sec", "0.01")
+
+    assert result.returncode == 1
+    step = receipt["execution"]["steps"][0]
+    assert step["timed_out"] is True
+    assert step["returncode"] == 124
+    assert step["error"]["type"] == "timeout"
+    assert receipt["execution"]["timeout_sec"] == 0.01
+    assert receipt["proof"]["status"] == "required_step_failed"
+
+
+@pytest.mark.parametrize("timeout_text", ["0", "-1", "nan", "inf"])
+def test_cli_rejects_invalid_timeout_before_plan_or_execution(tmp_path: Path, timeout_text: str) -> None:
+    repo_root = _fixture_repo(tmp_path)
+
+    result, payload = _run_cli(repo_root, "--plan-only", "--timeout-sec", timeout_text)
+
+    assert result.returncode == 1
+    assert payload["ok"] is False
+    assert "finite positive" in payload["error"]
 
 
 def test_mixed_contextual_failure_is_not_masked_by_passing_full_gate(tmp_path: Path) -> None:
@@ -307,6 +415,9 @@ def test_receipt_output_is_task_local_atomic_and_non_overwriting(tmp_path: Path,
     target = fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n")
     assert target == receipt_root / "result.json"
     assert json.loads(target.read_text(encoding="utf-8")) == {}
+    (receipt_root / "nested").mkdir()
+    nested_target = fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{\"nested\": true}\n")
+    assert json.loads(nested_target.read_text(encoding="utf-8")) == {"nested": True}
 
     with pytest.raises(fastpath.ReceiptPathError, match="already exists"):
         fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "tampered\n")
@@ -315,6 +426,41 @@ def test_receipt_output_is_task_local_atomic_and_non_overwriting(tmp_path: Path,
     with pytest.raises(fastpath.ReceiptPathError, match="source checkout"):
         fastpath.write_receipt_atomic(REPO_ROOT, REPO_ROOT / "pytest.ini", "tampered\n")
     assert (REPO_ROOT / "pytest.ini").read_text(encoding="utf-8").startswith("[pytest]")
+
+
+def test_receipt_parent_swap_cannot_redirect_fd_bound_delivery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    nested = receipt_root / "nested"
+    outside = tmp_path / "outside"
+    nested.mkdir(parents=True)
+    outside.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_link = os.link
+
+    def swap_parent_before_link(
+        source: str,
+        target: str,
+        *,
+        src_dir_fd: int | None = None,
+        dst_dir_fd: int | None = None,
+        follow_symlinks: bool = True,
+    ) -> None:
+        nested.rename(outside / "moved")
+        nested.symlink_to(outside, target_is_directory=True)
+        original_link(
+            source,
+            target,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+            follow_symlinks=follow_symlinks,
+        )
+
+    monkeypatch.setattr(fastpath.os, "link", swap_parent_before_link)
+
+    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed"):
+        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
+
+    assert not list(outside.rglob("result.json"))
 
 
 def test_run_node_bounds_output_and_measures_one_child() -> None:
@@ -349,3 +495,31 @@ def test_run_node_converts_launch_decode_and_timeout_failures_to_receipts(
     assert result["ok"] is False
     assert result["error"]["type"] == error_type
     assert len(result["stdout_tail"]) <= fastpath.MAX_OUTPUT_CHARS
+
+
+def test_timeout_terminates_descendants_and_drains_readers_within_bound() -> None:
+    command = [
+        sys.executable,
+        "-c",
+        (
+            "import subprocess, sys, time; "
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)']); "
+            "print(child.pid, flush=True); time.sleep(5)"
+        ),
+    ]
+
+    result = fastpath._run_node(
+        REPO_ROOT,
+        {"node_id": "descendant-timeout", "command": command},
+        timeout_sec=0.05,
+    )
+
+    assert result["ok"] is False
+    assert result["timed_out"] is True
+    assert result["error"]["type"] == "timeout"
+    assert result["elapsed_sec"] < 0.5
+    assert result["cleanup"]["process_group"] == "isolated"
+    assert result["cleanup"]["process_group_alive"] is False
+    assert result["cleanup"]["process_terminated"] is True
+    assert result["cleanup"]["reader_threads_alive"] == []
+    assert result["cleanup_errors"] == []
