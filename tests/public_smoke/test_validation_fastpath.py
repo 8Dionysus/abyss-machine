@@ -5,8 +5,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -75,6 +77,17 @@ def _step(node: dict[str, object], *, ok: bool) -> dict[str, object]:
         "stdout_bytes": 0,
         "stderr_bytes": 0,
         "error": None,
+        "cleanup": {
+            "process_group": "isolated",
+            "process_group_termination_attempted": False,
+            "process_group_alive": False,
+            "process_terminated": True,
+            "reader_threads_alive": [],
+            "descendant_processes_alive": [],
+            "descendant_cleanup_attempted": True,
+            "errors": [],
+        },
+        "cleanup_errors": [],
     }
 
 
@@ -95,12 +108,23 @@ def _execution(repo_root: Path, plan: dict[str, object], steps: list[dict[str, o
         "resource_admission": "allow",
         "resource_decision": dict(VALID_RESOURCE),
         "resource_decision_sha256": fastpath._digest_value(VALID_RESOURCE),
+        "timeout_sec": 1.0,
         "environment": environment,
         "command_graph_sha256": fastpath._command_graph_digest(nodes),
         "steps": steps,
         "ok": ok,
         "reason": None,
     }
+
+
+def _candidate_plan(repo_root: Path) -> tuple[dict[str, object], dict[str, object]]:
+    _commit_source_change(repo_root, "VALUE = 2\n")
+    base_ref = "HEAD^"
+    candidate_ref = "HEAD"
+    paths = fastpath.changed_paths(repo_root, base_ref, candidate_ref)
+    plan = build_plan(paths, repo_root)
+    identity = candidate_identity(repo_root, base_ref, candidate_ref)
+    return plan, identity
 
 
 def _commit_source_change(repo_root: Path, content: str) -> None:
@@ -196,10 +220,10 @@ def test_empty_plan_is_non_success_and_requires_full_gate(tmp_path: Path, monkey
 
 def test_fastpath_receipt_is_candidate_only_when_contextual_steps_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = _fixture_repo(tmp_path)
-    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+    plan, identity = _candidate_plan(repo_root)
     monkeypatch.setattr(fastpath, "_run_node", lambda repo, node, timeout, **kwargs: _step(node, ok=True))
     execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
-    receipt = make_receipt(repo_root, candidate_identity(repo_root, "HEAD", "HEAD"), plan, execution)
+    receipt = make_receipt(repo_root, identity, plan, execution)
 
     assert receipt["ok"] is True
     assert receipt["proof"]["status"] == "contextual_candidate_passed"
@@ -220,12 +244,12 @@ def test_fastpath_receipt_is_candidate_only_when_contextual_steps_pass(tmp_path:
 )
 def test_receipt_rejects_contradictory_step_outcomes(tmp_path: Path, mutate) -> None:
     repo_root = _fixture_repo(tmp_path)
-    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+    plan, identity = _candidate_plan(repo_root)
     step = _step(plan["selected"][0], ok=True)
     mutate(step)
     execution = _execution(repo_root, plan, [step], ok=True)
 
-    receipt = make_receipt(repo_root, candidate_identity(repo_root, "HEAD", "HEAD"), plan, execution)
+    receipt = make_receipt(repo_root, identity, plan, execution)
 
     assert receipt["ok"] is False
     assert receipt["proof"]["status"] == "incomplete_execution"
@@ -289,11 +313,11 @@ def test_cli_rejects_invalid_timeout_before_plan_or_execution(tmp_path: Path, ti
 
 def test_mixed_contextual_failure_is_not_masked_by_passing_full_gate(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
-    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+    plan, identity = _candidate_plan(repo_root)
     selected_step = _step(plan["selected"][0], ok=False)
     full_step = _step(plan["full_gate"]["node"], ok=True)
     execution = _execution(repo_root, plan, [selected_step, full_step], ok=False)
-    receipt = make_receipt(repo_root, candidate_identity(repo_root, "HEAD", "HEAD"), plan, execution)
+    receipt = make_receipt(repo_root, identity, plan, execution)
 
     assert receipt["ok"] is False
     assert receipt["proof"]["status"] == "required_step_failed"
@@ -348,10 +372,10 @@ def test_incomplete_resource_admission_cannot_execute(tmp_path: Path) -> None:
 
 def test_resource_receipt_binds_complete_caller_decision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = _fixture_repo(tmp_path)
-    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+    plan, identity = _candidate_plan(repo_root)
     monkeypatch.setattr(fastpath, "_run_node", lambda repo, node, timeout, **kwargs: _step(node, ok=True))
     execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
-    receipt = make_receipt(repo_root, candidate_identity(repo_root, "HEAD", "HEAD"), plan, execution)
+    receipt = make_receipt(repo_root, identity, plan, execution)
 
     assert receipt["resource"]["validation"] == "passed"
     assert receipt["resource"]["class"] == VALID_RESOURCE["class"]
@@ -362,11 +386,9 @@ def test_resource_receipt_binds_complete_caller_decision(tmp_path: Path, monkeyp
 
 def test_identity_plan_and_environment_substitution_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = _fixture_repo(tmp_path)
-    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+    plan, identity = _candidate_plan(repo_root)
     monkeypatch.setattr(fastpath, "_run_node", lambda repo, node, timeout, **kwargs: _step(node, ok=True))
     execution = fastpath.execute_plan(repo_root, plan, resource_decision=VALID_RESOURCE)
-    identity = candidate_identity(repo_root, "HEAD", "HEAD")
-
     tampered_identity = dict(identity)
     tampered_identity["candidate_tree"] = "tree-substitution"
     with pytest.raises(fastpath.ValidationInputError):
@@ -399,13 +421,116 @@ def test_identity_plan_and_environment_substitution_is_rejected(tmp_path: Path, 
 
 def test_receipt_rejects_a_completed_execution_that_omits_a_planned_step(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
-    plan = build_plan(["src/abyss_machine/module.py"], repo_root)
+    plan, identity = _candidate_plan(repo_root)
     execution = _execution(repo_root, plan, [], ok=False)
-    receipt = make_receipt(repo_root, candidate_identity(repo_root, "HEAD", "HEAD"), plan, execution)
+    receipt = make_receipt(repo_root, identity, plan, execution)
 
     assert receipt["ok"] is False
     assert receipt["proof"]["status"] == "incomplete_execution"
     assert any("exact planned node sequence" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+def test_receipt_rejects_missing_timeout_and_cleanup_envelope(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    step = _step(plan["selected"][0], ok=True)
+    execution = _execution(repo_root, plan, [step], ok=True)
+    execution.pop("timeout_sec")
+    step.pop("cleanup")
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is False
+    assert receipt["proof"]["status"] == "incomplete_execution"
+    assert any("timeout_sec is required" in error for error in receipt["proof"]["execution_validation_errors"])
+    assert any("cleanup envelope is required" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+def test_receipt_cross_binds_cleanup_error_channels(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    step = _step(plan["selected"][0], ok=True)
+    step["cleanup_errors"] = ["synthetic cleanup failure"]
+    execution = _execution(repo_root, plan, [step], ok=True)
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is False
+    assert any("cleanup error channels do not match" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+def test_completed_execution_with_denied_admission_cannot_be_green(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    step = _step(plan["selected"][0], ok=True)
+    execution = _execution(repo_root, plan, [step], ok=True)
+    denied = dict(VALID_RESOURCE, admission="deny")
+    execution["resource_admission"] = "deny"
+    execution["resource_decision"] = denied
+    execution["resource_decision_sha256"] = fastpath._digest_value(denied)
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is False
+    assert any("requires resource admission=allow" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+@pytest.mark.parametrize("elapsed_sec", [float("nan"), float("inf"), float("-inf")])
+def test_receipt_rejects_nonfinite_step_timing(tmp_path: Path, elapsed_sec: float) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    step = _step(plan["selected"][0], ok=True)
+    step["elapsed_sec"] = elapsed_sec
+    execution = _execution(repo_root, plan, [step], ok=True)
+    receipt = make_receipt(repo_root, identity, plan, execution)
+
+    assert receipt["ok"] is False
+    assert any("elapsed_sec is invalid" in error for error in receipt["proof"]["execution_validation_errors"])
+
+
+def test_candidate_ref_must_match_executed_head(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    _commit_source_change(repo_root, "VALUE = 2\n")
+    candidate_ref = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo_root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    base_ref = subprocess.run(
+        ["git", "rev-parse", "HEAD^"], cwd=repo_root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    paths = fastpath.changed_paths(repo_root, base_ref, candidate_ref)
+    plan = build_plan(paths, repo_root)
+    identity = candidate_identity(repo_root, base_ref, candidate_ref)
+    _git(repo_root, "checkout", "-q", "--detach", base_ref)
+    step = _step(plan["selected"][0], ok=True)
+    execution = _execution(repo_root, plan, [step], ok=True)
+
+    with pytest.raises(fastpath.ValidationInputError, match="executed worktree HEAD"):
+        make_receipt(repo_root, identity, plan, execution)
+
+
+def test_plan_changed_paths_must_match_exact_candidate_diff(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    tampered_plan = deepcopy(plan)
+    tampered_plan["changed_paths"] = ["src/abyss_machine/fake.py"]
+    tampered_plan["plan_sha256"] = fastpath._plan_digest(tampered_plan)
+    step = _step(plan["selected"][0], ok=True)
+    execution = _execution(repo_root, plan, [step], ok=True)
+
+    with pytest.raises(fastpath.ValidationInputError, match="exact base/candidate Git diff"):
+        make_receipt(repo_root, identity, tampered_plan, execution)
+
+
+def test_full_gate_rejects_interpreter_substitution(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    plan, identity = _candidate_plan(repo_root)
+    tampered_plan = deepcopy(plan)
+    tampered_plan["python_executable"] = "/bin/true"
+    tampered_plan["python_executable_sha256"] = fastpath._sha256(Path("/bin/true"))
+    tampered_plan["full_gate"]["node"]["command"][0] = "/bin/true"
+    tampered_plan["plan_sha256"] = fastpath._plan_digest(tampered_plan)
+    step = _step(plan["selected"][0], ok=True)
+    execution = _execution(repo_root, plan, [step], ok=True)
+
+    with pytest.raises(fastpath.ValidationInputError, match="owner interpreter"):
+        make_receipt(repo_root, identity, tampered_plan, execution)
 
 
 def test_receipt_output_is_task_local_atomic_and_non_overwriting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -461,6 +586,79 @@ def test_receipt_parent_swap_cannot_redirect_fd_bound_delivery(tmp_path: Path, m
         fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
 
     assert not list(outside.rglob("result.json"))
+
+
+def test_receipt_post_check_parent_swap_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    nested = receipt_root / "nested"
+    outside = tmp_path / "outside"
+    nested.mkdir(parents=True)
+    outside.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_binding = fastpath._receipt_binding_errors
+    calls = 0
+
+    def move_after_final_fd_check(root_fd, parent_fd, root, expected_root, expected_parent):
+        nonlocal calls
+        result = original_binding(root_fd, parent_fd, root, expected_root, expected_parent)
+        calls += 1
+        if calls == 4:
+            nested.rename(outside / "moved")
+            nested.symlink_to(outside / "moved", target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(fastpath, "_receipt_binding_errors", move_after_final_fd_check)
+
+    with pytest.raises(fastpath.ReceiptPathError, match="outside|changed|directory"):
+        fastpath.write_receipt_atomic(REPO_ROOT, Path("nested/result.json"), "{}\n")
+
+    assert not list(outside.rglob("result.json"))
+
+
+def test_receipt_temp_unlink_failure_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    receipt_root.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_unlink = fastpath.os.unlink
+
+    def fail_temp_unlink(path, *args, **kwargs):
+        if isinstance(path, str) and path.startswith(".validation-receipt."):
+            raise OSError("synthetic temp unlink failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(fastpath.os, "unlink", fail_temp_unlink)
+
+    with pytest.raises(fastpath.ReceiptPathError, match="temporary unlink failed"):
+        fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n")
+
+    assert list(receipt_root.glob(".validation-receipt.*"))
+
+
+def test_receipt_directory_fd_close_failure_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_root = tmp_path / "receipts"
+    receipt_root.mkdir()
+    monkeypatch.setenv(fastpath.RECEIPT_ROOT_ENV, str(receipt_root))
+    original_open = fastpath._open_receipt_directory
+    original_close = fastpath.os.close
+    directory_fds: set[int] = set()
+
+    def capture_directory_fd(name: str, *, dir_fd: int | None = None) -> int:
+        file_descriptor = original_open(name, dir_fd=dir_fd)
+        directory_fds.add(file_descriptor)
+        return file_descriptor
+
+    def fail_directory_close(file_descriptor: int) -> None:
+        if file_descriptor in directory_fds:
+            raise OSError("synthetic directory close failure")
+        original_close(file_descriptor)
+
+    monkeypatch.setattr(fastpath, "_open_receipt_directory", capture_directory_fd)
+    monkeypatch.setattr(fastpath.os, "close", fail_directory_close)
+
+    with pytest.raises(fastpath.ReceiptPathError, match="fd close failed"):
+        fastpath.write_receipt_atomic(REPO_ROOT, Path("result.json"), "{}\n")
+
+    assert (receipt_root / "result.json").exists()
 
 
 def test_run_node_bounds_output_and_measures_one_child() -> None:
@@ -523,3 +721,64 @@ def test_timeout_terminates_descendants_and_drains_readers_within_bound() -> Non
     assert result["cleanup"]["process_terminated"] is True
     assert result["cleanup"]["reader_threads_alive"] == []
     assert result["cleanup_errors"] == []
+
+
+def test_timeout_cleanup_preserves_preexisting_runner_child() -> None:
+    unrelated = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(5)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        result = fastpath._run_node(
+            REPO_ROOT,
+            {"node_id": "preserve-runner-child", "command": [sys.executable, "-c", "import time; time.sleep(5)"]},
+            timeout_sec=0.05,
+        )
+
+        assert result["timed_out"] is True
+        assert unrelated.poll() is None
+    finally:
+        if unrelated.poll() is None:
+            unrelated.terminate()
+        try:
+            unrelated.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            unrelated.kill()
+            unrelated.wait(timeout=1.0)
+
+
+def test_timeout_bounds_setsid_descendant_with_inherited_pipes(tmp_path: Path) -> None:
+    marker = tmp_path / "detached.pid"
+    child_code = (
+        f"import os,time; os.setsid(); open({str(marker)!r}, 'w').write(str(os.getpid())); time.sleep(5)"
+    )
+    parent_code = (
+        "import subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); time.sleep(5)"
+    )
+    started = time.perf_counter()
+    result = fastpath._run_node(
+        REPO_ROOT,
+        {"node_id": "setsid-descendant-timeout", "command": [sys.executable, "-c", parent_code]},
+        timeout_sec=0.2,
+    )
+    elapsed = time.perf_counter() - started
+
+    detached_pid = int(marker.read_text(encoding="utf-8")) if marker.exists() else None
+    detached_alive = False
+    if detached_pid is not None:
+        try:
+            os.kill(detached_pid, 0)
+            detached_alive = True
+        except OSError:
+            pass
+        if detached_alive:
+            os.kill(detached_pid, signal.SIGKILL)
+
+    assert result["ok"] is False
+    assert result["timed_out"] is True
+    assert result["error"]["type"] == "timeout"
+    assert elapsed < 0.75
+    assert result["cleanup"]["reader_threads_alive"] == []
+    assert detached_alive is False
