@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 import os
 from pathlib import Path
 import sys
@@ -280,6 +282,8 @@ def _fixture_backend(
     boot_reader=None,
     mount_reader=None,
     readlink=None,
+    stat_path=None,
+    open_fd=None,
     monotonic_ns=None,
     fstat=None,
 ) -> LinuxProcCensusBackend:
@@ -294,6 +298,8 @@ def _fixture_backend(
         clock_ns=lambda: 500,
         monotonic_ns=monotonic_ns or (lambda: 0),
         readlink=readlink or os.readlink,
+        stat_path=stat_path,
+        open_fd=open_fd,
         fstat=fstat,
     )
 
@@ -403,6 +409,76 @@ def test_fd_reuse_and_readlink_open_disagreement_is_incomplete(tmp_path: Path) -
         return value
 
     evidence = _fixture_backend(proc, readlink=readlink).scan(_fixture_request())
+    assert evidence.complete is False
+
+
+def test_target_inode_change_between_readlink_and_open_is_incomplete(tmp_path: Path) -> None:
+    proc, target_file = _proc_fixture(tmp_path)
+    replacement = tmp_path / "replacement-inode"
+    replacement.write_bytes(b"replacement")
+    fd_path = proc / "42" / "fd" / "3"
+    calls = {"count": 0}
+
+    def open_fd(path: Path, flags: int) -> int:
+        if path == fd_path and calls["count"] == 0:
+            calls["count"] += 1
+            os.replace(replacement, target_file)
+        return os.open(path, flags)
+
+    evidence = _fixture_backend(proc, open_fd=open_fd).scan(_fixture_request())
+    assert evidence.complete is False
+    assert calls["count"] == 1
+
+
+def test_readlink_target_transition_between_readlink_and_open_is_incomplete(tmp_path: Path) -> None:
+    proc, target_file = _proc_fixture(tmp_path)
+    replacement = tmp_path / "replacement-target"
+    replacement.write_bytes(b"replacement")
+    fd_path = proc / "42" / "fd" / "3"
+    calls = {"count": 0}
+
+    def open_fd(path: Path, flags: int) -> int:
+        if path == fd_path and calls["count"] == 0:
+            calls["count"] += 1
+            fd_path.unlink()
+            fd_path.symlink_to(replacement)
+        return os.open(path, flags)
+
+    evidence = _fixture_backend(proc, open_fd=open_fd).scan(_fixture_request())
+    assert evidence.complete is False
+    assert calls["count"] == 1
+
+
+@pytest.mark.parametrize("entry", ["cwd", "root"])
+def test_cwd_or_root_target_transition_between_readlink_and_open_is_incomplete(tmp_path: Path, entry: str) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    replacement = tmp_path / f"open-replacement-{entry}"
+    replacement.mkdir()
+    entry_path = proc / "42" / entry
+    calls = {"count": 0}
+
+    def open_fd(path: Path, flags: int) -> int:
+        if path == entry_path and calls["count"] == 0:
+            calls["count"] += 1
+            entry_path.unlink()
+            entry_path.symlink_to(replacement)
+        return os.open(path, flags)
+
+    evidence = _fixture_backend(proc, open_fd=open_fd).scan(_fixture_request())
+    assert evidence.complete is False
+    assert calls["count"] == 1
+
+
+def test_cwd_or_root_unreadable_during_open_is_incomplete(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    root_path = proc / "42" / "root"
+
+    def open_fd(path: Path, flags: int) -> int:
+        if path == root_path:
+            raise PermissionError("fixture root became unreadable")
+        return os.open(path, flags)
+
+    evidence = _fixture_backend(proc, open_fd=open_fd).scan(_fixture_request())
     assert evidence.complete is False
 
 
@@ -527,6 +603,40 @@ def test_fixture_census_fails_closed_for_process_and_duration_bounds(tmp_path: P
     monotonic_values = iter((0, 2))
     over_time = _fixture_backend(proc, monotonic_ns=lambda: next(monotonic_values)).scan(_fixture_request(max_duration_ns=1))
     assert over_time.complete is False
+
+
+@pytest.mark.parametrize("receipt_kind", ["evidence", "receipt"])
+def test_schema_boundary_is_structural_and_owner_semantic_validator_rejects_aggregate_overflow(receipt_kind: str) -> None:
+    import jsonschema
+
+    request = _request(bounds=CensusBounds(8, 2, 8, 1_000_000_000))
+    first = _process(42, descriptors=(DescriptorEvidence("fd", 3, 10, 20, 30, "regular"),))
+    second = _process(43, descriptors=(DescriptorEvidence("fd", 4, 11, 21, 31, "regular"),))
+    evidence = _evidence(request, processes=(first, second))
+    if receipt_kind == "evidence":
+        payload = evidence.as_wire()
+        schema_name = "pytest-owner-lifecycle-census-evidence-v1.schema.json"
+        decoder = CensusEvidence.from_wire
+    else:
+        payload = BrokerReceipt.issue(
+            evidence=evidence,
+            capability=_capability(request),
+            signing_key=KEY,
+            receipt_id="receipt-schema-boundary",
+            issued_at_ns=300,
+            expires_at_ns=900,
+            nonce=request.nonce,
+        ).as_wire()
+        schema_name = "pytest-owner-lifecycle-broker-receipt-v1.schema.json"
+        decoder = BrokerReceipt.from_wire
+
+    candidate = copy.deepcopy(payload)
+    candidate["bounds"]["max_descriptors"] = 1
+    schema_path = Path(__file__).resolve().parents[2] / "schemas" / schema_name
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert list(jsonschema.Draft202012Validator(schema).iter_errors(candidate)) == []
+    with pytest.raises(CensusContractError, match="aggregate descriptor bound|descriptors"):
+        decoder(candidate)
 
 
 def test_unsupported_platform_is_incomplete_without_forcing_complete(monkeypatch, tmp_path: Path) -> None:

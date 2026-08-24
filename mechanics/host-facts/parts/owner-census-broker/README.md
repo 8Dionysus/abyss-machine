@@ -12,11 +12,20 @@ snapshot, process incarnation, descriptor identities, timestamps, bounds,
 completeness, nonce, replay counter, and boot/generation identities.
 
 The descriptor bound is aggregate: `bounds.max_descriptors` covers all
-cwd/root/fd descriptors across all admitted processes. The backend snapshots
-and independently revalidates descriptor entry names and exact opened
+cwd/root/fd descriptors across all admitted processes. The owner semantic
+validator is authoritative for that dynamic sum; the Draft 2020-12 schemas
+validate structural shape, scalar ranges, and absolute per-array wire ceilings
+only. The backend snapshots and independently revalidates descriptor entry
+names, followed target identities before and after open, and exact opened
 identities, including readlink presentation, with stable process and mount
 identity checks. A deleted regular file requires both the procfs deleted
 presentation and `st_nlink == 0`; disagreement is incomplete.
+
+`complete=true` is observational stability for the bounded sample, not proof
+of historical no-churn. An exact A→B→A replacement that leaves no observable
+difference cannot be proven by these userspace reads. Any later race-safe
+deletion owner still requires atomic claim/quiescence; this evidence never
+grants deletion authority.
 
 `complete=false` is the correct result when procfs visibility, credentials,
 namespace identity, mount identity, descriptor reads, process currentness,

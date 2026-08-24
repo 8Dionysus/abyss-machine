@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from abyss_machine import stack_bridge_contracts
+from abyss_machine import stack_bridge_contracts  # noqa: E402
 
 
 def test_stack_bridge_paths_and_bridge_contracts_are_portable(tmp_path: Path) -> None:
@@ -62,6 +62,9 @@ def test_stack_bridge_paths_and_bridge_contracts_are_portable(tmp_path: Path) ->
     assert census_bridge["activation"] is False
     assert census_bridge["source"] == "src/abyss_machine/owner_census_broker.py"
     assert len(census_bridge["schemas"]) == 3
+    assert "validate_aggregate_descriptor_bound" in census_bridge["semantic_validation"]["aggregate_descriptor_bound"]
+    assert "does not express" in census_bridge["semantic_validation"]["schema_scope"]
+    assert "historical no-churn" in census_bridge["non_claim"]
     assert "operation grant" in census_bridge["non_claim"]
 
 

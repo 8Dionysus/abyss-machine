@@ -24,20 +24,41 @@ The request, evidence, and receipt bind:
 Wire decoding is exact: missing and unknown fields, bool-as-int, textual
 booleans, malformed signatures/digests, and over-limit collections fail
 closed. `max_descriptors` is one aggregate bound across every admitted
-process's cwd/root/fd descriptors; typed constructors, broker admission, live
-scans, wire decoders, and the public schemas apply the same rule before
-nested evidence is materialized. Key material is supplied through
+process's cwd/root/fd descriptors. The owner semantic validator
+`validate_aggregate_descriptor_bound` is authoritative for that dynamic
+aggregate at typed constructors, broker admission, live scans, and wire
+decoders. The Draft 2020-12 schemas validate only structural shape, scalar
+ranges, and absolute per-array wire ceilings; they do not claim to enforce the
+dynamic cross-process sum. Key material is supplied through
 `SigningKeyProvider`; it is not
 stored in source or emitted in evidence/logs. Replay admission is supplied
 through `ReplayStore`; a receiver must select the current broker/key/boot
 generation and reject stale receipts.
 
+## Observational stability, not history
+
+For every cwd/root/fd observation, the Linux backend reads the textual procfs
+link, follows the descriptor path for a pre-open `(dev, ino, object_kind)`
+identity, opens the path and records the fd identity, then performs a
+post-open readlink and followed-identity observation. Any observable
+readlink/open transition or target-identity mismatch is incomplete. The second
+inventory pass repeats the observation and compares the complete internal
+sample, including those followed identities.
+
+`complete=true` therefore means observational stability across the bounded
+sample, not historical no-churn. An exact same-object A→B→A replacement that
+leaves no observable difference between these reads is unprovable in userspace;
+this contract makes no claim about it. A future race-safe deletion owner still
+needs an atomic claim/quiescence protocol. This evidence is never deletion
+authority and cannot weaken that later safety requirement.
+
 ## Fail-closed rules
 
 The Linux backend snapshots and independently revalidates each admitted
-process's cwd/root/fd entry names, readlink presentations, opened identities,
-PID/start-tick/boot/UID/namespace identity, and mount identity. Any inventory
-churn or readlink/open disagreement is incomplete. Scanner-owned transient
+process's cwd/root/fd entry names, readlink presentations, followed identities,
+opened identities, PID/start-tick/boot/UID/namespace identity, and mount
+identity. Any inventory churn or readlink/open disagreement is incomplete.
+Scanner-owned transient
 descriptors are tracked from runtime-owned descriptors and stable process
 identity, without fixed fd names.
 

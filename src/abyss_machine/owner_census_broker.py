@@ -9,6 +9,13 @@ The Linux backend deliberately returns ``complete=False`` when procfs,
 namespace, mount, credential, or process-incarnation evidence is not
 available.  A consumer may authenticate an incomplete receipt for diagnosis,
 but a consumer that needs a complete census must reject it explicitly.
+
+Descriptor completeness is observational stability only.  Each sampled
+descriptor binds its textual readlink presentation to a followed target
+identity before open, the opened fd identity, and a post-open followed
+identity/readlink observation.  This cannot prove that an exact A→B→A
+replacement happened between observations; consumers must not turn a complete
+sample into a historical no-churn claim.
 """
 
 from __future__ import annotations
@@ -139,8 +146,14 @@ def _wire_list(value: Any, field: str, *, maximum: int) -> list[Any]:
     return value
 
 
-def _validate_processes(processes: Any, bounds: Any, field: str) -> int:
-    """Validate process and aggregate descriptor bounds on typed evidence."""
+def validate_aggregate_descriptor_bound(processes: Any, bounds: Any, field: str) -> int:
+    """Authoritatively validate the typed aggregate descriptor bound.
+
+    Standard JSON Schema validates the nested wire shape and scalar bounds,
+    but it cannot express the dynamic sum of every process's descriptors.
+    This owner semantic validator is therefore the aggregate admission gate
+    for typed models, decoders, and broker consumers.
+    """
 
     if not isinstance(bounds, CensusBounds):
         raise CensusContractError(f"{field} bounds are malformed")
@@ -156,6 +169,12 @@ def _validate_processes(processes: Any, bounds: Any, field: str) -> int:
         if total > bounds.max_descriptors:
             raise CensusContractError(f"{field} aggregate descriptor bound is exhausted")
     return total
+
+
+def _validate_processes(processes: Any, bounds: Any, field: str) -> int:
+    """Compatibility alias for the owner aggregate semantic validator."""
+
+    return validate_aggregate_descriptor_bound(processes, bounds, field)
 
 
 def _wire_processes(value: Any, bounds: Any, field: str) -> tuple["ProcessReferenceEvidence", ...]:
@@ -547,6 +566,8 @@ class CensusRequest:
 
 @dataclass(frozen=True, slots=True)
 class CensusEvidence:
+    """One bounded, observationally stable census sample, not history proof."""
+
     request_id: str
     request_digest: str
     scan_scope: str
@@ -575,7 +596,7 @@ class CensusEvidence:
             _identity_tuple(item, "evidence target identity")
         if len(self.target_identities) > self.bounds.max_target_identities:
             raise CensusContractError("evidence target identity bound is exhausted")
-        _validate_processes(self.processes, self.bounds, "evidence")
+        validate_aggregate_descriptor_bound(self.processes, self.bounds, "evidence")
         _positive(self.scan_started_ns, "evidence scan_started_ns")
         _positive(self.scan_completed_ns, "evidence scan_completed_ns")
         if self.scan_completed_ns < self.scan_started_ns:
@@ -869,7 +890,7 @@ class BrokerReceipt:
             _identity_tuple(item, "receipt target identity")
         if len(self.target_identities) > self.bounds.max_target_identities:
             raise CensusContractError("receipt target identity bound is exhausted")
-        _validate_processes(self.processes, self.bounds, "receipt")
+        validate_aggregate_descriptor_bound(self.processes, self.bounds, "receipt")
         for process in self.processes:
             if process.process.boot_id != self.boot_id:
                 raise CensusContractError("receipt process boot identity differs from broker boot identity")
@@ -1273,7 +1294,7 @@ class CensusBroker:
         evidence = self.backend.scan(request)
         if not isinstance(evidence, CensusEvidence):
             raise CensusSafetyError("backend did not return typed evidence")
-        _validate_processes(evidence.processes, request.bounds, "backend evidence")
+        validate_aggregate_descriptor_bound(evidence.processes, request.bounds, "backend evidence")
         if (
             evidence.request_id != request.request_id
             or evidence.request_digest != request.request_digest
@@ -1324,9 +1345,20 @@ class _ScanBoundExceeded(CensusSafetyError):
 
 
 @dataclass(frozen=True, slots=True)
+class _FollowedObjectIdentity:
+    """Identity obtained by following a descriptor path without opening it."""
+
+    dev: int
+    ino: int
+    object_kind: str
+
+
+@dataclass(frozen=True, slots=True)
 class _DescriptorObservation:
     evidence: DescriptorEvidence
     link: str
+    followed_before_open: _FollowedObjectIdentity
+    followed_after_open: _FollowedObjectIdentity
 
 
 @dataclass(frozen=True, slots=True)
@@ -1339,7 +1371,7 @@ class LinuxProcCensusBackend:
     """Conservative Linux procfs census with no write-capable operations."""
 
     backend_id = "linux-procfs-read-only-census"
-    backend_version = "v49"
+    backend_version = "v51"
 
     def __init__(
         self,
@@ -1354,6 +1386,7 @@ class LinuxProcCensusBackend:
         clock_ns: Any = time.time_ns,
         monotonic_ns: Any = time.monotonic_ns,
         readlink: Any = os.readlink,
+        stat_path: Any | None = None,
         open_fd: Any | None = None,
         fstat: Any | None = None,
         close_fd: Any | None = None,
@@ -1368,6 +1401,7 @@ class LinuxProcCensusBackend:
         self._clock_ns = clock_ns
         self._monotonic_ns = monotonic_ns
         self._readlink = readlink
+        self._stat_path = os.stat if stat_path is None else stat_path
         self._boot_id_reader = boot_id_reader or self._read_boot_id
         self._start_reader = start_reader or self._read_start_ticks
         self._uid_reader = uid_reader or self._read_uid
@@ -1387,6 +1421,7 @@ class LinuxProcCensusBackend:
                 raise CensusContractError(f"{field} must be callable")
         for reader, field in (
             (open_fd, "open_fd"),
+            (stat_path, "stat_path"),
             (fstat, "fstat"),
             (close_fd, "close_fd"),
         ):
@@ -1609,7 +1644,7 @@ class LinuxProcCensusBackend:
                 raise _ScanBoundExceeded("census duration bound exhausted")
             observed = self._observe_descriptor(pid, kind, fd_number)
             previous = expected.observations[index]
-            if observed.link != previous.link or observed.evidence != previous.evidence:
+            if observed != previous:
                 raise CensusSafetyError("process descriptor identity changed during census")
             observations.append(observed)
         final_fd_numbers = self._enumerate_fd_numbers(pid, maximum - 2)
@@ -1717,12 +1752,24 @@ class LinuxProcCensusBackend:
             return self.proc_root / str(pid) / "fd" / str(fd_number)
         raise CensusContractError("fd descriptor is malformed")
 
+    def _followed_object_identity(self, path: Path) -> _FollowedObjectIdentity:
+        value = self._stat_path(path)
+        mode = getattr(value, "st_mode", None)
+        if type(mode) is not int:
+            raise CensusSafetyError("followed descriptor mode identity is unavailable")
+        return _FollowedObjectIdentity(
+            _nonnegative(getattr(value, "st_dev", None), "followed descriptor.dev"),
+            _nonnegative(getattr(value, "st_ino", None), "followed descriptor.ino"),
+            _object_kind(mode),
+        )
+
     def _observe_descriptor(self, pid: int, kind: str, fd_number: int | None) -> _DescriptorObservation:
         path = self._descriptor_path(pid, kind, fd_number)
         link = self._readlink(path)
         if type(link) is not str:
             raise CensusSafetyError("descriptor reference is unreadable")
         link = _text(link, "descriptor link target")
+        followed_before_open = self._followed_object_identity(path)
         flags = getattr(os, "O_PATH", 0) | getattr(os, "O_CLOEXEC", 0)
         if not flags:
             flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
@@ -1739,6 +1786,9 @@ class LinuxProcCensusBackend:
             object_kind = _object_kind(mode)
             dev = _nonnegative(getattr(value, "st_dev", None), "descriptor.dev")
             ino = _nonnegative(getattr(value, "st_ino", None), "descriptor.ino")
+            opened_identity = _FollowedObjectIdentity(dev, ino, object_kind)
+            if followed_before_open != opened_identity:
+                raise CensusSafetyError("descriptor target identity changed before open")
             link_deleted = link.endswith(" (deleted)")
             if object_kind == "regular":
                 nlink = _nonnegative(getattr(value, "st_nlink", None), "descriptor.st_nlink")
@@ -1752,8 +1802,11 @@ class LinuxProcCensusBackend:
             link_after = self._readlink(path)
             if type(link_after) is not str or _text(link_after, "descriptor link target") != link:
                 raise CensusSafetyError("descriptor readlink changed during open")
+            followed_after_open = self._followed_object_identity(path)
+            if followed_after_open != opened_identity:
+                raise CensusSafetyError("descriptor target identity changed after open")
             evidence = DescriptorEvidence(kind, fd_number, dev, ino, mount_id, object_kind, deleted)
-            return _DescriptorObservation(evidence, link)
+            return _DescriptorObservation(evidence, link, followed_before_open, followed_after_open)
         finally:
             self._close_scanner_fd(fd)
 

@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://abyss-machine.local/schemas/pytest-owner-lifecycle-broker-receipt-v1.schema.json",
   "title": "Owner lifecycle broker receipt v1",
+  "$comment": "This Draft 2020-12 schema validates the structural wire shape, scalar ranges, and absolute per-array wire ceilings. It cannot express dynamic bounds.max_processes, bounds.max_target_identities, or the aggregate sum of process descriptors; the owner semantic validator in src/abyss_machine/owner_census_broker.py is authoritative for those admissions.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -38,12 +39,17 @@
     "receipt_id": {"$ref": "#/$defs/text"},
     "scan_scope": {"$ref": "#/$defs/text"},
     "target_snapshot_digest": {"$ref": "#/$defs/digest"},
-    "target_identities": {"type": "array", "maxItems": 65536, "items": {"$ref": "#/$defs/identity"}},
+    "target_identities": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": {"$ref": "#/$defs/identity"},
+      "description": "The schema enforces only the absolute wire ceiling; the owner semantic validator applies bounds.max_target_identities."
+    },
     "processes": {
       "type": "array",
       "maxItems": 65536,
       "items": {"$ref": "#/$defs/process"},
-      "description": "The sum of every process.descriptors array is bounded by bounds.max_descriptors; the implementation rejects any aggregate overflow before nested descriptor objects are materialized."
+      "description": "The schema validates process item shape and an absolute wire ceiling only. The owner semantic validator applies bounds.max_processes and the aggregate bounds.max_descriptors before nested descriptor objects are materialized."
     },
     "bounds": {"$ref": "#/$defs/bounds"},
     "scan_started_ns": {"type": "integer", "minimum": 1},
@@ -113,7 +119,7 @@
           "type": "array",
           "maxItems": 262144,
           "items": {"$ref": "#/$defs/descriptor"},
-          "description": "This is only the absolute wire ceiling; the applicable bounds.max_descriptors is one aggregate limit across all processes."
+          "description": "This is only an absolute per-process wire ceiling. The owner semantic validator applies bounds.max_descriptors as one aggregate limit across all processes."
         },
         "uid": {"type": "integer", "minimum": 0}
       }
@@ -123,12 +129,12 @@
       "additionalProperties": false,
       "required": ["max_processes", "max_descriptors", "max_target_identities", "max_duration_ns"],
       "properties": {
-        "max_processes": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "max_processes": {"type": "integer", "minimum": 1, "maximum": 65536, "description": "The schema enforces this scalar range; process-count admission is owned by the semantic validator."},
         "max_descriptors": {
           "type": "integer",
           "minimum": 1,
           "maximum": 262144,
-          "description": "The single aggregate descriptor limit applied across every admitted process cwd/root/fd evidence."
+          "description": "The schema enforces this scalar range; the owner semantic validator applies this typed bound across every admitted process cwd/root/fd evidence."
         },
         "max_target_identities": {"type": "integer", "minimum": 1, "maximum": 65536},
         "max_duration_ns": {"type": "integer", "minimum": 1, "maximum": 300000000000}

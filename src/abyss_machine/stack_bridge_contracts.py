@@ -296,15 +296,19 @@ def owner_census_broker_contract() -> dict[str, Any]:
         ],
         "evidence": [
             "process pid/start_ticks/boot_id/run_id",
-            "cwd/root/open descriptor identities",
+            "cwd/root/followed-target/opened descriptor identities",
             "deleted regular-file marker where procfs exposes it",
             "credential, mount, namespace, timestamp, completeness, and reason",
             "authenticated signature and content digest",
         ],
         "read_only": True,
         "activation": False,
-        "contract": "Runtime callers may consume bounded authenticated census evidence; incomplete or stale evidence is fail-closed and is never an operation grant.",
-        "non_claim": "The owner census broker does not delete, rename, quarantine, reclaim, kill, execute commands, mutate paths, issue an operation grant, decide capacity-based launches, or own storage policy.",
+        "semantic_validation": {
+            "aggregate_descriptor_bound": "src/abyss_machine/owner_census_broker.py:validate_aggregate_descriptor_bound",
+            "schema_scope": "Draft 2020-12 validates structural shape, scalar ranges, and absolute per-array wire ceilings only; it does not express the dynamic cross-process descriptor sum.",
+        },
+        "contract": "Runtime callers may consume bounded authenticated census evidence after the owner semantic validator applies the aggregate descriptor bound; incomplete or stale evidence is fail-closed and is never an operation grant.",
+        "non_claim": "The owner census broker does not claim historical no-churn and does not delete, rename, quarantine, reclaim, kill, execute commands, mutate paths, issue an operation grant, decide capacity-based launches, or own storage policy. A later race-safe deletion owner still needs atomic claim/quiescence.",
     }
 
 

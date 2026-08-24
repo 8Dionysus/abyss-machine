@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://abyss-machine.local/schemas/pytest-owner-lifecycle-census-request-v1.schema.json",
   "title": "Owner lifecycle census request v1",
+  "$comment": "This Draft 2020-12 schema validates the structural wire shape and scalar ranges. It does not express dynamic bounds.max_target_identities; the owner semantic validator in src/abyss_machine/owner_census_broker.py is authoritative for that admission.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -24,7 +25,8 @@
     "target_identities": {
       "type": "array",
       "maxItems": 65536,
-      "items": {"$ref": "#/$defs/identity"}
+      "items": {"$ref": "#/$defs/identity"},
+      "description": "The schema enforces only the absolute wire ceiling; the owner semantic validator applies bounds.max_target_identities."
     },
     "bounds": {"$ref": "#/$defs/bounds"},
     "requested_at_ns": {"type": "integer", "minimum": 1},
@@ -52,12 +54,12 @@
       "additionalProperties": false,
       "required": ["max_processes", "max_descriptors", "max_target_identities", "max_duration_ns"],
       "properties": {
-        "max_processes": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "max_processes": {"type": "integer", "minimum": 1, "maximum": 65536, "description": "The schema enforces this scalar range; process-count admission is owned by the semantic validator."},
         "max_descriptors": {
           "type": "integer",
           "minimum": 1,
           "maximum": 262144,
-          "description": "The single aggregate descriptor limit applied to all admitted process cwd/root/fd evidence."
+          "description": "The schema enforces this scalar range; the owner semantic validator applies this typed bound to all admitted process cwd/root/fd evidence."
         },
         "max_target_identities": {"type": "integer", "minimum": 1, "maximum": 65536},
         "max_duration_ns": {"type": "integer", "minimum": 1, "maximum": 300000000000}
