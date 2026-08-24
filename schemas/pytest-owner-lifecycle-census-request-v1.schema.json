@@ -53,7 +53,12 @@
       "required": ["max_processes", "max_descriptors", "max_target_identities", "max_duration_ns"],
       "properties": {
         "max_processes": {"type": "integer", "minimum": 1, "maximum": 65536},
-        "max_descriptors": {"type": "integer", "minimum": 1, "maximum": 262144},
+        "max_descriptors": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 262144,
+          "description": "The single aggregate descriptor limit applied to all admitted process cwd/root/fd evidence."
+        },
         "max_target_identities": {"type": "integer", "minimum": 1, "maximum": 65536},
         "max_duration_ns": {"type": "integer", "minimum": 1, "maximum": 300000000000}
       }

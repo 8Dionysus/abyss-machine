@@ -47,6 +47,7 @@ _SIGNATURE = re.compile(r"^hmac-sha256:[0-9a-f]{64}$")
 _NAMESPACE = re.compile(r"^(pid|mnt):\[([0-9]+)\]$")
 _OBJECT_KINDS = frozenset({"directory", "regular", "symlink", "special", "other"})
 _DESCRIPTOR_KINDS = frozenset({"cwd", "root", "fd"})
+_PROCESS_FIELDS = {"process", "descriptors", "uid"}
 
 
 class CensusContractError(ValueError):
@@ -136,6 +137,46 @@ def _wire_list(value: Any, field: str, *, maximum: int) -> list[Any]:
     if len(value) > maximum:
         raise CensusContractError(f"{field} exceeds its collection bound")
     return value
+
+
+def _validate_processes(processes: Any, bounds: Any, field: str) -> int:
+    """Validate process and aggregate descriptor bounds on typed evidence."""
+
+    if not isinstance(bounds, CensusBounds):
+        raise CensusContractError(f"{field} bounds are malformed")
+    if type(processes) is not tuple:
+        raise CensusContractError(f"{field} processes must be materialized")
+    if len(processes) > bounds.max_processes:
+        raise CensusContractError(f"{field} process bound is exhausted")
+    total = 0
+    for item in processes:
+        if not isinstance(item, ProcessReferenceEvidence):
+            raise CensusContractError(f"{field} process collection is malformed")
+        total += len(item.descriptors)
+        if total > bounds.max_descriptors:
+            raise CensusContractError(f"{field} aggregate descriptor bound is exhausted")
+    return total
+
+
+def _wire_processes(value: Any, bounds: Any, field: str) -> tuple["ProcessReferenceEvidence", ...]:
+    """Preflight nested process arrays before constructing typed evidence."""
+
+    if not isinstance(bounds, CensusBounds):
+        raise CensusContractError(f"{field} bounds are malformed")
+    raw_processes = _wire_list(value, field, maximum=bounds.max_processes)
+    total = 0
+    for index, item in enumerate(raw_processes):
+        process_fields = _fields(item, _PROCESS_FIELDS, f"{field}[{index}]")
+        remaining = bounds.max_descriptors - total
+        descriptors = _wire_list(
+            process_fields["descriptors"],
+            f"{field}[{index}].descriptors",
+            maximum=min(MAX_DESCRIPTORS, remaining),
+        )
+        total += len(descriptors)
+    # The aggregate count has been checked before any nested descriptor tuple
+    # is materialized by ProcessReferenceEvidence.from_wire.
+    return tuple(ProcessReferenceEvidence.from_wire(item) for item in raw_processes)
 
 
 def _identity_tuple(value: Any, field: str, *, wire: bool = False) -> tuple[int, int, int, str]:
@@ -330,6 +371,8 @@ class ProcessReferenceEvidence:
             raise CensusContractError("process evidence descriptors must be materialized")
         if any(not isinstance(item, DescriptorEvidence) for item in self.descriptors):
             raise CensusContractError("process evidence descriptors are malformed")
+        if len(self.descriptors) > MAX_DESCRIPTORS:
+            raise CensusContractError("process evidence descriptor ceiling is exhausted")
         _nonnegative(self.uid, "process evidence uid")
 
     def as_wire(self) -> dict[str, Any]:
@@ -343,7 +386,7 @@ class ProcessReferenceEvidence:
 
     @classmethod
     def from_wire(cls, value: Any) -> "ProcessReferenceEvidence":
-        fields = _fields(value, {"process", "descriptors", "uid"}, "process reference evidence")
+        fields = _fields(value, _PROCESS_FIELDS, "process reference evidence")
         descriptors = _wire_list(fields["descriptors"], "process descriptors", maximum=MAX_DESCRIPTORS)
         return cls(
             ProcessIdentity.from_wire(fields["process"]),
@@ -419,6 +462,8 @@ class CensusRequest:
         _text(self.request_id, "request_id")
         _text(self.scan_scope, "scan_scope")
         _digest_text(self.target_snapshot_digest, "target_snapshot_digest")
+        if not isinstance(self.bounds, CensusBounds):
+            raise CensusContractError("request bounds are malformed")
         if type(self.target_identities) is not tuple:
             raise CensusContractError("request target identities must be materialized")
         for item in self.target_identities:
@@ -477,13 +522,18 @@ class CensusRequest:
         )
         if fields["schema"] != CENSUS_REQUEST_SCHEMA:
             raise CensusContractError("census request schema mismatch")
-        targets = _wire_list(fields["target_identities"], "request target identities", maximum=MAX_TARGET_IDENTITIES)
+        bounds = CensusBounds.from_wire(fields["bounds"])
+        targets = _wire_list(
+            fields["target_identities"],
+            "request target identities",
+            maximum=min(MAX_TARGET_IDENTITIES, bounds.max_target_identities),
+        )
         return cls(
             _text(fields["request_id"], "request_id"),
             _text(fields["scan_scope"], "scan_scope"),
             _digest_text(fields["target_snapshot_digest"], "target_snapshot_digest"),
             tuple(_identity_wire(item, "request target identity") for item in targets),
-            CensusBounds.from_wire(fields["bounds"]),
+            bounds,
             _positive(fields["requested_at_ns"], "request requested_at_ns"),
             _positive(fields["expires_at_ns"], "request expires_at_ns"),
             _text(fields["nonce"], "request nonce"),
@@ -517,19 +567,15 @@ class CensusEvidence:
         _digest_text(self.request_digest, "evidence request_digest")
         _text(self.scan_scope, "evidence scan_scope")
         _digest_text(self.target_snapshot_digest, "evidence target_snapshot_digest")
+        if not isinstance(self.bounds, CensusBounds):
+            raise CensusContractError("evidence bounds are malformed")
         if type(self.target_identities) is not tuple or type(self.processes) is not tuple:
             raise CensusContractError("evidence collections must be materialized")
-        if any(not isinstance(item, ProcessReferenceEvidence) for item in self.processes):
-            raise CensusContractError("evidence process collection is malformed")
         for item in self.target_identities:
             _identity_tuple(item, "evidence target identity")
         if len(self.target_identities) > self.bounds.max_target_identities:
             raise CensusContractError("evidence target identity bound is exhausted")
-        if len(self.processes) > self.bounds.max_processes:
-            raise CensusContractError("evidence process bound is exhausted")
-        for process in self.processes:
-            if len(process.descriptors) > self.bounds.max_descriptors:
-                raise CensusContractError("evidence descriptor bound is exhausted")
+        _validate_processes(self.processes, self.bounds, "evidence")
         _positive(self.scan_started_ns, "evidence scan_started_ns")
         _positive(self.scan_completed_ns, "evidence scan_completed_ns")
         if self.scan_completed_ns < self.scan_started_ns:
@@ -598,16 +644,21 @@ class CensusEvidence:
         )
         if fields["schema"] != CENSUS_EVIDENCE_SCHEMA:
             raise CensusContractError("census evidence schema mismatch")
-        targets = _wire_list(fields["target_identities"], "evidence target identities", maximum=MAX_TARGET_IDENTITIES)
-        processes = _wire_list(fields["processes"], "evidence processes", maximum=MAX_PROCESSES)
+        bounds = CensusBounds.from_wire(fields["bounds"])
+        targets = _wire_list(
+            fields["target_identities"],
+            "evidence target identities",
+            maximum=min(MAX_TARGET_IDENTITIES, bounds.max_target_identities),
+        )
+        processes = _wire_processes(fields["processes"], bounds, "evidence processes")
         return cls(
             _text(fields["request_id"], "evidence request_id"),
             _digest_text(fields["request_digest"], "evidence request_digest"),
             _text(fields["scan_scope"], "evidence scan_scope"),
             _digest_text(fields["target_snapshot_digest"], "evidence target_snapshot_digest"),
             tuple(_identity_wire(item, "evidence target identity") for item in targets),
-            tuple(ProcessReferenceEvidence.from_wire(item) for item in processes),
-            CensusBounds.from_wire(fields["bounds"]),
+            processes,
+            bounds,
             _positive(fields["scan_started_ns"], "evidence scan_started_ns"),
             _positive(fields["scan_completed_ns"], "evidence scan_completed_ns"),
             _boolean(fields["complete"], "evidence complete"),
@@ -713,6 +764,8 @@ class CensusCapability:
         _text(self.capability_id, "capability_id")
         _text(self.scan_scope, "capability scan_scope")
         _digest_text(self.target_snapshot_digest, "capability target_snapshot_digest")
+        if not isinstance(self.bounds, CensusBounds):
+            raise CensusContractError("capability bounds are malformed")
         if type(self.target_identities) is not tuple:
             raise CensusContractError("capability target identities must be materialized")
         if len(self.target_identities) > self.bounds.max_target_identities:
@@ -808,19 +861,16 @@ class BrokerReceipt:
             _text(getattr(self, name), f"receipt {name}")
         _digest_text(self.request_digest, "receipt request_digest")
         _digest_text(self.target_snapshot_digest, "receipt target_snapshot_digest")
+        if not isinstance(self.bounds, CensusBounds):
+            raise CensusContractError("receipt bounds are malformed")
         if type(self.target_identities) is not tuple or type(self.processes) is not tuple:
             raise CensusContractError("receipt collections must be materialized")
         for item in self.target_identities:
             _identity_tuple(item, "receipt target identity")
-        if any(not isinstance(item, ProcessReferenceEvidence) for item in self.processes):
-            raise CensusContractError("receipt process collection is malformed")
         if len(self.target_identities) > self.bounds.max_target_identities:
             raise CensusContractError("receipt target identity bound is exhausted")
-        if len(self.processes) > self.bounds.max_processes:
-            raise CensusContractError("receipt process bound is exhausted")
+        _validate_processes(self.processes, self.bounds, "receipt")
         for process in self.processes:
-            if len(process.descriptors) > self.bounds.max_descriptors:
-                raise CensusContractError("receipt descriptor bound is exhausted")
             if process.process.boot_id != self.boot_id:
                 raise CensusContractError("receipt process boot identity differs from broker boot identity")
         for name in ("scan_started_ns", "scan_completed_ns", "issued_at_ns", "expires_at_ns"):
@@ -962,8 +1012,13 @@ class BrokerReceipt:
         fields = _fields(value, set(cls.FIELDS), "broker receipt")
         if fields["schema"] != BROKER_RECEIPT_SCHEMA:
             raise CensusContractError("broker receipt schema mismatch")
-        targets = _wire_list(fields["target_identities"], "receipt target identities", maximum=MAX_TARGET_IDENTITIES)
-        raw_processes = _wire_list(fields["processes"], "receipt processes", maximum=MAX_PROCESSES)
+        bounds = CensusBounds.from_wire(fields["bounds"])
+        targets = _wire_list(
+            fields["target_identities"],
+            "receipt target identities",
+            maximum=min(MAX_TARGET_IDENTITIES, bounds.max_target_identities),
+        )
+        processes = _wire_processes(fields["processes"], bounds, "receipt processes")
         receipt = cls(
             request_id=_text(fields["request_id"], "receipt request_id"),
             request_digest=_digest_text(fields["request_digest"], "receipt request_digest"),
@@ -971,8 +1026,8 @@ class BrokerReceipt:
             scan_scope=_text(fields["scan_scope"], "receipt scan_scope"),
             target_snapshot_digest=_digest_text(fields["target_snapshot_digest"], "receipt target_snapshot_digest"),
             target_identities=tuple(_identity_wire(item, "receipt target identity") for item in targets),
-            processes=tuple(ProcessReferenceEvidence.from_wire(item) for item in raw_processes),
-            bounds=CensusBounds.from_wire(fields["bounds"]),
+            processes=processes,
+            bounds=bounds,
             scan_started_ns=_positive(fields["scan_started_ns"], "receipt scan_started_ns"),
             scan_completed_ns=_positive(fields["scan_completed_ns"], "receipt scan_completed_ns"),
             issued_at_ns=_positive(fields["issued_at_ns"], "receipt issued_at_ns"),
@@ -1218,6 +1273,7 @@ class CensusBroker:
         evidence = self.backend.scan(request)
         if not isinstance(evidence, CensusEvidence):
             raise CensusSafetyError("backend did not return typed evidence")
+        _validate_processes(evidence.processes, request.bounds, "backend evidence")
         if (
             evidence.request_id != request.request_id
             or evidence.request_digest != request.request_digest
@@ -1267,11 +1323,23 @@ class _ScanBoundExceeded(CensusSafetyError):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class _DescriptorObservation:
+    evidence: DescriptorEvidence
+    link: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DescriptorInventory:
+    fd_numbers: tuple[int, ...]
+    observations: tuple[_DescriptorObservation, ...]
+
+
 class LinuxProcCensusBackend:
     """Conservative Linux procfs census with no write-capable operations."""
 
     backend_id = "linux-procfs-read-only-census"
-    backend_version = "v48"
+    backend_version = "v49"
 
     def __init__(
         self,
@@ -1286,6 +1354,9 @@ class LinuxProcCensusBackend:
         clock_ns: Any = time.time_ns,
         monotonic_ns: Any = time.monotonic_ns,
         readlink: Any = os.readlink,
+        open_fd: Any | None = None,
+        fstat: Any | None = None,
+        close_fd: Any | None = None,
     ) -> None:
         self.proc_root = Path(proc_root)
         self.current_pid = os.getpid() if current_pid is None else current_pid
@@ -1301,6 +1372,11 @@ class LinuxProcCensusBackend:
         self._start_reader = start_reader or self._read_start_ticks
         self._uid_reader = uid_reader or self._read_uid
         self._mount_id_reader = mount_id_reader or self._mount_id_for_fd
+        self._open_fd = open_fd
+        self._fstat = fstat
+        self._close_fd = close_fd
+        self._scanner_pid = os.getpid()
+        self._active_scanner_fds: set[int] = set()
         for reader, field in (
             (self._boot_id_reader, "boot_id_reader"),
             (self._start_reader, "start_reader"),
@@ -1308,6 +1384,13 @@ class LinuxProcCensusBackend:
             (self._mount_id_reader, "mount_id_reader"),
         ):
             if not callable(reader):
+                raise CensusContractError(f"{field} must be callable")
+        for reader, field in (
+            (open_fd, "open_fd"),
+            (fstat, "fstat"),
+            (close_fd, "close_fd"),
+        ):
+            if reader is not None and not callable(reader):
                 raise CensusContractError(f"{field} must be callable")
 
     def scan(self, request: CensusRequest) -> CensusEvidence:
@@ -1347,6 +1430,7 @@ class LinuxProcCensusBackend:
             boot_id = self._boot_id_reader()
             if not boot_id:
                 return finish(False, "boot identity is unavailable")
+            boot_id = _text(boot_id, "boot identity")
             pids = self._list_pids(request.bounds.max_processes)
             required = {1, self.current_pid}
             missing = sorted(required.difference(pids))
@@ -1361,22 +1445,29 @@ class LinuxProcCensusBackend:
                     if type(uid) is not int or uid < 0:
                         raise CensusSafetyError("credential evidence is malformed")
                     before = self._process_identity(pid, boot_id)
+                    remaining_descriptors = request.bounds.max_descriptors - descriptor_total
                     descriptors = self._descriptors_for_process(
                         pid,
-                        request.bounds.max_descriptors,
+                        remaining_descriptors,
                         monotonic_start,
                         request.bounds.max_duration_ns,
+                        boot_id=boot_id,
+                        expected_identity=before,
+                        expected_uid=uid,
                     )
                     descriptor_total += len(descriptors)
                     if descriptor_total > request.bounds.max_descriptors:
                         raise _ScanBoundExceeded("descriptor scan bound exhausted")
-                    after = self._process_identity(pid, boot_id)
-                    uid_after = self._uid_reader(pid)
-                    if uid_after != uid or after != before or self._boot_id_reader() != boot_id:
-                        raise CensusSafetyError("process incarnation changed during census")
                     processes.append(ProcessReferenceEvidence(before, descriptors, uid))
+                except _ScanBoundExceeded:
+                    raise
                 except (OSError, ValueError, CensusContractError) as exc:
                     return finish(False, self._failure_reason(pid, exc))
+            final_pids = self._list_pids(request.bounds.max_processes)
+            if final_pids != pids:
+                return finish(False, "process inventory changed during census")
+            if self._boot_id_reader() != boot_id:
+                return finish(False, "boot identity changed during census")
             return finish(True, "")
         except _ScanBoundExceeded as exc:
             return finish(False, str(exc))
@@ -1425,55 +1516,251 @@ class LinuxProcCensusBackend:
             values[name] = match.group(2)
         return f"pidns:{values['pid']};mntns:{values['mnt']}"
 
+    def _assert_process_stable(
+        self,
+        pid: int,
+        *,
+        boot_id: str,
+        expected_identity: ProcessIdentity,
+        expected_uid: int,
+    ) -> None:
+        observed_identity = self._process_identity(pid, boot_id)
+        observed_uid = self._uid_reader(pid)
+        observed_boot = self._boot_id_reader()
+        if type(observed_uid) is not int or observed_uid < 0:
+            raise CensusSafetyError("credential evidence is malformed")
+        if observed_uid != expected_uid or observed_identity != expected_identity or observed_boot != boot_id:
+            raise CensusSafetyError("process incarnation changed during census")
+
     def _descriptors_for_process(
         self,
         pid: int,
         maximum: int,
         started: int,
         duration: int,
+        *,
+        boot_id: str,
+        expected_identity: ProcessIdentity,
+        expected_uid: int,
     ) -> tuple[DescriptorEvidence, ...]:
-        descriptors: list[DescriptorEvidence] = []
-        for kind in ("cwd", "root"):
+        if maximum < 2:
+            raise _ScanBoundExceeded("descriptor scan bound exhausted")
+        first = self._snapshot_descriptor_inventory(pid, maximum, started, duration)
+        self._assert_process_stable(
+            pid,
+            boot_id=boot_id,
+            expected_identity=expected_identity,
+            expected_uid=expected_uid,
+        )
+        second = self._revalidate_descriptor_inventory(pid, first, maximum, started, duration)
+        self._assert_process_stable(
+            pid,
+            boot_id=boot_id,
+            expected_identity=expected_identity,
+            expected_uid=expected_uid,
+        )
+        return tuple(item.evidence for item in second.observations)
+
+    def _snapshot_descriptor_inventory(
+        self,
+        pid: int,
+        maximum: int,
+        started: int,
+        duration: int,
+    ) -> _DescriptorInventory:
+        if self._over_deadline(started, duration):
+            raise _ScanBoundExceeded("census duration bound exhausted")
+        fd_numbers = self._enumerate_fd_numbers(pid, maximum - 2)
+        if len(fd_numbers) + 2 > maximum:
+            raise _ScanBoundExceeded("descriptor scan bound exhausted")
+        keys: tuple[tuple[str, int | None], ...] = (
+            ("cwd", None),
+            ("root", None),
+            *(("fd", fd_number) for fd_number in fd_numbers),
+        )
+        observations: list[_DescriptorObservation] = []
+        for kind, fd_number in keys:
             if self._over_deadline(started, duration):
                 raise _ScanBoundExceeded("census duration bound exhausted")
-            descriptors.append(self._descriptor_from_proc_path(pid, kind, None))
-        fd_root = self.proc_root / str(pid) / "fd"
-        with os.scandir(fd_root) as entries:
-            for entry in entries:
-                if self._over_deadline(started, duration):
-                    raise _ScanBoundExceeded("census duration bound exhausted")
-                if type(entry.name) is not str or not entry.name.isdecimal():
-                    raise CensusSafetyError("process fd table contains an ambiguous entry")
-                descriptors.append(self._descriptor_from_proc_path(pid, "fd", int(entry.name)))
-                if len(descriptors) > maximum:
-                    raise _ScanBoundExceeded("descriptor scan bound exhausted")
-        return tuple(descriptors)
+            observations.append(self._observe_descriptor(pid, kind, fd_number))
+        return _DescriptorInventory(tuple(fd_numbers), tuple(observations))
 
-    def _descriptor_from_proc_path(self, pid: int, kind: str, fd_number: int | None) -> DescriptorEvidence:
-        path = self.proc_root / str(pid) / kind
-        if kind == "fd":
-            if fd_number is None:
-                raise CensusContractError("fd number is required")
-            path = self.proc_root / str(pid) / "fd" / str(fd_number)
+    def _revalidate_descriptor_inventory(
+        self,
+        pid: int,
+        expected: _DescriptorInventory,
+        maximum: int,
+        started: int,
+        duration: int,
+    ) -> _DescriptorInventory:
+        if self._over_deadline(started, duration):
+            raise _ScanBoundExceeded("census duration bound exhausted")
+        fd_numbers = self._enumerate_fd_numbers(pid, maximum - 2)
+        if tuple(fd_numbers) != expected.fd_numbers:
+            raise CensusSafetyError("process descriptor inventory changed during census")
+        keys: tuple[tuple[str, int | None], ...] = (
+            ("cwd", None),
+            ("root", None),
+            *(("fd", fd_number) for fd_number in fd_numbers),
+        )
+        observations: list[_DescriptorObservation] = []
+        for index, (kind, fd_number) in enumerate(keys):
+            if self._over_deadline(started, duration):
+                raise _ScanBoundExceeded("census duration bound exhausted")
+            observed = self._observe_descriptor(pid, kind, fd_number)
+            previous = expected.observations[index]
+            if observed.link != previous.link or observed.evidence != previous.evidence:
+                raise CensusSafetyError("process descriptor identity changed during census")
+            observations.append(observed)
+        final_fd_numbers = self._enumerate_fd_numbers(pid, maximum - 2)
+        if tuple(final_fd_numbers) != expected.fd_numbers:
+            raise CensusSafetyError("process descriptor inventory changed during census")
+        return _DescriptorInventory(tuple(fd_numbers), tuple(observations))
+
+    def _enumerate_fd_numbers(self, pid: int, maximum: int) -> list[int]:
+        if maximum < 0:
+            raise _ScanBoundExceeded("descriptor scan bound exhausted")
+        fd_root = self.proc_root / str(pid) / "fd"
+        scanner_process = self._is_actual_scanner_process(pid)
+        scanner_before = self._scanner_fd_snapshot() if scanner_process else None
+        names: list[int] = []
+        seen: set[int] = set()
+        try:
+            with os.scandir(fd_root) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if type(name) is not str or not name.isdecimal():
+                        raise CensusSafetyError("process fd table contains an ambiguous entry")
+                    fd_number = _nonnegative(int(name), "process fd number")
+                    if scanner_process and fd_number in self._active_scanner_fds:
+                        continue
+                    if fd_number in seen:
+                        raise CensusSafetyError("process fd table contains duplicate entries")
+                    seen.add(fd_number)
+                    names.append(fd_number)
+                    if len(names) > maximum:
+                        raise _ScanBoundExceeded("descriptor scan bound exhausted")
+        except OSError as exc:
+            raise CensusSafetyError("process fd table is unreadable") from exc
+        names.sort()
+        if scanner_process:
+            scanner_after = self._scanner_fd_snapshot()
+            if scanner_before is None or scanner_after is None:
+                raise CensusSafetyError("scanner descriptor inventory is unavailable")
+            if scanner_after != scanner_before:
+                raise CensusSafetyError("scanner descriptor inventory changed during census")
+            stable_names = [fd_number for fd_number in names if fd_number in scanner_before]
+            if set(stable_names) != scanner_before:
+                raise CensusSafetyError("scanner descriptor inventory is unreadable")
+            return stable_names
+        return names
+
+    def _is_actual_scanner_process(self, pid: int) -> bool:
+        if pid != self._scanner_pid:
+            return False
+        try:
+            return os.path.samefile(
+                self.proc_root / str(pid),
+                Path("/proc") / str(self._scanner_pid),
+            )
+        except OSError:
+            return False
+
+    def _scanner_fd_snapshot(self) -> set[int] | None:
+        fd_root = self.proc_root / "self" / "fd"
+        candidates: list[int] = []
+        try:
+            with os.scandir(fd_root) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if type(name) is not str or not name.isdecimal():
+                        continue
+                    candidates.append(_nonnegative(int(name), "scanner fd number"))
+                    if len(candidates) > MAX_DESCRIPTORS:
+                        raise _ScanBoundExceeded("scanner descriptor scan bound exhausted")
+        except OSError:
+            return None
+        # The iterator used above is itself transient.  Only retain entries
+        # that remain readable after it has closed; no fd number/path/name is
+        # special-cased.
+        stable: set[int] = set()
+        for fd_number in candidates:
+            try:
+                value = os.readlink(fd_root / str(fd_number))
+            except OSError:
+                continue
+            if type(value) is str:
+                stable.add(fd_number)
+        return stable
+
+    def _open_scanner_fd(self, path: Path, flags: int) -> int:
+        opener = os.open if self._open_fd is None else self._open_fd
+        fd = opener(path, flags)
+        if type(fd) is not int or fd < 0:
+            raise CensusSafetyError("descriptor open returned an invalid fd")
+        self._active_scanner_fds.add(fd)
+        return fd
+
+    def _close_scanner_fd(self, fd: int) -> None:
+        try:
+            closer = os.close if self._close_fd is None else self._close_fd
+            closer(fd)
+        finally:
+            self._active_scanner_fds.discard(fd)
+
+    def _descriptor_path(self, pid: int, kind: str, fd_number: int | None) -> Path:
+        if kind in {"cwd", "root"}:
+            if fd_number is not None:
+                raise CensusContractError("cwd/root descriptor cannot carry fd_number")
+            return self.proc_root / str(pid) / kind
+        if kind == "fd" and fd_number is not None:
+            return self.proc_root / str(pid) / "fd" / str(fd_number)
+        raise CensusContractError("fd descriptor is malformed")
+
+    def _observe_descriptor(self, pid: int, kind: str, fd_number: int | None) -> _DescriptorObservation:
+        path = self._descriptor_path(pid, kind, fd_number)
         link = self._readlink(path)
         if type(link) is not str:
             raise CensusSafetyError("descriptor reference is unreadable")
+        link = _text(link, "descriptor link target")
         flags = getattr(os, "O_PATH", 0) | getattr(os, "O_CLOEXEC", 0)
         if not flags:
             flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-        fd = os.open(path, flags)
+        fd = self._open_scanner_fd(path, flags)
         try:
-            value = os.fstat(fd)
+            statter = os.fstat if self._fstat is None else self._fstat
+            value = statter(fd)
             mount_id = self._mount_id_reader(fd)
             if type(mount_id) is not int or mount_id < 0:
                 raise CensusSafetyError("descriptor mount identity is unavailable")
-            object_kind = _object_kind(value.st_mode)
-            deleted = link.endswith(" (deleted)")
-            if deleted and object_kind != "regular":
-                raise CensusSafetyError("deleted descriptor is not a regular file")
-            return DescriptorEvidence(kind, fd_number, int(value.st_dev), int(value.st_ino), mount_id, object_kind, deleted)
+            mode = getattr(value, "st_mode", None)
+            if type(mode) is not int:
+                raise CensusSafetyError("descriptor mode identity is unavailable")
+            object_kind = _object_kind(mode)
+            dev = _nonnegative(getattr(value, "st_dev", None), "descriptor.dev")
+            ino = _nonnegative(getattr(value, "st_ino", None), "descriptor.ino")
+            link_deleted = link.endswith(" (deleted)")
+            if object_kind == "regular":
+                nlink = _nonnegative(getattr(value, "st_nlink", None), "descriptor.st_nlink")
+                if link_deleted != (nlink == 0):
+                    raise CensusSafetyError("deleted file link/count disagreement")
+                deleted = link_deleted
+            else:
+                if link_deleted:
+                    raise CensusSafetyError("deleted descriptor is not a regular file")
+                deleted = False
+            link_after = self._readlink(path)
+            if type(link_after) is not str or _text(link_after, "descriptor link target") != link:
+                raise CensusSafetyError("descriptor readlink changed during open")
+            evidence = DescriptorEvidence(kind, fd_number, dev, ino, mount_id, object_kind, deleted)
+            return _DescriptorObservation(evidence, link)
         finally:
-            os.close(fd)
+            self._close_scanner_fd(fd)
+
+    def _descriptor_from_proc_path(self, pid: int, kind: str, fd_number: int | None) -> DescriptorEvidence:
+        """Compatibility helper returning the opened descriptor evidence."""
+
+        return self._observe_descriptor(pid, kind, fd_number).evidence
 
     def _failure_reason(self, pid: int, exc: BaseException) -> str:
         if pid == 1:

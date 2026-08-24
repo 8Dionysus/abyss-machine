@@ -11,6 +11,13 @@ or an authenticated `BrokerReceipt` bound to the request digest, target
 snapshot, process incarnation, descriptor identities, timestamps, bounds,
 completeness, nonce, replay counter, and boot/generation identities.
 
+The descriptor bound is aggregate: `bounds.max_descriptors` covers all
+cwd/root/fd descriptors across all admitted processes. The backend snapshots
+and independently revalidates descriptor entry names and exact opened
+identities, including readlink presentation, with stable process and mount
+identity checks. A deleted regular file requires both the procfs deleted
+presentation and `st_nlink == 0`; disagreement is incomplete.
+
 `complete=false` is the correct result when procfs visibility, credentials,
 namespace identity, mount identity, descriptor reads, process currentness,
 platform support, or declared bounds are insufficient. Consumers must not

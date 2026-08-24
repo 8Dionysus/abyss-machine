@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +17,6 @@ from abyss_machine.owner_census_broker import (
     CensusEvidence,
     CensusRequest,
     DescriptorEvidence,
-    GenerationReplayGuard,
     LinuxProcCensusBackend,
     MemoryKeyProvider,
     ProcessIdentity,
@@ -52,14 +52,33 @@ def _capability(request: CensusRequest, *, generation: str = "broker-generation-
         bounds=request.bounds,
         broker_id="broker-1",
         broker_generation=generation,
-        broker_version="v48-test",
+        broker_version="v49-test",
         key_id="key-1",
         key_generation="key-generation-1",
         boot_id=boot_id,
     )
 
 
-def _evidence(request: CensusRequest, *, complete: bool = True, boot_id: str = "boot-1") -> CensusEvidence:
+def _process(pid: int, boot_id: str = "boot-1", *, descriptors=None) -> ProcessReferenceEvidence:
+    return ProcessReferenceEvidence(
+        ProcessIdentity(pid, 4000 + pid, boot_id, f"pidns:{pid};mntns:{pid}"),
+        tuple(
+            descriptors
+            or (
+                DescriptorEvidence("cwd", None, 10, 20, 30, "directory"),
+            )
+        ),
+        uid=1000,
+    )
+
+
+def _evidence(
+    request: CensusRequest,
+    *,
+    complete: bool = True,
+    boot_id: str = "boot-1",
+    processes: tuple[ProcessReferenceEvidence, ...] | None = None,
+) -> CensusEvidence:
     process = ProcessReferenceEvidence(
         ProcessIdentity(42, 4242, boot_id, "pidns:42;mntns:42"),
         (
@@ -75,20 +94,20 @@ def _evidence(request: CensusRequest, *, complete: bool = True, boot_id: str = "
         scan_scope=request.scan_scope,
         target_snapshot_digest=request.target_snapshot_digest,
         target_identities=request.target_identities,
-        processes=(process,),
+        processes=(process,) if processes is None else processes,
         bounds=request.bounds,
         scan_started_ns=200,
         scan_completed_ns=201,
         complete=complete,
         backend_id="fixture-backend",
-        backend_version="v48",
+        backend_version="v49",
         reason="" if complete else "fixture incomplete",
     )
 
 
 class _FixtureBackend:
     backend_id = "fixture-backend"
-    backend_version = "v48"
+    backend_version = "v49"
 
     def __init__(self, evidence: CensusEvidence) -> None:
         self.evidence = evidence
@@ -120,6 +139,37 @@ def test_request_evidence_and_receipt_wire_contracts_are_exact_and_round_trip() 
     assert payload["receipt_digest"].startswith("sha256:")
     assert BrokerReceipt.from_wire(payload) == receipt
     assert payload["processes"][0]["descriptors"][2]["deleted"] is True
+
+
+def test_max_descriptors_is_one_aggregate_typed_constructor_bound() -> None:
+    request = _request(bounds=CensusBounds(8, 1, 8, 1_000_000_000))
+    first = _process(42, descriptors=(DescriptorEvidence("fd", 3, 10, 20, 30, "regular"),))
+    second = _process(43, descriptors=(DescriptorEvidence("fd", 4, 11, 21, 31, "regular"),))
+    with pytest.raises(CensusContractError, match="aggregate descriptor bound"):
+        _evidence(request, processes=(first, second))
+
+
+@pytest.mark.parametrize("receipt_kind", ["evidence", "receipt"])
+def test_max_descriptors_is_one_aggregate_wire_decoder_bound(receipt_kind: str) -> None:
+    request = _request(bounds=CensusBounds(8, 2, 8, 1_000_000_000))
+    first = _process(42, descriptors=(DescriptorEvidence("fd", 3, 10, 20, 30, "regular"),))
+    second = _process(43, descriptors=(DescriptorEvidence("fd", 4, 11, 21, 31, "regular"),))
+    evidence = _evidence(request, processes=(first, second))
+    payload = evidence.as_wire()
+    if receipt_kind == "receipt":
+        payload = BrokerReceipt.issue(
+            evidence=evidence,
+            capability=_capability(request),
+            signing_key=KEY,
+            receipt_id="receipt-aggregate",
+            issued_at_ns=300,
+            expires_at_ns=900,
+            nonce=request.nonce,
+        ).as_wire()
+    payload["bounds"]["max_descriptors"] = 1
+    decoder = BrokerReceipt.from_wire if receipt_kind == "receipt" else CensusEvidence.from_wire
+    with pytest.raises(CensusContractError, match="aggregate descriptor bound|descriptors"):
+        decoder(payload)
 
 
 @pytest.mark.parametrize(
@@ -221,7 +271,18 @@ def _proc_fixture(tmp_path: Path, *, pids: tuple[int, ...] = (1, 42, 77)) -> tup
     return proc, target_file
 
 
-def _fixture_backend(proc: Path, *, current_pid: int = 42, uid_reader=None, start_reader=None, boot_reader=None, mount_reader=None, readlink=None, monotonic_ns=None) -> LinuxProcCensusBackend:
+def _fixture_backend(
+    proc: Path,
+    *,
+    current_pid: int = 42,
+    uid_reader=None,
+    start_reader=None,
+    boot_reader=None,
+    mount_reader=None,
+    readlink=None,
+    monotonic_ns=None,
+    fstat=None,
+) -> LinuxProcCensusBackend:
     return LinuxProcCensusBackend(
         proc_root=proc,
         current_pid=current_pid,
@@ -233,6 +294,7 @@ def _fixture_backend(proc: Path, *, current_pid: int = 42, uid_reader=None, star
         clock_ns=lambda: 500,
         monotonic_ns=monotonic_ns or (lambda: 0),
         readlink=readlink or os.readlink,
+        fstat=fstat,
     )
 
 
@@ -240,7 +302,18 @@ def _fixture_request(*, max_processes: int = 8, max_descriptors: int = 64, max_d
     return _request(bounds=CensusBounds(max_processes, max_descriptors, 8, max_duration_ns))
 
 
-def test_fixture_census_inspects_cwd_root_fds_and_deleted_regular_file(tmp_path: Path) -> None:
+def test_fixture_census_inspects_stable_cwd_root_fds_and_live_regular_file(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+
+    evidence = _fixture_backend(proc).scan(_fixture_request())
+    assert evidence.complete is True
+    by_pid = {item.process.pid: item for item in evidence.processes}
+    assert {item.kind for item in by_pid[42].descriptors} == {"cwd", "root", "fd"}
+    assert by_pid[77].descriptors[-1].deleted is False
+    assert all(item.process.run_id.startswith("pidns:") for item in evidence.processes)
+
+
+def test_literal_deleted_suffix_on_linked_regular_file_is_ambiguous(tmp_path: Path) -> None:
     proc, target_file = _proc_fixture(tmp_path)
 
     def readlink(path):
@@ -250,11 +323,150 @@ def test_fixture_census_inspects_cwd_root_fds_and_deleted_regular_file(tmp_path:
         return value
 
     evidence = _fixture_backend(proc, readlink=readlink).scan(_fixture_request())
+    assert evidence.complete is False
+    assert "other-uid" in evidence.reason
+
+
+def test_deleted_regular_file_requires_zero_inode_link_count(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    deleted_target = tmp_path / "deleted-target"
+    deleted_target.write_bytes(b"fixture-deleted")
+    (proc / "77" / "fd" / "3").unlink()
+    (proc / "77" / "fd" / "3").symlink_to(deleted_target)
+
+    def readlink(path):
+        value = os.readlink(path)
+        if str(path).endswith("/77/fd/3"):
+            return str(deleted_target) + " (deleted)"
+        return value
+
+    def fstat(fd):
+        value = os.fstat(fd)
+        target = os.readlink(f"/proc/{os.getpid()}/fd/{fd}")
+        if target == str(deleted_target):
+            return SimpleNamespace(st_mode=value.st_mode, st_dev=value.st_dev, st_ino=value.st_ino, st_nlink=0)
+        return value
+
+    evidence = _fixture_backend(proc, readlink=readlink, fstat=fstat).scan(_fixture_request())
     assert evidence.complete is True
     by_pid = {item.process.pid: item for item in evidence.processes}
-    assert {item.kind for item in by_pid[42].descriptors} == {"cwd", "root", "fd"}
     assert by_pid[77].descriptors[-1].deleted is True
-    assert all(item.process.run_id.startswith("pidns:") for item in evidence.processes)
+
+
+def test_fd_addition_after_inventory_snapshot_is_incomplete(tmp_path: Path) -> None:
+    proc, target_file = _proc_fixture(tmp_path)
+    calls = {"count": 0}
+
+    def readlink(path):
+        value = os.readlink(path)
+        if str(path).endswith("/42/cwd"):
+            calls["count"] += 1
+            if calls["count"] == 2:
+                (proc / "42" / "fd" / "4").symlink_to(target_file)
+        return value
+
+    evidence = _fixture_backend(proc, readlink=readlink).scan(_fixture_request())
+    assert evidence.complete is False
+    assert "descriptor" in evidence.reason or "same-uid" in evidence.reason
+
+
+def test_fd_removal_after_inventory_snapshot_is_incomplete(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    calls = {"count": 0}
+
+    def readlink(path):
+        value = os.readlink(path)
+        if str(path).endswith("/42/fd/3"):
+            calls["count"] += 1
+            if calls["count"] == 2:
+                (proc / "42" / "fd" / "3").unlink()
+        return value
+
+    evidence = _fixture_backend(proc, readlink=readlink).scan(_fixture_request())
+    assert evidence.complete is False
+
+
+def test_fd_reuse_and_readlink_open_disagreement_is_incomplete(tmp_path: Path) -> None:
+    proc, target_file = _proc_fixture(tmp_path)
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b"replacement")
+    calls = {"count": 0}
+
+    def readlink(path):
+        value = os.readlink(path)
+        if str(path).endswith("/42/fd/3"):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return str(target_file)
+            if calls["count"] == 2:
+                return str(replacement)
+        return value
+
+    evidence = _fixture_backend(proc, readlink=readlink).scan(_fixture_request())
+    assert evidence.complete is False
+
+
+def test_fd_reuse_between_snapshot_and_revalidation_is_incomplete(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b"replacement")
+    calls: dict[int, int] = {}
+
+    def start_reader(pid: int) -> int:
+        calls[pid] = calls.get(pid, 0) + 1
+        if pid == 42 and calls[pid] == 2:
+            path = proc / "42" / "fd" / "3"
+            path.unlink()
+            path.symlink_to(replacement)
+        return 100 + pid
+
+    evidence = _fixture_backend(proc, start_reader=start_reader).scan(_fixture_request())
+    assert evidence.complete is False
+
+
+def test_descriptor_unreadable_transition_is_incomplete(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    calls = {"count": 0}
+
+    def readlink(path):
+        if str(path).endswith("/42/fd/3"):
+            calls["count"] += 1
+            if calls["count"] == 3:
+                raise PermissionError("fixture descriptor became unreadable")
+        return os.readlink(path)
+
+    evidence = _fixture_backend(proc, readlink=readlink).scan(_fixture_request())
+    assert evidence.complete is False
+
+
+@pytest.mark.parametrize("entry", ["cwd", "root"])
+def test_cwd_or_root_target_change_between_passes_is_incomplete(tmp_path: Path, entry: str) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    replacement = tmp_path / f"replacement-{entry}"
+    replacement.mkdir()
+    calls: dict[int, int] = {}
+
+    def start_reader(pid: int) -> int:
+        calls[pid] = calls.get(pid, 0) + 1
+        if pid == 42 and calls[pid] == 2:
+            path = proc / "42" / entry
+            path.unlink()
+            path.symlink_to(replacement)
+        return 100 + pid
+
+    evidence = _fixture_backend(proc, start_reader=start_reader).scan(_fixture_request())
+    assert evidence.complete is False
+
+
+def test_scanner_owned_transient_fd_is_filtered_by_runtime_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    proc, target_file = _proc_fixture(tmp_path)
+    (proc / "42" / "fd" / "4").symlink_to(target_file)
+    backend = _fixture_backend(proc)
+    transient_fd = 3
+    backend._active_scanner_fds.add(transient_fd)
+    monkeypatch.setattr(backend, "_is_actual_scanner_process", lambda _pid: True)
+    monkeypatch.setattr(backend, "_scanner_fd_snapshot", lambda: {4})
+    assert backend._enumerate_fd_numbers(42, 8) == [4]
 
 
 @pytest.mark.parametrize("unreadable_pid", [1, 42, 77])
@@ -307,6 +519,10 @@ def test_fixture_census_fails_closed_for_process_and_duration_bounds(tmp_path: P
     over_processes = _fixture_backend(proc).scan(_fixture_request(max_processes=2))
     assert over_processes.complete is False
     assert "bound" in over_processes.reason
+
+    over_descriptors = _fixture_backend(proc).scan(_fixture_request(max_descriptors=8))
+    assert over_descriptors.complete is False
+    assert "bound" in over_descriptors.reason
 
     monotonic_values = iter((0, 2))
     over_time = _fixture_backend(proc, monotonic_ns=lambda: next(monotonic_values)).scan(_fixture_request(max_duration_ns=1))
