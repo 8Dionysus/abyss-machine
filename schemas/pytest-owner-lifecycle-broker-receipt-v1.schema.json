@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abyss-machine.local/schemas/pytest-owner-lifecycle-broker-receipt-v1.schema.json",
+  "title": "Owner lifecycle broker receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "request_digest",
+    "receipt_id",
+    "scan_scope",
+    "target_snapshot_digest",
+    "target_identities",
+    "processes",
+    "bounds",
+    "scan_started_ns",
+    "scan_completed_ns",
+    "issued_at_ns",
+    "expires_at_ns",
+    "broker_id",
+    "broker_generation",
+    "broker_version",
+    "key_id",
+    "key_generation",
+    "boot_id",
+    "nonce",
+    "replay_counter",
+    "complete",
+    "reason",
+    "signature",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema": {"const": "pytest-owner-lifecycle-broker-receipt-v1"},
+    "request_id": {"$ref": "#/$defs/text"},
+    "request_digest": {"$ref": "#/$defs/digest"},
+    "receipt_id": {"$ref": "#/$defs/text"},
+    "scan_scope": {"$ref": "#/$defs/text"},
+    "target_snapshot_digest": {"$ref": "#/$defs/digest"},
+    "target_identities": {"type": "array", "maxItems": 65536, "items": {"$ref": "#/$defs/identity"}},
+    "processes": {"type": "array", "maxItems": 65536, "items": {"$ref": "#/$defs/process"}},
+    "bounds": {"$ref": "#/$defs/bounds"},
+    "scan_started_ns": {"type": "integer", "minimum": 1},
+    "scan_completed_ns": {"type": "integer", "minimum": 1},
+    "issued_at_ns": {"type": "integer", "minimum": 1},
+    "expires_at_ns": {"type": "integer", "minimum": 1},
+    "broker_id": {"$ref": "#/$defs/text"},
+    "broker_generation": {"$ref": "#/$defs/text"},
+    "broker_version": {"$ref": "#/$defs/text"},
+    "key_id": {"$ref": "#/$defs/text"},
+    "key_generation": {"$ref": "#/$defs/text"},
+    "boot_id": {"$ref": "#/$defs/text"},
+    "nonce": {"$ref": "#/$defs/text"},
+    "replay_counter": {"type": "integer", "minimum": 0},
+    "complete": {"type": "boolean"},
+    "reason": {"type": "string", "maxLength": 512, "pattern": "^[^\\u0000]*$"},
+    "signature": {"type": "string", "pattern": "^hmac-sha256:[0-9a-f]{64}$"},
+    "receipt_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000]*$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "identity": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "integer", "minimum": 0},
+        {"type": "integer", "minimum": 0},
+        {"type": "integer", "minimum": 0},
+        {"type": "string", "enum": ["directory", "regular", "symlink", "special", "other"]}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "process_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "start_ticks", "boot_id", "run_id"],
+      "properties": {
+        "pid": {"type": "integer", "minimum": 1},
+        "start_ticks": {"type": "integer", "minimum": 1},
+        "boot_id": {"$ref": "#/$defs/text"},
+        "run_id": {"$ref": "#/$defs/text"}
+      }
+    },
+    "descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "fd_number", "dev", "ino", "mount_id", "object_kind", "deleted"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["cwd", "root", "fd"]},
+        "fd_number": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "dev": {"type": "integer", "minimum": 0},
+        "ino": {"type": "integer", "minimum": 0},
+        "mount_id": {"type": "integer", "minimum": 0},
+        "object_kind": {"type": "string", "enum": ["directory", "regular", "symlink", "special", "other"]},
+        "deleted": {"type": "boolean"}
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["process", "descriptors", "uid"],
+      "properties": {
+        "process": {"$ref": "#/$defs/process_identity"},
+        "descriptors": {"type": "array", "maxItems": 262144, "items": {"$ref": "#/$defs/descriptor"}},
+        "uid": {"type": "integer", "minimum": 0}
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_processes", "max_descriptors", "max_target_identities", "max_duration_ns"],
+      "properties": {
+        "max_processes": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "max_descriptors": {"type": "integer", "minimum": 1, "maximum": 262144},
+        "max_target_identities": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "max_duration_ns": {"type": "integer", "minimum": 1, "maximum": 300000000000}
+      }
+    }
+  }
+}

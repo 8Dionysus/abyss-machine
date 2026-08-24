@@ -32634,6 +32634,7 @@ def stack_bridge_default_manifest() -> dict[str, Any]:
         "self_awareness_bridge": self_awareness_bridge_contract(),
         "typing_bridge": stack_bridge_typing_bridge_contract(),
         "heartbeat_bridge": stack_bridge_heartbeat_bridge_contract(),
+        "owner_census_broker": stack_bridge_contracts.owner_census_broker_contract(),
         "first_commands": [
             "abyss-machine stack-bridge --json",
             "abyss-machine stack-bridge observability --json",
@@ -32770,6 +32771,7 @@ def stack_bridge_config() -> dict[str, Any]:
                 "orchestrator_refresh_nervous": "abyss-machine resource orchestrator --refresh-nervous --json",
             })
     data.setdefault("heartbeat_bridge", stack_bridge_heartbeat_bridge_contract())
+    data.setdefault("owner_census_broker", stack_bridge_contracts.owner_census_broker_contract())
     data.setdefault("stack_observability_bridge", stack_bridge_observability_bridge_contract())
     self_awareness_bridge = data.setdefault("self_awareness_bridge", {})
     if isinstance(self_awareness_bridge, dict):
@@ -38545,6 +38547,7 @@ def stack_bridge_export(write_latest: bool = True) -> dict[str, Any]:
             "nervous_quality_bridge",
             "typing_bridge",
             "heartbeat_bridge",
+            "owner_census_broker",
             "stack_observability_bridge",
             "self_awareness_bridge",
         )

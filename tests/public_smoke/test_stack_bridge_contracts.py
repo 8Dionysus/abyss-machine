@@ -57,6 +57,13 @@ def test_stack_bridge_paths_and_bridge_contracts_are_portable(tmp_path: Path) ->
     assert observability_bridge["commands"]["observability"] == "abyss-machine stack-bridge observability --json"
     assert "does not import, write, start, stop, or reconfigure abyss-stack" in observability_bridge["non_claim"]
 
+    census_bridge = stack_bridge_contracts.owner_census_broker_contract()
+    assert census_bridge["read_only"] is True
+    assert census_bridge["activation"] is False
+    assert census_bridge["source"] == "src/abyss_machine/owner_census_broker.py"
+    assert len(census_bridge["schemas"]) == 3
+    assert "operation grant" in census_bridge["non_claim"]
+
 
 def test_heartbeat_readiness_requires_read_only_artifacts_and_validate_checks(tmp_path: Path) -> None:
     stable_fields = ("source", "rhythm", "readiness")
