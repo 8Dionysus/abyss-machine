@@ -476,6 +476,31 @@ def test_state_history_append_survives_unavailable_optional_group(tmp_path: Path
     assert json.loads(history.read_text(encoding="utf-8")) == {"ok": True}
 
 
+def test_artifacts_requirements_refresh_survives_unavailable_optional_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requirements_root = tmp_path / "requirements"
+    monkeypatch.setattr(cli, "ARTIFACTS_REQUIREMENTS_ROOT", requirements_root)
+    monkeypatch.setattr(cli, "ARTIFACTS_REQUIREMENTS_LATEST_PATH", requirements_root / "latest.json")
+    monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "artifacts-index.json")
+
+    def unavailable_chown(*_args: object, **_kwargs: object) -> None:
+        raise OSError(22, "group is not mapped in this user namespace")
+
+    monkeypatch.setattr(cli.os, "chown", unavailable_chown)
+
+    data = cli.artifacts_requirements(
+        artifact_class="public_source_seed",
+        registry_dir=tmp_path / "registry",
+    )
+
+    assert data["ok"] is True
+    assert "write_errors" not in data
+    assert (requirements_root / "latest.json").is_file()
+    assert list(requirements_root.glob("**/*.jsonl"))
+    assert (tmp_path / "artifacts-index.json").is_file()
+
+
 def test_artifacts_scenarios_cli_writes_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     scenarios_root = tmp_path / "scenarios"
     monkeypatch.setattr(cli, "ARTIFACTS_SCENARIOS_ROOT", scenarios_root)

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve artifact read-model JSON/JSONL/index refresh when optional host group
+  ownership is unavailable, including unmapped-group `EINVAL` from `chown`.
 - Record decision `0027`: active-organ work remains subject to independent
   host resource/storage/model admission, and the machine layer remains
   project-neutral even when it returns deny, defer, or soften.
