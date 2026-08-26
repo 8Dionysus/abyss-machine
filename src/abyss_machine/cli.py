@@ -220,6 +220,7 @@ globals().update(
 
 try:
     from . import ai_runtime_contracts
+    from . import change_recovery
     from . import changes_contracts
     from . import cooling_contracts
     from . import docs_contracts
@@ -325,6 +326,7 @@ try:
     )
 except ImportError:  # pragma: no cover - supports direct execution of an installed script copy.
     from abyss_machine import ai_runtime_contracts
+    from abyss_machine import change_recovery
     from abyss_machine import changes_contracts
     from abyss_machine import cooling_contracts
     from abyss_machine import docs_contracts
@@ -43965,6 +43967,57 @@ def change_record(
     return data
 
 
+
+def change_recover(
+    *,
+    change_id: str,
+    state: str,
+    source_dir: str,
+    corrective_change_id: str,
+    title: str,
+    surfaces: list[str],
+    evidence_paths: list[str],
+    provenance_gaps: list[str],
+    note: str | None = None,
+    write_latest: bool = True,
+) -> dict[str, Any]:
+    return change_recovery.recover(
+        deps=change_recovery.RecoveryDependencies(
+            schema_prefix=SCHEMA_PREFIX,
+            version=VERSION,
+            change_root=CHANGE_ROOT,
+            change_active_root=CHANGE_ACTIVE_ROOT,
+            change_closed_root=CHANGE_CLOSED_ROOT,
+            change_history_root=CHANGE_HISTORY_ROOT,
+            change_index_path=CHANGE_INDEX_PATH,
+            change_latest_path=CHANGE_LATEST_PATH,
+            abyss_machine_root=ABYSS_MACHINE_ROOT,
+            abyss_stack_user_source_root=ABYSS_STACK_USER_SOURCE_ROOT,
+            now_iso=now_iso,
+            change_id_valid=change_id_valid,
+            change_record_dir=change_record_dir,
+            load_json_document=load_json_document,
+            read_text=read_text,
+            sha256_path=sha256_path,
+            safe_atomic_write_json=safe_atomic_write_json,
+            write_text_if_missing=write_text_if_missing,
+            safe_append_jsonl=safe_append_jsonl,
+            ai_daily_jsonl_path=ai_daily_jsonl_path,
+            changes_index=changes_index,
+            change_paths=change_paths,
+        ),
+        change_id=change_id,
+        state=state,
+        source_dir=source_dir,
+        corrective_change_id=corrective_change_id,
+        title=title,
+        surfaces=surfaces,
+        evidence_paths=evidence_paths,
+        provenance_gaps=provenance_gaps,
+        note=note,
+        write_latest=write_latest,
+    )
+
 def change_close(
     change_id: str,
     note: str | None = None,
@@ -51340,6 +51393,20 @@ def main(argv: list[str]) -> int:
     changes_record_parser.add_argument("--note", default=None)
     changes_record_parser.add_argument("--status", default="active", choices=["active", "closed", "cancelled", "superseded"])
     changes_record_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    changes_recover_parser = changes_sub.add_parser(
+        "recover",
+        help="reconstruct missing canonical lifecycle files from explicit host evidence",
+    )
+    changes_recover_parser.add_argument("--id", required=True)
+    changes_recover_parser.add_argument("--state", required=True, choices=["active", "closed"])
+    changes_recover_parser.add_argument("--source-dir", required=True)
+    changes_recover_parser.add_argument("--corrective-id", required=True)
+    changes_recover_parser.add_argument("--title", required=True, help="explicit derived title; never treated as original provenance")
+    changes_recover_parser.add_argument("--surface", action="append", default=[])
+    changes_recover_parser.add_argument("--evidence", action="append", default=[], help="host-owned evidence file; repeat for every source")
+    changes_recover_parser.add_argument("--provenance-gap", action="append", default=[], help="known missing or uncertain original field; repeat at least once")
+    changes_recover_parser.add_argument("--note", default=None)
+    changes_recover_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     changes_close_parser = changes_sub.add_parser("close")
     changes_close_parser.add_argument("--id", required=True)
     changes_close_parser.add_argument("--note", default=None)
@@ -53363,6 +53430,25 @@ def main(argv: list[str]) -> int:
             else:
                 record = data.get("record", {}) if isinstance(data.get("record"), dict) else {}
                 print(f"change record: ok={data.get('ok')} id={record.get('id')} path={record.get('path')}")
+            return 0 if data.get("ok") else 1
+        if args.changes_command == "recover":
+            data = change_recover(
+                change_id=str(args.id),
+                state=str(args.state),
+                source_dir=str(args.source_dir),
+                corrective_change_id=str(args.corrective_id),
+                title=str(args.title),
+                surfaces=[str(item) for item in args.surface],
+                evidence_paths=[str(item) for item in args.evidence],
+                provenance_gaps=[str(item) for item in args.provenance_gap],
+                note=getattr(args, "note", None),
+                write_latest=True,
+            )
+            if args.json:
+                print_json(data)
+            else:
+                target = data.get("target", {}) if isinstance(data.get("target"), dict) else {}
+                print(f"change recovery: ok={data.get('ok')} id={target.get('id')} changed={data.get('changed')}")
             return 0 if data.get("ok") else 1
         if args.changes_command == "close":
             data = change_close(

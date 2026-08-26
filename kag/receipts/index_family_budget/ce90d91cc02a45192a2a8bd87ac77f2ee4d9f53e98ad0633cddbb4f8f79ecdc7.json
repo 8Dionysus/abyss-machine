@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 23865988,
+  "allowed_tracked_bytes": 28152009,
+  "approved_by": "repository-owner",
+  "base_ref": "884fa4dfdfaaae9b4446438795eeb7b522d479d1",
+  "changed_generated_bytes": 23865988,
+  "changed_generated_files": 342,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "ce90d91cc02a45192a2a8bd87ac77f2ee4d9f53e98ad0633cddbb4f8f79ecdc7",
+  "reason": "Regenerate the deterministic portable aoa-kag owner family for the current recovery-boundary implementation after refreshing the generated contract ABI, bound to the exact merged main base.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28152009,
+  "tracked_bytes_max": 27262976
+}
