@@ -125,6 +125,7 @@ abyss-machine changes index --json
 abyss-machine changes latest --json
 abyss-machine changes preflight --intent TEXT --surface SURFACE --json
 abyss-machine changes record --id ID --title TITLE --intent TEXT --surface SURFACE --json
+abyss-machine changes recover --id ID --state active|closed --source-dir PATH --corrective-id ID --title TITLE --surface SURFACE --evidence PATH --provenance-gap TEXT --json
 abyss-machine changes close --id ID --decision-review existing --decision-ref DECISION --note "validated and complete" --json
 abyss-machine storage validate --json
 abyss-machine memory validate --json
