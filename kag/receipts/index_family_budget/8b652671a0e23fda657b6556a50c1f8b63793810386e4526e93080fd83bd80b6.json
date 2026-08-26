@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 16363023,
+  "allowed_tracked_bytes": 27200770,
+  "approved_by": "repository-owner",
+  "base_ref": "d98bfc74e07b7d3283b4d06eb29c39159f7707b2",
+  "changed_generated_bytes": 16363023,
+  "changed_generated_files": 202,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "8b652671a0e23fda657b6556a50c1f8b63793810386e4526e93080fd83bd80b6",
+  "reason": "Refresh the portable owner-family KAG from a full non-incremental rebuild for the production Cosign keyless bundle-signature adapter and its exact verifier regression evidence; incremental reuse did not capture the changed ABI/source record, while the standing tracked-byte cap remains authoritative.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 27200770,
+  "tracked_bytes_max": 27262976
+}
