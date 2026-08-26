@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/storage-candidate-claim.schema.json",
+  "title": "abyss-machine renewable storage candidate claim",
+  "type": "object",
+  "required": ["schema", "claim_id", "owner", "issued_at", "expires_at", "valid"],
+  "properties": {
+    "schema": {"const": "abyss_machine_storage_candidate_claim_v1"},
+    "claim_id": {"type": "string", "minLength": 1},
+    "candidate_id": {"type": ["string", "null"]},
+    "path": {"type": ["string", "null"]},
+    "owner": {"type": "string", "minLength": 1},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "valid": {"type": "boolean"},
+    "absence_or_expiry_is_not_delete_permission": {"const": true}
+  }
+}

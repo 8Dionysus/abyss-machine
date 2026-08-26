@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/storage-candidate-manifest.schema.json",
+  "title": "abyss-machine storage candidate creation manifest",
+  "type": "object",
+  "required": ["schema", "candidate_id", "path", "owner", "kind", "purpose", "producer", "source_id", "valid"],
+  "properties": {
+    "schema": {"const": "abyss_machine_storage_candidate_manifest_v1"},
+    "candidate_id": {"type": "string", "pattern": "^reclaim-[0-9a-f]{24}$"},
+    "path": {"type": "string", "pattern": "^/"},
+    "owner": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "minLength": 1},
+    "purpose": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "valid": {"type": "boolean"},
+    "automatic_deletion": {"const": false}
+  }
+}

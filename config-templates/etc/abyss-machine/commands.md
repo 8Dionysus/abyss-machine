@@ -746,6 +746,14 @@ abyss-machine storage pressure --refresh-inventory --json
 abyss-machine storage cleanup-plan --json
 abyss-machine storage cleanup-plan --refresh-inventory --json
 abyss-machine storage monitor --json
+abyss-machine storage candidates refresh --json
+abyss-machine storage candidates refresh --deep --json
+abyss-machine storage candidates list --min-bytes 1073741824 --json
+abyss-machine storage candidates list --verdict delete_ready_rebuildable --changed --json
+abyss-machine storage candidates explain CANDIDATE_ID --json
+abyss-machine storage candidates validate CANDIDATE_ID --json
+abyss-machine storage candidates claim --claim-id CLAIM_ID --candidate-id CANDIDATE_ID --owner OWNER --purpose PURPOSE --ttl-seconds 86400 --json
+abyss-machine storage candidates release --claim-id CLAIM_ID --json
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_USER_HOME}}/.cache/example --json
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --json
 abyss-machine storage apply --action-id ID --dry-run --json
@@ -822,6 +830,11 @@ storage cleanup plan history: {{ABYSS_MACHINE_STATE}}/storage/cleanup-plan/YYYY/
 storage monitor latest: {{ABYSS_MACHINE_STATE}}/storage/monitor/latest.json
 storage monitor history: {{ABYSS_MACHINE_STATE}}/storage/monitor/YYYY/MM/YYYY-MM-DD.jsonl
 storage monitor timer: abyss-storage-monitor.timer, user scope, hourly, low CPU/IO priority, stdout suppressed
+storage candidates latest: {{ABYSS_MACHINE_STATE}}/storage/candidates/latest.json
+storage candidate history: {{ABYSS_MACHINE_STATE}}/storage/candidates/history/YYYY/MM/YYYY-MM-DD.jsonl
+storage candidate manifests: {{ABYSS_MACHINE_STATE}}/storage/candidates/manifests
+storage candidate claims: {{ABYSS_MACHINE_STATE}}/storage/candidates/claims
+storage candidate deep timer: abyss-storage-candidates-deep.timer, user scope, daily, low CPU/IO priority, stdout suppressed
 storage write preflight latest: {{ABYSS_MACHINE_STATE}}/storage/write-preflight/latest.json
 storage write preflight history: {{ABYSS_MACHINE_STATE}}/storage/write-preflight/YYYY/MM/YYYY-MM-DD.jsonl
 storage apply latest: {{ABYSS_MACHINE_STATE}}/storage/apply/latest.json
@@ -883,6 +896,9 @@ classification rule: rebuildable_cache/redownloadable_heavy are cleanup candidat
 storage pressure rule: `abyss-machine storage pressure --json` classifies `/` and `/srv`, ranks pressure valves, and never deletes anything
 cleanup-plan rule: `abyss-machine storage cleanup-plan --json` runs process guard by default and produces operator steps only; it does not execute cleanup
 storage monitor rule: `abyss-machine storage monitor --json` refreshes light inventory, pressure, cleanup-plan and status; it is the recurring first-read route and does not run full inventory
+storage candidate rule: hourly refresh carries the last deep evidence age without promoting readiness; daily, pressure, or significant-growth deep refresh rechecks exact owner/process/mount/service/container/config/runtime/Git/Podman/Vault/fingerprint gates
+storage candidate apply boundary: a ready verdict still requires `storage candidates validate`, a candidate-bound approval, immediate no-drift preflight, and an external owner executor; this source stage records approval/receipt but performs no automatic deletion
+.aoa candidate rule: use only the session-memory owner `maintenance-cleanup` dry-run verdict; generic age/size/process heuristics cannot override it
 write preflight rule: `abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json` must run before large generated writes; it returns allow/reroute/cleanup_first/deny and never creates files
 apply rule: `abyss-machine storage apply --action-id ID --dry-run --json` is the first apply step; actual apply requires `--confirm`, re-runs guard/hooks, and only executes allowlisted actions
 active-process guard: if cleanup-plan marks a path `blocked_active_process`, treat it as busy and do not clean it until the process exits or the operator explicitly accepts the consequence

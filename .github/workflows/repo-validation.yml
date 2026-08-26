@@ -6,6 +6,15 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      history_ref:
+        description: "Exact base/history ref for a manually dispatched validation"
+        required: false
+        type: string
+      event_history_ref:
+        description: "Exact event-history ref for a manually dispatched validation"
+        required: false
+        type: string
   schedule:
     - cron: "23 6 * * 1"
 
@@ -28,8 +37,8 @@ jobs:
       - name: Check repo-local KAG index family
         uses: 8Dionysus/aoa-kag/.github/actions/repo-local-kag-index@6a79e62c7d20b6b11406dee78f409ada4a51bb3f
         with:
-          history-ref: ${{ github.event.pull_request.base.sha || github.event.before || format('{0}^', github.sha) }}
-          event-history-ref: ${{ github.event.pull_request.base.sha || github.event.before || format('{0}^', github.sha) }}
+          history-ref: ${{ inputs.history_ref || github.event.pull_request.base.sha || github.event.before || format('{0}^', github.sha) }}
+          event-history-ref: ${{ inputs.event_history_ref || inputs.history_ref || github.event.pull_request.base.sha || github.event.before || format('{0}^', github.sha) }}
 
       - name: Checkout aoa-stats protocol owner
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

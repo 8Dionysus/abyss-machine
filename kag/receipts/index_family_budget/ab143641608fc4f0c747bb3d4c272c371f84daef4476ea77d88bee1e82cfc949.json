@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25391692,
+  "allowed_tracked_bytes": 28058746,
+  "approved_by": "repository-owner",
+  "base_ref": "10844dad26bc542c2021a96150d6d9e47ba9ccc5",
+  "changed_generated_bytes": 25391692,
+  "changed_generated_files": 382,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "ab143641608fc4f0c747bb3d4c272c371f84daef4476ea77d88bee1e82cfc949",
+  "reason": "Integrate the owner-census broker and persistent storage-candidate lifecycle source contracts with their schemas, tests, bootstrap, and generated ABI; refresh the deterministic portable KAG family without changing its standing budgets or authority boundary.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28058746,
+  "tracked_bytes_max": 27262976
+}

@@ -11,6 +11,9 @@
     "schemas/nervous-privacy.schema.json",
     "schemas/artifact-signature-policy.schema.json",
     "schemas/artifact-bundle-manifest.schema.json",
-    "schemas/local-provenance-packet.schema.json"
+    "schemas/local-provenance-packet.schema.json",
+    "schemas/pytest-owner-lifecycle-census-request-v1.schema.json",
+    "schemas/pytest-owner-lifecycle-census-evidence-v1.schema.json",
+    "schemas/pytest-owner-lifecycle-broker-receipt-v1.schema.json"
   ]
 }

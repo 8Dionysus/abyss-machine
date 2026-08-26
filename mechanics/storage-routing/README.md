@@ -56,6 +56,15 @@ selection, podman/memory input binding, configured hook directory/env/time
 binding, apply preflight orchestration, latest/history writes, and rendering
 remain CLI edge.
 
+Persistent candidate classification is a separate hard-gated layer owned by
+`storage_candidate_contracts` and `storage_candidate_adapters`. It stores exact
+candidate history under `/var/lib/abyss-machine/storage/candidates`, measures
+physical same-filesystem bytes, distinguishes Podman unique bytes, joins
+runtime/Vault/Git/process/claim evidence, and fails closed on incomplete scans
+or fingerprint drift. `.aoa` candidates are accepted only from the
+session-memory owner's maintenance dry-run. The layer records validation,
+approval, and external receipts but does not add automatic deletion.
+
 ### Next route
 
 Use `host-facts` for machine posture and `local-ai-runtime` for AI caches.

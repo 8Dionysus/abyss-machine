@@ -11,8 +11,8 @@ active-organ C18/C19 references, and evidence shape changes.
 
 ### abyss-machine owns
 
-Fact collection routes, public schema anchors, and local generated evidence
-ownership under `/var/lib/abyss-machine`.
+Fact collection routes, public schema anchors, bounded read-only census
+evidence, and local generated evidence ownership under `/var/lib/abyss-machine`.
 
 ### Stronger owner split
 
@@ -31,8 +31,8 @@ reference-only active-organ capability/admission envelopes.
 ### Must not claim
 
 Host facts are public-safe, a stale fact is current truth, a recommendation is
-service health proof, or C18/C19 grants memory, launch, project, or stack
-authority.
+service health proof, a census receipt is an operation grant, or C18/C19 grants
+memory, launch, project, or stack authority.
 
 ### Validation
 
