@@ -203,3 +203,96 @@ def test_changes_paths_cli_surface_is_json_read_only() -> None:
     assert payload["schema"] == "abyss_machine_changes_paths_v1"
     assert payload["record_layout"]["change_json"] == "active/CHANGE_ID/change.json"
     assert payload["commands"]["close"].startswith("abyss-machine changes close")
+
+
+def test_recovery_envelope_keeps_provenance_and_gaps_visible(tmp_path: Path) -> None:
+    payload = changes_contracts.recovery_document(
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at="2026-08-26T00:00:00+00:00",
+        ok=True,
+        changed=True,
+        target_id="foreign-record",
+        target_state="closed",
+        source_path=tmp_path / "closed" / "foreign-record",
+        corrective_change_id="corrective-record",
+        record={"id": "foreign-record", "status": "closed"},
+        event={"event": "reconstructed"},
+        provenance={"method": "evidence_bound_missing_canonical_lifecycle", "gaps": ["original title absent"]},
+        before={"change_json": {"exists": False}},
+        after={"change_json": {"exists": True, "sha256": "abc"}},
+        paths={"latest": str(tmp_path / "latest.json")},
+    )
+    assert payload["schema"] == "abyss_machine_change_recovery_v1"
+    assert payload["provenance"]["gaps"] == ["original title absent"]
+    assert payload["before"]["change_json"]["exists"] is False
+    assert payload["after"]["change_json"]["sha256"] == "abc"
+
+
+def test_cli_recovery_is_exact_target_and_corrective_bound(tmp_path: Path, monkeypatch) -> None:
+    from abyss_machine import cli
+
+    change_root = tmp_path / "changes"
+    active_root = change_root / "active"
+    closed_root = change_root / "closed"
+    monkeypatch.setattr(cli, "CHANGE_ROOT", change_root)
+    monkeypatch.setattr(cli, "CHANGE_ACTIVE_ROOT", active_root)
+    monkeypatch.setattr(cli, "CHANGE_CLOSED_ROOT", closed_root)
+    monkeypatch.setattr(cli, "CHANGE_HISTORY_ROOT", change_root / "history")
+    monkeypatch.setattr(cli, "CHANGE_LATEST_PATH", change_root / "latest.json")
+    monkeypatch.setattr(cli, "CHANGE_INDEX_PATH", change_root / "index.json")
+    monkeypatch.setattr(cli, "CHANGE_AGENTS_PATH", change_root / "AGENTS.md")
+
+    corrective_id = "corrective-record"
+    corrective = cli.change_record(
+        change_id=corrective_id,
+        title="Correct missing lifecycle records",
+        intent="repair only missing canonical ledger files",
+        surfaces=[str(change_root)],
+        write_latest=False,
+    )
+    assert corrective["ok"] is True
+
+    target_id = "foreign-record"
+    target = active_root / target_id
+    target.mkdir(parents=True)
+    (target / "intent.md").write_text("# Intent\n\nPreserve the surviving producer evidence.\n", encoding="utf-8")
+    (target / "rollback.md").write_text("# Rollback\n\nRestore from the recorded archive.\n", encoding="utf-8")
+    producer = target / "producer.py"
+    producer.write_text("# evidence-bound producer\n", encoding="utf-8")
+
+    result = cli.change_recover(
+        change_id=target_id,
+        state="active",
+        source_dir=str(target),
+        corrective_change_id=corrective_id,
+        title="surviving producer lifecycle",
+        surfaces=["/srv/abyss-machine/tmp/ai/example"],
+        evidence_paths=["intent.md", "rollback.md", "producer.py"],
+        provenance_gaps=["original title was not persisted", "original validation artifact was absent"],
+        write_latest=False,
+    )
+    assert result["ok"] is True
+    assert result["record"]["reconstruction"]["gaps"] == [
+        "original title was not persisted",
+        "original validation artifact was absent",
+    ]
+    assert (target / "change.json").is_file()
+    assert (target / "actions.jsonl").is_file()
+    assert (target / "validation.md").is_file()
+    assert (target / "closeout.md").is_file()
+    assert json.loads((target / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])["event"] == "reconstructed"
+
+    second = cli.change_recover(
+        change_id=target_id,
+        state="active",
+        source_dir=str(target),
+        corrective_change_id=corrective_id,
+        title="must not overwrite",
+        surfaces=["/srv/abyss-machine/tmp/ai/example"],
+        evidence_paths=["intent.md"],
+        provenance_gaps=["already reconstructed"],
+        write_latest=False,
+    )
+    assert second["ok"] is False
+    assert "refusing overwrite" in second["errors"][0]["message"]

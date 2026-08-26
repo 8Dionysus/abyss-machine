@@ -90,6 +90,7 @@ def paths_document(
             "paths": "abyss-machine changes paths --json",
             "record": "abyss-machine changes record --id ID --title TITLE --intent TEXT --surface SURFACE --json",
             "close": "abyss-machine changes close --id ID --decision-review existing --decision-ref DECISION --note TEXT --json",
+            "recover": "abyss-machine changes recover --id ID --state active|closed --source-dir PATH --corrective-id ID --title TITLE --surface SURFACE --evidence PATH --provenance-gap TEXT --json",
             "latest": "abyss-machine changes latest --json",
             "index": "abyss-machine changes index --json",
             "preflight": "abyss-machine changes preflight --intent TEXT --surface SURFACE --json",
@@ -324,6 +325,55 @@ def record_result_document(
         "record": record,
         "event": event,
         "paths": paths,
+    }
+
+
+def recovery_document(
+    *,
+    schema_prefix: str,
+    version: str,
+    generated_at: str,
+    ok: bool,
+    changed: bool,
+    target_id: str,
+    target_state: str,
+    source_path: Path,
+    corrective_change_id: str,
+    record: dict[str, Any] | None,
+    event: dict[str, Any] | None,
+    provenance: dict[str, Any],
+    before: dict[str, Any],
+    after: dict[str, Any],
+    paths: dict[str, Any],
+    errors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Describe an evidence-bound reconstruction of missing canonical files.
+
+    The command layer owns filesystem reads/writes and supplies this envelope
+    only after it has checked the exact active/closed target and corrective
+    change.  A reconstruction is deliberately distinct from an original
+    lifecycle event: its provenance and gaps stay visible to downstream
+    readers.
+    """
+    return {
+        "schema": _schema(schema_prefix, "change_recovery_v1"),
+        "version": version,
+        "generated_at": generated_at,
+        "ok": ok,
+        "changed": changed,
+        "target": {
+            "id": target_id,
+            "state": target_state,
+            "source_path": str(source_path),
+        },
+        "corrective_change_id": corrective_change_id,
+        "record": record,
+        "event": event,
+        "provenance": provenance,
+        "before": before,
+        "after": after,
+        "paths": paths,
+        "errors": errors or [],
     }
 
 
