@@ -48,6 +48,17 @@ SLSA_INTOTO_SIDECAR = "artifact.provenance.intoto.jsonl"
 COSIGN_SIGNATURE_SIDECAR = "artifact.cosign.signature"
 COSIGN_PUBLIC_KEY_SIDECAR = "artifact.cosign.pub"
 SIGSTORE_BUNDLE_SIDECAR = "artifact.sigstore.json"
+COSIGN_GITHUB_OIDC_BACKEND = "cosign-github-oidc"
+GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
+GITHUB_OIDC_REPOSITORY = "8Dionysus/abyss-machine"
+GITHUB_OIDC_WORKFLOW_NAME = "Artifact Production Evidence"
+GITHUB_OIDC_WORKFLOW_FILE = ".github/workflows/artifact-production-evidence.yml"
+GITHUB_OIDC_WORKFLOW_REF = "refs/heads/main"
+GITHUB_OIDC_WORKFLOW_TRIGGER = "workflow_dispatch"
+GITHUB_OIDC_CERTIFICATE_IDENTITY = (
+    f"https://github.com/{GITHUB_OIDC_REPOSITORY}/{GITHUB_OIDC_WORKFLOW_FILE}"
+    f"@{GITHUB_OIDC_WORKFLOW_REF}"
+)
 COSIGN_LOCAL_SIGNING_CONFIG_REF = "manifests/artifact_bundles/cosign-local.signing-config.json"
 COSIGN_LOCAL_TRUSTED_ROOT_REF = "manifests/artifact_bundles/cosign-local.trusted-root.json"
 COSIGN_LOCAL_SIGNING_CONFIG = {
@@ -434,6 +445,56 @@ def _file_digest(path: Path) -> str:
 
 def _file_digest_hex(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _github_oidc_policy(sigstore_rule: Mapping[str, Any]) -> dict[str, str]:
+    configured = sigstore_rule.get("github_oidc")
+    configured = configured if isinstance(configured, Mapping) else {}
+    repository = str(configured.get("repository") or GITHUB_OIDC_REPOSITORY)
+    workflow_file = str(configured.get("workflow_file") or GITHUB_OIDC_WORKFLOW_FILE)
+    workflow_ref = str(configured.get("workflow_ref") or GITHUB_OIDC_WORKFLOW_REF)
+    return {
+        "issuer": str(configured.get("issuer") or GITHUB_OIDC_ISSUER),
+        "repository": repository,
+        "workflow_name": str(
+            configured.get("workflow_name") or GITHUB_OIDC_WORKFLOW_NAME
+        ),
+        "workflow_file": workflow_file,
+        "workflow_ref": workflow_ref,
+        "trigger": str(
+            configured.get("trigger") or GITHUB_OIDC_WORKFLOW_TRIGGER
+        ),
+        "certificate_identity": str(
+            configured.get("certificate_identity")
+            or f"https://github.com/{repository}/{workflow_file}@{workflow_ref}"
+        ),
+    }
+
+
+def _github_oidc_subject(policy: Mapping[str, str]) -> str:
+    return f"repo:{policy['repository']}:ref:{policy['workflow_ref']}"
+
+
+def _github_source_provenance_from_env() -> dict[str, str] | None:
+    """Return only public GitHub Actions source claims suitable for signing.
+
+    Local builds deliberately return no claims.  The production signer performs
+    the stricter policy match before it can create a keyless decision.
+    """
+
+    commit = str(os.environ.get("GITHUB_SHA") or "").strip()
+    repository = str(os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    ref = str(os.environ.get("GITHUB_REF") or "").strip()
+    if not commit or not repository or not ref or not _is_exact_git_object_id(commit):
+        return None
+    return {
+        "repository": repository,
+        "commit": commit,
+        "ref": ref,
+        "workflow_name": str(os.environ.get("GITHUB_WORKFLOW") or "").strip(),
+        "workflow_ref": str(os.environ.get("GITHUB_WORKFLOW_REF") or "").strip(),
+        "trigger": str(os.environ.get("GITHUB_EVENT_NAME") or "").strip(),
+    }
 
 
 def load_policy(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
@@ -6111,6 +6172,13 @@ def build_sidecars(
     required = required_controls_for_rule(rule)
     deferred = deferred_controls_for_rule(rule)
     artifact_subjects = build_artifact_subjects(manifest)
+    github_source_provenance = _github_source_provenance_from_env()
+    if artifact_subjects is not None and github_source_provenance:
+        # This object is part of the exact subjects bytes signed by Cosign.  It
+        # is deliberately additive to the file aggregate so local artifact
+        # identity remains stable while production source claims become
+        # cryptographically bound to the keyless signature.
+        artifact_subjects["source_provenance"] = github_source_provenance
     if any(control in required for control in ("sbom", "slsa_in_toto", "sigstore_cosign", "c2pa")) and artifact_subjects is None:
         raise ValueError(f"{artifact_class} requires artifact_subjects in the bundle manifest")
     surface: dict[str, Any] | None = None
@@ -6238,6 +6306,8 @@ def build_sidecars(
     if artifact_subjects is not None:
         provenance["artifact_subjects_ref"] = SUBJECTS_SIDECAR
         provenance["artifact_subjects_digest"] = artifact_subjects.get("aggregate_digest")
+        if github_source_provenance:
+            provenance["source_provenance"] = github_source_provenance
     if producer_admission:
         provenance["producer_admission"] = producer_admission
 
@@ -6795,6 +6865,152 @@ def _cosign_claim_limits(*, backend: str) -> list[str]:
     ]
 
 
+def _cosign_keyless_claim_limits() -> list[str]:
+    return [
+        "The signed blob is the exact artifact.subjects.json subject manifest; its archive digest and source claims remain separately inspectable.",
+        "Keyless verification requires a Fulcio certificate, Rekor transparency evidence, and exact GitHub issuer, workflow identity, repository, ref, trigger, source SHA, and subject digest claims.",
+        "The GitHub OIDC signature proves the declared production workflow identity for the signed subject; it does not by itself prove installer execution, TUF update metadata, registry promotion, or installed-host parity.",
+        "The installer must still consume the durable registry, materialized subject store, external update verifier evidence, and the final fail-closed trust gate.",
+    ]
+
+
+def _keyless_bundle_evidence_errors(path: Path) -> list[str]:
+    errors: list[str] = []
+    try:
+        payload = _read_json(path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [f"keyless Sigstore bundle is not valid JSON: {exc}"]
+    media_type = str(payload.get("mediaType") or "")
+    if not media_type.startswith("application/vnd.dev.sigstore.bundle."):
+        errors.append("keyless Sigstore bundle mediaType is not a Sigstore bundle")
+    material = payload.get("verificationMaterial")
+    if not isinstance(material, Mapping):
+        errors.append("keyless Sigstore bundle is missing verificationMaterial")
+        return errors
+    certificate = material.get("certificate") or material.get("x509CertificateChain")
+    if not isinstance(certificate, Mapping):
+        errors.append("keyless Sigstore bundle is missing Fulcio certificate evidence")
+    elif not (
+        str(certificate.get("rawBytes") or "").strip()
+        or isinstance(certificate.get("certificates"), list)
+    ):
+        errors.append("keyless Sigstore bundle certificate evidence is empty")
+    tlog_entries = material.get("tlogEntries")
+    if not isinstance(tlog_entries, list) or not tlog_entries:
+        errors.append("keyless Sigstore bundle is missing Rekor transparency evidence")
+    else:
+        for index, entry in enumerate(tlog_entries):
+            if not isinstance(entry, Mapping):
+                errors.append(f"keyless Sigstore tlog entry {index} is not an object")
+                continue
+            if not entry.get("logId"):
+                errors.append(f"keyless Sigstore tlog entry {index} is missing logId")
+            if not entry.get("integratedTime"):
+                errors.append(
+                    f"keyless Sigstore tlog entry {index} is missing integratedTime"
+                )
+            if not (entry.get("inclusionProof") or entry.get("inclusionPromise")):
+                errors.append(
+                    f"keyless Sigstore tlog entry {index} is missing inclusion evidence"
+                )
+    return errors
+
+
+def _keyless_claims_from_environment(
+    sigstore_rule: Mapping[str, Any],
+) -> tuple[dict[str, str], list[str]]:
+    policy = _github_oidc_policy(sigstore_rule)
+    env = os.environ
+    errors: list[str] = []
+    if not isinstance(sigstore_rule.get("github_oidc"), Mapping):
+        errors.append("artifact policy must declare explicit github_oidc signing claims")
+    if str(env.get("GITHUB_ACTIONS") or "").lower() != "true":
+        errors.append("GitHub Actions OIDC signing requires GITHUB_ACTIONS=true")
+    expected_environment = {
+        "GITHUB_REPOSITORY": policy["repository"],
+        "GITHUB_REF": policy["workflow_ref"],
+        "GITHUB_WORKFLOW": policy["workflow_name"],
+        "GITHUB_EVENT_NAME": policy["trigger"],
+    }
+    for name, expected in expected_environment.items():
+        actual = str(env.get(name) or "").strip()
+        if actual != expected:
+            errors.append(f"{name} does not match the production OIDC policy")
+    commit = str(env.get("GITHUB_SHA") or "").strip()
+    if not _is_exact_git_object_id(commit):
+        errors.append("GITHUB_SHA must be an exact Git object id")
+    claims = {
+        "issuer": policy["issuer"],
+        "subject": _github_oidc_subject(policy),
+        "certificate_identity": policy["certificate_identity"],
+        "workflow_name": policy["workflow_name"],
+        "workflow_ref": policy["workflow_ref"],
+        "workflow_repository": policy["repository"],
+        "workflow_trigger": policy["trigger"],
+        "source_repository": policy["repository"],
+        "source_commit": commit,
+        "source_ref": policy["workflow_ref"],
+    }
+    return claims, errors
+
+
+def _keyless_claims_from_signed_subject(
+    subjects: Mapping[str, Any],
+    signature: Mapping[str, Any],
+    *,
+    sigstore_rule: Mapping[str, Any],
+    subject_digest: str,
+    errors: list[str],
+) -> dict[str, str]:
+    policy = _github_oidc_policy(sigstore_rule)
+    if not isinstance(sigstore_rule.get("github_oidc"), Mapping):
+        errors.append("artifact policy must declare explicit github_oidc signing claims")
+    claims = signature.get("github_oidc")
+    if not isinstance(claims, Mapping):
+        errors.append("keyless signature decision is missing github_oidc claims")
+        claims = {}
+    expected_claims = {
+        "issuer": policy["issuer"],
+        "subject": _github_oidc_subject(policy),
+        "certificate_identity": policy["certificate_identity"],
+        "workflow_name": policy["workflow_name"],
+        "workflow_ref": policy["workflow_ref"],
+        "workflow_repository": policy["repository"],
+        "workflow_trigger": policy["trigger"],
+        "source_repository": policy["repository"],
+        "source_ref": policy["workflow_ref"],
+    }
+    for field, expected in expected_claims.items():
+        if str(claims.get(field) or "") != expected:
+            errors.append(f"keyless GitHub OIDC claim mismatch: {field}")
+    source = subjects.get("source_provenance")
+    if not isinstance(source, Mapping):
+        errors.append("artifact.subjects.json is missing signed source_provenance claims")
+        source = {}
+    source_commit = str(source.get("commit") or "")
+    source_repository = str(source.get("repository") or "")
+    source_ref = str(source.get("ref") or "")
+    if not _is_exact_git_object_id(source_commit):
+        errors.append("signed source_provenance commit must be an exact Git object id")
+    if source_repository != policy["repository"]:
+        errors.append("signed source_provenance repository does not match policy")
+    if source_ref != policy["workflow_ref"]:
+        errors.append("signed source_provenance ref does not match policy")
+    if str(claims.get("source_commit") or "") != source_commit:
+        errors.append("keyless source SHA does not match signed source_provenance")
+    if str(signature.get("source_commit") or "") != source_commit:
+        errors.append("signature decision source_commit does not match signed source_provenance")
+    if str(signature.get("source_repository") or "") != source_repository:
+        errors.append("signature decision source_repository does not match signed source_provenance")
+    if str(signature.get("artifact_subjects_digest") or "") != str(
+        subjects.get("aggregate_digest") or ""
+    ):
+        errors.append("signature decision artifact_subjects_digest does not match subjects")
+    if str(signature.get("subject_digest") or "") != subject_digest:
+        errors.append("signature decision subject_digest does not match the signed subject")
+    return {str(key): str(value) for key, value in claims.items() if value is not None}
+
+
 def _missing_cosign_backend_decision(
     *,
     artifact_class: str,
@@ -6803,6 +7019,14 @@ def _missing_cosign_backend_decision(
     required: bool,
     subject_path: Path,
 ) -> dict[str, Any]:
+    if backend == COSIGN_GITHUB_OIDC_BACKEND:
+        claim_limits = _cosign_keyless_claim_limits()
+    elif backend == "cosign-local-key":
+        claim_limits = _cosign_claim_limits(backend=backend)
+    else:
+        claim_limits = [
+            "No cryptographic signature was produced; this decision is not an admission or trust-root claim.",
+        ]
     decision: dict[str, Any] = {
         "ok": False,
         "schema": "abyss_machine_artifact_signature_decision_v1",
@@ -6811,7 +7035,7 @@ def _missing_cosign_backend_decision(
         "status": "missing_backend",
         "required": required,
         "reason": reason,
-        "claim_limits": _cosign_claim_limits(backend=backend),
+        "claim_limits": claim_limits,
     }
     if subject_path.is_file():
         decision["subject_ref"] = subject_path.name
@@ -6833,11 +7057,14 @@ def sign_bundle(
     required = sigstore_rule.get("required") is True
     subject_path = _signature_subject_path(bundle)
     if required:
-        if backend != "cosign-local-key":
+        if backend not in {"cosign-local-key", COSIGN_GITHUB_OIDC_BACKEND}:
             decision = _missing_cosign_backend_decision(
                 artifact_class=artifact_class,
                 backend=backend,
-                reason="sigstore_cosign is required by policy; use backend=cosign-local-key with configured local key material",
+                reason=(
+                    "sigstore_cosign is required by policy; use backend=cosign-local-key "
+                    "or backend=cosign-github-oidc"
+                ),
                 required=True,
                 subject_path=subject_path,
             )
@@ -6846,6 +7073,131 @@ def sign_bundle(
                 **decision,
                 "bundle_dir": str(bundle),
                 "written": [SIGNATURE_DECISION_SIDECAR],
+            }
+        if backend == COSIGN_GITHUB_OIDC_BACKEND:
+            subjects = (
+                _read_json(bundle / SUBJECTS_SIDECAR)
+                if (bundle / SUBJECTS_SIDECAR).is_file()
+                else {}
+            )
+            cosign = _cosign_binary()
+            claims, claim_errors = _keyless_claims_from_environment(sigstore_rule)
+            source = subjects.get("source_provenance")
+            if not isinstance(source, Mapping):
+                claim_errors.append(
+                    "artifact.subjects.json is missing source_provenance for keyless signing"
+                )
+                source = {}
+            if str(source.get("repository") or "") != claims.get("source_repository"):
+                claim_errors.append("signed source repository does not match GitHub OIDC policy")
+            if str(source.get("commit") or "") != claims.get("source_commit"):
+                claim_errors.append("signed source SHA does not match GITHUB_SHA")
+            if str(source.get("ref") or "") != claims.get("source_ref"):
+                claim_errors.append("signed source ref does not match GitHub OIDC policy")
+            if not cosign:
+                claim_errors.append("cosign binary is required for GitHub OIDC signing")
+            if not subject_path.is_file():
+                claim_errors.append("signature subject sidecar is missing")
+            if claim_errors:
+                decision = _missing_cosign_backend_decision(
+                    artifact_class=artifact_class,
+                    backend=backend,
+                    reason="invalid GitHub OIDC signing inputs: " + "; ".join(claim_errors),
+                    required=True,
+                    subject_path=subject_path,
+                )
+                _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
+                return {
+                    **decision,
+                    "bundle_dir": str(bundle),
+                    "written": [SIGNATURE_DECISION_SIDECAR],
+                }
+            sigstore_bundle_path = bundle / SIGSTORE_BUNDLE_SIDECAR
+            signature_path = bundle / COSIGN_SIGNATURE_SIDECAR
+            proc = subprocess.run(
+                [
+                    str(cosign),
+                    "sign-blob",
+                    "--yes",
+                    "--oidc-provider",
+                    "github-actions",
+                    "--bundle",
+                    str(sigstore_bundle_path),
+                    str(subject_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=os.environ.copy(),
+            )
+            bundle_errors = (
+                _keyless_bundle_evidence_errors(sigstore_bundle_path)
+                if sigstore_bundle_path.is_file()
+                else ["cosign did not produce artifact.sigstore.json"]
+            )
+            if proc.returncode != 0 or not proc.stdout.strip() or bundle_errors:
+                reason_parts = [
+                    "cosign keyless sign-blob failed or produced incomplete evidence",
+                    *bundle_errors,
+                ]
+                decision = {
+                    "ok": False,
+                    "schema": "abyss_machine_artifact_signature_decision_v1",
+                    "artifact_class": artifact_class,
+                    "backend": backend,
+                    "status": "signing_failed",
+                    "required": True,
+                    "reason": "; ".join(reason_parts),
+                    "cosign_exit_code": proc.returncode,
+                    "subject_ref": subject_path.name,
+                    "subject_digest": _file_digest(subject_path),
+                    "claim_limits": _cosign_keyless_claim_limits(),
+                }
+                _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
+                return {
+                    **decision,
+                    "bundle_dir": str(bundle),
+                    "written": [SIGNATURE_DECISION_SIDECAR],
+                }
+            signature_path.write_text(proc.stdout.strip() + "\n", encoding="utf-8")
+            subject_digest = _file_digest(subject_path)
+            decision = {
+                "ok": True,
+                "schema": "abyss_machine_artifact_signature_decision_v1",
+                "artifact_class": artifact_class,
+                "backend": backend,
+                "status": "signed",
+                "required": True,
+                "reason": (
+                    "sigstore_cosign is required by policy and was signed through "
+                    "GitHub Actions OIDC with Fulcio and Rekor evidence"
+                ),
+                "subject_ref": subject_path.name,
+                "subject_digest": subject_digest,
+                "artifact_subjects_digest": str(subjects.get("aggregate_digest") or ""),
+                "source_repository": claims["source_repository"],
+                "source_commit": claims["source_commit"],
+                "signature_scope": "bundle_subject_manifest",
+                "signature_ref": COSIGN_SIGNATURE_SIDECAR,
+                "sigstore_bundle_ref": SIGSTORE_BUNDLE_SIDECAR,
+                "transparency_log_mode": "rekor_required",
+                "certificate_mode": "fulcio",
+                "github_oidc": {
+                    **claims,
+                    "subject_digest": subject_digest,
+                    "artifact_subjects_digest": str(subjects.get("aggregate_digest") or ""),
+                },
+                "claim_limits": _cosign_keyless_claim_limits(),
+            }
+            _write_json(bundle / SIGNATURE_DECISION_SIDECAR, decision)
+            return {
+                **decision,
+                "bundle_dir": str(bundle),
+                "written": [
+                    SIGNATURE_DECISION_SIDECAR,
+                    COSIGN_SIGNATURE_SIDECAR,
+                    SIGSTORE_BUNDLE_SIDECAR,
+                ],
             }
         cosign = _cosign_binary()
         key_path = Path(os.environ.get("ABYSS_MACHINE_COSIGN_KEY") or "")
@@ -6982,10 +7334,37 @@ def _has_all(bundle: Path, names: list[str]) -> bool:
 
 
 def _control_is_present(bundle: Path, control: str) -> bool:
+    if control == "sigstore_cosign":
+        decision_path = bundle / SIGNATURE_DECISION_SIDECAR
+        if decision_path.is_file():
+            try:
+                decision = _read_json(decision_path)
+            except (OSError, json.JSONDecodeError, ValueError):
+                decision = {}
+            if decision.get("backend") == COSIGN_GITHUB_OIDC_BACKEND:
+                return _has_all(
+                    bundle,
+                    [SIGSTORE_BUNDLE_SIDECAR, COSIGN_SIGNATURE_SIDECAR],
+                )
     names = CONTROL_FILES[control]
     if control in ALL_OF_CONTROLS:
         return _has_all(bundle, names)
     return _has_any(bundle, names)
+
+
+def _control_missing_ref(bundle: Path, control: str) -> str:
+    if control == "sigstore_cosign":
+        decision_path = bundle / SIGNATURE_DECISION_SIDECAR
+        if decision_path.is_file():
+            try:
+                decision = _read_json(decision_path)
+            except (OSError, json.JSONDecodeError, ValueError):
+                decision = {}
+            if decision.get("backend") == COSIGN_GITHUB_OIDC_BACKEND:
+                return " or ".join(
+                    [SIGSTORE_BUNDLE_SIDECAR, COSIGN_SIGNATURE_SIDECAR]
+                )
+    return " or ".join(CONTROL_FILES[control])
 
 
 def _posix_path_is_under(value: str, root: PurePosixPath) -> bool:
@@ -7667,9 +8046,11 @@ def _validate_c2pa_sidecar(
 def _validate_cosign_signature(
     bundle: Path,
     signature: dict[str, Any],
+    subjects: dict[str, Any],
     missing: list[str],
     errors: list[str],
     *,
+    rule: Mapping[str, Any] | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> None:
     if signature.get("required") is not True:
@@ -7694,11 +8075,34 @@ def _validate_cosign_signature(
     if expected_digest != actual_digest:
         errors.append(f"artifact.signature-decision.json subject_digest does not match {subject_ref}")
 
+    backend = str(signature.get("backend") or "")
     required_sidecars = {
         "signature_ref": COSIGN_SIGNATURE_SIDECAR,
         "sigstore_bundle_ref": SIGSTORE_BUNDLE_SIDECAR,
-        "public_key_ref": COSIGN_PUBLIC_KEY_SIDECAR,
     }
+    if backend == "cosign-local-key":
+        required_sidecars["public_key_ref"] = COSIGN_PUBLIC_KEY_SIDECAR
+    elif backend == COSIGN_GITHUB_OIDC_BACKEND:
+        if signature.get("public_key_ref") or (bundle / COSIGN_PUBLIC_KEY_SIDECAR).exists():
+            errors.append("keyless signature must not carry a local Cosign public-key sidecar")
+        sigstore_rule = (
+            rule.get("sigstore_cosign")
+            if isinstance(rule, Mapping) and isinstance(rule.get("sigstore_cosign"), Mapping)
+            else {}
+        )
+        _keyless_claims_from_signed_subject(
+            subjects,
+            signature,
+            sigstore_rule=sigstore_rule,
+            subject_digest=actual_digest,
+            errors=errors,
+        )
+        if str(signature.get("transparency_log_mode") or "") != "rekor_required":
+            errors.append("keyless signature must require Rekor transparency evidence")
+        if str(signature.get("certificate_mode") or "") != "fulcio":
+            errors.append("keyless signature must require Fulcio certificate evidence")
+    else:
+        errors.append(f"unsupported required Cosign backend: {backend or '<missing>'}")
     sidecar_paths: dict[str, Path] = {}
     for field, default_ref in required_sidecars.items():
         ref = str(signature.get(field) or default_ref)
@@ -7711,6 +8115,50 @@ def _validate_cosign_signature(
         if not path.is_file():
             missing.append(ref)
     if any(not path.is_file() for path in sidecar_paths.values()):
+        return
+
+    if backend == COSIGN_GITHUB_OIDC_BACKEND:
+        keyless_bundle_errors = _keyless_bundle_evidence_errors(
+            sidecar_paths["sigstore_bundle_ref"]
+        )
+        errors.extend(keyless_bundle_errors)
+        if keyless_bundle_errors:
+            return
+        claims = signature.get("github_oidc")
+        claims = claims if isinstance(claims, Mapping) else {}
+        cosign = _cosign_binary()
+        if not cosign:
+            errors.append("cosign binary not found for required keyless sigstore verification")
+            return
+        proc = subprocess.run(
+            [
+                cosign,
+                "verify-blob",
+                "--bundle",
+                str(sidecar_paths["sigstore_bundle_ref"]),
+                "--certificate-identity",
+                str(claims.get("certificate_identity") or ""),
+                "--certificate-oidc-issuer",
+                str(claims.get("issuer") or ""),
+                "--certificate-github-workflow-name",
+                str(claims.get("workflow_name") or ""),
+                "--certificate-github-workflow-ref",
+                str(claims.get("workflow_ref") or ""),
+                "--certificate-github-workflow-repository",
+                str(claims.get("workflow_repository") or ""),
+                "--certificate-github-workflow-sha",
+                str(claims.get("source_commit") or ""),
+                "--certificate-github-workflow-trigger",
+                str(claims.get("workflow_trigger") or ""),
+                str(subject_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        if proc.returncode != 0:
+            errors.append("cosign verify-blob failed for required keyless sigstore signature")
         return
 
     cosign = _cosign_binary()
@@ -7932,12 +8380,20 @@ def verify_bundle(
                 "KAG outer signature must bind artifact.abi.json, including "
                 "the external identity, source ref, and subject aggregate"
             )
-        _validate_cosign_signature(bundle, signature, missing, errors, repo_root=repo_root)
+        _validate_cosign_signature(
+            bundle,
+            signature,
+            subjects,
+            missing,
+            errors,
+            rule=rule,
+            repo_root=repo_root,
+        )
     _validate_subject_aggregate_binding(subjects, provenance, errors)
 
     for control in required_controls:
         if not _control_is_present(bundle, control):
-            missing.append(" or ".join(CONTROL_FILES[control]))
+            missing.append(_control_missing_ref(bundle, control))
     deferred_controls = identity.get("deferred_controls") if isinstance(identity.get("deferred_controls"), dict) else {}
     for control in policy_controls:
         if control in required_controls:

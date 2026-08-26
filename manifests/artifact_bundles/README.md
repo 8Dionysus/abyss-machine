@@ -10,10 +10,10 @@ verify. They do not define signing doctrine; controls come from
 - `host_local_evidence.sample.bundle.json`: public-safe OS Abyss local
   provenance sample. It proves the private evidence packet verifier path
   without carrying real `/var/lib/abyss-machine` payloads.
-- `bootstrap_install_bundle.bundle.json`: local release-candidate route for an
-  ignored `dist/abyss-machine-bootstrap-*.tar.gz` archive. It requires ABI,
-  SBOM, SLSA/in-toto, and Sigstore/Cosign verification before registry latest
-  selection.
+- `bootstrap_install_bundle.bundle.json`: GitHub production release route for
+  an ignored `dist/abyss-machine-bootstrap-*.tar.gz` archive. It requires ABI,
+  SBOM, SLSA/in-toto, and keyless Sigstore/Cosign verification before registry
+  latest selection.
 - `runtime_tools_bundle.bundle.json`: local release-candidate route for an
   ignored `dist/abyss-machine-runtime-tools-*.tar.gz` archive containing host
   runtime helper scripts, runtime mechanics docs, and storage policy inputs.
@@ -94,6 +94,15 @@ This profile proves possession of the host-managed local key; it is not a
 keyless public release identity and must not be described as Fulcio/Rekor proof.
 Organization-backed public publication remains a separate trust-root and
 credential-onboarding route.
+
+The `cosign-github-oidc` backend is reserved for the declared GitHub Actions
+production workflow. It signs the exact `artifact.subjects.json` bytes without
+reading a local private key or password, and requires a Fulcio certificate,
+Rekor inclusion evidence, and the policy-bound issuer, repository, workflow,
+ref, trigger, source SHA, and subject digest. The resulting signature is still
+only one claim in the installer route: external TUF metadata, durable registry
+promotion, subject materialization, and the final consumer trust gate remain
+separate required evidence.
 
 ## Pre-Organization Operating Mode
 

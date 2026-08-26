@@ -36,6 +36,11 @@ jobs:
       - name: Install validator dependencies
         run: python -m pip install -e '.[dev]'
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: v3.1.1
+
       - name: Run release artifact gate
         run: python scripts/ci_gate.py --mode release-artifact
 
@@ -56,6 +61,39 @@ jobs:
             schemas/bootstrap-report.schema.json
           sha256sum "${artifact}" > "${artifact}.sha256"
 
+      - name: Build and sign bootstrap evidence bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="dist/bootstrap-bundle"
+          python -m abyss_machine.cli artifacts build-sidecars \
+            --manifest manifests/artifact_bundles/bootstrap_install_bundle.bundle.json \
+            --bundle-dir "${bundle_dir}" \
+            --json
+          python -m abyss_machine.cli artifacts sign "${bundle_dir}" \
+            --backend cosign-github-oidc \
+            --json
+          cosign verify-blob \
+            --bundle "${bundle_dir}/artifact.sigstore.json" \
+            --certificate-identity "https://github.com/8Dionysus/abyss-machine/.github/workflows/artifact-production-evidence.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-github-workflow-name "Artifact Production Evidence" \
+            --certificate-github-workflow-ref "refs/heads/main" \
+            --certificate-github-workflow-repository "8Dionysus/abyss-machine" \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" \
+            --certificate-github-workflow-trigger "workflow_dispatch" \
+            "${bundle_dir}/artifact.subjects.json"
+          python -m abyss_machine.cli artifacts verify "${bundle_dir}" \
+            --subject-root . \
+            --json
+          python -m abyss_machine.cli artifacts release-check "${bundle_dir}" \
+            --subject-root . \
+            --json
+          evidence="dist/abyss-machine-bootstrap-evidence-${GITHUB_SHA}.tar.gz"
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -czf "${evidence}" -C "${bundle_dir}" .
+          sha256sum "${evidence}" > "${evidence}.sha256"
+
       - name: Upload bootstrap archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -63,6 +101,16 @@ jobs:
           path: |
             dist/abyss-machine-bootstrap-${{ github.sha }}.tar.gz
             dist/abyss-machine-bootstrap-${{ github.sha }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload bootstrap signature evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: abyss-machine-bootstrap-evidence-${{ github.sha }}
+          path: |
+            dist/abyss-machine-bootstrap-evidence-${{ github.sha }}.tar.gz
+            dist/abyss-machine-bootstrap-evidence-${{ github.sha }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 

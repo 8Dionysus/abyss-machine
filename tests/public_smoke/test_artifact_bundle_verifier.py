@@ -68,6 +68,115 @@ sys.exit(2)
     path.chmod(0o755)
 
 
+def _write_fake_keyless_cosign(path: Path) -> None:
+    path.write_text(
+        """#!/usr/bin/env python3
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def option_value(args, name):
+    index = args.index(name)
+    return args[index + 1]
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+args = sys.argv[1:]
+capture = os.environ.get("FAKE_COSIGN_ARGV_CAPTURE")
+if capture:
+    with Path(capture).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(args) + "\\n")
+command = args[0]
+if command == "sign-blob":
+    bundle = Path(option_value(args, "--bundle"))
+    subject = args[-1]
+    bundle.write_text(
+        json.dumps(
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+                "verificationMaterial": {
+                    "certificate": {"rawBytes": "ZmFrZS1mdWxjaW8tY2VydA=="},
+                    "tlogEntries": [
+                        {
+                            "logId": {"keyId": "ZmFrZS1yZWtvci1rZXk="},
+                            "integratedTime": "1",
+                            "inclusionPromise": {"signedEntryTimestamp": "ZmFrZQ=="},
+                        }
+                    ],
+                },
+                "subjectSha256": digest(subject),
+            }
+        )
+        + "\\n",
+        encoding="utf-8",
+    )
+    print("fake-keyless-signature:" + digest(subject))
+    sys.exit(0)
+if command == "verify-blob":
+    bundle = json.loads(Path(option_value(args, "--bundle")).read_text(encoding="utf-8"))
+    subject = args[-1]
+    sys.exit(0 if bundle.get("subjectSha256") == digest(subject) else 1)
+sys.exit(2)
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _write_bootstrap_test_manifest(tmp_path: Path) -> Path:
+    manifest = {
+        "schema": "abyss_machine_artifact_bundle_manifest_v1",
+        "id": "bootstrap-install-bundle-contract",
+        "artifact_class": "bootstrap_install_bundle",
+        "contract_surface_id": "bootstrap-install-seed",
+        "owner_repo": "abyss-machine",
+        "policy_ref": artifact_bundles.POLICY_REF,
+        "mode": "github_release",
+        "public_safe": True,
+        "subject_repo_root": ".",
+        "artifact_subjects": [
+            {"path": "dist/abyss-machine-bootstrap.tar", "role": "bootstrap_install_bundle"},
+        ],
+        "build_type": "urn:abyssos:buildtype:abyss-machine-bootstrap-install-bundle:v1",
+        "package": {
+            "ecosystem": "bootstrap",
+            "name": "abyss-machine-bootstrap",
+            "purl": "pkg:generic/abyss-machine-bootstrap@0",
+        },
+        "consumer_contract": {
+            "stable_interface": "abyss-machine artifacts trust-gate --artifact-class bootstrap_install_bundle --consumer-intent installer --json",
+            "admission_gate": "fail_closed_consumer_admission",
+            "subject_store_required": True,
+        },
+    }
+    manifest_path = tmp_path / "bootstrap_install.bundle.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    return manifest_path
+
+
+def _set_github_oidc_test_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    commit: str = "a" * 40,
+) -> None:
+    for name, value in {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_REPOSITORY": "8Dionysus/abyss-machine",
+        "GITHUB_REF": "refs/heads/main",
+        "GITHUB_WORKFLOW": "Artifact Production Evidence",
+        "GITHUB_WORKFLOW_REF": "8Dionysus/abyss-machine/.github/workflows/artifact-production-evidence.yml@refs/heads/main",
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_SHA": commit,
+    }.items():
+        monkeypatch.setenv(name, value)
+
+
 def _trust_root_evidence(mode: str, *, subject_digest: str, source_repo: str, source_ref: str) -> dict[str, str]:
     base = {
         "schema": "pytest_artifact_trust_root_evidence_v1",
@@ -7026,6 +7135,143 @@ def test_required_cosign_bundle_roundtrip_and_tamper_check(
     assert tampered["ok"] is False
     assert any("subject_digest does not match" in item for item in tampered["errors"])
     assert any("cosign verify-blob failed" in item for item in tampered["errors"])
+
+
+def test_keyless_cosign_roundtrip_binds_github_oidc_claims_without_local_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_cosign = tmp_path / "cosign-keyless"
+    _write_fake_keyless_cosign(fake_cosign)
+    argv_capture = tmp_path / "cosign-keyless-argv.jsonl"
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+    monkeypatch.setenv("FAKE_COSIGN_ARGV_CAPTURE", str(argv_capture))
+    _set_github_oidc_test_environment(monkeypatch)
+
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "abyss-machine-bootstrap.tar").write_text(
+        "bootstrap payload\n", encoding="utf-8"
+    )
+    manifest_path = _write_bootstrap_test_manifest(tmp_path)
+    bundle = tmp_path / "bundle"
+
+    build = artifact_bundles.build_sidecars(bundle, manifest_ref=manifest_path)
+    sign = artifact_bundles.sign_bundle(bundle, backend=artifact_bundles.COSIGN_GITHUB_OIDC_BACKEND)
+    verify = artifact_bundles.verify_bundle(bundle, subject_root=tmp_path)
+    decision = json.loads(
+        (bundle / artifact_bundles.SIGNATURE_DECISION_SIDECAR).read_text(encoding="utf-8")
+    )
+    subjects = json.loads(
+        (bundle / artifact_bundles.SUBJECTS_SIDECAR).read_text(encoding="utf-8")
+    )
+
+    assert build["ok"] is True
+    assert sign["ok"] is True
+    assert sign["backend"] == artifact_bundles.COSIGN_GITHUB_OIDC_BACKEND
+    assert sign["transparency_log_mode"] == "rekor_required"
+    assert sign["certificate_mode"] == "fulcio"
+    assert sign["source_commit"] == "a" * 40
+    assert subjects["source_provenance"]["commit"] == "a" * 40
+    assert verify["ok"] is True
+    assert artifact_bundles.COSIGN_PUBLIC_KEY_SIDECAR not in sign["written"]
+    assert not (bundle / artifact_bundles.COSIGN_PUBLIC_KEY_SIDECAR).exists()
+    assert "keyless public transparency-log release proof" not in " ".join(
+        decision["claim_limits"]
+    )
+
+    argv = [
+        json.loads(line)
+        for line in argv_capture.read_text(encoding="utf-8").splitlines()
+    ]
+    sign_argv = next(row for row in argv if row[0] == "sign-blob")
+    verify_argv = next(row for row in argv if row[0] == "verify-blob")
+    assert "--key" not in sign_argv
+    assert sign_argv[sign_argv.index("--oidc-provider") + 1] == "github-actions"
+    assert "--key" not in verify_argv
+    assert "--insecure-ignore-tlog=true" not in verify_argv
+    assert verify_argv[verify_argv.index("--certificate-oidc-issuer") + 1] == (
+        "https://token.actions.githubusercontent.com"
+    )
+    assert verify_argv[verify_argv.index("--certificate-github-workflow-sha") + 1] == "a" * 40
+
+
+@pytest.mark.parametrize(
+    ("claim", "value", "error_fragment"),
+    [
+        ("issuer", "https://wrong.example/issuer", "claim mismatch: issuer"),
+        ("workflow_repository", "attacker/other", "claim mismatch: workflow_repository"),
+        ("workflow_ref", "refs/heads/attacker", "claim mismatch: workflow_ref"),
+        ("source_commit", "b" * 40, "source SHA does not match"),
+    ],
+)
+def test_keyless_cosign_rejects_wrong_identity_and_source_claims(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    claim: str,
+    value: str,
+    error_fragment: str,
+) -> None:
+    fake_cosign = tmp_path / "cosign-keyless"
+    _write_fake_keyless_cosign(fake_cosign)
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+    _set_github_oidc_test_environment(monkeypatch)
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "abyss-machine-bootstrap.tar").write_text(
+        "bootstrap payload\n", encoding="utf-8"
+    )
+    bundle = tmp_path / "bundle"
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=_write_bootstrap_test_manifest(tmp_path),
+    )
+    artifact_bundles.sign_bundle(bundle, backend=artifact_bundles.COSIGN_GITHUB_OIDC_BACKEND)
+    decision_path = bundle / artifact_bundles.SIGNATURE_DECISION_SIDECAR
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    if claim == "source_commit":
+        decision["github_oidc"][claim] = value
+    else:
+        decision["github_oidc"][claim] = value
+    decision_path.write_text(json.dumps(decision, sort_keys=True) + "\n", encoding="utf-8")
+
+    rejected = artifact_bundles.verify_bundle(bundle, subject_root=tmp_path, write=False)
+
+    assert rejected["ok"] is False
+    assert any(error_fragment in item for item in rejected["errors"])
+
+
+def test_keyless_cosign_rejects_missing_transparency_certificate_and_local_relabel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_cosign = tmp_path / "cosign-keyless"
+    _write_fake_keyless_cosign(fake_cosign)
+    monkeypatch.setenv("ABYSS_MACHINE_COSIGN_BINARY", str(fake_cosign))
+    _set_github_oidc_test_environment(monkeypatch)
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "abyss-machine-bootstrap.tar").write_text(
+        "bootstrap payload\n", encoding="utf-8"
+    )
+    bundle = tmp_path / "bundle"
+    artifact_bundles.build_sidecars(
+        bundle,
+        manifest_ref=_write_bootstrap_test_manifest(tmp_path),
+    )
+    artifact_bundles.sign_bundle(bundle, backend=artifact_bundles.COSIGN_GITHUB_OIDC_BACKEND)
+    sigstore_path = bundle / artifact_bundles.SIGSTORE_BUNDLE_SIDECAR
+    sigstore = json.loads(sigstore_path.read_text(encoding="utf-8"))
+    sigstore["verificationMaterial"].pop("certificate")
+    sigstore["verificationMaterial"]["tlogEntries"] = []
+    sigstore_path.write_text(json.dumps(sigstore, sort_keys=True) + "\n", encoding="utf-8")
+    (bundle / artifact_bundles.COSIGN_PUBLIC_KEY_SIDECAR).write_text(
+        "local-key-relabel\n", encoding="utf-8"
+    )
+
+    rejected = artifact_bundles.verify_bundle(bundle, subject_root=tmp_path, write=False)
+
+    assert rejected["ok"] is False
+    assert any("local Cosign public-key sidecar" in item for item in rejected["errors"])
+    assert any("Fulcio certificate evidence" in item for item in rejected["errors"])
+    assert any("Rekor transparency evidence" in item for item in rejected["errors"])
 
 
 def test_materialized_artifact_subject_store_supports_installed_verification(
