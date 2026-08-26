@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://abyss-machine.local/schemas/pytest-owner-lifecycle-census-evidence-v1.schema.json",
   "title": "Owner lifecycle census evidence v1",
-  "$comment": "This Draft 2020-12 schema validates the structural wire shape, scalar ranges, and absolute per-array wire ceilings. It cannot express dynamic bounds.max_processes, bounds.max_target_identities, or the aggregate sum of process descriptors; the owner semantic validator in src/abyss_machine/owner_census_broker.py is authoritative for those admissions.",
+  "$comment": "This Draft 2020-12 schema validates the structural wire shape, scalar ranges, and absolute per-array wire ceilings. It cannot express dynamic owner bounds or coupled invariants; validate_census_semantics in src/abyss_machine/owner_census_broker.py is authoritative for process, target, descriptor, duration, and coupled admissions.",
   "type": "object",
   "additionalProperties": false,
   "required": [

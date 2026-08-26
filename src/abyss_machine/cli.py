@@ -32771,7 +32771,9 @@ def stack_bridge_config() -> dict[str, Any]:
                 "orchestrator_refresh_nervous": "abyss-machine resource orchestrator --refresh-nervous --json",
             })
     data.setdefault("heartbeat_bridge", stack_bridge_heartbeat_bridge_contract())
-    data.setdefault("owner_census_broker", stack_bridge_contracts.owner_census_broker_contract())
+    # This named bridge is source-owned.  A config object may extend routes
+    # elsewhere, but it cannot shadow or widen the authored owner contract.
+    data["owner_census_broker"] = stack_bridge_contracts.owner_census_broker_contract()
     data.setdefault("stack_observability_bridge", stack_bridge_observability_bridge_contract())
     self_awareness_bridge = data.setdefault("self_awareness_bridge", {})
     if isinstance(self_awareness_bridge, dict):

@@ -25,11 +25,13 @@ Wire decoding is exact: missing and unknown fields, bool-as-int, textual
 booleans, malformed signatures/digests, and over-limit collections fail
 closed. `max_descriptors` is one aggregate bound across every admitted
 process's cwd/root/fd descriptors. The owner semantic validator
-`validate_aggregate_descriptor_bound` is authoritative for that dynamic
-aggregate at typed constructors, broker admission, live scans, and wire
-decoders. The Draft 2020-12 schemas validate only structural shape, scalar
-ranges, and absolute per-array wire ceilings; they do not claim to enforce the
-dynamic cross-process sum. Key material is supplied through
+`validate_census_semantics` is the single authoritative typed admission gate
+for process count, target cardinality, per-process descriptors, aggregate
+descriptors, duration, and coupled boot/timestamp invariants at constructors,
+broker admission, live scans, wire decoders, and both receipt verification
+boundaries. The Draft 2020-12 schemas validate only structural shape, scalar
+ranges, and absolute per-array wire ceilings; they do not claim to enforce
+dynamic owner bounds or the dynamic cross-process sum. Key material is supplied through
 `SigningKeyProvider`; it is not
 stored in source or emitted in evidence/logs. Replay admission is supplied
 through `ReplayStore`; a receiver must select the current broker/key/boot
@@ -61,6 +63,26 @@ identity. Any inventory churn or readlink/open disagreement is incomplete.
 Scanner-owned transient
 descriptors are tracked from runtime-owned descriptors and stable process
 identity, without fixed fd names.
+
+Optional injected readers are selected by presence (`None` means use the
+default), never by callable truthiness. Each backend scanner descriptor has a
+generation-tagged ownership record. Open publication, close claims, state
+observation, and conditional ledger removal use a short per-backend
+synchronization boundary; the injected closer runs outside it so unrelated
+census work is not serialized. The close injection ABI is typed and opaque:
+an injected callback receives one backend-issued
+`ScannerFdCloseCapability`, not a numeric fd, and must call its one-use
+`close()` operation exactly once. The capability revalidates the current
+generation and observed fd identity at the final owner-controlled boundary,
+then performs the syscall while the short ledger boundary is held. Default
+close uses the same capability path. Stale, replayed, or reentrant authority
+is rejected immediately, and a callback that returns without consuming its
+capability is a typed failure. Stale finalization cannot remove a newer
+scanner generation. After a closer error, the original exception is
+preserved; recovery removes only a definitively closed/reused generation and
+otherwise retains a still-owned or unknown descriptor fail-closed. It never
+uses a check-then-`os.close` fallback and does not claim an impossible kernel
+atomic close-by-inode operation.
 
 The Linux backend returns incomplete evidence for unsupported platforms,
 unreadable PID 1, the current process, or another visible UID, missing

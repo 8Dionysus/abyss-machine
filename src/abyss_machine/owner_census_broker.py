@@ -16,12 +16,26 @@ identity before open, the opened fd identity, and a post-open followed
 identity/readlink observation.  This cannot prove that an exact A→B→A
 replacement happened between observations; consumers must not turn a complete
 sample into a historical no-churn claim.
+
+Scanner descriptor numbers are owned by generation-tagged per-backend ledger
+entries. Ledger publication, close claims, and conditional removal use a short
+synchronization boundary; the injected closer itself is called outside that
+boundary so a census does not serialize unrelated work. An injected closer
+receives an opaque, generation-bound, one-use capability rather than a
+reusable numeric fd; only the capability's owner-controlled ``close`` method
+can reach the syscall boundary. A closer error is preserved, and recovery only
+observes whether the expected generation is closed or reused. It never
+performs a check-then-close fallback: a still-open or unknown descriptor is
+retained fail-closed. This protocol prevents stale backend finalization from
+forgetting a newer scanner generation, but it does not claim an impossible
+kernel atomic close-by-inode operation.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+import errno
 import hashlib
 import hmac
 import json
@@ -69,6 +83,43 @@ class CensusSafetyError(CensusContractError):
 # error hierarchy.  They remain local aliases; no mutation API is exposed.
 ContractError = CensusContractError
 SafetyError = CensusSafetyError
+
+
+_SCANNER_FD_CAPABILITY_TOKEN = object()
+
+
+class ScannerFdCloseCapability:
+    """Opaque, generation-bound, one-use authority for one scanner fd.
+
+    The numeric descriptor is deliberately not part of the callback ABI.  A
+    callback must call :meth:`close` exactly once; the backend performs the
+    final generation/identity check and syscall itself.  The constructor is
+    token-gated so callers cannot mint a capability for an arbitrary fd.
+    """
+
+    __slots__ = ("_consume", "_capability_token", "_valid")
+
+    def __init__(
+        self,
+        token: object,
+        consume: Any,
+        capability_token: object,
+    ) -> None:
+        if token is not _SCANNER_FD_CAPABILITY_TOKEN:
+            raise TypeError("scanner fd close capabilities are backend-issued")
+        if not callable(consume):
+            raise TypeError("scanner fd close capability consumer is unavailable")
+        self._consume = consume
+        self._capability_token = capability_token
+        self._valid = True
+
+    def __repr__(self) -> str:
+        return "<ScannerFdCloseCapability>"
+
+    def close(self) -> None:
+        """Consume this capability through the backend-owned close boundary."""
+
+        self._consume(self)
 
 
 def canonical_json(value: Any) -> bytes:
@@ -147,12 +198,12 @@ def _wire_list(value: Any, field: str, *, maximum: int) -> list[Any]:
 
 
 def validate_aggregate_descriptor_bound(processes: Any, bounds: Any, field: str) -> int:
-    """Authoritatively validate the typed aggregate descriptor bound.
+    """Compatibility helper for callers of the former aggregate-only gate.
 
     Standard JSON Schema validates the nested wire shape and scalar bounds,
     but it cannot express the dynamic sum of every process's descriptors.
-    This owner semantic validator is therefore the aggregate admission gate
-    for typed models, decoders, and broker consumers.
+    New typed admission uses :func:`validate_census_semantics`, which covers
+    this sum together with all other owner bounds and coupled invariants.
     """
 
     if not isinstance(bounds, CensusBounds):
@@ -485,15 +536,8 @@ class CensusRequest:
             raise CensusContractError("request bounds are malformed")
         if type(self.target_identities) is not tuple:
             raise CensusContractError("request target identities must be materialized")
-        for item in self.target_identities:
-            _identity_tuple(item, "request target identity")
-        if len(self.target_identities) > self.bounds.max_target_identities:
-            raise CensusContractError("request target identity bound is exhausted")
-        _positive(self.requested_at_ns, "request requested_at_ns")
-        _positive(self.expires_at_ns, "request expires_at_ns")
-        if self.expires_at_ns <= self.requested_at_ns:
-            raise CensusContractError("request expiry must be after request time")
         _text(self.nonce, "request nonce")
+        validate_census_semantics(self)
         if self.request_digest:
             _digest_text(self.request_digest, "request_digest")
             if self.request_digest != digest(self.unsigned_without_digest()):
@@ -592,21 +636,10 @@ class CensusEvidence:
             raise CensusContractError("evidence bounds are malformed")
         if type(self.target_identities) is not tuple or type(self.processes) is not tuple:
             raise CensusContractError("evidence collections must be materialized")
-        for item in self.target_identities:
-            _identity_tuple(item, "evidence target identity")
-        if len(self.target_identities) > self.bounds.max_target_identities:
-            raise CensusContractError("evidence target identity bound is exhausted")
-        validate_aggregate_descriptor_bound(self.processes, self.bounds, "evidence")
-        _positive(self.scan_started_ns, "evidence scan_started_ns")
-        _positive(self.scan_completed_ns, "evidence scan_completed_ns")
-        if self.scan_completed_ns < self.scan_started_ns:
-            raise CensusContractError("evidence timestamps are out of order")
-        if self.scan_completed_ns - self.scan_started_ns > self.bounds.max_duration_ns:
-            raise CensusContractError("evidence duration exceeds its bound")
-        _boolean(self.complete, "evidence complete")
         _text(self.backend_id, "evidence backend_id")
         _text(self.backend_version, "evidence backend_version")
         _text(self.reason, "evidence reason", allow_empty=True, limit=MAX_REASON_LENGTH)
+        validate_census_semantics(self)
         computed = digest(self.unsigned())
         if self.evidence_digest:
             _digest_text(self.evidence_digest, "evidence_digest")
@@ -789,12 +822,9 @@ class CensusCapability:
             raise CensusContractError("capability bounds are malformed")
         if type(self.target_identities) is not tuple:
             raise CensusContractError("capability target identities must be materialized")
-        if len(self.target_identities) > self.bounds.max_target_identities:
-            raise CensusContractError("capability target identity bound is exhausted")
-        for item in self.target_identities:
-            _identity_tuple(item, "capability target identity")
         for name in ("broker_id", "broker_generation", "broker_version", "key_id", "key_generation", "boot_id"):
             _text(getattr(self, name), f"capability {name}")
+        validate_census_semantics(self)
 
     def authorize(self, request: CensusRequest) -> None:
         if not isinstance(request, CensusRequest):
@@ -886,26 +916,7 @@ class BrokerReceipt:
             raise CensusContractError("receipt bounds are malformed")
         if type(self.target_identities) is not tuple or type(self.processes) is not tuple:
             raise CensusContractError("receipt collections must be materialized")
-        for item in self.target_identities:
-            _identity_tuple(item, "receipt target identity")
-        if len(self.target_identities) > self.bounds.max_target_identities:
-            raise CensusContractError("receipt target identity bound is exhausted")
-        validate_aggregate_descriptor_bound(self.processes, self.bounds, "receipt")
-        for process in self.processes:
-            if process.process.boot_id != self.boot_id:
-                raise CensusContractError("receipt process boot identity differs from broker boot identity")
-        for name in ("scan_started_ns", "scan_completed_ns", "issued_at_ns", "expires_at_ns"):
-            _positive(getattr(self, name), f"receipt {name}")
-        if self.scan_completed_ns < self.scan_started_ns:
-            raise CensusContractError("receipt scan timestamps are out of order")
-        if self.scan_completed_ns - self.scan_started_ns > self.bounds.max_duration_ns:
-            raise CensusContractError("receipt duration exceeds its bound")
-        if self.issued_at_ns < self.scan_completed_ns:
-            raise CensusContractError("receipt was issued before scan completion")
-        if self.expires_at_ns <= self.issued_at_ns:
-            raise CensusContractError("receipt expiry must be after issue time")
-        _nonnegative(self.replay_counter, "receipt replay_counter")
-        _boolean(self.complete, "receipt complete")
+        validate_census_semantics(self)
         _text(self.reason, "receipt reason", allow_empty=True, limit=MAX_REASON_LENGTH)
         _signature_text(self.signature, "receipt signature", pending=True)
         computed = digest(self.unsigned())
@@ -1091,6 +1102,7 @@ class BrokerReceipt:
         replay_store: ReplayStore | None = None,
         require_complete: bool = True,
     ) -> None:
+        _validate_receipt_semantics(self, "receipt verification")
         if type(signing_key) is not bytes or len(signing_key) < 16:
             raise CensusSafetyError("verification key is unavailable")
         if self.receipt_digest != digest(self.unsigned()):
@@ -1145,6 +1157,159 @@ class BrokerReceipt:
         if replay_store is None:
             raise CensusSafetyError("replay store is unavailable")
         replay_store.accept(self)
+
+
+def _validate_semantic_bounds(bounds: Any, field: str) -> None:
+    if not isinstance(bounds, CensusBounds):
+        raise CensusContractError(f"{field} bounds are malformed")
+    _positive(bounds.max_processes, f"{field}.bounds.max_processes", maximum=MAX_PROCESSES)
+    _positive(bounds.max_descriptors, f"{field}.bounds.max_descriptors", maximum=MAX_DESCRIPTORS)
+    _positive(
+        bounds.max_target_identities,
+        f"{field}.bounds.max_target_identities",
+        maximum=MAX_TARGET_IDENTITIES,
+    )
+    _positive(bounds.max_duration_ns, f"{field}.bounds.max_duration_ns", maximum=MAX_DURATION_NS)
+
+
+def _validate_semantic_targets(target_identities: Any, bounds: CensusBounds, field: str) -> None:
+    if type(target_identities) is not tuple:
+        raise CensusContractError(f"{field} target identities must be materialized")
+    if len(target_identities) > bounds.max_target_identities:
+        raise CensusContractError(f"{field} target identity bound is exhausted")
+    for item in target_identities:
+        _identity_tuple(item, f"{field} target identity")
+
+
+def _validate_semantic_processes(
+    processes: Any,
+    bounds: CensusBounds,
+    field: str,
+    *,
+    expected_boot_id: str | None = None,
+) -> int:
+    if type(processes) is not tuple:
+        raise CensusContractError(f"{field} processes must be materialized")
+    if len(processes) > bounds.max_processes:
+        raise CensusContractError(f"{field} process bound is exhausted")
+    total = 0
+    per_process_limit = min(MAX_DESCRIPTORS, bounds.max_descriptors)
+    for index, item in enumerate(processes):
+        process_field = f"{field} processes[{index}]"
+        if not isinstance(item, ProcessReferenceEvidence):
+            raise CensusContractError(f"{process_field} is malformed")
+        if not isinstance(item.process, ProcessIdentity):
+            raise CensusContractError(f"{process_field}.process is malformed")
+        item.process.__post_init__()
+        if expected_boot_id is not None and item.process.boot_id != expected_boot_id:
+            raise CensusContractError(f"{field} process boot identity differs from broker boot identity")
+        if type(item.descriptors) is not tuple:
+            raise CensusContractError(f"{process_field}.descriptors must be materialized")
+        if len(item.descriptors) > per_process_limit:
+            raise CensusContractError(f"{process_field}.descriptor bound is exhausted")
+        for descriptor in item.descriptors:
+            if not isinstance(descriptor, DescriptorEvidence):
+                raise CensusContractError(f"{process_field}.descriptors are malformed")
+            descriptor.__post_init__()
+        total += len(item.descriptors)
+        if total > bounds.max_descriptors:
+            raise CensusContractError(f"{field} aggregate descriptor bound is exhausted")
+        _nonnegative(item.uid, f"{process_field}.uid")
+    return total
+
+
+def _validate_semantic_window(
+    *,
+    bounds: CensusBounds,
+    field: str,
+    started_ns: Any,
+    completed_ns: Any,
+    issued_at_ns: Any | None = None,
+    expires_at_ns: Any | None = None,
+) -> None:
+    _positive(started_ns, f"{field} scan_started_ns")
+    _positive(completed_ns, f"{field} scan_completed_ns")
+    if completed_ns < started_ns:
+        raise CensusContractError(f"{field} scan timestamps are out of order")
+    if completed_ns - started_ns > bounds.max_duration_ns:
+        raise CensusContractError(f"{field} duration exceeds its bound")
+    if issued_at_ns is not None:
+        _positive(issued_at_ns, f"{field} issued_at_ns")
+        if issued_at_ns < completed_ns:
+            raise CensusContractError(f"{field} was issued before scan completion")
+    if expires_at_ns is not None:
+        _positive(expires_at_ns, f"{field} expires_at_ns")
+        reference = issued_at_ns if issued_at_ns is not None else started_ns
+        if expires_at_ns <= reference:
+            raise CensusContractError(f"{field} expiry must be after issue time")
+
+
+def validate_census_semantics(value: Any, field: str | None = None) -> None:
+    """Validate all dynamic owner bounds for one typed census value.
+
+    JSON Schema and individual dataclass constructors provide structural
+    checks, but neither is sufficient for a typed object that may have been
+    decoded, copied, or received from another owner.  This single semantic
+    validator is reused at construction and admission boundaries so process,
+    target, per-process descriptor, aggregate descriptor, time, and boot
+    coupling cannot drift between them.
+    """
+
+    if isinstance(value, CensusRequest):
+        name = field or "request"
+        _validate_semantic_bounds(value.bounds, name)
+        _validate_semantic_targets(value.target_identities, value.bounds, name)
+        _positive(value.requested_at_ns, f"{name} requested_at_ns")
+        _positive(value.expires_at_ns, f"{name} expires_at_ns")
+        if value.expires_at_ns <= value.requested_at_ns:
+            raise CensusContractError(f"{name} expiry must be after request time")
+        return
+    if isinstance(value, CensusCapability):
+        name = field or "capability"
+        _validate_semantic_bounds(value.bounds, name)
+        _validate_semantic_targets(value.target_identities, value.bounds, name)
+        return
+    if isinstance(value, CensusEvidence):
+        name = field or "evidence"
+        _validate_semantic_bounds(value.bounds, name)
+        _validate_semantic_targets(value.target_identities, value.bounds, name)
+        _validate_semantic_processes(value.processes, value.bounds, name)
+        _validate_semantic_window(
+            bounds=value.bounds,
+            field=name,
+            started_ns=value.scan_started_ns,
+            completed_ns=value.scan_completed_ns,
+        )
+        return
+    if isinstance(value, BrokerReceipt):
+        name = field or "receipt"
+        _validate_semantic_bounds(value.bounds, name)
+        _validate_semantic_targets(value.target_identities, value.bounds, name)
+        _validate_semantic_processes(
+            value.processes,
+            value.bounds,
+            name,
+            expected_boot_id=value.boot_id,
+        )
+        _validate_semantic_window(
+            bounds=value.bounds,
+            field=name,
+            started_ns=value.scan_started_ns,
+            completed_ns=value.scan_completed_ns,
+            issued_at_ns=value.issued_at_ns,
+            expires_at_ns=value.expires_at_ns,
+        )
+        _nonnegative(value.replay_counter, f"{name} replay_counter")
+        _boolean(value.complete, f"{name} complete")
+        return
+    raise CensusContractError("census semantic value is not typed")
+
+
+def _validate_receipt_semantics(receipt: "BrokerReceipt", field: str) -> None:
+    try:
+        validate_census_semantics(receipt, field)
+    except CensusContractError as exc:
+        raise CensusSafetyError(str(exc)) from exc
 
 
 class ReceiptReplayGuard:
@@ -1237,6 +1402,7 @@ class BrokerReceiptVerifier:
     ) -> None:
         if not isinstance(receipt, BrokerReceipt):
             raise CensusSafetyError("receipt is not typed")
+        _validate_receipt_semantics(receipt, "receipt verifier")
         key = _resolve_key(self.key_provider, key_id=self.key_id, key_generation=self.key_generation)
         receipt.verify(
             key,
@@ -1294,7 +1460,10 @@ class CensusBroker:
         evidence = self.backend.scan(request)
         if not isinstance(evidence, CensusEvidence):
             raise CensusSafetyError("backend did not return typed evidence")
-        validate_aggregate_descriptor_bound(evidence.processes, request.bounds, "backend evidence")
+        try:
+            validate_census_semantics(evidence, "backend evidence")
+        except CensusContractError as exc:
+            raise CensusSafetyError(str(exc)) from exc
         if (
             evidence.request_id != request.request_id
             or evidence.request_digest != request.request_digest
@@ -1345,6 +1514,25 @@ class _ScanBoundExceeded(CensusSafetyError):
 
 
 @dataclass(frozen=True, slots=True)
+class _ScannerFdOwnership:
+    """One generation of a backend-owned scanner descriptor number."""
+
+    generation: int
+    identity: tuple[int, int, int, int] | None
+
+
+@dataclass(slots=True)
+class _ScannerFdCloseAuthority:
+    """Backend-private state behind one opaque close capability."""
+
+    fd: int
+    generation: int
+    expected: tuple[int, int, int, int] | None
+    state: str = "issued"
+    replay_rejected: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _FollowedObjectIdentity:
     """Identity obtained by following a descriptor path without opening it."""
 
@@ -1371,7 +1559,7 @@ class LinuxProcCensusBackend:
     """Conservative Linux procfs census with no write-capable operations."""
 
     backend_id = "linux-procfs-read-only-census"
-    backend_version = "v51"
+    backend_version = "v52"
 
     def __init__(
         self,
@@ -1389,7 +1577,7 @@ class LinuxProcCensusBackend:
         stat_path: Any | None = None,
         open_fd: Any | None = None,
         fstat: Any | None = None,
-        close_fd: Any | None = None,
+        close_fd: Callable[[ScannerFdCloseCapability], object] | None = None,
     ) -> None:
         self.proc_root = Path(proc_root)
         self.current_pid = os.getpid() if current_pid is None else current_pid
@@ -1402,15 +1590,21 @@ class LinuxProcCensusBackend:
         self._monotonic_ns = monotonic_ns
         self._readlink = readlink
         self._stat_path = os.stat if stat_path is None else stat_path
-        self._boot_id_reader = boot_id_reader or self._read_boot_id
-        self._start_reader = start_reader or self._read_start_ticks
-        self._uid_reader = uid_reader or self._read_uid
-        self._mount_id_reader = mount_id_reader or self._mount_id_for_fd
+        self._boot_id_reader = self._read_boot_id if boot_id_reader is None else boot_id_reader
+        self._start_reader = self._read_start_ticks if start_reader is None else start_reader
+        self._uid_reader = self._read_uid if uid_reader is None else uid_reader
+        self._mount_id_reader = self._mount_id_for_fd if mount_id_reader is None else mount_id_reader
         self._open_fd = open_fd
         self._fstat = fstat
         self._close_fd = close_fd
         self._scanner_pid = os.getpid()
         self._active_scanner_fds: set[int] = set()
+        self._active_scanner_fd_identities: dict[int, tuple[int, int, int, int]] = {}
+        self._scanner_fd_lock = threading.RLock()
+        self._scanner_fd_owners: dict[int, _ScannerFdOwnership] = {}
+        self._scanner_fd_generation = 0
+        self._scanner_fd_close_claims: set[tuple[int, int]] = set()
+        self._scanner_fd_close_capabilities: dict[object, _ScannerFdCloseAuthority] = {}
         for reader, field in (
             (self._boot_id_reader, "boot_id_reader"),
             (self._start_reader, "start_reader"),
@@ -1667,7 +1861,7 @@ class LinuxProcCensusBackend:
                     if type(name) is not str or not name.isdecimal():
                         raise CensusSafetyError("process fd table contains an ambiguous entry")
                     fd_number = _nonnegative(int(name), "process fd number")
-                    if scanner_process and fd_number in self._active_scanner_fds:
+                    if scanner_process and self._scanner_fd_is_active(fd_number):
                         continue
                     if fd_number in seen:
                         raise CensusSafetyError("process fd table contains duplicate entries")
@@ -1728,20 +1922,254 @@ class LinuxProcCensusBackend:
                 stable.add(fd_number)
         return stable
 
+    def _scanner_fd_is_active(self, fd: int) -> bool:
+        with self._scanner_fd_lock:
+            return fd in self._active_scanner_fds
+
+    def _register_scanner_fd(
+        self,
+        fd: int,
+        identity: tuple[int, int, int, int] | None,
+    ) -> _ScannerFdOwnership:
+        """Publish one new fd generation with a short ledger critical section."""
+
+        with self._scanner_fd_lock:
+            self._scanner_fd_generation += 1
+            owner = _ScannerFdOwnership(self._scanner_fd_generation, identity)
+            self._scanner_fd_owners[fd] = owner
+            self._active_scanner_fds.add(fd)
+            if identity is None:
+                self._active_scanner_fd_identities.pop(fd, None)
+            else:
+                self._active_scanner_fd_identities[fd] = identity
+            return owner
+
+    def _scanner_fd_owner_snapshot(
+        self,
+        fd: int,
+    ) -> tuple[int | None, tuple[int, int, int, int] | None]:
+        with self._scanner_fd_lock:
+            owner = self._scanner_fd_owners.get(fd)
+            if owner is not None:
+                return owner.generation, owner.identity
+            return None, self._active_scanner_fd_identities.get(fd)
+
+    def _claim_scanner_fd_close(self, fd: int, generation: int) -> None:
+        with self._scanner_fd_lock:
+            owner = self._scanner_fd_owners.get(fd)
+            if owner is None or owner.generation != generation:
+                raise CensusSafetyError("scanner descriptor ownership is stale")
+            claim = (fd, generation)
+            if claim in self._scanner_fd_close_claims:
+                raise CensusSafetyError("scanner descriptor close is already in progress")
+            self._scanner_fd_close_claims.add(claim)
+
+    def _release_scanner_fd_close(self, fd: int, generation: int) -> None:
+        with self._scanner_fd_lock:
+            self._scanner_fd_close_claims.discard((fd, generation))
+
+    def _issue_scanner_fd_close_capability(self, fd: int) -> ScannerFdCloseCapability:
+        generation, expected = self._scanner_fd_owner_snapshot(fd)
+        if generation is None:
+            raise CensusSafetyError("scanner descriptor ownership is unavailable")
+        self._claim_scanner_fd_close(fd, generation)
+        capability_token = object()
+        with self._scanner_fd_lock:
+            self._scanner_fd_close_capabilities[capability_token] = _ScannerFdCloseAuthority(
+                fd,
+                generation,
+                expected,
+            )
+        return ScannerFdCloseCapability(
+            _SCANNER_FD_CAPABILITY_TOKEN,
+            self._consume_scanner_fd_close_capability,
+            capability_token,
+        )
+
     def _open_scanner_fd(self, path: Path, flags: int) -> int:
         opener = os.open if self._open_fd is None else self._open_fd
         fd = opener(path, flags)
         if type(fd) is not int or fd < 0:
             raise CensusSafetyError("descriptor open returned an invalid fd")
-        self._active_scanner_fds.add(fd)
+        try:
+            identity = self._scanner_fd_identity(fd)
+        except Exception as exc:
+            owner = self._register_scanner_fd(fd, None)
+            if self._observed_scanner_fd_state(fd, None) == "closed":
+                self._forget_scanner_fd(fd, owner.generation)
+            raise CensusSafetyError("descriptor open identity is unavailable") from exc
+        self._register_scanner_fd(fd, identity)
         return fd
 
     def _close_scanner_fd(self, fd: int) -> None:
+        capability = self._issue_scanner_fd_close_capability(fd)
+        authority = self._scanner_fd_close_capabilities[capability._capability_token]
         try:
-            closer = os.close if self._close_fd is None else self._close_fd
-            closer(fd)
+            if self._close_fd is None:
+                capability.close()
+            else:
+                self._close_fd(capability)
+                if authority.replay_rejected:
+                    raise CensusSafetyError("scanner descriptor close capability replay was rejected")
+                if authority.state != "closed":
+                    self._finalize_scanner_fd(
+                        fd,
+                        preserve_error=True,
+                        generation=authority.generation,
+                        expected=authority.expected,
+                    )
+                    raise CensusSafetyError("scanner descriptor close callback returned without closing")
+        except BaseException:
+            try:
+                self._finalize_scanner_fd(
+                    fd,
+                    preserve_error=True,
+                    generation=authority.generation,
+                    expected=authority.expected,
+                )
+            except BaseException:
+                # The callback's exception is the useful ownership evidence
+                # and must remain the exception visible to the census caller.
+                pass
+            raise
         finally:
+            with self._scanner_fd_lock:
+                if authority.state == "issued":
+                    authority.state = "aborted"
+                self._scanner_fd_close_capabilities.pop(capability._capability_token, None)
+                capability._valid = False
+            self._release_scanner_fd_close(fd, authority.generation)
+
+    def _consume_scanner_fd_close_capability(self, capability: ScannerFdCloseCapability) -> None:
+        """Consume a capability at the final owner-controlled close boundary."""
+
+        if not isinstance(capability, ScannerFdCloseCapability):
+            raise CensusSafetyError("scanner descriptor close capability is unknown")
+        consumer = capability._consume
+        if getattr(consumer, "__self__", None) is not self:
+            raise CensusSafetyError("scanner descriptor close capability is unknown")
+        if not capability._valid:
+            raise CensusSafetyError("scanner descriptor close capability is replayed")
+        authority = self._scanner_fd_close_capabilities.get(capability._capability_token)
+        if authority is None:
+            raise CensusSafetyError("scanner descriptor close capability is unknown")
+        with self._scanner_fd_lock:
+            if not capability._valid or authority.state != "issued":
+                authority.replay_rejected = True
+                raise CensusSafetyError("scanner descriptor close capability is replayed")
+            owner = self._scanner_fd_owners.get(authority.fd)
+            if owner is None or owner.generation != authority.generation:
+                authority.state = "rejected"
+                raise CensusSafetyError("scanner descriptor close capability is stale")
+            state = self._scanner_fd_state(authority.fd, authority.expected)
+            if state == "owned":
+                # Revalidate immediately before the syscall as well as at the
+                # capability boundary. This narrows the uncoordinated-mutation
+                # window while remaining explicit that identity observation
+                # is not a kernel atomic close-by-inode primitive.
+                state = self._scanner_fd_state(authority.fd, authority.expected)
+            if state != "owned":
+                authority.state = "rejected"
+                if state in {"closed", "reused"}:
+                    self._forget_scanner_fd(authority.fd, authority.generation)
+                raise CensusSafetyError("scanner descriptor close capability is stale or unverifiable")
+            authority.state = "consuming"
+            try:
+                os.close(authority.fd)
+            except BaseException:
+                authority.state = "failed"
+                self._finalize_scanner_fd(
+                    authority.fd,
+                    preserve_error=True,
+                    generation=authority.generation,
+                    expected=authority.expected,
+                )
+                raise
+            authority.state = "closed"
+            self._forget_scanner_fd(authority.fd, authority.generation)
+
+    def _scanner_fd_identity(self, fd: int) -> tuple[int, int, int, int]:
+        value = os.fstat(fd)
+        return (
+            _nonnegative(getattr(value, "st_dev", None), "scanner descriptor.dev"),
+            _nonnegative(getattr(value, "st_ino", None), "scanner descriptor.ino"),
+            _nonnegative(getattr(value, "st_mode", None), "scanner descriptor.mode"),
+            _nonnegative(getattr(value, "st_rdev", None), "scanner descriptor.rdev"),
+        )
+
+    def _scanner_fd_state(
+        self,
+        fd: int,
+        expected: tuple[int, int, int, int] | None,
+    ) -> str:
+        try:
+            current = self._scanner_fd_identity(fd)
+        except OSError as exc:
+            if exc.errno == errno.EBADF:
+                return "closed"
+            return "unknown"
+        except Exception:
+            return "unknown"
+        if expected is None:
+            return "unknown"
+        return "owned" if current == expected else "reused"
+
+    def _forget_scanner_fd(self, fd: int, generation: int | None = None) -> bool:
+        """Remove only the expected generation from the scanner ledger."""
+
+        with self._scanner_fd_lock:
+            current = self._scanner_fd_owners.get(fd)
+            if generation is not None:
+                if current is None or current.generation != generation:
+                    return False
+            self._scanner_fd_owners.pop(fd, None)
             self._active_scanner_fds.discard(fd)
+            self._active_scanner_fd_identities.pop(fd, None)
+            if generation is None:
+                self._scanner_fd_close_claims = {
+                    claim for claim in self._scanner_fd_close_claims if claim[0] != fd
+                }
+            else:
+                self._scanner_fd_close_claims.discard((fd, generation))
+            return True
+
+    def _observed_scanner_fd_state(
+        self,
+        fd: int,
+        expected: tuple[int, int, int, int] | None,
+    ) -> str:
+        try:
+            return self._scanner_fd_state(fd, expected)
+        except BaseException:
+            return "unknown"
+
+    def _finalize_scanner_fd(
+        self,
+        fd: int,
+        *,
+        preserve_error: bool,
+        generation: int | None = None,
+        expected: tuple[int, int, int, int] | None = None,
+    ) -> None:
+        if generation is None:
+            generation, expected = self._scanner_fd_owner_snapshot(fd)
+        if generation is None:
+            return
+
+        state = self._observed_scanner_fd_state(fd, expected)
+        if state == "owned":
+            # A second observation narrows the race window for ledger truth,
+            # but it is still only observational.  It is never permission for
+            # a fallback close.
+            state = self._observed_scanner_fd_state(fd, expected)
+        if state in {"closed", "reused"}:
+            self._forget_scanner_fd(fd, generation)
+            return
+        if preserve_error:
+            # Retain a still-owned or unknown descriptor.  A callback-owned
+            # exception is re-raised by _close_scanner_fd.
+            return
+        raise CensusSafetyError("scanner descriptor close state is unverifiable")
 
     def _descriptor_path(self, pid: int, kind: str, fd_number: int | None) -> Path:
         if kind in {"cwd", "root"}:

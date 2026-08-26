@@ -62,10 +62,27 @@ def test_stack_bridge_paths_and_bridge_contracts_are_portable(tmp_path: Path) ->
     assert census_bridge["activation"] is False
     assert census_bridge["source"] == "src/abyss_machine/owner_census_broker.py"
     assert len(census_bridge["schemas"]) == 3
-    assert "validate_aggregate_descriptor_bound" in census_bridge["semantic_validation"]["aggregate_descriptor_bound"]
+    assert "validate_census_semantics" in census_bridge["semantic_validation"]["owner_semantic_validator"]
+    assert "aggregate descriptors" in census_bridge["semantic_validation"]["covers"]
     assert "does not express" in census_bridge["semantic_validation"]["schema_scope"]
+    assert "ScannerFdCloseCapability" in census_bridge["close_authority"]
+    assert "never callback authority" in census_bridge["close_authority"]
     assert "historical no-churn" in census_bridge["non_claim"]
     assert "operation grant" in census_bridge["non_claim"]
+
+
+def test_stack_bridge_config_replaces_stale_source_owned_census_claim(monkeypatch) -> None:
+    from abyss_machine import cli
+
+    expected = stack_bridge_contracts.owner_census_broker_contract()
+    stale_values = [
+        {"contract": "STALE_STRONGER_CLAIM", "non_claim": "historical no-churn"},
+        ["wrong-field-type"],
+    ]
+    for stale in stale_values:
+        monkeypatch.setattr(cli, "load_json_document", lambda _path, stale=stale: ({"owner_census_broker": stale}, None))
+        config = cli.stack_bridge_config()
+        assert config["owner_census_broker"] == expected
 
 
 def test_heartbeat_readiness_requires_read_only_artifacts_and_validate_checks(tmp_path: Path) -> None:

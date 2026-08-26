@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import copy
+import errno
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -26,6 +30,10 @@ from abyss_machine.owner_census_broker import (
     BrokerReceipt,
     BrokerReceiptVerifier,
     CensusSafetyError,
+    ReceiptReplayGuard,
+    ScannerFdCloseCapability,
+    canonical_json,
+    digest,
 )
 
 
@@ -234,6 +242,104 @@ def test_receipt_verifier_binds_request_generation_boot_key_and_replay() -> None
         restarted.verify(receipt, expected_request=request)
 
 
+def _forged_aggregate_overflow_receipt() -> tuple[CensusRequest, BrokerReceipt]:
+    request = _request(bounds=CensusBounds(8, 2, 8, 1_000_000_000))
+    first = _process(42, descriptors=(DescriptorEvidence("fd", 3, 10, 20, 30, "regular"),))
+    second = _process(43, descriptors=(DescriptorEvidence("fd", 4, 11, 21, 31, "regular"),))
+    evidence = _evidence(request, processes=(first, second))
+    receipt = BrokerReceipt.issue(
+        evidence=evidence,
+        capability=_capability(request),
+        signing_key=KEY,
+        receipt_id="receipt-verifier-aggregate",
+        issued_at_ns=300,
+        expires_at_ns=900,
+        nonce=request.nonce,
+    )
+    forged = copy.copy(receipt)
+    object.__setattr__(forged, "bounds", CensusBounds(8, 1, 8, 1_000_000_000))
+    object.__setattr__(forged, "receipt_digest", digest(forged.unsigned()))
+    signature = hmac.new(KEY, canonical_json(forged.unsigned()), hashlib.sha256).hexdigest()
+    object.__setattr__(forged, "signature", "hmac-sha256:" + signature)
+    return request, forged
+
+
+@pytest.mark.parametrize("boundary", ["receipt", "verifier"])
+def test_receipt_verification_rechecks_aggregate_before_replay(boundary: str) -> None:
+    request, forged = _forged_aggregate_overflow_receipt()
+    replay = ReceiptReplayGuard()
+    if boundary == "receipt":
+        with pytest.raises(CensusSafetyError, match="aggregate descriptor bound"):
+            forged.verify(KEY, expected_request=request, now_ns=301, replay_store=replay)
+    else:
+        verifier = BrokerReceiptVerifier(
+            MemoryKeyProvider(KEY),
+            broker_id="broker-1",
+            broker_generation="broker-generation-1",
+            key_id="key-1",
+            key_generation="key-generation-1",
+            boot_id="boot-1",
+            replay_store=replay,
+            clock_ns=lambda: 301,
+        )
+        with pytest.raises(CensusSafetyError, match="aggregate descriptor bound"):
+            verifier.verify(forged, expected_request=request)
+    assert replay.seen(forged) is False
+
+
+def _forged_target_overflow_receipt() -> BrokerReceipt:
+    request = _request(bounds=CensusBounds(8, 64, 2, 1_000_000_000))
+    receipt = BrokerReceipt.issue(
+        evidence=_evidence(request),
+        capability=_capability(request),
+        signing_key=KEY,
+        receipt_id="receipt-verifier-target",
+        issued_at_ns=300,
+        expires_at_ns=900,
+        nonce="target-overflow",
+    )
+    forged = copy.copy(receipt)
+    object.__setattr__(forged, "bounds", CensusBounds(8, 64, 1, 1_000_000_000))
+    object.__setattr__(forged, "receipt_digest", digest(forged.unsigned()))
+    signature = hmac.new(KEY, canonical_json(forged.unsigned()), hashlib.sha256).hexdigest()
+    object.__setattr__(forged, "signature", "hmac-sha256:" + signature)
+    return forged
+
+
+@pytest.mark.parametrize("boundary", ["receipt", "verifier"])
+def test_receipt_verification_rejects_target_bound_before_key_and_replay(boundary: str) -> None:
+    forged = _forged_target_overflow_receipt()
+    replay = ReceiptReplayGuard()
+    provider = MemoryKeyProvider(KEY)
+    if boundary == "receipt":
+        with pytest.raises(CensusSafetyError, match="target identity bound"):
+            forged.verify(
+                KEY,
+                expected_bounds=forged.bounds,
+                expected_target_identities=forged.target_identities,
+                now_ns=301,
+                replay_store=replay,
+            )
+    else:
+        verifier = BrokerReceiptVerifier(
+            provider,
+            broker_id="broker-1",
+            broker_generation="broker-generation-1",
+            key_id="key-1",
+            key_generation="key-generation-1",
+            boot_id="boot-1",
+            replay_store=replay,
+            clock_ns=lambda: 301,
+        )
+        with pytest.raises(CensusSafetyError, match="target identity bound"):
+            verifier.verify(
+                forged,
+                expected_bounds=forged.bounds,
+                expected_target_identities=forged.target_identities,
+            )
+    assert replay.seen(forged) is False
+
+
 def test_incomplete_receipt_is_authentic_evidence_but_not_complete_admission() -> None:
     request = _request()
     receipt = _broker(request, complete=False).issue(request, receipt_id="receipt-incomplete")
@@ -286,22 +392,548 @@ def _fixture_backend(
     open_fd=None,
     monotonic_ns=None,
     fstat=None,
+    close_fd=None,
 ) -> LinuxProcCensusBackend:
     return LinuxProcCensusBackend(
         proc_root=proc,
         current_pid=current_pid,
         current_uid_reader=lambda: 1000,
-        uid_reader=uid_reader or (lambda _pid: 1000),
-        start_reader=start_reader or (lambda pid: 100 + pid),
-        boot_id_reader=boot_reader or (lambda: "fixture-boot"),
-        mount_id_reader=mount_reader or (lambda _fd: 700),
+        uid_reader=(lambda _pid: 1000) if uid_reader is None else uid_reader,
+        start_reader=(lambda pid: 100 + pid) if start_reader is None else start_reader,
+        boot_id_reader=(lambda: "fixture-boot") if boot_reader is None else boot_reader,
+        mount_id_reader=(lambda _fd: 700) if mount_reader is None else mount_reader,
         clock_ns=lambda: 500,
-        monotonic_ns=monotonic_ns or (lambda: 0),
-        readlink=readlink or os.readlink,
+        monotonic_ns=(lambda: 0) if monotonic_ns is None else monotonic_ns,
+        readlink=os.readlink if readlink is None else readlink,
         stat_path=stat_path,
         open_fd=open_fd,
         fstat=fstat,
+        close_fd=close_fd,
     )
+
+
+class _FalseyCallable:
+    def __init__(self, value) -> None:
+        self.value = value
+        self.calls = 0
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        return self.value
+
+
+def test_falsey_injected_readers_are_selected_and_used(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    readers = {
+        "boot": _FalseyCallable("fixture-boot"),
+        "start": _FalseyCallable(142),
+        "uid": _FalseyCallable(1000),
+        "mount": _FalseyCallable(700),
+    }
+    backend = _fixture_backend(
+        proc,
+        uid_reader=readers["uid"],
+        start_reader=readers["start"],
+        boot_reader=readers["boot"],
+        mount_reader=readers["mount"],
+    )
+    assert backend._uid_reader is readers["uid"]
+    assert backend._start_reader is readers["start"]
+    assert backend._boot_id_reader is readers["boot"]
+    assert backend._mount_id_reader is readers["mount"]
+    evidence = backend.scan(_fixture_request())
+    assert evidence.complete is True
+    assert all(reader.calls > 0 for reader in readers.values())
+
+
+def _active_scanner_fd(backend: LinuxProcCensusBackend) -> int:
+    assert len(backend._active_scanner_fds) == 1
+    return next(iter(backend._active_scanner_fds))
+
+
+def test_paused_capability_cannot_close_reopened_same_number(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    first_path = tmp_path / "paused-first"
+    replacement_path = tmp_path / "paused-replacement"
+    first_path.write_bytes(b"first")
+    replacement_path.write_bytes(b"replacement")
+    entered = threading.Event()
+    release = threading.Event()
+    received: list[ScannerFdCloseCapability] = []
+    errors: list[BaseException] = []
+
+    def close_fd(capability: ScannerFdCloseCapability) -> None:
+        assert isinstance(capability, ScannerFdCloseCapability)
+        assert not isinstance(capability, int)
+        assert not hasattr(capability, "fd")
+        assert not hasattr(capability, "_backend")
+        received.append(capability)
+        entered.set()
+        assert release.wait(timeout=5)
+        capability.close()
+
+    backend = _fixture_backend(proc, close_fd=close_fd)
+    fd = backend._open_scanner_fd(first_path, os.O_RDONLY)
+    first_owner = backend._scanner_fd_owners[fd]
+
+    def close_in_thread() -> None:
+        try:
+            backend._close_scanner_fd(fd)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=close_in_thread)
+    worker.start()
+    assert entered.wait(timeout=5)
+    os.close(fd)
+    replacement_fd = os.open(replacement_path, os.O_RDONLY)
+    assert replacement_fd == fd
+    replacement_owner = backend._register_scanner_fd(replacement_fd, backend._scanner_fd_identity(replacement_fd))
+    release.set()
+    worker.join(timeout=5)
+    try:
+        assert not worker.is_alive()
+        assert len(received) == 1
+        assert errors and isinstance(errors[0], CensusSafetyError)
+        assert "stale" in str(errors[0])
+        os.fstat(replacement_fd)
+        assert replacement_owner.generation > first_owner.generation
+        assert backend._scanner_fd_owners[replacement_fd] == replacement_owner
+        assert backend._active_scanner_fds == {replacement_fd}
+    finally:
+        os.close(replacement_fd)
+        backend._forget_scanner_fd(replacement_fd)
+
+
+def test_stale_and_replayed_close_capabilities_are_rejected(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    first_path = tmp_path / "capability-first"
+    replacement_path = tmp_path / "capability-replacement"
+    first_path.write_bytes(b"first")
+    replacement_path.write_bytes(b"replacement")
+    backend = _fixture_backend(proc)
+    fd = backend._open_scanner_fd(first_path, os.O_RDONLY)
+    generation = backend._scanner_fd_owners[fd].generation
+    capability = backend._issue_scanner_fd_close_capability(fd)
+    os.close(fd)
+    replacement_fd = os.open(replacement_path, os.O_RDONLY)
+    assert replacement_fd == fd
+    replacement_owner = backend._register_scanner_fd(replacement_fd, backend._scanner_fd_identity(replacement_fd))
+    try:
+        with pytest.raises(CensusSafetyError, match="stale"):
+            capability.close()
+        os.fstat(replacement_fd)
+        assert backend._scanner_fd_owners[replacement_fd] == replacement_owner
+    finally:
+        backend._release_scanner_fd_close(fd, generation)
+        os.close(replacement_fd)
+        backend._forget_scanner_fd(replacement_fd)
+
+    seen: list[ScannerFdCloseCapability] = []
+
+    def replaying_close(capability: ScannerFdCloseCapability) -> None:
+        seen.append(capability)
+        capability.close()
+        with pytest.raises(CensusSafetyError, match="replayed"):
+            capability.close()
+
+    backend = _fixture_backend(proc, close_fd=replaying_close)
+    fd = backend._open_scanner_fd(first_path, os.O_RDONLY)
+    with pytest.raises(CensusSafetyError, match="replay"):
+        backend._close_scanner_fd(fd)
+    assert len(seen) == 1
+    assert backend._active_scanner_fds == set()
+    assert backend._scanner_fd_owners == {}
+
+
+def test_close_callback_return_without_close_is_typed_failure_and_truthful(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    seen: list[ScannerFdCloseCapability] = []
+
+    def no_close(capability: ScannerFdCloseCapability) -> None:
+        seen.append(capability)
+
+    backend = _fixture_backend(proc, close_fd=no_close)
+    fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    try:
+        with pytest.raises(CensusSafetyError, match="returned without closing"):
+            backend._close_scanner_fd(fd)
+        assert len(seen) == 1
+        os.fstat(fd)
+        assert backend._active_scanner_fds == {fd}
+        assert backend._scanner_fd_owners[fd].generation >= 1
+        with pytest.raises(CensusSafetyError, match="replayed"):
+            seen[0].close()
+    finally:
+        os.close(fd)
+        backend._forget_scanner_fd(fd)
+
+
+def test_close_failure_before_close_retains_descriptor_and_preserves_error(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    opened: dict[str, int] = {}
+
+    def open_fd(path: Path, flags: int) -> int:
+        fd = os.open(path, flags)
+        opened["fd"] = fd
+        return fd
+
+    def close_fd(capability: ScannerFdCloseCapability) -> None:
+        assert isinstance(capability, ScannerFdCloseCapability)
+        raise OSError("close-before-raise")
+
+    backend = _fixture_backend(proc, open_fd=open_fd, close_fd=close_fd)
+    try:
+        with pytest.raises(OSError, match="close-before-raise"):
+            backend._observe_descriptor(42, "fd", 3)
+        os.fstat(opened["fd"])
+        assert backend._active_scanner_fds == {opened["fd"]}
+        assert set(backend._active_scanner_fd_identities) == {opened["fd"]}
+    finally:
+        os.close(opened["fd"])
+        backend._forget_scanner_fd(opened["fd"])
+
+
+def test_close_after_close_then_raise_does_not_double_close(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    opened: dict[str, int] = {}
+
+    def open_fd(path: Path, flags: int) -> int:
+        fd = os.open(path, flags)
+        opened["fd"] = fd
+        return fd
+
+    def close_fd(capability: ScannerFdCloseCapability) -> None:
+        capability.close()
+        raise OSError("close-after-close-then-raise")
+
+    backend = _fixture_backend(proc, open_fd=open_fd, close_fd=close_fd)
+    with pytest.raises(OSError, match="close-after-close-then-raise"):
+        backend._observe_descriptor(42, "fd", 3)
+    with pytest.raises(OSError):
+        os.fstat(opened["fd"])
+    assert backend._active_scanner_fds == set()
+    assert backend._active_scanner_fd_identities == {}
+
+
+def test_close_failure_does_not_close_reused_fd_number(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    reused_path = tmp_path / "reused-after-close"
+    reused_path.write_bytes(b"reused")
+    opened: dict[str, int] = {}
+    reused: dict[str, int] = {}
+
+    def open_fd(path: Path, flags: int) -> int:
+        fd = os.open(path, flags)
+        opened["fd"] = fd
+        return fd
+
+    def close_fd(capability: ScannerFdCloseCapability) -> None:
+        assert isinstance(capability, ScannerFdCloseCapability)
+        os.close(opened["fd"])
+        reused["fd"] = os.open(reused_path, os.O_RDONLY)
+        raise OSError("close-after-reuse")
+
+    backend = _fixture_backend(proc, open_fd=open_fd, close_fd=close_fd)
+    try:
+        with pytest.raises(OSError, match="close-after-reuse"):
+            backend._observe_descriptor(42, "fd", 3)
+        assert reused["fd"] == opened["fd"]
+        os.fstat(reused["fd"])
+        assert backend._active_scanner_fds == set()
+        assert backend._active_scanner_fd_identities == {}
+    finally:
+        if "fd" in reused:
+            os.close(reused["fd"])
+
+
+def test_injected_ebadf_preserves_error_and_clears_owned_generation(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    opened: dict[str, int] = {}
+
+    def open_fd(path: Path, flags: int) -> int:
+        fd = os.open(path, flags)
+        opened["fd"] = fd
+        return fd
+
+    def close_fd(capability: ScannerFdCloseCapability) -> None:
+        assert isinstance(capability, ScannerFdCloseCapability)
+        os.close(opened["fd"])
+        raise OSError(errno.EBADF, "close-after-ebadf")
+
+    backend = _fixture_backend(proc, open_fd=open_fd, close_fd=close_fd)
+    with pytest.raises(OSError, match="close-after-ebadf") as raised:
+        backend._observe_descriptor(42, "fd", 3)
+    assert raised.value.errno == errno.EBADF
+    with pytest.raises(OSError):
+        os.fstat(opened["fd"])
+    assert backend._active_scanner_fds == set()
+    assert backend._active_scanner_fd_identities == {}
+
+
+def test_unknown_close_state_retains_descriptor_and_exact_ledger(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    backend = _fixture_backend(proc, close_fd=lambda _fd: (_ for _ in ()).throw(OSError("injected")))
+    fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    original_identity = backend._scanner_fd_identity
+    backend._scanner_fd_identity = lambda _fd: (_ for _ in ()).throw(OSError("identity unavailable"))
+    try:
+        with pytest.raises(OSError, match="injected"):
+            backend._close_scanner_fd(fd)
+        assert backend._active_scanner_fds == {fd}
+        assert set(backend._active_scanner_fd_identities) == {fd}
+        assert fd in backend._scanner_fd_owners
+    finally:
+        backend._scanner_fd_identity = original_identity
+        os.close(fd)
+        backend._forget_scanner_fd(fd)
+
+
+def test_recovery_never_closes_reused_fd_after_identity_observation(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    replacement_path = tmp_path / "replacement-after-identity"
+    replacement_path.write_bytes(b"replacement")
+    backend = _fixture_backend(proc, close_fd=lambda _fd: (_ for _ in ()).throw(OSError("race-close")))
+    fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    original_state = backend._scanner_fd_state
+    state_seen = threading.Event()
+    release_state = threading.Event()
+    errors: list[BaseException] = []
+
+    def gated_state(value: int, expected):
+        state = original_state(value, expected)
+        if state == "owned" and not state_seen.is_set():
+            state_seen.set()
+            assert release_state.wait(timeout=5)
+        return state
+
+    backend._scanner_fd_state = gated_state
+
+    def close_in_thread() -> None:
+        try:
+            backend._close_scanner_fd(fd)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=close_in_thread)
+    worker.start()
+    assert state_seen.wait(timeout=5)
+    os.close(fd)
+    replacement_fd = os.open(replacement_path, os.O_RDONLY)
+    try:
+        release_state.set()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert len(errors) == 1 and isinstance(errors[0], OSError)
+        os.fstat(replacement_fd)
+        assert backend._active_scanner_fds == set()
+        assert backend._active_scanner_fd_identities == {}
+    finally:
+        os.close(replacement_fd)
+        backend._forget_scanner_fd(fd)
+
+
+def test_capability_revalidates_reuse_after_first_observation(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    replacement_path = tmp_path / "replacement-after-capability-observation"
+    replacement_path.write_bytes(b"replacement")
+    backend = _fixture_backend(proc)
+    fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    capability = backend._issue_scanner_fd_close_capability(fd)
+    original_state = backend._scanner_fd_state
+    first_state_seen = threading.Event()
+    release_first_state = threading.Event()
+    state_calls = 0
+
+    def gated_state(value: int, expected):
+        nonlocal state_calls
+        state = original_state(value, expected)
+        state_calls += 1
+        if state_calls == 1:
+            first_state_seen.set()
+            assert release_first_state.wait(timeout=5)
+        return state
+
+    backend._scanner_fd_state = gated_state
+    worker_error: list[BaseException] = []
+
+    def consume() -> None:
+        try:
+            capability.close()
+        except BaseException as exc:
+            worker_error.append(exc)
+
+    worker = threading.Thread(target=consume)
+    worker.start()
+    assert first_state_seen.wait(timeout=5)
+    os.close(fd)
+    replacement_fd = os.open(replacement_path, os.O_RDONLY)
+    try:
+        release_first_state.set()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert worker_error and isinstance(worker_error[0], CensusSafetyError)
+        assert "stale" in str(worker_error[0])
+        os.fstat(replacement_fd)
+        assert backend._active_scanner_fds == set()
+        assert backend._scanner_fd_owners == {}
+    finally:
+        os.close(replacement_fd)
+        backend._forget_scanner_fd(fd)
+
+
+def test_stale_finalization_cannot_forget_reopened_scanner_generation(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    replacement_path = tmp_path / "replacement-before-reopen"
+    replacement_path.write_bytes(b"replacement")
+    reopened_path = tmp_path / "scanner-reopened"
+    reopened_path.write_bytes(b"reopened")
+    backend = _fixture_backend(proc, close_fd=lambda _fd: (_ for _ in ()).throw(OSError("ledger-race")))
+    fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    original_state = backend._scanner_fd_state
+    first_state_seen = threading.Event()
+    second_state_seen = threading.Event()
+    release_first_state = threading.Event()
+    release_second_state = threading.Event()
+    state_calls = 0
+    errors: list[BaseException] = []
+
+    def two_phase_state(value: int, expected):
+        nonlocal state_calls
+        state = original_state(value, expected)
+        state_calls += 1
+        if state_calls == 1:
+            first_state_seen.set()
+            assert release_first_state.wait(timeout=5)
+        elif state_calls == 2:
+            second_state_seen.set()
+            assert release_second_state.wait(timeout=5)
+        return state
+
+    backend._scanner_fd_state = two_phase_state
+
+    def close_in_thread() -> None:
+        try:
+            backend._close_scanner_fd(fd)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=close_in_thread)
+    worker.start()
+    assert first_state_seen.wait(timeout=5)
+    os.close(fd)
+    replacement_fd = os.open(replacement_path, os.O_RDONLY)
+    release_first_state.set()
+    assert second_state_seen.wait(timeout=5)
+    os.close(replacement_fd)
+    reopened_fd = backend._open_scanner_fd(reopened_path, os.O_RDONLY)
+    try:
+        assert reopened_fd == fd
+        release_second_state.set()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert len(errors) == 1 and isinstance(errors[0], OSError)
+        os.fstat(reopened_fd)
+        assert backend._active_scanner_fds == {reopened_fd}
+        assert set(backend._active_scanner_fd_identities) == {reopened_fd}
+        assert len(backend._scanner_fd_owners) == 1
+    finally:
+        os.close(reopened_fd)
+        backend._forget_scanner_fd(reopened_fd)
+
+
+def test_default_os_close_closes_descriptor_once_and_clears_ledger(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    opened: dict[str, int] = {}
+
+    def open_fd(path: Path, flags: int) -> int:
+        fd = os.open(path, flags)
+        opened["fd"] = fd
+        return fd
+
+    backend = _fixture_backend(proc, open_fd=open_fd)
+    backend._observe_descriptor(42, "fd", 3)
+    with pytest.raises(OSError):
+        os.fstat(opened["fd"])
+    assert backend._active_scanner_fds == set()
+    assert backend._active_scanner_fd_identities == {}
+
+
+def test_close_callback_reentrancy_fails_immediately_and_outer_close_progresses(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    reentrant_errors: list[BaseException] = []
+    backend: LinuxProcCensusBackend
+
+    def reentrant_close(capability: ScannerFdCloseCapability) -> None:
+        try:
+            backend._close_scanner_fd(_active_scanner_fd(backend))
+        except BaseException as exc:
+            reentrant_errors.append(exc)
+        capability.close()
+
+    backend = _fixture_backend(proc, close_fd=reentrant_close)
+    fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    backend._close_scanner_fd(fd)
+    assert reentrant_errors and isinstance(reentrant_errors[0], CensusSafetyError)
+    assert "already in progress" in str(reentrant_errors[0])
+    assert backend._active_scanner_fds == set()
+    assert backend._scanner_fd_owners == {}
+
+
+def test_paused_callback_does_not_block_unrelated_backend_progress(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    errors: list[BaseException] = []
+
+    def paused_close(capability: ScannerFdCloseCapability) -> None:
+        entered.set()
+        assert release.wait(timeout=5)
+        capability.close()
+
+    backend = _fixture_backend(proc, close_fd=paused_close)
+    other_backend = _fixture_backend(proc)
+    first_fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+
+    def close_in_thread() -> None:
+        try:
+            backend._close_scanner_fd(first_fd)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=close_in_thread)
+    worker.start()
+    assert entered.wait(timeout=5)
+    other_fd = other_backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    os.fstat(other_fd)
+    other_backend._close_scanner_fd(other_fd)
+    assert other_backend._active_scanner_fds == set()
+    release.set()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert errors == []
+    assert backend._active_scanner_fds == set()
+    assert backend._scanner_fd_owners == {}
+
+
+def test_close_capability_fd_and_ledger_baseline_cleanup_are_exact(tmp_path: Path) -> None:
+    proc, _ = _proc_fixture(tmp_path)
+    before = set(os.listdir("/proc/self/fd"))
+    backend = _fixture_backend(proc)
+    fd = backend._open_scanner_fd(tmp_path / "target-file", os.O_RDONLY)
+    owner = backend._scanner_fd_owners[fd]
+    assert backend._active_scanner_fds == {fd}
+    assert backend._active_scanner_fd_identities[fd] == owner.identity
+    os.fstat(fd)
+    backend._close_scanner_fd(fd)
+    after = set(os.listdir("/proc/self/fd"))
+    assert backend._active_scanner_fds == set()
+    assert backend._active_scanner_fd_identities == {}
+    assert backend._scanner_fd_owners == {}
+    assert after == before
 
 
 def _fixture_request(*, max_processes: int = 8, max_descriptors: int = 64, max_duration_ns: int = 1_000_000_000) -> CensusRequest:

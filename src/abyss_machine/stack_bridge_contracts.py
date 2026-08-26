@@ -304,10 +304,12 @@ def owner_census_broker_contract() -> dict[str, Any]:
         "read_only": True,
         "activation": False,
         "semantic_validation": {
-            "aggregate_descriptor_bound": "src/abyss_machine/owner_census_broker.py:validate_aggregate_descriptor_bound",
-            "schema_scope": "Draft 2020-12 validates structural shape, scalar ranges, and absolute per-array wire ceilings only; it does not express the dynamic cross-process descriptor sum.",
+            "owner_semantic_validator": "src/abyss_machine/owner_census_broker.py:validate_census_semantics",
+            "covers": "process count, target cardinality, per-process descriptors, aggregate descriptors, duration, and coupled boot/timestamp invariants",
+            "schema_scope": "Draft 2020-12 validates structural shape, scalar ranges, and absolute per-array wire ceilings only; it does not express dynamic owner bounds or coupled invariants.",
         },
-        "contract": "Runtime callers may consume bounded authenticated census evidence after the owner semantic validator applies the aggregate descriptor bound; incomplete or stale evidence is fail-closed and is never an operation grant.",
+        "close_authority": "Injected closers receive one backend-issued ScannerFdCloseCapability and must consume it exactly once; default close uses the same generation/identity revalidation path. Numeric descriptor reuse is never callback authority.",
+        "contract": "Runtime callers may consume bounded authenticated census evidence after validate_census_semantics applies the complete owner semantic gate; incomplete or stale evidence is fail-closed and is never an operation grant.",
         "non_claim": "The owner census broker does not claim historical no-churn and does not delete, rename, quarantine, reclaim, kill, execute commands, mutate paths, issue an operation grant, decide capacity-based launches, or own storage policy. A later race-safe deletion owner still needs atomic claim/quiescence.",
     }
 
