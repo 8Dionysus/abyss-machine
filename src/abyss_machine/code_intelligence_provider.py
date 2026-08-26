@@ -433,7 +433,8 @@ def _subject_binding(
         errors.append("artifact.identity.json artifact_class mismatch")
     if identity.get("contract_surface_id") != CONTRACT_SURFACE_ID:
         errors.append("artifact.identity.json contract_surface_id mismatch")
-    if identity.get("bundle_manifest_ref") != BUNDLE_MANIFEST_REF:
+    public_manifest_refs = {BUNDLE_MANIFEST_REF, Path(BUNDLE_MANIFEST_REF).name}
+    if identity.get("bundle_manifest_ref") not in public_manifest_refs:
         errors.append("artifact.identity.json bundle_manifest_ref mismatch")
     if not isinstance(files, list) or not files:
         errors.append("artifact.subjects.json files are missing")

@@ -15,6 +15,7 @@ from abyss_machine.code_intelligence_provider import (  # noqa: E402
     ARCHIVE_SCHEMA,
     build_provider_archive,
     exercise_provider,
+    inspect_provider_artifact,
     install_provider,
     read_provider_archive,
 )
@@ -137,6 +138,14 @@ def test_provider_archive_builds_required_candidate_sidecars_without_trust(tmp_p
         repo_root=ROOT,
         write=False,
     )
+    inspection = inspect_provider_artifact(
+        archive_path,
+        bundle,
+        subject_root=tmp_path,
+        registry_dir=tmp_path / "registry",
+        source_root=ROOT,
+        expected_source_ref=source_ref,
+    )
 
     assert result["ok"] is True
     assert result["required_controls"] == [
@@ -147,6 +156,9 @@ def test_provider_archive_builds_required_candidate_sidecars_without_trust(tmp_p
     ]
     assert verification["ok"] is False
     assert artifact_bundles.SIGNATURE_DECISION_SIDECAR in verification["missing"]
+    assert inspection["subject_binding"]["ok"] is True
+    assert inspection["status"] == "blocked"
+    assert inspection["trust_gate"]["verdict"] == "unknown"
 
 
 def test_install_does_not_replace_a_dangling_provider_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
