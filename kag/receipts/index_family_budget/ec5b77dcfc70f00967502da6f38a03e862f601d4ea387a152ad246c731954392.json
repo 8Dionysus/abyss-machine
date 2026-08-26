@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 19821049,
+  "allowed_tracked_bytes": 27196652,
+  "approved_by": "repository-owner",
+  "base_ref": "ed97a99646bc8e710507abb9e87c980779634ab3",
+  "changed_generated_bytes": 19821049,
+  "changed_generated_files": 254,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "ec5b77dcfc70f00967502da6f38a03e862f601d4ea387a152ad246c731954392",
+  "reason": "Refresh the portable owner-family KAG for the GitHub OIDC keyless bootstrap signing route, verifier claim boundaries, workflow evidence export, and related manifest/test source changes while preserving the generated family authority and standing tracked-byte cap.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta",
+  "tracked_bytes": 27196652,
+  "tracked_bytes_max": 27262976
+}

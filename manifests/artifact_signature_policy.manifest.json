@@ -551,7 +551,19 @@
       "sbom": {"required": true, "trigger": "when distributed as wheel, archive, installer, or release bundle"},
       "ml_bom": {"required": false, "trigger": "not an AI model, dataset, or runtime bundle"},
       "slsa_in_toto": {"required": true, "trigger": "minimal release provenance for published install artifacts"},
-      "sigstore_cosign": {"required": true, "trigger": "published release assets"},
+      "sigstore_cosign": {
+        "required": true,
+        "trigger": "published release assets",
+        "github_oidc": {
+          "issuer": "https://token.actions.githubusercontent.com",
+          "repository": "8Dionysus/abyss-machine",
+          "workflow_name": "Artifact Production Evidence",
+          "workflow_file": ".github/workflows/artifact-production-evidence.yml",
+          "workflow_ref": "refs/heads/main",
+          "trigger": "workflow_dispatch",
+          "certificate_identity": "https://github.com/8Dionysus/abyss-machine/.github/workflows/artifact-production-evidence.yml@refs/heads/main"
+        }
+      },
       "c2pa": {"required": false, "trigger": "not media"}
     },
     "runtime_or_container_artifact": {

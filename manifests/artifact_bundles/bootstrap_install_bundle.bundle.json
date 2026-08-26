@@ -5,7 +5,7 @@
   "contract_surface_id": "bootstrap-install-seed",
   "owner_repo": "abyss-machine",
   "policy_ref": "manifests/artifact_signature_policy.manifest.json",
-  "mode": "os_abyss_local",
+  "mode": "github_release",
   "public_safe": true,
   "purpose": "Local release-candidate route for a packaged abyss-machine bootstrap/install archive.",
   "artifact_source": {
@@ -55,7 +55,7 @@
   "consumer_command": [
     "tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -czf dist/abyss-machine-bootstrap-VERSION.tar.gz scripts/abyss-machine-bootstrap src/abyss_machine config-templates systemd schemas/bootstrap-report.schema.json manifests generated",
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --bundle-dir BUNDLE_DIR",
-    "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
+    "abyss-machine artifacts sign BUNDLE_DIR --backend cosign-github-oidc",
     "abyss-machine artifacts verify BUNDLE_DIR",
     "abyss-machine artifacts release-check BUNDLE_DIR",
     "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --lifecycle-state release-ready --consumer-ref abyss-machine:bootstrap-install --evidence-ref manual-positive:bootstrap-install --source-repo abyss-machine --source-ref manifests/artifact_bundles/bootstrap_install_bundle.bundle.json --producer abyss-machine-bootstrap-packager --trust-root-mode github_oidc --trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON --json",

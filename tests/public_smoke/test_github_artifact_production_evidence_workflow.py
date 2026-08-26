@@ -19,6 +19,12 @@ def test_artifact_production_evidence_workflow_is_public_safe() -> None:
     assert "id-token: write" in text
     assert "attestations: write" in text
     assert "contents: read" in text
+    assert "sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6" in text
+    assert "cosign-release: v3.1.1" in text
+    assert "--backend cosign-github-oidc" in text
+    assert "--certificate-oidc-issuer \"https://token.actions.githubusercontent.com\"" in text
+    assert "--certificate-github-workflow-sha \"${GITHUB_SHA}\"" in text
+    assert "abyss-machine-bootstrap-evidence-${GITHUB_SHA}.tar.gz" in text
     assert "actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26" in text
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in text
     assert "python scripts/ci_gate.py --mode release-artifact" in text
