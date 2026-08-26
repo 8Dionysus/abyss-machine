@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 23925453,
+  "allowed_tracked_bytes": 28122223,
+  "approved_by": "repository-owner",
+  "base_ref": "884fa4dfdfaaae9b4446438795eeb7b522d479d1",
+  "changed_generated_bytes": 23925453,
+  "changed_generated_files": 342,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "51b3ebe3d0308201e9bc97fd46ef2f5d19d84e41b2ea6ddf5f046d3e3259b024",
+  "reason": "Regenerate the deterministic portable aoa-kag owner family for the current merged abyss-machine candidate after removing superseded branch-local receipts, binding the measured generated-family exceedance to the exact current main base.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28122223,
+  "tracked_bytes_max": 27262976
+}
