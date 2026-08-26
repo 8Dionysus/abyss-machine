@@ -6883,6 +6883,11 @@ def _keyless_bundle_evidence_errors(path: Path) -> list[str]:
     media_type = str(payload.get("mediaType") or "")
     if not media_type.startswith("application/vnd.dev.sigstore.bundle."):
         errors.append("keyless Sigstore bundle mediaType is not a Sigstore bundle")
+    message_signature = payload.get("messageSignature")
+    if not isinstance(message_signature, Mapping) or not str(
+        message_signature.get("signature") or ""
+    ).strip():
+        errors.append("keyless Sigstore bundle is missing blob signature evidence")
     material = payload.get("verificationMaterial")
     if not isinstance(material, Mapping):
         errors.append("keyless Sigstore bundle is missing verificationMaterial")
@@ -6914,6 +6919,17 @@ def _keyless_bundle_evidence_errors(path: Path) -> list[str]:
                     f"keyless Sigstore tlog entry {index} is missing inclusion evidence"
                 )
     return errors
+
+
+def _keyless_signature_from_bundle(path: Path) -> str:
+    try:
+        payload = _read_json(path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return ""
+    message_signature = payload.get("messageSignature")
+    if not isinstance(message_signature, Mapping):
+        return ""
+    return str(message_signature.get("signature") or "").strip()
 
 
 def _keyless_claims_from_environment(
@@ -7135,7 +7151,11 @@ def sign_bundle(
                 if sigstore_bundle_path.is_file()
                 else ["cosign did not produce artifact.sigstore.json"]
             )
-            if proc.returncode != 0 or not proc.stdout.strip() or bundle_errors:
+            signature_text = (
+                _keyless_signature_from_bundle(sigstore_bundle_path)
+                or proc.stdout.strip()
+            )
+            if proc.returncode != 0 or not signature_text or bundle_errors:
                 reason_parts = [
                     "cosign keyless sign-blob failed or produced incomplete evidence",
                     *bundle_errors,
@@ -7159,7 +7179,7 @@ def sign_bundle(
                     "bundle_dir": str(bundle),
                     "written": [SIGNATURE_DECISION_SIDECAR],
                 }
-            signature_path.write_text(proc.stdout.strip() + "\n", encoding="utf-8")
+            signature_path.write_text(signature_text + "\n", encoding="utf-8")
             subject_digest = _file_digest(subject_path)
             decision = {
                 "ok": True,
