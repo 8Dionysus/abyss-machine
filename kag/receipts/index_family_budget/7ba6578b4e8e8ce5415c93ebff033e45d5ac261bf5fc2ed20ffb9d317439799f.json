@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25439103,
+  "allowed_tracked_bytes": 28085840,
+  "approved_by": "repository-owner",
+  "base_ref": "10844dad26bc542c2021a96150d6d9e47ba9ccc5",
+  "changed_generated_bytes": 25439103,
+  "changed_generated_files": 382,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "7ba6578b4e8e8ce5415c93ebff033e45d5ac261bf5fc2ed20ffb9d317439799f",
+  "reason": "Make manual Repo Validation history refs explicit and refresh the deterministic portable family after the reviewed storage lifecycle repair and generated ABI refresh; preserve the existing standing budget authority.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28085840,
+  "tracked_bytes_max": 27262976
+}
