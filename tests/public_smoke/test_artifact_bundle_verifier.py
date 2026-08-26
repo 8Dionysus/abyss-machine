@@ -100,6 +100,9 @@ if command == "sign-blob":
         json.dumps(
             {
                 "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+                "messageSignature": {
+                    "signature": "ZmFrZS1ibG9iLXNpZ25hdHVyZQ==",
+                },
                 "verificationMaterial": {
                     "certificate": {"rawBytes": "ZmFrZS1mdWxjaW8tY2VydA=="},
                     "tlogEntries": [
@@ -116,7 +119,6 @@ if command == "sign-blob":
         + "\\n",
         encoding="utf-8",
     )
-    print("fake-keyless-signature:" + digest(subject))
     sys.exit(0)
 if command == "verify-blob":
     bundle = json.loads(Path(option_value(args, "--bundle")).read_text(encoding="utf-8"))
@@ -7259,6 +7261,7 @@ def test_keyless_cosign_rejects_missing_transparency_certificate_and_local_relab
     artifact_bundles.sign_bundle(bundle, backend=artifact_bundles.COSIGN_GITHUB_OIDC_BACKEND)
     sigstore_path = bundle / artifact_bundles.SIGSTORE_BUNDLE_SIDECAR
     sigstore = json.loads(sigstore_path.read_text(encoding="utf-8"))
+    sigstore.pop("messageSignature")
     sigstore["verificationMaterial"].pop("certificate")
     sigstore["verificationMaterial"]["tlogEntries"] = []
     sigstore_path.write_text(json.dumps(sigstore, sort_keys=True) + "\n", encoding="utf-8")
@@ -7270,6 +7273,7 @@ def test_keyless_cosign_rejects_missing_transparency_certificate_and_local_relab
 
     assert rejected["ok"] is False
     assert any("local Cosign public-key sidecar" in item for item in rejected["errors"])
+    assert any("blob signature evidence" in item for item in rejected["errors"])
     assert any("Fulcio certificate evidence" in item for item in rejected["errors"])
     assert any("Rekor transparency evidence" in item for item in rejected["errors"])
 
