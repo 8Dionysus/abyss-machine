@@ -270,7 +270,7 @@ def test_cli_recovery_is_exact_target_and_corrective_bound(tmp_path: Path, monke
         surfaces=["/srv/abyss-machine/tmp/ai/example"],
         evidence_paths=["intent.md", "rollback.md", "producer.py"],
         provenance_gaps=["original title was not persisted", "original validation artifact was absent"],
-        write_latest=False,
+        write_latest=True,
     )
     assert result["ok"] is True
     assert result["record"]["reconstruction"]["gaps"] == [
@@ -282,6 +282,8 @@ def test_cli_recovery_is_exact_target_and_corrective_bound(tmp_path: Path, monke
     assert (target / "validation.md").is_file()
     assert (target / "closeout.md").is_file()
     assert json.loads((target / "actions.jsonl").read_text(encoding="utf-8").splitlines()[0])["event"] == "reconstructed"
+    indexed = json.loads(cli.CHANGE_INDEX_PATH.read_text(encoding="utf-8"))
+    assert indexed["latest"]["target"]["id"] == target_id
 
     second = cli.change_recover(
         change_id=target_id,
@@ -296,3 +298,131 @@ def test_cli_recovery_is_exact_target_and_corrective_bound(tmp_path: Path, monke
     )
     assert second["ok"] is False
     assert "refusing overwrite" in second["errors"][0]["message"]
+
+
+def test_recovery_rejects_symlinked_target(tmp_path: Path, monkeypatch) -> None:
+    from abyss_machine import cli
+
+    change_root = tmp_path / "changes"
+    monkeypatch.setattr(cli, "CHANGE_ROOT", change_root)
+    monkeypatch.setattr(cli, "CHANGE_ACTIVE_ROOT", change_root / "active")
+    monkeypatch.setattr(cli, "CHANGE_CLOSED_ROOT", change_root / "closed")
+    monkeypatch.setattr(cli, "CHANGE_HISTORY_ROOT", change_root / "history")
+    monkeypatch.setattr(cli, "CHANGE_LATEST_PATH", change_root / "latest.json")
+    monkeypatch.setattr(cli, "CHANGE_INDEX_PATH", change_root / "index.json")
+    monkeypatch.setattr(cli, "CHANGE_AGENTS_PATH", change_root / "AGENTS.md")
+
+    corrective_id = "corrective-record"
+    assert cli.change_record(
+        change_id=corrective_id,
+        title="Correct missing lifecycle records",
+        intent="repair only missing canonical ledger files",
+        surfaces=[str(change_root)],
+        write_latest=False,
+    )["ok"] is True
+
+    real_target = cli.CHANGE_ACTIVE_ROOT / "real-target"
+    real_target.mkdir(parents=True)
+    (real_target / "intent.md").write_text("# Intent\n\nKeep evidence.\n", encoding="utf-8")
+    (real_target / "rollback.md").write_text("# Rollback\n\nRestore evidence.\n", encoding="utf-8")
+    (real_target / "producer.py").write_text("# producer evidence\n", encoding="utf-8")
+    symlink_target = cli.CHANGE_ACTIVE_ROOT / "foreign-record"
+    symlink_target.symlink_to(real_target, target_is_directory=True)
+
+    result = cli.change_recover(
+        change_id="foreign-record",
+        state="active",
+        source_dir=str(symlink_target),
+        corrective_change_id=corrective_id,
+        title="surviving producer lifecycle",
+        surfaces=["/srv/abyss-machine/tmp/ai/example"],
+        evidence_paths=["intent.md", "rollback.md", "producer.py"],
+        provenance_gaps=["original validation artifact was absent"],
+        write_latest=False,
+    )
+    assert result["ok"] is False
+    assert "symlink" in result["errors"][0]["message"]
+    assert not (real_target / "change.json").exists()
+
+
+def test_recovery_resume_finishes_after_partial_history_failure(tmp_path: Path, monkeypatch) -> None:
+    from abyss_machine import cli
+
+    change_root = tmp_path / "changes"
+    monkeypatch.setattr(cli, "CHANGE_ROOT", change_root)
+    monkeypatch.setattr(cli, "CHANGE_ACTIVE_ROOT", change_root / "active")
+    monkeypatch.setattr(cli, "CHANGE_CLOSED_ROOT", change_root / "closed")
+    monkeypatch.setattr(cli, "CHANGE_HISTORY_ROOT", change_root / "history")
+    monkeypatch.setattr(cli, "CHANGE_LATEST_PATH", change_root / "latest.json")
+    monkeypatch.setattr(cli, "CHANGE_INDEX_PATH", change_root / "index.json")
+    monkeypatch.setattr(cli, "CHANGE_AGENTS_PATH", change_root / "AGENTS.md")
+
+    corrective_id = "corrective-record"
+    assert cli.change_record(
+        change_id=corrective_id,
+        title="Correct missing lifecycle records",
+        intent="repair only missing canonical ledger files",
+        surfaces=[str(change_root)],
+        write_latest=False,
+    )["ok"] is True
+
+    target_id = "foreign-record"
+    target = cli.CHANGE_ACTIVE_ROOT / target_id
+    target.mkdir(parents=True)
+    (target / "intent.md").write_text("# Intent\n\nKeep evidence.\n", encoding="utf-8")
+    (target / "rollback.md").write_text("# Rollback\n\nRestore evidence.\n", encoding="utf-8")
+    (target / "producer.py").write_text("# producer evidence\n", encoding="utf-8")
+
+    original_append = cli.safe_append_jsonl
+    failed = False
+
+    def fail_first_history_append(path: Path, data: dict, mode: int = 0o664):
+        nonlocal failed
+        if not failed and str(path).startswith(str(cli.CHANGE_HISTORY_ROOT)):
+            failed = True
+            return {"path": str(path), "error": "injected history outage"}
+        return original_append(path, data, mode)
+
+    monkeypatch.setattr(cli, "safe_append_jsonl", fail_first_history_append)
+    first = cli.change_recover(
+        change_id=target_id,
+        state="active",
+        source_dir=str(target),
+        corrective_change_id=corrective_id,
+        title="surviving producer lifecycle",
+        surfaces=["/srv/abyss-machine/tmp/ai/example"],
+        evidence_paths=["intent.md", "rollback.md", "producer.py"],
+        provenance_gaps=["original validation artifact was absent"],
+        write_latest=False,
+    )
+    assert first["ok"] is False
+    assert (target / "change.json").is_file()
+    assert (target / "actions.jsonl").is_file()
+
+    monkeypatch.setattr(cli, "safe_append_jsonl", original_append)
+    second = cli.change_recover(
+        change_id=target_id,
+        state="active",
+        source_dir=str(target),
+        corrective_change_id=corrective_id,
+        title="surviving producer lifecycle",
+        surfaces=["/srv/abyss-machine/tmp/ai/example"],
+        evidence_paths=["intent.md", "rollback.md", "producer.py"],
+        provenance_gaps=["original validation artifact was absent"],
+        write_latest=False,
+    )
+    assert second["ok"] is True, second["errors"]
+    target_events = [
+        json.loads(line)
+        for line in (target / "actions.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert sum(item.get("event") == "reconstructed" for item in target_events) == 1
+    history_events = [
+        json.loads(line)
+        for path in cli.CHANGE_HISTORY_ROOT.rglob("*.jsonl")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert sum(item.get("event") == "reconstructed" for item in history_events) == 1
+    assert sum(item.get("event") == "recovery_applied" for item in history_events) == 1
