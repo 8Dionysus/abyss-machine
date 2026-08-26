@@ -979,11 +979,10 @@ def content_parity_report(
         if source_digest != installed_digest:
             cli_row["status"] = "digest_mismatch"
             failures.append(f"{label} CLI digest mismatch: {installed_cli}")
-    installed_cli_target = (
-        installed_cli.resolve(strict=True)
-        if installed_cli.is_file()
-        else installed_cli
-    )
+    # The public CLI is normally a symlink into the managed libexec
+    # projection. The refresh lock protects that projection, so validate it
+    # beside the resolved launcher rather than beside /usr/local/bin.
+    installed_cli_target = installed_cli.resolve()
     cli_row["resolved_installed"] = str(installed_cli_target)
     refresh_lock = installed_cli_target.parent / CLI_REFRESH_LOCK_NAME
     lock_row = {

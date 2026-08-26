@@ -297,6 +297,17 @@ cleanup apply execution, storage hook directory scan/execution, and storage
 inventory path/disk measurement live in `abyss_machine.storage_adapters` through
 fakeable process snapshot/fd, command-runner, euid, clock, hook-runner,
 environment, disk-usage, size-measurement, and path-scan ports.
+Persistent cleanup candidate ids, verdict hard gates, observation history,
+overlap guards, validation/apply-preflight bindings, manifests, renewable
+claims, approvals, and external receipts live in
+`abyss_machine.storage_candidate_contracts`. Physical same-filesystem size,
+bounded filesystem fingerprints, full accessible `/proc` references, mount and
+runtime refs, Git worktree evidence, Hugging Face identity, Podman unique-byte
+facts, Vault freshness/restore evidence, and owner-only `.aoa` verdict adapters
+live in `abyss_machine.storage_candidate_adapters`; discovery, cadence,
+installed paths, latest/history writes, changed-only notifications, and CLI
+rendering remain at the edge. This layer records external action evidence but
+does not add automatic deletion.
 Changes ledger paths/index/status/latest read models, id and decision-review
 contracts, record/event/result shapes, surface classification, and preflight
 decision envelopes live in `abyss_machine.changes_contracts`.

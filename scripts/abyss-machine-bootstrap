@@ -82,6 +82,7 @@ PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
             "abyss-machine-context-refresh.timer",
             "abyss-topology-audit.timer",
             "abyss-storage-monitor.timer",
+            "abyss-storage-candidates-deep.timer",
             "abyss-process-snapshot.timer",
         ],
     },

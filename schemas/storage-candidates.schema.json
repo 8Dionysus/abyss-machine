@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Dionysus/abyss-machine/schemas/storage-candidates.schema.json",
+  "title": "abyss-machine persistent storage candidates",
+  "type": "object",
+  "required": ["schema", "generated_at", "ok", "deep", "summary", "candidates", "policy"],
+  "properties": {
+    "schema": {"const": "abyss_machine_storage_candidates_v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "ok": {"type": "boolean"},
+    "deep": {"type": "boolean"},
+    "snapshot_id": {"type": ["string", "null"]},
+    "summary": {"type": "object"},
+    "policy": {
+      "type": "object",
+      "required": ["automatic_deletion"],
+      "properties": {"automatic_deletion": {"const": false}}
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "path", "owner", "kind", "verdict", "blockers", "automatic_deletion"],
+        "properties": {
+          "candidate_id": {"type": "string", "pattern": "^reclaim-[0-9a-f]{24}$"},
+          "path": {"type": "string"},
+          "owner": {"type": "string"},
+          "kind": {"type": "string"},
+          "verdict": {
+            "enum": [
+              "keep_current",
+              "blocked_active",
+              "blocked_owner_reference",
+              "blocked_unique_data",
+              "blocked_unknown",
+              "archive_pending",
+              "archive_ready",
+              "delete_ready_rebuildable",
+              "delete_ready_superseded"
+            ]
+          },
+          "blockers": {"type": "array"},
+          "automatic_deletion": {"const": false}
+        }
+      }
+    }
+  }
+}
