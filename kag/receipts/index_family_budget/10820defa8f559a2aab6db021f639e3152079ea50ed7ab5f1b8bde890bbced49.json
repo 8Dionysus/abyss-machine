@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25439103,
+  "allowed_tracked_bytes": 28085840,
+  "approved_by": "repository-owner",
+  "base_ref": "10844dad26bc542c2021a96150d6d9e47ba9ccc5",
+  "changed_generated_bytes": 25439103,
+  "changed_generated_files": 382,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "10820defa8f559a2aab6db021f639e3152079ea50ed7ab5f1b8bde890bbced49",
+  "reason": "Regenerate the exact portable family from the committed workflow-ref repair and ABI refresh after canonical parity identified a stale generated family; preserve the existing standing budget authority.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28085840,
+  "tracked_bytes_max": 27262976
+}
