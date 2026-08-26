@@ -83,6 +83,67 @@ def test_candidate_id_is_stable_and_owner_typed() -> None:
     )
 
 
+def test_manifest_normalizes_path_before_identity_and_persistence() -> None:
+    manifest = contracts.manifest_document(
+        path="/srv/abyss-machine/tmp/../cache/fixture",
+        owner="abyss-machine",
+        kind="generated_tmp",
+        purpose="fixture",
+        producer="pytest",
+        source_id="fixture-1",
+        recovery_command="rebuild fixture",
+        replacement_ref=None,
+        retention_until=None,
+        executor_type=None,
+        created_at=NOW.isoformat(),
+    )
+
+    assert manifest["path"] == "/srv/abyss-machine/cache/fixture"
+    assert manifest["candidate_id"] == contracts.stable_candidate_id(
+        owner="abyss-machine",
+        kind="generated_tmp",
+        path="/srv/abyss-machine/cache/fixture",
+        source_id="fixture-1",
+    )
+
+
+def test_retention_until_is_fail_closed_before_any_ready_verdict() -> None:
+    for retention_until, blocker in (
+        ((NOW + dt.timedelta(hours=1)).isoformat(), "retention_until_active"),
+        ("not-a-timestamp", "retention_until_invalid"),
+    ):
+        observation = _observation()
+        observation["retention_until"] = retention_until
+
+        record = contracts.candidate_record(
+            observation,
+            configured_policy=_one_scan_policy(),
+            now_time=NOW,
+        )
+
+        assert record["verdict"] == "blocked_unknown"
+        assert blocker in {item["code"] for item in record["blockers"]}
+
+
+def test_manifest_rejects_malformed_retention_until() -> None:
+    manifest = contracts.manifest_document(
+        path="/srv/abyss-machine/tmp/fixture",
+        owner="abyss-machine",
+        kind="generated_tmp",
+        purpose="fixture",
+        producer="pytest",
+        source_id="fixture-1",
+        recovery_command="rebuild fixture",
+        replacement_ref=None,
+        retention_until="not-a-timestamp",
+        executor_type=None,
+        created_at=NOW.isoformat(),
+    )
+
+    assert manifest["valid"] is False
+    assert "retention_until_invalid" in manifest["errors"]
+
+
 def test_failed_runtime_with_preserved_receipts_and_verified_replacement_is_delete_ready() -> None:
     observation = _observation(kind="failed_runtime")
     observation["executor"] = {
@@ -267,6 +328,7 @@ def test_delete_ready_requires_repeated_stable_observations_and_quiet_window() -
 def test_parent_candidate_is_summary_only_when_child_candidates_exist() -> None:
     parent = contracts.candidate_record(
         _observation(path="/srv/abyss-machine/tmp"),
+        previous={"verdict": "delete_ready_rebuildable"},
         configured_policy=_one_scan_policy(),
         now_time=NOW,
     )
@@ -275,11 +337,18 @@ def test_parent_candidate_is_summary_only_when_child_candidates_exist() -> None:
         configured_policy=_one_scan_policy(),
         now_time=NOW,
     )
+    before_digest = parent["evidence_digest"]
 
     guarded = contracts.apply_overlap_guards([parent, child])
 
     assert guarded[0]["verdict"] == "blocked_unknown"
     assert guarded[0]["reclaimable_bytes"] == 0
+    assert guarded[0]["transition"] == {
+        "previous": "delete_ready_rebuildable",
+        "current": "blocked_unknown",
+        "changed": True,
+    }
+    assert guarded[0]["evidence_digest"] != before_digest
     assert guarded[1]["verdict"] == "delete_ready_rebuildable"
 
 

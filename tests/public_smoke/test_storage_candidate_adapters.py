@@ -225,3 +225,34 @@ def test_light_observation_cannot_become_delete_ready_without_deep_reference_che
     codes = {item["code"] for item in record["blockers"]}
     assert "mount_refs_not_checked" in codes
     assert "runtime_refs_not_checked" in codes
+
+
+def test_manifest_retention_until_is_carried_into_observation(tmp_path: Path) -> None:
+    spec = {
+        "path": str(tmp_path / "candidate"),
+        "owner": "abyss-machine",
+        "kind": "generated_tmp",
+        "source_id": "fixture",
+        "source_adapter": "creation_manifest",
+        "retention_until": "2026-08-02T16:00:00+00:00",
+        "manifest": {"retention_until": "2026-08-02T16:00:00+00:00"},
+        "executor": {"type": "age_bounded_tmp_cleanup", "owner_specific": True},
+        "unique_data": {"status": "clear"},
+        "recovery": {"verified": True, "command": "rebuild fixture"},
+        "replacement": {"verified": False},
+    }
+    Path(spec["path"]).mkdir()
+
+    observation = adapters.collect_observation(
+        spec,
+        protection={"decision": "allow_candidate"},
+        process_refs={"checked": True, "active": False, "refs": []},
+        claims=[],
+        runtime_documents=[],
+        lane_documents=[],
+        deep=False,
+        generated_at="2026-08-01T16:00:00+00:00",
+        max_fingerprint_entries=100,
+    )
+
+    assert observation["retention_until"] == "2026-08-02T16:00:00+00:00"

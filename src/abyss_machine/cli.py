@@ -456,6 +456,7 @@ STORAGE_WRITE_PREFLIGHT_LATEST_PATH = STORAGE_WRITE_PREFLIGHT_ROOT / "latest.jso
 STORAGE_APPLY_ROOT = STORAGE_STATE_ROOT / "apply"
 STORAGE_APPLY_LATEST_PATH = STORAGE_APPLY_ROOT / "latest.json"
 STORAGE_CANDIDATES_ROOT = path_from_env("ABYSS_MACHINE_STORAGE_CANDIDATES_ROOT", STORAGE_STATE_ROOT / "candidates")
+STORAGE_CANDIDATES_LOCK_PATH = STORAGE_CANDIDATES_ROOT / "refresh.lock"
 STORAGE_CANDIDATES_LATEST_PATH = STORAGE_CANDIDATES_ROOT / "latest.json"
 STORAGE_CANDIDATES_HISTORY_ROOT = STORAGE_CANDIDATES_ROOT / "history"
 STORAGE_CANDIDATES_MANIFESTS_ROOT = STORAGE_CANDIDATES_ROOT / "manifests"
@@ -1208,6 +1209,25 @@ def ensure_state_history_dir(path: Path) -> None:
         os.chown(path, -1, grp.getgrnam(MODE_STATE_GROUP).gr_gid)
     except (KeyError, OSError):
         pass
+
+
+@contextmanager
+def storage_candidates_refresh_lock():
+    """Serialize candidate refresh read/classify/write cycles across processes."""
+    lock_path = STORAGE_CANDIDATES_LOCK_PATH
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    fd = os.open(lock_path, flags, 0o660)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def atomic_write_json(path: Path, data: dict[str, Any], mode: int = 0o644) -> None:
@@ -9117,15 +9137,6 @@ def storage_monitor(
     status = storage_status(write_latest=write_latest, full_ai_scan=False)
     step_summary("status", ["abyss-machine", "storage", "status", "--json"], step_started, status)
 
-    step_started = time.monotonic()
-    artifact_snapshot = artifacts_snapshot(scope="ai-cache", history_days=14, write_latest=write_latest)
-    step_summary(
-        "artifacts_snapshot_ai_cache",
-        ["abyss-machine", "artifacts", "snapshot", "--scope", "ai-cache", "--history-days", "14", "--json"],
-        step_started,
-        artifact_snapshot,
-    )
-
     previous_candidates, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
     previous_candidates = previous_candidates if isinstance(previous_candidates, dict) else {}
     last_deep = storage_candidate_contracts.parse_time(previous_candidates.get("last_deep_at"))
@@ -9138,6 +9149,15 @@ def storage_monitor(
     deep_requested = pressure_class in {"warning", "critical"} or significant_growth or bool(pending_manifests)
     deep_due = bool(pending_manifests) or deep_age_seconds is None or deep_age_seconds >= 12 * 3600
     deep_candidates = deep_requested and deep_due
+    artifact_scope = "all" if deep_candidates else "ai-cache"
+    step_started = time.monotonic()
+    artifact_snapshot = artifacts_snapshot(scope=artifact_scope, history_days=14, write_latest=write_latest)
+    step_summary(
+        f"artifacts_snapshot_{artifact_scope.replace('-', '_')}",
+        ["abyss-machine", "artifacts", "snapshot", "--scope", artifact_scope, "--history-days", "14", "--json"],
+        step_started,
+        artifact_snapshot,
+    )
     step_started = time.monotonic()
     candidates = storage_candidates_refresh(
         deep=deep_candidates,
@@ -15463,7 +15483,7 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
     return document
 
 
-def storage_candidates_refresh(*, deep: bool = False, artifact_snapshot: dict[str, Any] | None = None, write_latest: bool = True) -> dict[str, Any]:
+def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapshot: dict[str, Any] | None = None, write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
     previous, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
     previous = previous if isinstance(previous, dict) else {}
@@ -15545,6 +15565,15 @@ def storage_candidates_refresh(*, deep: bool = False, artifact_snapshot: dict[st
             data["ok"] = False
             data["write_errors"] = errors
     return data
+
+
+def storage_candidates_refresh(*, deep: bool = False, artifact_snapshot: dict[str, Any] | None = None, write_latest: bool = True) -> dict[str, Any]:
+    with storage_candidates_refresh_lock():
+        return _storage_candidates_refresh_unlocked(
+            deep=deep,
+            artifact_snapshot=artifact_snapshot,
+            write_latest=write_latest,
+        )
 
 
 def storage_candidates_list(**filters: Any) -> dict[str, Any]:

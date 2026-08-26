@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -88,6 +89,12 @@ def _list_of_mappings(value: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in value if isinstance(item, Mapping)]
 
 
+def canonical_candidate_path(path: str) -> str:
+    """Return a stable lexical path without resolving symlinks or live targets."""
+    text = str(path or "")
+    return os.path.normpath(text) if text.startswith("/") else text
+
+
 def _parse_time(value: Any) -> dt.datetime | None:
     if isinstance(value, dt.datetime):
         parsed = value
@@ -142,7 +149,7 @@ def stable_candidate_id(*, owner: str, kind: str, path: str, source_id: str = ""
     identity = {
         "owner": owner.strip() or "unknown",
         "kind": kind.strip() or "unknown",
-        "path": str(Path(path)),
+        "path": canonical_candidate_path(path),
         "source_id": source_id.strip(),
     }
     return "reclaim-" + _digest(identity, length=24)
@@ -195,6 +202,38 @@ def _active_reference_blockers(observation: Mapping[str, Any]) -> list[dict[str,
     if owner_verdict.get("active_writer") is True or str(owner_verdict.get("status") or "").startswith("deferred_active"):
         blockers.append(_blocker("owner_reports_active_writer", "owner_verdict", owner_verdict.get("status")))
     return blockers
+
+
+def _retention_until_value(observation: Mapping[str, Any]) -> Any:
+    if "retention_until" in observation:
+        return observation.get("retention_until")
+    manifest = _mapping(_mapping(observation.get("evidence")).get("manifest"))
+    return manifest.get("retention_until") if "retention_until" in manifest else None
+
+
+def _parse_retention_until(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip().replace("Z", "+00:00")
+    try:
+        parsed = dt.datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _retention_blockers(observation: Mapping[str, Any], *, now_time: dt.datetime) -> list[dict[str, Any]]:
+    value = _retention_until_value(observation)
+    if value is None:
+        return []
+    deadline = _parse_retention_until(value)
+    if deadline is None:
+        return [_blocker("retention_until_invalid", "retention_until", value)]
+    if deadline > now_time.astimezone(dt.timezone.utc):
+        return [_blocker("retention_until_active", "retention_until", deadline.isoformat())]
+    return []
 
 
 def _owner_blockers(observation: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -279,7 +318,7 @@ def _recovery_state(observation: Mapping[str, Any]) -> tuple[str, list[dict[str,
     return "blocked_unknown", [_blocker("recovery_or_replacement_not_verified", "recovery", recovery or replacement)]
 
 
-def provisional_classification(observation: Mapping[str, Any]) -> dict[str, Any]:
+def _base_provisional_classification(observation: Mapping[str, Any]) -> dict[str, Any]:
     if observation.get("exists") is not True:
         return {
             "verdict": "blocked_unknown",
@@ -350,6 +389,26 @@ def provisional_classification(observation: Mapping[str, Any]) -> dict[str, Any]
     }
 
 
+def provisional_classification(
+    observation: Mapping[str, Any],
+    *,
+    now_time: dt.datetime | None = None,
+) -> dict[str, Any]:
+    now_time = now_time or dt.datetime.now(dt.timezone.utc)
+    if now_time.tzinfo is None:
+        now_time = now_time.replace(tzinfo=dt.timezone.utc)
+    result = _base_provisional_classification(observation)
+    retention_blockers = _retention_blockers(observation, now_time=now_time)
+    if retention_blockers and result.get("verdict") in READY_VERDICTS:
+        result = dict(result)
+        result["verdict"] = "archive_pending" if result.get("verdict") == "archive_ready" else "blocked_unknown"
+        result["blockers"] = _list_of_mappings(result.get("blockers")) + retention_blockers
+        result["reasons"] = list(result.get("reasons") or []) + [
+            "retention_until is malformed or has not expired"
+        ]
+    return result
+
+
 def observation_history_entry(observation: Mapping[str, Any], provisional: Mapping[str, Any]) -> dict[str, Any]:
     fingerprint = _mapping(observation.get("fingerprint"))
     return {
@@ -359,6 +418,7 @@ def observation_history_entry(observation: Mapping[str, Any], provisional: Mappi
         "physical_bytes": observation.get("physical_bytes"),
         "reclaimable_bytes": observation.get("reclaimable_bytes"),
         "provisional_verdict": provisional.get("verdict"),
+        "retention_until": _retention_until_value(observation),
     }
 
 
@@ -419,7 +479,7 @@ def candidate_record(
     path = str(observation.get("path") or "")
     source_id = str(observation.get("source_id") or "")
     candidate_id = str(observation.get("candidate_id") or stable_candidate_id(owner=owner, kind=kind, path=path, source_id=source_id))
-    provisional = provisional_classification(observation)
+    provisional = provisional_classification(observation, now_time=now_time)
     current_history = observation_history_entry(observation, provisional)
     history = _append_history(
         _list_of_mappings(previous.get("observation_history")),
@@ -462,6 +522,7 @@ def candidate_record(
         "fingerprint": dict(_mapping(observation.get("fingerprint"))),
         "latest_mtime": observation.get("latest_mtime"),
         "observed_at": observation.get("observed_at"),
+        "retention_until": _retention_until_value(observation),
         "evidence": dict(_mapping(observation.get("evidence"))),
         "executor": dict(_mapping(observation.get("executor"))),
         "verdict": verdict,
@@ -487,6 +548,25 @@ def candidate_record(
         "executor": record["executor"],
     })
     return record
+
+
+def _refresh_record_integrity(record: dict[str, Any]) -> None:
+    previous_verdict = _mapping(record.get("transition")).get("previous")
+    verdict = str(record.get("verdict") or "blocked_unknown")
+    blockers = _list_of_mappings(record.get("blockers"))
+    executor = dict(_mapping(record.get("executor")))
+    record["transition"] = {
+        "previous": previous_verdict,
+        "current": verdict,
+        "changed": bool(previous_verdict and previous_verdict != verdict),
+    }
+    record["evidence_digest"] = _digest({
+        "candidate_id": record.get("candidate_id"),
+        "fingerprint": dict(_mapping(record.get("fingerprint"))),
+        "verdict": verdict,
+        "blockers": blockers,
+        "executor": executor,
+    })
 
 
 def _path_parts(path: str) -> tuple[str, ...]:
@@ -521,6 +601,7 @@ def apply_overlap_guards(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             parent.setdefault("blockers", []).append(
                 _blocker("overlapping_child_candidates_require_exact_scope", "candidate_inventory", parent["overlap"])
             )
+        _refresh_record_integrity(parent)
     return records
 
 
@@ -988,6 +1069,7 @@ def manifest_document(
     replacement_verified: bool = False,
     archive: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    path = canonical_candidate_path(path)
     candidate_id = stable_candidate_id(owner=owner, kind=kind, path=path, source_id=source_id)
     errors: list[str] = []
     if not path or not Path(path).is_absolute():
@@ -998,6 +1080,8 @@ def manifest_document(
         errors.append("kind_required")
     if not purpose:
         errors.append("purpose_required")
+    if retention_until is not None and _parse_retention_until(retention_until) is None:
+        errors.append("retention_until_invalid")
     return {
         "schema": "abyss_machine_storage_candidate_manifest_v1",
         "candidate_id": candidate_id,

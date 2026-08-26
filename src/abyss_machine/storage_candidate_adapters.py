@@ -443,6 +443,7 @@ def manifest_specs(manifests: Sequence[Mapping[str, Any]]) -> list[dict[str, Any
             "kind": str(manifest.get("kind") or "unknown"),
             "source_id": str(manifest.get("source_id") or manifest.get("candidate_id") or "manifest"),
             "source_adapter": "creation_manifest",
+            "retention_until": manifest.get("retention_until"),
             "manifest": dict(manifest),
             "executor": dict(executor),
             "unique_data": {
@@ -883,7 +884,7 @@ def collect_observation(
     container_refs: Mapping[str, Any] | None = None,
     config_refs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    path_text = str(spec.get("path") or "")
+    path_text = contracts.canonical_candidate_path(str(spec.get("path") or ""))
     path = Path(path_text)
     virtual = spec.get("virtual") is True
     if virtual:
@@ -959,6 +960,7 @@ def collect_observation(
         "kind": str(spec.get("kind") or "unknown"),
         "source_id": str(spec.get("source_id") or ""),
         "source_adapter": spec.get("source_adapter"),
+        "retention_until": spec.get("retention_until"),
         "exists": exists,
         "physical_bytes": physical_bytes,
         "reclaimable_bytes": spec.get("reclaimable_bytes") if isinstance(spec.get("reclaimable_bytes"), int) else physical_bytes,
