@@ -47,7 +47,8 @@
     "typing-intake",
     "nervous-local",
     "local-ai-runtime",
-    "diagnostic-spine"
+    "diagnostic-spine",
+    "code-intelligence"
   ],
   "mechanic_required_files": [
     "AGENTS.md",

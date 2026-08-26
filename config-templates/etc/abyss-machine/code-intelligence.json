@@ -1,0 +1,370 @@
+{
+  "schema": "abyss_machine_code_intelligence_config_v1",
+  "version": "0.1.0",
+  "kind": "code-intelligence-provider-plane",
+  "source": {
+    "owner": "abyss-machine",
+    "authority": "source-config",
+    "config_ref": "config-templates/etc/abyss-machine/code-intelligence.json",
+    "source_epoch_binding": "consumer_binds_observations_to_source_epoch"
+  },
+  "paths": {
+    "state_root": "{{ABYSS_MACHINE_STATE}}/code-intelligence",
+    "runtime_root": "{{ABYSS_MACHINE_SRV}}/runtimes/code-intelligence",
+    "cache_root": "{{ABYSS_MACHINE_SRV}}/cache/code-intelligence",
+    "storage_root": "{{ABYSS_MACHINE_SRV}}/storage/code-intelligence",
+    "tmp_root": "{{ABYSS_MACHINE_SRV}}/tmp/code-intelligence"
+  },
+  "providers": [
+    {
+      "id": "universal-ctags",
+      "display_name": "Universal Ctags",
+      "role": "broad_navigation_fallback",
+      "mode": "indexed",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["definitions", "symbols", "fallback_navigation"],
+      "artifact": {
+        "required": true,
+        "class": "runtime_or_container_artifact",
+        "source_ref_required": true,
+        "subject_digest_required": true,
+        "trust_gate_required": true
+      },
+      "installation": {
+        "executable": "ctags",
+        "version_command": ["ctags", "--version"],
+        "expected_version": null,
+        "version_source": "release_or_operator_manifest"
+      },
+      "resource": {
+        "kind": "indexing",
+        "class": "light",
+        "startup_demand_mib": 512,
+        "max_parallelism": 1,
+        "profile_ref": "resource-policy.json#indexing:light"
+      },
+      "paths": {
+        "state": "providers/universal-ctags",
+        "runtime": "providers/universal-ctags",
+        "cache": "providers/universal-ctags",
+        "storage": "providers/universal-ctags",
+        "tmp": "providers/universal-ctags"
+      },
+      "semantic": {
+        "status": "unproven",
+        "proof_owner": "aoa-evals",
+        "requires_symbol_smoke": true
+      },
+      "diagnostics": {
+        "version_probe": ["ctags", "--version"],
+        "health_probe": "bounded_version_and_symbol_probe"
+      }
+    },
+    {
+      "id": "tree-sitter",
+      "display_name": "Tree-sitter",
+      "role": "incremental_syntax_and_structural_diff",
+      "mode": "indexed",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["syntax", "structural_diff", "incremental_parse"],
+      "artifact": {
+        "required": true,
+        "class": "runtime_or_container_artifact",
+        "source_ref_required": true,
+        "subject_digest_required": true,
+        "trust_gate_required": true
+      },
+      "installation": {
+        "executable": "tree-sitter",
+        "version_command": ["tree-sitter", "--version"],
+        "expected_version": null,
+        "version_source": "release_or_operator_manifest"
+      },
+      "resource": {
+        "kind": "indexing",
+        "class": "medium",
+        "startup_demand_mib": 1536,
+        "max_parallelism": 1,
+        "profile_ref": "resource-policy.json#indexing:medium"
+      },
+      "paths": {
+        "state": "providers/tree-sitter",
+        "runtime": "providers/tree-sitter",
+        "cache": "providers/tree-sitter",
+        "storage": "providers/tree-sitter",
+        "tmp": "providers/tree-sitter"
+      },
+      "semantic": {
+        "status": "unproven",
+        "proof_owner": "aoa-evals",
+        "requires_structural_delta_smoke": true
+      },
+      "diagnostics": {
+        "version_probe": ["tree-sitter", "--version"],
+        "health_probe": "bounded_parse_and_structural_delta_probe"
+      }
+    },
+    {
+      "id": "scip",
+      "display_name": "SCIP",
+      "role": "cross_file_semantic_symbols_and_relations",
+      "mode": "indexed",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["semantic_symbols", "occurrences", "relations"],
+      "artifact": {
+        "required": true,
+        "class": "runtime_or_container_artifact",
+        "source_ref_required": true,
+        "subject_digest_required": true,
+        "trust_gate_required": true
+      },
+      "installation": {
+        "executable": "scip",
+        "version_command": ["scip", "--version"],
+        "expected_version": null,
+        "version_source": "release_or_operator_manifest"
+      },
+      "resource": {
+        "kind": "indexing",
+        "class": "heavy",
+        "startup_demand_mib": 4096,
+        "max_parallelism": 1,
+        "profile_ref": "resource-policy.json#indexing:heavy"
+      },
+      "paths": {
+        "state": "providers/scip",
+        "runtime": "providers/scip",
+        "cache": "providers/scip",
+        "storage": "providers/scip",
+        "tmp": "providers/scip"
+      },
+      "semantic": {
+        "status": "unproven",
+        "proof_owner": "aoa-evals",
+        "requires_cross_file_relation_smoke": true
+      },
+      "diagnostics": {
+        "version_probe": ["scip", "--version"],
+        "health_probe": "bounded_index_and_cross_file_relation_probe"
+      }
+    },
+    {
+      "id": "lsp",
+      "display_name": "Language Server Protocol",
+      "role": "live_working_tree_observation",
+      "mode": "live",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["live_definitions", "live_references", "diagnostics", "workspace_symbols"],
+      "artifact": {
+        "required": true,
+        "class": "runtime_or_container_artifact",
+        "source_ref_required": true,
+        "subject_digest_required": true,
+        "trust_gate_required": true
+      },
+      "installation": {
+        "executable": null,
+        "version_command": null,
+        "version_command_shape": ["<language-server>", "--version"],
+        "expected_version": null,
+        "version_source": "language_server_release_or_operator_manifest"
+      },
+      "resource": {
+        "kind": "indexing",
+        "class": "medium",
+        "startup_demand_mib": 2048,
+        "max_parallelism": 1,
+        "profile_ref": "resource-policy.json#indexing:medium"
+      },
+      "paths": {
+        "state": "providers/lsp",
+        "runtime": "providers/lsp",
+        "cache": "providers/lsp",
+        "storage": "providers/lsp",
+        "tmp": "providers/lsp"
+      },
+      "semantic": {
+        "status": "unproven",
+        "proof_owner": "aoa-evals",
+        "requires_initialize_definition_reference_smoke": true
+      },
+      "diagnostics": {
+        "version_probe": "language_server_specific",
+        "health_probe": "stack_owned_initialize_and_shutdown_probe"
+      }
+    },
+    {
+      "id": "python-ast-bootstrap",
+      "display_name": "Python AST bootstrap",
+      "role": "portable_bootstrap_extractor",
+      "mode": "bootstrap",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["ast_bootstrap", "definitions", "imports"],
+      "artifact": {
+        "required": false,
+        "class": "host_interpreter",
+        "source_ref_required": true,
+        "subject_digest_required": false,
+        "trust_gate_required": false
+      },
+      "installation": {
+        "executable": "python3",
+        "version_command": ["python3", "--version"],
+        "expected_version": null,
+        "version_source": "host_interpreter_or_consumer_manifest"
+      },
+      "resource": {
+        "kind": "indexing",
+        "class": "light",
+        "startup_demand_mib": 512,
+        "max_parallelism": 1,
+        "profile_ref": "resource-policy.json#indexing:light"
+      },
+      "paths": {
+        "state": "providers/python-ast-bootstrap",
+        "runtime": "providers/python-ast-bootstrap",
+        "cache": "providers/python-ast-bootstrap",
+        "storage": "providers/python-ast-bootstrap",
+        "tmp": "providers/python-ast-bootstrap"
+      },
+      "semantic": {
+        "status": "unproven",
+        "proof_owner": "aoa-evals",
+        "requires_ast_symbol_and_import_smoke": true
+      },
+      "diagnostics": {
+        "version_probe": ["python3", "--version"],
+        "health_probe": "bounded_ast_parse_probe"
+      }
+    }
+  ],
+  "admission": {
+    "required_gates": ["source_config", "owner_admission_receipt", "installed_identity", "runnable_health", "resource_route"],
+    "artifact_gates_when_required": ["artifact_identity", "trust_gate"],
+    "requires_owner_produced_receipt": true,
+    "requires_content_addressed_receipt": true,
+    "admission_receipt_schema": "abyss_machine_code_intelligence_admission_receipt_v1",
+    "owner_admission_boundary": {
+      "artifact_class": "runtime_or_container_artifact",
+      "contract_surface_id": "code-intelligence-provider-route",
+      "abi_ref": "generated/contract_abi_signatures.min.json",
+      "bundle_manifest_ref": "manifests/artifact_bundles/code_intelligence_provider.bundle.json",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+      "sidecars": {
+        "abi_signature": ["artifact.abi.json"],
+        "sbom": ["artifact.sbom.cdx.json", "artifact.sbom.spdx.json"],
+        "slsa_in_toto": ["artifact.provenance.intoto.jsonl", "artifact.provenance.json"],
+        "sigstore_cosign": ["artifact.sigstore.json", "artifact.cosign.signature", "artifact.cosign.pub"]
+      },
+      "registry": {
+        "layout": "abyss_machine_artifact_bundle_registry_v1",
+        "index_ref": "index.json",
+        "record_ref": "records/<sha256>.json",
+        "record_schema": "abyss_machine_artifact_bundle_registry_record_v1"
+      },
+      "trust_gate": {
+        "schema": "abyss_machine_artifact_trust_gate_v1",
+        "consumer_intent": "runtime",
+        "expected_source_repo": "abyss-machine",
+        "expected_trust_root_mode": "oci_registry",
+        "require_latest": true,
+        "required_verdict": "allow",
+        "command": "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo abyss-machine --trust-root-mode oci_registry --subject-digest SUBJECT_DIGEST --json"
+      }
+    },
+    "consumer_abi": {
+      "owner": "abyss-stack",
+      "binding_schema": "abyss-machine-code-intelligence-provider-binding-v1",
+      "evidence_schema": "abyss-stack-machine-code-intelligence-evidence-v1",
+      "gate_schema": "abyss-stack-machine-code-intelligence-gate-v1",
+      "gate_record_schema": "abyss-machine-admission-gate-v1",
+      "signed_payload_schema": "abyss-machine-admission-gate-signed-payload-v1",
+      "public_key_schema": "abyss-machine-code-intelligence-gate-public-key-v1",
+      "algorithm": "ed25519",
+      "verification_method": "ed25519-owner-signature-v1",
+      "trust_anchor_ref": "/etc/abyss-machine/trust/code-intelligence-gate-ed25519.json",
+      "trust_anchor_posture": "existing_root_owned_anchor_only",
+      "provider_neutral": true,
+      "state_axes": ["candidate", "current", "last_good"],
+      "required_separations": [
+        "machine artifact trust vs machine evidence gate",
+        "installation and admission vs deployed runtime lifecycle",
+        "runtime observation vs normalized observation meaning",
+        "runtime evidence vs semantic proof and eval verdict"
+      ]
+    },
+    "unknown_is": "not_admitted",
+    "success_requires_observed_at": true,
+    "success_requires_evidence_ref": true,
+    "requires_installation_identity": true,
+    "requires_provider_identity": true,
+    "requires_owner_boundary": true,
+    "requires_canonical_installation_identity": true,
+    "requires_resource_envelope": true,
+    "requires_live_measurement": true,
+    "observed_at_format": "timezone_aware_iso8601",
+    "evidence_ref_format": "qualified_scheme_reference",
+    "installation_identity_fields": ["version", "executable_or_path", "digest_when_artifact_required"],
+    "provider_identity_fields": ["provider_id", "owner_boundary"],
+    "owner_boundary_fields": ["host_owner", "consumer_owner", "host_layer_mutates_stack"],
+    "artifact_identity_fields": ["class", "subject_digest", "source_ref"],
+    "trust_identity_fields": ["verdict", "subject_digest", "evidence_ref", "provider_id", "owner"],
+    "resource_envelope_fields": ["kind", "class", "demand_mib", "profile_ref", "route_ref", "provider_id", "owner"],
+    "live_measurement_fields": ["observed_at", "evidence_ref", "version", "health"],
+    "resource_route_format": "route:abyss-machine/code-intelligence/<provider_id>",
+    "live_measurement_schema": "abyss_machine_code_intelligence_live_measurement_v1",
+    "semantic_usefulness": "unproven_until_owner_proof"
+  },
+  "observation": {
+    "mode": "bounded_read_only",
+    "version_probe_timeout_seconds": 5.0,
+    "max_version_output_bytes": 4096,
+    "max_file_digest_bytes": 134217728,
+    "host_memory_source": "sysconf_read_only",
+    "network_downloads": false,
+    "service_mutation": false,
+    "trust_grant": false,
+    "raw_command_output": "discarded"
+  },
+  "storage": {
+    "large_data_route": "paths.storage_root",
+    "runtime_route": "paths.runtime_root",
+    "cache_route": "paths.cache_root",
+    "durable_fact_route": "paths.state_root",
+    "temporary_route": "paths.tmp_root",
+    "protected_project_roots": true
+  },
+  "ownership": {
+    "host_install_and_trust_owner": "abyss-machine",
+    "provider_lifecycle_owner": "abyss-stack",
+    "live_lsp_session_owner": "abyss-stack",
+    "normalized_observation_consumer": "aoa-kag",
+    "semantic_proof_owner": "aoa-evals",
+    "host_layer_mutates_stack": false
+  },
+  "diagnostics": {
+    "probe_mode": "bounded_read_only",
+    "version_and_health_probes_are_facts_only": true,
+    "network_downloads": false,
+    "service_mutation": false,
+    "raw_command_output_persisted": false
+  },
+  "rollback": {
+    "strategy": "last_good_admitted_provider",
+    "automatic": false,
+    "requires_prior_admission_receipt": true,
+    "state_route": "state/providers/rollback"
+  },
+  "non_claims": [
+    "Source declaration does not prove installation, current version, trust, or runnable health.",
+    "Host admission does not prove semantic usefulness, proof, or owner acceptance.",
+    "The machine layer does not own provider lifecycle, LSP sessions, or KAG materialization.",
+    "The G58 consumer ABI requires an authenticated machine evidence gate; artifact trust alone is not that gate.",
+    "The machine source does not create, replace, or infer the root-owned G58 trust anchor."
+  ]
+}

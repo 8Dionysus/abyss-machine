@@ -1,0 +1,73 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "code-intelligence-provider",
+  "artifact_class": "runtime_or_container_artifact",
+  "contract_surface_id": "code-intelligence-provider-route",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Content-addressed Universal Ctags provider archive for the MACHINE code-intelligence route.",
+  "artifact_source": {
+    "kind": "content_addressed_provider_archive",
+    "content_identity_ref": "artifact.subjects.json",
+    "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/code-intelligence-provider-route/source_paths",
+    "private_payload_included": false
+  },
+  "subject_repo_root": ".",
+  "runtime_owner_override_required": true,
+  "artifact_subjects": [
+    {
+      "glob": "abyss-machine-code-intelligence-universal-ctags-*.tar.gz",
+      "role": "universal_ctags_provider_archive"
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:abyss-machine-code-intelligence-provider:v1",
+  "package": {
+    "ecosystem": "code-intelligence-provider",
+    "name": "abyss-machine-universal-ctags-provider",
+    "version": "0",
+    "purl": "pkg:generic/abyss-machine-universal-ctags-provider@0"
+  },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "published",
+      "superseded"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready",
+      "published"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo abyss-machine --trust-root-mode oci_registry --subject-digest SUBJECT_DIGEST --json",
+    "consumer_expectation": "The provider consumer binds the archive subject digest, source ref, ABI, SBOM, SLSA/in-toto, Sigstore/Cosign evidence, materialized subject store, registry latest, and an allow verdict before installation or execution.",
+    "registry_required": true,
+    "subject_store_required": true,
+    "admission_gate": "fail_closed_consumer_admission",
+    "consumer_verdict": "allow_or_deny_required_before_use",
+    "runtime_owner": "abyss-machine",
+    "lifecycle_owner": "abyss-stack",
+    "semantic_proof_owner": "aoa-evals"
+  },
+  "consumer_command": [
+    "python scripts/build_code_intelligence_provider.py --ctags CTAGS --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-universal-ctags-VERSION.tar.gz --source-ref SOURCE_REF --json",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/code_intelligence_provider.bundle.json --subject-root /srv/abyss-machine/artifacts/code-intelligence --owner-repo abyss-machine --source-ref SOURCE_REF --bundle-dir BUNDLE_DIR --json",
+    "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
+    "abyss-machine artifacts verify BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --json",
+    "abyss-machine artifacts release-check BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --json",
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --lifecycle-state release-ready --consumer-ref abyss-machine:code-intelligence:universal-ctags --evidence-ref manual-positive:code-intelligence:universal-ctags --source-repo OWNER_REPO --source-ref SOURCE_REF --producer abyss-machine-code-intelligence-provider-builder --trust-root-mode oci_registry --trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/code_intelligence_provider.bundle.json --subject-root /srv/abyss-machine/artifacts/code-intelligence --consumer-intent runtime --source-repo OWNER_REPO --source-ref SOURCE_REF --trust-root-mode oci_registry --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo OWNER_REPO --trust-root-mode oci_registry --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo OWNER_REPO --trust-root-mode oci_registry --json",
+    "python scripts/install_code_intelligence_provider.py inspect --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
+    "python scripts/install_code_intelligence_provider.py install --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --apply --json",
+    "python scripts/install_code_intelligence_provider.py exercise --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --json"
+  ]
+}

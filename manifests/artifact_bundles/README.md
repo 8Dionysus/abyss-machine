@@ -167,3 +167,10 @@ explicitly. The public manifest stays repo-relative; installed consumers verify
 the signed `artifact.subjects.json` against
 `/var/lib/abyss-machine/artifacts/subjects` when the source artifact path is
 not available.
+
+The `code_intelligence_provider.bundle.json` manifest is the dedicated
+Universal Ctags route. Its archive is prepared outside Git, and its source
+subject, sidecars, registry record, subject-store materialization, trust-gate
+allow, installation identity, and bounded exercise remain separate evidence
+steps. No provider archive is consumable while Sigstore/Cosign evidence or the
+root-owned G58 consumer gate is absent.
