@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import sys
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -17,6 +19,7 @@ from abyss_machine.code_intelligence_provider import (  # noqa: E402
     read_provider_archive,
 )
 from abyss_machine import artifact_bundles  # noqa: E402
+from abyss_machine import code_intelligence_provider as provider  # noqa: E402
 
 
 def fake_ctags(tmp_path: Path) -> Path:
@@ -144,3 +147,45 @@ def test_provider_archive_builds_required_candidate_sidecars_without_trust(tmp_p
     ]
     assert verification["ok"] is False
     assert artifact_bundles.SIGNATURE_DECISION_SIDECAR in verification["missing"]
+
+
+def test_install_does_not_replace_a_dangling_provider_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    executable = fake_ctags(tmp_path)
+    archive_path = tmp_path / "provider.tar.gz"
+    source_ref = "commit:" + "e" * 40
+    build_provider_archive(
+        executable,
+        archive_path,
+        source_ref=source_ref,
+        platform="test",
+    )
+
+    runtime_root = tmp_path / "runtime"
+    target = runtime_root / "providers" / "universal-ctags"
+    target.parent.mkdir(parents=True)
+    missing_target = tmp_path / "missing-target"
+    target.symlink_to(missing_target, target_is_directory=True)
+    monkeypatch.setattr(
+        provider,
+        "inspect_provider_artifact",
+        lambda *_args, **_kwargs: {
+            "status": "admitted",
+            "artifact": {"subject_digest": "sha256:" + "f" * 64, "source_ref": source_ref},
+        },
+    )
+
+    result = install_provider(
+        archive_path,
+        tmp_path / "unused-bundle",
+        subject_root=tmp_path,
+        runtime_root=runtime_root,
+        registry_dir=tmp_path / "registry",
+        source_root=ROOT,
+        apply=True,
+        preflight=lambda **_kwargs: {"ok": True, "preflights": []},
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocking_reasons"] == ["different_provider_installation_exists; replacement is not implicit"]
+    assert target.is_symlink()
+    assert target.readlink() == missing_target

@@ -731,7 +731,7 @@ def install_provider(
         if identity.get("subject_digest") == inspection.get("artifact", {}).get("subject_digest"):
             result.update({"status": "already_installed", "installation": existing})
             return result
-    if target.exists():
+    if target.exists() or target.is_symlink():
         result["blocking_reasons"] = ["different_provider_installation_exists; replacement is not implicit"]
         result["existing"] = existing
         return result
@@ -759,6 +759,7 @@ def install_provider(
     providers_dir = runtime_base / "providers"
     providers_dir.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{PROVIDER_ID}.staging-", dir=str(providers_dir)))
+    target_claimed = False
     try:
         binary_path = staging / ARCHIVE_BINARY_NAME
         binary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -786,8 +787,22 @@ def install_provider(
             },
         }
         (staging / INSTALLATION_IDENTITY_NAME).write_bytes(_canonical_json(identity) + b"\n")
-        os.replace(staging, target)
+        # Claim the final directory without replacement.  The earlier
+        # existence check is useful for a clear result, but mkdir is the
+        # no-overwrite operation that closes the race with another installer.
+        target.mkdir(mode=0o755)
+        target_claimed = True
+        (target / "bin").mkdir(mode=0o755)
+        for relative in (ARCHIVE_BINARY_NAME, PROVIDER_METADATA_NAME, INSTALLATION_IDENTITY_NAME):
+            staged_file = staging / relative
+            installed_file = target / relative
+            os.link(staged_file, installed_file)
+            staged_file.unlink()
+        (staging / "bin").rmdir()
+        staging.rmdir()
     except Exception:
+        if target_claimed:
+            shutil.rmtree(target, ignore_errors=True)
         shutil.rmtree(staging, ignore_errors=True)
         raise
     result.update(
