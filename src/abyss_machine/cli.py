@@ -15568,6 +15568,12 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
 
 
 def storage_candidates_refresh(*, deep: bool = False, artifact_snapshot: dict[str, Any] | None = None, write_latest: bool = True) -> dict[str, Any]:
+    if not write_latest:
+        return _storage_candidates_refresh_unlocked(
+            deep=deep,
+            artifact_snapshot=artifact_snapshot,
+            write_latest=False,
+        )
     with storage_candidates_refresh_lock():
         return _storage_candidates_refresh_unlocked(
             deep=deep,

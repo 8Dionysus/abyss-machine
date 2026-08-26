@@ -125,6 +125,23 @@ def test_retention_until_is_fail_closed_before_any_ready_verdict() -> None:
         assert blocker in {item["code"] for item in record["blockers"]}
 
 
+def test_retention_until_falls_back_to_manifest_evidence() -> None:
+    observation = _observation()
+    observation["evidence"]["manifest"] = {
+        "retention_until": (NOW + dt.timedelta(hours=1)).isoformat(),
+    }
+
+    record = contracts.candidate_record(
+        observation,
+        configured_policy=_one_scan_policy(),
+        now_time=NOW,
+    )
+
+    assert record["retention_until"] == observation["evidence"]["manifest"]["retention_until"]
+    assert record["verdict"] == "blocked_unknown"
+    assert "retention_until_active" in {item["code"] for item in record["blockers"]}
+
+
 def test_manifest_rejects_malformed_retention_until() -> None:
     manifest = contracts.manifest_document(
         path="/srv/abyss-machine/tmp/fixture",

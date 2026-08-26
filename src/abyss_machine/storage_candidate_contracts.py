@@ -205,8 +205,9 @@ def _active_reference_blockers(observation: Mapping[str, Any]) -> list[dict[str,
 
 
 def _retention_until_value(observation: Mapping[str, Any]) -> Any:
-    if "retention_until" in observation:
-        return observation.get("retention_until")
+    value = observation.get("retention_until")
+    if value is not None:
+        return value
     manifest = _mapping(_mapping(observation.get("evidence")).get("manifest"))
     return manifest.get("retention_until") if "retention_until" in manifest else None
 
@@ -476,7 +477,7 @@ def candidate_record(
     previous = _mapping(previous)
     owner = str(observation.get("owner") or "unknown")
     kind = str(observation.get("kind") or "unknown")
-    path = str(observation.get("path") or "")
+    path = canonical_candidate_path(str(observation.get("path") or ""))
     source_id = str(observation.get("source_id") or "")
     candidate_id = str(observation.get("candidate_id") or stable_candidate_id(owner=owner, kind=kind, path=path, source_id=source_id))
     provisional = provisional_classification(observation, now_time=now_time)
