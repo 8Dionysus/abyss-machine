@@ -43,6 +43,7 @@ def fixture_lock(tmp_path: Path) -> tuple[Path, Path]:
     }
     lock_path = tmp_path / "lock.json"
     lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    (wheelhouse / ("transitive_dependency_with_a_deliberately_long_distribution_name_" * 2 + "1.0-py3-none-any.whl")).write_bytes(b"transitive\n")
     return wheelhouse, lock_path
 
 
@@ -61,7 +62,7 @@ def test_adjacent_archive_is_deterministic_and_binds_every_wheel(tmp_path: Path)
     archive = read_adjacent_provider_archive(tmp_path / "one.tar.gz")
     assert archive["metadata"]["schema"] == ARCHIVE_SCHEMA
     assert archive["metadata"]["providers"] == ["semgrep", "markitdown"]
-    assert len(archive["metadata"]["files"]) == 2
+    assert len(archive["metadata"]["files"]) == 3
 
 
 def test_adjacent_install_is_fail_closed_without_signature_and_registry_admission(tmp_path: Path) -> None:

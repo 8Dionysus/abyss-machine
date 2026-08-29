@@ -142,7 +142,10 @@ def build_adjacent_provider_archive(
     }
     entries = {METADATA_NAME: _canonical_json(metadata) + b"\n", LOCK_NAME: _canonical_json(lock) + b"\n", **payloads}
     tar_buffer = io.BytesIO()
-    with tarfile.open(fileobj=tar_buffer, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+    # Python wheels may legitimately exceed USTAR's 100-byte name field.
+    # GNU long-name records stay deterministic here because entry order,
+    # ownership, permissions, and timestamps are all fixed explicitly.
+    with tarfile.open(fileobj=tar_buffer, mode="w", format=tarfile.GNU_FORMAT) as archive:
         for name in sorted(entries):
             payload = entries[name]
             archive.addfile(_tar_info(name, payload), io.BytesIO(payload))
