@@ -175,13 +175,13 @@ _RUNTIME_ARTIFACT_ROUTE = {
         "schema": "abyss_machine_artifact_trust_gate_v1",
         "consumer_intent": "runtime",
         "expected_source_repo": _MACHINE_OWNER,
-        "expected_trust_root_mode": "oci_registry",
+        "expected_trust_root_mode": "github_oidc",
         "require_latest": True,
         "required_verdict": "allow",
         "command": (
             "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR "
             "--artifact-class runtime_or_container_artifact --consumer-intent runtime "
-            "--source-repo abyss-machine --trust-root-mode oci_registry "
+            "--source-repo abyss-machine --trust-root-mode github_oidc "
             "--subject-digest SUBJECT_DIGEST --json"
         ),
     },

@@ -36,10 +36,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--wheelhouse", default="", help="use a prepared wheelhouse instead of downloading")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--platform", default="manylinux_2_34_x86_64")
+    parser.add_argument(
+        "--artifact-root",
+        default=str(DEFAULT_ARTIFACT_ROOT),
+        help="exact root allowed to receive the artifact (CI may use its dist directory)",
+    )
+    parser.add_argument(
+        "--temporary-root",
+        default="/srv/abyss-machine/tmp",
+        help="existing root for temporary wheel downloads",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     output = Path(args.output).resolve()
-    if not _within(output, DEFAULT_ARTIFACT_ROOT):
+    artifact_root = Path(args.artifact_root).resolve()
+    temporary_root = Path(args.temporary_root).resolve()
+    if not artifact_root.is_dir() or not temporary_root.is_dir():
+        print(json.dumps({"ok": False, "status": "blocked", "reason": "artifact and temporary roots must already exist"}, sort_keys=True))
+        return 1
+    if not _within(output, artifact_root):
         print(json.dumps({"ok": False, "status": "blocked", "reason": "output must remain under the exact code-intelligence artifact root"}, sort_keys=True))
         return 1
     lock = json.loads(Path(args.lock).read_text(encoding="utf-8"))
@@ -49,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.wheelhouse:
             wheelhouse = Path(args.wheelhouse).resolve()
         else:
-            temporary = tempfile.TemporaryDirectory(prefix="adjacent-provider-wheelhouse-", dir="/srv/abyss-machine/tmp")
+            temporary = tempfile.TemporaryDirectory(prefix="adjacent-provider-wheelhouse-", dir=str(temporary_root))
             wheelhouse = Path(temporary.name)
             env = os.environ.copy()
             env["PIP_CACHE_DIR"] = "/srv/abyss-machine/cache/code-intelligence/pip"

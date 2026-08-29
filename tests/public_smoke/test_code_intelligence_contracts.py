@@ -127,7 +127,7 @@ def synthetic_owner_admission_receipt(
         "source_repo": "abyss-machine",
         "source_ref": "source:fixture/runtime-bundle",
         "producer": "fixture-only",
-        "trust_root_mode": "oci_registry",
+        "trust_root_mode": "github_oidc",
         "verifier_versions": {"fixture": "unit-test"},
         "policy_ref": "source:fixture/artifact-policy",
         "bundle_ref": "registry:fixture/runtime-bundle",

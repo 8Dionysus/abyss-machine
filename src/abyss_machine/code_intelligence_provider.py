@@ -496,7 +496,7 @@ def _trust_gate(
         consumer_intent="runtime",
         expected_source_repo="abyss-machine",
         expected_source_ref=source_ref,
-        expected_trust_root_mode="oci_registry",
+        expected_trust_root_mode="github_oidc",
         require_latest=True,
     )
 

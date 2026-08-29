@@ -720,7 +720,7 @@ def collect_owner_admission_receipt(
             record_id=record_id,
             consumer_intent=str(route.get("trust_gate", {}).get("consumer_intent") or "runtime"),
             expected_source_repo=str(route.get("trust_gate", {}).get("expected_source_repo") or "abyss-machine"),
-            expected_trust_root_mode=str(route.get("trust_gate", {}).get("expected_trust_root_mode") or "oci_registry"),
+            expected_trust_root_mode=str(route.get("trust_gate", {}).get("expected_trust_root_mode") or "github_oidc"),
             require_latest=route.get("trust_gate", {}).get("require_latest") is True,
         )
     except Exception as exc:
