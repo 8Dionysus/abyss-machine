@@ -7,7 +7,7 @@
   "policy_ref": "manifests/artifact_signature_policy.manifest.json",
   "mode": "os_abyss_local",
   "public_safe": true,
-  "purpose": "Content-addressed Universal Ctags provider archive for the MACHINE code-intelligence route.",
+  "purpose": "Content-addressed provider archives for the MACHINE code-intelligence and adjacent observation routes.",
   "artifact_source": {
     "kind": "content_addressed_provider_archive",
     "content_identity_ref": "artifact.subjects.json",
@@ -19,15 +19,21 @@
   "artifact_subjects": [
     {
       "glob": "abyss-machine-code-intelligence-universal-ctags-*.tar.gz",
-      "role": "universal_ctags_provider_archive"
+      "role": "universal_ctags_provider_archive",
+      "optional": true
+    },
+    {
+      "glob": "abyss-machine-code-intelligence-adjacent-providers-*.tar.gz",
+      "role": "adjacent_provider_archive",
+      "optional": true
     }
   ],
   "build_type": "urn:abyssos:buildtype:abyss-machine-code-intelligence-provider:v1",
   "package": {
     "ecosystem": "code-intelligence-provider",
-    "name": "abyss-machine-universal-ctags-provider",
+    "name": "abyss-machine-code-intelligence-provider-plane",
     "version": "0",
-    "purl": "pkg:generic/abyss-machine-universal-ctags-provider@0"
+    "purl": "pkg:generic/abyss-machine-code-intelligence-provider-plane@0"
   },
   "lifecycle": {
     "initial_state": "candidate",
@@ -58,6 +64,7 @@
   },
   "consumer_command": [
     "python scripts/build_code_intelligence_provider.py --ctags CTAGS --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-universal-ctags-VERSION.tar.gz --source-ref SOURCE_REF --json",
+    "python scripts/build_code_intelligence_adjacent_providers.py --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-adjacent-providers-VERSION.tar.gz --source-ref SOURCE_REF --json",
     "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/code_intelligence_provider.bundle.json --subject-root /srv/abyss-machine/artifacts/code-intelligence --owner-repo abyss-machine --source-ref SOURCE_REF --bundle-dir BUNDLE_DIR --json",
     "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
     "abyss-machine artifacts verify BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --json",
@@ -68,6 +75,8 @@
     "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo OWNER_REPO --trust-root-mode oci_registry --json",
     "python scripts/install_code_intelligence_provider.py inspect --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
     "python scripts/install_code_intelligence_provider.py install --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --apply --json",
-    "python scripts/install_code_intelligence_provider.py exercise --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --json"
+    "python scripts/install_code_intelligence_provider.py exercise --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --json",
+    "python scripts/install_code_intelligence_adjacent_providers.py inspect --archive ADJACENT_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
+    "python scripts/install_code_intelligence_adjacent_providers.py install --archive ADJACENT_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --apply --json"
   ]
 }

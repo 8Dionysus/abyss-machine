@@ -1,0 +1,46 @@
+{
+  "schema": "abyss_machine_code_intelligence_adjacent_provider_lock_v1",
+  "version": "1.0.0",
+  "owner": "abyss-machine",
+  "registry": "https://pypi.org/simple",
+  "runtime": {
+    "python_minimum": "3.10",
+    "platform": "manylinux_2_34_x86_64"
+  },
+  "packages": [
+    {
+      "name": "semgrep",
+      "version": "1.175.0",
+      "filename": "semgrep-1.175.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-manylinux_2_34_x86_64.whl",
+      "sha256": "ac787bcef4fd4563f8cdd179392c743bded89ea38c0c81ff99913883b6cde5ad",
+      "provider": "semgrep",
+      "executable": "semgrep"
+    },
+    {
+      "name": "markitdown",
+      "version": "0.1.7",
+      "filename": "markitdown-0.1.7-py3-none-any.whl",
+      "sha256": "4eca912c87c6aa6897284a7f4bf6769a23bccf8544530f5d8b175fbe3797c916",
+      "provider": "markitdown",
+      "executable": "markitdown"
+    }
+  ],
+  "shared_machine_routes": [
+    {
+      "provider": "syft",
+      "version": "1.45.1",
+      "identity_source": "abyss-machine artifacts trust-tools --json#/tools/syft"
+    },
+    {
+      "provider": "in-toto",
+      "version": "3.1.0",
+      "identity_source": "abyss-machine artifacts trust-tools --json#/tools/in_toto_verify"
+    }
+  ],
+  "claim_limits": [
+    "This lock records upstream package identities; it is not artifact admission.",
+    "Transitive dependencies are bound by the built artifact SBOM and provenance, not inferred from this top-level lock.",
+    "Installed execution still requires artifact identity, signature, registry, trust-gate, resource, and owner admission evidence.",
+    "Semantic usefulness remains an aoa-evals verdict over exact observations."
+  ]
+}

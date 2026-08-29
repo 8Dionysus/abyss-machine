@@ -1,6 +1,6 @@
 {
   "schema": "abyss_machine_code_intelligence_config_v1",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "kind": "code-intelligence-provider-plane",
   "source": {
     "owner": "abyss-machine",
@@ -241,6 +241,66 @@
         "version_probe": ["python3", "--version"],
         "health_probe": "bounded_ast_parse_probe"
       }
+    },
+    {
+      "id": "semgrep",
+      "display_name": "Semgrep",
+      "role": "static_security_observations",
+      "mode": "indexed",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["static_analysis", "security_findings", "sarif"],
+      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "installation": {"executable": "semgrep", "version_command": ["semgrep", "--version"], "expected_version": "1.175.0", "version_source": "manifests/code_intelligence_adjacent_providers.lock.json"},
+      "resource": {"kind": "indexing", "class": "medium", "startup_demand_mib": 2048, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:medium"},
+      "paths": {"state": "providers/semgrep", "runtime": "providers/semgrep", "cache": "providers/semgrep", "storage": "providers/semgrep", "tmp": "providers/semgrep"},
+      "semantic": {"status": "unproven", "proof_owner": "aoa-evals", "requires_adjacent_observation_smoke": true},
+      "diagnostics": {"version_probe": ["semgrep", "--version"], "health_probe": "bounded_rule_and_sarif_probe"}
+    },
+    {
+      "id": "syft",
+      "display_name": "Syft",
+      "role": "software_component_observations",
+      "mode": "indexed",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["sbom", "software_components", "cyclonedx"],
+      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "installation": {"executable": "syft", "version_command": ["syft", "version", "-o", "json"], "expected_version": "1.45.1", "version_source": "abyss-machine:artifact-trust-tools"},
+      "resource": {"kind": "indexing", "class": "medium", "startup_demand_mib": 1536, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:medium"},
+      "paths": {"state": "providers/syft", "runtime": "providers/syft", "cache": "providers/syft", "storage": "providers/syft", "tmp": "providers/syft"},
+      "semantic": {"status": "unproven", "proof_owner": "aoa-evals", "requires_adjacent_observation_smoke": true},
+      "diagnostics": {"version_probe": ["syft", "version", "-o", "json"], "health_probe": "bounded_directory_cyclonedx_probe"}
+    },
+    {
+      "id": "in-toto",
+      "display_name": "in-toto",
+      "role": "artifact_provenance_observations",
+      "mode": "indexed",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["artifact_provenance", "in_toto_statement", "verification"],
+      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "installation": {"executable": "in-toto-verify", "version_command": ["in-toto-verify", "--version"], "expected_version": "3.1.0", "version_source": "abyss-machine:artifact-trust-tools-python"},
+      "resource": {"kind": "indexing", "class": "light", "startup_demand_mib": 512, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:light"},
+      "paths": {"state": "providers/in-toto", "runtime": "providers/in-toto", "cache": "providers/in-toto", "storage": "providers/in-toto", "tmp": "providers/in-toto"},
+      "semantic": {"status": "unproven", "proof_owner": "aoa-evals", "requires_adjacent_observation_smoke": true},
+      "diagnostics": {"version_probe": ["in-toto-verify", "--version"], "health_probe": "bounded_signed_layout_positive_and_negative_probe"}
+    },
+    {
+      "id": "markitdown",
+      "display_name": "MarkItDown",
+      "role": "document_structure_observations",
+      "mode": "indexed",
+      "host_owner": "abyss-machine",
+      "consumer_owner": "abyss-stack",
+      "declared_capabilities": ["document_extraction", "ordered_structure", "markdown"],
+      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "installation": {"executable": "markitdown", "version_command": ["markitdown", "--version"], "expected_version": "0.1.7", "version_source": "manifests/code_intelligence_adjacent_providers.lock.json"},
+      "resource": {"kind": "indexing", "class": "medium", "startup_demand_mib": 1536, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:medium"},
+      "paths": {"state": "providers/markitdown", "runtime": "providers/markitdown", "cache": "providers/markitdown", "storage": "providers/markitdown", "tmp": "providers/markitdown"},
+      "semantic": {"status": "unproven", "proof_owner": "aoa-evals", "requires_adjacent_observation_smoke": true},
+      "diagnostics": {"version_probe": ["markitdown", "--version"], "health_probe": "bounded_document_to_markdown_probe"}
     }
   ],
   "admission": {

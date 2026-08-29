@@ -110,7 +110,14 @@ def _bounded_output(value: Any, max_bytes: int) -> tuple[str, int, bool]:
     return text, len(encoded), truncated
 
 
-def _version_from_output(stdout: str, stderr: str) -> str | None:
+def _version_from_output(provider_id: str, stdout: str, stderr: str) -> str | None:
+    if provider_id == "syft" and stdout.strip():
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, Mapping) and isinstance(payload.get("version"), str):
+            return str(payload["version"]).strip() or None
     for stream in (stdout, stderr):
         for line in stream.splitlines():
             normalized = " ".join(character for character in line.strip().split())
@@ -473,7 +480,7 @@ def _provider_probe(
             max_output_bytes=max_output_bytes,
             command_runner=command_runner,
         )
-    reported_version = _version_from_output(command_result["stdout"], command_result["stderr"])
+    reported_version = _version_from_output(provider_id, command_result["stdout"], command_result["stderr"])
     probe_succeeded = attempted and command_result["returncode"] == 0 and bool(reported_version)
     if not declared_executable:
         probe_status = "not_configured"

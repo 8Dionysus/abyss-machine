@@ -26,7 +26,7 @@ BASELINE_SCHEMA = "abyss_machine_code_intelligence_provider_baseline_v1"
 OBSERVATION_SCHEMA = "abyss_machine_code_observation_envelope_v1"
 MEASUREMENT_SCHEMA = "abyss_machine_code_intelligence_live_measurement_v1"
 ADMISSION_RECEIPT_SCHEMA = "abyss_machine_code_intelligence_admission_receipt_v1"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 _MACHINE_OWNER = "abyss-machine"
 _CONSUMER_OWNER = "abyss-stack"
 _ARTIFACT_REGISTRY_BOUNDARY = "artifact_registry_trust_gate"
@@ -72,6 +72,10 @@ PROVIDER_IDS = (
     "scip",
     "lsp",
     "python-ast-bootstrap",
+    "semgrep",
+    "syft",
+    "in-toto",
+    "markitdown",
 )
 _LIVE_GATES = (
     "artifact_identity",
@@ -342,6 +346,63 @@ def _provider_path(provider_id: str) -> dict[str, str]:
     }
 
 
+def _adjacent_provider_declaration(
+    provider_id: str,
+    *,
+    display_name: str,
+    role: str,
+    capabilities: Sequence[str],
+    executable: str,
+    version_command: Sequence[str],
+    expected_version: str,
+    version_source: str,
+    resource_class: str,
+    startup_demand_mib: int,
+    health_probe: str,
+) -> dict[str, Any]:
+    """Declare one adjacent observation route without weakening admission."""
+
+    return {
+        "id": provider_id,
+        "display_name": display_name,
+        "role": role,
+        "mode": "indexed",
+        "host_owner": _MACHINE_OWNER,
+        "consumer_owner": _CONSUMER_OWNER,
+        "declared_capabilities": list(capabilities),
+        "artifact": {
+            "required": True,
+            "class": _RUNTIME_ARTIFACT_CLASS,
+            "source_ref_required": True,
+            "subject_digest_required": True,
+            "trust_gate_required": True,
+        },
+        "installation": {
+            "executable": executable,
+            "version_command": list(version_command),
+            "expected_version": expected_version,
+            "version_source": version_source,
+        },
+        "resource": {
+            "kind": "indexing",
+            "class": resource_class,
+            "startup_demand_mib": startup_demand_mib,
+            "max_parallelism": 1,
+            "profile_ref": f"resource-policy.json#indexing:{resource_class}",
+        },
+        "paths": _provider_path(provider_id),
+        "semantic": {
+            "status": "unproven",
+            "proof_owner": "aoa-evals",
+            "requires_adjacent_observation_smoke": True,
+        },
+        "diagnostics": {
+            "version_probe": list(version_command),
+            "health_probe": health_probe,
+        },
+    }
+
+
 def _provider_declarations() -> list[dict[str, Any]]:
     return [
         {
@@ -540,6 +601,58 @@ def _provider_declarations() -> list[dict[str, Any]]:
                 "health_probe": "bounded_ast_parse_probe",
             },
         },
+        _adjacent_provider_declaration(
+            "semgrep",
+            display_name="Semgrep",
+            role="static_security_observations",
+            capabilities=["static_analysis", "security_findings", "sarif"],
+            executable="semgrep",
+            version_command=["semgrep", "--version"],
+            expected_version="1.175.0",
+            version_source="manifests/code_intelligence_adjacent_providers.lock.json",
+            resource_class="medium",
+            startup_demand_mib=2048,
+            health_probe="bounded_rule_and_sarif_probe",
+        ),
+        _adjacent_provider_declaration(
+            "syft",
+            display_name="Syft",
+            role="software_component_observations",
+            capabilities=["sbom", "software_components", "cyclonedx"],
+            executable="syft",
+            version_command=["syft", "version", "-o", "json"],
+            expected_version="1.45.1",
+            version_source="abyss-machine:artifact-trust-tools",
+            resource_class="medium",
+            startup_demand_mib=1536,
+            health_probe="bounded_directory_cyclonedx_probe",
+        ),
+        _adjacent_provider_declaration(
+            "in-toto",
+            display_name="in-toto",
+            role="artifact_provenance_observations",
+            capabilities=["artifact_provenance", "in_toto_statement", "verification"],
+            executable="in-toto-verify",
+            version_command=["in-toto-verify", "--version"],
+            expected_version="3.1.0",
+            version_source="abyss-machine:artifact-trust-tools-python",
+            resource_class="light",
+            startup_demand_mib=512,
+            health_probe="bounded_signed_layout_positive_and_negative_probe",
+        ),
+        _adjacent_provider_declaration(
+            "markitdown",
+            display_name="MarkItDown",
+            role="document_structure_observations",
+            capabilities=["document_extraction", "ordered_structure", "markdown"],
+            executable="markitdown",
+            version_command=["markitdown", "--version"],
+            expected_version="0.1.7",
+            version_source="manifests/code_intelligence_adjacent_providers.lock.json",
+            resource_class="medium",
+            startup_demand_mib=1536,
+            health_probe="bounded_document_to_markdown_probe",
+        ),
     ]
 
 

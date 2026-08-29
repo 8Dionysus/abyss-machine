@@ -181,9 +181,17 @@ def test_code_intelligence_source_config_declares_all_required_lanes() -> None:
     assert by_id["scip"]["installation"]["expected_version"] == "0.4.0"
     assert by_id["lsp"]["installation"]["executable"] == "typescript-language-server"
     assert by_id["lsp"]["installation"]["expected_version"] == "6.0.0"
+    assert by_id["semgrep"]["installation"]["expected_version"] == "1.175.0"
+    assert by_id["syft"]["installation"]["expected_version"] == "1.45.1"
+    assert by_id["in-toto"]["installation"]["expected_version"] == "3.1.0"
+    assert by_id["markitdown"]["installation"]["expected_version"] == "0.1.7"
     lock = json.loads((ROOT / "manifests/code_intelligence_node_providers.lock.json").read_text(encoding="utf-8"))
     assert lock["owner"] == "abyss-machine"
     assert {item["provider"] for item in lock["packages"]} == {"tree-sitter", "scip", "lsp"}
+    adjacent_lock = json.loads((ROOT / "manifests/code_intelligence_adjacent_providers.lock.json").read_text(encoding="utf-8"))
+    assert adjacent_lock["owner"] == "abyss-machine"
+    assert {item["provider"] for item in adjacent_lock["packages"]} == {"semgrep", "markitdown"}
+    assert {item["provider"] for item in adjacent_lock["shared_machine_routes"]} == {"syft", "in-toto"}
 
 
 def test_provider_routes_stay_on_machine_roots_and_baseline_is_facts_only(tmp_path: Path) -> None:
@@ -207,9 +215,9 @@ def test_provider_routes_stay_on_machine_roots_and_baseline_is_facts_only(tmp_pa
     baseline = provider_baseline_document(config, path_policy=policy, generated_at="2026-08-25T19:00:00Z")
     assert baseline["schema"] == "abyss_machine_code_intelligence_provider_baseline_v1"
     assert baseline["summary"] == {
-        "provider_count": 5,
+        "provider_count": 9,
         "admitted": 0,
-        "not_admitted": 5,
+        "not_admitted": 9,
         "all_required_lanes_declared": True,
         "semantic_usefulness_proven": False,
     }
@@ -544,6 +552,10 @@ def test_whole_read_only_collection_is_sequential_and_keeps_lsp_and_trust_separa
         "scip-typescript",
         "typescript-language-server",
         "python3",
+        "semgrep",
+        "syft",
+        "in-toto-verify",
+        "markitdown",
     ):
         binary = tmp_path / executable_name
         binary.write_bytes(executable_name.encode("utf-8"))
@@ -557,6 +569,8 @@ def test_whole_read_only_collection_is_sequential_and_keeps_lsp_and_trust_separa
 
     def run(command: Sequence[str], timeout: float) -> dict[str, object]:
         calls.append(str(command[0]))
+        if Path(command[0]).name == "syft":
+            return {"returncode": 0, "stdout": '{"version":"1.45.1"}\n', "stderr": ""}
         return {
             "returncode": 0,
             "stdout": f"{Path(command[0]).name} fixture 1.0\nsecret-output",
@@ -589,14 +603,19 @@ def test_whole_read_only_collection_is_sequential_and_keeps_lsp_and_trust_separa
         str(binaries["scip-typescript"]),
         str(binaries["typescript-language-server"]),
         str(binaries["python3"]),
+        str(binaries["semgrep"]),
+        str(binaries["syft"]),
+        str(binaries["in-toto-verify"]),
+        str(binaries["markitdown"]),
     ]
     assert memory_calls == 1
-    assert collection["summary"]["provider_count"] == 5
-    assert collection["summary"]["healthy_version_probes"] == 5
+    assert collection["summary"]["provider_count"] == 9
+    assert collection["summary"]["healthy_version_probes"] == 9
     assert collection["summary"]["admitted_by_machine_contract"] == 0
     assert collection["source_install_projection"]["status"] == "current"
     assert collection["source"]["source_epoch_binding_status"] == "bound"
     assert collection["providers"]["lsp"]["probe"]["status"] == "healthy"
+    assert collection["providers"]["syft"]["installed"]["version"] == "1.45.1"
     assert collection["providers"]["lsp"]["admission"]["decision"] == "deny"
     assert "secret-output" not in json.dumps(collection, sort_keys=True)
 
