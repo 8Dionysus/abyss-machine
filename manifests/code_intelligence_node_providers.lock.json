@@ -1,0 +1,52 @@
+{
+  "schema": "abyss_machine_code_intelligence_node_provider_lock_v1",
+  "version": "1.0.0",
+  "owner": "abyss-machine",
+  "registry": "https://registry.npmjs.org",
+  "runtime": {
+    "node_minimum": "22.22.2",
+    "package_lock_version": 3
+  },
+  "packages": [
+    {
+      "name": "tree-sitter-cli",
+      "version": "0.26.13",
+      "integrity": "sha512-SIC74lxT2jsygxaIGGb50Bpf8jtll24aXju98Y3eJienBTXCRQ+5k3YigwN31pASEUZKcKh98EPSZWky7ugUMA==",
+      "provider": "tree-sitter",
+      "executable": "tree-sitter"
+    },
+    {
+      "name": "tree-sitter-typescript",
+      "version": "0.23.2",
+      "integrity": "sha512-e04JUUKxTT53/x3Uq1zIL45DoYKVfHH4CZqwgZhPg5qYROl5nQjV+85ruFzFGZxu+QeFVbRTPDRnqL9UbU4VeA==",
+      "provider": "tree-sitter",
+      "role": "typescript-grammar"
+    },
+    {
+      "name": "@sourcegraph/scip-typescript",
+      "version": "0.4.0",
+      "integrity": "sha512-k+AtsrqmS41Sd5qjkZlHcmvoSQIvBOonRj4jpgp0KNFM6aqvMGpdSuPUqrUcg8ENTKjUbfaUVszgQwq3bCOvwA==",
+      "provider": "scip",
+      "executable": "scip-typescript"
+    },
+    {
+      "name": "typescript-language-server",
+      "version": "6.0.0",
+      "integrity": "sha512-LXtzY3UZGfghWA5eRU6/T5j1+YiGRgy14mR3GOKyTKlE1op1TYKQnLVxwBsmnXeDhGLuvzZyIHBAqvrekAITYQ==",
+      "provider": "lsp",
+      "executable": "typescript-language-server"
+    },
+    {
+      "name": "typescript",
+      "version": "7.0.2",
+      "integrity": "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==",
+      "provider": "lsp",
+      "role": "typescript-runtime"
+    }
+  ],
+  "claim_limits": [
+    "This lock records upstream package identities; it is not artifact admission.",
+    "Installed execution still requires ABI, SBOM, provenance, signature, registry, and trust-gate evidence.",
+    "Runtime lifecycle and semantic proof remain abyss-stack and aoa-evals responsibilities."
+  ]
+}

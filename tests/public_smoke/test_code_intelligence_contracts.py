@@ -175,6 +175,15 @@ def test_code_intelligence_source_config_declares_all_required_lanes() -> None:
     assert {str(item["id"]) for item in providers if isinstance(item, dict)} == set(PROVIDER_IDS)
     assert config["admission"]["unknown_is"] == "not_admitted"
     assert config["ownership"]["host_layer_mutates_stack"] is False
+    by_id = {str(item["id"]): item for item in providers if isinstance(item, dict)}
+    assert by_id["tree-sitter"]["installation"]["expected_version"] == "0.26.13"
+    assert by_id["scip"]["installation"]["executable"] == "scip-typescript"
+    assert by_id["scip"]["installation"]["expected_version"] == "0.4.0"
+    assert by_id["lsp"]["installation"]["executable"] == "typescript-language-server"
+    assert by_id["lsp"]["installation"]["expected_version"] == "6.0.0"
+    lock = json.loads((ROOT / "manifests/code_intelligence_node_providers.lock.json").read_text(encoding="utf-8"))
+    assert lock["owner"] == "abyss-machine"
+    assert {item["provider"] for item in lock["packages"]} == {"tree-sitter", "scip", "lsp"}
 
 
 def test_provider_routes_stay_on_machine_roots_and_baseline_is_facts_only(tmp_path: Path) -> None:
@@ -529,7 +538,13 @@ def test_source_install_projection_is_bounded_and_never_synchronizes(tmp_path: P
 def test_whole_read_only_collection_is_sequential_and_keeps_lsp_and_trust_separate(tmp_path: Path) -> None:
     config = load_config()
     binaries: dict[str, Path] = {}
-    for executable_name in ("ctags", "tree-sitter", "scip", "python3"):
+    for executable_name in (
+        "ctags",
+        "tree-sitter",
+        "scip-typescript",
+        "typescript-language-server",
+        "python3",
+    ):
         binary = tmp_path / executable_name
         binary.write_bytes(executable_name.encode("utf-8"))
         binary.chmod(0o755)
@@ -568,14 +583,20 @@ def test_whole_read_only_collection_is_sequential_and_keeps_lsp_and_trust_separa
         memory_probe=memory,
     )
 
-    assert calls == [str(binaries["ctags"]), str(binaries["tree-sitter"]), str(binaries["scip"]), str(binaries["python3"])]
+    assert calls == [
+        str(binaries["ctags"]),
+        str(binaries["tree-sitter"]),
+        str(binaries["scip-typescript"]),
+        str(binaries["typescript-language-server"]),
+        str(binaries["python3"]),
+    ]
     assert memory_calls == 1
     assert collection["summary"]["provider_count"] == 5
-    assert collection["summary"]["healthy_version_probes"] == 4
+    assert collection["summary"]["healthy_version_probes"] == 5
     assert collection["summary"]["admitted_by_machine_contract"] == 0
     assert collection["source_install_projection"]["status"] == "current"
     assert collection["source"]["source_epoch_binding_status"] == "bound"
-    assert collection["providers"]["lsp"]["probe"]["status"] == "not_configured"
+    assert collection["providers"]["lsp"]["probe"]["status"] == "healthy"
     assert collection["providers"]["lsp"]["admission"]["decision"] == "deny"
     assert "secret-output" not in json.dumps(collection, sort_keys=True)
 

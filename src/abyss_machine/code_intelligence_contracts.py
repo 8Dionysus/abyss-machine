@@ -401,8 +401,8 @@ def _provider_declarations() -> list[dict[str, Any]]:
             "installation": {
                 "executable": "tree-sitter",
                 "version_command": ["tree-sitter", "--version"],
-                "expected_version": None,
-                "version_source": "release_or_operator_manifest",
+                "expected_version": "0.26.13",
+                "version_source": "manifests/code_intelligence_node_providers.lock.json",
             },
             "resource": {
                 "kind": "indexing",
@@ -438,10 +438,10 @@ def _provider_declarations() -> list[dict[str, Any]]:
                 "trust_gate_required": True,
             },
             "installation": {
-                "executable": "scip",
-                "version_command": ["scip", "--version"],
-                "expected_version": None,
-                "version_source": "release_or_operator_manifest",
+                "executable": "scip-typescript",
+                "version_command": ["scip-typescript", "--version"],
+                "expected_version": "0.4.0",
+                "version_source": "manifests/code_intelligence_node_providers.lock.json",
             },
             "resource": {
                 "kind": "indexing",
@@ -477,11 +477,11 @@ def _provider_declarations() -> list[dict[str, Any]]:
                 "trust_gate_required": True,
             },
             "installation": {
-                "executable": None,
-                "version_command": None,
+                "executable": "typescript-language-server",
+                "version_command": ["typescript-language-server", "--version"],
                 "version_command_shape": ["<language-server>", "--version"],
-                "expected_version": None,
-                "version_source": "language_server_release_or_operator_manifest",
+                "expected_version": "6.0.0",
+                "version_source": "manifests/code_intelligence_node_providers.lock.json",
             },
             "resource": {
                 "kind": "indexing",
