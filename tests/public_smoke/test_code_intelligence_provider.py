@@ -122,6 +122,8 @@ def test_provider_archive_builds_required_candidate_sidecars_without_trust(tmp_p
         source_ref=source_ref,
         platform="test",
     )
+    (tmp_path / "abyss-machine-code-intelligence-node-providers-test.tar.gz").write_bytes(b"node-fixture\n")
+    (tmp_path / "abyss-machine-code-intelligence-adjacent-providers-test.tar.gz").write_bytes(b"adjacent-fixture\n")
 
     bundle = tmp_path / "bundle"
     result = artifact_bundles.build_sidecars(

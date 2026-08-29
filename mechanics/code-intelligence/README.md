@@ -2,9 +2,11 @@
 
 ## Mechanic card
 
-This package gives the host layer one bounded provider route: Universal Ctags
-for broad symbol navigation. Tree-sitter, SCIP, and LSP remain declared lanes
-with explicit absent or deferred status until their owning providers exist.
+This package gives the host layer one aggregate, content-addressed provider
+plane: Universal Ctags; exact Node runtimes for Tree-sitter, SCIP, and LSP;
+and adjacent Semgrep, Syft, in-toto, and MarkItDown routes. The aggregate is a
+dedicated artifact class so its registry latest cannot replace unrelated host
+runtime bundles.
 
 ### Trigger
 
@@ -26,15 +28,17 @@ the authenticated stack evidence gate.
 
 ### Inputs
 
-An already installed Universal Ctags executable, an exact source ref, the
-dedicated bundle manifest, existing artifact trust roots/credentials, owner
-registry evidence, and bounded host storage/resource facts.
+An exact source ref, the pinned Ctags source revision, npm and Python locks,
+the pinned Syft release identity, the dedicated bundle manifest, existing
+artifact trust roots/credentials, owner registry evidence, and bounded host
+storage/resource facts.
 
 ### Outputs
 
-An unsigned candidate archive or fully sidecar-bound bundle posture, a
-fail-closed trust/admission decision, an identity-bound runtime installation,
-and a bounded health/symbol observation. Every output names its claim limits.
+Unsigned candidate archives or a fully sidecar-bound aggregate bundle posture,
+a fail-closed trust/admission decision, identity-bound Ctags, Node, and
+adjacent runtime installations, and bounded provider observations. Every
+output names its claim limits.
 
 ### Must not claim
 

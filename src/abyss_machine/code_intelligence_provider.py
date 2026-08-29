@@ -31,7 +31,7 @@ from .code_intelligence_contracts import MACHINE_CONSUMER_ABI, code_intelligence
 
 
 PROVIDER_ID = "universal-ctags"
-ARTIFACT_CLASS = "runtime_or_container_artifact"
+ARTIFACT_CLASS = "code_intelligence_provider_bundle"
 CONTRACT_SURFACE_ID = "code-intelligence-provider-route"
 BUNDLE_MANIFEST_REF = "manifests/artifact_bundles/code_intelligence_provider.bundle.json"
 ARCHIVE_SCHEMA = "abyss_machine_code_intelligence_provider_archive_v1"

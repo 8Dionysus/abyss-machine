@@ -66,7 +66,7 @@ def admitted_ctags_evidence() -> dict[str, object]:
         "artifact_identity": {
             "provider_id": "universal-ctags",
             "owner": "abyss-machine",
-            "class": "runtime_or_container_artifact",
+            "class": "code_intelligence_provider_bundle",
             "subject_digest": digest,
             "source_ref": "source:fixture/code-intelligence/ctags",
         },
@@ -119,7 +119,7 @@ def synthetic_owner_admission_receipt(
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
         "record_id": record_id,
-        "artifact_class": "runtime_or_container_artifact",
+        "artifact_class": "code_intelligence_provider_bundle",
         "lifecycle_state": "release-ready",
         "latest_eligible": True,
         "terminal_state": False,
@@ -142,7 +142,7 @@ def synthetic_owner_admission_receipt(
         "ok": True,
         "schema": "abyss_machine_artifact_trust_gate_v1",
         "verdict": "allow",
-        "artifact_class": "runtime_or_container_artifact",
+        "artifact_class": "code_intelligence_provider_bundle",
         "consumer_intent": "runtime",
         "subject_digest": subject_digest,
         "record_id": record_id,
@@ -190,8 +190,8 @@ def test_code_intelligence_source_config_declares_all_required_lanes() -> None:
     assert {item["provider"] for item in lock["packages"]} == {"tree-sitter", "scip", "lsp"}
     adjacent_lock = json.loads((ROOT / "manifests/code_intelligence_adjacent_providers.lock.json").read_text(encoding="utf-8"))
     assert adjacent_lock["owner"] == "abyss-machine"
-    assert {item["provider"] for item in adjacent_lock["packages"]} == {"semgrep", "markitdown"}
-    assert {item["provider"] for item in adjacent_lock["shared_machine_routes"]} == {"syft", "in-toto"}
+    assert {item["provider"] for item in adjacent_lock["packages"]} == {"semgrep", "in-toto", "markitdown"}
+    assert {item["provider"] for item in adjacent_lock["binaries"]} == {"syft"}
 
 
 def test_provider_routes_stay_on_machine_roots_and_baseline_is_facts_only(tmp_path: Path) -> None:

@@ -138,6 +138,7 @@
         "public_source_seed",
         "bootstrap_install_bundle",
         "runtime_or_container_artifact",
+        "code_intelligence_provider_bundle",
         "ai_model_or_runtime_bundle",
         "browser_extension_package",
         "host_local_evidence",
@@ -588,6 +589,42 @@
       "ml_bom": {"required": false, "trigger": "use ai_model_or_runtime_bundle when model weights, datasets, conversion metadata, or AI framework config are included"},
       "slsa_in_toto": {"required": true, "trigger": "build or install provenance for published artifacts"},
       "sigstore_cosign": {"required": true, "trigger": "OCI images, release bundles, and published blobs"},
+      "c2pa": {"required": false, "trigger": "not media"}
+    },
+    "code_intelligence_provider_bundle": {
+      "description": "Content-addressed code-intelligence provider archives admitted independently from unrelated host runtime bundles.",
+      "identity": {
+        "artifact_class": "code_intelligence_provider_bundle",
+        "surface_state": "publishable_provider_bundle",
+        "owner_repo": "abyss-machine",
+        "authority_ref": ["mechanics/code-intelligence/README.md", "manifests/artifact_bundles/code_intelligence_provider.bundle.json", "config-templates/etc/abyss-machine/code-intelligence.json"],
+        "producer": "code-intelligence provider packaging from tracked locks, builders, and provider source routes",
+        "consumer_expectation": "code-intelligence installers bind the exact provider subject, source ref, ABI, SBOM, provenance, signer identity, materialized subject store, and dedicated-class trust-gate verdict before use",
+        "privacy_boundary": "publishable provider payloads only; excludes host indexes, source worktrees, observations, caches, runtime state, and private evidence",
+        "content_identity": "provider archive digest plus release sidecar digests",
+        "abi_epoch": "v1 via code-intelligence-provider-route",
+        "contract_version": "artifact_signature_policy.manifest.json@0.2.9#code_intelligence_provider_bundle",
+        "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+        "verification": ["python scripts/ci_gate.py --mode release-artifact", "python scripts/release_check.py"],
+        "action": "KEEP"
+      },
+      "abi_signature": {"required": true},
+      "sbom": {"required": true, "trigger": "every packaged provider archive"},
+      "ml_bom": {"required": false, "trigger": "provider bundle contains no model weights or datasets"},
+      "slsa_in_toto": {"required": true, "trigger": "build and install provenance for published provider archives"},
+      "sigstore_cosign": {
+        "required": true,
+        "trigger": "published provider archives",
+        "github_oidc": {
+          "issuer": "https://token.actions.githubusercontent.com",
+          "repository": "8Dionysus/abyss-machine",
+          "workflow_name": "Artifact Production Evidence",
+          "workflow_file": ".github/workflows/artifact-production-evidence.yml",
+          "workflow_ref": "refs/heads/main",
+          "trigger": "workflow_dispatch",
+          "certificate_identity": "https://github.com/8Dionysus/abyss-machine/.github/workflows/artifact-production-evidence.yml@refs/heads/main"
+        }
+      },
       "c2pa": {"required": false, "trigger": "not media"}
     },
     "ai_model_or_runtime_bundle": {
@@ -1245,7 +1282,7 @@
     {
       "id": "code-intelligence-provider-route",
       "epoch": "v1",
-      "artifact_class": "runtime_or_container_artifact",
+      "artifact_class": "code_intelligence_provider_bundle",
       "source_paths": [
         "mechanics/code-intelligence",
         "src/abyss_machine/code_intelligence_adapters.py",
@@ -1256,8 +1293,11 @@
         "config-templates/etc/abyss-machine/code-intelligence.json",
         "scripts/build_code_intelligence_provider.py",
         "scripts/install_code_intelligence_provider.py",
+        "scripts/build_code_intelligence_node_providers.py",
+        "scripts/install_code_intelligence_node_providers.py",
         "scripts/build_code_intelligence_adjacent_providers.py",
         "scripts/install_code_intelligence_adjacent_providers.py",
+        "src/abyss_machine/code_intelligence_node_provider.py",
         "src/abyss_machine/code_intelligence_adjacent_provider.py",
         "manifests/artifact_bundles/code_intelligence_provider.bundle.json"
       ]
@@ -1359,6 +1399,19 @@
       "artifact_patterns": ["artifacts/**/*.tar.gz", "artifacts/**/*.oci", "artifacts/**/*.bundle"],
       "public_repo_policy": "not_tracked",
       "staging_route": "/srv/abyss-machine/artifacts/runtime",
+      "required_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
+      "sidecar_extensions": {
+        "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],
+        "slsa_in_toto": [".intoto.jsonl", ".provenance.json"],
+        "sigstore_cosign": [".sigstore.json", ".cosign.bundle"]
+      }
+    },
+    {
+      "id": "code-intelligence-provider-release",
+      "artifact_class": "code_intelligence_provider_bundle",
+      "artifact_patterns": ["artifacts/code-intelligence/*.tar.gz"],
+      "public_repo_policy": "not_tracked",
+      "staging_route": "/srv/abyss-machine/artifacts/code-intelligence",
       "required_controls": ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"],
       "sidecar_extensions": {
         "sbom": [".sbom.spdx.json", ".sbom.cdx.json"],

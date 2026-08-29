@@ -169,8 +169,11 @@ the signed `artifact.subjects.json` against
 not available.
 
 The `code_intelligence_provider.bundle.json` manifest is the dedicated
-Universal Ctags route. Its archive is prepared outside Git, and its source
-subject, sidecars, registry record, subject-store materialization, trust-gate
-allow, installation identity, and bounded exercise remain separate evidence
-steps. No provider archive is consumable while Sigstore/Cosign evidence or the
-root-owned G58 consumer gate is absent.
+code-intelligence provider plane. One aggregate subject inventory binds the
+Universal Ctags, Node (Tree-sitter/SCIP/LSP), and adjacent
+(Semgrep/Syft/in-toto/MarkItDown) archives so a single latest record cannot
+silently admit payloads it did not sign. Source subjects, sidecars, registry
+record, subject-store materialization, trust-gate allow, installation
+identities, and bounded exercises remain separate evidence steps. No provider
+archive is consumable while Sigstore/Cosign evidence or the owner admission
+gate is absent.

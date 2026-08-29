@@ -30,7 +30,7 @@ VERSION = "0.2.0"
 _MACHINE_OWNER = "abyss-machine"
 _CONSUMER_OWNER = "abyss-stack"
 _ARTIFACT_REGISTRY_BOUNDARY = "artifact_registry_trust_gate"
-_RUNTIME_ARTIFACT_CLASS = "runtime_or_container_artifact"
+_RUNTIME_ARTIFACT_CLASS = "code_intelligence_provider_bundle"
 _RUNTIME_ARTIFACT_CONTRACT_SURFACE_ID = "code-intelligence-provider-route"
 _RUNTIME_ARTIFACT_REQUIRED_CONTROLS = (
     "abi_signature",
@@ -180,7 +180,7 @@ _RUNTIME_ARTIFACT_ROUTE = {
         "required_verdict": "allow",
         "command": (
             "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR "
-            "--artifact-class runtime_or_container_artifact --consumer-intent runtime "
+            "--artifact-class code_intelligence_provider_bundle --consumer-intent runtime "
             "--source-repo abyss-machine --trust-root-mode github_oidc "
             "--subject-digest SUBJECT_DIGEST --json"
         ),
@@ -415,7 +415,7 @@ def _provider_declarations() -> list[dict[str, Any]]:
             "declared_capabilities": ["definitions", "symbols", "fallback_navigation"],
             "artifact": {
                 "required": True,
-                "class": "runtime_or_container_artifact",
+                "class": "code_intelligence_provider_bundle",
                 "source_ref_required": True,
                 "subject_digest_required": True,
                 "trust_gate_required": True,
@@ -454,7 +454,7 @@ def _provider_declarations() -> list[dict[str, Any]]:
             "declared_capabilities": ["syntax", "structural_diff", "incremental_parse"],
             "artifact": {
                 "required": True,
-                "class": "runtime_or_container_artifact",
+                "class": "code_intelligence_provider_bundle",
                 "source_ref_required": True,
                 "subject_digest_required": True,
                 "trust_gate_required": True,
@@ -493,7 +493,7 @@ def _provider_declarations() -> list[dict[str, Any]]:
             "declared_capabilities": ["semantic_symbols", "occurrences", "relations"],
             "artifact": {
                 "required": True,
-                "class": "runtime_or_container_artifact",
+                "class": "code_intelligence_provider_bundle",
                 "source_ref_required": True,
                 "subject_digest_required": True,
                 "trust_gate_required": True,
@@ -532,7 +532,7 @@ def _provider_declarations() -> list[dict[str, Any]]:
             "declared_capabilities": ["live_definitions", "live_references", "diagnostics", "workspace_symbols"],
             "artifact": {
                 "required": True,
-                "class": "runtime_or_container_artifact",
+                "class": "code_intelligence_provider_bundle",
                 "source_ref_required": True,
                 "subject_digest_required": True,
                 "trust_gate_required": True,

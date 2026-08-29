@@ -144,20 +144,50 @@ jobs:
       - name: Run release artifact gate
         run: python scripts/ci_gate.py --mode release-artifact
 
-      - name: Build deterministic adjacent-provider archive
+      - name: Build Universal Ctags 6.2.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake pkg-config libjansson-dev libyaml-dev libseccomp-dev libxml2-dev
+          source_root="${RUNNER_TEMP}/universal-ctags"
+          git clone --filter=blob:none https://github.com/universal-ctags/ctags.git "${source_root}"
+          git -C "${source_root}" checkout --detach b8eb0da4121372b5d74a90fc36cba6a31f147f3c
+          test "$(git -C "${source_root}" rev-parse HEAD)" = b8eb0da4121372b5d74a90fc36cba6a31f147f3c
+          (cd "${source_root}" && ./autogen.sh && ./configure --prefix="${RUNNER_TEMP}/universal-ctags-install" && make -j2 && make install)
+          "${RUNNER_TEMP}/universal-ctags-install/bin/ctags" --version | grep -F 'Universal Ctags 6.2.1'
+
+      - name: Build complete deterministic provider archives
         shell: bash
         run: |
           set -euo pipefail
           artifact_root="${GITHUB_WORKSPACE}/dist/code-intelligence"
           mkdir -p "${artifact_root}"
-          artifact="${artifact_root}/abyss-machine-code-intelligence-adjacent-providers-semgrep-1.175.0-markitdown-0.1.7-${GITHUB_SHA}.tar.gz"
+          ctags_artifact="${artifact_root}/abyss-machine-code-intelligence-universal-ctags-6.2.1-${GITHUB_SHA}.tar.gz"
+          python scripts/build_code_intelligence_provider.py \
+            --ctags "${RUNNER_TEMP}/universal-ctags-install/bin/ctags" \
+            --output "${ctags_artifact}" \
+            --source-ref "commit:${GITHUB_SHA}" \
+            --artifact-root "${artifact_root}" \
+            --json
+          node_artifact="${artifact_root}/abyss-machine-code-intelligence-node-providers-${GITHUB_SHA}.tar.gz"
+          python scripts/build_code_intelligence_node_providers.py \
+            --output "${node_artifact}" \
+            --source-ref "commit:${GITHUB_SHA}" \
+            --artifact-root "${artifact_root}" \
+            --temporary-root "${RUNNER_TEMP}" \
+            --npm-cache "${RUNNER_TEMP}/npm-cache" \
+            --json
+          adjacent_artifact="${artifact_root}/abyss-machine-code-intelligence-adjacent-providers-semgrep-1.175.0-syft-1.45.1-in-toto-3.1.0-markitdown-0.1.7-${GITHUB_SHA}.tar.gz"
           python scripts/build_code_intelligence_adjacent_providers.py \
-            --output "${artifact}" \
+            --output "${adjacent_artifact}" \
             --source-ref "commit:${GITHUB_SHA}" \
             --artifact-root "${artifact_root}" \
             --temporary-root "${RUNNER_TEMP}" \
             --json
-          sha256sum "${artifact}" > "${artifact}.sha256"
+          for artifact in "${ctags_artifact}" "${node_artifact}" "${adjacent_artifact}"; do
+            sha256sum "${artifact}" > "${artifact}.sha256"
+          done
 
       - name: Build and sign code-intelligence evidence bundle
         shell: bash
@@ -196,7 +226,7 @@ jobs:
             -czf "${evidence}" -C "${bundle_dir}" .
           sha256sum "${evidence}" > "${evidence}.sha256"
 
-      - name: Upload adjacent-provider archive
+      - name: Upload complete provider plane
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: abyss-machine-code-intelligence-provider-${{ github.sha }}
@@ -216,7 +246,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attest adjacent-provider archive
+      - name: Attest complete provider plane
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
         with:
           subject-path: dist/code-intelligence/*.tar.gz

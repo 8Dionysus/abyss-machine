@@ -23,18 +23,26 @@
       "sha256": "4eca912c87c6aa6897284a7f4bf6769a23bccf8544530f5d8b175fbe3797c916",
       "provider": "markitdown",
       "executable": "markitdown"
+    },
+    {
+      "name": "in-toto",
+      "version": "3.1.0",
+      "filename": "in_toto-3.1.0-py3-none-any.whl",
+      "sha256": "fe8c69a8dae32690d116bb8112e7d6da53bbad3b9a4057ff8d43f1a5a90ee2d4",
+      "provider": "in-toto",
+      "executable": "in-toto-verify"
     }
   ],
-  "shared_machine_routes": [
+  "binaries": [
     {
       "provider": "syft",
       "version": "1.45.1",
-      "identity_source": "abyss-machine artifacts trust-tools --json#/tools/syft"
-    },
-    {
-      "provider": "in-toto",
-      "version": "3.1.0",
-      "identity_source": "abyss-machine artifacts trust-tools --json#/tools/in_toto_verify"
+      "executable": "syft",
+      "download_url": "https://github.com/anchore/syft/releases/download/v1.45.1/syft_1.45.1_linux_amd64.tar.gz",
+      "archive_filename": "syft_1.45.1_linux_amd64.tar.gz",
+      "archive_member": "syft",
+      "archive_sha256": "20c84195e24927f50a3b2269946be51f4c4abc9d2f145fee7388b4199149f716",
+      "binary_sha256": "385d7d589762df1ec9d1054ea7ffbe458c66f6f820ae51fded8d2f0257475dbf"
     }
   ],
   "claim_limits": [

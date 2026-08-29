@@ -34,6 +34,9 @@ def test_artifact_production_evidence_workflow_is_public_safe() -> None:
     assert "manifests \\" in text
     assert "subject-path: dist/abyss-machine-bootstrap-${{ github.sha }}.tar.gz" in text
     assert "scripts/build_code_intelligence_adjacent_providers.py" in text
+    assert "scripts/build_code_intelligence_node_providers.py" in text
+    assert "scripts/build_code_intelligence_provider.py" in text
+    assert "b8eb0da4121372b5d74a90fc36cba6a31f147f3c" in text
     assert "manifests/artifact_bundles/code_intelligence_provider.bundle.json" in text
     assert "--source-ref \"commit:${GITHUB_SHA}\"" in text
     assert "abyss-machine-code-intelligence-evidence-${GITHUB_SHA}.tar.gz" in text

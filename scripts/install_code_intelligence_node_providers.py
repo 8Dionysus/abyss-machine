@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect or install the admitted adjacent-provider artifact."""
+"""Inspect or install the admitted Tree-sitter/SCIP/LSP provider artifact."""
 
 from __future__ import annotations
 
@@ -11,15 +11,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from abyss_machine.code_intelligence_adjacent_provider import (  # noqa: E402
-    inspect_adjacent_provider_artifact,
-    install_adjacent_provider_artifact,
-)
-from abyss_machine.code_intelligence_provider import (  # noqa: E402
-    DEFAULT_ARTIFACT_ROOT,
-    DEFAULT_REGISTRY_DIR,
-    DEFAULT_RUNTIME_ROOT,
-)
+from abyss_machine.code_intelligence_node_provider import inspect_node_provider_artifact, install_node_provider_artifact  # noqa: E402
+from abyss_machine.code_intelligence_provider import DEFAULT_ARTIFACT_ROOT, DEFAULT_REGISTRY_DIR, DEFAULT_RUNTIME_ROOT  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,16 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.operation == "inspect":
-            result = inspect_adjacent_provider_artifact(
-                args.archive, args.bundle_dir, subject_root=args.subject_root,
-                registry_dir=args.registry_dir, expected_source_ref=args.source_ref,
-            )
+            result = inspect_node_provider_artifact(args.archive, args.bundle_dir, subject_root=args.subject_root, registry_dir=args.registry_dir, expected_source_ref=args.source_ref)
         else:
-            result = install_adjacent_provider_artifact(
-                args.archive, args.bundle_dir, subject_root=args.subject_root,
-                registry_dir=args.registry_dir, runtime_root=args.runtime_root,
-                expected_source_ref=args.source_ref, apply=args.apply,
-            )
+            result = install_node_provider_artifact(args.archive, args.bundle_dir, subject_root=args.subject_root, registry_dir=args.registry_dir, runtime_root=args.runtime_root, expected_source_ref=args.source_ref, apply=args.apply)
     except Exception as exc:
         result = {"status": "blocked", "error_type": type(exc).__name__, "reason": str(exc)}
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))

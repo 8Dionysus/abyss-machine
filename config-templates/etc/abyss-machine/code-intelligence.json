@@ -26,7 +26,7 @@
       "declared_capabilities": ["definitions", "symbols", "fallback_navigation"],
       "artifact": {
         "required": true,
-        "class": "runtime_or_container_artifact",
+        "class": "code_intelligence_provider_bundle",
         "source_ref_required": true,
         "subject_digest_required": true,
         "trust_gate_required": true
@@ -71,7 +71,7 @@
       "declared_capabilities": ["syntax", "structural_diff", "incremental_parse"],
       "artifact": {
         "required": true,
-        "class": "runtime_or_container_artifact",
+        "class": "code_intelligence_provider_bundle",
         "source_ref_required": true,
         "subject_digest_required": true,
         "trust_gate_required": true
@@ -116,7 +116,7 @@
       "declared_capabilities": ["semantic_symbols", "occurrences", "relations"],
       "artifact": {
         "required": true,
-        "class": "runtime_or_container_artifact",
+        "class": "code_intelligence_provider_bundle",
         "source_ref_required": true,
         "subject_digest_required": true,
         "trust_gate_required": true
@@ -161,7 +161,7 @@
       "declared_capabilities": ["live_definitions", "live_references", "diagnostics", "workspace_symbols"],
       "artifact": {
         "required": true,
-        "class": "runtime_or_container_artifact",
+        "class": "code_intelligence_provider_bundle",
         "source_ref_required": true,
         "subject_digest_required": true,
         "trust_gate_required": true
@@ -250,7 +250,7 @@
       "host_owner": "abyss-machine",
       "consumer_owner": "abyss-stack",
       "declared_capabilities": ["static_analysis", "security_findings", "sarif"],
-      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "artifact": {"required": true, "class": "code_intelligence_provider_bundle", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
       "installation": {"executable": "semgrep", "version_command": ["semgrep", "--version"], "expected_version": "1.175.0", "version_source": "manifests/code_intelligence_adjacent_providers.lock.json"},
       "resource": {"kind": "indexing", "class": "medium", "startup_demand_mib": 2048, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:medium"},
       "paths": {"state": "providers/semgrep", "runtime": "providers/semgrep", "cache": "providers/semgrep", "storage": "providers/semgrep", "tmp": "providers/semgrep"},
@@ -265,7 +265,7 @@
       "host_owner": "abyss-machine",
       "consumer_owner": "abyss-stack",
       "declared_capabilities": ["sbom", "software_components", "cyclonedx"],
-      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "artifact": {"required": true, "class": "code_intelligence_provider_bundle", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
       "installation": {"executable": "syft", "version_command": ["syft", "version", "-o", "json"], "expected_version": "1.45.1", "version_source": "abyss-machine:artifact-trust-tools"},
       "resource": {"kind": "indexing", "class": "medium", "startup_demand_mib": 1536, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:medium"},
       "paths": {"state": "providers/syft", "runtime": "providers/syft", "cache": "providers/syft", "storage": "providers/syft", "tmp": "providers/syft"},
@@ -280,7 +280,7 @@
       "host_owner": "abyss-machine",
       "consumer_owner": "abyss-stack",
       "declared_capabilities": ["artifact_provenance", "in_toto_statement", "verification"],
-      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "artifact": {"required": true, "class": "code_intelligence_provider_bundle", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
       "installation": {"executable": "in-toto-verify", "version_command": ["in-toto-verify", "--version"], "expected_version": "3.1.0", "version_source": "abyss-machine:artifact-trust-tools-python"},
       "resource": {"kind": "indexing", "class": "light", "startup_demand_mib": 512, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:light"},
       "paths": {"state": "providers/in-toto", "runtime": "providers/in-toto", "cache": "providers/in-toto", "storage": "providers/in-toto", "tmp": "providers/in-toto"},
@@ -295,7 +295,7 @@
       "host_owner": "abyss-machine",
       "consumer_owner": "abyss-stack",
       "declared_capabilities": ["document_extraction", "ordered_structure", "markdown"],
-      "artifact": {"required": true, "class": "runtime_or_container_artifact", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
+      "artifact": {"required": true, "class": "code_intelligence_provider_bundle", "source_ref_required": true, "subject_digest_required": true, "trust_gate_required": true},
       "installation": {"executable": "markitdown", "version_command": ["markitdown", "--version"], "expected_version": "0.1.7", "version_source": "manifests/code_intelligence_adjacent_providers.lock.json"},
       "resource": {"kind": "indexing", "class": "medium", "startup_demand_mib": 1536, "max_parallelism": 1, "profile_ref": "resource-policy.json#indexing:medium"},
       "paths": {"state": "providers/markitdown", "runtime": "providers/markitdown", "cache": "providers/markitdown", "storage": "providers/markitdown", "tmp": "providers/markitdown"},
@@ -310,7 +310,7 @@
     "requires_content_addressed_receipt": true,
     "admission_receipt_schema": "abyss_machine_code_intelligence_admission_receipt_v1",
     "owner_admission_boundary": {
-      "artifact_class": "runtime_or_container_artifact",
+      "artifact_class": "code_intelligence_provider_bundle",
       "contract_surface_id": "code-intelligence-provider-route",
       "abi_ref": "generated/contract_abi_signatures.min.json",
       "bundle_manifest_ref": "manifests/artifact_bundles/code_intelligence_provider.bundle.json",
@@ -334,7 +334,7 @@
         "expected_trust_root_mode": "github_oidc",
         "require_latest": true,
         "required_verdict": "allow",
-        "command": "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class runtime_or_container_artifact --consumer-intent runtime --source-repo abyss-machine --trust-root-mode github_oidc --subject-digest SUBJECT_DIGEST --json"
+        "command": "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class code_intelligence_provider_bundle --consumer-intent runtime --source-repo abyss-machine --trust-root-mode github_oidc --subject-digest SUBJECT_DIGEST --json"
       }
     },
     "consumer_abi": {

@@ -1,4 +1,4 @@
-"""Artifact route for Semgrep and MarkItDown adjacent providers.
+"""Artifact route for Security, SBOM, provenance, and document providers.
 
 The archive contains an exact offline wheelhouse.  It is a candidate until the
 existing artifact bundle verifier and registry trust gate admit the aggregate
@@ -42,7 +42,7 @@ from .code_intelligence_provider import (
 ARCHIVE_SCHEMA = "abyss_machine_code_intelligence_adjacent_provider_archive_v1"
 INSTALLATION_SCHEMA = "abyss_machine_code_intelligence_adjacent_provider_installation_v1"
 PROVIDER_ID = "adjacent-python-providers"
-PROVIDER_IDS = ("semgrep", "markitdown")
+PROVIDER_IDS = ("semgrep", "syft", "in-toto", "markitdown")
 METADATA_NAME = "provider.json"
 LOCK_NAME = "provider-lock.json"
 MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
@@ -68,8 +68,11 @@ def _read_lock(path: str | Path) -> dict[str, Any]:
     if not isinstance(document, dict) or document.get("schema") != "abyss_machine_code_intelligence_adjacent_provider_lock_v1":
         raise ValueError("adjacent provider lock schema mismatch")
     packages = document.get("packages")
-    if not isinstance(packages, list) or {str(item.get("provider")) for item in packages if isinstance(item, Mapping)} != set(PROVIDER_IDS):
-        raise ValueError("adjacent provider lock must bind Semgrep and MarkItDown")
+    binaries = document.get("binaries")
+    package_providers = {str(item.get("provider")) for item in packages if isinstance(item, Mapping)} if isinstance(packages, list) else set()
+    binary_providers = {str(item.get("provider")) for item in binaries if isinstance(item, Mapping)} if isinstance(binaries, list) else set()
+    if not isinstance(packages, list) or not isinstance(binaries, list) or package_providers | binary_providers != set(PROVIDER_IDS):
+        raise ValueError("adjacent provider lock must bind Semgrep, Syft, in-toto, and MarkItDown")
     for package in packages:
         if not isinstance(package, Mapping):
             raise ValueError("adjacent provider package entry must be an object")
@@ -79,6 +82,12 @@ def _read_lock(path: str | Path) -> dict[str, Any]:
             raise ValueError("adjacent provider package sha256 is invalid")
         if not _safe_member(filename) or PurePosixPath(filename).name != filename:
             raise ValueError("adjacent provider package filename is invalid")
+    for binary in binaries:
+        if not isinstance(binary, Mapping) or not _safe_member(str(binary.get("executable") or "")):
+            raise ValueError("adjacent provider binary entry is invalid")
+        digest = str(binary.get("binary_sha256") or "")
+        if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+            raise ValueError("adjacent provider binary sha256 is invalid")
     return document
 
 
@@ -96,6 +105,7 @@ def _tar_info(name: str, payload: bytes, mode: int = 0o644) -> tarfile.TarInfo:
 
 def build_adjacent_provider_archive(
     wheelhouse: str | Path,
+    binary_root: str | Path,
     output: str | Path,
     *,
     lock_path: str | Path,
@@ -108,6 +118,7 @@ def build_adjacent_provider_archive(
         raise ValueError("source_ref must be a qualified source: or commit: reference")
     lock = _read_lock(lock_path)
     wheel_root = Path(wheelhouse).resolve()
+    binary_base = Path(binary_root).resolve()
     wheels = sorted(path for path in wheel_root.glob("*.whl") if path.is_file())
     if not wheels or len(wheels) > MAX_FILES:
         raise ValueError("wheelhouse must contain a bounded non-empty wheel set")
@@ -125,6 +136,16 @@ def build_adjacent_provider_archive(
     for package in lock["packages"]:
         if by_name.get(str(package["filename"])) != str(package["sha256"]):
             raise ValueError(f"locked wheel missing or digest mismatch: {package['filename']}")
+    for binary in lock["binaries"]:
+        executable = str(binary["executable"])
+        path = binary_base / executable
+        payload = path.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        if digest != str(binary["binary_sha256"]):
+            raise ValueError(f"locked binary missing or digest mismatch: {executable}")
+        name = f"bin/{executable}"
+        files.append({"path": name, "sha256": f"sha256:{digest}", "bytes": len(payload), "mode": 493})
+        payloads[name] = payload
     metadata = {
         "schema": ARCHIVE_SCHEMA,
         "provider_id": PROVIDER_ID,
@@ -192,7 +213,7 @@ def read_adjacent_provider_archive(path: str | Path) -> dict[str, Any]:
         for member in archive.getmembers():
             if not member.isreg() or not _safe_member(member.name) or member.name in members:
                 raise ValueError(f"unsafe adjacent provider archive member: {member.name}")
-            if member.name not in {METADATA_NAME, LOCK_NAME} and not member.name.startswith("wheelhouse/"):
+            if member.name not in {METADATA_NAME, LOCK_NAME} and not member.name.startswith(("wheelhouse/", "bin/")):
                 raise ValueError(f"unexpected adjacent provider archive member: {member.name}")
             stream = archive.extractfile(member)
             if stream is None:
@@ -215,9 +236,9 @@ def read_adjacent_provider_archive(path: str | Path) -> dict[str, Any]:
     if not isinstance(files, list):
         raise ValueError("adjacent provider file inventory missing")
     expected = {str(item.get("path")): item for item in files if isinstance(item, Mapping)}
-    actual_wheels = {name for name in members if name.startswith("wheelhouse/")}
-    if set(expected) != actual_wheels:
-        raise ValueError("adjacent provider wheel inventory mismatch")
+    actual_payloads = {name for name in members if name.startswith(("wheelhouse/", "bin/"))}
+    if set(expected) != actual_payloads:
+        raise ValueError("adjacent provider payload inventory mismatch")
     for name, item in expected.items():
         payload = members[name]
         if item.get("sha256") != _sha256_bytes(payload) or item.get("bytes") != len(payload):
@@ -362,6 +383,11 @@ def install_adjacent_provider_artifact(
             executable = venv / "bin" / str(item["executable"])
             if not executable.is_file() or not os.access(executable, os.X_OK):
                 raise ValueError(f"installed provider executable missing: {item['executable']}")
+            versions[str(item["provider"])] = str(item["version"])
+        for item in archive["lock"]["binaries"]:
+            executable = venv / "bin" / str(item["executable"])
+            executable.write_bytes(archive["members"][f"bin/{item['executable']}"])
+            executable.chmod(0o755)
             versions[str(item["provider"])] = str(item["version"])
         identity = {
             "schema": INSTALLATION_SCHEMA,
