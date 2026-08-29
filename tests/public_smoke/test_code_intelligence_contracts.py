@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -108,13 +110,17 @@ def admitted_ctags_evidence() -> dict[str, object]:
 def synthetic_owner_admission_receipt(
     config: dict[str, object],
     observation: dict[str, object],
+    *,
+    trusted_binary_digest: str = "",
 ) -> object:
     """Build a receipt-shaped unit fixture, without claiming live trust."""
 
     provider = config["providers"][0]
     assert isinstance(provider, dict)
     controls = ["abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign"]
-    subject_digest = "sha256:" + "b" * 64
+    artifact_identity = observation.get("artifact_identity")
+    assert isinstance(artifact_identity, dict)
+    subject_digest = str(artifact_identity["subject_digest"])
     record_id = "sha256:" + "c" * 64
     record = {
         "schema": "abyss_machine_artifact_bundle_registry_record_v1",
@@ -158,6 +164,8 @@ def synthetic_owner_admission_receipt(
         record,
         source_config_digest=_stable_digest(config),
         registry_ref="registry:fixture/runtime-bundle",
+        trusted_binary_digest=trusted_binary_digest
+        or str(observation.get("installed", {}).get("digest") or ""),
     )
 
 
@@ -298,12 +306,24 @@ def test_caller_facts_cannot_mint_admission_but_an_owner_receipt_can_bind_it() -
     assert admitted["status"] == "admitted"
     assert admitted["admission_source"] == "owner_produced_content_addressed_receipt"
     assert admitted["observed_identity"]["version"] == "fixture"
-    assert admitted["identity_checks"]["artifact"]["subject_digest"] == "sha256:" + "b" * 64
+    assert admitted["identity_checks"]["artifact"]["subject_digest"] == "sha256:" + "a" * 64
     assert admitted["identity_checks"]["trust"]["verdict"] == "allow"
     assert admitted["identity_checks"]["resource"]["profile_ref"] == "resource-policy.json#indexing:light"
     assert admitted["identity_checks"]["live_measurement"]["health"] == "healthy"
     assert admitted["semantic_usefulness"] == "unproven"
     assert admitted["admission_is_not_semantic_proof"] is True
+
+
+def test_owner_receipt_rejects_executable_outside_the_trusted_archive() -> None:
+    config = load_config()
+    evidence = admitted_ctags_evidence()
+
+    with pytest.raises(ValueError, match="trusted archive binary"):
+        synthetic_owner_admission_receipt(
+            config,
+            evidence,
+            trusted_binary_digest="sha256:" + "f" * 64,
+        )
 
 
 def test_admission_rejects_green_gates_without_identity_or_valid_time_and_reference() -> None:

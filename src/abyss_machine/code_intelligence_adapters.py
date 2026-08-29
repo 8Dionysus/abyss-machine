@@ -670,6 +670,7 @@ def collect_owner_admission_receipt(
     registry_dir: str | Path,
     subject_digest: str,
     record_id: str = "",
+    trusted_binary_digest: str = "",
 ) -> dict[str, Any]:
     """Read the owner registry/trust boundary and prepare one bound receipt.
 
@@ -756,6 +757,7 @@ def collect_owner_admission_receipt(
             record,
             source_config_digest=_config_digest(config) or "",
             registry_ref=registry_ref,
+            trusted_binary_digest=trusted_binary_digest,
         )
     except ValueError as exc:
         result["blocking_reasons"] = [f"owner_admission_receipt_issue_failed:{str(exc)}"]

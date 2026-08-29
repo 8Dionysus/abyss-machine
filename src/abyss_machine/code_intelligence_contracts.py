@@ -1618,6 +1618,7 @@ def _owner_admission_receipt_from_verified_gate(
     *,
     source_config_digest: str,
     registry_ref: str | None = None,
+    trusted_binary_digest: str = "",
 ) -> _OwnerAdmissionReceipt:
     """Issue the opaque receipt only after the real owner gate has passed.
 
@@ -1637,6 +1638,8 @@ def _owner_admission_receipt_from_verified_gate(
         raise ValueError("owner admission receipt requires a source config digest")
     if not isinstance(gate, Mapping) or not isinstance(record, Mapping):
         raise ValueError("owner admission receipt requires registry record and trust-gate snapshots")
+    if not _valid_digest(trusted_binary_digest):
+        raise ValueError("owner admission receipt requires the trusted provider binary digest")
 
     record_payload = _copy(record)
     gate_payload = _copy(gate)
@@ -1647,6 +1650,21 @@ def _owner_admission_receipt_from_verified_gate(
         raise ValueError("owner admission receipt requires content-addressed record and subject identities")
     if gate_record != record_payload:
         raise ValueError("trust-gate record must match the selected registry record")
+    artifact_identity = (
+        observation.get("artifact_identity")
+        if isinstance(observation.get("artifact_identity"), Mapping)
+        else {}
+    )
+    observed_subject_digest = _text(artifact_identity.get("subject_digest"))
+    observed_binary_digest = _text(installation.get("digest"))
+    if observed_subject_digest != subject_digest:
+        raise ValueError(
+            "observed artifact subject does not match the selected trusted archive"
+        )
+    if observed_binary_digest != trusted_binary_digest:
+        raise ValueError(
+            "observed executable digest does not match the trusted archive binary"
+        )
     required_controls = [str(item) for item in record_payload.get("required_controls", [])]
     verified_controls = {str(item) for item in record_payload.get("verified_controls", [])}
     if (
@@ -1711,6 +1729,7 @@ def _owner_admission_receipt_from_verified_gate(
             "abi_ref": route["abi_ref"],
             "bundle_manifest_ref": route["bundle_manifest_ref"],
             "subject_digest": subject_digest,
+            "binary_digest": trusted_binary_digest,
             "required_controls": list(route["required_controls"]),
             "verified_controls": sorted(verified_controls),
         },
@@ -1798,6 +1817,8 @@ def _validate_owner_admission_receipt(
             failures.append(f"owner_admission_receipt_{field}_mismatch")
     if artifact.get("subject_digest") != subject_digest:
         failures.append("owner_admission_receipt_subject_digest_mismatch")
+    if artifact.get("binary_digest") != installation.get("digest"):
+        failures.append("owner_admission_receipt_binary_digest_mismatch")
     if artifact.get("required_controls") != list(route["required_controls"]):
         failures.append("owner_admission_receipt_required_controls_mismatch")
     verified_controls = artifact.get("verified_controls")
@@ -1920,6 +1941,7 @@ def _validate_owner_admission_receipt(
             "abi_ref": artifact.get("abi_ref"),
             "bundle_manifest_ref": artifact.get("bundle_manifest_ref"),
             "subject_digest": subject_digest or None,
+            "binary_digest": artifact.get("binary_digest"),
             "source_ref": record.get("source_ref"),
         },
         "trust": {

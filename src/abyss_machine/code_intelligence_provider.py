@@ -453,7 +453,11 @@ def _subject_binding(
         errors.append("artifact.subjects.json does not bind exactly the selected provider archive")
     elif matched[0].get("sha256") != archive.get("archive_sha256"):
         errors.append("artifact.subjects.json archive digest mismatch")
-    source_ref = str(identity.get("source_ref") or archive.get("metadata", {}).get("source_ref") or "")
+    identity_source_ref = str(identity.get("source_ref") or "")
+    archive_source_ref = str(archive.get("metadata", {}).get("source_ref") or "")
+    if identity_source_ref != archive_source_ref:
+        errors.append("archive metadata and bundle identity source_ref mismatch")
+    source_ref = identity_source_ref
     if not _safe_source_ref(source_ref):
         errors.append("provider source_ref is missing or unqualified")
     return {
@@ -995,6 +999,9 @@ def exercise_provider(
         registry_dir=registry_dir,
         subject_digest=str(inspection.get("artifact", {}).get("subject_digest") or ""),
         record_id=str(gate.get("record_id") or ""),
+        trusted_binary_digest=str(
+            inspection.get("archive", {}).get("binary_sha256") or ""
+        ),
     )
     admission = None
     if receipt_route.get("status") == "receipt_ready" and receipt_route.get("receipt") is not None:

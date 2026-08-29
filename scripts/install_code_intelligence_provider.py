@@ -22,6 +22,7 @@ from abyss_machine.code_intelligence_provider import (  # noqa: E402
     inspect_provider_artifact,
     install_provider,
 )
+from abyss_machine.path_policy import AbyssMachinePathPolicy  # noqa: E402
 
 
 def _common(parser: argparse.ArgumentParser) -> None:
@@ -41,6 +42,13 @@ def main(argv: list[str] | None = None) -> int:
     _common(inspect_parser)
     install_parser = commands.add_parser("install")
     _common(install_parser)
+    install_parser.add_argument(
+        "--runtime-root",
+        default=str(
+            AbyssMachinePathPolicy.from_environment().runtimes_root
+            / "code-intelligence"
+        ),
+    )
     install_parser.add_argument("--apply", action="store_true", help="write only after trust-gate and owner preflights allow")
     exercise_parser = commands.add_parser("exercise")
     _common(exercise_parser)
@@ -62,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.archive,
                 args.bundle_dir,
                 subject_root=args.subject_root,
-                runtime_root=DEFAULT_RUNTIME_ROOT,
+                runtime_root=args.runtime_root,
                 registry_dir=args.registry_dir,
                 source_root=args.source_root,
                 expected_source_ref=args.source_ref,
