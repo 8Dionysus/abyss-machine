@@ -6804,6 +6804,13 @@ def test_trust_gate_allows_public_boundary_with_private_exclusions_for_release_c
         )
         == ""
     )
+    assert (
+        artifact_bundles.production_privacy_boundary_review_reason(
+            "public-safe provider payloads only; no private data, including host evidence, "
+            "indexes, source worktrees, observations, caches, or runtime state"
+        )
+        == ""
+    )
 
 
 def test_trust_gate_requires_manual_review_for_host_managed_public_release_consumers(tmp_path: Path) -> None:
