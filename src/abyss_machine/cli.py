@@ -196,6 +196,8 @@ globals().update(
         "stack_bridge_contracts",
         "storage_adapters",
         "storage_contracts",
+        "storage_lifecycle_adapters",
+        "storage_lifecycle_contracts",
         "topology_contracts",
         "typing_atspi_adapters",
         "typing_browser_adapters",
@@ -469,6 +471,7 @@ STORAGE_CANDIDATES_APPROVALS_ROOT = STORAGE_CANDIDATES_ROOT / "approvals"
 STORAGE_CANDIDATES_RECEIPTS_ROOT = STORAGE_CANDIDATES_ROOT / "receipts"
 STORAGE_CANDIDATES_NOTIFICATION_ROOT = STORAGE_CANDIDATES_ROOT / "notifications"
 STORAGE_CANDIDATES_NOTIFICATION_LATEST_PATH = STORAGE_CANDIDATES_NOTIFICATION_ROOT / "latest.json"
+STORAGE_LIFECYCLE_ROOT = path_from_env("ABYSS_MACHINE_STORAGE_LIFECYCLE_ROOT", STORAGE_STATE_ROOT / "lifecycle")
 STORAGE_BACKUP_LANES_ROOT = path_from_env("ABYSS_MACHINE_BACKUP_LANES_ROOT", STATE_DIR / "backup" / "lanes")
 ARTIFACTS_ROOT = STATE_DIR / "artifacts"
 ARTIFACTS_AGENTS_PATH = ARTIFACTS_ROOT / "AGENTS.md"
@@ -15263,6 +15266,13 @@ def storage_paths() -> dict[str, Any]:
         protected_roots=storage_protected_roots(),
     )
     document["candidates"] = storage_candidate_paths()
+    document["lifecycle"] = {
+        "root": str(STORAGE_LIFECYCLE_ROOT),
+        "commands": {
+            "status": "abyss-machine storage lifecycle status --json",
+            "reap": "abyss-machine storage lifecycle reap --limit 1 --json",
+        },
+    }
     return document
 
 
@@ -17924,6 +17934,10 @@ def resource_launch(
     sample_thermal: bool | None = None,
     write_latest: bool = True,
     execution_delegate: Callable[[dict[str, Any]], None] | None = None,
+    workspace_path: str | None = None,
+    workspace_owner: str | None = None,
+    workspace_lease_seconds: int = 300,
+    workspace_grace_seconds: int = 60,
 ) -> dict[str, Any]:
     request_started_at = now_iso()
     request_started_monotonic = time.monotonic()
@@ -18283,6 +18297,36 @@ def resource_launch(
     denied = list(plan.get("denied_reasons") or [])
     if not clean_command:
         denied.append("missing_command")
+    workspace_lifecycle: dict[str, Any] | None = None
+    if bool(workspace_path) != bool(workspace_owner):
+        denied.append("managed_workspace_path_and_owner_required_together")
+    if not dry_run and not denied and not blocked and clean_command and workspace_path and workspace_owner:
+        registered = storage_lifecycle_adapters.register_workspace(
+            STORAGE_LIFECYCLE_ROOT,
+            owner=str(workspace_owner),
+            workspace=Path(str(workspace_path)).expanduser(),
+            unit=launch_unit,
+            lease_seconds=max(1, int(workspace_lease_seconds)),
+            create=True,
+        )
+        if registered.get("ok"):
+            record = registered["record"]
+            workspace_lifecycle = {
+                "workspace_id": record["workspace_id"],
+                "path": record["path"],
+                "owner": record["owner"],
+                "launcher_created": record["launcher_created"],
+                "callback_path": record["callback_path"],
+                "lease_token": registered["lease_token"],
+                "grace_seconds": max(0, int(workspace_grace_seconds)),
+                "root": str(STORAGE_LIFECYCLE_ROOT),
+            }
+            systemd = plan.setdefault("systemd", {})
+            environment = systemd.setdefault("env", {}) if isinstance(systemd, dict) else {}
+            if isinstance(environment, dict):
+                environment.update(registered["environment"])
+        else:
+            denied.append("managed_workspace_registration_failed")
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
     planning_elapsed_sec = max(
         0.0,
@@ -18336,6 +18380,23 @@ def resource_launch(
                 "estimate_confidence": estimate_confidence,
                 "startup_wait_sec": wait_timeout,
                 "sample_thermal": None if sample_thermal is None else bool(sample_thermal),
+                "managed_workspace": (
+                    {
+                        key: value
+                        for key, value in workspace_lifecycle.items()
+                        if key not in {"lease_token", "root"}
+                    }
+                    if workspace_lifecycle
+                    else (
+                        {
+                            "path": str(Path(str(workspace_path)).expanduser()),
+                            "owner": workspace_owner,
+                            "registration": "dry_run" if dry_run else "not_registered",
+                        }
+                        if workspace_path or workspace_owner
+                        else None
+                    )
+                ),
             },
             "blocked_reasons": blocked,
             "denied_reasons": denied,
@@ -18439,6 +18500,7 @@ def resource_launch(
                     "observed_peak_multiplier": float(startup_policy.get("observed_peak_multiplier", 1.25)),
                     "profile_max_entries": int(startup_policy.get("profile_max_entries", 64)),
                     "profile_max_samples": int(startup_policy.get("profile_max_samples", 16)),
+                    "workspace_lifecycle": workspace_lifecycle,
                 },
                 "write_latest": bool(write_latest),
                 "latest_path": str(RESOURCE_RUN_LATEST_PATH),
@@ -18479,6 +18541,14 @@ def resource_launch(
         elapsed = float(outcome["elapsed_sec"])
         lease_released = bool(outcome["lease_released"])
         demand_observation = outcome.get("demand_observation")
+        workspace_finalization = None
+        if workspace_lifecycle:
+            workspace_finalization = storage_lifecycle_adapters.finalize_managed_workspace(
+                STORAGE_LIFECYCLE_ROOT,
+                workspace_lifecycle,
+                grace_seconds=int(workspace_lifecycle.get("grace_seconds") or 0),
+            )
+            result["managed_workspace"] = workspace_finalization
     data = build_launch_document(
         result,
         elapsed_sec=elapsed,
@@ -40764,7 +40834,7 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
             "history": STORAGE_VALIDATE_ROOT,
             "paths": storage_paths,
             "docs": [Path("/var/lib/abyss-machine/storage/AGENTS.md"), STORAGE_POLICY_PATH, STORAGE_POLICY_ENV_PATH],
-            "dirs": [STORAGE_STATE_ROOT, STORAGE_CANDIDATES_ROOT, ABYSS_MACHINE_ROOT, ABYSS_MACHINE_CACHE_ROOT, ABYSS_MACHINE_RUNTIME_ROOT, ABYSS_MACHINE_STORAGE_ROOT, ABYSS_MACHINE_TMP_ROOT],
+            "dirs": [STORAGE_STATE_ROOT, STORAGE_CANDIDATES_ROOT, STORAGE_LIFECYCLE_ROOT, ABYSS_MACHINE_ROOT, ABYSS_MACHINE_CACHE_ROOT, ABYSS_MACHINE_RUNTIME_ROOT, ABYSS_MACHINE_STORAGE_ROOT, ABYSS_MACHINE_TMP_ROOT],
             "json": [
                 ("storage_index", STORAGE_INDEX_PATH, f"{SCHEMA_PREFIX}_storage_paths_v1", True),
                 ("storage_latest", STORAGE_LATEST_PATH, None, False),
@@ -40775,7 +40845,11 @@ def subsystem_specs() -> dict[str, dict[str, Any]]:
                 ("storage_candidates_latest", STORAGE_CANDIDATES_LATEST_PATH, f"{SCHEMA_PREFIX}_storage_candidates_v1", False),
                 ("storage_candidate_validation_latest", STORAGE_CANDIDATES_VALIDATION_LATEST_PATH, f"{SCHEMA_PREFIX}_storage_candidate_validate_v1", False),
             ],
-            "timers": [("user", "abyss-storage-monitor.timer", False), ("user", "abyss-storage-candidates-deep.timer", False)],
+            "timers": [
+                ("user", "abyss-storage-monitor.timer", False),
+                ("user", "abyss-storage-candidates-deep.timer", False),
+                ("user", "abyss-storage-lifecycle-reaper.timer", False),
+            ],
             "bridge_commands": ["storage_paths_json", "storage_pressure_json", "storage_write_preflight_json"],
         },
         "artifacts": {
@@ -51483,6 +51557,31 @@ def main(argv: list[str]) -> int:
     storage_apply_parser.add_argument("--confirm", action="store_true", help="execute the allowlisted action after guard/hooks")
     storage_apply_parser.add_argument("--age-days", type=float, default=7.0, help="minimum age for age-based generated temp cleanup")
     storage_apply_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_lifecycle_parser = storage_sub.add_parser("lifecycle", help="managed workspace lease, seal, release and bounded disposition")
+    storage_lifecycle_sub = storage_lifecycle_parser.add_subparsers(dest="storage_lifecycle_command", required=True)
+    for lifecycle_name in ("status", "reap"):
+        lifecycle_parser = storage_lifecycle_sub.add_parser(lifecycle_name)
+        if lifecycle_name == "reap":
+            lifecycle_parser.add_argument("--limit", type=int, default=1)
+        lifecycle_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_lifecycle_open_parser = storage_lifecycle_sub.add_parser("open")
+    storage_lifecycle_open_parser.add_argument("--owner", required=True)
+    storage_lifecycle_open_parser.add_argument("--workspace", required=True)
+    storage_lifecycle_open_parser.add_argument("--unit")
+    storage_lifecycle_open_parser.add_argument("--lease-seconds", type=int, default=300)
+    storage_lifecycle_open_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_lifecycle_seal_parser = storage_lifecycle_sub.add_parser("seal")
+    storage_lifecycle_seal_parser.add_argument("--workspace-id", required=True)
+    storage_lifecycle_seal_parser.add_argument("--lease-token", required=True)
+    storage_lifecycle_seal_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_lifecycle_release_parser = storage_lifecycle_sub.add_parser("release")
+    storage_lifecycle_release_parser.add_argument("--workspace-id", required=True)
+    storage_lifecycle_release_parser.add_argument("--decision", required=True, choices=sorted(storage_lifecycle_contracts.DECISIONS))
+    storage_lifecycle_release_parser.add_argument("--archive-target")
+    storage_lifecycle_release_parser.add_argument("--evidence-ref", action="append", default=[])
+    storage_lifecycle_release_parser.add_argument("--grace-seconds", type=int, default=60)
+    storage_lifecycle_release_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
     storage_candidates_parser = storage_sub.add_parser("candidates", help="persistent evidence-first cleanup candidate lifecycle")
     storage_candidates_sub = storage_candidates_parser.add_subparsers(dest="storage_candidates_command", required=True)
     storage_candidates_refresh_parser = storage_candidates_sub.add_parser("refresh")
@@ -52121,6 +52220,10 @@ def main(argv: list[str]) -> int:
     resource_launch_parser.add_argument("--startup-wait", type=float, default=None, help="seconds to wait for an unknown-demand startup lane")
     resource_launch_parser.add_argument("--no-thermal-sample", action="store_true", help="use latest thermal plan instead of taking a fresh sample")
     resource_launch_parser.add_argument("--success-on-block", action="store_true", help="return success when an overrideable gate blocks a scheduled launch")
+    resource_launch_parser.add_argument("--workspace", default=None, help="managed workspace path; the launcher creates it when absent")
+    resource_launch_parser.add_argument("--workspace-owner", default=None, help="owner capability responsible for workspace disposition")
+    resource_launch_parser.add_argument("--workspace-lease-seconds", type=int, default=300, help="initial managed workspace lease")
+    resource_launch_parser.add_argument("--workspace-grace-seconds", type=int, default=60, help="delay between owner release and executor eligibility")
     resource_launch_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     resource_launch_parser.add_argument("cmd", nargs=argparse.REMAINDER)
     resource_admission_parser = resource_sub.add_parser("admission", help="coordinate owner-aware runtime memory admission")
@@ -53521,6 +53624,66 @@ def main(argv: list[str]) -> int:
             data = run_storage_hooks(args.stage, payload, enforce=bool(args.enforce), timeout=float(args.timeout))
             print_json(data)
             return 0 if data.get("ok") else 1
+        if args.storage_command == "lifecycle":
+            command = args.storage_lifecycle_command
+            if command == "status":
+                data = storage_lifecycle_adapters.status(STORAGE_LIFECYCLE_ROOT)
+            elif command == "reap":
+                data = storage_lifecycle_adapters.reap(
+                    STORAGE_LIFECYCLE_ROOT,
+                    limit=max(1, int(args.limit)),
+                )
+            elif command == "open":
+                data = storage_lifecycle_adapters.register_workspace(
+                    STORAGE_LIFECYCLE_ROOT,
+                    owner=str(args.owner),
+                    workspace=Path(str(args.workspace)).expanduser(),
+                    unit=args.unit,
+                    lease_seconds=max(1, int(args.lease_seconds)),
+                    create=True,
+                )
+            elif command == "seal":
+                data = storage_lifecycle_adapters.seal_registered_workspace(
+                    STORAGE_LIFECYCLE_ROOT,
+                    workspace_id=str(args.workspace_id),
+                    lease_token=str(args.lease_token),
+                )
+            elif command == "release":
+                workspace_id = str(args.workspace_id)
+                record = storage_lifecycle_adapters.read_json(
+                    storage_lifecycle_adapters.record_path(STORAGE_LIFECYCLE_ROOT, workspace_id)
+                )
+                if record is None:
+                    data = {"ok": False, "errors": ["workspace_record_not_found"]}
+                else:
+                    decision = str(args.decision)
+                    plan: dict[str, Any] = {}
+                    if decision == "DELETE":
+                        plan = {"kind": "delete_workspace"}
+                    elif decision == "ARCHIVE":
+                        plan = {"kind": "archive_workspace", "target": args.archive_target}
+                    callback = {
+                        "decision": decision,
+                        "plan": plan,
+                        "owner_evidence_refs": [str(item) for item in args.evidence_ref],
+                    }
+                    normalized = storage_lifecycle_contracts.disposition_document(callback)
+                    if normalized.get("valid") is not True:
+                        data = {"ok": False, "errors": normalized.get("errors"), "disposition": normalized}
+                    else:
+                        storage_lifecycle_adapters.atomic_write_json(
+                            storage_lifecycle_adapters.callback_path(STORAGE_LIFECYCLE_ROOT, workspace_id),
+                            callback,
+                        )
+                        data = storage_lifecycle_adapters.consume_owner_callback(
+                            STORAGE_LIFECYCLE_ROOT,
+                            workspace_id=workspace_id,
+                            grace_seconds=max(0, int(args.grace_seconds)),
+                        )
+            else:
+                parser.error("unknown storage lifecycle command")
+            print_json(data)
+            return 0 if data.get("ok") else 1
         if args.storage_command == "candidates":
             command = args.storage_candidates_command
             if command == "refresh":
@@ -54882,6 +55045,10 @@ def main(argv: list[str]) -> int:
                 )
                 if not bool(args.dry_run)
                 else None,
+                workspace_path=args.workspace,
+                workspace_owner=args.workspace_owner,
+                workspace_lease_seconds=int(args.workspace_lease_seconds),
+                workspace_grace_seconds=int(args.workspace_grace_seconds),
             )
             if args.json:
                 print_json(data)

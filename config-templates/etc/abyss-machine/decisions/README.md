@@ -105,6 +105,7 @@ movement for that decision only.
 | 0026 | [Promote Claim Evidence Validation Graph](0026-promote-claim-evidence-validation-graph.md) | `0026-promote-claim-evidence-validation-graph.md` | validation-scheduler, owner-boundary, proof-sufficiency, rollback-guard | active validation admission rationale |
 | 0027 | [Memory Work Remains Host-Admitted And Project-Neutral](0027-memory-work-remains-host-admitted-and-project-neutral.md) | `0027-memory-work-remains-host-admitted-and-project-neutral.md` | memory, resource-gate, owner-boundary, storage-topology, runtime-admission, validation-guard | active host-admission rationale |
 | 0028 | [Persistent Storage Candidate Lifecycle](0028-persistent-storage-candidate-lifecycle.md) | `0028-persistent-storage-candidate-lifecycle.md` | storage-topology, cleanup-candidates, owner-evidence, vault-restore, validation-guard | active persistent cleanup evidence rationale |
+| 0029 | [Managed Workspace Thin Waist](0029-managed-workspace-thin-waist.md) | `0029-managed-workspace-thin-waist.md` | storage-topology, runtime-lifecycle, owner-boundary, cleanup-executor, validation-guard | active managed-workspace lifecycle rationale |
 
 ## Index By Surface Class
 
@@ -146,11 +147,13 @@ movement for that decision only.
 - [0024 Admit Receipt-Bound SDK Routing Canonical Producer](0024-admit-receipt-bound-sdk-routing-canonical-producer.md)
 - [0025 Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md)
 - [0027 Memory Work Remains Host-Admitted And Project-Neutral](0027-memory-work-remains-host-admitted-and-project-neutral.md)
+- [0029 Managed Workspace Thin Waist](0029-managed-workspace-thin-waist.md)
 
 ### Validation / Proof
 
 - [0026 Promote Claim Evidence Validation Graph](0026-promote-claim-evidence-validation-graph.md)
 - [0028 Persistent Storage Candidate Lifecycle](0028-persistent-storage-candidate-lifecycle.md)
+- [0029 Managed Workspace Thin Waist](0029-managed-workspace-thin-waist.md)
 
 ### AI / Resident Selection
 
@@ -167,6 +170,7 @@ movement for that decision only.
 - [0025 Admit External Actor Runtime Canaries](0025-admit-external-actor-runtime-canaries.md)
 - [0027 Memory Work Remains Host-Admitted And Project-Neutral](0027-memory-work-remains-host-admitted-and-project-neutral.md)
 - [0028 Persistent Storage Candidate Lifecycle](0028-persistent-storage-candidate-lifecycle.md)
+- [0029 Managed Workspace Thin Waist](0029-managed-workspace-thin-waist.md)
 
 ### Typing / Journaling
 

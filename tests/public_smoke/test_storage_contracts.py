@@ -183,6 +183,8 @@ def test_storage_paths_cli_surface_is_json_read_only() -> None:
     assert payload["policy"].endswith("storage-policy.json")
     assert payload["large_roots"]["machine"].startswith("/srv/")
     assert payload["apply"]["dry_run_command"] == "abyss-machine storage apply --action-id ID --dry-run --json"
+    assert payload["lifecycle"]["root"].endswith("/storage/lifecycle")
+    assert payload["lifecycle"]["commands"]["reap"].endswith("--limit 1 --json")
 
 
 def test_storage_monitor_timer_reserves_measured_startup_memory() -> None:

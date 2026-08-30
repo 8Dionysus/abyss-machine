@@ -99,6 +99,7 @@
       "storage_candidates_manifests": "{{ABYSS_MACHINE_STATE}}/storage/candidates/manifests",
       "storage_candidates_claims": "{{ABYSS_MACHINE_STATE}}/storage/candidates/claims",
       "storage_candidates_validation_latest": "{{ABYSS_MACHINE_STATE}}/storage/candidates/validation/latest.json",
+      "storage_lifecycle_root": "{{ABYSS_MACHINE_STATE}}/storage/lifecycle",
       "storage_monitor_timer": "{{ABYSS_USER_HOME}}/.config/systemd/user/abyss-storage-monitor.timer",
       "storage_monitor_service": "{{ABYSS_USER_HOME}}/.config/systemd/user/abyss-storage-monitor.service",
       "process_agent_entrypoint": "{{ABYSS_MACHINE_STATE}}/processes/AGENTS.md",
@@ -129,6 +130,8 @@
       "storage_candidates_list": "abyss-machine storage candidates list --json",
       "storage_candidates_explain": "abyss-machine storage candidates explain ID --json",
       "storage_candidates_validate": "abyss-machine storage candidates validate ID --json",
+      "storage_lifecycle_status": "abyss-machine storage lifecycle status --json",
+      "storage_lifecycle_reap": "abyss-machine storage lifecycle reap --limit 1 --json",
       "process_paths": "abyss-machine processes paths --json",
     "process_latest": "abyss-machine processes latest --json",
     "process_snapshot": "abyss-machine processes snapshot --json"

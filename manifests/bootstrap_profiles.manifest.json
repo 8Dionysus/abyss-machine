@@ -14,6 +14,7 @@
         "abyss-topology-audit.timer",
         "abyss-storage-monitor.timer",
         "abyss-storage-candidates-deep.timer",
+        "abyss-storage-lifecycle-reaper.timer",
         "abyss-process-snapshot.timer"
       ]
     },
