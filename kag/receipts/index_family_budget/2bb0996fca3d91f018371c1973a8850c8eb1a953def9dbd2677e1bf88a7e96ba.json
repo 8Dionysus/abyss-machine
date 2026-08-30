@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 19116037,
+  "allowed_tracked_bytes": 28843525,
+  "approved_by": "repository-owner",
+  "base_ref": "945a2d79048b69541b9bfa8cbdf5110be1cafa4b",
+  "changed_generated_bytes": 19116037,
+  "changed_generated_files": 233,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "2bb0996fca3d91f018371c1973a8850c8eb1a953def9dbd2677e1bf88a7e96ba",
+  "reason": "Seal exact artifact-to-executable admission, provenance, runtime-root, and ABI repairs for code-intelligence Goal 01a02fec.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28843525,
+  "tracked_bytes_max": 27262976
+}

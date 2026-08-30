@@ -167,3 +167,13 @@ explicitly. The public manifest stays repo-relative; installed consumers verify
 the signed `artifact.subjects.json` against
 `/var/lib/abyss-machine/artifacts/subjects` when the source artifact path is
 not available.
+
+The `code_intelligence_provider.bundle.json` manifest is the dedicated
+code-intelligence provider plane. One aggregate subject inventory binds the
+Universal Ctags, Node (Tree-sitter/SCIP/LSP), and adjacent
+(Semgrep/Syft/in-toto/MarkItDown) archives so a single latest record cannot
+silently admit payloads it did not sign. Source subjects, sidecars, registry
+record, subject-store materialization, trust-gate allow, installation
+identities, and bounded exercises remain separate evidence steps. No provider
+archive is consumable while Sigstore/Cosign evidence or the owner admission
+gate is absent.

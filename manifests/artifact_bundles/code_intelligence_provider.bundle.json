@@ -1,0 +1,92 @@
+{
+  "schema": "abyss_machine_artifact_bundle_manifest_v1",
+  "id": "code-intelligence-provider",
+  "artifact_class": "code_intelligence_provider_bundle",
+  "contract_surface_id": "code-intelligence-provider-route",
+  "owner_repo": "abyss-machine",
+  "policy_ref": "manifests/artifact_signature_policy.manifest.json",
+  "mode": "os_abyss_local",
+  "public_safe": true,
+  "purpose": "Content-addressed provider archives for the MACHINE code-intelligence and adjacent observation routes.",
+  "artifact_source": {
+    "kind": "content_addressed_provider_archive",
+    "content_identity_ref": "artifact.subjects.json",
+    "source_paths_ref": "manifests/artifact_signature_policy.manifest.json#/contract_surfaces/code-intelligence-provider-route/source_paths",
+    "private_payload_included": false
+  },
+  "subject_repo_root": ".",
+  "runtime_owner_override_required": true,
+  "consumer_trust_root_mode": "github_oidc",
+  "artifact_subjects": [
+    {
+      "glob": "abyss-machine-code-intelligence-universal-ctags-*.tar.gz",
+      "role": "universal_ctags_provider_archive",
+      "optional": false
+    },
+    {
+      "glob": "abyss-machine-code-intelligence-node-providers-*.tar.gz",
+      "role": "node_provider_archive",
+      "optional": false
+    },
+    {
+      "glob": "abyss-machine-code-intelligence-adjacent-providers-*.tar.gz",
+      "role": "adjacent_provider_archive",
+      "optional": false
+    }
+  ],
+  "build_type": "urn:abyssos:buildtype:abyss-machine-code-intelligence-provider:v1",
+  "package": {
+    "ecosystem": "code-intelligence-provider",
+    "name": "abyss-machine-code-intelligence-provider-plane",
+    "version": "0",
+    "purl": "pkg:generic/abyss-machine-code-intelligence-provider-plane@0"
+  },
+  "lifecycle": {
+    "initial_state": "candidate",
+    "promotion_path": [
+      "candidate",
+      "built-local",
+      "manually-verified",
+      "release-ready",
+      "published",
+      "superseded"
+    ],
+    "latest_eligible_states": [
+      "manually-verified",
+      "release-ready",
+      "published"
+    ]
+  },
+  "consumer_contract": {
+    "stable_interface": "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class code_intelligence_provider_bundle --consumer-intent runtime --source-repo abyss-machine --trust-root-mode github_oidc --subject-digest SUBJECT_DIGEST --json",
+    "consumer_expectation": "The provider consumer binds the archive subject digest, source ref, ABI, SBOM, SLSA/in-toto, Sigstore/Cosign evidence, materialized subject store, registry latest, and an allow verdict before installation or execution.",
+    "registry_required": true,
+    "subject_store_required": true,
+    "admission_gate": "fail_closed_consumer_admission",
+    "consumer_verdict": "allow_or_deny_required_before_use",
+    "runtime_owner": "abyss-machine",
+    "lifecycle_owner": "abyss-stack",
+    "semantic_proof_owner": "aoa-evals"
+  },
+  "consumer_command": [
+    "python scripts/build_code_intelligence_provider.py --ctags CTAGS --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-universal-ctags-VERSION.tar.gz --source-ref SOURCE_REF --json",
+    "python scripts/build_code_intelligence_node_providers.py --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-node-providers-VERSION.tar.gz --source-ref SOURCE_REF --json",
+    "python scripts/build_code_intelligence_adjacent_providers.py --output /srv/abyss-machine/artifacts/code-intelligence/abyss-machine-code-intelligence-adjacent-providers-VERSION.tar.gz --source-ref SOURCE_REF --json",
+    "abyss-machine artifacts build-sidecars --manifest manifests/artifact_bundles/code_intelligence_provider.bundle.json --subject-root /srv/abyss-machine/artifacts/code-intelligence --owner-repo abyss-machine --source-ref SOURCE_REF --bundle-dir BUNDLE_DIR --json",
+    "ABYSS_MACHINE_COSIGN_KEY=KEY ABYSS_MACHINE_COSIGN_PUB=PUB abyss-machine artifacts sign BUNDLE_DIR --backend cosign-local-key",
+    "abyss-machine artifacts verify BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --json",
+    "abyss-machine artifacts release-check BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --json",
+    "abyss-machine artifacts evidence-promote BUNDLE_DIR --registry-dir REGISTRY_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --lifecycle-state release-ready --consumer-ref abyss-machine:code-intelligence:providers --evidence-ref github-actions:code-intelligence:providers --source-repo OWNER_REPO --source-ref SOURCE_REF --producer abyss-machine-code-intelligence-provider-builder --trust-root-mode github_oidc --trust-root-evidence-json @TRUST_ROOT_EVIDENCE_JSON --json",
+    "abyss-machine artifacts materialize-subjects BUNDLE_DIR --registry-dir REGISTRY_DIR --store-root SUBJECT_STORE_ROOT --manifest manifests/artifact_bundles/code_intelligence_provider.bundle.json --subject-root /srv/abyss-machine/artifacts/code-intelligence --consumer-intent runtime --source-repo OWNER_REPO --source-ref SOURCE_REF --trust-root-mode github_oidc --json",
+    "abyss-machine artifacts trust-gate --registry-dir REGISTRY_DIR --artifact-class code_intelligence_provider_bundle --consumer-intent runtime --source-repo OWNER_REPO --trust-root-mode github_oidc --subject-digest SUBJECT_DIGEST --json",
+    "abyss-machine artifacts registry-latest --registry-dir REGISTRY_DIR --artifact-class code_intelligence_provider_bundle --consumer-intent runtime --source-repo OWNER_REPO --trust-root-mode github_oidc --json",
+    "python scripts/install_code_intelligence_provider.py inspect --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
+    "python scripts/install_code_intelligence_provider.py install --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --apply --json",
+    "python scripts/install_code_intelligence_provider.py exercise --archive ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --json",
+    "python scripts/install_code_intelligence_node_providers.py inspect --archive NODE_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
+    "python scripts/install_code_intelligence_node_providers.py install --archive NODE_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --apply --json",
+    "python scripts/install_code_intelligence_adjacent_providers.py inspect --archive ADJACENT_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
+    "python scripts/install_code_intelligence_adjacent_providers.py install --archive ADJACENT_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --apply --json",
+    "python scripts/issue_code_intelligence_runtime_gate.py --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --source-root SOURCE_ROOT --stack-provider-source STACK_PROVIDER_SOURCE --stack-provider-config STACK_PROVIDER_CONFIG --private-key PRIVATE_KEY --trust-anchor /etc/abyss-machine/trust/code-intelligence-gate-ed25519.json --output MACHINE_EVIDENCE_GATE --json"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 18992297,
+  "allowed_tracked_bytes": 28832603,
+  "approved_by": "repository-owner",
+  "base_ref": "945a2d79048b69541b9bfa8cbdf5110be1cafa4b",
+  "changed_generated_bytes": 18992297,
+  "changed_generated_files": 232,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "fccca42df53dad646010440e9457fee3f155487f6fd6c9a9c8d1d794cb14f06d",
+  "reason": "Goal 01a02fec completes exact Ctags, Node, and adjacent provider artifacts under a dedicated class and GitHub OIDC admission route while preserving owner boundaries.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28832603,
+  "tracked_bytes_max": 27262976
+}

@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 14575867,
+  "allowed_tracked_bytes": 28645964,
+  "approved_by": "repository-owner",
+  "base_ref": "945a2d79048b69541b9bfa8cbdf5110be1cafa4b",
+  "changed_generated_bytes": 14575867,
+  "changed_generated_files": 177,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "7f020a4ff9f286f9991cbbbcb6cf70cea440783ab68e692142413e640aba9a0a",
+  "reason": "Goal 01a02fec adds bounded provider contracts, exact TypeScript toolchain pins, and the current scaffold projection while preserving owner-family compatibility.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28645964,
+  "tracked_bytes_max": 27262976
+}

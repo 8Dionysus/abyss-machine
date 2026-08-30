@@ -3057,7 +3057,7 @@ def test_artifact_producer_profiles_cover_os_abyss_owner_repos() -> None:
         "Dionysus",
         "Tree-of-Sophia",
     } <= owners
-    assert profiles["summary"]["artifact_class_count"] == 23
+    assert profiles["summary"]["artifact_class_count"] == 24
     assert profiles["summary"]["automation_status_counts"] == {"owner_local_producer_declared": len(rows)}
     assert profiles["summary"]["incomplete_profiles"] == []
     assert "producer_profiles" in profiles["agent_loop"]
@@ -3428,8 +3428,8 @@ def test_artifact_affected_policy_change_requires_all_classes_to_reverify() -> N
     affected = artifact_bundles.artifact_affected(["manifests/artifact_signature_policy.manifest.json"])
 
     assert affected["ok"] is True
-    assert affected["summary"]["artifact_classes"] == 23
-    assert affected["summary"]["status_counts"] == {"needs_reverify": 23}
+    assert affected["summary"]["artifact_classes"] == 24
+    assert affected["summary"]["status_counts"] == {"needs_reverify": 24}
     assert all(row["freshness"] == "stale" for row in affected["rows"])
     assert all(row["reasons"] == ["policy_manifest_changed"] for row in affected["rows"])
 

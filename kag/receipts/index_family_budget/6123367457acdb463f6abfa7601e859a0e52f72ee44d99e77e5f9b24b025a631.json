@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 16085872,
+  "allowed_tracked_bytes": 28722055,
+  "approved_by": "repository-owner",
+  "base_ref": "945a2d79048b69541b9bfa8cbdf5110be1cafa4b",
+  "changed_generated_bytes": 16085872,
+  "changed_generated_files": 195,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "6123367457acdb463f6abfa7601e859a0e52f72ee44d99e77e5f9b24b025a631",
+  "reason": "Goal 01a02fec adds exact adjacent provider artifacts, GitHub OIDC production signing, and fail-closed runtime admission while preserving owner boundaries.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28722055,
+  "tracked_bytes_max": 27262976
+}

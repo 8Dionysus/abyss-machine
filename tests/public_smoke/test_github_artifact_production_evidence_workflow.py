@@ -14,6 +14,7 @@ def test_artifact_production_evidence_workflow_is_public_safe() -> None:
 
     assert "workflow_dispatch:" in text
     assert "if: ${{ inputs.artifact == 'bootstrap_install_bundle' }}" in text
+    assert "if: ${{ inputs.artifact == 'code_intelligence_provider' }}" in text
     assert "push:" not in text
     assert "pull_request:" not in text
     assert "id-token: write" in text
@@ -32,6 +33,14 @@ def test_artifact_production_evidence_workflow_is_public_safe() -> None:
     assert "generated \\" in text
     assert "manifests \\" in text
     assert "subject-path: dist/abyss-machine-bootstrap-${{ github.sha }}.tar.gz" in text
+    assert "scripts/build_code_intelligence_adjacent_providers.py" in text
+    assert "scripts/build_code_intelligence_node_providers.py" in text
+    assert "scripts/build_code_intelligence_provider.py" in text
+    assert "b8eb0da4121372b5d74a90fc36cba6a31f147f3c" in text
+    assert "manifests/artifact_bundles/code_intelligence_provider.bundle.json" in text
+    assert "--source-ref \"commit:${GITHUB_SHA}\"" in text
+    assert "abyss-machine-code-intelligence-evidence-${GITHUB_SHA}.tar.gz" in text
+    assert "subject-path: dist/code-intelligence/*.tar.gz" in text
     assert (ROOT / "generated" / "contract_abi_signatures.min.json").is_file()
     assert (ROOT / "manifests" / "artifact_signature_policy.manifest.json").is_file()
 
