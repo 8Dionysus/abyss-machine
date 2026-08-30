@@ -23,15 +23,20 @@ def test_mechanic_packages_have_route_contracts() -> None:
         "nervous-local",
         "local-ai-runtime",
         "diagnostic-spine",
+        "code-intelligence",
     }
     packages = {path.name for path in (ROOT / "mechanics").iterdir() if path.is_dir()}
-    assert expected <= packages
+    assert expected == packages
     for package in expected:
         package_root = ROOT / "mechanics" / package
-        for name in ["AGENTS.md", "README.md", "DIRECTION.md", "PROVENANCE.md", "PARTS.md", "ROADMAP.md", "LANDING_LOG.md"]:
+        for name in ["AGENTS.md", "README.md"]:
             assert (package_root / name).is_file()
-        assert (package_root / "docs" / "README.md").is_file()
-        assert (package_root / "parts" / "README.md").is_file()
+        for lane_name in ["docs", "parts"]:
+            lane_root = package_root / lane_name
+            if not lane_root.is_dir():
+                continue
+            assert any(path.name != "README.md" for path in lane_root.iterdir())
+            assert (lane_root / "README.md").is_file()
 
 
 def test_public_boundary_moved_under_docs_publication() -> None:

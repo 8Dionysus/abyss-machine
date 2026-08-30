@@ -13,11 +13,12 @@ to `abyss-machine`. The current bundle is
 The global Codex catalog is a managed OS-user projection. It attracts the agent
 to the capability, but it never becomes source truth.
 
-## Read before editing
+## Route selection
 
-Read root `AGENTS.md`, `skills/README.md`, `skills/port.manifest.json`, the
-target package, and the artifact policy or owner surface that gives the
-procedure meaning.
+For package work, use `skills/port.manifest.json`, the target package, and the
+artifact policy or owner surface that gives the procedure meaning. Consult
+`skills/README.md` only when the public skill catalog or installation route
+changes; the root route is already inherited.
 
 ## Boundaries
 

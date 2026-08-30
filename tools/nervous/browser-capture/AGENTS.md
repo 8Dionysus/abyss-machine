@@ -24,15 +24,11 @@ calibration. It is not a browser profile store and not capture policy.
 - Verify: `abyss-machine nervous validate --json`, `abyss-machine typing
   validate --json`, and `abyss-machine docs mesh-validate --json`.
 
-## Read Before Editing
+## Route selection
 
-Read:
-
-- `/srv/abyss-machine/tools/nervous/AGENTS.md`
-- `/etc/abyss-machine/nervous/AGENTS.md`
-- `/var/lib/abyss-machine/nervous/AGENTS.md`
-- `/var/lib/abyss-machine/typing/AGENTS.md` when typed input or browser context
-  is involved
+Use the nervous config/state cards for policy and evidence. Add the typing
+state card when typed input or browser context is involved; the parent nervous
+tools contract is inherited.
 
 ## Boundaries
 

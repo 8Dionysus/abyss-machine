@@ -13,15 +13,10 @@ evidence.
 
 Current cooling evidence belongs under `{{ABYSS_MACHINE_STATE}}/cooling`.
 
-## Read before editing
+## Route selection
 
-Read:
-
-- `{{ABYSS_MACHINE_ETC}}/AGENTS.md`
-- `{{ABYSS_MACHINE_ETC}}/TOPOLOGY.md`
-- `{{ABYSS_MACHINE_STATE}}/cooling/AGENTS.md`
-- `{{ABYSS_MACHINE_STATE}}/processes/AGENTS.md` when thermal attribution is part
-  of the change
+Use `TOPOLOGY.md` for sensor/root topology, the cooling state card for current
+evidence, and the processes state card only when thermal attribution changes.
 
 Before durable mutation, run:
 
@@ -41,11 +36,8 @@ abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/co
 
 ## Validation
 
-```bash
-abyss-machine cooling validate --json
-abyss-machine processes validate --json
-abyss-machine docs mesh-validate --json
-```
+Run `abyss-machine cooling validate --json`. Add process validation for thermal
+attribution and docs-mesh validation for card changes.
 
 ## Closeout
 

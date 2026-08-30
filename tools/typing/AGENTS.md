@@ -28,15 +28,11 @@ It does not own typed-text policy or event evidence. Policy lives under
 - Verify: `abyss-machine typing validate --json`, `abyss-machine nervous
   validate --json`, and `abyss-machine docs mesh-validate --json`.
 
-## Read Before Editing
+## Route selection
 
-Read:
-
-- `/etc/abyss-machine/AGENTS.md`
-- `/srv/abyss-machine/tools/AGENTS.md`
-- `/var/lib/abyss-machine/typing/AGENTS.md`
-- `/etc/abyss-machine/nervous/AGENTS.md` when browser context capture is
-  affected
+Use the typing state card for event evidence and the nervous config card when
+browser-context capture is affected. The inherited tools card supplies common
+source and storage boundaries.
 
 ## Boundaries
 

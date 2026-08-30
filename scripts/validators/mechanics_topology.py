@@ -29,6 +29,23 @@ def main() -> int:
         text = readme.read_text(encoding="utf-8") if readme.exists() else ""
         for section in required_sections:
             require(str(section) in text, f"{rel(readme)} missing section {section!r}", failures)
+        for lane_name in ("docs", "parts"):
+            lane_root = package_root / lane_name
+            if not lane_root.is_dir():
+                continue
+            substantive = sorted(
+                child.name for child in lane_root.iterdir() if child.name != "README.md"
+            )
+            require(
+                bool(substantive),
+                f"placeholder-only mechanics lane: {rel(lane_root)}",
+                failures,
+            )
+            require(
+                (lane_root / "README.md").is_file(),
+                f"missing mechanics lane index: {rel(lane_root / 'README.md')}",
+                failures,
+            )
 
     if failures:
         return fail("mechanics topology validation failed", failures)

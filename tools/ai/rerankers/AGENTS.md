@@ -29,14 +29,11 @@ under `/var/lib/abyss-machine/ai/rerankers` and
 - Verify: `abyss-machine ai validate --json`, `abyss-machine nervous validate
   --json`, and `abyss-machine docs mesh-validate --json`.
 
-## Read Before Editing
+## Route selection
 
-Read:
-
-- `/srv/abyss-machine/tools/ai/AGENTS.md`
-- `/var/lib/abyss-machine/ai/AGENTS.md`
-- `/var/lib/abyss-machine/nervous/AGENTS.md`
-- `/etc/abyss-machine/storage-policy.json`
+Use the AI state card for model/runtime evidence, the nervous state card for
+retrieval-quality work, and `/etc/abyss-machine/storage-policy.json` before a
+download. The parent AI-tools contract is inherited.
 
 ## Boundaries
 

@@ -11,11 +11,13 @@ card narrows the lane.
 exposes source-linked records and generated repository indexes over the public
 host source, contracts, manifests, mechanics, and validation surfaces.
 
-## Read before editing
+## Route selection
 
-Read the root `AGENTS.md`, this card, `kag/README.md`, `kag/manifest.json`,
-`README.md`, `DESIGN.md`, `docs/publication/PUBLICATION_BOUNDARY.md`, and
-`manifests/repo_scaffold.manifest.json` before changing provider records.
+Use `kag/manifest.json` and the affected provider records for ordinary KAG
+work. Consult `kag/README.md` when the public provider entrypoint changes,
+`docs/publication/PUBLICATION_BOUNDARY.md` for publication safety, and
+`manifests/repo_scaffold.manifest.json` for source-topology changes. Repository
+identity and system form remain inherited from the root card and `DESIGN.md`.
 
 ## Boundaries
 

@@ -6,89 +6,48 @@ Typing intake owns how typed activity becomes opt-in, redacted host evidence.
 
 ### Trigger
 
-Typing adapters, AT-SPI capture, saved-text scan, Codex session tail, privacy
-gates, and typing profile changes.
+Typing adapters, AT-SPI capture, browser/native-host integration, saved-text
+scan, Codex session-tail intake, privacy gates, or typing profile changes.
 
 ### abyss-machine owns
 
-Collector machinery, opt-in profile units, redaction contracts, retention
-policy shape, and validators for local generated evidence.
+Collector machinery, opt-in profile units, redaction/retention contract
+shapes, public-safe adapters, and validators for local generated evidence.
 
 ### Stronger owner split
 
 The user owns consent and private content. Applications own their raw text.
-The public repo owns mechanisms, not captured life.
+The public repository owns mechanisms and policy shape, not captured life.
 
 ### Inputs
 
-Opt-in unit state, privacy policy, local text-event sources, redaction rules.
+Opt-in unit state, privacy policy, local text-event sources, redaction rules,
+and explicit operator intent.
 
 ### Outputs
 
-Local typing facts, derived summaries, warnings, and validation records.
+Local typing facts, bounded context summaries, warnings, and validation
+records.
 
 ### Must not claim
 
-Collection is enabled by default, raw text is public-safe, or redaction makes
-all downstream use harmless.
+Collection is enabled by default, raw text is public-safe, redaction makes all
+downstream use harmless, or captured context authorizes action.
 
 ### Validation
 
-Use public smoke plus host-contract quick tests when changing typed evidence
-shape.
+Use the affected public smoke tests, host-contract quick lane, typing/privacy
+validators, and package-specific browser or extension checks when relevant.
 
-### Live adapter route
+### Implementation route
 
-Shared latest/history persistence, local JSONL history reads, and Codex
-session-tail filesystem reads for typing and nervous organs start in
-`abyss_machine.typing_nervous_adapters`. Codex prompt/session-tail text
-extraction, user-message route recognition, context-envelope normalization,
-duplicate semantics, metadata/context ingest plans, and public-safe event
-summaries live in `abyss_machine.typing_codex_semantics`.
-Zsh submitted-command hook marker/source detection, function-probe command and
-result projection, status document assembly, selftest probe/command/run-result/
-document assembly, and recent-record projection live in
-`abyss_machine.typing_shell_adapters`.
-VS Code editor-extension selftest run-id/probe/context/ingest plans,
-recent-record projection, selftest document assembly, latest-status readmodel
-assembly from supplied latest/selftest/callback documents and age/path facts,
-callback selftest probe/document assembly, disposable user-data/file
-preparation, extension-host environment projection, subprocess lifecycle
-cleanup, callback polling through supplied recent-record ports, and public-safe
-result documents live in `abyss_machine.typing_editor_adapters`.
-Browser/WebExtension native-host ingest plans, AI transcript cleanup/metadata
-plans, synthetic selftest documents, native-host response envelopes, framed
-native-host byte transport, native-host session dispatch over supplied buffers
-and ingest callbacks, safe Firefox selftest profile prefs, temporary
-WebExtension profile/tmp roots, `web-ext` execution, loopback HTTP probe
-serving, subprocess cleanup, and public-safe WebExtension selftest result
-assembly, browser-context selftest temporary-profile/runtime orchestration,
-capture env override restoration, AT-SPI context-inference callback routing,
-browser AT-SPI selftest temporary/release-profile runtime orchestration,
-targeted AT-SPI callback routing, focused-browser selftest temporary-profile/
-runtime orchestration, focused-window/path/URL/no-op AT-SPI callback routing,
-browser-privacy selftest temporary-profile/runtime orchestration, privacy
-metadata/absence callback routing, and public-safe browser-context/browser
-AT-SPI/focused-browser/browser-privacy result assembly, selftest latest/history/
-index route selection through supplied ports, plus Firefox `profiles.ini`
-parsing and release-profile selection live in
-`abyss_machine.typing_browser_adapters`. AT-SPI focused snapshot, text-event
-sample/metadata/debounce, text-event listener runtime, generic GUI selftest
-semantic plans, and supplied accessibility-object state/text/path/document/
-application context runtime helpers, focused-candidate tree walk, and browser
-focus metadata traversal plus path-targeted text focus/read/insert and
-URL-targeted focused-text runtime plus URL-scanned GI/Atspi text insertion plus
-GI/Atspi Firefox frame focus runtime live in
-`abyss_machine.typing_atspi_adapters`, including browser/privacy selftest
-recent-record readers. Saved-text scan filesystem limits, path
-walking, state continuity, decode rejection, candidate/skip accounting, ingest
-kwargs, state entries, state/latest/index write routing through supplied ports,
-latest-status assembly, and public-safe scan documents live in
-`abyss_machine.typing_saved_text_adapters`. Keep remaining typing work bounded
-by source type and do not move concrete file reads, subprocess execution, policy
-reads, or unrelated latest writes until their owner route is clear. The mechanic
-owns the route and tests; generated typed evidence remains local host state.
+Current shell, editor, browser, AT-SPI, saved-text, Codex, persistence, and
+readmodel adapter ownership is indexed in
+[LIVE_ADAPTERS.md](../../docs/host/LIVE_ADAPTERS.md). Source modules and tests
+carry the detailed contract inventory; generated typed evidence remains local
+host state.
 
 ### Next route
 
-Use `nervous-local` for derived memory intake and `diagnostic-spine` for repair.
+Use `nervous-local` for derived memory intake and `diagnostic-spine` for
+freshness or repair.

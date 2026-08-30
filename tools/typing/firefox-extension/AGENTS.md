@@ -29,15 +29,11 @@ deliverables and must stay traceable to the source version.
   validate --json`, `abyss-machine docs mesh-validate --json`, and current
   Mozilla/web-ext package validation when packaging changes.
 
-## Read Before Editing
+## Route selection
 
-Read:
-
-- `/srv/abyss-machine/tools/typing/AGENTS.md`
-- `/var/lib/abyss-machine/typing/AGENTS.md`
-- `/etc/abyss-machine/typing-policy.json`
-- `/etc/abyss-machine/nervous/AGENTS.md` when browser context or page content
-  routing changes
+Use the typing state card and `/etc/abyss-machine/typing-policy.json` for
+collection/package work. Add the nervous config card when browser context or
+page-content routing changes; the parent typing-tools contract is inherited.
 
 ## Boundaries
 

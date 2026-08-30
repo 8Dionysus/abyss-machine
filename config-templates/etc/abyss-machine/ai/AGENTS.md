@@ -14,15 +14,11 @@ AI capability evidence.
 Runtime evidence belongs under `{{ABYSS_MACHINE_STATE}}/ai`. Large runtimes,
 caches, and model artifacts belong under `{{ABYSS_MACHINE_SRV}}`.
 
-## Read before editing
+## Route selection
 
-Read:
-
-- `{{ABYSS_MACHINE_ETC}}/AGENTS.md`
-- `{{ABYSS_MACHINE_ETC}}/DESIGN.md`
-- `{{ABYSS_MACHINE_ETC}}/storage-policy.json`
-- `{{ABYSS_MACHINE_STATE}}/ai/AGENTS.md`
-- `{{ABYSS_MACHINE_STATE}}/ai/llm/AGENTS.md` when LLM routing is affected
+Use `storage-policy.json` for large-root changes, the AI state card for runtime
+evidence, and the LLM state card only when LLM routing is affected. System form
+and common host boundaries are inherited from the root card.
 
 Before durable mutation, run:
 
@@ -40,10 +36,8 @@ abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/ai
 
 ## Validation
 
-```bash
-abyss-machine ai validate --json
-abyss-machine docs mesh-validate --json
-```
+Run `abyss-machine ai validate --json`; add docs-mesh validation when this card
+or another agent-facing source changed.
 
 ## Closeout
 

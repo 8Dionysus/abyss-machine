@@ -102,6 +102,22 @@ low-context agent what enters this lane, what may leave it, which surface owns
 truth, which stable tool path to use, where to route next, and which validation
 proves the move.
 
+## Context Loading
+
+- Treat a nested `AGENTS.md` as an inherited local delta. Do not repeat parent
+  identity, general boundaries, or command catalogs merely to make the card
+  self-contained.
+- Load source contracts and supporting documents when the task crosses their
+  owner surface. Do not turn a broad reading list into unconditional context
+  for every edit below a directory.
+- A README may remain the best human or public entrypoint without becoming
+  agent authority or required context for unrelated work.
+- Put current inventories, histories, and detailed procedures in their owning
+  source, registry, manifest, command catalog, or generated view. Route to them
+  from cards and preserve generated views as derivatives.
+- Keep stop-lines and the narrowest useful verification close to the affected
+  agent card even when broader explanation lives elsewhere.
+
 ## Entry Algorithm
 
 For broad host work:

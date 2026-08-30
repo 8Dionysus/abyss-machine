@@ -10,12 +10,12 @@ This directory owns host-local statistical questions and their measurement
 contracts. Shared statistical grammar and cross-owner composition remain owned
 by `aoa-stats`.
 
-## Read before editing
+## Route selection
 
-1. Root `AGENTS.md`, `DESIGN.md`, and `BOUNDARIES.md`.
-2. `stats/README.md` and `stats/port.manifest.json`.
-3. The workload stats contracts and adapter in `src/abyss_machine/`.
-4. The central measurement and local-port contracts under `aoa-stats/stats/`.
+Use `stats/port.manifest.json`, the affected workload contracts/adapters under
+`src/abyss_machine/`, and the central measurement protocol under `aoa-stats`.
+Consult `stats/README.md` when the public question or local-port explanation
+changes, and `DESIGN.md` or `BOUNDARIES.md` only for owner-boundary changes.
 
 ## Boundaries
 
