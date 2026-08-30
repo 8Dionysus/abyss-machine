@@ -23,8 +23,10 @@ consumer check, atomic runtime placement, and facts-only version/symbol probe.
 
 `abyss-stack` owns provider lifecycle, LIVE sessions, and runtime meaning.
 `aoa-kag` owns normalized observation consumption. `aoa-evals` owns semantic
-proof and eval verdicts. The machine layer does not mint the G58 trust anchor or
-the authenticated stack evidence gate.
+proof and eval verdicts. The machine layer does not mint the G58 trust anchor,
+but after the exact artifact, installation, and bounded LSP probe pass it may
+sign the authenticated consumer evidence gate with an already provisioned
+machine key whose public half matches that fixed root-owned anchor.
 
 ### Inputs
 
@@ -37,8 +39,10 @@ storage/resource facts.
 
 Unsigned candidate archives or a fully sidecar-bound aggregate bundle posture,
 a fail-closed trust/admission decision, identity-bound Ctags, Node, and
-adjacent runtime installations, and bounded provider observations. Every
-output names its claim limits.
+adjacent runtime installations, bounded provider observations, and an optional
+content-addressed Ed25519 evidence gate for the exact stack provider/config,
+source epoch, LSP executable, and artifact admission record. The issuer refuses
+to create credentials or trust roots. Every output names its claim limits.
 
 ### Must not claim
 
@@ -54,8 +58,26 @@ the deterministic archive test, and the owner trust/admission route. Before a
 durable install, run storage write-preflight and changes preflight. Execute the
 fixed continuation validators last.
 
+For the authenticated runtime boundary, provision the private machine key and
+matching root-owned public anchor through an operator-owned route, then run:
+
+```bash
+python scripts/issue_code_intelligence_runtime_gate.py \
+  --registry-dir REGISTRY_DIR \
+  --source-root SOURCE_ROOT \
+  --stack-provider-source STACK_PROVIDER_SOURCE \
+  --stack-provider-config STACK_PROVIDER_CONFIG \
+  --private-key PRIVATE_KEY \
+  --output OUTPUT \
+  --json
+```
+
+The command performs two bounded LSP initialize/shutdown probes and fails
+closed unless the selected provider artifact is the admitted registry latest.
+
 ### Next route
 
-After MACHINE admission and runtime evidence exist, hand the exact provider
-identity to `abyss-stack` for its signed G58 evidence gate and LIVE lifecycle;
-then route semantic usefulness to `aoa-evals`.
+After MACHINE admission and authenticated runtime evidence exist, hand the
+exact gate bundle to `abyss-stack` for verification and LIVE lifecycle; then
+route normalized observations to `aoa-kag` and semantic usefulness to
+`aoa-evals`.

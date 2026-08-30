@@ -86,6 +86,7 @@
     "python scripts/install_code_intelligence_node_providers.py inspect --archive NODE_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
     "python scripts/install_code_intelligence_node_providers.py install --archive NODE_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --apply --json",
     "python scripts/install_code_intelligence_adjacent_providers.py inspect --archive ADJACENT_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --json",
-    "python scripts/install_code_intelligence_adjacent_providers.py install --archive ADJACENT_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --apply --json"
+    "python scripts/install_code_intelligence_adjacent_providers.py install --archive ADJACENT_ARCHIVE --bundle-dir BUNDLE_DIR --subject-root /srv/abyss-machine/artifacts/code-intelligence --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --apply --json",
+    "python scripts/issue_code_intelligence_runtime_gate.py --registry-dir REGISTRY_DIR --runtime-root /srv/abyss-machine/runtimes/code-intelligence --source-root SOURCE_ROOT --stack-provider-source STACK_PROVIDER_SOURCE --stack-provider-config STACK_PROVIDER_CONFIG --private-key PRIVATE_KEY --trust-anchor /etc/abyss-machine/trust/code-intelligence-gate-ed25519.json --output MACHINE_EVIDENCE_GATE --json"
   ]
 }

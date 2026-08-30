@@ -1287,6 +1287,7 @@
         "mechanics/code-intelligence",
         "src/abyss_machine/code_intelligence_adapters.py",
         "src/abyss_machine/code_intelligence_contracts.py",
+        "src/abyss_machine/code_intelligence_gate.py",
         "src/abyss_machine/code_intelligence_provider.py",
         "manifests/code_intelligence_node_providers.lock.json",
         "manifests/code_intelligence_adjacent_providers.lock.json",
@@ -1297,6 +1298,7 @@
         "scripts/install_code_intelligence_node_providers.py",
         "scripts/build_code_intelligence_adjacent_providers.py",
         "scripts/install_code_intelligence_adjacent_providers.py",
+        "scripts/issue_code_intelligence_runtime_gate.py",
         "src/abyss_machine/code_intelligence_node_provider.py",
         "src/abyss_machine/code_intelligence_adjacent_provider.py",
         "manifests/artifact_bundles/code_intelligence_provider.bundle.json"

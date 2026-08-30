@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 20283342,
+  "allowed_tracked_bytes": 28906521,
+  "approved_by": "repository-owner",
+  "base_ref": "945a2d79048b69541b9bfa8cbdf5110be1cafa4b",
+  "changed_generated_bytes": 20283342,
+  "changed_generated_files": 244,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "2a43397942b02fcd9cc87704bd4a348d608d38f4b888d82d0f57c55fa201be65",
+  "reason": "Add authenticated code-intelligence runtime gate issuer, focused tests, and owner documentation.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 28906521,
+  "tracked_bytes_max": 27262976
+}
