@@ -1,0 +1,15 @@
+[Unit]
+Description=Abyss Machine bounded released-workspace disposition
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/storage/AGENTS.md
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=idle
+CPUWeight=15
+IOWeight=15
+TimeoutStartSec=30min
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage lifecycle reap --limit 1 --json
+StandardOutput=null
+StandardError=journal

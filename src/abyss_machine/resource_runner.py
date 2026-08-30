@@ -10,9 +10,11 @@ from typing import Any
 try:
     from . import resource_adapters
     from . import resource_planning
+    from . import storage_lifecycle_adapters
 except ImportError:
     import resource_adapters  # type: ignore[no-redef]
     import resource_planning  # type: ignore[no-redef]
+    import storage_lifecycle_adapters  # type: ignore[no-redef]
 
 
 MAX_HANDOFF_BYTES = 16 * 1024 * 1024
@@ -111,6 +113,20 @@ def finish_document(handoff: dict[str, Any]) -> dict[str, Any]:
     startup["lease_released"] = bool(outcome.get("lease_released"))
     startup["demand_observation"] = outcome.get("demand_observation")
     document["startup_admission"] = startup
+    lifecycle = execution.get("workspace_lifecycle")
+    if isinstance(lifecycle, dict):
+        finalized = storage_lifecycle_adapters.finalize_managed_workspace(
+            Path(str(lifecycle.get("root") or "")),
+            lifecycle,
+            grace_seconds=int(lifecycle.get("grace_seconds") or 0),
+        )
+        if isinstance(result, dict):
+            result["managed_workspace"] = finalized
+        request = document.get("request") if isinstance(document.get("request"), dict) else {}
+        request["managed_workspace"] = {
+            key: value for key, value in lifecycle.items() if key not in {"lease_token", "root"}
+        }
+        document["request"] = request
     policy = document.get("policy") if isinstance(document.get("policy"), dict) else {}
     policy["long_waiter"] = "lightweight_exec_handoff"
     document["policy"] = policy

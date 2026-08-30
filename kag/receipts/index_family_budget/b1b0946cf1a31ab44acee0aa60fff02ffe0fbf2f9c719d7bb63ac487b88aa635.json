@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25523030,
+  "allowed_tracked_bytes": 29087768,
+  "approved_by": "repository-owner",
+  "base_ref": "5d7831354de61aafae9dd63fdb27a22e159d25e8",
+  "changed_generated_bytes": 25523030,
+  "changed_generated_files": 355,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "b1b0946cf1a31ab44acee0aa60fff02ffe0fbf2f9c719d7bb63ac487b88aa635",
+  "reason": "Refresh the source-linked owner family for the managed workspace lifecycle while preserving the standing portable-family budget guard.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 29087768,
+  "tracked_bytes_max": 27262976
+}
