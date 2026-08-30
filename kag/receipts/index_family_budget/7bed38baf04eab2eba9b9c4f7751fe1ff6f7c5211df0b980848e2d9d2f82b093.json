@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 7263771,
+  "allowed_tracked_bytes": 29089600,
+  "approved_by": "repository-owner",
+  "base_ref": "3abfbdc0b9dc144406fd01c40f6fc3ba6c249f43",
+  "changed_generated_bytes": 7263771,
+  "changed_generated_files": 84,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "7bed38baf04eab2eba9b9c4f7751fe1ff6f7c5211df0b980848e2d9d2f82b093",
+  "reason": "Regenerate the exact abyss-machine portable owner family for the public-safe code-intelligence provider privacy-boundary correction; the source change is bounded, while the pre-existing standing tracked-family ceiling remains explicitly owner-receipted and enforced.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 29089600,
+  "tracked_bytes_max": 27262976
+}
