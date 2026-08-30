@@ -600,7 +600,7 @@
         "authority_ref": ["mechanics/code-intelligence/README.md", "manifests/artifact_bundles/code_intelligence_provider.bundle.json", "config-templates/etc/abyss-machine/code-intelligence.json"],
         "producer": "code-intelligence provider packaging from tracked locks, builders, and provider source routes",
         "consumer_expectation": "code-intelligence installers bind the exact provider subject, source ref, ABI, SBOM, provenance, signer identity, materialized subject store, and dedicated-class trust-gate verdict before use",
-        "privacy_boundary": "publishable provider payloads only; excludes host indexes, source worktrees, observations, caches, runtime state, and private evidence",
+        "privacy_boundary": "public-safe provider payloads only; no private data, including host evidence, indexes, source worktrees, observations, caches, or runtime state",
         "content_identity": "provider archive digest plus release sidecar digests",
         "abi_epoch": "v1 via code-intelligence-provider-route",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.9#code_intelligence_provider_bundle",
