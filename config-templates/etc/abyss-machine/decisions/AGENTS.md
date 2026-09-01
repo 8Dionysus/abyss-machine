@@ -22,8 +22,8 @@ Consult the decisions README when locating related rationale, allocating the
 next sequence number, or changing the durable index. Use `DOCS.md`,
 `ROADMAP.md`, or `CHANGELOG.md` only when that source surface moves.
 
-For memo promotion, add `{{ABYSS_MACHINE_STATE}}/memo/AGENTS.md`; for a
-subsystem-local choice, add its nearest `AGENTS.md`. The generated
+For memo promotion, consult `{{ABYSS_MACHINE_STATE}}/memo/AGENTS.md`; for a
+subsystem-local choice, consult its nearest `AGENTS.md`. The generated
 `{{ABYSS_MACHINE_STATE}}/docs/decisions-index.min.json` is inspected only after
 rebuilding it from authored records.
 

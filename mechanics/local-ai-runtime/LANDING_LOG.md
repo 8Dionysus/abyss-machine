@@ -1,5 +1,11 @@
 # Landing Log
 
+- Extracted the first TTS execution adapter seam into
+  `abyss_machine.ai_tts_adapters`; Unix-socket JSON-line client transport,
+  server status/stop exchanges, synth subprocess cache/env binding, and
+  BabelVox/Qwen3 OpenVINO cold synth child-process invocation now pass through
+  fakeable ports. CLI remains the concrete profile/config/policy/latest,
+  resident server loop, audio summary, resource-reporting, and rendering edge.
 - Extracted local-AI runtime discovery into
   `abyss_machine.ai_runtime_adapters`; the adapter owns model-root
   normalization, OpenVINO runtime probes, RPM/ldconfig/NPU driver discovery,
@@ -222,3 +228,4 @@
   application, and add/remove mutation flow through fakeable JSON/path/clock
   ports while `dictation_contracts` keeps replacement rule normalization and
   application semantics. CLI still owns rendering.
+- Initial skeleton: package created to route host-managed AI runtime work.
