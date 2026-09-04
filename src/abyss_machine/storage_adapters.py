@@ -112,6 +112,63 @@ def bounded_directory_size(
     return total
 
 
+def bounded_directory_physical_size(
+    path: Path,
+    timeout: float,
+    *,
+    clock: ClockPort = time.monotonic,
+) -> int | None:
+    """Bounded filesystem allocation size walk for platforms without ``du``.
+
+    ``st_size`` is the apparent file length and can substantially overstate or
+    understate reclaimed blocks for sparse files.  ``st_blocks`` is the POSIX
+    allocation count in 512-byte units, which is the closest portable fallback
+    to ``du -sx -B1``.  A missing ``st_blocks`` falls back to the file length.
+    """
+    deadline = clock() + max(0.0, float(timeout))
+    if clock() >= deadline:
+        return None
+    def allocated_bytes(stat: os.stat_result) -> int:
+        blocks = getattr(stat, "st_blocks", None)
+        if blocks is not None:
+            # A sparse file can legitimately report zero allocated blocks;
+            # preserve that physical fact instead of falling back to st_size.
+            return max(0, int(blocks)) * 512
+        return max(0, int(getattr(stat, "st_size", 0)))
+
+    try:
+        if path.is_file():
+            stat = path.stat()
+            return allocated_bytes(stat)
+    except OSError:
+        return None
+
+    total = 0
+    stack = [path]
+    while stack:
+        if clock() >= deadline:
+            return None
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if clock() >= deadline:
+                        return None
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        elif entry.is_symlink():
+                            continue
+                        else:
+                            stat = entry.stat(follow_symlinks=False)
+                            total += allocated_bytes(stat)
+                    except OSError:
+                        return None
+        except OSError:
+            return None
+    return total
+
+
 def measure_path_size_bytes(
     path: Path,
     timeout: float = 20.0,
@@ -121,6 +178,7 @@ def measure_path_size_bytes(
     bounded_size: BoundedSizeBytesPort = bounded_directory_size,
     clock: ClockPort = time.monotonic,
 ) -> int | None:
+    """Measure apparent logical bytes (``du -sbx``), for compatibility."""
     budget = max(0.0, float(timeout))
     started = clock()
     if not path.exists():
@@ -130,6 +188,41 @@ def measure_path_size_bytes(
         return None
     if command_exists("du"):
         out = dict(command_runner(["du", "-sbx", str(path)], remaining))
+        if out.get("ok"):
+            first_line = str(out.get("stdout") or "").splitlines()
+            first = first_line[0].split() if first_line else []
+            if first:
+                try:
+                    return int(first[0])
+                except ValueError:
+                    pass
+        if out.get("returncode") == 124:
+            return None
+    remaining = budget - max(0.0, clock() - started)
+    if remaining <= 0.0:
+        return None
+    return bounded_size(path, remaining)
+
+
+def measure_path_physical_size_bytes(
+    path: Path,
+    timeout: float = 20.0,
+    *,
+    command_exists: CommandExistsPort = tool_available,
+    command_runner: CommandRunnerPort = run_tool_process,
+    bounded_size: BoundedSizeBytesPort = bounded_directory_physical_size,
+    clock: ClockPort = time.monotonic,
+) -> int | None:
+    """Measure allocated bytes, keeping apparent-size measurement separate."""
+    budget = max(0.0, float(timeout))
+    started = clock()
+    if not path.exists():
+        return None
+    remaining = budget - max(0.0, clock() - started)
+    if remaining <= 0.0:
+        return None
+    if command_exists("du"):
+        out = dict(command_runner(["du", "-sx", "-B1", str(path)], remaining))
         if out.get("ok"):
             first_line = str(out.get("stdout") or "").splitlines()
             first = first_line[0].split() if first_line else []
@@ -175,7 +268,12 @@ def existing_ancestor(path: Path) -> Path:
     return cursor if cursor.exists() else Path("/")
 
 
-def disk_usage_summary(path: Path, *, disk_usage: DiskUsagePort = shutil.disk_usage) -> dict[str, Any]:
+def disk_usage_summary(
+    path: Path,
+    *,
+    disk_usage: DiskUsagePort = shutil.disk_usage,
+    statvfs: Callable[[Path], Any] | None = None,
+) -> dict[str, Any]:
     anchor = existing_ancestor(path)
     try:
         usage = disk_usage(anchor)
@@ -190,7 +288,7 @@ def disk_usage_summary(path: Path, *, disk_usage: DiskUsagePort = shutil.disk_us
         used = int(usage[1])
         free = int(usage[2])
     percent = round((used / total) * 100.0, 2) if total else None
-    return {
+    result = {
         "path": str(path),
         "anchor": str(anchor),
         "ok": True,
@@ -199,6 +297,29 @@ def disk_usage_summary(path: Path, *, disk_usage: DiskUsagePort = shutil.disk_us
         "free_bytes": free,
         "used_percent": percent,
     }
+    if statvfs is not None:
+        try:
+            stats = statvfs(anchor)
+            block_size = int(getattr(stats, "f_frsize", 0) or getattr(stats, "f_bsize", 0) or 0)
+            blocks = int(getattr(stats, "f_blocks"))
+            blocks_free = int(getattr(stats, "f_bfree"))
+            blocks_available = int(getattr(stats, "f_bavail"))
+            if block_size > 0:
+                stat_total = blocks * block_size
+                stat_free = blocks_free * block_size
+                available = max(0, blocks_available * block_size)
+                result.update({
+                    "available_to_user_bytes": available,
+                    "reserved_bytes": max(0, stat_free - available),
+                    "capacity_basis": "statvfs",
+                    "statvfs_total_bytes": stat_total,
+                    "statvfs_free_bytes": stat_free,
+                })
+        except (AttributeError, OSError, TypeError, ValueError):
+            result["capacity_basis"] = "disk_usage"
+            result["available_to_user_bytes"] = free
+            result["reserved_bytes"] = 0
+    return result
 
 
 def path_storage_status(
@@ -224,9 +345,11 @@ def path_storage_status(
     if include_size and path.exists():
         if path.is_dir():
             item["size_bytes"] = directory_size_fn(path)
+            item["size_basis"] = "apparent"
         else:
             try:
                 item["size_bytes"] = path.stat().st_size
+                item["size_basis"] = "apparent"
             except OSError:
                 item["size_bytes"] = None
     return item
@@ -237,6 +360,8 @@ def inventory_item_status(
     *,
     measure: bool = True,
     size_bytes: SizeBytesPort = measure_path_size_bytes,
+    physical_size_bytes: SizeBytesPort | None = None,
+    apparent_size_bytes: SizeBytesPort | None = None,
     clock: ClockPort = time.time,
 ) -> dict[str, Any]:
     path = Path(str(spec["path"]))
@@ -252,7 +377,21 @@ def inventory_item_status(
         except OSError:
             item["resolved"] = None
     item["measured"] = bool(measure and exists)
-    item["size_bytes"] = size_bytes(path, 20.0) if item["measured"] else None
+    if physical_size_bytes is not None:
+        item["physical_size_bytes"] = physical_size_bytes(path, 20.0) if item["measured"] else None
+        item["size_basis"] = "physical"
+        item["size_bytes"] = item["physical_size_bytes"]
+    else:
+        item["size_bytes"] = size_bytes(path, 20.0) if item["measured"] else None
+    item["measurement_ok"] = isinstance(item.get("size_bytes"), int) if item["measured"] else False
+    if apparent_size_bytes is not None:
+        item["apparent_size_bytes"] = apparent_size_bytes(path, 20.0) if item["measured"] else None
+    if physical_size_bytes is not None or apparent_size_bytes is not None:
+        item["measurement_contract"] = {
+            "physical": "allocated filesystem bytes (du -sx -B1)",
+            "apparent": "logical file lengths (du -sbx)",
+            "pressure_uses": "physical",
+        }
     return item
 
 

@@ -34,6 +34,8 @@ DELETE_READY_VERDICTS = {
 DEFAULT_POLICY: dict[str, Any] = {
     "history_limit": 32,
     "minimum_reclaimable_bytes": 1,
+    "deep_max_age_seconds": 172800,
+    "light_max_age_seconds": 7200,
     "default": {"minimum_observations": 3, "quiet_seconds": 72 * 3600},
     "by_kind": {
         "generated_tmp": {"minimum_observations": 3, "quiet_seconds": 24 * 3600},
@@ -133,7 +135,12 @@ def _policy_for_kind(policy: Mapping[str, Any], kind: str) -> dict[str, int]:
 def merged_policy(configured: Mapping[str, Any] | None = None) -> dict[str, Any]:
     configured = _mapping(configured)
     result = json.loads(json.dumps(DEFAULT_POLICY))
-    for key in ("history_limit", "minimum_reclaimable_bytes"):
+    for key in (
+        "history_limit",
+        "minimum_reclaimable_bytes",
+        "deep_max_age_seconds",
+        "light_max_age_seconds",
+    ):
         if key in configured:
             result[key] = configured[key]
     if isinstance(configured.get("default"), Mapping):
@@ -165,6 +172,106 @@ def snapshot_id(records: Sequence[Mapping[str, Any]]) -> str:
         for item in sorted(records, key=lambda row: str(row.get("candidate_id") or ""))
     ]
     return "reclaim-snapshot-" + _digest(identity, length=24)
+
+
+def freshness_status(
+    *,
+    generated_at: Any,
+    last_deep_at: Any,
+    now_time: dt.datetime | None = None,
+    max_age_seconds: int = 172800,
+) -> dict[str, Any]:
+    """Classify deep evidence freshness without treating missing data as fresh."""
+    now_time = now_time or dt.datetime.now(dt.timezone.utc)
+    if now_time.tzinfo is None:
+        now_time = now_time.replace(tzinfo=dt.timezone.utc)
+    parsed = _parse_time(last_deep_at)
+    if parsed is None:
+        return {
+            "status": "unknown",
+            "last_deep_at": last_deep_at,
+            "generated_at": generated_at,
+            "age_seconds": None,
+            "max_age_seconds": max(0, int(max_age_seconds)),
+            "reason": "deep_snapshot_missing_or_timestamp_invalid",
+        }
+    age = max(0, int((now_time.astimezone(dt.timezone.utc) - parsed).total_seconds()))
+    limit = max(0, int(max_age_seconds))
+    return {
+        "status": "fresh" if age <= limit else "stale",
+        "last_deep_at": parsed.isoformat(),
+        "generated_at": generated_at,
+        "age_seconds": age,
+        "max_age_seconds": limit,
+        "reason": "within_deep_refresh_window" if age <= limit else "deep_snapshot_older_than_policy_window",
+    }
+
+
+def coverage_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Summarize evidence coverage while keeping runtime failures separate from pressure."""
+    rows = [dict(item) for item in records if isinstance(item, Mapping)]
+    adapters = sorted({str(item.get("source_adapter") or "unknown") for item in rows})
+    required_evidence = ("process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs")
+    runtime_errors: list[dict[str, Any]] = []
+    pressure_findings: list[dict[str, Any]] = []
+    physical_measured = 0
+    fingerprint_complete = 0
+    evidence_complete = 0
+    for row in rows:
+        candidate_id = str(row.get("candidate_id") or "")
+        physical = row.get("physical_bytes")
+        if isinstance(physical, int) and physical >= 0:
+            physical_measured += 1
+            if physical > 0:
+                pressure_findings.append({
+                    "candidate_id": candidate_id,
+                    "path": row.get("path"),
+                    "physical_bytes": physical,
+                    "reclaimable_bytes": row.get("reclaimable_bytes"),
+                    "source": "candidate_physical_measurement",
+                })
+        fingerprint = _mapping(row.get("fingerprint"))
+        if fingerprint.get("complete") is True and fingerprint.get("digest"):
+            fingerprint_complete += 1
+        evidence = _mapping(row.get("evidence"))
+        complete = True
+        for key in required_evidence:
+            value = _mapping(evidence.get(key))
+            if key not in evidence or value.get("checked") is False:
+                complete = False
+            if value.get("error") or value.get("errors"):
+                runtime_errors.append({
+                    "candidate_id": candidate_id,
+                    "path": row.get("path"),
+                    "surface": key,
+                    "error": value.get("error") or value.get("errors"),
+                })
+        physical_evidence = _mapping(evidence.get("physical_size"))
+        if physical_evidence.get("error") or physical_evidence.get("ok") is False:
+            runtime_errors.append({
+                "candidate_id": candidate_id,
+                "path": row.get("path"),
+                "surface": "physical_size",
+                "error": physical_evidence.get("error") or "physical measurement unavailable",
+            })
+        if complete:
+            evidence_complete += 1
+    return {
+        "discovered": len(rows),
+        "observed": len(rows),
+        "adapters": adapters,
+        "adapter_count": len(adapters),
+        "physical_measured": physical_measured,
+        "physical_unknown": max(0, len(rows) - physical_measured),
+        "fingerprint_complete": fingerprint_complete,
+        "fingerprint_incomplete": max(0, len(rows) - fingerprint_complete),
+        "evidence_complete": evidence_complete,
+        "evidence_incomplete": max(0, len(rows) - evidence_complete),
+        "runtime_errors": runtime_errors[:200],
+        "pressure_findings": pressure_findings[:200],
+        "runtime_error_count": len(runtime_errors),
+        "pressure_finding_count": len(pressure_findings),
+    }
 
 
 def _blocker(code: str, source: str, detail: Any = None) -> dict[str, Any]:
@@ -519,6 +626,7 @@ def candidate_record(
         "source_adapter": observation.get("source_adapter"),
         "exists": observation.get("exists") is True,
         "physical_bytes": observation.get("physical_bytes"),
+        "size_basis": "physical_allocated_bytes",
         "reclaimable_bytes": reclaimable_bytes,
         "fingerprint": dict(_mapping(observation.get("fingerprint"))),
         "latest_mtime": observation.get("latest_mtime"),
@@ -648,6 +756,7 @@ def candidates_document(
             deduped[str(record["candidate_id"])] = record
     records = apply_overlap_guards(list(deduped.values()))
     records.sort(key=lambda item: (_safe_int(item.get("reclaimable_bytes")), _safe_int(item.get("physical_bytes"))), reverse=True)
+    coverage = coverage_summary(records)
     current_ids = {str(item.get("candidate_id")) for item in records}
     retired = [
         {
@@ -685,6 +794,17 @@ def candidates_document(
             "missing_or_expired_claim_is_not_permission": True,
             "owner_verdicts_cannot_be_overridden": True,
         },
+        "coverage": coverage,
+        "runtime_errors": list(coverage.get("runtime_errors", [])),
+        "pressure_findings": list(coverage.get("pressure_findings", [])),
+        "freshness": {
+            "status": "fresh" if deep else "unknown",
+            "last_deep_at": generated_at if deep else None,
+            "generated_at": generated_at,
+            "age_seconds": 0 if deep else None,
+            "max_age_seconds": _safe_int(merged_policy(configured_policy).get("deep_max_age_seconds"), 172800),
+            "reason": "deep_refresh_completed" if deep else "light_refresh_requires_prior_deep_snapshot",
+        },
         "summary": {
             "candidates": len(records),
             "ready": sum(1 for item in records if item.get("verdict") in READY_VERDICTS),
@@ -694,6 +814,10 @@ def candidates_document(
             "retired": len(retired),
             "physical_bytes": sum(max(0, _safe_int(item.get("physical_bytes"))) for item in records),
             "reclaimable_bytes": sum(max(0, _safe_int(item.get("reclaimable_bytes"))) for item in records if not item.get("overlap")),
+            "physical_measured": coverage.get("physical_measured"),
+            "fingerprint_complete": coverage.get("fingerprint_complete"),
+            "runtime_error_count": coverage.get("runtime_error_count"),
+            "pressure_finding_count": coverage.get("pressure_finding_count"),
             "by_verdict": by_verdict,
         },
         "changes": [
@@ -721,6 +845,10 @@ def candidate_history_event(document: Mapping[str, Any]) -> dict[str, Any]:
         "generated_at": document.get("generated_at"),
         "deep": document.get("deep") is True,
         "last_deep_at": document.get("last_deep_at"),
+        "freshness": document.get("freshness"),
+        "coverage": document.get("coverage"),
+        "runtime_errors": document.get("runtime_errors", []),
+        "pressure_findings": document.get("pressure_findings", []),
         "snapshot_id": document.get("snapshot_id"),
         "summary": document.get("summary"),
         "changes": document.get("changes"),
@@ -732,6 +860,7 @@ def candidate_history_event(document: Mapping[str, Any]) -> dict[str, Any]:
                 "kind": item.get("kind"),
                 "verdict": item.get("verdict"),
                 "physical_bytes": item.get("physical_bytes"),
+                "size_basis": item.get("size_basis", "physical_allocated_bytes"),
                 "reclaimable_bytes": item.get("reclaimable_bytes"),
                 "fingerprint_digest": _mapping(item.get("fingerprint")).get("digest"),
                 "fingerprint_complete": _mapping(item.get("fingerprint")).get("complete") is True,
@@ -795,6 +924,7 @@ def explain_candidate(document: Mapping[str, Any], candidate_id: str) -> dict[st
             "reasons": candidate.get("reasons"),
             "blockers": candidate.get("blockers"),
             "physical_bytes": candidate.get("physical_bytes"),
+            "size_basis": candidate.get("size_basis", "physical_allocated_bytes"),
             "reclaimable_bytes": candidate.get("reclaimable_bytes"),
             "recovery": _mapping(candidate.get("evidence")).get("recovery"),
             "replacement": _mapping(candidate.get("evidence")).get("replacement"),

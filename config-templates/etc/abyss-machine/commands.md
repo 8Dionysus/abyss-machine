@@ -760,6 +760,10 @@ abyss-machine storage lifecycle reap --limit 1 --json
 abyss-machine resource launch --workspace /srv/abyss-machine/tmp/OWNER/JOB --workspace-owner OWNER -- COMMAND...
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_USER_HOME}}/.cache/example --json
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --json
+abyss-machine storage write-reservation acquire --reservation-id ID --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --owner OWNER --ttl-seconds 3600 --json
+abyss-machine storage write-reservation release --reservation-id ID --json
+abyss-machine storage write-reservation expire --json
+abyss-machine storage write-reservation list --json
 abyss-machine storage apply --action-id ID --dry-run --json
 abyss-machine storage hooks --json
 abyss-machine storage podman-preflight --json
@@ -841,6 +845,7 @@ storage candidate claims: {{ABYSS_MACHINE_STATE}}/storage/candidates/claims
 storage candidate deep timer: abyss-storage-candidates-deep.timer, user scope, daily, low CPU/IO priority, stdout suppressed
 storage write preflight latest: {{ABYSS_MACHINE_STATE}}/storage/write-preflight/latest.json
 storage write preflight history: {{ABYSS_MACHINE_STATE}}/storage/write-preflight/YYYY/MM/YYYY-MM-DD.jsonl
+storage write reservations: {{ABYSS_MACHINE_STATE}}/storage/reservations; explicit flock-protected accounting leases with expiry, never a write permission or a data reservation
 storage apply latest: {{ABYSS_MACHINE_STATE}}/storage/apply/latest.json
 storage apply history: {{ABYSS_MACHINE_STATE}}/storage/apply/YYYY/MM/YYYY-MM-DD.jsonl
 process snapshots: {{ABYSS_MACHINE_STATE}}/processes/latest.json and {{ABYSS_MACHINE_STATE}}/processes/snapshots/YYYY/MM/YYYY-MM-DD.jsonl
@@ -903,7 +908,7 @@ storage monitor rule: `abyss-machine storage monitor --json` refreshes light inv
 storage candidate rule: hourly refresh carries the last deep evidence age without promoting readiness; daily, pressure, or significant-growth deep refresh rechecks exact owner/process/mount/service/container/config/runtime/Git/Podman/Vault/fingerprint gates
 storage candidate apply boundary: a ready verdict still requires `storage candidates validate`, a candidate-bound approval, immediate no-drift preflight, and an external owner executor; this source stage records approval/receipt but performs no automatic deletion
 .aoa candidate rule: use only the session-memory owner `maintenance-cleanup` dry-run verdict; generic age/size/process heuristics cannot override it
-write preflight rule: `abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json` must run before large generated writes; it returns allow/reroute/cleanup_first/deny and never creates files
+write preflight rule: `abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json` must run before large generated writes; it returns allow/reroute/cleanup_first/deny, reports physical capacity available to the user, accounts for active write leases, and never creates or reserves data files
 apply rule: `abyss-machine storage apply --action-id ID --dry-run --json` is the first apply step; actual apply requires `--confirm`, re-runs guard/hooks, and only executes allowlisted actions
 active-process guard: if cleanup-plan marks a path `blocked_active_process`, treat it as busy and do not clean it until the process exits or the operator explicitly accepts the consequence
 ```

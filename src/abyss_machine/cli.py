@@ -198,6 +198,7 @@ globals().update(
         "storage_contracts",
         "storage_lifecycle_adapters",
         "storage_lifecycle_contracts",
+        "storage_reservations",
         "topology_contracts",
         "typing_atspi_adapters",
         "typing_browser_adapters",
@@ -234,6 +235,7 @@ try:
     from . import runtime_evidence_contracts
     from . import storage_candidate_adapters
     from . import storage_candidate_contracts
+    from . import storage_reservations
     from . import typing_capture_contracts
     from .nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
@@ -457,6 +459,10 @@ STORAGE_MONITOR_ROOT = STORAGE_STATE_ROOT / "monitor"
 STORAGE_MONITOR_LATEST_PATH = STORAGE_MONITOR_ROOT / "latest.json"
 STORAGE_WRITE_PREFLIGHT_ROOT = STORAGE_STATE_ROOT / "write-preflight"
 STORAGE_WRITE_PREFLIGHT_LATEST_PATH = STORAGE_WRITE_PREFLIGHT_ROOT / "latest.json"
+STORAGE_RESERVATIONS_ROOT = path_from_env(
+    "ABYSS_MACHINE_STORAGE_RESERVATIONS_ROOT",
+    STORAGE_STATE_ROOT / "reservations",
+)
 STORAGE_APPLY_ROOT = STORAGE_STATE_ROOT / "apply"
 STORAGE_APPLY_LATEST_PATH = STORAGE_APPLY_ROOT / "latest.json"
 STORAGE_CANDIDATES_ROOT = path_from_env("ABYSS_MACHINE_STORAGE_CANDIDATES_ROOT", STORAGE_STATE_ROOT / "candidates")
@@ -7679,6 +7685,15 @@ def du_size_bytes(path: Path, timeout: float = 20.0) -> int | None:
     )
 
 
+def du_physical_size_bytes(path: Path, timeout: float = 20.0) -> int | None:
+    return storage_adapters.measure_path_physical_size_bytes(
+        path,
+        timeout=timeout,
+        command_exists=command_exists,
+        command_runner=run,
+    )
+
+
 def path_mtime_iso(path: Path) -> str | None:
     return storage_adapters.path_mtime_iso(path)
 
@@ -7704,7 +7719,13 @@ def existing_ancestor(path: Path) -> Path:
 
 
 def disk_usage_summary(path: Path) -> dict[str, Any]:
-    return storage_adapters.disk_usage_summary(path)
+    return storage_adapters.disk_usage_summary(path, statvfs=os.statvfs)
+
+
+def routed_home_cache_path(*parts: str) -> Path:
+    """Return the policy user's cache route without embedding an operator name."""
+    relative_home = Path(*ABYSS_USER_HOME.parts[1:]) if ABYSS_USER_HOME.is_absolute() else ABYSS_USER_HOME
+    return ABYSS_MACHINE_CACHE_ROOT / relative_home / "cache" / Path(*parts)
 
 
 def path_storage_status(path: Path, expected_target: Path | None = None, include_size: bool = True) -> dict[str, Any]:
@@ -7870,7 +7891,7 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
                 direct_paths.append(candidate)
     direct_status = [path_storage_status(path, include_size=full_ai_scan and path.exists()) for path in direct_paths]
 
-    home = Path.home()
+    home = ABYSS_USER_HOME
     podman_store, podman_store_error = podman_store_summary(timeout=8.0)
     podman_graphroot = podman_graphroot_from_store(podman_store)
     podman_target = rootless_podman_target_graphroot()
@@ -7882,13 +7903,13 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
         direct_status.append(podman_direct)
     residual_specs = [
         ("home_huggingface", home / ".cache/huggingface", AI_CACHE_ROOT / "huggingface"),
-        ("home_pip", home / ".cache/pip", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/pip"),
+        ("home_pip", home / ".cache/pip", routed_home_cache_path("pip")),
         ("home_torch", home / ".cache/torch", AI_CACHE_ROOT / "torch"),
         ("home_torch_extensions", home / ".cache/torch_extensions", AI_CACHE_ROOT / "torch_extensions"),
         ("home_triton", home / ".triton", AI_CACHE_ROOT / "triton"),
-        ("home_ms_playwright", home / ".cache/ms-playwright", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ms-playwright"),
-        ("home_puppeteer", home / ".cache/puppeteer", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/puppeteer"),
-        ("home_npu_cache", home / ".cache/ze_intel_npu_cache", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ze_intel_npu_cache"),
+        ("home_ms_playwright", home / ".cache/ms-playwright", routed_home_cache_path("ms-playwright")),
+        ("home_puppeteer", home / ".cache/puppeteer", routed_home_cache_path("puppeteer")),
+        ("home_npu_cache", home / ".cache/ze_intel_npu_cache", routed_home_cache_path("ze_intel_npu_cache")),
         ("home_nltk_data", home / "nltk_data", AI_CACHE_ROOT / "nltk_data"),
     ]
     if not podman_on_large_root:
@@ -7941,6 +7962,11 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "srv": srv_usage,
             "abyss_machine": disk_usage_summary(ABYSS_MACHINE_ROOT),
         },
+        "size_metrics": {
+            "direct_and_residual_size_basis": "apparent",
+            "inventory_size_basis": "physical_allocated_bytes",
+            "available_to_user_source": "statvfs.f_bavail",
+        },
         "direct_paths": direct_status,
         "residual_paths": residual_status,
         "environment_routes": storage_cache_env_routes(),
@@ -7992,6 +8018,8 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "generated_at": write_preflight_latest.get("generated_at") if isinstance(write_preflight_latest, dict) else None,
             "decision": write_preflight_latest.get("decision") if isinstance(write_preflight_latest, dict) else None,
             "reasons": write_preflight_latest.get("reasons") if isinstance(write_preflight_latest, dict) else None,
+            "reservations_root": str(STORAGE_RESERVATIONS_ROOT),
+            "reservations": write_preflight_latest.get("reservations") if isinstance(write_preflight_latest, dict) else None,
         },
         "apply": {
             "latest": str(STORAGE_APPLY_LATEST_PATH),
@@ -8006,6 +8034,11 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "exists": STORAGE_CANDIDATES_LATEST_PATH.exists(),
             "generated_at": candidates_latest.get("generated_at") if isinstance(candidates_latest, dict) else None,
             "snapshot_id": candidates_latest.get("snapshot_id") if isinstance(candidates_latest, dict) else None,
+            "deep": candidates_latest.get("deep") if isinstance(candidates_latest, dict) else None,
+            "freshness": candidates_latest.get("freshness") if isinstance(candidates_latest, dict) else None,
+            "coverage": candidates_latest.get("coverage") if isinstance(candidates_latest, dict) else None,
+            "runtime_errors": candidates_latest.get("runtime_errors") if isinstance(candidates_latest, dict) else None,
+            "pressure_findings": candidates_latest.get("pressure_findings") if isinstance(candidates_latest, dict) else None,
             "summary": candidates_latest.get("summary") if isinstance(candidates_latest, dict) else None,
             "commands": storage_candidate_paths().get("commands"),
         },
@@ -8024,6 +8057,7 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "residual_paths_present": sum(1 for item in residual_status if item.get("exists")),
             "residual_paths_requiring_migration": sum(1 for item in residual_status if item.get("migration_required")),
             "residual_bytes_requiring_migration": residual_bytes,
+            "residual_bytes_basis": "apparent" if full_ai_scan else None,
             "executable_hooks": hooks.get("summary", {}).get("executable_hooks"),
             "latest_process_snapshot": process_latest.get("generated_at"),
             "podman_migration_required": podman_latest.get("migration_required") if isinstance(podman_latest, dict) else None,
@@ -8052,6 +8086,10 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "cleanup_plan_refresh": ["abyss-machine", "storage", "cleanup-plan", "--refresh-inventory", "--json"],
             "monitor": ["abyss-machine", "storage", "monitor", "--json"],
             "write_preflight": ["abyss-machine", "storage", "write-preflight", "--kind", "KIND", "--bytes", "BYTES", "--target", "PATH", "--json"],
+            "write_reservation_acquire": ["abyss-machine", "storage", "write-reservation", "acquire", "--reservation-id", "ID", "--kind", "KIND", "--bytes", "BYTES", "--target", "PATH", "--owner", "OWNER", "--ttl-seconds", "3600", "--json"],
+            "write_reservation_release": ["abyss-machine", "storage", "write-reservation", "release", "--reservation-id", "ID", "--json"],
+            "write_reservation_expire": ["abyss-machine", "storage", "write-reservation", "expire", "--json"],
+            "write_reservation_list": ["abyss-machine", "storage", "write-reservation", "list", "--json"],
             "apply_dry_run": ["abyss-machine", "storage", "apply", "--action-id", "ID", "--dry-run", "--json"],
             "apply_confirm": ["abyss-machine", "storage", "apply", "--action-id", "ID", "--confirm", "--json"],
             "candidates_refresh": ["abyss-machine", "storage", "candidates", "refresh", "--json"],
@@ -8092,7 +8130,8 @@ def podman_text(cmd: list[str], timeout: float = 10.0) -> tuple[str, str | None]
 
 
 def rootless_podman_target_graphroot() -> Path:
-    return ABYSS_MACHINE_STORAGE_ROOT / "home/operator/containers/storage"
+    relative_home = Path(*ABYSS_USER_HOME.parts[1:]) if ABYSS_USER_HOME.is_absolute() else ABYSS_USER_HOME
+    return ABYSS_MACHINE_STORAGE_ROOT / relative_home / "containers" / "storage"
 
 
 def podman_store_summary(timeout: float = 8.0) -> tuple[dict[str, Any], str | None]:
@@ -8105,7 +8144,7 @@ def podman_store_summary(timeout: float = 8.0) -> tuple[dict[str, Any], str | No
 
 def podman_graphroot_from_store(store: dict[str, Any] | None = None) -> Path:
     store = store if isinstance(store, dict) else {}
-    return Path(str(store.get("graphRoot") or Path.home() / ".local/share/containers/storage"))
+    return Path(str(store.get("graphRoot") or ABYSS_USER_HOME / ".local/share/containers/storage"))
 
 
 def redact_container_mount(mount: dict[str, Any]) -> dict[str, Any]:
@@ -8198,7 +8237,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
     blocked_reasons: list[str] = []
     if migration_required and active:
         blocked_reasons.append("running_containers")
-    if migration_required and ((Path.home() / ".local/share/containers").is_symlink() or graph_root.is_symlink()):
+    if migration_required and ((ABYSS_USER_HOME / ".local/share/containers").is_symlink() or graph_root.is_symlink()):
         blocked_reasons.append("existing_symlink_route")
     if migration_required and not graph_root.exists():
         blocked_reasons.append("graphroot_missing")
@@ -8242,7 +8281,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
             "latest": str(PODMAN_PREFLIGHT_LATEST_PATH),
             "daily_glob": str(PODMAN_PREFLIGHT_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
             "migration_script": str(ABYSS_MACHINE_STORAGE_ROOT / "migrate-podman-rootless.sh"),
-            "storage_conf": str(Path.home() / ".config/containers/storage.conf"),
+            "storage_conf": str(ABYSS_USER_HOME / ".config/containers/storage.conf"),
             "source_graphroot": str(graph_root),
             "target_graphroot": str(target_graphroot),
             "work_context_root": "/srv/work",
@@ -8273,7 +8312,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
             "active_named_volume_mounts": [item for item in named_volume_mounts if item.get("container") in {c.get("name") for c in active}],
         },
         "symlinks": {
-            "containers_base_is_symlink": (Path.home() / ".local/share/containers").is_symlink(),
+            "containers_base_is_symlink": (ABYSS_USER_HOME / ".local/share/containers").is_symlink(),
             "graphroot_is_symlink": graph_root.is_symlink(),
         },
         "hooks": {
@@ -8302,7 +8341,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
 
 
 def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str, Any]]:
-    home = Path.home()
+    home = ABYSS_USER_HOME
     podman_store, podman_error = podman_store_summary(timeout=8.0)
     podman_graphroot = podman_graphroot_from_store(podman_store)
     podman_target = rootless_podman_target_graphroot()
@@ -8436,7 +8475,7 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
         },
         {
             "id": "home_npu_cache_routed",
-            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ze_intel_npu_cache"),
+            "path": str(routed_home_cache_path("ze_intel_npu_cache")),
             "category": "rebuildable_cache",
             "disposition": "cleanup_under_pressure",
             "reclaimability": "rebuildable",
@@ -8447,7 +8486,7 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
         },
         {
             "id": "home_pip_cache_routed",
-            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/pip"),
+            "path": str(routed_home_cache_path("pip")),
             "category": "rebuildable_cache",
             "disposition": "cleanup_under_pressure",
             "reclaimability": "redownloadable",
@@ -8595,8 +8634,18 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
     return specs
 
 
-def storage_inventory_item(spec: dict[str, Any], measure: bool = True) -> dict[str, Any]:
-    return storage_adapters.inventory_item_status(spec, measure=measure, size_bytes=du_size_bytes)
+def storage_inventory_item(
+    spec: dict[str, Any],
+    measure: bool = True,
+    include_apparent: bool = False,
+) -> dict[str, Any]:
+    return storage_adapters.inventory_item_status(
+        spec,
+        measure=measure,
+        size_bytes=du_size_bytes,
+        physical_size_bytes=du_physical_size_bytes,
+        apparent_size_bytes=du_size_bytes if include_apparent else None,
+    )
 
 
 def storage_inventory_drift(items: list[dict[str, Any]], previous: dict[str, Any] | None) -> dict[str, Any]:
@@ -8607,7 +8656,11 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
     previous, _ = load_json_document(STORAGE_INVENTORY_LATEST_PATH)
     specs = storage_inventory_specs(include_home_review=include_home_review or full)
     items = [
-        storage_inventory_item(spec, measure=bool(full or spec.get("measure_light", True)))
+        storage_inventory_item(
+            spec,
+            measure=bool(full or spec.get("measure_light", True)),
+            include_apparent=bool(full),
+        )
         for spec in specs
     ]
     by_category: dict[str, dict[str, Any]] = {}
@@ -8615,14 +8668,17 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
         category = str(item.get("category") or "unknown")
         bucket = by_category.setdefault(
             category,
-            {"items": 0, "existing": 0, "measured": 0, "unmeasured_existing": 0, "size_bytes": 0},
+            {"items": 0, "existing": 0, "measured": 0, "measurement_ok_items": 0, "unmeasured_existing": 0, "size_bytes": 0, "apparent_size_bytes": 0},
         )
         bucket["items"] = int(bucket["items"]) + 1
         if item.get("exists"):
             bucket["existing"] = int(bucket["existing"]) + 1
         if isinstance(item.get("size_bytes"), int):
             bucket["measured"] = int(bucket["measured"]) + 1
+            bucket["measurement_ok_items"] = int(bucket["measurement_ok_items"]) + 1
             bucket["size_bytes"] = int(bucket["size_bytes"]) + int(item["size_bytes"])
+            if isinstance(item.get("apparent_size_bytes"), int):
+                bucket["apparent_size_bytes"] = int(bucket["apparent_size_bytes"]) + int(item["apparent_size_bytes"])
         elif item.get("exists"):
             bucket["unmeasured_existing"] = int(bucket["unmeasured_existing"]) + 1
     pressure_candidates = [
@@ -8708,10 +8764,20 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
             "items": len(items),
             "existing_items": sum(1 for item in items if item.get("exists")),
             "measured_items": sum(1 for item in items if item.get("measured")),
+            "measurement_ok_items": sum(1 for item in items if item.get("measurement_ok")),
+            "measurement_failed_items": sum(1 for item in items if item.get("measured") and not item.get("measurement_ok")),
+            "measurement_coverage_percent": round(
+                100.0 * sum(1 for item in items if item.get("measurement_ok"))
+                / max(1, sum(1 for item in items if item.get("exists"))),
+                2,
+            ),
             "unmeasured_existing_items": sum(1 for item in items if item.get("exists") and not item.get("measured")),
             "measured_bytes": sum(int(item.get("size_bytes") or 0) for item in items),
+            "measured_physical_bytes": sum(int(item.get("physical_size_bytes") or item.get("size_bytes") or 0) for item in items),
+            "measured_apparent_bytes": sum(int(item.get("apparent_size_bytes") or 0) for item in items),
             "pressure_candidate_bytes": sum(int(item.get("size_bytes") or 0) for item in pressure_candidates),
             "pressure_candidate_unmeasured_items": sum(1 for item in pressure_candidates if not item.get("measured")),
+            "pressure_candidate_measurement_failed_items": sum(1 for item in pressure_candidates if item.get("measured") and not item.get("measurement_ok")),
             "manual_review_bytes": sum(int(item.get("size_bytes") or 0) for item in manual_only),
             "manual_review_unmeasured_items": sum(1 for item in manual_only if not item.get("measured")),
             "migrate_not_delete_bytes": sum(int(item.get("size_bytes") or 0) for item in migrate),
@@ -8725,6 +8791,8 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
         "recommendations": recommendations,
         "policy": {
             "facts_only": True,
+            "size_basis": "physical_allocated_bytes",
+            "apparent_size_available_in_full_mode": True,
             "automatic_deletion": False,
             "no_work_cleanup": True,
             "no_abyss_stack_mutation": True,
@@ -8883,6 +8951,7 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
             "srv_pressure_candidate_bytes": by_scope.get("srv", {}).get("size_bytes", 0),
             "work_protected_candidate_bytes": by_scope.get("work", {}).get("size_bytes", 0),
             "unmeasured_pressure_candidates": sum(1 for item in candidates if item.get("exists") and not isinstance(item.get("size_bytes"), int)),
+            "measurement_failed_pressure_candidates": sum(1 for item in candidates if item.get("exists") and item.get("measured") and not item.get("measurement_ok", isinstance(item.get("size_bytes"), int))),
         },
         "candidates": [
             {
@@ -8894,6 +8963,9 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
                 "reclaimability": item.get("reclaimability"),
                 "confidence": item.get("confidence"),
                 "size_bytes": item.get("size_bytes"),
+                "physical_size_bytes": item.get("physical_size_bytes", item.get("size_bytes")),
+                "apparent_size_bytes": item.get("apparent_size_bytes"),
+                "size_basis": item.get("size_basis", "physical"),
                 "measured": item.get("measured"),
                 "reason": item.get("reason"),
                 "safe_automatic_cleanup": bool(item.get("safe_automatic_cleanup")),
@@ -8906,6 +8978,8 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
         "recommendations": storage_pressure_recommendations(candidates, root_class, srv_class),
         "policy": {
             "facts_only": True,
+            "candidate_size_basis": "physical_allocated_bytes",
+            "available_to_user_source": "statvfs.f_bavail",
             "automatic_deletion": False,
             "cleanup_requires_cleanup_plan": True,
             "no_work_cleanup": True,
@@ -14990,6 +15064,49 @@ def storage_preflight_recommended_target(kind: str, requested: Path) -> str:
     return storage_contracts.preflight_recommended_target(kind, requested, routes=routes)
 
 
+def storage_reservations_list() -> dict[str, Any]:
+    return storage_reservations.list_reservations(STORAGE_RESERVATIONS_ROOT)
+
+
+def storage_reservation_acquire(
+    *,
+    reservation_id: str,
+    kind: str,
+    requested_bytes: int,
+    target: str,
+    owner: str,
+    ttl_seconds: int,
+) -> dict[str, Any]:
+    target_path = Path(target).expanduser()
+    protection = storage_path_protection(target_path)
+    if protection.get("decision") != "allow_candidate" or protection.get("class") != "host_owned_allowed":
+        return {
+            "schema": storage_reservations.SCHEMA,
+            "ok": False,
+            "decision": "blocked",
+            "reservation_id": reservation_id,
+            "error": "reservation_target_protected_or_unknown",
+            "protection": protection,
+        }
+    return storage_reservations.acquire_reservation(
+        STORAGE_RESERVATIONS_ROOT,
+        reservation_id=reservation_id,
+        kind=kind,
+        requested_bytes=requested_bytes,
+        target=target_path,
+        owner=owner,
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def storage_reservation_release(reservation_id: str) -> dict[str, Any]:
+    return storage_reservations.release_reservation(STORAGE_RESERVATIONS_ROOT, reservation_id)
+
+
+def storage_reservations_expire() -> dict[str, Any]:
+    return storage_reservations.expire_reservations(STORAGE_RESERVATIONS_ROOT)
+
+
 def storage_write_preflight(
     kind: str,
     bytes_required: int,
@@ -15012,6 +15129,16 @@ def storage_write_preflight(
     recommended_path = Path(recommended)
     recommended_usage = disk_usage_summary(recommended_path)
     target_usage = disk_usage_summary(target_path)
+    target_reservations = storage_reservations.capacity_snapshot(STORAGE_RESERVATIONS_ROOT, target_path)
+    recommended_reservations = storage_reservations.capacity_snapshot(STORAGE_RESERVATIONS_ROOT, recommended_path)
+    target_decision_usage = dict(target_usage)
+    recommended_decision_usage = dict(recommended_usage)
+    available_after_reservations = target_reservations.get("available_after_reservations_bytes")
+    if isinstance(available_after_reservations, int):
+        target_decision_usage["available_to_user_bytes"] = available_after_reservations
+    recommended_available_after = recommended_reservations.get("available_after_reservations_bytes")
+    if isinstance(recommended_available_after, int):
+        recommended_decision_usage["available_to_user_bytes"] = recommended_available_after
     large_write_threshold = 1024 * 1024 * 1024
     min_free_after = max(5 * 1024 * 1024 * 1024, int(requested_bytes * 0.10))
     decision_result = storage_contracts.write_preflight_decision(
@@ -15019,10 +15146,11 @@ def storage_write_preflight(
         requested_bytes=requested_bytes,
         protection=protection,
         pressure_summary=pressure_summary,
-        target_usage=target_usage,
-        recommended_usage=recommended_usage,
+        target_usage=target_decision_usage,
+        recommended_usage=recommended_decision_usage,
         large_write_threshold=large_write_threshold,
         min_free_after=min_free_after,
+        reservations_ok=bool(target_reservations.get("ok", True) and recommended_reservations.get("ok", True)),
     )
     decision = str(decision_result["decision"])
     reasons = list(decision_result["reasons"])
@@ -15084,6 +15212,7 @@ def storage_write_preflight(
             "protection": protection,
             "usage": target_usage,
             "free_after_bytes": decision_result["free_after_bytes"],
+            "available_after_reservations_bytes": target_reservations.get("available_after_reservations_bytes"),
         },
         "recommended_target": {
             "protection": storage_path_protection(recommended_path),
@@ -15093,6 +15222,8 @@ def storage_write_preflight(
         "policy": {
             "facts_only": True,
             "creates_or_reserves_files": False,
+            "accounts_for_active_reservations": True,
+            "reservation_state_fail_closed": True,
             "large_write_threshold_bytes": large_write_threshold,
             "min_free_after_bytes": min_free_after,
             "host_owned_large_root": str(ABYSS_MACHINE_ROOT),
@@ -15105,6 +15236,11 @@ def storage_write_preflight(
             "process_guard_not_a_write_admission_input": True,
         },
         "hooks": {"pre_large_write": hooks},
+        "reservations": {
+            "target": target_reservations,
+            "recommended_target": recommended_reservations,
+        },
+        "capacity_basis": decision_result.get("capacity_basis"),
         "commands": {
             "monitor": ["abyss-machine", "storage", "monitor", "--json"],
             "cleanup_plan": ["abyss-machine", "storage", "cleanup-plan", "--json"],
@@ -15272,6 +15408,13 @@ def storage_paths() -> dict[str, Any]:
             "status": "abyss-machine storage lifecycle status --json",
             "reap": "abyss-machine storage lifecycle reap --limit 1 --json",
         },
+    }
+    document["reservations"] = {
+        "root": str(STORAGE_RESERVATIONS_ROOT),
+        "records": str(STORAGE_RESERVATIONS_ROOT / "records"),
+        "lock": str(STORAGE_RESERVATIONS_ROOT / ".lock"),
+        "command": "abyss-machine storage write-reservation",
+        "automatic_write": False,
     }
     return document
 
@@ -15456,9 +15599,16 @@ def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> di
 
 def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str) -> dict[str, Any]:
     manifests = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT)
+    configured_policy = storage_candidate_policy()
     known_ids = {str(item.get("candidate_id") or "") for item in previous.get("candidates", []) if isinstance(item, dict)}
     pending_manifest_ids = [str(item.get("candidate_id")) for item in manifests if item.get("valid") is True and str(item.get("candidate_id") or "") not in known_ids]
     if not previous.get("candidates"):
+        coverage = storage_candidate_contracts.coverage_summary([])
+        freshness = storage_candidate_contracts.freshness_status(
+            generated_at=generated_at,
+            last_deep_at=None,
+            max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
+        )
         return {
             "schema": f"{SCHEMA_PREFIX}_storage_candidates_v1",
             "version": VERSION,
@@ -15466,18 +15616,34 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
             "ok": True,
             "deep": False,
             "snapshot_id": None,
-            "summary": {"candidates": 0, "ready": 0, "delete_ready": 0, "archive_ready": 0, "changed": 0, "retired": 0, "physical_bytes": 0, "reclaimable_bytes": 0, "by_verdict": {}},
+            "summary": {"candidates": 0, "ready": 0, "delete_ready": 0, "archive_ready": 0, "changed": 0, "retired": 0, "physical_bytes": 0, "reclaimable_bytes": 0, "physical_measured": 0, "fingerprint_complete": 0, "runtime_error_count": 0, "pressure_finding_count": 0, "by_verdict": {}},
+            "coverage": coverage,
+            "freshness": freshness,
+            "runtime_errors": [],
+            "pressure_findings": [],
+            "refresh_result": {"mode": "light", "status": "needs_deep_seed", "new_results": 0},
             "changes": [],
             "candidates": [],
             "retired": [],
             "paths": storage_candidate_paths(),
-            "light_refresh": {"mode": "carry_forward_only", "needs_deep_seed": True, "manifest_count": len(manifests), "pending_manifest_candidate_ids": pending_manifest_ids},
-            "policy": {**storage_candidate_policy(), "automatic_deletion": False},
+            "light_refresh": {"mode": "carry_forward_only", "needs_deep_seed": True, "manifest_count": len(manifests), "pending_manifest_candidate_ids": pending_manifest_ids, "freshness": freshness},
+            "policy": {**configured_policy, "automatic_deletion": False},
         }
     document = json.loads(json.dumps(previous))
-    prior_generated = storage_candidate_contracts.parse_time(previous.get("last_deep_at") or previous.get("generated_at"))
+    # A light snapshot timestamp is not deep evidence freshness.  Keep the
+    # age unknown when older state never recorded a deep timestamp.
+    prior_generated = storage_candidate_contracts.parse_time(previous.get("last_deep_at"))
     now_time = storage_candidate_contracts.parse_time(generated_at)
     evidence_age = int((now_time - prior_generated).total_seconds()) if now_time and prior_generated else None
+    freshness = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=previous.get("last_deep_at"),
+        now_time=now_time,
+        max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
+    )
+    coverage = storage_candidate_contracts.coverage_summary(previous.get("candidates", []))
+    coverage["mode"] = "light_carry_forward"
+    coverage["new_results"] = 0
     document.update({"version": VERSION, "generated_at": generated_at, "deep": False, "changes": []})
     if isinstance(document.get("summary"), dict):
         document["summary"]["changed"] = 0
@@ -15489,7 +15655,13 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
         "ready_verdicts_require_deep_validate_before_apply": True,
         "manifest_count": len(manifests),
         "pending_manifest_candidate_ids": pending_manifest_ids,
+        "freshness": freshness,
     }
+    document["freshness"] = freshness
+    document["coverage"] = coverage
+    document["runtime_errors"] = coverage.get("runtime_errors", [])
+    document["pressure_findings"] = coverage.get("pressure_findings", [])
+    document["refresh_result"] = {"mode": "light", "status": "carry_forward", "new_results": 0}
     document.setdefault("policy", {})["automatic_deletion"] = False
     document["paths"] = storage_candidate_paths()
     return document
@@ -15502,7 +15674,12 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
     if not deep:
         data = storage_candidate_light_refresh(previous, generated_at)
     else:
-        specs = storage_candidate_discover_specs(artifact_snapshot=artifact_snapshot)
+        discovery_errors: list[dict[str, Any]] = []
+        try:
+            specs = storage_candidate_discover_specs(artifact_snapshot=artifact_snapshot)
+        except Exception as exc:  # bounded route: persist the failure instead of claiming a fresh scan
+            specs = []
+            discovery_errors.append({"surface": "discovery", "error": str(exc)[:1000]})
         claims = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_CLAIMS_ROOT)
         runtime_documents = storage_candidate_runtime_documents()
         lane_documents = storage_candidate_lane_documents()
@@ -15511,29 +15688,32 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
         observations: list[dict[str, Any]] = []
         for spec in specs:
             path_text = str(spec.get("path") or "")
-            virtual = path_text.startswith("podman://")
-            protection = {"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text))
-            artifact_spec = artifact_spec_for_path(Path(path_text)) if spec.get("source_adapter") == "artifact_snapshot" and not virtual else {}
-            service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
-            container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
-            config_refs = config_by_path.get(path_text, {"checked": virtual, "active": False, "hits": []})
-            for evidence in (service_refs, container_refs, config_refs):
-                evidence.setdefault("checked", not evidence.get("error"))
-                evidence.setdefault("active", False)
-            observations.append(storage_candidate_adapters.collect_observation(
-                spec,
-                protection=protection,
-                process_refs=process_by_path.get(path_text, {"checked": virtual, "active": False, "refs": []}),
-                claims=claims,
-                runtime_documents=runtime_documents,
-                lane_documents=lane_documents,
-                deep=True,
-                generated_at=generated_at,
-                max_fingerprint_entries=50_000,
-                service_refs=service_refs,
-                container_refs=container_refs,
-                config_refs=config_refs,
-            ))
+            try:
+                virtual = path_text.startswith("podman://")
+                protection = {"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text))
+                artifact_spec = artifact_spec_for_path(Path(path_text)) if spec.get("source_adapter") == "artifact_snapshot" and not virtual else {}
+                service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
+                container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
+                config_refs = config_by_path.get(path_text, {"checked": virtual, "active": False, "hits": []})
+                for evidence in (service_refs, container_refs, config_refs):
+                    evidence.setdefault("checked", not evidence.get("error"))
+                    evidence.setdefault("active", False)
+                observations.append(storage_candidate_adapters.collect_observation(
+                    spec,
+                    protection=protection,
+                    process_refs=process_by_path.get(path_text, {"checked": virtual, "active": False, "refs": []}),
+                    claims=claims,
+                    runtime_documents=runtime_documents,
+                    lane_documents=lane_documents,
+                    deep=True,
+                    generated_at=generated_at,
+                    max_fingerprint_entries=50_000,
+                    service_refs=service_refs,
+                    container_refs=container_refs,
+                    config_refs=config_refs,
+                ))
+            except Exception as exc:  # one inaccessible candidate must not erase the snapshot
+                discovery_errors.append({"surface": "observation", "path": path_text, "error": str(exc)[:1000]})
         data = storage_candidate_contracts.candidates_document(
             observations,
             previous_document=previous,
@@ -15545,6 +15725,28 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
             deep=True,
         )
         data["last_deep_at"] = generated_at
+        coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+        coverage["mode"] = "deep"
+        coverage["new_results"] = len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0
+        if discovery_errors:
+            coverage["runtime_errors"] = list(coverage.get("runtime_errors", [])) + discovery_errors
+            coverage["runtime_error_count"] = len(coverage["runtime_errors"])
+        data["ok"] = not bool(discovery_errors)
+        data["coverage"] = coverage
+        data["runtime_errors"] = list(coverage.get("runtime_errors", []))
+        data["pressure_findings"] = list(coverage.get("pressure_findings", []))
+        data["freshness"] = storage_candidate_contracts.freshness_status(
+            generated_at=generated_at,
+            last_deep_at=generated_at,
+            max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
+        )
+        data["refresh_result"] = {
+            "mode": "deep",
+            "status": "new_results" if data.get("candidates") else "no_results",
+            "new_results": coverage.get("new_results", 0),
+            "runtime_error_count": coverage.get("runtime_error_count", 0),
+            "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+        }
     if write_latest:
         latest_error = safe_atomic_write_json(STORAGE_CANDIDATES_LATEST_PATH, data, 0o664)
         daily_error = safe_append_jsonl(
@@ -15607,6 +15809,11 @@ def storage_candidates_list(**filters: Any) -> dict[str, Any]:
         "error": error,
         "snapshot_id": document.get("snapshot_id"),
         "source_generated_at": document.get("generated_at"),
+        "source_deep": document.get("deep") is True,
+        "freshness": document.get("freshness"),
+        "coverage": document.get("coverage"),
+        "runtime_errors": document.get("runtime_errors", []),
+        "pressure_findings": document.get("pressure_findings", []),
         "summary": {"selected": len(candidates), "available": len(document.get("candidates", []))},
         "candidates": candidates,
     }
@@ -15618,6 +15825,8 @@ def storage_candidate_explain(candidate_id: str) -> dict[str, Any]:
     if result.get("ok"):
         candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else {}
         result["lifecycle"] = storage_candidate_lifecycle(candidate_id, base_state=str(candidate.get("lifecycle_state") or "classified"))
+        result["freshness"] = document.get("freshness") if isinstance(document, dict) else None
+        result["coverage"] = document.get("coverage") if isinstance(document, dict) else None
     return result
 
 
@@ -51555,6 +51764,27 @@ def main(argv: list[str]) -> int:
     storage_write_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
     storage_write_parser.add_argument("--target", required=True)
     storage_write_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_parser = storage_sub.add_parser(
+        "write-reservation",
+        help="atomically account for a bounded future write; does not create files",
+        description="Atomically account for a bounded future write; does not create files or grant write permission.",
+    )
+    storage_reservation_sub = storage_reservation_parser.add_subparsers(dest="storage_reservation_command", required=True)
+    storage_reservation_acquire_parser = storage_reservation_sub.add_parser("acquire")
+    storage_reservation_acquire_parser.add_argument("--reservation-id", required=True)
+    storage_reservation_acquire_parser.add_argument("--kind", required=True, choices=["model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact"])
+    storage_reservation_acquire_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
+    storage_reservation_acquire_parser.add_argument("--target", required=True)
+    storage_reservation_acquire_parser.add_argument("--owner", required=True)
+    storage_reservation_acquire_parser.add_argument("--ttl-seconds", type=int, default=3600)
+    storage_reservation_acquire_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_release_parser = storage_reservation_sub.add_parser("release")
+    storage_reservation_release_parser.add_argument("--reservation-id", required=True)
+    storage_reservation_release_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_expire_parser = storage_reservation_sub.add_parser("expire")
+    storage_reservation_expire_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_list_parser = storage_reservation_sub.add_parser("list")
+    storage_reservation_list_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_apply_parser = storage_sub.add_parser("apply")
     storage_apply_parser.add_argument("--action-id", required=True)
     storage_apply_parser.add_argument("--dry-run", action="store_true", help="plan only; this is also the default unless --confirm is passed")
@@ -53826,6 +54056,29 @@ def main(argv: list[str]) -> int:
                 print_json(data)
             else:
                 print_storage_write_preflight_text(data)
+            return 0 if data.get("ok") else 1
+        if args.storage_command == "write-reservation":
+            if args.storage_reservation_command == "acquire":
+                data = storage_reservation_acquire(
+                    reservation_id=str(args.reservation_id),
+                    kind=str(args.kind),
+                    requested_bytes=int(args.bytes_required),
+                    target=str(args.target),
+                    owner=str(args.owner),
+                    ttl_seconds=int(args.ttl_seconds),
+                )
+            elif args.storage_reservation_command == "release":
+                data = storage_reservation_release(str(args.reservation_id))
+            elif args.storage_reservation_command == "expire":
+                data = storage_reservations_expire()
+            elif args.storage_reservation_command == "list":
+                data = storage_reservations_list()
+            else:
+                parser.error("unknown storage write-reservation command")
+            if args.json:
+                print_json(data)
+            else:
+                print(f"storage reservation: {data.get('decision')} active={data.get('reservation', {}).get('active') if isinstance(data.get('reservation'), dict) else None}")
             return 0 if data.get("ok") else 1
         if args.storage_command == "apply":
             data = storage_apply(

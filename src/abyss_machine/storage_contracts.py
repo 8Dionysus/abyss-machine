@@ -562,20 +562,34 @@ def write_preflight_decision(
     recommended_usage: dict[str, Any],
     large_write_threshold: int,
     min_free_after: int,
+    reservations_ok: bool = True,
 ) -> dict[str, Any]:
+    target_capacity = (
+        target_usage.get("available_to_user_bytes")
+        if isinstance(target_usage.get("available_to_user_bytes"), int)
+        else target_usage.get("free_bytes")
+    )
+    recommended_capacity = (
+        recommended_usage.get("available_to_user_bytes")
+        if isinstance(recommended_usage.get("available_to_user_bytes"), int)
+        else recommended_usage.get("free_bytes")
+    )
     free_after = (
-        int(target_usage.get("free_bytes") or 0) - requested_bytes
-        if isinstance(target_usage.get("free_bytes"), int)
+        int(target_capacity or 0) - requested_bytes
+        if isinstance(target_capacity, int)
         else None
     )
     recommended_free_after = (
-        int(recommended_usage.get("free_bytes") or 0) - requested_bytes
-        if isinstance(recommended_usage.get("free_bytes"), int)
+        int(recommended_capacity or 0) - requested_bytes
+        if isinstance(recommended_capacity, int)
         else None
     )
     reasons: list[str] = []
     decision = "allow"
-    if kind not in VALID_WRITE_KINDS:
+    if reservations_ok is False:
+        decision = "deny"
+        reasons.append("reservation_state_invalid")
+    elif kind not in VALID_WRITE_KINDS:
         decision = "deny"
         reasons.append("invalid_kind")
     elif protection.get("decision") == "deny":
@@ -601,6 +615,10 @@ def write_preflight_decision(
         "reasons": reasons or ["target_matches_policy"],
         "free_after_bytes": free_after,
         "recommended_free_after_bytes": recommended_free_after,
+        "capacity_basis": {
+            "target": "available_to_user_bytes" if isinstance(target_usage.get("available_to_user_bytes"), int) else "free_bytes",
+            "recommended": "available_to_user_bytes" if isinstance(recommended_usage.get("available_to_user_bytes"), int) else "free_bytes",
+        },
     }
 
 
