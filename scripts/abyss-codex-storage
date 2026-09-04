@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Native Codex storage lifecycle entrypoint, source or installed package."""
+from pathlib import Path
+import sys
+
+source = Path(__file__).resolve().parents[1] / "src"
+sys.path.insert(0, str(source if (source / "abyss_machine").is_dir() else Path("/usr/local/libexec")))
+from abyss_machine.codex_storage_lifecycle import main
+
+raise SystemExit(main())
