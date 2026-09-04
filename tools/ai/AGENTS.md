@@ -30,14 +30,11 @@ under `/var/lib/abyss-machine/ai`. Large caches and runtimes belong under
 - Verify: `abyss-machine ai validate --json`, `abyss-machine resource validate
   --json`, and `abyss-machine docs mesh-validate --json`.
 
-## Read Before Editing
+## Route selection
 
-Read:
-
-- `/etc/abyss-machine/AGENTS.md`
-- `/srv/abyss-machine/tools/AGENTS.md`
-- `/var/lib/abyss-machine/ai/AGENTS.md`
-- `/var/lib/abyss-machine/resource/AGENTS.md` before heavy probes
+Use `/var/lib/abyss-machine/ai/AGENTS.md` when runtime evidence is involved and
+`/var/lib/abyss-machine/resource/AGENTS.md` before heavy probes. The inherited
+tools card supplies the common source and storage boundaries.
 
 ## Boundaries
 
@@ -49,11 +46,7 @@ Read:
 
 ## Validation
 
-```bash
-abyss-machine ai validate --json
-abyss-machine resource validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the AI route in `../VALIDATION.md#ai`.
 
 ## Closeout
 

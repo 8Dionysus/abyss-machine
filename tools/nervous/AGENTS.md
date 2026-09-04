@@ -28,14 +28,11 @@ belong under `/var/lib/abyss-machine/nervous`. Large captures belong under
 - Verify: `abyss-machine nervous validate --json` and `abyss-machine docs
   mesh-validate --json`.
 
-## Read Before Editing
+## Route selection
 
-Read:
-
-- `/etc/abyss-machine/AGENTS.md`
-- `/srv/abyss-machine/tools/AGENTS.md`
-- `/etc/abyss-machine/nervous/AGENTS.md`
-- `/var/lib/abyss-machine/nervous/AGENTS.md`
+Use the nervous config card for policy and the nervous state card for facts or
+validation evidence. The inherited tools card supplies the common source and
+storage boundaries.
 
 ## Boundaries
 
@@ -45,10 +42,7 @@ Read:
 
 ## Validation
 
-```bash
-abyss-machine nervous validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the nervous route in `../VALIDATION.md#nervous-and-browser-capture`.
 
 ## Closeout
 

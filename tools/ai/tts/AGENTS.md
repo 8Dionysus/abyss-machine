@@ -27,14 +27,11 @@ owning speech/dictation routes.
 - Verify: `abyss-machine ai validate --json`, `abyss-machine dictation validate
   --json`, and `abyss-machine docs mesh-validate --json`.
 
-## Read Before Editing
+## Route selection
 
-Read:
-
-- `/srv/abyss-machine/tools/ai/AGENTS.md`
-- `/var/lib/abyss-machine/ai/AGENTS.md`
-- `/var/lib/abyss-machine/dictation/AGENTS.md` when speech input/output routes
-  are affected
+Use the AI state card for runtime evidence and the dictation state card when
+speech input/output routes are affected. The parent AI-tools contract is
+inherited.
 
 ## Boundaries
 
@@ -46,11 +43,7 @@ Read:
 
 ## Validation
 
-```bash
-abyss-machine ai validate --json
-abyss-machine dictation validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the TTS route in `../../VALIDATION.md#tts`.
 
 ## Closeout
 

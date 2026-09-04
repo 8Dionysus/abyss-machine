@@ -4,9 +4,7 @@ This directory holds host-owned topology validation helpers.
 
 The canonical validator is:
 
-```bash
-abyss-machine topology validate --json
-```
+Run the topology route in `../VALIDATION.md#topology`.
 
 The shell wrapper in this directory exists for operator convenience and for
 future agents that are looking for a filesystem-local topology check, similar
@@ -37,7 +35,4 @@ to project-local topology skills.
 - After changing topology docs, bridge entries, or change-ledger behavior, run
   both:
 
-```bash
-abyss-machine topology validate --json
-/srv/abyss-machine/tools/topology/check_abyss_machine_topology.sh
-```
+Run the complete topology route in `../VALIDATION.md#topology`.

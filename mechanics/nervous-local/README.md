@@ -7,162 +7,50 @@ evidence.
 
 ### Trigger
 
-Nervous collectors, browser capture gates, event indexes, semantic maintenance,
-and nervous privacy policy changes.
+Nervous collectors, browser capture gates, event/index maintenance, retrieval,
+retention, quality, or nervous privacy policy changes.
 
 ### abyss-machine owns
 
-Opt-in units, local intake policy, validator surfaces, and generated state
-location contracts.
+Opt-in units, local intake policy, redaction and retention contracts, adapter
+mechanics, validators, and generated-state location contracts.
 
 ### Stronger owner split
 
 The user owns private activity. Browser/application content remains private.
-Sibling memory repos own durable public memory doctrine.
+Sibling memory owners govern durable reviewed memory; nervous evidence does
+not become their source truth automatically.
 
 ### Inputs
 
-Source policy, opt-in unit state, local context sources, redaction settings.
+Source policy, opt-in unit state, local context sources, privacy/redaction
+settings, and explicit operator intent.
 
 ### Outputs
 
-Local nervous events, indexes, summaries, warnings, and quality reports.
+Local nervous events, indexes, retrieval packs, summaries, warnings, quality
+reports, and bounded evidence.
 
 ### Must not claim
 
-Browser/content capture is public-safe, enabled by default, or equivalent to
-AoA memo source truth.
+Capture is public-safe or enabled by default, a retrieval pack authorizes
+action, or nervous evidence is equivalent to reviewed AoA memory.
 
 ### Validation
 
-Use host-contract quick tests and privacy/source policy smoke checks.
+Use the affected public smoke tests, host-contract quick lane, privacy/source
+policy checks, and the nervous validator. Keep live/private evidence out of
+portable proof.
 
-### Live adapter route
+### Implementation route
 
-Shared latest/history persistence and local JSONL history reads for typing and
-nervous organs start in
-`abyss_machine.typing_nervous_adapters`. Keep future nervous adapters bounded by
-source or execution class: browser capture, local JSONL readers, lexical
-SQLite/FTS lifecycle, semantic embedding subprocesses, rerank subprocesses,
-and privacy-gated derived memory evidence.
-`abyss_machine.nervous_privacy_adapters` now owns privacy config/state read
-routing, privacy state writes with write-error projection, privacy audit JSONL
-append routing, privacy latest writes, status input assembly, and privacy-set
-orchestration through fakeable ports. CLI still owns concrete paths, concrete
-port binding, and rendering.
-`abyss_machine.nervous_source_adapters` now owns source-policy local IO:
-source config/default merge reads, latest writes, source-state reads/writes, and
-source-enable/source-disable orchestration through fakeable lookup, state,
-write, audit, and clock ports. CLI still owns concrete path/clock binding,
-privacy-audit writer binding, capture selection, and rendering.
-`abyss_machine.nervous_status_adapters` now owns the top-level nervous status
-readmodel seam: source/privacy/policy projection, latest document summaries,
-systemd unit/status projections, index count summaries, bridge/today counters,
-and status latest/index write routing through fakeable ports. CLI still owns
-concrete path constants, source/privacy/policy readers, systemd/latest/count
-port binding, and rendering.
-`abyss_machine.nervous_capture_adapters` now owns capture-status readmodel
-routing: capture/browser latest reads, private capture root size summaries,
-screenshot PNG counts, browser-content JSONL counts, browser route paths, and
-operator control command projection through fakeable ports. CLI still owns
-concrete path constants and command rendering.
-`abyss_machine.nervous_browser_content_adapters` now owns browser-content local
-store routing: daily JSONL path projection, record-from-page callback binding,
-bounded recent duplicate scanning, JSONL append routing, latest write routing,
-write-error projection, ingest document assembly, bounded AT-SPI settings,
-Firefox runtime environment summary, accessibility-tree traversal/text
-extraction, sensitive-field detection, capture result assembly, and AT-SPI
-latest write routing plus WebSocket frame/connection handling, BiDi
-session/context/script-evaluation routing, remote-value decode, public-safe BiDi
-error projection, BiDi latest routing, Firefox history profile discovery,
-temporary copied `places.sqlite` recency queries, redacted history-entry
-assembly, and browser-history fact summary routing through fakeable ports.
-CLI still owns concrete path/time/user binding, source-policy/privacy binding,
-capture selection, and rendering.
-`abyss_machine.nervous_index_adapters` now owns source-index connection binding,
-SQLite FTS5 capability probing, schema file writes, file locks/active-lock
-probes, DB count read binding, index-route symlink-tail filesystem probing,
-bounded index scan dispatch, index-search read-meta/freshness/search dispatch,
-latest writes, generated DB file mode/group normalization, freshness latest/
-history count collection, index status latest/counts/freshness/service/timer
-fact collection, index validation storage-route/symlink/counts/freshness/scan/
-event-episode fact collection, index build derived-refresh orchestration through
-fakeable event/episode build ports, index build source-file discovery/
-source-record loading/projection/build-document assembly, and index build
-write-stage lock/connect/init/replace/mode/count/error handling plus vacuum
-execution through fakeable ports.
-`abyss_machine.nervous_events_adapters` now owns derived event/episode local
-file routing: facts/events/episodes JSONL root reads, daily path selection,
-derived-record replacement writes that preserve non-owned records, latest read
-envelopes, global-pause build refusals, episode refresh orchestration through
-fakeable build ports, and build/validate latest write routing through fakeable
-ports. CLI still owns concrete privacy/source-policy/config/path reads, live
-port binding, and command rendering.
-`abyss_machine.nervous_synthesis_adapters` now owns synthesis/eval local
-file routing: episode/event/candidate JSONL root reads, latest reads,
-synthesis latest/period JSONL/markdown writes, synthesis validate latest
-routing, eval dependency orchestration through fakeable validation/recall/
-synthesis ports, synthesis/eval global-pause refusals, eval latest/history
-routing, and eval validate latest routing through fakeable ports. CLI still
-owns concrete privacy-document reads, concrete path binding, and live
-dependency-port binding.
-`abyss_machine.nervous_quality_adapters` now owns quality-audit live input and
-persistence routing: refresh orchestration, validation/status/capture/privacy/
-source/browser/timer/redaction input collection, missing-index projection, and
-quality latest/history writes through fakeable ports. CLI still owns concrete
-path constants, live port binding, and rendering.
-`abyss_machine.nervous_screenshot_adapters` now owns screenshot live probe and
-capture execution routing: GNOME extension status probes, allowlisted DBus
-screenshot execution, X11 active/game-risk window probes, game-safe capture
-command execution, and public-safe fact assembly through fakeable ports. CLI
-still owns source-policy/env/path binding, process callbacks, fact routing, and
-rendering.
-`abyss_machine.nervous_clipboard_adapters` now owns clipboard live read and
-fact assembly routing: Wayland socket readiness, `wl-paste` MIME/text command
-execution, Wayland backend failure-to-skip mapping, redacted payload projection,
-and virtual-source assembly through fakeable ports. CLI still owns concrete
-environment binding, source-policy/redaction callbacks, fact routing, and
-rendering.
-`abyss_machine.nervous_semantic_adapters` now owns the semantic sidecar
-lifecycle/source-loading/write seam plus embedding execution: semantic DB
-connection/init/counts, file locks, source-chunk loading from the lexical
-index, latest and semantic-maintain latest/history writes, build-run
-metadata/provenance transactions, generated DB mode/group normalization,
-embedding subprocess temp-file staging, runner invocation, output readback,
-cleanup, resource-profile callback routing, and semantic-maintain pre-refresh/
-build launch orchestration through fakeable status, lock, resource-launch,
-memory-plan, latest-writer, and JSON-parser ports. It also owns
-semantic-build pending/reuse classification, reused-vector insert routing,
-windowed embedding attempts, fallback batch sizing, progressive vector insert,
-failed-build receipt/provenance summaries, command/receipt/refusal/source-reload
-documents, and successful-build finalization of compile-cache summaries,
-provenance counters, meta values, DB mode, and counts through fakeable ports.
-It also owns semantic-search limit/privacy/preflight/query-vector projection and
-vector-search dispatch through fakeable ports, plus semantic-eval
-probe/check/result assembly, eval-query embedding batch routing,
-lexical/semantic search fanout, and semantic-eval latest/history write routing
-through fakeable ports. CLI still owns concrete config/path/model/runtime
-binding, direct-build/search/eval policy gate invocation, semantic
-DB/source-index lock sequencing, concrete DB connection lifetime, and rendering.
-`abyss_machine.nervous_rerank_adapters` now owns the neural rerank scorer
-subprocess seam for temp-payload staging, command invocation, stdout/output JSON
-parsing, policy-gate callback routing, debug path reporting, and
-resource-profile callback routing.
-`abyss_machine.nervous_retrieval_adapters` now owns the recall/rerank live
-search seam: lexical and semantic search-port collection, semantic maintenance
-assessment routing, hybrid rerank result document assembly, rerank-eval
-fixed-query orchestration/eval document assembly, recall search-plan dispatch,
-retrieval-pack assembly through the recall contracts, and latest/history write
-routing for rerank search, rerank eval, and retrieval packs.
-`abyss_machine.nervous_retention_adapters` now owns the retention filesystem
-and dry-run/apply seam: route-root scanning, root-missing projection,
-symlink-tail route errors, candidate stat/mtime/size collection,
-dry-run-first confirmed unlink execution, protected/latest candidate refusal,
-mutation receipts with restore hints, retention latest/history writes, and
-validate latest writes through fakeable ports.
-The public repo owns adapter mechanics and contract shape; local memory
-evidence stays under the host runtime roots.
+Current privacy, source, capture, index, semantic, rerank, retrieval,
+synthesis, quality, and retention adapter ownership is indexed in
+[LIVE_ADAPTERS.md](../../docs/host/LIVE_ADAPTERS.md). Source modules and tests
+carry the detailed contract inventory; generated nervous evidence stays under
+the host runtime roots.
 
 ### Next route
 
-Use `typing-intake` for typed sources and `diagnostic-spine` for freshness.
+Use `typing-intake` for typed sources, `local-ai-runtime` for admitted model
+helpers, and `diagnostic-spine` for freshness or repair.

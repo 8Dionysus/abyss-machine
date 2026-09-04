@@ -15,20 +15,17 @@ the machine does now.
 This lane is the accepted rationale lane. It is not the host-local memory port.
 Memo candidates can feed decisions, but accepted decisions live here.
 
-## Read before editing
+## Route selection
 
-Read:
+Use the affected numbered record and `TEMPLATE.md` for ordinary decision work.
+Consult the decisions README when locating related rationale, allocating the
+next sequence number, or changing the durable index. Use `DOCS.md`,
+`ROADMAP.md`, or `CHANGELOG.md` only when that source surface moves.
 
-- `{{ABYSS_MACHINE_ETC}}/AGENTS.md`
-- `{{ABYSS_MACHINE_ETC}}/DOCS.md`
-- `{{ABYSS_MACHINE_ETC}}/ROADMAP.md`
-- `{{ABYSS_MACHINE_ETC}}/CHANGELOG.md`
-- `{{ABYSS_MACHINE_ETC}}/decisions/README.md`
-- `{{ABYSS_MACHINE_ETC}}/decisions/TEMPLATE.md`
-- `{{ABYSS_MACHINE_STATE}}/memo/AGENTS.md` when promoting a memo candidate
-- nearest subsystem `AGENTS.md` when the decision is subsystem-local
-- `{{ABYSS_MACHINE_STATE}}/docs/decisions-index.min.json` after it has been
-  rebuilt from source records
+For memo promotion, consult `{{ABYSS_MACHINE_STATE}}/memo/AGENTS.md`; for a
+subsystem-local choice, consult its nearest `AGENTS.md`. The generated
+`{{ABYSS_MACHINE_STATE}}/docs/decisions-index.min.json` is inspected only after
+rebuilding it from authored records.
 
 ## Boundaries
 
@@ -127,15 +124,8 @@ closeout should say `Decision review: no record needed` with a short reason.
 
 After changing this lane, run:
 
-```bash
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs decisions-index --json
-abyss-machine docs audit --json
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine stack-bridge validate --json
-```
+Run the documentation and topology routes in
+`../VALIDATION.md#documentation-mesh` after decision changes.
 
 If the change touched a memo candidate route, also validate the local memo port.
 

@@ -5,11 +5,10 @@
 `.github/` is this repository's GitHub platform surface: workflows, PR
 templates, CODEOWNERS, and repository metadata.
 
-Read the root `AGENTS.md` first. Root `AGENTS.md` owns repository identity,
-host/public-state boundaries, the branch/PR/CI/merge route, and the shortest
-local validation path. This file owns only GitHub-native files under
-`.github/`. Use `.github/GITHUB_SURFACE.md` as the short human map for this
-directory.
+The inherited root card owns repository identity, host/public-state
+boundaries, the branch/PR/CI/merge route, and the shortest local validation
+path. This file adds only the GitHub-native rules under `.github/`. Use
+`.github/GITHUB_SURFACE.md` when the human-facing platform map is relevant.
 
 Do not add `.github/README.md`: GitHub can select it as the repository homepage
 README and hide the source-checkout front door.

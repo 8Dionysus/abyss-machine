@@ -102,6 +102,22 @@ low-context agent what enters this lane, what may leave it, which surface owns
 truth, which stable tool path to use, where to route next, and which validation
 proves the move.
 
+## Context Loading
+
+- Treat a nested `AGENTS.md` as an inherited local delta. Do not repeat parent
+  identity, general boundaries, or command catalogs merely to make the card
+  self-contained.
+- Load source contracts and supporting documents when the task crosses their
+  owner surface. Do not turn a broad reading list into unconditional context
+  for every edit below a directory.
+- A README may remain the best human or public entrypoint without becoming
+  agent authority or required context for unrelated work.
+- Put current inventories, histories, and detailed procedures in their owning
+  source, registry, manifest, command catalog, or generated view. Route to them
+  from cards and preserve generated views as derivatives.
+- Keep stop-lines and the narrowest useful verification close to the affected
+  agent card even when broader explanation lives elsewhere.
+
 ## Entry Algorithm
 
 For broad host work:
@@ -138,20 +154,13 @@ For broad host work:
 
 Documentation-agent changes must run:
 
-```bash
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs decisions-index --json
-abyss-machine docs audit --json
-```
+Run the documentation route in `VALIDATION.md#documentation-mesh` when
+validating the template design.
 
 Topology or bridge-affecting changes must also run:
 
-```bash
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine stack-bridge validate --json
-```
+Run the topology route in `VALIDATION.md#template-topology` when validating
+the template design.
 
 ## Closeout
 

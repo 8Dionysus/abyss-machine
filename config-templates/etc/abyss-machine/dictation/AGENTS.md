@@ -13,19 +13,14 @@ Dictation state and transcript evidence belong under
 `{{ABYSS_MACHINE_STATE}}/dictation`. Typed-text intake policy belongs under
 `{{ABYSS_MACHINE_ETC}}/typing-policy.json` and `{{ABYSS_MACHINE_STATE}}/typing`.
 
-## Read before editing
+## Route selection
 
-Read:
-
-- `{{ABYSS_MACHINE_ETC}}/AGENTS.md`
-- `{{ABYSS_MACHINE_STATE}}/dictation/AGENTS.md`
-- `{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md` when text intake is affected
+Use the dictation state card for runtime/transcript evidence and the typing
+state card only when text intake is affected. Common boundaries are inherited.
 
 Before durable mutation, run:
 
-```bash
-abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/dictation --json
-```
+Run `VALIDATION.md` in this directory for the on-demand preflight.
 
 ## Boundaries
 
@@ -36,11 +31,8 @@ abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/di
 
 ## Validation
 
-```bash
-abyss-machine dictation validate --json
-abyss-machine typing validate --json
-abyss-machine docs mesh-validate --json
-```
+Run `abyss-machine dictation validate --json`. Add typing validation for intake
+changes and docs-mesh validation for card changes.
 
 ## Closeout
 

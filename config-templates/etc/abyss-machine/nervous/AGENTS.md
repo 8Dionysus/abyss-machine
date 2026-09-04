@@ -13,21 +13,15 @@ captures, retrieval packs, facts history, synthesis, or quality evidence.
 Runtime evidence and read models belong under `{{ABYSS_MACHINE_STATE}}/nervous`.
 Large private captures belong under `{{ABYSS_MACHINE_SRV}}/storage/nervous`.
 
-## Read before editing
+## Route selection
 
-Read:
-
-- `{{ABYSS_MACHINE_ETC}}/AGENTS.md`
-- `{{ABYSS_MACHINE_STATE}}/nervous/AGENTS.md`
-- `{{ABYSS_MACHINE_STATE}}/typing/AGENTS.md` when typed input or browser
-  context is affected
-- `{{ABYSS_MACHINE_ETC}}/storage-policy.json` when capture storage changes
+Use the nervous state card for evidence, the typing state card only when typed
+input/browser context is affected, and `storage-policy.json` when capture
+storage changes.
 
 Before durable mutation, run:
 
-```bash
-abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/nervous --json
-```
+Run `VALIDATION.md` in this directory for the on-demand preflight.
 
 ## Boundaries
 
@@ -40,11 +34,8 @@ abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/ne
 
 ## Validation
 
-```bash
-abyss-machine nervous validate --json
-abyss-machine typing validate --json
-abyss-machine docs mesh-validate --json
-```
+Run `abyss-machine nervous validate --json`. Add typing validation for typed or
+browser intake and docs-mesh validation for card changes.
 
 ## Closeout
 

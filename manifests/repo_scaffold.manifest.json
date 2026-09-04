@@ -52,14 +52,7 @@
   ],
   "mechanic_required_files": [
     "AGENTS.md",
-    "README.md",
-    "DIRECTION.md",
-    "PROVENANCE.md",
-    "PARTS.md",
-    "ROADMAP.md",
-    "LANDING_LOG.md",
-    "docs/README.md",
-    "parts/README.md"
+    "README.md"
   ],
   "mechanic_readme_sections": [
     "## Mechanic card",

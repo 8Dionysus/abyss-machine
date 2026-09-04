@@ -40,11 +40,7 @@ mutation.
 
 ## Validation
 
-```bash
-abyss-machine test quick --json
-abyss-machine test full --json
-abyss-machine test live --json
-```
+Run `VALIDATION.md` in this directory for host-contract checks.
 
 Use `live` only when current host state should be sampled. Use `manual` only
 with an operator present.

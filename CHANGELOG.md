@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Make source and installed `AGENTS.md` cards inherited, task-conditioned local
+  routes; keep root and district README files as human/public entrypoints;
+  route adapter and validator inventories to their existing owner maps; and
+  remove placeholder-only mechanic `docs/`/`parts/` indexes while retaining
+  indexes that have real children.
 - Preserve artifact read-model JSON/JSONL/index refresh when optional host group
   ownership is unavailable, including unmapped-group `EINVAL` from `chown`.
 - Record decision `0027`: active-organ work remains subject to independent
