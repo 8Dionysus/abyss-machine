@@ -68,11 +68,7 @@ Use `commands.md` for the full subsystem command and validator catalog.
 Run the narrowest owning subsystem validator first. Documentation or card
 changes require:
 
-```bash
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs audit --json
-```
+Run the documentation route in `VALIDATION.md#documentation-mesh`.
 
 Add decision-index, topology, graph, stack-bridge, RAG, or subsystem
 validation only when the corresponding source surface moved. The exact

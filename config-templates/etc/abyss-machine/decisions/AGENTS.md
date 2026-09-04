@@ -124,15 +124,8 @@ closeout should say `Decision review: no record needed` with a short reason.
 
 After changing this lane, run:
 
-```bash
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs decisions-index --json
-abyss-machine docs audit --json
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine stack-bridge validate --json
-```
+Run the documentation and topology routes in
+`../VALIDATION.md#documentation-mesh` after decision changes.
 
 If the change touched a memo candidate route, also validate the local memo port.
 

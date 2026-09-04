@@ -31,9 +31,7 @@ changes, and `DESIGN.md` or `BOUNDARIES.md` only for owner-boundary changes.
 Manually exercise positive, invalid, missing, and empty-population inputs
 against the workload stats read model before changing its invariants. Then run:
 
-```bash
-python scripts/validate_local_stats_port.py
-```
+Run `VALIDATION.md` in this directory for the local stats-port check.
 
 Use the root validation route for the implementation and public seed.
 

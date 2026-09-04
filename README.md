@@ -51,33 +51,11 @@ Start with [DESIGN.md](DESIGN.md) for system form,
 
 ## Bootstrap and validation
 
-Inspect a checkout without changing the host:
-
-```bash
-scripts/abyss-machine-bootstrap doctor --dry-run --json
-scripts/abyss-machine-bootstrap render \
-  --profile linux-systemd-core \
-  --dry-run \
-  --json
-```
-
-During development, run the narrowest affected test and then the portable
-source gate:
-
-```bash
-python -m pytest -q PATH_TO_AFFECTED_TEST
-python scripts/ci_gate.py --mode source-fast
-```
-
-The complete owner claim/evidence gate is:
-
-```bash
-python scripts/release_check.py \
-  --sdk-root PATH_TO_PINNED_AOA_SDK \
-  --receipt /tmp/abyss-machine-validation.json
-```
-
-Validation lanes and host-specific closeout are documented in
+Inspecting or rendering a checkout is dry-run first and does not change the
+host. Exact development, bootstrap-smoke, host-contract, and release commands
+live in the on-demand [root validation route](VALIDATION.md); its complete
+owner gate binds the required clean `aoa-sdk` scheduler pin and receipt.
+Validation-lane meaning and host-specific closeout are explained in
 [docs/validation/README.md](docs/validation/README.md) and
 [docs/testing/RELEASE_CHECK_ROUTE.md](docs/testing/RELEASE_CHECK_ROUTE.md).
 

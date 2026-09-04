@@ -48,11 +48,7 @@ page-content routing changes; the parent typing-tools contract is inherited.
 
 ## Validation
 
-```bash
-abyss-machine typing validate --json
-abyss-machine nervous validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the typing route in `../../VALIDATION.md#typing`.
 
 When packaging changes, also verify the produced `.xpi` or source zip through
 the current Mozilla/web-ext route before installing or uploading it.

@@ -44,11 +44,7 @@ source and storage boundaries.
 
 ## Validation
 
-```bash
-abyss-machine typing validate --json
-abyss-machine nervous validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the typing route in `../VALIDATION.md#typing`.
 
 ## Closeout
 

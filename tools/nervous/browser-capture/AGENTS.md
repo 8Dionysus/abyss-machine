@@ -38,11 +38,7 @@ tools contract is inherited.
 
 ## Validation
 
-```bash
-abyss-machine nervous validate --json
-abyss-machine typing validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the browser-capture route in `../../VALIDATION.md#nervous-and-browser-capture`.
 
 ## Closeout
 

@@ -20,9 +20,7 @@ state card only when text intake is affected. Common boundaries are inherited.
 
 Before durable mutation, run:
 
-```bash
-abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/dictation --json
-```
+Run `VALIDATION.md` in this directory for the on-demand preflight.
 
 ## Boundaries
 

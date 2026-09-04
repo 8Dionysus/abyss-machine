@@ -21,9 +21,7 @@ storage changes.
 
 Before durable mutation, run:
 
-```bash
-abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/nervous --json
-```
+Run `VALIDATION.md` in this directory for the on-demand preflight.
 
 ## Boundaries
 

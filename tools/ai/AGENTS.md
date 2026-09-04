@@ -46,11 +46,7 @@ tools card supplies the common source and storage boundaries.
 
 ## Validation
 
-```bash
-abyss-machine ai validate --json
-abyss-machine resource validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the AI route in `../VALIDATION.md#ai`.
 
 ## Closeout
 

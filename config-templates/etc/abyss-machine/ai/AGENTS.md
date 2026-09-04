@@ -22,9 +22,7 @@ and common host boundaries are inherited from the root card.
 
 Before durable mutation, run:
 
-```bash
-abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/ai --json
-```
+Run `VALIDATION.md` in this directory for the on-demand preflight.
 
 ## Boundaries
 

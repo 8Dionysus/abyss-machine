@@ -53,12 +53,7 @@ source boundaries.
 
 ## Validation
 
-```bash
-abyss-machine ai llm registry --json
-abyss-machine ai llm validate --json
-abyss-machine resource validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the LLM route in `../../VALIDATION.md#llm`.
 
 Closeout names the helper/profile, resource admission, cache/evidence routes,
 and whether a measured setting was changed in its owning config.

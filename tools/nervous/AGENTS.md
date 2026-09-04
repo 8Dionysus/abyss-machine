@@ -42,10 +42,7 @@ storage boundaries.
 
 ## Validation
 
-```bash
-abyss-machine nervous validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the nervous route in `../VALIDATION.md#nervous-and-browser-capture`.
 
 ## Closeout
 

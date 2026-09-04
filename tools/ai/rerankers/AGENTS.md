@@ -45,11 +45,7 @@ download. The parent AI-tools contract is inherited.
 
 ## Validation
 
-```bash
-abyss-machine ai validate --json
-abyss-machine nervous validate --json
-abyss-machine docs mesh-validate --json
-```
+Run the reranker route in `../../VALIDATION.md#rerankers`.
 
 ## Closeout
 

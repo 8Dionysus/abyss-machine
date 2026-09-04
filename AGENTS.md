@@ -63,29 +63,13 @@ private `/var/lib`, `/srv`, capture, secret, or index payloads.
 
 ## Validation
 
-Run the narrowest affected test plus the graph contract using the exact clean
-`aoa-sdk` scheduler pin named by `scripts/validation_evidence_graph.py`:
-
-```bash
-python -m pytest -q PATH_TO_AFFECTED_TEST
-python scripts/validation_evidence_graph.py --profile instant --sdk-root PATH_TO_PINNED_AOA_SDK
-scripts/abyss-machine-bootstrap doctor --dry-run --json
-scripts/abyss-machine-bootstrap render --profile linux-systemd-core --dry-run --json
-```
-
-The bootstrap dry-runs are required only when install/projection surfaces move.
-Before landing, run the complete owner claim/evidence gate:
-
-```bash
-python scripts/release_check.py --sdk-root PATH_TO_PINNED_AOA_SDK --receipt /tmp/abyss-machine-validation.json
-```
-
-For host-contract migration work, also run the quick non-live lane:
-
-```bash
-python -m pytest -q tests/host_contract -m "quick and not live and not long and not manual"
-PYTHONDONTWRITEBYTECODE=1 tools/abyss-machine-test quick --json
-```
+Use the task-relevant part of
+[`VALIDATION.md#root-readiness-and-release`](VALIDATION.md#root-readiness-and-release).
+Development work starts with the narrow affected test and graph contract;
+install or projection changes add the bootstrap dry-runs; host-contract
+migrations add the quick non-live lane; landing requires the complete owner
+claim/evidence gate. The graph uses the exact clean `aoa-sdk` scheduler pin
+named by `scripts/validation_evidence_graph.py`.
 
 Use serial release mode only as the explicit completeness oracle or rollback.
 Before publication, scan for secrets and forbidden live paths.

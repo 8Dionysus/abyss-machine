@@ -154,20 +154,13 @@ For broad host work:
 
 Documentation-agent changes must run:
 
-```bash
-abyss-machine docs mesh --json
-abyss-machine docs mesh-validate --json
-abyss-machine docs decisions-index --json
-abyss-machine docs audit --json
-```
+Run the documentation route in `VALIDATION.md#documentation-mesh` when
+validating the template design.
 
 Topology or bridge-affecting changes must also run:
 
-```bash
-abyss-machine topology validate --json
-abyss-machine graph validate --json
-abyss-machine stack-bridge validate --json
-```
+Run the topology route in `VALIDATION.md#template-topology` when validating
+the template design.
 
 ## Closeout
 

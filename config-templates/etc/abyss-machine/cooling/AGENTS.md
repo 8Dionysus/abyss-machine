@@ -20,9 +20,7 @@ evidence, and the processes state card only when thermal attribution changes.
 
 Before durable mutation, run:
 
-```bash
-abyss-machine changes preflight --intent TEXT --surface {{ABYSS_MACHINE_ETC}}/cooling --json
-```
+Run `VALIDATION.md` in this directory for the on-demand preflight.
 
 ## Boundaries
 
