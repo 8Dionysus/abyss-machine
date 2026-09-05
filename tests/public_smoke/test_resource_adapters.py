@@ -491,7 +491,10 @@ def test_resource_launch_retains_admission_lease_when_timeout_terminal_is_unknow
     assert outcome["completion"]["confirmation"] == "unit_still_active_or_unknown"
     assert outcome["completion"]["state"]["error"] == "state probe unavailable"
     assert outcome["lease_released"] is False
+    assert outcome["lease_terminal_pending"] is True
     assert lease_file.exists()
+    persisted = json.loads(lease_file.read_text(encoding="utf-8"))
+    assert persisted["terminal_pending"] is True
     assert any(call[:3] == ["systemctl", "--user", "stop"] for call in calls)
     assert any(call[:3] == ["systemctl", "--user", "kill"] for call in calls)
 
@@ -555,6 +558,7 @@ def test_resource_launch_retains_admission_lease_after_successful_stop_but_unkno
     assert outcome["completion"]["confirmation"] == "unit_still_active_or_unknown"
     assert outcome["completion"]["state"]["error"] == "state probe unavailable"
     assert outcome["lease_released"] is False
+    assert outcome["lease_terminal_pending"] is True
     assert lease_file.exists()
 
 
@@ -603,4 +607,121 @@ def test_resource_launch_releases_admission_lease_after_confirmed_terminal(
     assert outcome["completion"]["confirmed_terminal"] is True
     assert outcome["completion"]["confirmation"] == "systemd_run_wait"
     assert outcome["lease_released"] is True
+    assert not lease_file.exists()
+
+
+def test_pending_admission_lease_survives_expiry_with_unknown_unit_state(
+    tmp_path: Path,
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    lease_file = resource_adapters.atomic_write_lease(
+        reservation_root,
+        {
+            "id": "pending-terminal",
+            "launcher_pid": 4242,
+            "unit": "pending-terminal.service",
+            "demand_mib": 2048,
+            "expires_at_epoch": 10.0,
+            "terminal_pending": True,
+            "terminal_pending_reason": "launch_terminal_unconfirmed",
+        },
+    )
+
+    snapshot = resource_adapters.reservation_snapshot(
+        reservation_root,
+        cleanup=True,
+        now_epoch=100.0,
+        pid_alive_port=lambda _pid: False,
+        unit_state_port=lambda _unit: {
+            "exists": False,
+            "active": False,
+            "state": "unknown",
+            "error": "state probe unavailable",
+            "memory_current_mib": 0.0,
+        },
+    )
+
+    assert snapshot["summary"]["active_count"] == 1
+    assert snapshot["summary"]["removed_count"] == 0
+    assert snapshot["items"][0]["terminal_pending"] is True
+    assert snapshot["items"][0]["stale"] is False
+    assert snapshot["summary"]["outstanding_mib"] == 2048.0
+    assert lease_file.exists()
+
+
+def test_pending_admission_lease_is_cleaned_after_known_terminal_state(
+    tmp_path: Path,
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    lease_file = resource_adapters.atomic_write_lease(
+        reservation_root,
+        {
+            "id": "pending-terminal-resolved",
+            "launcher_pid": 4242,
+            "unit": "pending-terminal-resolved.service",
+            "demand_mib": 2048,
+            "expires_at_epoch": 10.0,
+            "terminal_pending": True,
+        },
+    )
+
+    snapshot = resource_adapters.reservation_snapshot(
+        reservation_root,
+        cleanup=True,
+        now_epoch=100.0,
+        pid_alive_port=lambda _pid: False,
+        unit_state_port=lambda _unit: {
+            "exists": False,
+            "active": False,
+            "state": "missing",
+            "memory_current_mib": 0.0,
+        },
+    )
+
+    assert snapshot["summary"]["active_count"] == 0
+    assert snapshot["summary"]["removed_count"] == 1
+    assert snapshot["removed"][0]["reason"] == "terminal_pending_unit_terminal"
+    assert not lease_file.exists()
+
+
+def test_never_started_admission_lease_is_removed_without_pending_marker(
+    tmp_path: Path,
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    unit = "never-started.service"
+    lease = {
+        "id": "never-started",
+        "launcher_pid": 4242,
+        "unit": unit,
+        "demand_mib": 2048,
+        "expires_at_epoch": 9999999999.0,
+    }
+    lease_file = resource_adapters.atomic_write_lease(reservation_root, lease)
+
+    def run_port(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise PermissionError("systemd user runner unavailable")
+
+    outcome = resource_adapters.execute_systemd_launch(
+        systemd_command=["systemd-run", "--user", "--wait", "--pipe", "/bin/true"],
+        launch_unit=unit,
+        generated_unit=None,
+        unit_type="service",
+        timeout_sec=1,
+        lease=lease,
+        reservation_root=reservation_root,
+        demand_profile_path=tmp_path / "profiles.json",
+        demand_key=None,
+        demand_owner=None,
+        kind="indexing",
+        observed_peak_multiplier=1.25,
+        profile_max_entries=64,
+        profile_max_samples=16,
+        parse_output=lambda _text: {"unit": unit},
+        run_port=run_port,
+    )
+
+    assert outcome["completion"]["confirmation"] == "systemd_runner_error"
+    assert outcome["completion"]["confirmed_terminal"] is True
+    assert outcome["lease_released"] is True
+    assert outcome["lease_terminal_pending"] is False
     assert not lease_file.exists()
