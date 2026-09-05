@@ -230,6 +230,38 @@ def test_owner_candidate_adapter_contains_invalid_utf8(monkeypatch, tmp_path: Pa
     assert result["status"] == "owner_adapter_invalid_json"
     assert "UnicodeDecodeError" not in result["error"]
     assert "text" not in calls[0]["kwargs"]
+    assert calls[0]["command"][-2:] == ["--session-work-verification-limit", "0"]
+
+
+def test_owner_candidate_adapter_preserves_structured_nonzero_blocker(monkeypatch, tmp_path: Path) -> None:
+    aoa_root = tmp_path / "aoa"
+    script = aoa_root / "scripts" / "aoa_session_memory.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_AOA_SESSION_MEMORY_ROOT", aoa_root)
+
+    class Completed:
+        returncode = 1
+        # A producer status cannot become successful merely because a
+        # malformed wrapper reports ok=true alongside a non-zero exit.
+        stdout = (
+            b'{"ok":true,"status":"deferred_active_writer",'
+            b'"lock_active":true,"diagnostics":['
+            b'"maintenance_lock_active_cleanup_deferred"]}'
+        )
+        stderr = b""
+
+    monkeypatch.setattr(cli.subprocess, "run", lambda command, **kwargs: Completed())
+
+    result = cli.storage_candidate_owner_aoa_document()
+
+    assert result["ok"] is False
+    assert result["status"] == "deferred_active_writer"
+    assert result["owner_adapter_returncode"] == 1
+    assert result["owner_adapter_command"][-2:] == ["--session-work-verification-limit", "0"]
+    assert "owner command returned non-zero status: 1" in result["error"]
+    assert "--session-work-verification-limit" in result["error"]
+    assert not result["status"].startswith("owner_adapter_invalid_json")
 
 
 def test_candidate_refresh_propagates_owner_adapter_invalid_json(monkeypatch) -> None:

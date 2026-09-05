@@ -24,22 +24,48 @@ def now_utc() -> dt.datetime:
 
 
 def run_command(command: Sequence[str], timeout: float) -> dict[str, Any]:
+    command_list = list(command)
     try:
         process = subprocess.run(
-            list(command),
-            text=True,
+            command_list,
+            # Git status can contain arbitrary bytes in a path. Decode after
+            # collection so one such path cannot abort the whole candidate
+            # discovery pass before the producer can report its identity.
+            text=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=timeout,
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"ok": False, "returncode": None, "stdout": "", "stderr": str(exc)}
+        return {
+            "ok": False,
+            "returncode": None,
+            "stdout": "",
+            "stderr": str(exc),
+            "command": command_list,
+            "producer": "storage_candidate_adapters.git_worktree",
+        }
+
+    decode_errors: list[str] = []
+
+    def decode(value: Any, stream: str) -> str:
+        if not isinstance(value, bytes):
+            return str(value or "")
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            decode_errors.append(f"{stream}: utf8_decode_error: {exc}")
+            return value.decode("utf-8", errors="replace")
+
     return {
         "ok": process.returncode == 0,
         "returncode": process.returncode,
-        "stdout": process.stdout,
-        "stderr": process.stderr,
+        "stdout": decode(process.stdout, "stdout"),
+        "stderr": decode(process.stderr, "stderr"),
+        "command": command_list,
+        "producer": "storage_candidate_adapters.git_worktree",
+        "decode_errors": decode_errors,
     }
 
 
@@ -573,18 +599,40 @@ def git_worktree_evidence(path: Path, *, runner: CommandRunner = run_command) ->
     common = _git(["rev-parse", "--git-common-dir"], cwd=path, runner=runner)
     refs = _git(["for-each-ref", "--format=%(refname)", "--contains", "HEAD"], cwd=path, runner=runner)
     remote_refs = _git(["for-each-ref", "--format=%(refname)", "--contains", "HEAD", "refs/remotes"], cwd=path, runner=runner)
-    errors = [
-        str(result.get("stderr") or result.get("stdout") or "git command failed")[:1000]
-        for result in (status, head, common, refs, remote_refs)
-        if not result.get("ok")
-    ]
+    labeled_results = (
+        ("status", status),
+        ("head", head),
+        ("common", common),
+        ("refs", refs),
+        ("remote_refs", remote_refs),
+    )
+    errors: list[str] = []
+    for label, result in labeled_results:
+        producer = str(result.get("producer") or "storage_candidate_adapters.git_worktree")
+        if not result.get("ok"):
+            errors.append(
+                f"{producer}:git_{label}: "
+                f"{str(result.get('stderr') or result.get('stdout') or 'git command failed')[:1000]}"
+            )
+        decode_errors = result.get("decode_errors") if isinstance(result.get("decode_errors"), list) else []
+        errors.extend(
+            f"{producer}:git_{label}: {str(item)[:1000]}"
+            for item in decode_errors
+            if str(item).strip()
+        )
     status_lines = [line for line in str(status.get("stdout") or "").splitlines() if line]
     ref_lines = [line for line in str(refs.get("stdout") or "").splitlines() if line]
     remote_lines = [line for line in str(remote_refs.get("stdout") or "").splitlines() if line]
     common_text = str(common.get("stdout") or "").strip()
     common_path = (path / common_text).resolve() if common_text and not Path(common_text).is_absolute() else Path(common_text or path / ".git")
     linked_worktree = (path / ".git").is_file() and not _path_is_under(common_path, path)
-    unique_clear = bool(not status_lines and head.get("ok") and ref_lines and (linked_worktree or remote_lines))
+    unique_clear = bool(
+        not errors
+        and not status_lines
+        and head.get("ok")
+        and ref_lines
+        and (linked_worktree or remote_lines)
+    )
     removal_command = f"git -C {shlex.quote(str(common_path.parent))} worktree remove -- {shlex.quote(str(path))}" if linked_worktree else None
     return {
         "checked": not errors,

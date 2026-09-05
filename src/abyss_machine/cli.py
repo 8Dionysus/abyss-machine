@@ -15582,9 +15582,21 @@ def _storage_candidate_owner_run(cmd: list[str], timeout: float = 180.0) -> dict
             check=False,
         )
     except FileNotFoundError:
-        return {"ok": False, "returncode": 127, "stdout": "", "stderr": "not found"}
+        return {
+            "ok": False,
+            "returncode": 127,
+            "stdout": "",
+            "stderr": "not found",
+            "command": list(cmd),
+        }
     except subprocess.TimeoutExpired:
-        return {"ok": False, "returncode": 124, "stdout": "", "stderr": "timeout"}
+        return {
+            "ok": False,
+            "returncode": 124,
+            "stdout": "",
+            "stderr": "timeout",
+            "command": list(cmd),
+        }
 
     def decode(value: Any) -> str:
         if isinstance(value, bytes):
@@ -15598,6 +15610,7 @@ def _storage_candidate_owner_run(cmd: list[str], timeout: float = 180.0) -> dict
         "returncode": getattr(proc, "returncode", 1),
         "stdout": stdout,
         "stderr": stderr,
+        "command": list(cmd),
     }
 
 
@@ -15610,17 +15623,68 @@ def storage_candidate_owner_aoa_document() -> dict[str, Any]:
         "maintenance-cleanup",
         "--workspace-root", str(DEFAULT_AOA_SESSION_MEMORY_ROOT.parent),
         "--aoa-root", str(DEFAULT_AOA_SESSION_MEMORY_ROOT),
+        # Candidate discovery consumes graph/search/stage owner verdicts;
+        # projection-work identities are not exported by aoa_specs. Keep this
+        # unrelated raw scan bounded so a large work queue cannot starve the
+        # required owner producer. Deferred work remains visible in the owner
+        # document and never becomes deletion permission.
+        "--session-work-verification-limit", "0",
     ], timeout=180.0)
+    stdout = str(result.get("stdout") or "")
+    parsed: dict[str, Any] | None = None
+    parse_error: str | None = None
+    if stdout:
+        try:
+            candidate = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            parse_error = str(exc)
+        else:
+            if isinstance(candidate, dict):
+                parsed = candidate
     if not result.get("ok"):
+        if parsed is not None:
+            # maintenance-cleanup emits a useful structured document even
+            # when an active writer makes its exit status non-zero. Preserve
+            # that blocker instead of hiding it inside a generic adapter error.
+            parsed = dict(parsed)
+            # The process status is authoritative: a producer that exits
+            # non-zero must never be admitted because its JSON happened to
+            # contain ``ok: true``.
+            parsed["ok"] = False
+            parsed.setdefault("status", "owner_adapter_failed")
+            parsed["owner_adapter_returncode"] = result.get("returncode")
+            parsed["owner_adapter_command"] = result.get("command")
+            diagnostic = str(result.get("stderr") or "").strip()
+            command_text = repr(result.get("command") or [])
+            parsed.setdefault(
+                "error",
+                "owner command returned non-zero status: "
+                f"{result.get('returncode')} command={command_text}"
+                + (f" diagnostic={diagnostic[:1000]}" if diagnostic else ""),
+            )
+            return parsed
         return {
             "status": "owner_adapter_failed",
-            "error": str(result.get("stderr") or result.get("stdout") or "unknown error")[:4000],
+            "error": (
+                f"returncode={result.get('returncode')} "
+                f"command={result.get('command')!r} "
+                f"diagnostic={str(result.get('stderr') or stdout or 'unknown error')[:3800]}"
+            )[:4000],
+            "owner_adapter_returncode": result.get("returncode"),
         }
-    try:
-        parsed = json.loads(str(result.get("stdout") or ""))
-    except json.JSONDecodeError as exc:
-        return {"status": "owner_adapter_invalid_json", "error": str(exc)}
-    return parsed if isinstance(parsed, dict) else {"status": "owner_adapter_invalid_document"}
+    if parse_error is not None:
+        return {
+            "status": "owner_adapter_invalid_json",
+            "error": f"{parse_error} command={result.get('command')!r}"[:4000],
+            "owner_adapter_returncode": result.get("returncode"),
+            "owner_adapter_command": result.get("command"),
+        }
+    return parsed if parsed is not None else {
+        "status": "owner_adapter_invalid_document",
+        "error": f"owner command returned no JSON object command={result.get('command')!r}"[:4000],
+        "owner_adapter_returncode": result.get("returncode"),
+        "owner_adapter_command": result.get("command"),
+    }
 
 
 def storage_candidate_discover_specs(*, artifact_snapshot: dict[str, Any] | None = None) -> list[dict[str, Any]]:

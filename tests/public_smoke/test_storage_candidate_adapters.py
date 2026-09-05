@@ -77,6 +77,37 @@ def _git(*args: str, cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
+def test_git_runner_contains_invalid_utf8_and_marks_producer_error(monkeypatch, tmp_path: Path) -> None:
+    class Completed:
+        returncode = 0
+        stdout = b""
+        stderr = b"error: index uses extension \xff\n"
+
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": list(command), "kwargs": kwargs})
+        return Completed()
+
+    monkeypatch.setattr(adapters.subprocess, "run", fake_run)
+    status = adapters.run_command(["git", "status", "--porcelain=v1"], timeout=3.0)
+
+    assert status["ok"] is True
+    assert "extension �" in status["stderr"]
+    assert status["decode_errors"]
+    assert status["producer"] == "storage_candidate_adapters.git_worktree"
+    assert calls[0]["kwargs"]["text"] is False
+
+    def runner(command, timeout):
+        return status if "status" in command else {"ok": True, "returncode": 0, "stdout": "", "stderr": ""}
+
+    evidence = adapters.git_worktree_evidence(tmp_path, runner=runner)
+
+    assert evidence["checked"] is False
+    assert evidence["unique_data"]["status"] == "unknown"
+    assert any("git_status" in error and "utf8_decode_error" in error for error in evidence["errors"])
+
+
 def test_git_adapter_distinguishes_clean_linked_worktree_from_dirty_unique_data(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
