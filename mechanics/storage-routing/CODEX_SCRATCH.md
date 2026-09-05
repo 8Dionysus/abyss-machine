@@ -29,7 +29,9 @@ convenience wrapper. No separate helper installation is required.
   `ARCHIVE --archive-target ABSOLUTE_PATH` are explicit owner dispositions that
   move the managed record to the existing bounded reaper after its grace period.
   Unique-data/recovery clearance still belongs to the existing candidate plane.
-  Stop, idle and expiry remain protective; a closed managed task is terminal.
+  Stop, idle and expiry remain protective. A later prompt in the same Codex
+  task creates a new scratch generation; the previous generation retains its
+  disposition and is never reopened or adopted.
 
 Paths use the host storage roots by default. The adapter refuses traversal,
 symlink ancestors, existing unowned directories, and an absent `/srv` mount.

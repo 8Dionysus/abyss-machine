@@ -144,6 +144,12 @@ class Lifecycle:
             unique_data_clear=False, archivable=True,
         )
 
+    def _scratch_path(self, session_id: str, generation: Any) -> Path:
+        if type(generation) is not int or not 1 <= generation <= 1_000_000:
+            raise ValueError("invalid scratch generation")
+        name = session_id if generation == 1 else f"{session_id}-g{generation}"
+        return self.scratch_root / name
+
     def _register_new_workspace(self, path: Path, now: dt.datetime) -> dict[str, Any]:
         _directory(self.scratch_root, create=True)
         registered = storage_lifecycle_adapters.register_workspace(
@@ -229,20 +235,29 @@ class Lifecycle:
             return {}
         now = now or dt.datetime.now(dt.timezone.utc)
         self._mount()
-        path = self.scratch_root / session_id
         metadata = self.state_root / f"{session_id}.json"
         claim_id = f"codex-{session_id}"
         with _lock(self.state_root):
             previous = _load(metadata)
+            generation = previous.get("generation", 1)
+            path = self._scratch_path(session_id, generation)
             if previous and (previous.get("schema") != SCHEMA or previous.get("path") != str(path)):
                 raise ValueError("scratch ownership metadata mismatch")
-            if not previous and path.exists():
-                raise ValueError("refusing to adopt an existing unowned scratch directory")
             if previous.get("state") == "closed" and name not in ACTIVE_EVENTS:
                 return {}
+            previous_workspace_id = previous.get("previous_workspace_id")
             if previous.get("state") == "closed" and name in ACTIVE_EVENTS:
-                if previous.get(LIFECYCLE_FIELD) is not None:
-                    raise ValueError("managed scratch closeout is terminal; create a new task scratch")
+                # A Codex task can receive another prompt after explicit owner
+                # closeout. Allocate a new generation without reopening or
+                # adopting the old path, which may still await its reaper.
+                old_lifecycle = previous.get(LIFECYCLE_FIELD)
+                if isinstance(old_lifecycle, Mapping):
+                    previous_workspace_id = old_lifecycle.get("workspace_id")
+                generation += 1
+                path = self._scratch_path(session_id, generation)
+                previous = {}
+            if not previous and path.exists():
+                raise ValueError("refusing to adopt an existing unowned scratch directory")
             managed_lifecycle = self._managed_workspace(previous, path) if previous else None
             if previous and managed_lifecycle is not None:
                 if name in ACTIVE_EVENTS:
@@ -256,11 +271,14 @@ class Lifecycle:
                 managed_lifecycle = self._register_new_workspace(path, now)
             record = dict(previous)
             record.update(schema=SCHEMA, session_id=session_id, owner=OWNER,
+                          generation=generation,
                           path=str(path), created_at=previous.get("created_at") or _stamp(now),
                           last_event=name, observed_at=_stamp(now),
                           state="active" if name in ACTIVE_EVENTS else "idle_observed",
                           event_count=int(previous.get("event_count", 0)) + 1,
                           automatic_deletion=False)
+            if previous_workspace_id:
+                record["previous_workspace_id"] = previous_workspace_id
             if managed_lifecycle is not None:
                 record[LIFECYCLE_FIELD] = managed_lifecycle
             if name in ACTIVE_EVENTS:
@@ -354,8 +372,8 @@ class Lifecycle:
             raise ValueError(f"invalid owner disposition{': ' + errors if errors else ''}")
         with _lock(self.state_root):
             metadata = self.state_root / f"{session_id}.json"
-            workspace = self.scratch_root / session_id
             record = _load(metadata)
+            workspace = self._scratch_path(session_id, record.get("generation", 1))
             if record.get("schema") != SCHEMA or record.get("path") != str(workspace):
                 raise ValueError("unknown or mismatched managed scratch")
             managed_lifecycle = self._managed_workspace(record, workspace)

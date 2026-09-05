@@ -119,8 +119,10 @@ def test_existing_unowned_directory_and_symlink_are_not_adopted(lifecycle, tmp_p
         lifecycle.observe(event())
 
 
-def test_explicit_close_seals_unknown_and_does_not_resume_managed_scratch(lifecycle, tmp_path):
+def test_prompt_after_close_creates_new_generation_and_preserves_old_scratch(lifecycle, tmp_path):
     lifecycle.observe(event())
+    old_path = lifecycle.scratch_root / "native-task-123"
+    (old_path / "unique.txt").write_text("preserved previous result")
     receipt = tmp_path / "result.md"
     receipt.write_text("Preserved output")
     result = lifecycle.close("native-task-123", receipt)
@@ -130,8 +132,13 @@ def test_explicit_close_seals_unknown_and_does_not_resume_managed_scratch(lifecy
     assert "lease_token" not in json.dumps(result)
     lifecycle.observe(event("SessionEnd"))
     assert records(lifecycle)["state"] == "closed"
-    with pytest.raises(ValueError, match="terminal"):
-        lifecycle.observe(event("UserPromptSubmit"))
+    lifecycle.observe(event("UserPromptSubmit"))
+    renewed = records(lifecycle)
+    assert renewed["generation"] == 2
+    assert renewed["path"] == str(lifecycle.scratch_root / "native-task-123-g2")
+    assert renewed["workspace_lifecycle"]["workspace_id"] != result["workspace_lifecycle"]["workspace_id"]
+    assert (old_path / "unique.txt").read_text() == "preserved previous result"
+    assert list(Path(renewed["path"]).iterdir()) == []
     managed_id = result["workspace_lifecycle"]["workspace_id"]
     managed = storage_lifecycle_adapters.read_json(
         storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, managed_id)
@@ -139,6 +146,10 @@ def test_explicit_close_seals_unknown_and_does_not_resume_managed_scratch(lifecy
     assert managed is not None
     assert managed["state"] == "sealed"
     assert managed["disposition"]["decision"] == "UNKNOWN"
+
+    second_close = lifecycle.close("native-task-123", receipt, decision="KEEP")
+    assert second_close["generation"] == 2
+    assert second_close["state"] == "closed"
 
 
 def test_explicit_delete_uses_existing_reaper(lifecycle, tmp_path):
@@ -166,6 +177,11 @@ def test_explicit_delete_uses_existing_reaper(lifecycle, tmp_path):
         now_time=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1),
     )
     assert reaped["summary"]["applied"] == 1
+    assert not (lifecycle.scratch_root / "native-task-123").exists()
+    lifecycle.observe(event("SessionStart"))
+    renewed = records(lifecycle)
+    assert renewed["generation"] == 2
+    assert Path(renewed["path"]).is_dir()
     assert not (lifecycle.scratch_root / "native-task-123").exists()
 
 
