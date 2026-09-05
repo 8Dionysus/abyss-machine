@@ -15946,18 +15946,21 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
     pending_manifest_ids = [str(item.get("candidate_id")) for item in manifests if item.get("valid") is True and str(item.get("candidate_id") or "") not in known_ids]
     if not previous.get("candidates"):
         coverage = storage_candidate_contracts.coverage_summary([])
+        previous_last_deep_at = _storage_candidate_previous_last_deep_at(previous)
         freshness = storage_candidate_contracts.freshness_status(
             generated_at=generated_at,
-            last_deep_at=None,
+            last_deep_at=previous_last_deep_at,
+            now_time=storage_candidate_contracts.parse_time(generated_at),
             max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
         )
-        return {
+        document = {
             "schema": f"{SCHEMA_PREFIX}_storage_candidates_v1",
             "version": VERSION,
             "generated_at": generated_at,
             "ok": True,
             "deep": False,
             "snapshot_id": None,
+            "last_deep_at": previous_last_deep_at,
             "summary": {"candidates": 0, "ready": 0, "delete_ready": 0, "archive_ready": 0, "changed": 0, "retired": 0, "physical_bytes": 0, "reclaimable_bytes": 0, "physical_measured": 0, "fingerprint_complete": 0, "runtime_error_count": 0, "pressure_finding_count": 0, "by_verdict": {}},
             "coverage": coverage,
             "freshness": freshness,
@@ -15966,20 +15969,26 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
             "refresh_result": {"mode": "light", "status": "needs_deep_seed", "new_results": 0},
             "changes": [],
             "candidates": [],
-            "retired": [],
+            "retired": [dict(item) for item in previous.get("retired", []) if isinstance(item, Mapping)] if previous.get("partial") is True else [],
             "paths": storage_candidate_paths(),
             "light_refresh": {"mode": "carry_forward_only", "needs_deep_seed": True, "manifest_count": len(manifests), "pending_manifest_candidate_ids": pending_manifest_ids, "freshness": freshness},
             "policy": {**configured_policy, "automatic_deletion": False},
         }
+        document = _storage_candidate_preserve_deferred_light_state(document, previous)
+        document["light_refresh"]["freshness"] = document["freshness"]
+        if isinstance(document.get("summary"), dict):
+            document["summary"]["retired"] = len(document.get("retired", [])) if isinstance(document.get("retired"), list) else 0
+        return document
     document = json.loads(json.dumps(previous))
     # A light snapshot timestamp is not deep evidence freshness.  Keep the
     # age unknown when older state never recorded a deep timestamp.
-    prior_generated = storage_candidate_contracts.parse_time(previous.get("last_deep_at"))
+    prior_last_deep_at = _storage_candidate_previous_last_deep_at(previous)
+    prior_generated = storage_candidate_contracts.parse_time(prior_last_deep_at)
     now_time = storage_candidate_contracts.parse_time(generated_at)
     evidence_age = int((now_time - prior_generated).total_seconds()) if now_time and prior_generated else None
     freshness = storage_candidate_contracts.freshness_status(
         generated_at=generated_at,
-        last_deep_at=previous.get("last_deep_at"),
+        last_deep_at=prior_last_deep_at,
         now_time=now_time,
         max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
     )
@@ -16006,6 +16015,8 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
     document["refresh_result"] = {"mode": "light", "status": "carry_forward", "new_results": 0}
     document.setdefault("policy", {})["automatic_deletion"] = False
     document["paths"] = storage_candidate_paths()
+    document = _storage_candidate_preserve_deferred_light_state(document, previous)
+    document["light_refresh"]["freshness"] = document["freshness"]
     return document
 
 
@@ -16032,6 +16043,79 @@ def _storage_candidate_aoa_last_good_at(records: Sequence[Mapping[str, Any]]) ->
     ]
     parsed = [item for item in timestamps if item is not None]
     return max(parsed).isoformat() if parsed else None
+
+
+def _storage_candidate_preserve_deferred_light_state(
+    data: dict[str, Any],
+    previous: Mapping[str, Any],
+) -> dict[str, Any]:
+    previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    if previous.get("partial") is not True and previous_coverage.get("partial") is not True:
+        return data
+    owner_coverage = previous_coverage.get("owner_coverage")
+    if not isinstance(owner_coverage, Mapping):
+        producer_status = previous_coverage.get("producer_status")
+        owner_coverage = producer_status.get("aoa_owner_verdict") if isinstance(producer_status, Mapping) else None
+    if not isinstance(owner_coverage, Mapping):
+        producer_coverage = previous.get("producer_coverage")
+        owner_coverage = producer_coverage.get("aoa_owner_verdict") if isinstance(producer_coverage, Mapping) else None
+    if not isinstance(owner_coverage, Mapping):
+        return data
+    if (
+        str(owner_coverage.get("source_adapter") or "") != "aoa_owner_verdict"
+        or str(owner_coverage.get("owner") or "") != "aoa-session-memory"
+        or str(owner_coverage.get("status") or "") != "deferred_active_writer"
+        or owner_coverage.get("deferred") is not True
+        or owner_coverage.get("lock_active") is not True
+    ):
+        return data
+
+    owner_copy = dict(owner_coverage)
+    coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+    previous_producer_status = previous_coverage.get("producer_status")
+    producer_status = dict(previous_producer_status) if isinstance(previous_producer_status, Mapping) else {}
+    producer_status["aoa_owner_verdict"] = owner_copy
+    coverage.update({
+        "mode": "light_carry_forward_aoa_owner_deferred",
+        "partial": True,
+        "complete": False,
+        "current_results": previous_coverage.get("current_results", 0),
+        "carried_forward_count": previous_coverage.get("carried_forward_count", owner_copy.get("carried_forward_count", 0)),
+        "owner_coverage": owner_copy,
+        "producer_status": producer_status,
+    })
+    data["coverage"] = coverage
+    data["ok"] = False
+    data["partial"] = True
+    data["complete"] = False
+    data["last_deep_at"] = _storage_candidate_previous_last_deep_at(previous)
+    freshness = data.get("freshness") if isinstance(data.get("freshness"), dict) else {}
+    freshness.update({
+        "partial": True,
+        "complete": False,
+        "reason": "aoa_owner_deferred_last_good_preserved",
+    })
+    data["freshness"] = freshness
+    previous_producer_coverage = previous.get("producer_coverage")
+    producer_coverage = dict(previous_producer_coverage) if isinstance(previous_producer_coverage, Mapping) else {}
+    producer_coverage["aoa_owner_verdict"] = owner_copy
+    data["producer_coverage"] = producer_coverage
+    data["runtime_errors"] = list(coverage.get("runtime_errors", []))
+    data["pressure_findings"] = list(coverage.get("pressure_findings", []))
+    if isinstance(data.get("summary"), dict):
+        data["summary"]["retired"] = len(data.get("retired", [])) if isinstance(data.get("retired"), list) else 0
+    data["refresh_result"] = {
+        "mode": "light",
+        "status": "carry_forward_aoa_owner_deferred",
+        "new_results": 0,
+        "carried_forward_count": owner_copy.get("carried_forward_count", 0),
+        "reason": owner_copy.get("reason"),
+    }
+    light_refresh = data.get("light_refresh")
+    if isinstance(light_refresh, dict):
+        light_refresh["mode"] = "aoa_owner_deferred_carry_forward"
+        light_refresh["owner_coverage"] = owner_copy
+    return data
 
 
 def _storage_candidate_rebuild_summary(

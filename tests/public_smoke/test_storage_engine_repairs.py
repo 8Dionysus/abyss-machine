@@ -563,7 +563,7 @@ def test_candidate_deep_refresh_carries_last_good_on_observation_error(monkeypat
     assert refreshed["runtime_errors"][0]["path"] == "/srv/abyss-machine/tmp/new"
 
 
-def test_candidate_deep_refresh_defers_only_aoa_and_recovers_without_false_retirement(monkeypatch) -> None:
+def test_candidate_deep_refresh_defers_only_aoa_light_preserves_and_recovers_without_false_retirement(monkeypatch) -> None:
     last_good_at = "2026-09-04T18:00:00+00:00"
     partial_at = "2026-09-04T19:00:00+00:00"
     recovered_at = "2026-09-04T19:05:00+00:00"
@@ -774,6 +774,32 @@ def test_candidate_deep_refresh_defers_only_aoa_and_recovers_without_false_retir
     assert partial["coverage"]["owner_coverage"]["last_good_at"] == last_good_at
     assert partial["coverage"]["owner_coverage"]["carried_forward_count"] == 1
     assert partial["coverage"]["current_results"] == 1
+
+    empty_partial = {**partial, "candidates": [], "snapshot_id": None}
+    empty_light = cli.storage_candidate_light_refresh(empty_partial, "2026-09-04T19:03:00+00:00")
+    assert empty_light["ok"] is False
+    assert empty_light["partial"] is True
+    assert empty_light["complete"] is False
+    assert empty_light["last_deep_at"] == last_good_at
+    assert empty_light["freshness"]["last_deep_at"] == last_good_at
+    assert empty_light["freshness"]["reason"] == "aoa_owner_deferred_last_good_preserved"
+    assert empty_light["coverage"]["mode"] == "light_carry_forward_aoa_owner_deferred"
+    assert empty_light["coverage"]["owner_coverage"]["last_good_at"] == last_good_at
+    assert empty_light["producer_coverage"]["aoa_owner_verdict"]["status"] == "deferred_active_writer"
+
+    light = cli.storage_candidate_light_refresh(partial, "2026-09-04T19:02:00+00:00")
+    latest["document"] = light
+    assert light["ok"] is False
+    assert light["partial"] is True
+    assert light["complete"] is False
+    assert light["last_deep_at"] == last_good_at
+    assert light["freshness"]["last_deep_at"] == last_good_at
+    assert light["freshness"]["reason"] == "aoa_owner_deferred_last_good_preserved"
+    assert light["coverage"]["mode"] == "light_carry_forward_aoa_owner_deferred"
+    assert light["coverage"]["owner_coverage"]["status"] == "deferred_active_writer"
+    assert light["coverage"]["owner_coverage"]["last_good_at"] == last_good_at
+    assert light["summary"]["retired"] == 1
+    assert old_id in {item["candidate_id"] for item in light["retired"]}
 
     recovered = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
     recovered_ids = [item["candidate_id"] for item in recovered["candidates"]]
