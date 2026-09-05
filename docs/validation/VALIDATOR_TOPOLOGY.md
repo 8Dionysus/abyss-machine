@@ -7,10 +7,11 @@
 The source-fast lane is defined in `docs/validation/validation_lanes.json` and
 loads through `scripts/validation_lanes.py`. It checks repo topology,
 mechanics topology, manifests, schemas, bootstrap dry-runs, shared path policy,
-the first-run installed projection, typing/nervous organ policy,
-typing/nervous refresh logic, public boundary, artifact signature policy,
-contract ABI signature freshness, generated scaffold index freshness,
-compileall, and public smoke tests.
+typing/nervous organ policy, typing/nervous refresh logic, public boundary,
+artifact signature policy, contract ABI signature freshness, generated scaffold
+index freshness, compileall, and the public smoke suite. The suite's
+fixture-backed first-run projection test supplies the fresh-install evidence;
+the standalone validator remains available for focused diagnostics.
 
 ## Runner Contexts
 
@@ -44,12 +45,14 @@ oracle and one-command rollback. The owner-local manifest in
 `validation_evidence_graph.json` maps claims and risks to the same leaf scope.
 Every non-pytest command remains an exact multiset match; the sole admitted
 delta is full-suite pytest scheduling through `pytest-xdist==3.8.0` with two
-workers. The adapter rejects a changed selection, omitted or duplicated
-obligation, dependency drift, or an SDK runner other than the exact clean
-`aoa-sdk` commit pinned in `scripts/validation_evidence_graph.py`.
+workers and `--dist loadfile`. File-level scheduling keeps the module-scoped
+first-run fixture on one worker. The adapter rejects a changed selection,
+omitted or duplicated obligation, dependency drift, or an SDK runner other
+than the exact clean `aoa-sdk` commit pinned in `scripts/validation_evidence_graph.py`.
 
-The full graph overlaps the isolated first-run projection, the complete public
-pytest corpus, and the short source/artifact batteries. Its receipt binds the
+The full graph runs the complete public pytest corpus, whose module-scoped
+fixture executes the isolated first-run projection once, alongside the short
+source/artifact batteries. Its receipt binds the
 `abyss-machine` checkout separately from the SDK runner checkout. Changed-path
 routing remains shadow-only, cross-run receipt reuse is absent, and neither a
 partial nor a shadow receipt can replace the full owner gate. The instant graph

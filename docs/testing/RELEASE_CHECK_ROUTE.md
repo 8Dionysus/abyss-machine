@@ -11,7 +11,6 @@ Run from the repository root:
 ```bash
 PYTHONPATH=src python scripts/release_check.py --sdk-root PATH_TO_PINNED_AOA_SDK --receipt /tmp/abyss-machine-validation.json
 PYTHONPATH=src python scripts/validators/public_boundary.py
-PYTHONPATH=src python scripts/validators/first_run_installed_projection.py
 PYTHONPATH=src python scripts/generate_contract_abi_signatures.py --check
 PYTHONPATH=src python scripts/generate_scaffold_index.py --check
 ```
@@ -21,6 +20,13 @@ clean SDK pin and pytest-xdist pin fail closed, and the graph receipt binds
 owner, runner, manifest, inputs, evidence, and sufficiency. Use
 `PYTHONPATH=src python scripts/release_check.py --mode serial` for the
 independent sequential completeness oracle or emergency rollback.
+
+The full graph and source-fast lane exercise the isolated first-run projection
+through the module-scoped fixture in
+`tests/public_smoke/test_first_run_installed_projection.py`. Run
+`PYTHONPATH=src python scripts/validators/first_run_installed_projection.py`
+separately for focused standalone diagnostics; it is not repeated as a graph
+leaf.
 
 These gates must not read private captures, local indexes, model weights, or
 host-only evidence.

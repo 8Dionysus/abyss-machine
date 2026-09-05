@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -1419,10 +1420,22 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
     install_payload = run_json([sys.executable, str(BOOTSTRAP), "install", *bootstrap_args(paths)], cwd=REPO_ROOT, env=source_env())
     installed = paths["local_bin_dir"] / "abyss-machine"
 
-    source_help = source_help_report(paths["root"])
-    temp_installed_help = installed_help_report(installed, cwd=paths["root"], env=env, label="temp-installed")
-    source_critical_options = source_critical_help_option_report(paths["root"])
-    temp_critical_options = installed_critical_help_option_report(installed, cwd=paths["root"], env=env, label="temp-installed")
+    # Installation is complete. These read-only help reports have independent
+    # outputs; keep every real CLI invocation while overlapping two reports.
+    with ThreadPoolExecutor(max_workers=2) as help_pool:
+        source_help_future = help_pool.submit(source_help_report, paths["root"])
+        installed_help_future = help_pool.submit(
+            installed_help_report, installed, cwd=paths["root"], env=env, label="temp-installed"
+        )
+        source_options_future = help_pool.submit(source_critical_help_option_report, paths["root"])
+        installed_options_future = help_pool.submit(
+            installed_critical_help_option_report,
+            installed, cwd=paths["root"], env=env, label="temp-installed",
+        )
+        source_help = source_help_future.result()
+        temp_installed_help = installed_help_future.result()
+        source_critical_options = source_options_future.result()
+        temp_critical_options = installed_options_future.result()
     temp_content_parity = content_parity_report(
         label="temp-installed",
         installed_cli=paths["local_libexec_dir"] / "abyss-machine",
