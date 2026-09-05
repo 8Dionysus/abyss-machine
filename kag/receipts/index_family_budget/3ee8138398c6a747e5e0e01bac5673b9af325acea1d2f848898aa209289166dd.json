@@ -1,17 +1,17 @@
 {
-  "allowed_bytes": 12358685,
-  "allowed_tracked_bytes": 30355779,
+  "allowed_bytes": 12404602,
+  "allowed_tracked_bytes": 30356095,
   "approved_by": "repository-owner",
   "base_ref": "87ed408adda043be7a21f8fc345cf5f2e1e6d7d7",
-  "changed_generated_bytes": 12358685,
-  "changed_generated_files": 128,
+  "changed_generated_bytes": 12404602,
+  "changed_generated_files": 129,
   "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
   "default_limit_bytes": 1048576,
-  "head_family_digest": "9a5eac74286d7a6a54522e00f26c7a037c6d81ef9e3cd0e638f95dcf9ccafe8b",
+  "head_family_digest": "3ee8138398c6a747e5e0e01bac5673b9af325acea1d2f848898aa209289166dd",
   "reason": "Regenerate ABI and portable owner family for bounded maintenance cursor, namespace-stable workspace fingerprints, and session child argv repair.",
   "repo": "abyss-machine",
   "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
   "scope": "generated_delta_and_tracked_size",
-  "tracked_bytes": 30355779,
+  "tracked_bytes": 30356095,
   "tracked_bytes_max": 27262976
 }
