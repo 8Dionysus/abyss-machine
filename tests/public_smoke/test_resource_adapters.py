@@ -649,6 +649,77 @@ def test_pending_admission_lease_survives_expiry_with_unknown_unit_state(
     assert lease_file.exists()
 
 
+def test_named_startup_lease_survives_expiry_with_unknown_unit_state_before_marker(
+    tmp_path: Path,
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    lease_file = resource_adapters.atomic_write_lease(
+        reservation_root,
+        {
+            "id": "inflight-named-startup",
+            "launcher_pid": 4242,
+            "unit": "inflight-named-startup.service",
+            "demand_mib": 2048,
+            "expires_at_epoch": 10.0,
+        },
+    )
+
+    snapshot = resource_adapters.reservation_snapshot(
+        reservation_root,
+        cleanup=True,
+        now_epoch=100.0,
+        pid_alive_port=lambda pid: pid == 4242,
+        unit_state_port=lambda _unit: {
+            "exists": False,
+            "active": False,
+            "state": "unknown",
+            "error": "state probe unavailable",
+            "memory_current_mib": 0.0,
+        },
+    )
+
+    assert snapshot["summary"]["active_count"] == 1
+    assert snapshot["summary"]["removed_count"] == 0
+    assert snapshot["items"][0]["stale"] is False
+    assert snapshot["summary"]["outstanding_mib"] == 2048.0
+    assert lease_file.exists()
+    assert "terminal_pending" not in json.loads(lease_file.read_text(encoding="utf-8"))
+
+
+def test_named_startup_lease_is_cleaned_after_confirmed_inactive_state(
+    tmp_path: Path,
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    lease_file = resource_adapters.atomic_write_lease(
+        reservation_root,
+        {
+            "id": "confirmed-inactive-startup",
+            "launcher_pid": 4242,
+            "unit": "confirmed-inactive-startup.service",
+            "demand_mib": 2048,
+            "expires_at_epoch": 10.0,
+        },
+    )
+
+    snapshot = resource_adapters.reservation_snapshot(
+        reservation_root,
+        cleanup=True,
+        now_epoch=100.0,
+        pid_alive_port=lambda _pid: True,
+        unit_state_port=lambda _unit: {
+            "exists": True,
+            "active": False,
+            "state": "inactive",
+            "memory_current_mib": 0.0,
+        },
+    )
+
+    assert snapshot["summary"]["active_count"] == 0
+    assert snapshot["summary"]["removed_count"] == 1
+    assert snapshot["removed"][0]["reason"] == "startup_deadline_elapsed"
+    assert not lease_file.exists()
+
+
 def test_pending_admission_lease_is_cleaned_after_known_terminal_state(
     tmp_path: Path,
 ) -> None:

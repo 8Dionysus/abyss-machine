@@ -407,31 +407,33 @@ def _mark_lease_terminal_pending(
         return False
     path = lease_path(root, lease_id)
     try:
-        current_value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
-    if not isinstance(current_value, dict) or str(current_value.get("id") or "") != lease_id:
-        return False
-    for key in ("unit", "launcher_pid"):
-        expected = lease.get(key)
-        if expected is not None and current_value.get(key) != expected:
-            return False
-    completion_unit = str(completion.get("unit") or "").strip()
-    current_unit = str(current_value.get("unit") or "").strip()
-    if completion_unit and current_unit and completion_unit != current_unit:
-        return False
-    current_value.update(
-        {
-            "terminal_pending": True,
-            "terminal_pending_reason": "launch_terminal_unconfirmed",
-            "terminal_pending_since_epoch": time.time(),
-        }
-    )
-    if completion_unit:
-        current_value["terminal_pending_unit"] = completion_unit
-    try:
-        atomic_write_lease(root, current_value)
-    except (OSError, TypeError, ValueError):
+        # The launch handoff runs after its admission section has released the
+        # lock.  Re-enter the same per-root admission lock for this
+        # read/identity-check/write so a concurrent snapshot or reservation
+        # update cannot be overwritten by a stale lease document.
+        with admission_lock(root):
+            current_value = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(current_value, dict) or str(current_value.get("id") or "") != lease_id:
+                return False
+            for key in ("unit", "launcher_pid"):
+                expected = lease.get(key)
+                if expected is not None and current_value.get(key) != expected:
+                    return False
+            completion_unit = str(completion.get("unit") or "").strip()
+            current_unit = str(current_value.get("unit") or "").strip()
+            if completion_unit and current_unit and completion_unit != current_unit:
+                return False
+            current_value.update(
+                {
+                    "terminal_pending": True,
+                    "terminal_pending_reason": "launch_terminal_unconfirmed",
+                    "terminal_pending_since_epoch": time.time(),
+                }
+            )
+            if completion_unit:
+                current_value["terminal_pending_unit"] = completion_unit
+            atomic_write_lease(root, current_value)
+    except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
         return False
     return True
 
@@ -944,6 +946,10 @@ def lease_status(
         "not_found",
         "gone",
     }
+    named_startup_lease = bool(unit) and not runtime_lease
+    unit_probe_unresolved = named_startup_lease and (
+        unit_state_error or (not unit_active and not unit_terminal)
+    )
     pending_terminal_resolved = (
         terminal_pending
         and not unit_state_error
@@ -976,6 +982,7 @@ def lease_status(
         or (pending_terminal_resolved if terminal_pending else False)
         or (
             not terminal_pending
+            and not unit_probe_unresolved
             and (
                 runtime_deadline_elapsed
                 or startup_deadline_elapsed
