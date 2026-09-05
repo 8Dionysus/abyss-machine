@@ -16469,6 +16469,36 @@ def storage_candidates_refresh(*, deep: bool = False, artifact_snapshot: dict[st
         )
 
 
+def storage_candidates_refresh_if_due() -> dict[str, Any]:
+    """Continue incomplete sweeps; avoid rescanning a complete daily snapshot."""
+    with storage_candidates_refresh_lock():
+        previous, error = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+        previous = previous if isinstance(previous, dict) else {}
+        coverage = previous.get("coverage") if isinstance(previous.get("coverage"), dict) else {}
+        progress = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), dict) else {}
+        observed = storage_candidate_contracts.parse_time(previous.get("last_deep_at"))
+        current = storage_candidate_contracts.parse_time(now_iso())
+        age = (current - observed).total_seconds() if current and observed else None
+        if (
+            not error and previous.get("ok") is True
+            and previous.get("partial") is not True
+            and previous.get("complete") is not False
+            and coverage.get("partial") is not True
+            and coverage.get("complete") is not False
+            and not previous.get("runtime_errors")
+            and not coverage.get("runtime_errors")
+            and progress.get("status") != "partial"
+            and age is not None and 0 <= age < 86400
+        ):
+            return {
+                "ok": True, "mutates": False,
+                "refresh_result": {"mode": "deep", "status": "not_due"},
+                "last_deep_at": previous.get("last_deep_at"),
+                "age_seconds": int(age), "refresh_interval_seconds": 86400,
+            }
+        return _storage_candidates_refresh_unlocked(deep=True, write_latest=True)
+
+
 def storage_candidates_list(**filters: Any) -> dict[str, Any]:
     document, error = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
     document = document if isinstance(document, dict) else {}
@@ -52767,6 +52797,7 @@ def main(argv: list[str]) -> int:
     storage_candidates_sub = storage_candidates_parser.add_subparsers(dest="storage_candidates_command", required=True)
     storage_candidates_refresh_parser = storage_candidates_sub.add_parser("refresh")
     storage_candidates_refresh_parser.add_argument("--deep", action="store_true", help="run owner, process, Podman, Git, Vault and fingerprint evidence adapters")
+    storage_candidates_refresh_parser.add_argument("--if-due", action="store_true", help="with --deep, continue partial sweeps or refresh a complete snapshot after 24 hours")
     storage_candidates_refresh_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_candidates_list_parser = storage_candidates_sub.add_parser("list")
     storage_candidates_list_parser.add_argument("--verdict", action="append", default=[])
@@ -54868,7 +54899,9 @@ def main(argv: list[str]) -> int:
         if args.storage_command == "candidates":
             command = args.storage_candidates_command
             if command == "refresh":
-                data = storage_candidates_refresh(deep=bool(args.deep), write_latest=True)
+                if args.if_due and not args.deep:
+                    parser.error("--if-due requires --deep")
+                data = storage_candidates_refresh_if_due() if args.if_due else storage_candidates_refresh(deep=bool(args.deep), write_latest=True)
             elif command == "list":
                 data = storage_candidates_list(
                     verdicts=args.verdict,
