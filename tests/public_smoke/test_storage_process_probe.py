@@ -124,6 +124,37 @@ def test_sanitize_probe_result_omits_cmdline_and_errors_force_incomplete() -> No
     assert result["errors"] == ["process_probe_incomplete"]
 
 
+@pytest.mark.parametrize(
+    ("active", "refs", "errors"),
+    [
+        (
+            False,
+            [{"pid": 12, "source": "cwd", "target": "/srv/AbyssOS/x"}],
+            [],
+        ),
+        (True, [], []),
+        (False, [], "permission denied"),
+    ],
+)
+def test_sanitize_probe_result_rejects_inconsistent_or_malformed_status(
+    active: object, refs: object, errors: object
+) -> None:
+    result = storage_process_probe.sanitize_probe_result(
+        {
+            "checked": True,
+            "active": active,
+            "refs": refs,
+            "errors": errors,
+            "pids_scanned": 1,
+        },
+        source="test",
+    )
+    assert result["checked"] is False
+    assert "process_probe_incomplete" in result["errors"]
+    if refs:
+        assert result["active"] is True
+
+
 def test_socket_handler_authenticates_peer_and_returns_only_pathrefs(
     tmp_path: Path,
 ) -> None:
@@ -284,6 +315,141 @@ def test_client_accepts_authenticated_incomplete_response_without_fallback(
     assert result[str(root / "work")]["errors"] == ["process_probe_incomplete"]
 
 
+def test_client_rejects_top_level_complete_mismatch_without_fallback(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    socket_path = tmp_path / "probe.sock"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(socket_path))
+    listener.listen(1)
+
+    def server() -> None:
+        connection, _address = listener.accept()
+        try:
+            request = json.loads(
+                connection.recv(storage_process_probe.MAX_REQUEST_BYTES).decode()
+            )
+            response = {
+                "schema": storage_process_probe.RESPONSE_SCHEMA,
+                "request_id": request["request_id"],
+                "ok": True,
+                "authenticated": True,
+                "complete": True,
+                "results": {
+                    str(root / "work"): {
+                        "checked": False,
+                        "active": False,
+                        "refs": [],
+                        "errors": ["permission denied"],
+                        "pids_scanned": 1,
+                    }
+                },
+            }
+            connection.sendall(json.dumps(response).encode() + b"\n")
+        finally:
+            connection.close()
+
+    worker = threading.Thread(target=server)
+    worker.start()
+    try:
+        result = storage_process_probe.owner_process_references(
+            [str(root / "work")],
+            socket_path=socket_path,
+            allowed_roots=[root],
+            expected_server_uid=os.getuid(),
+            scan_port=lambda *_args, **_kwargs: pytest.fail(
+                "protocol mismatch must not fallback"
+            ),
+        )
+    finally:
+        worker.join(timeout=5)
+        listener.close()
+    assert result[str(root / "work")]["source"] == "owner_probe_protocol"
+    assert result[str(root / "work")]["errors"] == ["invalid_response"]
+
+
+def test_bulk_owner_probe_isolates_out_of_scope_diagnostic_path(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    socket_path = tmp_path / "probe.sock"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(socket_path))
+    listener.listen(1)
+    valid = str(root / "work")
+    invalid = str(outside / "work")
+    seen_request: dict[str, object] = {}
+
+    def server() -> None:
+        connection, _address = listener.accept()
+        try:
+            raw = connection.recv(storage_process_probe.MAX_BULK_REQUEST_BYTES)
+            seen_request.update(json.loads(raw.decode()))
+            response = {
+                "schema": storage_process_probe.RESPONSE_SCHEMA,
+                "request_id": seen_request["request_id"],
+                "ok": True,
+                "authenticated": True,
+                "complete": True,
+                "results": {
+                    valid: {
+                        "checked": True,
+                        "active": False,
+                        "refs": [],
+                        "errors": [],
+                        "pids_scanned": 2,
+                    }
+                },
+            }
+            connection.sendall(json.dumps(response).encode() + b"\n")
+        finally:
+            connection.close()
+
+    def fake_scan(
+        paths: tuple[str, ...], *, proc_root: Path, max_refs_per_path: int
+    ) -> dict[str, object]:
+        assert proc_root == tmp_path / "proc"
+        assert max_refs_per_path == 1
+        assert paths == (invalid,)
+        return {
+            invalid: {
+                "checked": True,
+                "active": False,
+                "refs": [],
+                "errors": [],
+                "pids_scanned": 2,
+            }
+        }
+
+    worker = threading.Thread(target=server)
+    worker.start()
+    try:
+        result = storage_process_probe.owner_process_references(
+            [valid, invalid],
+            socket_path=socket_path,
+            allowed_roots=[root],
+            expected_server_uid=os.getuid(),
+            max_paths=storage_process_probe.MAX_BULK_PATHS,
+            max_refs_per_path=1,
+            max_request_bytes=storage_process_probe.MAX_BULK_REQUEST_BYTES,
+            max_response_bytes=storage_process_probe.MAX_BULK_RESPONSE_BYTES,
+            proc_root=tmp_path / "proc",
+            scan_port=fake_scan,
+        )
+    finally:
+        worker.join(timeout=5)
+        listener.close()
+    assert seen_request["paths"] == [valid]
+    assert result[valid]["checked"] is True
+    assert result[invalid]["checked"] is False
+    assert "unprivileged_probe_incomplete" in result[invalid]["errors"]
+
+
 def test_client_fixture_fallback_preserves_fixture_checked_semantics(
     tmp_path: Path,
 ) -> None:
@@ -354,7 +520,9 @@ def test_systemd_templates_and_bootstrap_dispatch_are_dormant_source_routes() ->
     assert "User=root" in service
     assert "ProtectSystem=strict" in service
     assert "RestrictAddressFamilies=AF_UNIX" in service
-    assert "CapabilityBoundingSet=CAP_SYS_PTRACE" in service
+    assert "CapabilityBoundingSet=CAP_SYS_PTRACE CAP_DAC_READ_SEARCH" in service
+    assert "MemoryMax=512M" in service
+    assert "TasksMax=128" in service
     assert (
         "ABYSS_STORAGE_PROCESS_PROBE_ALLOWED_ROOTS={{ABYSS_MACHINE_SRV}}:{{ABYSS_OS_ROOT}}"
         in service

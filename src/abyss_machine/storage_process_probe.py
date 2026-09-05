@@ -20,6 +20,7 @@ import secrets
 import socket
 import struct
 import sys
+import time
 from typing import Any
 
 from . import storage_candidate_adapters
@@ -37,6 +38,9 @@ MAX_PATH_BYTES = 4096
 MAX_REFS_PER_PATH = 32
 MAX_TIMEOUT_MS = 30_000
 DEFAULT_TIMEOUT_MS = 5_000
+MAX_BULK_PATHS = 4096
+MAX_BULK_REQUEST_BYTES = 1 * 1024 * 1024
+MAX_BULK_RESPONSE_BYTES = 8 * 1024 * 1024
 REQUEST_READ_TIMEOUT_SEC = 2.0
 _REQUEST_FIELDS = frozenset(
     {"schema", "request_id", "paths", "max_refs_per_path", "timeout_ms"}
@@ -193,7 +197,12 @@ def normalize_probe_paths(
     return tuple(normalized)
 
 
-def parse_request(payload: object, *, allowed_roots: Sequence[Path]) -> dict[str, Any]:
+def parse_request(
+    payload: object,
+    *,
+    allowed_roots: Sequence[Path],
+    maximum_paths: int = MAX_PATHS,
+) -> dict[str, Any]:
     if not isinstance(payload, Mapping) or set(payload) != _REQUEST_FIELDS:
         raise ProcessProbeError("request shape is not supported")
     if payload.get("schema") != REQUEST_SCHEMA:
@@ -202,7 +211,9 @@ def parse_request(payload: object, *, allowed_roots: Sequence[Path]) -> dict[str
     if _safe_text(request_id, 128) is None or not request_id or len(request_id) > 128:
         raise ProcessProbeError("request identity is malformed")
     roots = normalize_allowed_roots(allowed_roots)
-    paths = normalize_probe_paths(payload.get("paths"), allowed_roots=roots)
+    paths = normalize_probe_paths(
+        payload.get("paths"), allowed_roots=roots, maximum=maximum_paths
+    )
     max_refs = payload.get("max_refs_per_path")
     timeout_ms = payload.get("timeout_ms")
     if type(max_refs) is not int or not 1 <= max_refs <= MAX_REFS_PER_PATH:
@@ -269,16 +280,31 @@ def _error_code(value: object) -> str:
     return "process_probe_incomplete"
 
 
-def sanitize_probe_result(value: object, *, source: str) -> dict[str, Any]:
+def sanitize_probe_result(
+    value: object,
+    *,
+    source: str,
+    max_refs_per_path: int = MAX_REFS_PER_PATH,
+) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return _failure(source=source, error="process_probe_incomplete")
-    checked = value.get("checked") is True
-    active = value.get("active") is True
+    malformed = False
+    if type(value.get("checked")) is not bool:
+        malformed = True
+        checked = False
+    else:
+        checked = value["checked"]
+    if type(value.get("active")) is not bool:
+        malformed = True
+        active = False
+    else:
+        active = value["active"]
     refs: list[dict[str, Any]] = []
     raw_ref_value = value.get("refs")
     raw_refs = raw_ref_value if isinstance(raw_ref_value, list) else []
-    malformed_refs = raw_ref_value is not None and not isinstance(raw_ref_value, list)
-    for item in raw_refs[:MAX_REFS_PER_PATH]:
+    malformed_refs = not isinstance(raw_ref_value, list)
+    malformed_refs = malformed_refs or len(raw_refs) > max_refs_per_path
+    for item in raw_refs[:max_refs_per_path]:
         if not isinstance(item, Mapping):
             malformed_refs = True
             continue
@@ -290,13 +316,33 @@ def sanitize_probe_result(value: object, *, source: str) -> dict[str, Any]:
             continue
         # Deliberately omit cmdline and every other process metadata field.
         refs.append({"pid": pid, "source": source_name, "target": target})
+    malformed = malformed or malformed_refs
     errors: list[str] = []
     raw_errors = value.get("errors")
-    if isinstance(raw_errors, list) and raw_errors:
-        errors.append(_error_code(raw_errors[0]))
-    if value.get("error"):
-        errors.append(_error_code(value.get("error")))
-    if malformed_refs:
+    if not isinstance(raw_errors, list):
+        malformed = True
+    else:
+        for raw_error in raw_errors:
+            if not isinstance(raw_error, str):
+                malformed = True
+            elif raw_error:
+                errors.append(_error_code(raw_error))
+    if "error" in value:
+        raw_error = value.get("error")
+        if raw_error is not None and not isinstance(raw_error, str):
+            malformed = True
+        elif isinstance(raw_error, str) and raw_error:
+            errors.append(_error_code(raw_error))
+    pids_scanned = value.get("pids_scanned")
+    if type(pids_scanned) is not int or pids_scanned < 0:
+        malformed = True
+        pids_scanned = 0
+    if malformed:
+        errors.append("process_probe_incomplete")
+    if active != bool(refs):
+        # Either indication is safety relevant.  Preserve the positive bit
+        # while refusing to call an inconsistent adapter result complete.
+        active = active or bool(refs)
         errors.append("process_probe_incomplete")
     # A scanner that reports an error is incomplete even if a buggy adapter
     # left its checked bit set.  Never let a malformed result authorize a
@@ -306,9 +352,6 @@ def sanitize_probe_result(value: object, *, source: str) -> dict[str, Any]:
     if not checked and not errors:
         errors.append("process_probe_incomplete")
     deduplicated_errors = list(dict.fromkeys(errors))
-    pids_scanned = value.get("pids_scanned")
-    if type(pids_scanned) is not int or pids_scanned < 0:
-        pids_scanned = 0
     return {
         "checked": checked,
         "active": active,
@@ -324,6 +367,7 @@ def _sanitize_results(
     raw_results: Mapping[str, Any] | None,
     *,
     source: str,
+    max_refs_per_path: int = MAX_REFS_PER_PATH,
     force_incomplete: bool = False,
 ) -> dict[str, dict[str, Any]]:
     results: dict[str, dict[str, Any]] = {}
@@ -332,7 +376,9 @@ def _sanitize_results(
         raw = raw_results.get(str(resolved))
         if raw is None:
             raw = raw_results.get(original)
-        result = sanitize_probe_result(raw, source=source)
+        result = sanitize_probe_result(
+            raw, source=source, max_refs_per_path=max_refs_per_path
+        )
         if force_incomplete:
             result["checked"] = False
             result["errors"] = list(
@@ -455,8 +501,9 @@ def handle_connection(
     scan_port: Callable[
         ..., Mapping[str, Any]
     ] = storage_candidate_adapters.process_references,
-    max_request_bytes: int = MAX_REQUEST_BYTES,
-    max_response_bytes: int = MAX_RESPONSE_BYTES,
+    max_request_bytes: int = MAX_BULK_REQUEST_BYTES,
+    max_response_bytes: int = MAX_BULK_RESPONSE_BYTES,
+    maximum_paths: int = MAX_BULK_PATHS,
 ) -> dict[str, Any]:
     """Serve exactly one request on an already accepted AF_UNIX connection."""
     try:
@@ -486,7 +533,9 @@ def handle_connection(
         return response
     try:
         payload = json.loads((raw or b"").decode("utf-8"))
-        request = parse_request(payload, allowed_roots=allowed_roots)
+        request = parse_request(
+            payload, allowed_roots=allowed_roots, maximum_paths=maximum_paths
+        )
     except (UnicodeDecodeError, json.JSONDecodeError, ProcessProbeError):
         response = _response_error("malformed_request", authenticated=True)
         try:
@@ -508,7 +557,12 @@ def handle_connection(
             for original, _resolved in pairs
         }
     else:
-        results = _sanitize_results(pairs, raw_results, source="privileged_proc_probe")
+        results = _sanitize_results(
+            pairs,
+            raw_results,
+            source="privileged_proc_probe",
+            max_refs_per_path=request["max_refs_per_path"],
+        )
     complete = all(
         item.get("checked") is True and not item.get("errors")
         for item in results.values()
@@ -541,6 +595,7 @@ def _client_exchange(
     socket_path: Path,
     expected_server_uid: int,
     timeout_ms: int,
+    max_request_bytes: int,
     max_response_bytes: int,
     socket_factory: Callable[..., socket.socket] = socket.socket,
 ) -> tuple[dict[str, Any] | None, str | None, bool]:
@@ -549,9 +604,7 @@ def _client_exchange(
         return None, "owner_probe_unavailable", False
     try:
         with socket_factory(family, socket.SOCK_STREAM) as client:
-            # The worker's bounded child may need a short termination/join
-            # grace period after the requested scan budget expires.
-            client.settimeout(max(0.1, timeout_ms / 1000.0 + 1.0))
+            client.settimeout(max(0.1, timeout_ms / 1000.0))
             client.connect(str(socket_path))
             _pid, peer_uid, _gid = _peer_credentials(client)
             if peer_uid != expected_server_uid:
@@ -565,7 +618,7 @@ def _client_exchange(
                 ).encode("utf-8")
                 + b"\n"
             )
-            if len(encoded) > MAX_REQUEST_BYTES:
+            if len(encoded) > max_request_bytes:
                 return None, "request_too_large", True
             client.sendall(encoded)
             client.shutdown(socket.SHUT_WR)
@@ -590,6 +643,73 @@ def _client_exchange(
     return response, None, True
 
 
+def _owner_failure_map(
+    values: Sequence[object], *, source: str, error: str
+) -> dict[str, dict[str, Any]]:
+    return {
+        value: _failure(source=source, error=error)
+        for value in values
+        if isinstance(value, str)
+    }
+
+
+def _partition_owner_paths(
+    values: Sequence[object], roots: Sequence[Path]
+) -> tuple[
+    list[tuple[str, Path]],
+    list[tuple[str, Path]],
+    dict[str, dict[str, Any]],
+]:
+    """Separate privileged paths from safe, diagnostic-only absolute paths."""
+    valid: list[tuple[str, Path]] = []
+    diagnostic: list[tuple[str, Path]] = []
+    failures: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        if value in seen:
+            failures[value] = _failure(
+                source="local_request_validation", error="duplicate_probe_path"
+            )
+            continue
+        seen.add(value)
+        try:
+            valid.append(_normalized_request_path(value, roots))
+            continue
+        except ProcessProbeError:
+            pass
+        if (
+            not value
+            or _safe_text(value, MAX_PATH_BYTES) is None
+            or len(os.fsencode(value)) > MAX_PATH_BYTES
+        ):
+            failures[value] = _failure(
+                source="local_request_validation", error="process_probe_incomplete"
+            )
+            continue
+        candidate = Path(value)
+        if not candidate.is_absolute() or ".." in candidate.parts:
+            failures[value] = _failure(
+                source="local_request_validation", error="process_probe_incomplete"
+            )
+            continue
+        try:
+            resolved = candidate.resolve(strict=False)
+        except (OSError, RuntimeError):
+            failures[value] = _failure(
+                source="local_request_validation", error="process_probe_incomplete"
+            )
+            continue
+        if resolved == Path("/"):
+            failures[value] = _failure(
+                source="local_request_validation", error="process_probe_incomplete"
+            )
+            continue
+        diagnostic.append((value, resolved))
+    return valid, diagnostic, failures
+
+
 def owner_process_references(
     paths: Sequence[str],
     *,
@@ -598,138 +718,211 @@ def owner_process_references(
     expected_server_uid: int = 0,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     max_refs_per_path: int = MAX_REFS_PER_PATH,
+    max_paths: int = MAX_PATHS,
+    max_request_bytes: int = MAX_REQUEST_BYTES,
+    max_response_bytes: int = MAX_RESPONSE_BYTES,
     proc_root: Path = Path("/proc"),
     socket_factory: Callable[..., socket.socket] = socket.socket,
-    scan_port: Callable[
-        ..., Mapping[str, Any]
-    ] = storage_candidate_adapters.process_references,
+    scan_port: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Use the owner worker, with a strictly incomplete non-root fallback."""
-    roots = normalize_allowed_roots(
-        configured_allowed_roots() if allowed_roots is None else allowed_roots
+    """Use one owner-worker batch, with a strictly incomplete fallback."""
+    values = paths if isinstance(paths, (tuple, list)) else ()
+    if type(max_paths) is not int or not 1 <= max_paths <= MAX_BULK_PATHS:
+        return _owner_failure_map(
+            values,
+            source="local_request_validation",
+            error="path_count_bound_invalid",
+        )
+    if not values or len(values) > max_paths:
+        return _owner_failure_map(
+            values,
+            source="local_request_validation",
+            error="path_count_bound_invalid",
+        )
+    bounds = (
+        (timeout_ms, 100, MAX_TIMEOUT_MS, "timeout_bound_invalid"),
+        (max_refs_per_path, 1, MAX_REFS_PER_PATH, "reference_count_bound_invalid"),
+        (max_request_bytes, 1, MAX_BULK_REQUEST_BYTES, "request_size_bound_invalid"),
+        (max_response_bytes, 1, MAX_BULK_RESPONSE_BYTES, "response_size_bound_invalid"),
     )
+    for value, lower, upper, error in bounds:
+        if type(value) is not int or not lower <= value <= upper:
+            return _owner_failure_map(
+                values, source="local_request_validation", error=error
+            )
     try:
-        pairs = normalize_probe_paths(paths, allowed_roots=roots)
-    except ProcessProbeError as exc:
+        roots = normalize_allowed_roots(
+            configured_allowed_roots() if allowed_roots is None else allowed_roots
+        )
+    except ProcessProbeError:
+        return _owner_failure_map(
+            values, source="local_request_validation", error="owner_roots_invalid"
+        )
+    valid, diagnostic, failures = _partition_owner_paths(values, roots)
+    scanner = (
+        storage_candidate_adapters.process_references
+        if scan_port is None
+        else scan_port
+    )
+    euid = _current_euid()
+    fallback_allowed = proc_root != Path("/proc") or (euid is not None and euid != 0)
+    real_proc_incomplete = proc_root == Path("/proc") and (euid is None or euid != 0)
+    deadline = time.monotonic() + timeout_ms / 1000.0
+
+    def remaining_timeout_ms() -> int:
+        return max(0, int((deadline - time.monotonic()) * 1000))
+
+    def unavailable(
+        pairs: Sequence[tuple[str, Path]], *, source: str, error: str
+    ) -> dict[str, dict[str, Any]]:
         return {
-            str(value): _failure(
-                source="local_request_validation", error=_error_code(str(exc))
-            )
-            for value in paths
-            if isinstance(value, str)
-        }
-    if type(timeout_ms) is not int or not 100 <= timeout_ms <= MAX_TIMEOUT_MS:
-        return {
-            original: _failure(
-                source="local_request_validation", error="timeout_bound_invalid"
-            )
+            original: _failure(source=source, error=error)
             for original, _resolved in pairs
         }
-    if (
-        type(max_refs_per_path) is not int
-        or not 1 <= max_refs_per_path <= MAX_REFS_PER_PATH
-    ):
-        return {
-            original: _failure(
-                source="local_request_validation", error="reference_count_bound_invalid"
+
+    def direct(
+        pairs: Sequence[tuple[str, Path]], forced: set[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
+        if not pairs:
+            return {}
+
+        def local_scan(
+            scan_paths: Sequence[str], *, max_refs_per_path: int
+        ) -> Mapping[str, Any]:
+            return scanner(
+                scan_paths, proc_root=proc_root, max_refs_per_path=max_refs_per_path
             )
-            for original, _resolved in pairs
-        }
-    path = Path(
+
+        budget = remaining_timeout_ms()
+        if budget <= 0:
+            return unavailable(
+                pairs, source="direct_proc_fallback", error="probe_timeout"
+            )
+        raw, scan_error = bounded_scan(
+            [str(resolved) for _original, resolved in pairs],
+            max_refs_per_path=max_refs_per_path,
+            timeout_ms=budget,
+            scan_port=local_scan,
+        )
+        if scan_error:
+            return unavailable(pairs, source="direct_proc_fallback", error=scan_error)
+        result = _sanitize_results(
+            pairs,
+            raw,
+            source="direct_proc_fallback",
+            max_refs_per_path=max_refs_per_path,
+            force_incomplete=real_proc_incomplete,
+        )
+        for original in forced or ():
+            if original in result:
+                result[original]["checked"] = False
+                result[original]["errors"] = list(
+                    dict.fromkeys(
+                        [*result[original]["errors"], "unprivileged_probe_incomplete"]
+                    )
+                )
+        return result
+
+    def finish(result: Mapping[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        output = dict(result)
+        output.update(failures)
+        return output
+
+    def diagnostic_result() -> dict[str, dict[str, Any]]:
+        if not diagnostic:
+            return {}
+        if not fallback_allowed:
+            return unavailable(
+                diagnostic,
+                source="owner_probe_unavailable",
+                error="owner_probe_unavailable",
+            )
+        return direct(diagnostic, {original for original, _ in diagnostic})
+
+    if not valid:
+        return finish(diagnostic_result())
+
+    request = {
+        "schema": REQUEST_SCHEMA,
+        "request_id": secrets.token_hex(16),
+        "paths": [original for original, _resolved in valid],
+        "max_refs_per_path": max_refs_per_path,
+        "timeout_ms": min(timeout_ms, remaining_timeout_ms()),
+    }
+    probe_socket = Path(
         socket_path
         or os.environ.get(
             "ABYSS_STORAGE_PROCESS_PROBE_SOCKET", str(DEFAULT_SOCKET_PATH)
         )
     )
-    request = {
-        "schema": REQUEST_SCHEMA,
-        "request_id": secrets.token_hex(16),
-        "paths": [original for original, _resolved in pairs],
-        "max_refs_per_path": max_refs_per_path,
-        "timeout_ms": timeout_ms,
-    }
-    response, exchange_error, responded = _client_exchange(
-        request,
-        socket_path=path,
-        expected_server_uid=expected_server_uid,
-        timeout_ms=timeout_ms,
-        max_response_bytes=MAX_RESPONSE_BYTES,
-        socket_factory=socket_factory,
-    )
-    if response is not None:
-        if (
-            response.get("schema") != RESPONSE_SCHEMA
-            or response.get("request_id") != request["request_id"]
-            or response.get("ok") is not True
-            or response.get("authenticated") is not True
-            or type(response.get("complete")) is not bool
-            or not isinstance(response.get("results"), Mapping)
-        ):
-            return {
-                original: _failure(
-                    source="owner_probe_protocol", error="invalid_response"
-                )
-                for original, _resolved in pairs
-            }
-        raw_results = response["results"]
-        if set(raw_results) != {original for original, _resolved in pairs}:
-            return {
-                original: _failure(
-                    source="owner_probe_protocol", error="invalid_response"
-                )
-                for original, _resolved in pairs
-            }
-        return {
-            original: sanitize_probe_result(
-                raw_results.get(original), source="privileged_proc_probe"
-            )
-            for original, _resolved in pairs
-        }
-    if responded:
-        return {
-            original: _failure(
-                source="owner_probe_auth",
-                error=exchange_error or "owner_probe_unavailable",
-            )
-            for original, _resolved in pairs
-        }
-
-    # A real /proc fallback is a diagnostic observation only.  A root caller
-    # without the worker must never turn its partial view into complete proof.
-    euid = _current_euid()
-    fallback_allowed = proc_root != Path("/proc") or (euid is not None and euid != 0)
-    if not fallback_allowed:
-        return {
-            original: _failure(
-                source="owner_probe_unavailable", error="owner_probe_unavailable"
-            )
-            for original, _resolved in pairs
-        }
-
-    def local_scan(
-        scan_paths: Sequence[str], *, max_refs_per_path: int
-    ) -> Mapping[str, Any]:
-        return scan_port(
-            scan_paths, proc_root=proc_root, max_refs_per_path=max_refs_per_path
+    exchange_timeout = int(request["timeout_ms"])
+    if exchange_timeout < 100:
+        response, exchange_error, responded = None, "probe_timeout", False
+    else:
+        response, exchange_error, responded = _client_exchange(
+            request,
+            socket_path=probe_socket,
+            expected_server_uid=expected_server_uid,
+            timeout_ms=exchange_timeout,
+            max_request_bytes=max_request_bytes,
+            max_response_bytes=max_response_bytes,
+            socket_factory=socket_factory,
         )
+    if response is not None:
+        expected = {original for original, _resolved in valid}
+        raw_results = response.get("results")
+        protocol_valid = (
+            response.get("schema") == RESPONSE_SCHEMA
+            and response.get("request_id") == request["request_id"]
+            and response.get("ok") is True
+            and response.get("authenticated") is True
+            and type(response.get("complete")) is bool
+            and isinstance(raw_results, Mapping)
+            and set(raw_results) == expected
+        )
+        if protocol_valid:
+            sanitized = {
+                original: sanitize_probe_result(
+                    raw_results.get(original),
+                    source="privileged_proc_probe",
+                    max_refs_per_path=max_refs_per_path,
+                )
+                for original, _resolved in valid
+            }
+            complete = all(
+                item.get("checked") is True and not item.get("errors")
+                for item in sanitized.values()
+            )
+            protocol_valid = response["complete"] is complete
+        else:
+            sanitized = {}
+        result = (
+            sanitized
+            if protocol_valid
+            else unavailable(
+                valid, source="owner_probe_protocol", error="invalid_response"
+            )
+        )
+        result.update(diagnostic_result())
+        return finish(result)
+    if responded:
+        result = unavailable(
+            valid,
+            source="owner_probe_auth",
+            error=exchange_error or "owner_probe_unavailable",
+        )
+        result.update(diagnostic_result())
+        return finish(result)
 
-    raw_results, scan_error = bounded_scan(
-        [str(resolved) for _original, resolved in pairs],
-        max_refs_per_path=max_refs_per_path,
-        timeout_ms=timeout_ms,
-        scan_port=local_scan,
-    )
-    if scan_error:
-        return {
-            original: _failure(source="direct_proc_fallback", error=scan_error)
-            for original, _resolved in pairs
-        }
-    return _sanitize_results(
-        pairs,
-        raw_results,
-        source="direct_proc_fallback",
-        force_incomplete=proc_root == Path("/proc") and (euid is None or euid != 0),
-    )
+    if fallback_allowed:
+        result = direct([*valid, *diagnostic], {original for original, _ in diagnostic})
+    else:
+        result = unavailable(
+            [*valid, *diagnostic],
+            source="owner_probe_unavailable",
+            error="owner_probe_unavailable",
+        )
+    return finish(result)
 
 
 def systemd_listener(environ: Mapping[str, str] | None = None) -> socket.socket:

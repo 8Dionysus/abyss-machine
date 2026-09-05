@@ -236,6 +236,7 @@ try:
     from . import runtime_evidence_contracts
     from . import storage_candidate_adapters
     from . import storage_candidate_contracts
+    from . import storage_process_probe
     from . import storage_reservations
     from . import typing_capture_contracts
     from .nervous_index import (
@@ -343,6 +344,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import storage_candidate_adapters
     from abyss_machine import storage_candidate_contracts
+    from abyss_machine import storage_process_probe
     from abyss_machine import storage_reservations
     from abyss_machine import typing_capture_contracts
     from abyss_machine.nervous_index import (
@@ -16904,7 +16906,23 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                 deadline_exceeded = True
                 runtime_errors.append({"surface": "deep", "error": "deadline_exceeded_before_batch"})
             else:
-                process_by_path = storage_candidate_adapters.process_references([str(spec.get("path") or "") for spec in batch_specs])
+                process_paths = [
+                    str(spec.get("path") or "")
+                    for spec in batch_specs
+                    if not str(spec.get("path") or "").startswith("podman://")
+                ]
+                process_by_path = storage_process_probe.owner_process_references(
+                    process_paths,
+                    max_paths=storage_process_probe.MAX_BULK_PATHS,
+                    max_refs_per_path=1,
+                    max_request_bytes=storage_process_probe.MAX_BULK_REQUEST_BYTES,
+                    max_response_bytes=storage_process_probe.MAX_BULK_RESPONSE_BYTES,
+                    scan_port=storage_candidate_adapters.process_references,
+                    timeout_ms=min(
+                        storage_process_probe.MAX_TIMEOUT_MS,
+                        max(100, int(max(0.0, deadline - time.monotonic()) * 1000)),
+                    ),
+                )
                 config_by_path = storage_candidate_config_refs_by_path(batch_specs)
                 for spec in batch_specs:
                     if time.monotonic() >= deadline:
@@ -17220,7 +17238,18 @@ def storage_candidate_validate(candidate_id: str, *, write_latest: bool = True) 
         path_text = str(spec.get("path") or "")
         virtual = path_text.startswith("podman://")
         artifact_spec = artifact_spec_for_path(Path(path_text)) if not virtual else {}
-        process_refs = storage_candidate_adapters.process_references([path_text]).get(path_text, {"checked": virtual, "active": False, "refs": []})
+        process_refs = (
+            {"checked": True, "active": False, "refs": []}
+            if virtual
+            else storage_process_probe.owner_process_references(
+                [path_text],
+                max_paths=storage_process_probe.MAX_BULK_PATHS,
+                max_refs_per_path=1,
+                max_request_bytes=storage_process_probe.MAX_BULK_REQUEST_BYTES,
+                max_response_bytes=storage_process_probe.MAX_BULK_RESPONSE_BYTES,
+                scan_port=storage_candidate_adapters.process_references,
+            ).get(path_text, {"checked": False, "active": False, "refs": []})
+        )
         service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
         container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
         config_refs = artifact_config_refs(Path(path_text), [str(item) for item in artifact_spec.get("config_tokens", []) if item]) if artifact_spec else {"checked": True, "active": False, "hits": []}
