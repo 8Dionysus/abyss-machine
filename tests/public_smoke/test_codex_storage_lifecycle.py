@@ -1,17 +1,20 @@
 import datetime as dt
 import json
 from pathlib import Path
+import stat
 import subprocess
 
 import pytest
 
-from abyss_machine.codex_storage_lifecycle import Lifecycle
+from abyss_machine import storage_lifecycle_adapters
+from abyss_machine.codex_storage_lifecycle import Lifecycle, main
 
 
 @pytest.fixture
 def lifecycle(tmp_path):
     return Lifecycle(state_root=tmp_path / "state", scratch_root=tmp_path / "scratch",
-                     candidates_root=tmp_path / "candidates", required_mount=None)
+                     candidates_root=tmp_path / "candidates", lifecycle_root=tmp_path / "lifecycle",
+                     required_mount=None)
 
 
 def event(name="SessionStart", **extra):
@@ -32,6 +35,37 @@ def test_native_hook_registers_candidate_and_renewable_claim_without_payload(lif
     assert "PRIVATE" not in json.dumps(record)
     claim = json.loads((lifecycle.candidates_root / "claims/codex-native-task-123.json").read_text())
     assert claim["candidate_id"] == candidate["candidate_id"]
+    metadata = lifecycle.state_root / "native-task-123.json"
+    assert stat.S_IMODE(metadata.stat().st_mode) == 0o600
+    managed = json.loads(
+        storage_lifecycle_adapters.record_path(
+            lifecycle.lifecycle_root,
+            record["workspace_lifecycle"]["workspace_id"],
+        ).read_text()
+    )
+    assert managed["launcher_created"] is True
+    assert managed["state"] == "open"
+    assert managed["path"] == record["path"]
+
+
+def test_active_hook_renews_existing_managed_lease(lifecycle):
+    now = dt.datetime(2026, 9, 4, tzinfo=dt.timezone.utc)
+    lifecycle.observe(event(), now=now)
+    record = records(lifecycle)
+    workspace_id = record["workspace_lifecycle"]["workspace_id"]
+    first = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, workspace_id)
+    )
+    lifecycle.observe(event("UserPromptSubmit"), now=now + dt.timedelta(minutes=5))
+    second = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, workspace_id)
+    )
+    assert first is not None and second is not None
+    assert second["state"] == "open"
+    assert second["lease"]["generation"] == first["lease"]["generation"] + 1
+    assert dt.datetime.fromisoformat(second["lease"]["expires_at"]) > dt.datetime.fromisoformat(
+        first["lease"]["expires_at"]
+    )
 
 
 @pytest.mark.parametrize("name", ["Stop", "SessionEnd", "SubagentStop", "Interrupt"])
@@ -85,20 +119,91 @@ def test_existing_unowned_directory_and_symlink_are_not_adopted(lifecycle, tmp_p
         lifecycle.observe(event())
 
 
-def test_explicit_close_preserves_receipt_and_resume_reopens_protection(lifecycle, tmp_path):
+def test_explicit_close_seals_unknown_and_does_not_resume_managed_scratch(lifecycle, tmp_path):
     lifecycle.observe(event())
     receipt = tmp_path / "result.md"
     receipt.write_text("Preserved output")
     result = lifecycle.close("native-task-123", receipt)
     assert result["state"] == "closed"
     assert len(result["closeout"]["sha256"]) == 64
+    assert result["disposition"]["decision"] == "UNKNOWN"
+    assert "lease_token" not in json.dumps(result)
     lifecycle.observe(event("SessionEnd"))
     assert records(lifecycle)["state"] == "closed"
-    lifecycle.observe(event("UserPromptSubmit"))
-    assert records(lifecycle)["state"] == "active"
-    assert "closeout" not in records(lifecycle)
-    claim = json.loads((lifecycle.candidates_root / "claims/codex-native-task-123.json").read_text())
-    assert dt.datetime.fromisoformat(claim["expires_at"]) > dt.datetime.now(dt.timezone.utc)
+    with pytest.raises(ValueError, match="terminal"):
+        lifecycle.observe(event("UserPromptSubmit"))
+    managed_id = result["workspace_lifecycle"]["workspace_id"]
+    managed = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, managed_id)
+    )
+    assert managed is not None
+    assert managed["state"] == "sealed"
+    assert managed["disposition"]["decision"] == "UNKNOWN"
+
+
+def test_explicit_delete_uses_existing_reaper(lifecycle, tmp_path):
+    lifecycle.observe(event())
+    (lifecycle.scratch_root / "native-task-123" / "derived.txt").write_text("preserve then delete")
+    receipt = tmp_path / "result.md"
+    receipt.write_text("Preserved output")
+    result = lifecycle.close(
+        "native-task-123",
+        receipt,
+        decision="DELETE",
+        owner_evidence_refs=["owner:preserved"],
+        grace_seconds=0,
+    )
+    assert result["lifecycle_closeout"]["released"] is True
+    managed_id = result["workspace_lifecycle"]["workspace_id"]
+    managed = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, managed_id)
+    )
+    assert managed is not None
+    assert managed["state"] == "released"
+    assert managed["disposition"]["decision"] == "DELETE"
+    reaped = storage_lifecycle_adapters.reap(
+        lifecycle.lifecycle_root,
+        now_time=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1),
+    )
+    assert reaped["summary"]["applied"] == 1
+    assert not (lifecycle.scratch_root / "native-task-123").exists()
+
+
+def test_archive_requires_exact_absolute_target(lifecycle, tmp_path):
+    lifecycle.observe(event())
+    receipt = tmp_path / "result.md"
+    receipt.write_text("Preserved output")
+    with pytest.raises(ValueError, match="archive target"):
+        lifecycle.close("native-task-123", receipt, decision="ARCHIVE")
+    assert (lifecycle.scratch_root / "native-task-123").exists()
+    managed_id = records(lifecycle)["workspace_lifecycle"]["workspace_id"]
+    managed = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, managed_id)
+    )
+    assert managed is not None and managed["state"] == "open"
+
+
+def test_show_and_close_never_print_private_lease_token(lifecycle, tmp_path, capsys):
+    lifecycle.observe(event())
+    raw_metadata = (lifecycle.state_root / "native-task-123.json").read_text()
+    token = records(lifecycle)["workspace_lifecycle"]["lease_token"]
+    assert token in raw_metadata
+    assert stat.S_IMODE((lifecycle.state_root / "native-task-123.json").stat().st_mode) == 0o600
+
+    assert main([
+        "--state-root", str(lifecycle.state_root),
+        "--scratch-root", str(lifecycle.scratch_root),
+        "--candidates-root", str(lifecycle.candidates_root),
+        "--lifecycle-root", str(lifecycle.lifecycle_root),
+        "show", "--session-id", "native-task-123",
+    ]) == 0
+    shown = capsys.readouterr().out
+    assert token not in shown
+
+    receipt = tmp_path / "result.md"
+    receipt.write_text("Preserved output")
+    result = lifecycle.close("native-task-123", receipt)
+    assert token not in json.dumps(result)
 
 
 def test_close_receipt_cannot_live_inside_scratch(lifecycle):
@@ -107,3 +212,24 @@ def test_close_receipt_cannot_live_inside_scratch(lifecycle):
     receipt.write_text("Would be lost")
     with pytest.raises(ValueError, match="outside scratch"):
         lifecycle.close("native-task-123", receipt)
+
+
+def test_existing_native_record_is_not_retroactively_managed(lifecycle, tmp_path):
+    lifecycle.scratch_root.mkdir(parents=True)
+    scratch = lifecycle.scratch_root / "native-task-123"
+    scratch.mkdir()
+    metadata = lifecycle.state_root
+    metadata.mkdir(parents=True)
+    (metadata / "native-task-123.json").write_text(json.dumps({
+        "schema": "abyss_machine_codex_scratch_v1",
+        "session_id": "native-task-123",
+        "owner": "codex-native-scratch",
+        "path": str(scratch),
+        "state": "active",
+    }))
+    lifecycle.observe(event("UserPromptSubmit"))
+    assert not (lifecycle.lifecycle_root / "workspaces").exists()
+    receipt = tmp_path / "legacy-result.md"
+    receipt.write_text("Preserved output")
+    with pytest.raises(ValueError, match="unmanaged"):
+        lifecycle.close("native-task-123", receipt, decision="DELETE")

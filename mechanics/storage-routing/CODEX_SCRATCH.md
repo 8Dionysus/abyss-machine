@@ -1,8 +1,9 @@
 # Native Codex scratch lifecycle
 
 The native hook adapter assigns temporary shell files to their Codex task and
-feeds the existing host storage candidate/claim plane. It does not run agents,
-read transcripts, classify task completion, or delete files.
+enrolls newly created scratch paths in the existing managed-workspace lifecycle
+as well as the storage candidate/claim plane. It does not run agents, read
+transcripts, classify task completion, or delete files.
 
 Installed entrypoint: `abyss-machine storage codex`. The standard bootstrap
 launcher dispatches directly into the active package generation without
@@ -12,18 +13,23 @@ convenience wrapper. No separate helper installation is required.
 
 ## Event behavior
 
-- SessionStart/UserPromptSubmit/SubagentStart registers the managed path and
-  renews an activity claim for 48 hours.
+- SessionStart creates and registers a managed path with a 48-hour lease;
+  UserPromptSubmit and active tool hooks renew that lease and the activity claim.
+  An existing native record from before this integration remains candidate-only
+  and is never adopted for automatic disposal.
 - PreToolUse for Bash can prepend a task-local `TMPDIR` when configured with
   `--route-temp`. Other command arguments and the original shell program remain
   intact; an explicit later `TMPDIR` assignment wins.
 - Stop, Interrupt, SubagentStop and SessionEnd record an observation and keep
   protection. These events do not prove semantic task completion. Native
   subagent hook calls may share the parent's session ID and temporary root.
-- Explicit `close --session-id ID --receipt PATH` records a SHA256 digest of a
-  compact owner receipt outside scratch, and releases only the activity claim.
+- Explicit `close --session-id ID --receipt PATH --decision ...` records a SHA256
+  digest of a compact owner receipt outside scratch and finalizes the existing
+  lifecycle. `KEEP` and `UNKNOWN` seal and preserve the path. `DELETE` or
+  `ARCHIVE --archive-target ABSOLUTE_PATH` are explicit owner dispositions that
+  move the managed record to the existing bounded reaper after its grace period.
   Unique-data/recovery clearance still belongs to the existing candidate plane.
-  A resumed task renews protection and invalidates the earlier closeout.
+  Stop, idle and expiry remain protective; a closed managed task is terminal.
 
 Paths use the host storage roots by default. The adapter refuses traversal,
 symlink ancestors, existing unowned directories, and an absent `/srv` mount.
@@ -48,11 +54,17 @@ runtime state.
 Example owner closeout after preserving results:
 
 ```sh
-abyss-machine storage codex close --session-id TASK_ID --receipt /durable/path/closeout.json
+abyss-machine storage codex close --session-id TASK_ID \
+  --receipt /durable/path/closeout.json --decision KEEP
+# or, after preserving the required results:
+abyss-machine storage codex close --session-id TASK_ID \
+  --receipt /durable/path/closeout.json --decision DELETE
 abyss-machine storage candidates explain CANDIDATE_ID --json
 ```
 
-This creates reviewable lifecycle evidence; it does not override active
+The closeout writes reviewable lifecycle evidence; it does not override active
 processes, unknown contents, owner preservation checks or exact apply gates.
+The lease capability is retained only in the mode-0600 native metadata while a
+managed scratch is open and is never emitted by `show` or `close`.
 
 Native interface reference: <https://learn.chatgpt.com/docs/hooks>.

@@ -53,6 +53,40 @@ def test_existing_directory_cannot_become_automatic_delete_authority(tmp_path: P
     assert workspace.exists()
 
 
+def test_registered_lease_renewal_is_locked_and_capability_bound(tmp_path: Path) -> None:
+    root = tmp_path / "state"
+    opened = adapters.register_workspace(
+        root,
+        owner="fixture-owner",
+        workspace=tmp_path / "work" / "renew",
+        unit=None,
+        now_time=dt.datetime(2026, 9, 4, tzinfo=dt.timezone.utc),
+    )
+    workspace_id = opened["record"]["workspace_id"]
+    original = adapters.read_json(adapters.record_path(root, workspace_id))
+    denied = adapters.renew_registered_workspace(
+        root,
+        workspace_id=workspace_id,
+        lease_token="wrong-capability",
+        lease_seconds=600,
+        now_time=dt.datetime(2026, 9, 4, 0, 1, tzinfo=dt.timezone.utc),
+    )
+    unchanged = adapters.read_json(adapters.record_path(root, workspace_id))
+    assert denied["ok"] is False
+    assert "lease_capability_mismatch" in denied["errors"]
+    assert unchanged == original
+
+    renewed = adapters.renew_registered_workspace(
+        root,
+        workspace_id=workspace_id,
+        lease_token=opened["lease_token"],
+        lease_seconds=600,
+        now_time=dt.datetime(2026, 9, 4, 0, 1, tzinfo=dt.timezone.utc),
+    )
+    assert renewed["ok"] is True
+    assert renewed["record"]["lease"]["generation"] == 2
+
+
 def test_keep_and_unknown_never_release(tmp_path: Path) -> None:
     for decision in ("KEEP", "UNKNOWN"):
         root = tmp_path / decision

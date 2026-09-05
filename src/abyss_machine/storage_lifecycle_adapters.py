@@ -221,6 +221,7 @@ def register_workspace(
     unit: str | None,
     lease_seconds: int = 300,
     create: bool = True,
+    now_time: dt.datetime | None = None,
 ) -> dict[str, Any]:
     workspace = workspace.expanduser().absolute()
     if not owner.strip():
@@ -231,9 +232,9 @@ def register_workspace(
     nonce = secrets.token_hex(16)
     launcher_created = False
     if not workspace.exists() and create:
-        workspace.mkdir(parents=True, exist_ok=False)
+        workspace.mkdir(mode=0o700, parents=True, exist_ok=False)
         launcher_created = True
-    opened = now_utc()
+    opened = now_time or now_utc()
     provisional_id = contracts.workspace_id(owner=owner, path=str(workspace), nonce=nonce)
     callback = callback_path(root, provisional_id)
     record = contracts.open_workspace(
@@ -269,6 +270,45 @@ def register_workspace(
             "ABYSS_MANAGED_WORKSPACE_DISPOSITION": str(callback),
         },
     }
+
+
+def renew_registered_workspace(
+    root: Path,
+    *,
+    workspace_id: str,
+    lease_token: str,
+    lease_seconds: int = 300,
+    now_time: dt.datetime | None = None,
+) -> dict[str, Any]:
+    """Renew one managed workspace lease while holding its lifecycle locks."""
+    if not isinstance(workspace_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", workspace_id):
+        return {"ok": False, "errors": ["workspace_id_invalid"]}
+    try:
+        duration = max(1, int(lease_seconds))
+    except (TypeError, ValueError):
+        return {"ok": False, "errors": ["lease_seconds_invalid"]}
+    resolved_now = now_time or now_utc()
+    if resolved_now.tzinfo is None:
+        return {"ok": False, "errors": ["timezone_aware_time_required"]}
+    updated_at = resolved_now.astimezone(dt.timezone.utc).isoformat(timespec="seconds")
+    expires_at = (resolved_now + dt.timedelta(seconds=duration)).astimezone(dt.timezone.utc).isoformat(timespec="seconds")
+    path = record_path(root, workspace_id)
+    with workspace_lock(root, workspace_id) as acquired:
+        if not acquired:
+            return {"ok": False, "errors": ["workspace_lock_unavailable"]}
+        with registry_lock(root):
+            record = read_json(path)
+            if record is None:
+                return {"ok": False, "errors": ["workspace_record_not_found"]}
+            result = contracts.renew_lease(
+                record,
+                token=lease_token,
+                expires_at=expires_at,
+                updated_at=updated_at,
+            )
+            if result.get("ok") is True:
+                atomic_write_json(path, result["record"])
+            return result
 
 
 def seal_registered_workspace(
