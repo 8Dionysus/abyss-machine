@@ -1,0 +1,15 @@
+[Unit]
+Description=Abyss Machine owner authenticated storage process probe socket
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+PartOf=abyss-storage-process-probe.service
+
+[Socket]
+ListenStream={{ABYSS_MACHINE_RUN}}/storage-process-probe.sock
+SocketMode=0600
+SocketUser={{ABYSS_USER}}
+SocketGroup={{ABYSS_USER}}
+DirectoryMode=0755
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

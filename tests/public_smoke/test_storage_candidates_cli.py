@@ -72,12 +72,12 @@ def test_candidate_cli_light_refresh_register_claim_and_release(tmp_path: Path) 
     assert second_refresh["light_refresh"]["pending_manifest_candidate_ids"] == [candidate_id]
 
 
-def test_daily_deep_timer_is_installed_by_core_profile() -> None:
+def test_bounded_deep_timer_is_installed_by_core_profile() -> None:
     service = (ROOT / "systemd" / "user" / "abyss-storage-candidates-deep.service").read_text(encoding="utf-8")
     timer = (ROOT / "systemd" / "user" / "abyss-storage-candidates-deep.timer").read_text(encoding="utf-8")
     bootstrap = (ROOT / "scripts" / "abyss-machine-bootstrap").read_text(encoding="utf-8")
 
-    assert "storage candidates refresh --deep --json" in service
-    assert "TimeoutStartSec=30min" in service
-    assert "OnCalendar=daily" in timer
+    assert "storage candidates refresh --deep --if-due --json" in service
+    assert "TimeoutStartSec=6min" in service
+    assert "OnCalendar=*:0/10" in timer
     assert '"abyss-storage-candidates-deep.timer"' in bootstrap

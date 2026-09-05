@@ -702,25 +702,29 @@ def subprocess_env(
     extra: dict[str, str] | None = None,
 ) -> dict[str, str]:
     env = dict(base_env)
+    configured_home = env.get("ABYSS_USER_HOME") or env.get("HOME")
+    user_home = Path(configured_home).expanduser() if configured_home else Path.home()
+    relative_home = Path(*user_home.parts[1:]) if user_home.is_absolute() else user_home
+    routed_home_cache = machine_cache_root / relative_home / "cache"
     env.setdefault("OPENVINO_LOG_LEVEL", "2")
     env.setdefault("TOKENIZERS_PARALLELISM", "false")
     env.setdefault("TRANSFORMERS_OFFLINE", "1")
     env.setdefault("HF_HUB_OFFLINE", "1")
-    env.setdefault("XDG_CACHE_HOME", str(machine_cache_root / "home/operator/cache"))
+    env.setdefault("XDG_CACHE_HOME", str(routed_home_cache))
     env.setdefault("HF_HOME", str(ai_cache_root / "huggingface"))
     env.setdefault("HUGGINGFACE_HUB_CACHE", str(ai_cache_root / "huggingface/hub"))
     env.setdefault("TRANSFORMERS_CACHE", str(ai_cache_root / "huggingface/transformers"))
-    env.setdefault("PIP_CACHE_DIR", str(machine_cache_root / "home/operator/cache/pip"))
+    env.setdefault("PIP_CACHE_DIR", str(routed_home_cache / "pip"))
     env.setdefault("TORCH_HOME", str(ai_cache_root / "torch"))
     env.setdefault("TORCHINDUCTOR_CACHE_DIR", str(ai_cache_root / "torchinductor"))
     env.setdefault("TRITON_CACHE_DIR", str(ai_cache_root / "triton"))
     env.setdefault("NLTK_DATA", str(ai_cache_root / "nltk_data"))
-    env.setdefault("SYCL_CACHE_DIR", str(machine_cache_root / "home/operator/cache/ze_intel_npu_cache"))
+    env.setdefault("SYCL_CACHE_DIR", str(routed_home_cache / "ze_intel_npu_cache"))
     env.setdefault("SYCL_CACHE_PERSISTENT", "1")
     env.setdefault("TMPDIR", str(tmp_root / "ai"))
     env.setdefault("ABYSS_OPENVINO_CACHE_DIR", str(openvino_cache_root))
-    env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(machine_cache_root / "home/operator/cache/ms-playwright"))
-    env.setdefault("PUPPETEER_CACHE_DIR", str(machine_cache_root / "home/operator/cache/puppeteer"))
+    env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(routed_home_cache / "ms-playwright"))
+    env.setdefault("PUPPETEER_CACHE_DIR", str(routed_home_cache / "puppeteer"))
     if extra:
         env.update(extra)
     return env

@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import sys
 from time import monotonic
 from typing import Any
 
@@ -12,9 +13,16 @@ try:
     from . import resource_planning
     from . import storage_lifecycle_adapters
 except ImportError:
-    import resource_adapters  # type: ignore[no-redef]
-    import resource_planning  # type: ignore[no-redef]
-    import storage_lifecycle_adapters  # type: ignore[no-redef]
+    # The handoff deliberately execs this file by path.  Its package context
+    # is therefore absent and sibling modules cannot be imported as bare
+    # top-level names when their own imports are relative.  Add the source
+    # package parent, then resolve the same package modules used in-process.
+    package_parent = str(Path(__file__).resolve().parent.parent)
+    if package_parent not in sys.path:
+        sys.path.insert(0, package_parent)
+    from abyss_machine import resource_adapters  # type: ignore[no-redef]
+    from abyss_machine import resource_planning  # type: ignore[no-redef]
+    from abyss_machine import storage_lifecycle_adapters  # type: ignore[no-redef]
 
 
 MAX_HANDOFF_BYTES = 16 * 1024 * 1024
@@ -78,6 +86,16 @@ def finish_document(handoff: dict[str, Any]) -> dict[str, Any]:
         profile_max_entries=int(execution.get("profile_max_entries") or 64),
         profile_max_samples=int(execution.get("profile_max_samples") or 16),
         parse_output=resource_planning.parse_systemd_run_output,
+        storage_reservation=(
+            execution.get("storage_reservation")
+            if isinstance(execution.get("storage_reservation"), dict)
+            else None
+        ),
+        storage_reservation_root=(
+            Path(str(execution.get("storage_reservation_root") or ""))
+            if execution.get("storage_reservation_root")
+            else None
+        ),
     )
 
     result = outcome.get("execution") if isinstance(outcome.get("execution"), dict) else None
@@ -109,6 +127,19 @@ def finish_document(handoff: dict[str, Any]) -> dict[str, Any]:
     document["total_elapsed_sec"] = round(total_elapsed_sec, 3)
     document["execution"] = result
     document["ok"] = not document.get("denied_reasons") and not document.get("blocked_reasons") and bool(result and result.get("ok"))
+    storage_release = outcome.get("storage_reservation_release")
+    if isinstance(storage_release, dict) and storage_release.get("requested"):
+        storage_document = document.get("storage_reservation")
+        if not isinstance(storage_document, dict):
+            storage_document = {"requested": True}
+        storage_document["release"] = storage_release
+        storage_document["accounting_complete"] = bool(
+            storage_release.get("ok") is True
+            and not storage_release.get("release_pending")
+        )
+        document["storage_reservation"] = storage_document
+        if storage_release.get("release_pending") or storage_release.get("ok") is not True:
+            document["ok"] = False
     startup = document.get("startup_admission") if isinstance(document.get("startup_admission"), dict) else {}
     startup["lease_released"] = bool(outcome.get("lease_released"))
     startup["demand_observation"] = outcome.get("demand_observation")

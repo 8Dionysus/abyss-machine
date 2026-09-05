@@ -713,7 +713,7 @@
         "abi_epoch": "aoa_session_memory_portable_bundle_v1",
         "contract_version": "artifact_signature_policy.manifest.json@0.2.9#aoa_session_memory_portable_bundle",
         "trust_layer": ["abi_contract_signature", "sbom", "slsa_in_toto"],
-        "verification": ["python3 scripts/aoa_session_memory.py audit --workspace-root /srv/AbyssOS --aoa-root /srv/AbyssOS/bundles/aoa-session-memory --portable-bundle", "abyss-machine artifacts verify BUNDLE_DIR --json"],
+        "verification": ["python3 BUNDLE_DIR/scripts/aoa_session_memory.py audit --workspace-root . --aoa-root BUNDLE_DIR --portable-bundle", "abyss-machine artifacts verify BUNDLE_DIR --json"],
         "action": "ADD_RELEASE_PROVENANCE"
       },
       "abi_signature": {"required": true},

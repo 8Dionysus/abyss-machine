@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Bind storage reservations to actual resource executions, preserving holds
+  until terminal completion and exposing unavailable accounting separately
+  from capacity pressure.
+- Register native Codex scratch in the managed workspace lifecycle; explicit
+  owner closeout can preserve, delete, or archive it through the bounded reaper,
+  while stop, idle, and lease expiry retain protection. Archive removal requires
+  verified content and an unchanged mounted Vault.
+- Add bounded filesystem-capacity history and growth estimates, with explicit
+  insufficient-history results and user-available space that respects reserved
+  filesystem blocks.
 - Make source and installed `AGENTS.md` cards inherited, task-conditioned local
   routes; keep root and district README files as human/public entrypoints;
   route adapter and validator inventories to their existing owner maps; and

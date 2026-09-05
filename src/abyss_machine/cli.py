@@ -195,9 +195,11 @@ globals().update(
         "self_awareness_validation_contracts",
         "stack_bridge_contracts",
         "storage_adapters",
+        "storage_forecast",
         "storage_contracts",
         "storage_lifecycle_adapters",
         "storage_lifecycle_contracts",
+        "storage_reservations",
         "topology_contracts",
         "typing_atspi_adapters",
         "typing_browser_adapters",
@@ -234,6 +236,8 @@ try:
     from . import runtime_evidence_contracts
     from . import storage_candidate_adapters
     from . import storage_candidate_contracts
+    from . import storage_process_probe
+    from . import storage_reservations
     from . import typing_capture_contracts
     from .nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
@@ -340,6 +344,8 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import storage_candidate_adapters
     from abyss_machine import storage_candidate_contracts
+    from abyss_machine import storage_process_probe
+    from abyss_machine import storage_reservations
     from abyss_machine import typing_capture_contracts
     from abyss_machine.nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
@@ -457,6 +463,10 @@ STORAGE_MONITOR_ROOT = STORAGE_STATE_ROOT / "monitor"
 STORAGE_MONITOR_LATEST_PATH = STORAGE_MONITOR_ROOT / "latest.json"
 STORAGE_WRITE_PREFLIGHT_ROOT = STORAGE_STATE_ROOT / "write-preflight"
 STORAGE_WRITE_PREFLIGHT_LATEST_PATH = STORAGE_WRITE_PREFLIGHT_ROOT / "latest.json"
+STORAGE_RESERVATIONS_ROOT = path_from_env(
+    "ABYSS_MACHINE_STORAGE_RESERVATIONS_ROOT",
+    STORAGE_STATE_ROOT / "reservations",
+)
 STORAGE_APPLY_ROOT = STORAGE_STATE_ROOT / "apply"
 STORAGE_APPLY_LATEST_PATH = STORAGE_APPLY_ROOT / "latest.json"
 STORAGE_CANDIDATES_ROOT = path_from_env("ABYSS_MACHINE_STORAGE_CANDIDATES_ROOT", STORAGE_STATE_ROOT / "candidates")
@@ -7679,6 +7689,15 @@ def du_size_bytes(path: Path, timeout: float = 20.0) -> int | None:
     )
 
 
+def du_physical_size_bytes(path: Path, timeout: float = 20.0) -> int | None:
+    return storage_adapters.measure_path_physical_size_bytes(
+        path,
+        timeout=timeout,
+        command_exists=command_exists,
+        command_runner=run,
+    )
+
+
 def path_mtime_iso(path: Path) -> str | None:
     return storage_adapters.path_mtime_iso(path)
 
@@ -7704,7 +7723,13 @@ def existing_ancestor(path: Path) -> Path:
 
 
 def disk_usage_summary(path: Path) -> dict[str, Any]:
-    return storage_adapters.disk_usage_summary(path)
+    return storage_adapters.disk_usage_summary(path, statvfs=os.statvfs)
+
+
+def routed_home_cache_path(*parts: str) -> Path:
+    """Return the policy user's cache route without embedding an operator name."""
+    relative_home = Path(*ABYSS_USER_HOME.parts[1:]) if ABYSS_USER_HOME.is_absolute() else ABYSS_USER_HOME
+    return ABYSS_MACHINE_CACHE_ROOT / relative_home / "cache" / Path(*parts)
 
 
 def path_storage_status(path: Path, expected_target: Path | None = None, include_size: bool = True) -> dict[str, Any]:
@@ -7870,7 +7895,7 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
                 direct_paths.append(candidate)
     direct_status = [path_storage_status(path, include_size=full_ai_scan and path.exists()) for path in direct_paths]
 
-    home = Path.home()
+    home = ABYSS_USER_HOME
     podman_store, podman_store_error = podman_store_summary(timeout=8.0)
     podman_graphroot = podman_graphroot_from_store(podman_store)
     podman_target = rootless_podman_target_graphroot()
@@ -7882,13 +7907,13 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
         direct_status.append(podman_direct)
     residual_specs = [
         ("home_huggingface", home / ".cache/huggingface", AI_CACHE_ROOT / "huggingface"),
-        ("home_pip", home / ".cache/pip", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/pip"),
+        ("home_pip", home / ".cache/pip", routed_home_cache_path("pip")),
         ("home_torch", home / ".cache/torch", AI_CACHE_ROOT / "torch"),
         ("home_torch_extensions", home / ".cache/torch_extensions", AI_CACHE_ROOT / "torch_extensions"),
         ("home_triton", home / ".triton", AI_CACHE_ROOT / "triton"),
-        ("home_ms_playwright", home / ".cache/ms-playwright", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ms-playwright"),
-        ("home_puppeteer", home / ".cache/puppeteer", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/puppeteer"),
-        ("home_npu_cache", home / ".cache/ze_intel_npu_cache", ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ze_intel_npu_cache"),
+        ("home_ms_playwright", home / ".cache/ms-playwright", routed_home_cache_path("ms-playwright")),
+        ("home_puppeteer", home / ".cache/puppeteer", routed_home_cache_path("puppeteer")),
+        ("home_npu_cache", home / ".cache/ze_intel_npu_cache", routed_home_cache_path("ze_intel_npu_cache")),
         ("home_nltk_data", home / "nltk_data", AI_CACHE_ROOT / "nltk_data"),
     ]
     if not podman_on_large_root:
@@ -7941,6 +7966,11 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "srv": srv_usage,
             "abyss_machine": disk_usage_summary(ABYSS_MACHINE_ROOT),
         },
+        "size_metrics": {
+            "direct_and_residual_size_basis": "apparent",
+            "inventory_size_basis": "physical_allocated_bytes",
+            "available_to_user_source": "statvfs.f_bavail",
+        },
         "direct_paths": direct_status,
         "residual_paths": residual_status,
         "environment_routes": storage_cache_env_routes(),
@@ -7992,6 +8022,8 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "generated_at": write_preflight_latest.get("generated_at") if isinstance(write_preflight_latest, dict) else None,
             "decision": write_preflight_latest.get("decision") if isinstance(write_preflight_latest, dict) else None,
             "reasons": write_preflight_latest.get("reasons") if isinstance(write_preflight_latest, dict) else None,
+            "reservations_root": str(STORAGE_RESERVATIONS_ROOT),
+            "reservations": write_preflight_latest.get("reservations") if isinstance(write_preflight_latest, dict) else None,
         },
         "apply": {
             "latest": str(STORAGE_APPLY_LATEST_PATH),
@@ -8006,6 +8038,11 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "exists": STORAGE_CANDIDATES_LATEST_PATH.exists(),
             "generated_at": candidates_latest.get("generated_at") if isinstance(candidates_latest, dict) else None,
             "snapshot_id": candidates_latest.get("snapshot_id") if isinstance(candidates_latest, dict) else None,
+            "deep": candidates_latest.get("deep") if isinstance(candidates_latest, dict) else None,
+            "freshness": candidates_latest.get("freshness") if isinstance(candidates_latest, dict) else None,
+            "coverage": candidates_latest.get("coverage") if isinstance(candidates_latest, dict) else None,
+            "runtime_errors": candidates_latest.get("runtime_errors") if isinstance(candidates_latest, dict) else None,
+            "pressure_findings": candidates_latest.get("pressure_findings") if isinstance(candidates_latest, dict) else None,
             "summary": candidates_latest.get("summary") if isinstance(candidates_latest, dict) else None,
             "commands": storage_candidate_paths().get("commands"),
         },
@@ -8024,6 +8061,7 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "residual_paths_present": sum(1 for item in residual_status if item.get("exists")),
             "residual_paths_requiring_migration": sum(1 for item in residual_status if item.get("migration_required")),
             "residual_bytes_requiring_migration": residual_bytes,
+            "residual_bytes_basis": "apparent" if full_ai_scan else None,
             "executable_hooks": hooks.get("summary", {}).get("executable_hooks"),
             "latest_process_snapshot": process_latest.get("generated_at"),
             "podman_migration_required": podman_latest.get("migration_required") if isinstance(podman_latest, dict) else None,
@@ -8052,6 +8090,10 @@ def storage_status(write_latest: bool = True, full_ai_scan: bool = False) -> dic
             "cleanup_plan_refresh": ["abyss-machine", "storage", "cleanup-plan", "--refresh-inventory", "--json"],
             "monitor": ["abyss-machine", "storage", "monitor", "--json"],
             "write_preflight": ["abyss-machine", "storage", "write-preflight", "--kind", "KIND", "--bytes", "BYTES", "--target", "PATH", "--json"],
+            "write_reservation_acquire": ["abyss-machine", "storage", "write-reservation", "acquire", "--reservation-id", "ID", "--kind", "KIND", "--bytes", "BYTES", "--target", "PATH", "--owner", "OWNER", "--ttl-seconds", "3600", "--json"],
+            "write_reservation_release": ["abyss-machine", "storage", "write-reservation", "release", "--reservation-id", "ID", "--json"],
+            "write_reservation_expire": ["abyss-machine", "storage", "write-reservation", "expire", "--json"],
+            "write_reservation_list": ["abyss-machine", "storage", "write-reservation", "list", "--json"],
             "apply_dry_run": ["abyss-machine", "storage", "apply", "--action-id", "ID", "--dry-run", "--json"],
             "apply_confirm": ["abyss-machine", "storage", "apply", "--action-id", "ID", "--confirm", "--json"],
             "candidates_refresh": ["abyss-machine", "storage", "candidates", "refresh", "--json"],
@@ -8092,7 +8134,8 @@ def podman_text(cmd: list[str], timeout: float = 10.0) -> tuple[str, str | None]
 
 
 def rootless_podman_target_graphroot() -> Path:
-    return ABYSS_MACHINE_STORAGE_ROOT / "home/operator/containers/storage"
+    relative_home = Path(*ABYSS_USER_HOME.parts[1:]) if ABYSS_USER_HOME.is_absolute() else ABYSS_USER_HOME
+    return ABYSS_MACHINE_STORAGE_ROOT / relative_home / "containers" / "storage"
 
 
 def podman_store_summary(timeout: float = 8.0) -> tuple[dict[str, Any], str | None]:
@@ -8105,7 +8148,7 @@ def podman_store_summary(timeout: float = 8.0) -> tuple[dict[str, Any], str | No
 
 def podman_graphroot_from_store(store: dict[str, Any] | None = None) -> Path:
     store = store if isinstance(store, dict) else {}
-    return Path(str(store.get("graphRoot") or Path.home() / ".local/share/containers/storage"))
+    return Path(str(store.get("graphRoot") or ABYSS_USER_HOME / ".local/share/containers/storage"))
 
 
 def redact_container_mount(mount: dict[str, Any]) -> dict[str, Any]:
@@ -8198,7 +8241,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
     blocked_reasons: list[str] = []
     if migration_required and active:
         blocked_reasons.append("running_containers")
-    if migration_required and ((Path.home() / ".local/share/containers").is_symlink() or graph_root.is_symlink()):
+    if migration_required and ((ABYSS_USER_HOME / ".local/share/containers").is_symlink() or graph_root.is_symlink()):
         blocked_reasons.append("existing_symlink_route")
     if migration_required and not graph_root.exists():
         blocked_reasons.append("graphroot_missing")
@@ -8242,7 +8285,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
             "latest": str(PODMAN_PREFLIGHT_LATEST_PATH),
             "daily_glob": str(PODMAN_PREFLIGHT_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
             "migration_script": str(ABYSS_MACHINE_STORAGE_ROOT / "migrate-podman-rootless.sh"),
-            "storage_conf": str(Path.home() / ".config/containers/storage.conf"),
+            "storage_conf": str(ABYSS_USER_HOME / ".config/containers/storage.conf"),
             "source_graphroot": str(graph_root),
             "target_graphroot": str(target_graphroot),
             "work_context_root": "/srv/work",
@@ -8273,7 +8316,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
             "active_named_volume_mounts": [item for item in named_volume_mounts if item.get("container") in {c.get("name") for c in active}],
         },
         "symlinks": {
-            "containers_base_is_symlink": (Path.home() / ".local/share/containers").is_symlink(),
+            "containers_base_is_symlink": (ABYSS_USER_HOME / ".local/share/containers").is_symlink(),
             "graphroot_is_symlink": graph_root.is_symlink(),
         },
         "hooks": {
@@ -8302,7 +8345,7 @@ def podman_migration_preflight(full: bool = False, write_latest: bool = True) ->
 
 
 def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str, Any]]:
-    home = Path.home()
+    home = ABYSS_USER_HOME
     podman_store, podman_error = podman_store_summary(timeout=8.0)
     podman_graphroot = podman_graphroot_from_store(podman_store)
     podman_target = rootless_podman_target_graphroot()
@@ -8436,7 +8479,7 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
         },
         {
             "id": "home_npu_cache_routed",
-            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/ze_intel_npu_cache"),
+            "path": str(routed_home_cache_path("ze_intel_npu_cache")),
             "category": "rebuildable_cache",
             "disposition": "cleanup_under_pressure",
             "reclaimability": "rebuildable",
@@ -8447,7 +8490,7 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
         },
         {
             "id": "home_pip_cache_routed",
-            "path": str(ABYSS_MACHINE_CACHE_ROOT / "home/operator/cache/pip"),
+            "path": str(routed_home_cache_path("pip")),
             "category": "rebuildable_cache",
             "disposition": "cleanup_under_pressure",
             "reclaimability": "redownloadable",
@@ -8595,8 +8638,18 @@ def storage_inventory_specs(include_home_review: bool = False) -> list[dict[str,
     return specs
 
 
-def storage_inventory_item(spec: dict[str, Any], measure: bool = True) -> dict[str, Any]:
-    return storage_adapters.inventory_item_status(spec, measure=measure, size_bytes=du_size_bytes)
+def storage_inventory_item(
+    spec: dict[str, Any],
+    measure: bool = True,
+    include_apparent: bool = False,
+) -> dict[str, Any]:
+    return storage_adapters.inventory_item_status(
+        spec,
+        measure=measure,
+        size_bytes=du_size_bytes,
+        physical_size_bytes=du_physical_size_bytes,
+        apparent_size_bytes=du_size_bytes if include_apparent else None,
+    )
 
 
 def storage_inventory_drift(items: list[dict[str, Any]], previous: dict[str, Any] | None) -> dict[str, Any]:
@@ -8607,7 +8660,11 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
     previous, _ = load_json_document(STORAGE_INVENTORY_LATEST_PATH)
     specs = storage_inventory_specs(include_home_review=include_home_review or full)
     items = [
-        storage_inventory_item(spec, measure=bool(full or spec.get("measure_light", True)))
+        storage_inventory_item(
+            spec,
+            measure=bool(full or spec.get("measure_light", True)),
+            include_apparent=bool(full),
+        )
         for spec in specs
     ]
     by_category: dict[str, dict[str, Any]] = {}
@@ -8615,14 +8672,17 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
         category = str(item.get("category") or "unknown")
         bucket = by_category.setdefault(
             category,
-            {"items": 0, "existing": 0, "measured": 0, "unmeasured_existing": 0, "size_bytes": 0},
+            {"items": 0, "existing": 0, "measured": 0, "measurement_ok_items": 0, "unmeasured_existing": 0, "size_bytes": 0, "apparent_size_bytes": 0},
         )
         bucket["items"] = int(bucket["items"]) + 1
         if item.get("exists"):
             bucket["existing"] = int(bucket["existing"]) + 1
         if isinstance(item.get("size_bytes"), int):
             bucket["measured"] = int(bucket["measured"]) + 1
+            bucket["measurement_ok_items"] = int(bucket["measurement_ok_items"]) + 1
             bucket["size_bytes"] = int(bucket["size_bytes"]) + int(item["size_bytes"])
+            if isinstance(item.get("apparent_size_bytes"), int):
+                bucket["apparent_size_bytes"] = int(bucket["apparent_size_bytes"]) + int(item["apparent_size_bytes"])
         elif item.get("exists"):
             bucket["unmeasured_existing"] = int(bucket["unmeasured_existing"]) + 1
     pressure_candidates = [
@@ -8708,10 +8768,20 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
             "items": len(items),
             "existing_items": sum(1 for item in items if item.get("exists")),
             "measured_items": sum(1 for item in items if item.get("measured")),
+            "measurement_ok_items": sum(1 for item in items if item.get("measurement_ok")),
+            "measurement_failed_items": sum(1 for item in items if item.get("measured") and not item.get("measurement_ok")),
+            "measurement_coverage_percent": round(
+                100.0 * sum(1 for item in items if item.get("measurement_ok"))
+                / max(1, sum(1 for item in items if item.get("exists"))),
+                2,
+            ),
             "unmeasured_existing_items": sum(1 for item in items if item.get("exists") and not item.get("measured")),
             "measured_bytes": sum(int(item.get("size_bytes") or 0) for item in items),
+            "measured_physical_bytes": sum(int(item.get("physical_size_bytes") or item.get("size_bytes") or 0) for item in items),
+            "measured_apparent_bytes": sum(int(item.get("apparent_size_bytes") or 0) for item in items),
             "pressure_candidate_bytes": sum(int(item.get("size_bytes") or 0) for item in pressure_candidates),
             "pressure_candidate_unmeasured_items": sum(1 for item in pressure_candidates if not item.get("measured")),
+            "pressure_candidate_measurement_failed_items": sum(1 for item in pressure_candidates if item.get("measured") and not item.get("measurement_ok")),
             "manual_review_bytes": sum(int(item.get("size_bytes") or 0) for item in manual_only),
             "manual_review_unmeasured_items": sum(1 for item in manual_only if not item.get("measured")),
             "migrate_not_delete_bytes": sum(int(item.get("size_bytes") or 0) for item in migrate),
@@ -8725,6 +8795,8 @@ def storage_inventory(full: bool = False, include_home_review: bool = False, wri
         "recommendations": recommendations,
         "policy": {
             "facts_only": True,
+            "size_basis": "physical_allocated_bytes",
+            "apparent_size_available_in_full_mode": True,
             "automatic_deletion": False,
             "no_work_cleanup": True,
             "no_abyss_stack_mutation": True,
@@ -8883,6 +8955,7 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
             "srv_pressure_candidate_bytes": by_scope.get("srv", {}).get("size_bytes", 0),
             "work_protected_candidate_bytes": by_scope.get("work", {}).get("size_bytes", 0),
             "unmeasured_pressure_candidates": sum(1 for item in candidates if item.get("exists") and not isinstance(item.get("size_bytes"), int)),
+            "measurement_failed_pressure_candidates": sum(1 for item in candidates if item.get("exists") and item.get("measured") and not item.get("measurement_ok", isinstance(item.get("size_bytes"), int))),
         },
         "candidates": [
             {
@@ -8894,6 +8967,9 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
                 "reclaimability": item.get("reclaimability"),
                 "confidence": item.get("confidence"),
                 "size_bytes": item.get("size_bytes"),
+                "physical_size_bytes": item.get("physical_size_bytes", item.get("size_bytes")),
+                "apparent_size_bytes": item.get("apparent_size_bytes"),
+                "size_basis": item.get("size_basis", "physical"),
                 "measured": item.get("measured"),
                 "reason": item.get("reason"),
                 "safe_automatic_cleanup": bool(item.get("safe_automatic_cleanup")),
@@ -8906,6 +8982,8 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
         "recommendations": storage_pressure_recommendations(candidates, root_class, srv_class),
         "policy": {
             "facts_only": True,
+            "candidate_size_basis": "physical_allocated_bytes",
+            "available_to_user_source": "statvfs.f_bavail",
             "automatic_deletion": False,
             "cleanup_requires_cleanup_plan": True,
             "no_work_cleanup": True,
@@ -9106,6 +9184,11 @@ def storage_monitor(
     top = max(5, min(int(top), 200))
     started = time.monotonic()
     steps: list[dict[str, Any]] = []
+    capacity_forecast = storage_forecast.observe(
+        STORAGE_MONITOR_ROOT / "capacity.json",
+        paths=(Path("/"), Path("/srv")),
+        write=write_latest,
+    )
 
     def step_summary(name: str, command: list[str], before: float, document: dict[str, Any]) -> None:
         steps.append({
@@ -9190,6 +9273,7 @@ def storage_monitor(
         "version": VERSION,
         "generated_at": now_iso(),
         "ok": all(bool(item.get("ok", True)) for item in steps),
+        "capacity_forecast": capacity_forecast,
         "paths": {
             "latest": str(STORAGE_MONITOR_LATEST_PATH),
             "daily_glob": str(STORAGE_MONITOR_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
@@ -14990,6 +15074,63 @@ def storage_preflight_recommended_target(kind: str, requested: Path) -> str:
     return storage_contracts.preflight_recommended_target(kind, requested, routes=routes)
 
 
+def storage_reservations_list() -> dict[str, Any]:
+    return storage_reservations.list_reservations(STORAGE_RESERVATIONS_ROOT)
+
+
+def storage_reservation_acquire(
+    *,
+    reservation_id: str,
+    kind: str,
+    requested_bytes: int,
+    target: str,
+    owner: str,
+    ttl_seconds: int,
+) -> dict[str, Any]:
+    target_path = Path(target).expanduser()
+    protection = storage_path_protection(target_path)
+    if protection.get("decision") != "allow_candidate" or protection.get("class") != "host_owned_allowed":
+        return {
+            "schema": storage_reservations.SCHEMA,
+            "ok": False,
+            "decision": "blocked",
+            "reservation_id": reservation_id,
+            "error": "reservation_target_protected_or_unknown",
+            "protection": protection,
+        }
+    return storage_reservations.acquire_reservation(
+        STORAGE_RESERVATIONS_ROOT,
+        reservation_id=reservation_id,
+        kind=kind,
+        requested_bytes=requested_bytes,
+        target=target_path,
+        owner=owner,
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def storage_reservation_release(reservation_id: str) -> dict[str, Any]:
+    return storage_reservations.release_reservation(STORAGE_RESERVATIONS_ROOT, reservation_id)
+
+
+def storage_reservations_expire() -> dict[str, Any]:
+    return storage_reservations.expire_reservations(STORAGE_RESERVATIONS_ROOT)
+
+
+def resource_launch_storage_reservation_ttl(timeout_sec: float) -> int:
+    """Give pre-launch failures a bounded lease while terminal holds cover runs."""
+    if timeout_sec > 0:
+        timeout_ceiling = int(timeout_sec) + 1
+        return max(60, timeout_ceiling + 60)
+    return 3600
+
+
+def resource_launch_storage_reservation_kind(resource_kind: str) -> str:
+    """Use the existing write-preflight storage kind for resource launch writes."""
+    _ = resource_kind
+    return "artifact"
+
+
 def storage_write_preflight(
     kind: str,
     bytes_required: int,
@@ -15012,6 +15153,16 @@ def storage_write_preflight(
     recommended_path = Path(recommended)
     recommended_usage = disk_usage_summary(recommended_path)
     target_usage = disk_usage_summary(target_path)
+    target_reservations = storage_reservations.capacity_snapshot(STORAGE_RESERVATIONS_ROOT, target_path)
+    recommended_reservations = storage_reservations.capacity_snapshot(STORAGE_RESERVATIONS_ROOT, recommended_path)
+    target_decision_usage = dict(target_usage)
+    recommended_decision_usage = dict(recommended_usage)
+    available_after_reservations = target_reservations.get("available_after_reservations_bytes")
+    if isinstance(available_after_reservations, int):
+        target_decision_usage["available_to_user_bytes"] = available_after_reservations
+    recommended_available_after = recommended_reservations.get("available_after_reservations_bytes")
+    if isinstance(recommended_available_after, int):
+        recommended_decision_usage["available_to_user_bytes"] = recommended_available_after
     large_write_threshold = 1024 * 1024 * 1024
     min_free_after = max(5 * 1024 * 1024 * 1024, int(requested_bytes * 0.10))
     decision_result = storage_contracts.write_preflight_decision(
@@ -15019,13 +15170,77 @@ def storage_write_preflight(
         requested_bytes=requested_bytes,
         protection=protection,
         pressure_summary=pressure_summary,
-        target_usage=target_usage,
-        recommended_usage=recommended_usage,
+        target_usage=target_decision_usage,
+        recommended_usage=recommended_decision_usage,
         large_write_threshold=large_write_threshold,
         min_free_after=min_free_after,
+        reservations_ok=bool(target_reservations.get("ok", True) and recommended_reservations.get("ok", True)),
     )
     decision = str(decision_result["decision"])
     reasons = list(decision_result["reasons"])
+    pressure_findings: list[dict[str, Any]] = []
+    for scope, pressure_class in (
+        ("root", pressure_summary.get("root_pressure_class")),
+        ("srv", pressure_summary.get("srv_pressure_class")),
+    ):
+        normalized_class = str(pressure_class or "").strip()
+        if normalized_class in {"watch", "warning", "critical"}:
+            pressure_findings.append(
+                {
+                    "scope": scope,
+                    "class": normalized_class,
+                    "kind": "capacity_pressure",
+                }
+            )
+    pressure_runtime_errors: list[dict[str, Any]] = []
+    if not isinstance(pressure, dict):
+        pressure_runtime_errors.append(
+            {"surface": "pressure", "error": "pressure_document_invalid"}
+        )
+    else:
+        if not bool(pressure.get("policy_ok", True)):
+            pressure_runtime_errors.append(
+                {"surface": "policy", "error": "storage_policy_unavailable"}
+            )
+        if isinstance(pressure.get("write_errors"), list):
+            pressure_runtime_errors.extend(
+                {
+                    "surface": "pressure_write",
+                    "error": str(error),
+                }
+                for error in pressure.get("write_errors", [])
+                if str(error)
+            )
+        # storage_pressure.ok is intentionally not treated as a write error:
+        # storage_status marks a critical root as not-ok even when the pressure
+        # document and the requested host-owned target are observable.  Keep
+        # actual collection failures visible without turning a pressure fact
+        # into an unrelated target denial.
+        if pressure.get("ok") is False and not any(
+            item.get("class") == "critical" for item in pressure_findings
+        ):
+            pressure_runtime_errors.append(
+                {"surface": "pressure", "error": "pressure_collection_not_ok"}
+            )
+    runtime_errors: list[dict[str, Any]] = [*pressure_runtime_errors]
+    if target_reservations.get("ok") is False:
+        runtime_errors.append(
+            {"surface": "target_reservations", "error": "reservation_state_invalid"}
+        )
+    if recommended_reservations.get("ok") is False:
+        runtime_errors.append(
+            {"surface": "recommended_reservations", "error": "reservation_state_invalid"}
+        )
+    target_capacity = target_decision_usage.get("available_to_user_bytes")
+    recommended_capacity = recommended_decision_usage.get("available_to_user_bytes")
+    if not isinstance(target_capacity, int):
+        runtime_errors.append(
+            {"surface": "target_capacity", "error": "capacity_unavailable"}
+        )
+    if not isinstance(recommended_capacity, int):
+        runtime_errors.append(
+            {"surface": "recommended_capacity", "error": "capacity_unavailable"}
+        )
     hooks = run_storage_hooks(
         "pre_large_write",
         {
@@ -15038,17 +15253,23 @@ def storage_write_preflight(
         },
         enforce=False,
     )
+    if hooks.get("ok") is False:
+        runtime_errors.append(
+            {"surface": "hooks", "error": "storage_hook_failed"}
+        )
     data = {
         "schema": f"{SCHEMA_PREFIX}_storage_write_preflight_v1",
         "version": VERSION,
         "generated_at": now_iso(),
         "ok": (
             decision != "deny"
-            and bool(pressure.get("ok"))
+            and not runtime_errors
             and bool(hooks.get("ok", True))
         ),
         "decision": decision,
         "reasons": reasons,
+        "pressure_findings": pressure_findings,
+        "runtime_errors": runtime_errors,
         "paths": {
             "latest": str(STORAGE_WRITE_PREFLIGHT_LATEST_PATH),
             "daily_glob": str(STORAGE_WRITE_PREFLIGHT_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
@@ -15079,11 +15300,15 @@ def storage_write_preflight(
             ),
             "source_schema": pressure.get("schema"),
             "source_generated_at": pressure.get("generated_at"),
+            "findings": pressure_findings,
+            "runtime_errors": pressure_runtime_errors,
+            "status": "finding" if pressure_findings else ("error" if pressure_runtime_errors else "ok"),
         },
         "target": {
             "protection": protection,
             "usage": target_usage,
             "free_after_bytes": decision_result["free_after_bytes"],
+            "available_after_reservations_bytes": target_reservations.get("available_after_reservations_bytes"),
         },
         "recommended_target": {
             "protection": storage_path_protection(recommended_path),
@@ -15093,6 +15318,8 @@ def storage_write_preflight(
         "policy": {
             "facts_only": True,
             "creates_or_reserves_files": False,
+            "accounts_for_active_reservations": True,
+            "reservation_state_fail_closed": True,
             "large_write_threshold_bytes": large_write_threshold,
             "min_free_after_bytes": min_free_after,
             "host_owned_large_root": str(ABYSS_MACHINE_ROOT),
@@ -15103,8 +15330,15 @@ def storage_write_preflight(
             "fresh_pressure_and_capacity_gate": True,
             "full_cleanup_monitor_not_required": True,
             "process_guard_not_a_write_admission_input": True,
+            "pressure_findings_do_not_override_allowed_target": True,
+            "runtime_errors_fail_closed": True,
         },
         "hooks": {"pre_large_write": hooks},
+        "reservations": {
+            "target": target_reservations,
+            "recommended_target": recommended_reservations,
+        },
+        "capacity_basis": decision_result.get("capacity_basis"),
         "commands": {
             "monitor": ["abyss-machine", "storage", "monitor", "--json"],
             "cleanup_plan": ["abyss-machine", "storage", "cleanup-plan", "--json"],
@@ -15273,6 +15507,13 @@ def storage_paths() -> dict[str, Any]:
             "reap": "abyss-machine storage lifecycle reap --limit 1 --json",
         },
     }
+    document["reservations"] = {
+        "root": str(STORAGE_RESERVATIONS_ROOT),
+        "records": str(STORAGE_RESERVATIONS_ROOT / "records"),
+        "lock": str(STORAGE_RESERVATIONS_ROOT / ".lock"),
+        "command": "abyss-machine storage write-reservation",
+        "automatic_write": False,
+    }
     return document
 
 
@@ -15328,29 +15569,131 @@ def storage_candidate_runtime_documents() -> list[tuple[str, dict[str, Any]]]:
     ])
 
 
+def _storage_candidate_owner_run(cmd: list[str], timeout: float = 180.0) -> dict[str, Any]:
+    """Run the owner JSON adapter without letting diagnostic bytes abort discovery."""
+    try:
+        # This protocol is decoded below so an owner diagnostic containing an
+        # arbitrary byte cannot raise UnicodeDecodeError through the whole
+        # candidate discovery pass. Invalid JSON remains an explicit adapter
+        # error; it is never converted into an empty successful document.
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return {
+            "ok": False,
+            "returncode": 127,
+            "stdout": "",
+            "stderr": "not found",
+            "command": list(cmd),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "returncode": 124,
+            "stdout": "",
+            "stderr": "timeout",
+            "command": list(cmd),
+        }
+
+    def decode(value: Any) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace").strip()
+        return str(value or "").strip()
+
+    stdout = decode(getattr(proc, "stdout", ""))
+    stderr = decode(getattr(proc, "stderr", ""))
+    return {
+        "ok": getattr(proc, "returncode", 1) == 0,
+        "returncode": getattr(proc, "returncode", 1),
+        "stdout": stdout,
+        "stderr": stderr,
+        "command": list(cmd),
+    }
+
+
 def storage_candidate_owner_aoa_document() -> dict[str, Any]:
     script = DEFAULT_AOA_SESSION_MEMORY_ROOT / "scripts" / "aoa_session_memory.py"
     if not script.exists():
         return {"status": "owner_adapter_unavailable", "error": f"missing {script}"}
-    result = run([
+    result = _storage_candidate_owner_run([
         str(script),
         "maintenance-cleanup",
         "--workspace-root", str(DEFAULT_AOA_SESSION_MEMORY_ROOT.parent),
         "--aoa-root", str(DEFAULT_AOA_SESSION_MEMORY_ROOT),
+        # Candidate discovery consumes graph/search/stage owner verdicts;
+        # projection-work identities are not exported by aoa_specs. Keep this
+        # unrelated raw scan bounded so a large work queue cannot starve the
+        # required owner producer. Deferred work remains visible in the owner
+        # document and never becomes deletion permission.
+        "--session-work-verification-limit", "0",
     ], timeout=180.0)
+    stdout = str(result.get("stdout") or "")
+    parsed: dict[str, Any] | None = None
+    parse_error: str | None = None
+    if stdout:
+        try:
+            candidate = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            parse_error = str(exc)
+        else:
+            if isinstance(candidate, dict):
+                parsed = candidate
     if not result.get("ok"):
+        if parsed is not None:
+            # maintenance-cleanup emits a useful structured document even
+            # when an active writer makes its exit status non-zero. Preserve
+            # that blocker instead of hiding it inside a generic adapter error.
+            parsed = dict(parsed)
+            # The process status is authoritative: a producer that exits
+            # non-zero must never be admitted because its JSON happened to
+            # contain ``ok: true``.
+            parsed["ok"] = False
+            parsed.setdefault("status", "owner_adapter_failed")
+            parsed["owner_adapter_returncode"] = result.get("returncode")
+            parsed["owner_adapter_command"] = result.get("command")
+            diagnostic = str(result.get("stderr") or "").strip()
+            command_text = repr(result.get("command") or [])
+            parsed.setdefault(
+                "error",
+                "owner command returned non-zero status: "
+                f"{result.get('returncode')} command={command_text}"
+                + (f" diagnostic={diagnostic[:1000]}" if diagnostic else ""),
+            )
+            return parsed
         return {
             "status": "owner_adapter_failed",
-            "error": str(result.get("stderr") or result.get("stdout") or "unknown error")[:4000],
+            "error": (
+                f"returncode={result.get('returncode')} "
+                f"command={result.get('command')!r} "
+                f"diagnostic={str(result.get('stderr') or stdout or 'unknown error')[:3800]}"
+            )[:4000],
+            "owner_adapter_returncode": result.get("returncode"),
         }
-    try:
-        parsed = json.loads(str(result.get("stdout") or ""))
-    except json.JSONDecodeError as exc:
-        return {"status": "owner_adapter_invalid_json", "error": str(exc)}
-    return parsed if isinstance(parsed, dict) else {"status": "owner_adapter_invalid_document"}
+    if parse_error is not None:
+        return {
+            "status": "owner_adapter_invalid_json",
+            "error": f"{parse_error} command={result.get('command')!r}"[:4000],
+            "owner_adapter_returncode": result.get("returncode"),
+            "owner_adapter_command": result.get("command"),
+        }
+    return parsed if parsed is not None else {
+        "status": "owner_adapter_invalid_document",
+        "error": f"owner command returned no JSON object command={result.get('command')!r}"[:4000],
+        "owner_adapter_returncode": result.get("returncode"),
+        "owner_adapter_command": result.get("command"),
+    }
 
 
-def storage_candidate_discover_specs(*, artifact_snapshot: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def storage_candidate_discover_specs(
+    *,
+    artifact_snapshot: dict[str, Any] | None = None,
+    producer_status: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     manifests = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT)
     tmp_specs = storage_candidate_adapters.direct_child_specs(
@@ -15371,15 +15714,60 @@ def storage_candidate_discover_specs(*, artifact_snapshot: dict[str, Any] | None
             source_adapter="tmp_ai_children",
         ))
     snapshot = artifact_snapshot if isinstance(artifact_snapshot, dict) else artifacts_snapshot(scope="all", history_days=14, write_latest=False)
+    if snapshot.get("ok") is False:
+        raise RuntimeError(
+            "artifact_snapshot_failed: "
+            f"{str(snapshot.get('error') or snapshot.get('status') or 'unknown error')[:1000]}"
+        )
     specs.extend(storage_candidate_adapters.artifact_specs(snapshot))
     specs.extend(storage_candidate_adapters.huggingface_specs(AI_CACHE_ROOT / "huggingface"))
     specs.extend(storage_candidate_adapters.git_specs([ABYSS_MACHINE_TMP_ROOT]))
     if command_exists("podman"):
         podman = run(["podman", "system", "df", "-v"], timeout=45.0)
-        if podman.get("ok"):
-            specs.extend(storage_candidate_adapters.podman_specs(str(podman.get("stdout") or "")))
+        if not podman.get("ok"):
+            raise RuntimeError(
+                "podman_discovery_failed: "
+                f"{str(podman.get('stderr') or podman.get('stdout') or 'unknown error')[:1000]}"
+            )
+        specs.extend(storage_candidate_adapters.podman_specs(str(podman.get("stdout") or "")))
     aoa_document = storage_candidate_owner_aoa_document()
-    specs.extend(storage_candidate_adapters.aoa_specs(aoa_document))
+    aoa_status = str(aoa_document.get("status") or "").strip()
+    owner_adapter_failed = (
+        aoa_status.startswith("owner_adapter_")
+        or not aoa_status
+        or aoa_document.get("ok") is False
+    )
+    aoa_deferred = (
+        aoa_status == "deferred_active_writer"
+        and aoa_document.get("lock_active") is True
+        and aoa_document.get("ok") is False
+    )
+    if producer_status is not None:
+        producer_status["aoa_owner_verdict"] = {
+            "source_adapter": "aoa_owner_verdict",
+            "owner": "aoa-session-memory",
+            "status": aoa_status or "missing_status",
+            "ok": aoa_document.get("ok") is True,
+            "deferred": aoa_deferred,
+            "lock_active": aoa_document.get("lock_active") is True,
+            "reason": str(aoa_document.get("error") or aoa_status or "missing owner status")[:1000],
+        }
+        if aoa_document.get("owner_adapter_returncode") is not None:
+            producer_status["aoa_owner_verdict"]["returncode"] = aoa_document.get("owner_adapter_returncode")
+    if owner_adapter_failed:
+        if aoa_deferred and producer_status is not None:
+            # The owner producer is deliberately skipped for this pass. The
+            # refresh layer will carry forward only its last-good candidates;
+            # all independent producers above remain current and observable.
+            pass
+        else:
+            raise RuntimeError(
+                "aoa_owner_adapter_failed: "
+                f"status={aoa_status or 'missing_status'} "
+                f"error={str(aoa_document.get('error') or 'invalid owner document')[:1000]}"
+            )
+    else:
+        specs.extend(storage_candidate_adapters.aoa_specs(aoa_document))
     specs.extend(storage_candidate_adapters.manifest_specs(manifests))
 
     priority = {
@@ -15411,6 +15799,10 @@ def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> di
         str(spec.get("path")) for spec in specs
         if spec.get("path") and not str(spec.get("path")).startswith("podman://")
     ]
+    # Keep the path/name projection outside the config-file loop.  Deep
+    # refresh normally supplies a bounded batch; rebuilding Path objects for
+    # every file multiplied the cost of the same exact scan.
+    path_names = [(path, Path(path).name) for path in physical_paths]
     result = {
         path: {
             "checked": True,
@@ -15431,8 +15823,7 @@ def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> di
         except OSError:
             continue
         source_kind = artifact_evidence_source_kind(file_path)
-        for path in physical_paths:
-            name = Path(path).name
+        for path, name in path_names:
             path_hit = bool(path and path in text)
             name_hit = bool(name and name in text)
             matched_tokens = [token for token, present in ((path, path_hit), (name, name_hit)) if present]
@@ -15454,30 +15845,163 @@ def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> di
     return result
 
 
+def _storage_candidate_deep_failure_document(
+    previous: Mapping[str, Any],
+    *,
+    generated_at: str,
+    runtime_errors: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Keep the last good candidate set when a deep pass cannot complete."""
+    previous_candidates = [
+        item for item in previous.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(previous.get("candidates"), list) else []
+    document = json.loads(json.dumps(previous)) if previous else {}
+    configured_policy = storage_candidate_policy()
+    if not document:
+        document = {
+            "schema": f"{SCHEMA_PREFIX}_storage_candidates_v1",
+            "version": VERSION,
+            "policy": {**configured_policy, "automatic_deletion": False},
+            "snapshot_id": None,
+            "candidates": [],
+        }
+
+    previous_coverage = document.get("coverage")
+    derived_coverage = storage_candidate_contracts.coverage_summary(previous_candidates, error_limit=None)
+    if isinstance(previous_coverage, dict):
+        coverage = json.loads(json.dumps(previous_coverage))
+        for key, value in derived_coverage.items():
+            coverage.setdefault(key, value)
+    else:
+        coverage = derived_coverage
+    prior_errors = _storage_candidate_full_runtime_errors(coverage, records=previous_candidates)
+    current_errors = [dict(item) for item in runtime_errors if isinstance(item, Mapping)]
+    all_errors = _storage_candidate_unique_runtime_errors(prior_errors, current_errors)
+    coverage["mode"] = "deep_error_carry_forward"
+    coverage["new_results"] = 0
+    coverage["runtime_errors"] = all_errors[:200]
+    coverage["runtime_errors_full"] = all_errors
+    coverage["runtime_error_count"] = len(all_errors)
+    pressure_findings = coverage.get("pressure_findings")
+    if not isinstance(pressure_findings, list):
+        pressure_findings = []
+        coverage["pressure_findings"] = pressure_findings
+    if not isinstance(coverage.get("pressure_finding_count"), int):
+        coverage["pressure_finding_count"] = len(pressure_findings)
+
+    candidates = [dict(item) for item in previous_candidates]
+    summary = document.get("summary") if isinstance(document.get("summary"), dict) else {}
+    summary = json.loads(json.dumps(summary))
+    # The candidate set and its accounting are last-good evidence. Preserve
+    # those values and only reset transition fields for this failed attempt.
+    summary.update({
+        "candidates": len(candidates),
+        "changed": 0,
+        "retired": 0,
+        "runtime_error_count": coverage.get("runtime_error_count", 0),
+        "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+    })
+    last_deep_at = document.get("last_deep_at")
+    if last_deep_at is None:
+        prior_freshness = document.get("freshness")
+        if isinstance(prior_freshness, dict):
+            last_deep_at = prior_freshness.get("last_deep_at")
+    freshness = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=last_deep_at,
+        now_time=storage_candidate_contracts.parse_time(generated_at),
+        max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
+    )
+    freshness["refresh_failed"] = True
+    freshness["reason"] = "deep_refresh_failed_last_good_preserved"
+    document.update({
+        "schema": document.get("schema") or f"{SCHEMA_PREFIX}_storage_candidates_v1",
+        "version": VERSION,
+        "generated_at": generated_at,
+        "ok": False,
+        "deep": True,
+        "last_deep_at": last_deep_at,
+        "freshness": freshness,
+        "coverage": coverage,
+        "runtime_errors": list(coverage.get("runtime_errors", [])),
+        "pressure_findings": list(pressure_findings),
+        "refresh_result": {
+            "mode": "deep",
+            "status": "deep_error_carry_forward",
+            "new_results": 0,
+            "runtime_error_count": coverage.get("runtime_error_count", 0),
+            "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+        },
+        "summary": summary,
+        "changes": [],
+        "candidates": candidates,
+        "retired": [],
+        "paths": storage_candidate_paths(),
+    })
+    policy = document.get("policy") if isinstance(document.get("policy"), dict) else {**configured_policy}
+    policy["automatic_deletion"] = False
+    document["policy"] = policy
+    return document
+
+
 def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str) -> dict[str, Any]:
     manifests = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT)
+    configured_policy = storage_candidate_policy()
     known_ids = {str(item.get("candidate_id") or "") for item in previous.get("candidates", []) if isinstance(item, dict)}
     pending_manifest_ids = [str(item.get("candidate_id")) for item in manifests if item.get("valid") is True and str(item.get("candidate_id") or "") not in known_ids]
     if not previous.get("candidates"):
-        return {
+        coverage = storage_candidate_contracts.coverage_summary([])
+        previous_last_deep_at = _storage_candidate_previous_last_deep_at(previous)
+        freshness = storage_candidate_contracts.freshness_status(
+            generated_at=generated_at,
+            last_deep_at=previous_last_deep_at,
+            now_time=storage_candidate_contracts.parse_time(generated_at),
+            max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
+        )
+        document = {
             "schema": f"{SCHEMA_PREFIX}_storage_candidates_v1",
             "version": VERSION,
             "generated_at": generated_at,
             "ok": True,
             "deep": False,
             "snapshot_id": None,
-            "summary": {"candidates": 0, "ready": 0, "delete_ready": 0, "archive_ready": 0, "changed": 0, "retired": 0, "physical_bytes": 0, "reclaimable_bytes": 0, "by_verdict": {}},
+            "last_deep_at": previous_last_deep_at,
+            "summary": {"candidates": 0, "ready": 0, "delete_ready": 0, "archive_ready": 0, "changed": 0, "retired": 0, "physical_bytes": 0, "reclaimable_bytes": 0, "physical_measured": 0, "fingerprint_complete": 0, "runtime_error_count": 0, "pressure_finding_count": 0, "by_verdict": {}},
+            "coverage": coverage,
+            "freshness": freshness,
+            "runtime_errors": [],
+            "pressure_findings": [],
+            "refresh_result": {"mode": "light", "status": "needs_deep_seed", "new_results": 0},
             "changes": [],
             "candidates": [],
-            "retired": [],
+            "retired": [dict(item) for item in previous.get("retired", []) if isinstance(item, Mapping)] if previous.get("partial") is True else [],
             "paths": storage_candidate_paths(),
-            "light_refresh": {"mode": "carry_forward_only", "needs_deep_seed": True, "manifest_count": len(manifests), "pending_manifest_candidate_ids": pending_manifest_ids},
-            "policy": {**storage_candidate_policy(), "automatic_deletion": False},
+            "light_refresh": {"mode": "carry_forward_only", "needs_deep_seed": True, "manifest_count": len(manifests), "pending_manifest_candidate_ids": pending_manifest_ids, "freshness": freshness},
+            "policy": {**configured_policy, "automatic_deletion": False},
         }
+        document = _storage_candidate_preserve_partial_light_state(document, previous)
+        document = _storage_candidate_preserve_deferred_light_state(document, previous)
+        document["light_refresh"]["freshness"] = document["freshness"]
+        if isinstance(document.get("summary"), dict):
+            document["summary"]["retired"] = len(document.get("retired", [])) if isinstance(document.get("retired"), list) else 0
+        return document
     document = json.loads(json.dumps(previous))
-    prior_generated = storage_candidate_contracts.parse_time(previous.get("last_deep_at") or previous.get("generated_at"))
+    # A light snapshot timestamp is not deep evidence freshness.  Keep the
+    # age unknown when older state never recorded a deep timestamp.
+    prior_last_deep_at = _storage_candidate_previous_last_deep_at(previous)
+    prior_generated = storage_candidate_contracts.parse_time(prior_last_deep_at)
     now_time = storage_candidate_contracts.parse_time(generated_at)
     evidence_age = int((now_time - prior_generated).total_seconds()) if now_time and prior_generated else None
+    freshness = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=prior_last_deep_at,
+        now_time=now_time,
+        max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
+    )
+    coverage = storage_candidate_contracts.coverage_summary(previous.get("candidates", []))
+    coverage["mode"] = "light_carry_forward"
+    coverage["new_results"] = 0
     document.update({"version": VERSION, "generated_at": generated_at, "deep": False, "changes": []})
     if isinstance(document.get("summary"), dict):
         document["summary"]["changed"] = 0
@@ -15489,10 +16013,849 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
         "ready_verdicts_require_deep_validate_before_apply": True,
         "manifest_count": len(manifests),
         "pending_manifest_candidate_ids": pending_manifest_ids,
+        "freshness": freshness,
     }
+    document["freshness"] = freshness
+    document["coverage"] = coverage
+    document["runtime_errors"] = coverage.get("runtime_errors", [])
+    document["pressure_findings"] = coverage.get("pressure_findings", [])
+    document["refresh_result"] = {"mode": "light", "status": "carry_forward", "new_results": 0}
     document.setdefault("policy", {})["automatic_deletion"] = False
     document["paths"] = storage_candidate_paths()
+    document = _storage_candidate_preserve_partial_light_state(document, previous)
+    document = _storage_candidate_preserve_deferred_light_state(document, previous)
+    document["light_refresh"]["freshness"] = document["freshness"]
     return document
+
+
+def _storage_candidate_is_aoa_owner_record(item: Mapping[str, Any]) -> bool:
+    return (
+        str(item.get("source_adapter") or "") == "aoa_owner_verdict"
+        and str(item.get("owner") or "") == "aoa-session-memory"
+    )
+
+
+def _storage_candidate_previous_last_deep_at(previous: Mapping[str, Any]) -> Any:
+    last_deep_at = previous.get("last_deep_at")
+    if last_deep_at is None:
+        freshness = previous.get("freshness") if isinstance(previous.get("freshness"), Mapping) else {}
+        last_deep_at = freshness.get("last_deep_at")
+    return last_deep_at
+
+
+def _storage_candidate_aoa_last_good_at(records: Sequence[Mapping[str, Any]]) -> str | None:
+    timestamps = [
+        storage_candidate_contracts.parse_time(item.get("observed_at"))
+        for item in records
+        if _storage_candidate_is_aoa_owner_record(item)
+    ]
+    parsed = [item for item in timestamps if item is not None]
+    return max(parsed).isoformat() if parsed else None
+
+
+def _storage_candidate_preserve_deferred_light_state(
+    data: dict[str, Any],
+    previous: Mapping[str, Any],
+) -> dict[str, Any]:
+    previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    if previous.get("partial") is not True and previous_coverage.get("partial") is not True:
+        return data
+    owner_coverage = previous_coverage.get("owner_coverage")
+    if not isinstance(owner_coverage, Mapping):
+        producer_status = previous_coverage.get("producer_status")
+        owner_coverage = producer_status.get("aoa_owner_verdict") if isinstance(producer_status, Mapping) else None
+    if not isinstance(owner_coverage, Mapping):
+        producer_coverage = previous.get("producer_coverage")
+        owner_coverage = producer_coverage.get("aoa_owner_verdict") if isinstance(producer_coverage, Mapping) else None
+    if not isinstance(owner_coverage, Mapping):
+        return data
+    if (
+        str(owner_coverage.get("source_adapter") or "") != "aoa_owner_verdict"
+        or str(owner_coverage.get("owner") or "") != "aoa-session-memory"
+        or str(owner_coverage.get("status") or "") != "deferred_active_writer"
+        or owner_coverage.get("deferred") is not True
+        or owner_coverage.get("lock_active") is not True
+    ):
+        return data
+
+    owner_copy = dict(owner_coverage)
+    coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+    previous_producer_status = previous_coverage.get("producer_status")
+    producer_status = dict(previous_producer_status) if isinstance(previous_producer_status, Mapping) else {}
+    producer_status["aoa_owner_verdict"] = owner_copy
+    coverage.update({
+        "mode": "light_carry_forward_aoa_owner_deferred",
+        "partial": True,
+        "complete": False,
+        "current_results": previous_coverage.get("current_results", 0),
+        "carried_forward_count": previous_coverage.get("carried_forward_count", owner_copy.get("carried_forward_count", 0)),
+        "owner_coverage": owner_copy,
+        "producer_status": producer_status,
+    })
+    data["coverage"] = coverage
+    data["ok"] = False
+    data["partial"] = True
+    data["complete"] = False
+    data["last_deep_at"] = _storage_candidate_previous_last_deep_at(previous)
+    freshness = data.get("freshness") if isinstance(data.get("freshness"), dict) else {}
+    freshness.update({
+        "partial": True,
+        "complete": False,
+        "reason": "aoa_owner_deferred_last_good_preserved",
+    })
+    data["freshness"] = freshness
+    previous_producer_coverage = previous.get("producer_coverage")
+    producer_coverage = dict(previous_producer_coverage) if isinstance(previous_producer_coverage, Mapping) else {}
+    producer_coverage["aoa_owner_verdict"] = owner_copy
+    data["producer_coverage"] = producer_coverage
+    data["runtime_errors"] = list(coverage.get("runtime_errors", []))
+    data["pressure_findings"] = list(coverage.get("pressure_findings", []))
+    if isinstance(data.get("summary"), dict):
+        data["summary"]["retired"] = len(data.get("retired", [])) if isinstance(data.get("retired"), list) else 0
+    data["refresh_result"] = {
+        "mode": "light",
+        "status": "carry_forward_aoa_owner_deferred",
+        "new_results": 0,
+        "carried_forward_count": owner_copy.get("carried_forward_count", 0),
+        "reason": owner_copy.get("reason"),
+    }
+    light_refresh = data.get("light_refresh")
+    if isinstance(light_refresh, dict):
+        light_refresh["mode"] = "aoa_owner_deferred_carry_forward"
+        light_refresh["owner_coverage"] = owner_copy
+    return data
+
+
+def _storage_candidate_preserve_partial_light_state(
+    data: dict[str, Any],
+    previous: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep resumable deep progress and its stale/partial label through light refresh."""
+    progress = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
+    previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    previous_candidates = [
+        item for item in previous.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(previous.get("candidates"), list) else []
+    prior_errors = _storage_candidate_full_runtime_errors(
+        previous_coverage,
+        records=previous_candidates,
+    )
+    prior_error_signal = bool(prior_errors) or safe_int(previous_coverage.get("runtime_error_count"), 0) > 0
+    if (
+        str(progress.get("status") or "") != "partial"
+        and previous.get("partial") is not True
+        and previous_coverage.get("partial") is not True
+        and not prior_error_signal
+    ):
+        return data
+    coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+    coverage.update({
+        "mode": "light_carry_forward_deep_partial",
+        "partial": True,
+        "complete": False,
+        "discovered": previous_coverage.get("discovered", progress.get("total", 0)),
+        "observed": previous_coverage.get("observed", progress.get("processed", 0)),
+        "current_results": 0,
+        "carried_forward_count": len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0,
+        "runtime_errors": prior_errors[:200],
+        "runtime_errors_full": prior_errors,
+        "runtime_error_count": len(prior_errors),
+    })
+    data["coverage"] = coverage
+    data["runtime_errors"] = list(coverage.get("runtime_errors", []))
+    data["pressure_findings"] = list(coverage.get("pressure_findings", [])) if isinstance(coverage.get("pressure_findings"), list) else []
+    data["ok"] = False
+    data["partial"] = True
+    data["complete"] = False
+    data["last_deep_at"] = _storage_candidate_previous_last_deep_at(previous)
+    freshness = data.get("freshness") if isinstance(data.get("freshness"), dict) else {}
+    freshness.update({
+        "partial": True,
+        "complete": False,
+        "reason": "deep_refresh_partial_last_good_preserved",
+    })
+    data["freshness"] = freshness
+    data["refresh_result"] = {
+        "mode": "light",
+        "status": "carry_forward_deep_partial",
+        "new_results": 0,
+        "remaining": progress.get("remaining"),
+        "reason": "deep_refresh_partial_last_good_preserved",
+    }
+    return data
+
+
+def _storage_candidate_rebuild_summary(
+    records: Sequence[Mapping[str, Any]],
+    coverage: Mapping[str, Any],
+    retired: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    by_verdict: dict[str, dict[str, int]] = {}
+    for item in records:
+        verdict = str(item.get("verdict") or "blocked_unknown")
+        summary = by_verdict.setdefault(verdict, {"candidates": 0, "physical_bytes": 0, "reclaimable_bytes": 0})
+        summary["candidates"] += 1
+        summary["physical_bytes"] += max(0, safe_int(item.get("physical_bytes"), 0))
+        summary["reclaimable_bytes"] += max(0, safe_int(item.get("reclaimable_bytes"), 0))
+    return {
+        "candidates": len(records),
+        "ready": sum(1 for item in records if item.get("verdict") in storage_candidate_contracts.READY_VERDICTS),
+        "delete_ready": sum(1 for item in records if item.get("verdict") in storage_candidate_contracts.DELETE_READY_VERDICTS),
+        "archive_ready": sum(1 for item in records if item.get("verdict") == "archive_ready"),
+        "changed": sum(1 for item in records if isinstance(item.get("transition"), Mapping) and item["transition"].get("changed") is True),
+        "retired": len(retired),
+        "physical_bytes": sum(max(0, safe_int(item.get("physical_bytes"), 0)) for item in records),
+        "reclaimable_bytes": sum(
+            max(0, safe_int(item.get("reclaimable_bytes"), 0))
+            for item in records
+            if not item.get("overlap")
+        ),
+        "physical_measured": coverage.get("physical_measured"),
+        "fingerprint_complete": coverage.get("fingerprint_complete"),
+        "runtime_error_count": coverage.get("runtime_error_count"),
+        "pressure_finding_count": coverage.get("pressure_finding_count"),
+        "by_verdict": by_verdict,
+    }
+
+
+def _storage_candidate_merge_retired_records(
+    data: Mapping[str, Any],
+    previous: Mapping[str, Any],
+    *,
+    protected_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    current_ids = {
+        str(item.get("candidate_id") or "")
+        for item in data.get("candidates", [])
+        if isinstance(item, Mapping) and item.get("candidate_id")
+    } if isinstance(data.get("candidates"), list) else set()
+    protected = protected_ids or set()
+    sources: list[Any] = [data.get("retired")]
+    previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    if previous.get("partial") is True or previous_coverage.get("partial") is True:
+        sources.append(previous.get("retired"))
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in sources:
+        if not isinstance(source, list):
+            continue
+        for item in source:
+            if not isinstance(item, Mapping):
+                continue
+            candidate_id = str(item.get("candidate_id") or "")
+            if not candidate_id or candidate_id in current_ids or candidate_id in protected or candidate_id in seen:
+                continue
+            seen.add(candidate_id)
+            merged.append(dict(item))
+            if len(merged) >= 200:
+                return merged
+    return merged
+
+
+STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS = 120.0
+# A single service invocation remains deadline-bounded, while allowing the
+# ordinary daily unit to make useful progress before the next continuation.
+STORAGE_CANDIDATE_DEEP_BATCH_LIMIT = 4096
+
+
+def _storage_candidate_spec_id(spec: Mapping[str, Any]) -> str:
+    path = storage_candidate_contracts.canonical_candidate_path(str(spec.get("path") or ""))
+    explicit = str(spec.get("candidate_id") or "").strip()
+    if explicit:
+        return explicit
+    return storage_candidate_contracts.stable_candidate_id(
+        owner=str(spec.get("owner") or "unknown"),
+        kind=str(spec.get("kind") or "unknown"),
+        path=path,
+        source_id=str(spec.get("source_id") or ""),
+    )
+
+
+def _storage_candidate_ordered_specs(specs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Return one deterministic inventory order for resumable deep scans."""
+    by_id: dict[str, dict[str, Any]] = {}
+    for raw in specs:
+        if not isinstance(raw, Mapping) or not raw.get("path"):
+            continue
+        spec = dict(raw)
+        candidate_id = _storage_candidate_spec_id(spec)
+        spec.setdefault("candidate_id", candidate_id)
+        # Discovery normally de-duplicates by path. Keep the first stable
+        # identity if a producer nevertheless emits a duplicate so a cursor
+        # cannot observe the same object twice in one inventory.
+        by_id.setdefault(candidate_id, spec)
+    return sorted(
+        by_id.values(),
+        key=lambda item: (
+            str(item.get("candidate_id") or ""),
+            storage_candidate_contracts.canonical_candidate_path(str(item.get("path") or "")),
+            str(item.get("source_adapter") or ""),
+        ),
+    )
+
+
+def _storage_candidate_inventory_digest(specs: Sequence[Mapping[str, Any]]) -> str:
+    identity = [
+        {
+            "candidate_id": _storage_candidate_spec_id(spec),
+            "path": storage_candidate_contracts.canonical_candidate_path(str(spec.get("path") or "")),
+            "source_adapter": str(spec.get("source_adapter") or ""),
+        }
+        for spec in specs
+        if isinstance(spec, Mapping) and spec.get("path")
+    ]
+    return hashlib.sha256(
+        json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:32]
+
+
+def _storage_candidate_deep_progress(
+    previous: Mapping[str, Any],
+    inventory_digest: str,
+    specs: Sequence[Mapping[str, Any]],
+) -> tuple[int, dict[str, Any]]:
+    total = len(specs)
+    prior = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
+    if (
+        str(prior.get("status") or "") == "partial"
+    ):
+        prior_copy = dict(prior)
+        prior_cursor = min(max(0, safe_int(prior.get("cursor"), 0)), total)
+        if str(prior.get("inventory_digest") or "") == inventory_digest:
+            if prior_copy.get("deferred_prefix") is True and prior_cursor == 0:
+                # The suffix pass reached the end on the previous run.  This
+                # invocation now owns the deferred prefix, so a complete
+                # prefix pass may close the sweep.
+                prior_copy["prefix_pass"] = True
+                prior_copy["deferred_prefix"] = False
+            return prior_cursor, prior_copy
+
+        # A changing temporary root must not restart a sweep at zero every
+        # time a child appears. Resume after the last stable identity. Any
+        # newly discovered identity that sorts before it is handled by a
+        # deferred prefix pass after this suffix reaches its end.
+        prior_cursor_id = str(
+            prior.get("cursor_candidate_id")
+            or prior.get("last_processed_candidate_id")
+            or ""
+        )
+        current_ids = [_storage_candidate_spec_id(spec) for spec in specs]
+        resume = current_ids.index(prior_cursor_id) + 1 if prior_cursor_id in current_ids else prior_cursor
+        previous_ids = {
+            str(item.get("candidate_id") or "")
+            for item in previous.get("candidates", [])
+            if isinstance(item, Mapping) and item.get("candidate_id")
+        } if isinstance(previous.get("candidates"), list) else set()
+        unseen_before = [
+            index
+            for index, candidate_id in enumerate(current_ids)
+            if candidate_id not in previous_ids and index < resume
+        ]
+        prior_copy["inventory_changed"] = True
+        # Keep the existing suffix cursor. New prefix members are visited in
+        # a deferred prefix pass after the suffix reaches the end, which means
+        # repeated insertions cannot keep restarting the same suffix.
+        prior_copy["deferred_prefix"] = bool(unseen_before)
+        prior_copy["prefix_pass"] = False
+        return min(resume, total), prior_copy
+    return 0, {}
+
+
+def _storage_candidate_observation_deadline_hit(observation: Mapping[str, Any]) -> bool:
+    fingerprint = observation.get("fingerprint") if isinstance(observation.get("fingerprint"), Mapping) else {}
+    size = observation.get("evidence", {}).get("physical_size") if isinstance(observation.get("evidence"), Mapping) and isinstance(observation.get("evidence", {}).get("physical_size"), Mapping) else {}
+    return fingerprint.get("timed_out") is True or size.get("error") == "deadline_exceeded"
+
+
+def _storage_candidate_carried_record(item: Mapping[str, Any], generated_at: str) -> dict[str, Any]:
+    carried = dict(item)
+    observed = storage_candidate_contracts.parse_time(item.get("observed_at"))
+    now_time = storage_candidate_contracts.parse_time(generated_at)
+    age = int((now_time - observed).total_seconds()) if now_time and observed else None
+    carried["observation_status"] = "carried_forward"
+    carried["observation_age_seconds"] = max(0, age) if age is not None else None
+    carried.setdefault("last_observed_at", item.get("observed_at"))
+    return carried
+
+
+def _storage_candidate_current_record(item: Mapping[str, Any]) -> dict[str, Any]:
+    current = dict(item)
+    current["observation_status"] = "current_deep"
+    current["observation_age_seconds"] = 0
+    return current
+
+
+def _storage_candidate_bounded_retired(
+    previous: Mapping[str, Any],
+    *,
+    full_ids: set[str],
+    current_ids: set[str],
+    generated_at: str,
+    candidate_document_retired: Sequence[Mapping[str, Any]],
+    complete: bool,
+) -> list[dict[str, Any]]:
+    """Retire only after the complete inventory has been observed."""
+    sources: list[Mapping[str, Any]] = []
+    if complete:
+        prior_by_id = {
+            str(item.get("candidate_id")): item
+            for item in previous.get("candidates", [])
+            if isinstance(item, Mapping) and item.get("candidate_id")
+        } if isinstance(previous.get("candidates"), list) else {}
+        for candidate_id, item in prior_by_id.items():
+            if candidate_id not in full_ids:
+                sources.append({
+                    "candidate_id": candidate_id,
+                    "path": item.get("path"),
+                    "owner": item.get("owner"),
+                    "kind": item.get("kind"),
+                    "last_verdict": item.get("verdict"),
+                    "last_seen": item.get("observed_at"),
+                    "retired_at": generated_at,
+                    "reason": "not_rediscovered_in_current_refresh",
+                })
+        sources.extend(item for item in candidate_document_retired if isinstance(item, Mapping))
+    # A partial inventory cannot establish absence. Preserve already recorded
+    # retirement events, but never manufacture a new event for its batch.
+    prior_retired = previous.get("retired")
+    if isinstance(prior_retired, list):
+        sources.extend(item for item in prior_retired if isinstance(item, Mapping))
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in sources:
+        candidate_id = str(item.get("candidate_id") or "")
+        if not candidate_id or candidate_id in current_ids or candidate_id in full_ids or candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        merged.append(dict(item))
+        if len(merged) >= 200:
+            break
+    return merged
+
+
+def _storage_candidate_unique_runtime_errors(
+    *sources: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep one durable error entry per stable diagnostic identity."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in sources:
+        for item in source:
+            if not isinstance(item, Mapping):
+                continue
+            record = dict(item)
+            try:
+                key = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+            except (TypeError, ValueError):
+                key = repr(sorted(record.items(), key=lambda pair: str(pair[0])))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(record)
+    return merged
+
+
+def _storage_candidate_full_runtime_errors(
+    coverage: Mapping[str, Any],
+    *,
+    records: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    """Read full error authority, deriving it from records when older data lacks it."""
+    persisted = coverage.get("runtime_errors_full")
+    persisted_errors = [dict(item) for item in persisted if isinstance(item, Mapping)] if isinstance(persisted, list) else []
+    bounded = coverage.get("runtime_errors")
+    bounded_errors = [dict(item) for item in bounded if isinstance(item, Mapping)] if isinstance(bounded, list) else []
+    derived_errors: list[dict[str, Any]] = []
+    if records:
+        derived = storage_candidate_contracts.coverage_summary(records, error_limit=None)
+        values = derived.get("runtime_errors")
+        if isinstance(values, list):
+            derived_errors = [dict(item) for item in values if isinstance(item, Mapping)]
+    return _storage_candidate_unique_runtime_errors(persisted_errors, derived_errors, bounded_errors)
+
+
+def _storage_candidate_build_bounded_document(
+    observations: Sequence[Mapping[str, Any]],
+    *,
+    previous: Mapping[str, Any],
+    specs: Sequence[Mapping[str, Any]],
+    cursor_before: int,
+    cursor_after: int,
+    generated_at: str,
+    elapsed_seconds: float,
+    budget_seconds: float,
+    batch_limit: int,
+    runtime_errors: Sequence[Mapping[str, Any]],
+    producer_status: Mapping[str, Any],
+    candidate_document: Mapping[str, Any],
+    complete: bool,
+    deadline_exceeded: bool,
+    deferred_prefix: bool = False,
+) -> dict[str, Any]:
+    current = [_storage_candidate_current_record(item) for item in candidate_document.get("candidates", []) if isinstance(item, Mapping)]
+    current_ids = {str(item.get("candidate_id") or "") for item in current if item.get("candidate_id")}
+    previous_candidates = {
+        str(item.get("candidate_id")): item
+        for item in previous.get("candidates", [])
+        if isinstance(item, Mapping) and item.get("candidate_id")
+    } if isinstance(previous.get("candidates"), list) else {}
+    full_ids = {_storage_candidate_spec_id(spec) for spec in specs}
+    records_by_id: dict[str, dict[str, Any]] = {str(item.get("candidate_id")): item for item in current if item.get("candidate_id")}
+    candidate_coverage = candidate_document.get("coverage") if isinstance(candidate_document.get("coverage"), Mapping) else {}
+    prior_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    # Keep the complete diagnostic authority separate from the bounded
+    # display list.  Older documents may lack the authority field, so derive
+    # per-object failures from their persisted evidence as a compatibility
+    # fallback.
+    prior_errors = _storage_candidate_full_runtime_errors(
+        prior_coverage,
+        records=list(previous_candidates.values()),
+    )
+    candidate_errors = _storage_candidate_full_runtime_errors(
+        candidate_coverage,
+        records=current,
+    )
+    # A complete retry gets a clean error set from the current evidence.  A
+    # partial retry carries earlier blockers until the inventory has actually
+    # reached the end again.
+    current_errors = _storage_candidate_unique_runtime_errors(
+        candidate_errors,
+        runtime_errors,
+    )
+    current_error_ids = {
+        str(item.get("candidate_id") or "")
+        for item in current_errors
+        if item.get("candidate_id")
+    }
+    # ``complete`` means that the cursor reached the end of this inventory;
+    # a deferred prefix is intentionally outside that claim.  Derive the
+    # final completeness before carrying or dropping records so a retained
+    # error cannot turn a partial suffix into an apparent clean absence pass.
+    inventory_complete = bool(complete and not deferred_prefix)
+    prior_errors_by_candidate: dict[str, list[dict[str, Any]]] = {}
+    retained_prior_errors: list[dict[str, Any]] = []
+    for item in prior_errors:
+        if not isinstance(item, Mapping):
+            continue
+        candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id and candidate_id not in full_ids:
+            # Discovery completed successfully and no longer reports this
+            # identity.  Resolve its old observation blocker for progress,
+            # while the carried record/retirement evidence keeps the reason
+            # visible until the observation sweep itself is complete.
+            prior_errors_by_candidate.setdefault(candidate_id, []).append(dict(item))
+            continue
+        # A candidate-specific blocker is cleared only after that candidate
+        # was observed successfully in the current pass.
+        if candidate_id and candidate_id in current_ids and candidate_id not in current_error_ids:
+            continue
+        # Global blockers stay visible until a complete pass has retried the
+        # inventory; partial discovery must never clear them.
+        if not candidate_id and inventory_complete:
+            continue
+        retained_prior_errors.append(dict(item))
+    errors = retained_prior_errors + current_errors
+    complete = bool(inventory_complete and not errors)
+
+    carried_count = 0
+    for candidate_id, item in previous_candidates.items():
+        if candidate_id in records_by_id:
+            continue
+        # Keep every disappeared record until the complete authority has been
+        # derived below.  This prevents a late carried evidence error from
+        # being hidden by an early ``complete`` decision.
+        carried = _storage_candidate_carried_record(item, generated_at)
+        absence_errors = prior_errors_by_candidate.get(candidate_id)
+        if absence_errors:
+            carried["discovery_absent"] = True
+            carried["prior_runtime_errors"] = absence_errors[:20]
+        records_by_id[candidate_id] = carried
+        carried_count += 1
+    records = list(records_by_id.values())
+    records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
+
+    # Re-derive errors from the complete carried/current record set.  This
+    # catches failures beyond the 200-entry display window and remains the
+    # authority for the final completion decision.
+    record_coverage = storage_candidate_contracts.coverage_summary(
+        [item for item in records if item.get("discovery_absent") is not True],
+        error_limit=None,
+    )
+    record_errors = record_coverage.get("runtime_errors") if isinstance(record_coverage.get("runtime_errors"), list) else []
+    errors = _storage_candidate_unique_runtime_errors(errors, record_errors)
+    complete = bool(inventory_complete and not errors)
+
+    if complete:
+        records_by_id = {
+            candidate_id: item
+            for candidate_id, item in records_by_id.items()
+            if candidate_id in full_ids
+        }
+        records = list(records_by_id.values())
+        records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
+        carried_count = sum(1 for item in records if item.get("observation_status") == "carried_forward")
+        record_coverage = storage_candidate_contracts.coverage_summary(records, error_limit=None)
+
+    coverage = record_coverage
+    coverage.update({
+        "mode": "deep" if complete else ("deep_partial_deadline" if deadline_exceeded else "deep_partial_batch"),
+        "discovered": len(specs),
+        "observed": cursor_after,
+        "current_results": len(current),
+        "carried_forward_count": carried_count,
+        "partial": not complete,
+        "complete": complete,
+        "runtime_errors": errors[:200],
+        "runtime_errors_full": errors,
+        "runtime_error_count": len(errors),
+    })
+    pressure_findings = coverage.get("pressure_findings") if isinstance(coverage.get("pressure_findings"), list) else []
+    coverage["pressure_finding_count"] = len(pressure_findings)
+    retired = _storage_candidate_bounded_retired(
+        previous,
+        full_ids=full_ids,
+        current_ids=current_ids,
+        generated_at=generated_at,
+        candidate_document_retired=[item for item in candidate_document.get("retired", []) if isinstance(item, Mapping)] if isinstance(candidate_document.get("retired"), list) else [],
+        complete=complete,
+    )
+    # Keep the last owner-visible blocker attached to an absence retirement.
+    # The complete inventory resolves the old candidate error for current
+    # coverage, while the retirement evidence still explains why that record
+    # was previously held back.
+    for item in retired:
+        details = prior_errors_by_candidate.get(str(item.get("candidate_id") or ""))
+        if details:
+            item["prior_runtime_errors"] = details[:20]
+    progress_cursor = cursor_after if complete or cursor_after < len(specs) else cursor_before
+    if errors and cursor_after >= len(specs):
+        blocked_indices = [
+            index for index, spec in enumerate(specs)
+            if _storage_candidate_spec_id(spec) in {
+                str(item.get("candidate_id") or "")
+                for item in errors
+                if item.get("candidate_id")
+            }
+        ]
+        progress_cursor = min(blocked_indices) if blocked_indices else cursor_before
+    elif deferred_prefix and cursor_after >= len(specs):
+        # The stable suffix has been serviced.  Start a separate prefix pass
+        # on the next invocation; a new prefix insertion cannot reset this
+        # suffix cursor and therefore cannot starve its completion.
+        progress_cursor = 0
+    processed_this_run = max(0, cursor_after - cursor_before)
+    progress = {
+        "status": "complete" if complete else "partial",
+        "inventory_digest": _storage_candidate_inventory_digest(specs),
+        "total": len(specs),
+        "cursor": progress_cursor,
+        "processed": progress_cursor,
+        "processed_this_run": processed_this_run,
+        "remaining": max(0, len(specs) - progress_cursor),
+        "batch_limit": batch_limit,
+        "budget_seconds": budget_seconds,
+        "elapsed_seconds": round(max(0.0, elapsed_seconds), 3),
+        "last_run_at": generated_at,
+        "deadline_exceeded": bool(deadline_exceeded),
+        "continuation_required": not complete,
+        "resume_policy": "cursor_candidate_id",
+    }
+    if not errors and cursor_after > 0 and cursor_after <= len(specs):
+        progress["last_processed_candidate_id"] = _storage_candidate_spec_id(specs[cursor_after - 1])
+    if progress_cursor > 0 and progress_cursor <= len(specs):
+        progress["cursor_candidate_id"] = _storage_candidate_spec_id(specs[progress_cursor - 1])
+    if deferred_prefix and not complete:
+        progress["deferred_prefix"] = True
+        progress["prefix_pass"] = False
+    prior_started = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
+    progress["started_at"] = prior_started.get("started_at") if prior_started.get("status") == "partial" else generated_at
+    if prior_started.get("status") == "partial" and str(prior_started.get("inventory_digest") or "") != progress["inventory_digest"]:
+        progress["inventory_changed"] = True
+    if runtime_errors:
+        progress["blocked_candidate_ids"] = [
+            str(item.get("candidate_id"))
+            for item in runtime_errors
+            if isinstance(item, Mapping) and item.get("candidate_id")
+        ][:200]
+    data = dict(candidate_document)
+    data.update({
+        "candidates": records,
+        "retired": retired,
+        "snapshot_id": storage_candidate_contracts.snapshot_id(records),
+        "coverage": coverage,
+        "runtime_errors": list(errors[:200]),
+        "pressure_findings": list(pressure_findings),
+        "producer_coverage": {str(key): dict(value) for key, value in producer_status.items() if isinstance(value, Mapping)},
+        "deep_progress": progress,
+        "partial": not complete,
+        "ok": complete and not errors,
+        "paths": storage_candidate_paths(),
+        "summary": _storage_candidate_rebuild_summary(records, coverage, retired),
+        "changes": list(candidate_document.get("changes", [])) if isinstance(candidate_document.get("changes"), list) else [],
+        "refresh_result": {
+            "mode": "deep",
+            "status": "new_results" if complete and records else ("deep_partial_deadline" if deadline_exceeded else "deep_partial_batch"),
+            "new_results": len(current),
+            "carried_forward_count": carried_count,
+            "processed": processed_this_run,
+            "remaining": max(0, len(specs) - progress_cursor),
+            "continuation_required": not complete,
+            "elapsed_seconds": round(max(0.0, elapsed_seconds), 3),
+            "runtime_error_count": len(errors),
+            "pressure_finding_count": len(pressure_findings),
+        },
+    })
+    last_deep_at = generated_at if complete else _storage_candidate_previous_last_deep_at(previous)
+    data["last_deep_at"] = last_deep_at
+    data["freshness"] = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=last_deep_at,
+        now_time=storage_candidate_contracts.parse_time(generated_at),
+        max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
+    )
+    if complete:
+        data.pop("complete", None)
+    else:
+        data["complete"] = False
+        data["freshness"].update({
+            "partial": True,
+            "complete": False,
+            "reason": "deep_refresh_partial_last_good_preserved",
+        })
+    return data
+
+
+def _storage_candidate_apply_aoa_deferred_carry_forward(
+    data: dict[str, Any],
+    previous: Mapping[str, Any],
+    *,
+    generated_at: str,
+    owner_status: Mapping[str, Any],
+) -> dict[str, Any]:
+    previous_candidates = [
+        dict(item)
+        for item in previous.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(previous.get("candidates"), list) else []
+    carried = [item for item in previous_candidates if _storage_candidate_is_aoa_owner_record(item)]
+    current = [
+        dict(item)
+        for item in data.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(data.get("candidates"), list) else []
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for item in current:
+        candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id:
+            by_id.setdefault(candidate_id, item)
+    carried_ids: list[str] = []
+    for item in carried:
+        candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id and candidate_id not in by_id:
+            by_id[candidate_id] = item
+            carried_ids.append(candidate_id)
+
+    records = list(by_id.values())
+    records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
+    retired = _storage_candidate_merge_retired_records(
+        data,
+        previous,
+        protected_ids=set(carried_ids),
+    )
+
+    base_coverage = data.get("coverage") if isinstance(data.get("coverage"), Mapping) else {}
+    base_refresh = data.get("refresh_result") if isinstance(data.get("refresh_result"), Mapping) else {}
+    coverage = storage_candidate_contracts.coverage_summary(records, error_limit=None)
+    for key in ("discovered", "observed", "current_results", "carried_forward_count", "partial", "complete"):
+        if key in base_coverage:
+            coverage[key] = base_coverage.get(key)
+    base_errors = _storage_candidate_full_runtime_errors(base_coverage, records=current)
+    merged_errors = _storage_candidate_unique_runtime_errors(
+        base_errors,
+        coverage.get("runtime_errors", []) if isinstance(coverage.get("runtime_errors"), list) else [],
+    )
+    coverage["runtime_errors"] = merged_errors[:200]
+    coverage["runtime_errors_full"] = merged_errors
+    coverage["runtime_error_count"] = len(merged_errors)
+    last_good_at = _storage_candidate_aoa_last_good_at(carried)
+    owner_coverage: dict[str, Any] = {
+        "source_adapter": "aoa_owner_verdict",
+        "owner": "aoa-session-memory",
+        "status": str(owner_status.get("status") or "deferred_active_writer"),
+        "state": "deferred",
+        "ok": False,
+        "deferred": True,
+        "lock_active": owner_status.get("lock_active") is True,
+        "last_good_at": last_good_at,
+        "carried_forward_count": len(carried_ids),
+        "reason": str(owner_status.get("reason") or "owner active writer deferred")[:1000],
+    }
+    if owner_status.get("returncode") is not None:
+        owner_coverage["returncode"] = owner_status.get("returncode")
+    coverage.update({
+        "mode": "deep_partial_aoa_owner_deferred",
+        "partial": True,
+        "complete": False,
+        "discovered": base_coverage.get("discovered", len(records)),
+        "observed": base_coverage.get("observed", len(current)),
+        "current_results": base_coverage.get("current_results", len(current)),
+        "carried_forward_count": base_coverage.get("carried_forward_count", len(carried_ids)),
+        "owner_coverage": owner_coverage,
+        "producer_status": {"aoa_owner_verdict": owner_coverage},
+    })
+    last_deep_at = _storage_candidate_previous_last_deep_at(previous)
+    freshness = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=last_deep_at,
+        now_time=storage_candidate_contracts.parse_time(generated_at),
+        max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
+    )
+    freshness.update({
+        "partial": True,
+        "complete": False,
+        "reason": "aoa_owner_deferred_last_good_preserved",
+    })
+    data.update({
+        "snapshot_id": storage_candidate_contracts.snapshot_id(records),
+        "ok": False,
+        "partial": True,
+        "complete": False,
+        "last_deep_at": last_deep_at,
+        "freshness": freshness,
+        "coverage": coverage,
+        "runtime_errors": list(coverage.get("runtime_errors", [])),
+        "pressure_findings": list(coverage.get("pressure_findings", [])),
+        "summary": _storage_candidate_rebuild_summary(records, coverage, retired),
+        "changes": [
+            {
+                "candidate_id": item.get("candidate_id"),
+                "path": item.get("path"),
+                "previous": item.get("transition", {}).get("previous") if isinstance(item.get("transition"), Mapping) else None,
+                "current": item.get("verdict"),
+            }
+            for item in records
+            if isinstance(item.get("transition"), Mapping) and item["transition"].get("changed") is True
+            and str(item.get("candidate_id") or "") not in set(carried_ids)
+        ],
+        "candidates": records,
+        "retired": retired,
+        "producer_coverage": {"aoa_owner_verdict": owner_coverage},
+        "refresh_result": {
+            "mode": "deep",
+            "status": "partial_aoa_owner_deferred",
+            "new_results": len(current),
+            "carried_forward_count": len(carried_ids),
+            "processed": base_refresh.get("processed"),
+            "remaining": base_refresh.get("remaining"),
+            "elapsed_seconds": base_refresh.get("elapsed_seconds"),
+            "continuation_required": base_refresh.get("continuation_required"),
+            "runtime_error_count": coverage.get("runtime_error_count", 0),
+            "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+        },
+    })
+    return data
 
 
 def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapshot: dict[str, Any] | None = None, write_latest: bool = True) -> dict[str, Any]:
@@ -15502,49 +16865,171 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
     if not deep:
         data = storage_candidate_light_refresh(previous, generated_at)
     else:
-        specs = storage_candidate_discover_specs(artifact_snapshot=artifact_snapshot)
+        deep_started = time.monotonic()
+        discovery_errors: list[dict[str, Any]] = []
+        producer_status: dict[str, Any] = {}
+        try:
+            specs = storage_candidate_discover_specs(
+                artifact_snapshot=artifact_snapshot,
+                producer_status=producer_status,
+            )
+        except Exception as exc:  # bounded route: persist the failure instead of claiming a fresh scan
+            specs = []
+            discovery_errors.append({"surface": "discovery", "error": str(exc)[:1000]})
         claims = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_CLAIMS_ROOT)
         runtime_documents = storage_candidate_runtime_documents()
         lane_documents = storage_candidate_lane_documents()
-        process_by_path = storage_candidate_adapters.process_references([str(spec.get("path") or "") for spec in specs])
-        config_by_path = storage_candidate_config_refs_by_path(specs)
-        observations: list[dict[str, Any]] = []
-        for spec in specs:
-            path_text = str(spec.get("path") or "")
-            virtual = path_text.startswith("podman://")
-            protection = {"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text))
-            artifact_spec = artifact_spec_for_path(Path(path_text)) if spec.get("source_adapter") == "artifact_snapshot" and not virtual else {}
-            service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
-            container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
-            config_refs = config_by_path.get(path_text, {"checked": virtual, "active": False, "hits": []})
-            for evidence in (service_refs, container_refs, config_refs):
-                evidence.setdefault("checked", not evidence.get("error"))
-                evidence.setdefault("active", False)
-            observations.append(storage_candidate_adapters.collect_observation(
-                spec,
-                protection=protection,
-                process_refs=process_by_path.get(path_text, {"checked": virtual, "active": False, "refs": []}),
-                claims=claims,
-                runtime_documents=runtime_documents,
-                lane_documents=lane_documents,
-                deep=True,
+        if discovery_errors:
+            # A partial discovery is not evidence that the missing paths were
+            # retired. Keep the last complete document and expose the failed
+            # surface so consumers can distinguish stale evidence from a clean
+            # empty inventory.
+            data = _storage_candidate_deep_failure_document(
+                previous,
                 generated_at=generated_at,
-                max_fingerprint_entries=50_000,
-                service_refs=service_refs,
-                container_refs=container_refs,
-                config_refs=config_refs,
-            ))
-        data = storage_candidate_contracts.candidates_document(
-            observations,
-            previous_document=previous,
-            configured_policy=storage_candidate_policy(),
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=generated_at,
-            paths=storage_candidate_paths(),
-            deep=True,
-        )
-        data["last_deep_at"] = generated_at
+                runtime_errors=discovery_errors,
+            )
+        else:
+            ordered_specs = _storage_candidate_ordered_specs(specs)
+            inventory_digest = _storage_candidate_inventory_digest(ordered_specs)
+            cursor, prior_progress = _storage_candidate_deep_progress(previous, inventory_digest, ordered_specs)
+            deferred_prefix = bool(prior_progress.get("deferred_prefix") is True)
+            budget_seconds = max(1.0, float(STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS))
+            batch_limit = max(1, int(STORAGE_CANDIDATE_DEEP_BATCH_LIMIT))
+            deadline = deep_started + budget_seconds
+            batch_specs = ordered_specs[cursor : min(len(ordered_specs), cursor + batch_limit)]
+            runtime_errors = []
+            observations: list[dict[str, Any]] = []
+            deadline_exceeded = False
+            next_cursor = cursor
+            if time.monotonic() >= deadline and batch_specs:
+                deadline_exceeded = True
+                runtime_errors.append({"surface": "deep", "error": "deadline_exceeded_before_batch"})
+            else:
+                process_paths = [
+                    str(spec.get("path") or "")
+                    for spec in batch_specs
+                    if not str(spec.get("path") or "").startswith("podman://")
+                ]
+                process_by_path = storage_process_probe.owner_process_references(
+                    process_paths,
+                    max_paths=storage_process_probe.MAX_BULK_PATHS,
+                    max_refs_per_path=1,
+                    max_request_bytes=storage_process_probe.MAX_BULK_REQUEST_BYTES,
+                    max_response_bytes=storage_process_probe.MAX_BULK_RESPONSE_BYTES,
+                    scan_port=storage_candidate_adapters.process_references,
+                    timeout_ms=min(
+                        storage_process_probe.MAX_TIMEOUT_MS,
+                        max(100, int(max(0.0, deadline - time.monotonic()) * 1000)),
+                    ),
+                )
+                config_by_path = storage_candidate_config_refs_by_path(batch_specs)
+                for spec in batch_specs:
+                    if time.monotonic() >= deadline:
+                        deadline_exceeded = True
+                        runtime_errors.append({"surface": "deep", "error": "deadline_exceeded", "candidate_id": _storage_candidate_spec_id(spec)})
+                        break
+                    path_text = str(spec.get("path") or "")
+                    try:
+                        virtual = path_text.startswith("podman://")
+                        protection = {"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text))
+                        artifact_spec = artifact_spec_for_path(Path(path_text)) if spec.get("source_adapter") == "artifact_snapshot" and not virtual else {}
+                        service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
+                        container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
+                        config_refs = config_by_path.get(path_text, {"checked": virtual, "active": False, "hits": []})
+                        for evidence in (service_refs, container_refs, config_refs):
+                            evidence.setdefault("checked", not evidence.get("error"))
+                            evidence.setdefault("active", False)
+                        observation = storage_candidate_adapters.collect_observation(
+                            spec,
+                            protection=protection,
+                            process_refs=process_by_path.get(path_text, {"checked": virtual, "active": False, "refs": []}),
+                            claims=claims,
+                            runtime_documents=runtime_documents,
+                            lane_documents=lane_documents,
+                            deep=True,
+                            generated_at=generated_at,
+                            max_fingerprint_entries=50_000,
+                            service_refs=service_refs,
+                            container_refs=container_refs,
+                            config_refs=config_refs,
+                            deadline=deadline,
+                        )
+                        if _storage_candidate_observation_deadline_hit(observation):
+                            deadline_exceeded = True
+                            runtime_errors.append({
+                                "surface": "observation",
+                                "path": path_text,
+                                "candidate_id": _storage_candidate_spec_id(spec),
+                                "error": "deadline_exceeded",
+                            })
+                            # The observation was attempted and consumed the
+                            # remaining budget.  Advance past this object so
+                            # a permanently slow candidate cannot starve the
+                            # healthy suffix on every bounded invocation.
+                            # The pre-attempt deadline branch above leaves the
+                            # cursor unchanged intentionally, so it retries
+                            # the unattempted batch on the next invocation.
+                            next_cursor += 1
+                            break
+                        observations.append(observation)
+                        next_cursor += 1
+                    except Exception as exc:  # one inaccessible candidate must not erase the snapshot
+                        runtime_errors.append({"surface": "observation", "path": path_text, "candidate_id": _storage_candidate_spec_id(spec), "error": str(exc)[:1000]})
+                        # A failed object is one failed observation, not a
+                        # failure of the remaining batch. Advance the cursor
+                        # and continue so independent suffix candidates are
+                        # serviced in this bounded pass.
+                        next_cursor += 1
+                        continue
+            # Both the pre-deadline and observation-loop branches leave the
+            # same explicit cursor result for the merge layer.
+            cursor_after = next_cursor
+            if runtime_errors and not observations and not prior_progress and not deadline_exceeded:
+                # Preserve the existing strict error shape for a producer that
+                # cannot produce even its first observation.  No empty result
+                # may turn that failure into a fresh inventory.
+                data = _storage_candidate_deep_failure_document(
+                    previous,
+                    generated_at=generated_at,
+                    runtime_errors=runtime_errors,
+                )
+            else:
+                candidate_document = storage_candidate_contracts.candidates_document(
+                    observations,
+                    previous_document=previous,
+                    configured_policy=storage_candidate_policy(),
+                    schema_prefix=SCHEMA_PREFIX,
+                    version=VERSION,
+                    generated_at=generated_at,
+                    paths=storage_candidate_paths(),
+                    deep=True,
+                )
+                data = _storage_candidate_build_bounded_document(
+                    observations,
+                    previous=previous,
+                    specs=ordered_specs,
+                    cursor_before=cursor,
+                    cursor_after=cursor_after,
+                    generated_at=generated_at,
+                    elapsed_seconds=time.monotonic() - deep_started,
+                    budget_seconds=budget_seconds,
+                    batch_limit=batch_limit,
+                    runtime_errors=runtime_errors,
+                    producer_status=producer_status,
+                    candidate_document=candidate_document,
+                    complete=cursor_after >= len(ordered_specs) and not runtime_errors,
+                    deadline_exceeded=deadline_exceeded,
+                    deferred_prefix=deferred_prefix,
+                )
+            aoa_status = producer_status.get("aoa_owner_verdict")
+            if isinstance(aoa_status, Mapping) and aoa_status.get("deferred") is True and data.get("refresh_result", {}).get("status") != "deep_error_carry_forward":
+                data = _storage_candidate_apply_aoa_deferred_carry_forward(
+                    data,
+                    previous,
+                    generated_at=generated_at,
+                    owner_status=aoa_status,
+                )
     if write_latest:
         latest_error = safe_atomic_write_json(STORAGE_CANDIDATES_LATEST_PATH, data, 0o664)
         daily_error = safe_append_jsonl(
@@ -15594,6 +17079,36 @@ def storage_candidates_refresh(*, deep: bool = False, artifact_snapshot: dict[st
         )
 
 
+def storage_candidates_refresh_if_due() -> dict[str, Any]:
+    """Continue incomplete sweeps; avoid rescanning a complete daily snapshot."""
+    with storage_candidates_refresh_lock():
+        previous, error = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
+        previous = previous if isinstance(previous, dict) else {}
+        coverage = previous.get("coverage") if isinstance(previous.get("coverage"), dict) else {}
+        progress = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), dict) else {}
+        observed = storage_candidate_contracts.parse_time(previous.get("last_deep_at"))
+        current = storage_candidate_contracts.parse_time(now_iso())
+        age = (current - observed).total_seconds() if current and observed else None
+        if (
+            not error and previous.get("ok") is True
+            and previous.get("partial") is not True
+            and previous.get("complete") is not False
+            and coverage.get("partial") is not True
+            and coverage.get("complete") is not False
+            and not previous.get("runtime_errors")
+            and not coverage.get("runtime_errors")
+            and progress.get("status") != "partial"
+            and age is not None and 0 <= age < 86400
+        ):
+            return {
+                "ok": True, "mutates": False,
+                "refresh_result": {"mode": "deep", "status": "not_due"},
+                "last_deep_at": previous.get("last_deep_at"),
+                "age_seconds": int(age), "refresh_interval_seconds": 86400,
+            }
+        return _storage_candidates_refresh_unlocked(deep=True, write_latest=True)
+
+
 def storage_candidates_list(**filters: Any) -> dict[str, Any]:
     document, error = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
     document = document if isinstance(document, dict) else {}
@@ -15607,6 +17122,11 @@ def storage_candidates_list(**filters: Any) -> dict[str, Any]:
         "error": error,
         "snapshot_id": document.get("snapshot_id"),
         "source_generated_at": document.get("generated_at"),
+        "source_deep": document.get("deep") is True,
+        "freshness": document.get("freshness"),
+        "coverage": document.get("coverage"),
+        "runtime_errors": document.get("runtime_errors", []),
+        "pressure_findings": document.get("pressure_findings", []),
         "summary": {"selected": len(candidates), "available": len(document.get("candidates", []))},
         "candidates": candidates,
     }
@@ -15618,6 +17138,8 @@ def storage_candidate_explain(candidate_id: str) -> dict[str, Any]:
     if result.get("ok"):
         candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else {}
         result["lifecycle"] = storage_candidate_lifecycle(candidate_id, base_state=str(candidate.get("lifecycle_state") or "classified"))
+        result["freshness"] = document.get("freshness") if isinstance(document, dict) else None
+        result["coverage"] = document.get("coverage") if isinstance(document, dict) else None
     return result
 
 
@@ -15716,7 +17238,18 @@ def storage_candidate_validate(candidate_id: str, *, write_latest: bool = True) 
         path_text = str(spec.get("path") or "")
         virtual = path_text.startswith("podman://")
         artifact_spec = artifact_spec_for_path(Path(path_text)) if not virtual else {}
-        process_refs = storage_candidate_adapters.process_references([path_text]).get(path_text, {"checked": virtual, "active": False, "refs": []})
+        process_refs = (
+            {"checked": True, "active": False, "refs": []}
+            if virtual
+            else storage_process_probe.owner_process_references(
+                [path_text],
+                max_paths=storage_process_probe.MAX_BULK_PATHS,
+                max_refs_per_path=1,
+                max_request_bytes=storage_process_probe.MAX_BULK_REQUEST_BYTES,
+                max_response_bytes=storage_process_probe.MAX_BULK_RESPONSE_BYTES,
+                scan_port=storage_candidate_adapters.process_references,
+            ).get(path_text, {"checked": False, "active": False, "refs": []})
+        )
         service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
         container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
         config_refs = artifact_config_refs(Path(path_text), [str(item) for item in artifact_spec.get("config_tokens", []) if item]) if artifact_spec else {"checked": True, "active": False, "hits": []}
@@ -16989,6 +18522,13 @@ def resource_paths() -> dict[str, Any]:
             "reservations": str(resource_adapters.reservations_root(os.environ, uid=os.getuid())),
             "retention": "runtime_only",
         },
+        "storage_reservations": {
+            "root": str(STORAGE_RESERVATIONS_ROOT),
+            "records": str(STORAGE_RESERVATIONS_ROOT / "records"),
+            "retention_limit": storage_reservations.TERMINAL_RETENTION_LIMIT,
+            "resource_launch_binding": "explicit --bytes plus --target only",
+            "release": "confirmed systemd terminal state",
+        },
         "validate": str(RESOURCE_VALIDATE_LATEST_PATH),
         "commands": {
             "paths": "abyss-machine resource paths --json",
@@ -17955,6 +19495,31 @@ def resource_launch(
     if clean_command and not unit:
         generated_unit = resource_generated_unit_name(kind, workload_class, unit_type)
         launch_unit = generated_unit
+    storage_reservation_requested = bytes_required is not None or target is not None
+    storage_reservation_pair_valid = (
+        bytes_required is not None
+        and bool(str(target or "").strip())
+        and int(bytes_required) >= 0
+    ) if bytes_required is not None else not storage_reservation_requested
+    storage_reservation_input_error: str | None = None
+    if storage_reservation_requested and not storage_reservation_pair_valid:
+        if bytes_required is None or not str(target or "").strip():
+            storage_reservation_input_error = "storage_reservation_bytes_and_target_required"
+        else:
+            storage_reservation_input_error = "storage_reservation_bytes_must_be_nonnegative"
+    storage_reservation: dict[str, Any] | None = None
+    storage_reservation_result: dict[str, Any] | None = None
+    storage_reservation_release: dict[str, Any] | None = None
+    storage_reservation_owner = str(demand_owner or resource_valid_kind(kind)).strip() or resource_valid_kind(kind)
+    storage_reservation_id = (
+        f"resource-launch:{launch_unit or resource_valid_kind(kind)}:{os.getpid()}:{time.time_ns()}"
+        if storage_reservation_pair_valid and clean_command
+        else None
+    )
+    storage_execution_identity = (
+        f"{storage_reservation_id}:execution" if storage_reservation_id else None
+    )
+    storage_reservation_ttl = resource_launch_storage_reservation_ttl(timeout_sec)
     policy = resource_policy_document()
     startup_policy = policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {}
     reservation_root = resource_adapters.reservations_root(os.environ, uid=os.getuid())
@@ -18279,6 +19844,102 @@ def resource_launch(
                                     reservation_root,
                                     lease,
                                 )
+                            if (
+                                storage_reservation_pair_valid
+                                and storage_reservation_input_error is None
+                                and not storage_reservation
+                            ):
+                                target_path = Path(str(target)).expanduser()
+                                protection = storage_path_protection(target_path)
+                                if (
+                                    protection.get("decision") != "allow_candidate"
+                                    or protection.get("class") != "host_owned_allowed"
+                                ):
+                                    storage_reservation_result = {
+                                        "schema": storage_reservations.SCHEMA,
+                                        "ok": False,
+                                        "decision": "blocked",
+                                        "reservation_id": storage_reservation_id,
+                                        "error": "reservation_target_protected_or_unknown",
+                                        "protection": protection,
+                                    }
+                                else:
+                                    requested_storage_bytes = max(0, int(bytes_required or 0))
+                                    min_free_after = max(
+                                        5 * 1024 * 1024 * 1024,
+                                        int(requested_storage_bytes * 0.10),
+                                    )
+                                    try:
+                                        storage_reservation_result = storage_reservations.acquire_reservation(
+                                            STORAGE_RESERVATIONS_ROOT,
+                                            reservation_id=str(storage_reservation_id),
+                                            kind=resource_launch_storage_reservation_kind(
+                                                resource_valid_kind(kind)
+                                            ),
+                                            requested_bytes=requested_storage_bytes,
+                                            target=target_path,
+                                            owner=storage_reservation_owner,
+                                            ttl_seconds=storage_reservation_ttl,
+                                            min_free_after=min_free_after,
+                                            hold_until_terminal=True,
+                                            execution_identity=storage_execution_identity,
+                                        )
+                                    except (OSError, TypeError, ValueError) as exc:
+                                        storage_reservation_result = {
+                                            "schema": storage_reservations.SCHEMA,
+                                            "ok": False,
+                                            "decision": "blocked",
+                                            "reservation_id": storage_reservation_id,
+                                            "error": "storage_reservation_acquire_error",
+                                            "detail": str(exc)[:500],
+                                        }
+                                if storage_reservation_result.get("ok") is True:
+                                    record = storage_reservation_result.get("reservation")
+                                    if isinstance(record, dict):
+                                        storage_reservation = {
+                                            "reservation_id": str(
+                                                record.get("reservation_id")
+                                                or storage_reservation_id
+                                            ),
+                                            "owner": str(
+                                                record.get("owner")
+                                                or storage_reservation_owner
+                                            ),
+                                            "execution_identity": record.get(
+                                                "execution_identity"
+                                            ),
+                                            "requested_bytes": record.get(
+                                                "requested_bytes"
+                                            ),
+                                            "target": record.get("target"),
+                                            "kind": record.get("kind"),
+                                            "ttl_seconds": storage_reservation_ttl,
+                                        }
+                                    else:
+                                        # Never launch without carrying the
+                                        # identity required to release the
+                                        # accounting record that was acquired.
+                                        storage_reservation_result = {
+                                            "schema": storage_reservations.SCHEMA,
+                                            "ok": False,
+                                            "decision": "blocked",
+                                            "reservation_id": storage_reservation_id,
+                                            "error": "storage_reservation_record_missing",
+                                        }
+                                elif isinstance(lease, dict):
+                                    # The disk admission failed while the
+                                    # shared resource lock was held; release
+                                    # the memory startup lease before leaving
+                                    # the atomic admission section.
+                                    lease_id = str(lease.get("id") or "")
+                                    if lease_id:
+                                        resource_adapters.remove_lease(
+                                            reservation_root,
+                                            lease_id,
+                                        )
+                                    lease = None
+                                    lease_path = None
+                                    lease_released = True
                 finally:
                     admission_lock_held_sec += max(
                         0.0,
@@ -18295,11 +19956,86 @@ def resource_launch(
 
     blocked = list(plan.get("blocked_reasons") or [])
     denied = list(plan.get("denied_reasons") or [])
+    if storage_reservation_input_error:
+        denied.append(storage_reservation_input_error)
+    if (
+        storage_reservation_requested
+        and storage_reservation_pair_valid
+        and storage_reservation_result is not None
+        and storage_reservation_result.get("ok") is not True
+    ):
+        denied.append("storage_reservation_acquire_failed")
     if not clean_command:
         denied.append("missing_command")
+    denied = list(dict.fromkeys(str(item) for item in denied))
+
+    def release_prelaunch_storage_reservation() -> None:
+        """Release an acquired lease when validation prevents any launch."""
+        nonlocal storage_reservation_release
+        if not isinstance(storage_reservation, dict) or storage_reservation_release is not None:
+            return
+        reservation_id = str(storage_reservation.get("reservation_id") or "")
+        try:
+            released = storage_reservations.release_reservation(
+                STORAGE_RESERVATIONS_ROOT,
+                reservation_id,
+                owner=str(storage_reservation.get("owner") or "") or None,
+                execution_identity=(
+                    str(storage_reservation.get("execution_identity"))
+                    if storage_reservation.get("execution_identity")
+                    else None
+                ),
+            )
+            storage_reservation_release = {
+                "requested": True,
+                **released,
+                "release_pending": not bool(released.get("ok")),
+                "completion": {
+                    "confirmed_terminal": True,
+                    "confirmation": "prelaunch_validation_failed",
+                    "unit": launch_unit,
+                },
+            }
+        except (OSError, TypeError, ValueError) as exc:
+            storage_reservation_release = {
+                "requested": True,
+                "ok": False,
+                "decision": "blocked",
+                "release_pending": True,
+                "reservation_id": reservation_id,
+                "error": "storage_reservation_release_error",
+                "detail": str(exc)[:500],
+                "completion": {
+                    "confirmed_terminal": True,
+                    "confirmation": "prelaunch_validation_failed",
+                    "unit": launch_unit,
+                },
+            }
+
+    def release_prelaunch_memory_lease() -> None:
+        """Match the storage cleanup when post-admission validation denies launch."""
+        nonlocal lease, lease_path, lease_released
+        if not isinstance(lease, dict):
+            return
+        lease_id = str(lease.get("id") or "")
+        if lease_id:
+            resource_adapters.remove_lease(reservation_root, lease_id)
+        lease = None
+        lease_path = None
+        lease_released = True
+
+    if denied or blocked:
+        # Input validation can fail after the shared admission section (for
+        # example an incomplete --bytes/--target pair).  Do not leave a
+        # startup lease or accounting record behind when no unit will run.
+        release_prelaunch_storage_reservation()
+        release_prelaunch_memory_lease()
+
     workspace_lifecycle: dict[str, Any] | None = None
     if bool(workspace_path) != bool(workspace_owner):
         denied.append("managed_workspace_path_and_owner_required_together")
+        release_prelaunch_storage_reservation()
+        release_prelaunch_memory_lease()
     if not dry_run and not denied and not blocked and clean_command and workspace_path and workspace_owner:
         registered = storage_lifecycle_adapters.register_workspace(
             STORAGE_LIFECYCLE_ROOT,
@@ -18327,6 +20063,8 @@ def resource_launch(
                 environment.update(registered["environment"])
         else:
             denied.append("managed_workspace_registration_failed")
+            release_prelaunch_storage_reservation()
+            release_prelaunch_memory_lease()
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
     planning_elapsed_sec = max(
         0.0,
@@ -18342,11 +20080,41 @@ def resource_launch(
         observation: dict[str, Any] | None,
         waiter: str,
     ) -> dict[str, Any]:
+        storage_accounting_complete = bool(
+            dry_run
+            or not storage_reservation_requested
+            or (
+                isinstance(storage_reservation_release, dict)
+                and storage_reservation_release.get("ok") is True
+                and not storage_reservation_release.get("release_pending")
+            )
+        )
+        storage_document = {
+            "requested": bool(storage_reservation_requested),
+            "accounting_complete": storage_accounting_complete,
+            "reservation": storage_reservation,
+            "acquire": storage_reservation_result,
+            "release": storage_reservation_release,
+            "root": str(STORAGE_RESERVATIONS_ROOT),
+            "policy": {
+                "owner": storage_reservation_owner,
+                "kind": resource_launch_storage_reservation_kind(
+                    resource_valid_kind(kind)
+                ),
+                "hold_until_terminal": bool(storage_reservation_requested),
+                "terminal_confirmation_required": True,
+            },
+        }
         return {
             "schema": f"{SCHEMA_PREFIX}_resource_launch_v1",
             "version": VERSION,
             "generated_at": now_iso(),
-            "ok": not denied and not blocked and (dry_run or bool(execution and execution.get("ok"))),
+            "ok": (
+                not denied
+                and not blocked
+                and (dry_run or bool(execution and execution.get("ok")))
+                and storage_accounting_complete
+            ),
             "dry_run": bool(dry_run),
             "request_started_at": request_started_at,
             "started_at": started_at,
@@ -18373,6 +20141,7 @@ def resource_launch(
                 "command": clean_command,
                 "bytes_required": bytes_required,
                 "target": target,
+                "storage_reservation_requested": bool(storage_reservation_requested),
                 "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
                 "demand_key": resolved_demand_key,
                 "demand_owner": demand_owner,
@@ -18425,7 +20194,7 @@ def resource_launch(
                     "held_sec": round(admission_lock_held_sec, 3),
                     "contains_expensive_preflight": False,
                     "atomic_scope": (
-                        "fresh_resource_plan_reservation_recheck_and_lease"
+                        "fresh_resource_plan_reservation_recheck_memory_lease_and_storage_reservation"
                     ),
                 },
             },
@@ -18440,6 +20209,7 @@ def resource_launch(
                 "demand_profile_path": str(demand_profile_path),
                 "demand_observation": observation,
             },
+            "storage_reservation": storage_document,
             "paths": {
                 "latest": str(RESOURCE_RUN_LATEST_PATH),
                 "retention": "latest_only",
@@ -18466,6 +20236,12 @@ def resource_launch(
                 "runtime_peak_learning": True,
                 "runtime_profile_is_bounded_and_ephemeral": True,
                 "static_memory_caps_applied": False,
+                "storage_reservation_explicit_bytes_target_only": True,
+                "storage_reservation_acquired_under_admission_lock": bool(
+                    storage_reservation is not None
+                ),
+                "storage_reservation_release_requires_terminal_confirmation": True,
+                "storage_reservation_does_not_wrap_native_codex_agents": True,
                 "long_waiter": waiter,
             },
         }
@@ -18501,6 +20277,8 @@ def resource_launch(
                     "profile_max_entries": int(startup_policy.get("profile_max_entries", 64)),
                     "profile_max_samples": int(startup_policy.get("profile_max_samples", 16)),
                     "workspace_lifecycle": workspace_lifecycle,
+                    "storage_reservation": storage_reservation,
+                    "storage_reservation_root": str(STORAGE_RESERVATIONS_ROOT),
                 },
                 "write_latest": bool(write_latest),
                 "latest_path": str(RESOURCE_RUN_LATEST_PATH),
@@ -18514,11 +20292,33 @@ def resource_launch(
                     lease_id = str(lease.get("id") or "")
                     if lease_id:
                         resource_adapters.remove_lease(reservation_root, lease_id)
+                if isinstance(storage_reservation, dict):
+                    storage_reservations.release_reservation(
+                        STORAGE_RESERVATIONS_ROOT,
+                        str(storage_reservation.get("reservation_id") or ""),
+                        owner=str(storage_reservation.get("owner") or "") or None,
+                        execution_identity=(
+                            str(storage_reservation.get("execution_identity"))
+                            if storage_reservation.get("execution_identity")
+                            else None
+                        ),
+                    )
                 raise
             if isinstance(lease, dict):
                 lease_id = str(lease.get("id") or "")
                 if lease_id:
                     resource_adapters.remove_lease(reservation_root, lease_id)
+            if isinstance(storage_reservation, dict):
+                storage_reservations.release_reservation(
+                    STORAGE_RESERVATIONS_ROOT,
+                    str(storage_reservation.get("reservation_id") or ""),
+                    owner=str(storage_reservation.get("owner") or "") or None,
+                    execution_identity=(
+                        str(storage_reservation.get("execution_identity"))
+                        if storage_reservation.get("execution_identity")
+                        else None
+                    ),
+                )
             raise RuntimeError("resource launch execution delegate returned unexpectedly")
         outcome = resource_adapters.execute_systemd_launch(
             systemd_command=systemd_cmd,
@@ -18536,11 +20336,18 @@ def resource_launch(
             profile_max_entries=int(startup_policy.get("profile_max_entries", 64)),
             profile_max_samples=int(startup_policy.get("profile_max_samples", 16)),
             parse_output=resource_parse_systemd_run_output,
+            storage_reservation=storage_reservation,
+            storage_reservation_root=STORAGE_RESERVATIONS_ROOT,
         )
         result = outcome["execution"]
         elapsed = float(outcome["elapsed_sec"])
         lease_released = bool(outcome["lease_released"])
         demand_observation = outcome.get("demand_observation")
+        storage_reservation_release = (
+            outcome.get("storage_reservation_release")
+            if isinstance(outcome.get("storage_reservation_release"), dict)
+            else None
+        )
         workspace_finalization = None
         if workspace_lifecycle:
             workspace_finalization = storage_lifecycle_adapters.finalize_managed_workspace(
@@ -51346,6 +53153,9 @@ def print_mode_list_text(data: dict[str, Any]) -> None:
 
 
 def main(argv: list[str]) -> int:
+    if argv[:2] == ["storage", "codex"]:
+        from abyss_machine.codex_storage_lifecycle import main as codex_storage_main
+        return codex_storage_main(argv[2:])
     parser = argparse.ArgumentParser(description="Abyss OS host-machine bridge")
     sub = parser.add_subparsers(dest="command", required=True)
     known_top_level_commands = {
@@ -51503,6 +53313,7 @@ def main(argv: list[str]) -> int:
 
     storage_parser = add_top_level_parser("storage", help="inspect host storage routing, policy, hooks and cache pressure")
     storage_sub = storage_parser.add_subparsers(dest="storage_command", required=True)
+    storage_sub.add_parser("codex", help="native Codex scratch ownership and closeout")
     storage_status_parser = storage_sub.add_parser("status")
     storage_status_parser.add_argument("--full", action="store_true", help="run a fresh AI model/cache storage scan")
     storage_status_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -51551,6 +53362,27 @@ def main(argv: list[str]) -> int:
     storage_write_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
     storage_write_parser.add_argument("--target", required=True)
     storage_write_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_parser = storage_sub.add_parser(
+        "write-reservation",
+        help="atomically account for a bounded future write; does not create files",
+        description="Atomically account for a bounded future write; does not create files or grant write permission.",
+    )
+    storage_reservation_sub = storage_reservation_parser.add_subparsers(dest="storage_reservation_command", required=True)
+    storage_reservation_acquire_parser = storage_reservation_sub.add_parser("acquire")
+    storage_reservation_acquire_parser.add_argument("--reservation-id", required=True)
+    storage_reservation_acquire_parser.add_argument("--kind", required=True, choices=["model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact"])
+    storage_reservation_acquire_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
+    storage_reservation_acquire_parser.add_argument("--target", required=True)
+    storage_reservation_acquire_parser.add_argument("--owner", required=True)
+    storage_reservation_acquire_parser.add_argument("--ttl-seconds", type=int, default=3600)
+    storage_reservation_acquire_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_release_parser = storage_reservation_sub.add_parser("release")
+    storage_reservation_release_parser.add_argument("--reservation-id", required=True)
+    storage_reservation_release_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_expire_parser = storage_reservation_sub.add_parser("expire")
+    storage_reservation_expire_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    storage_reservation_list_parser = storage_reservation_sub.add_parser("list")
+    storage_reservation_list_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_apply_parser = storage_sub.add_parser("apply")
     storage_apply_parser.add_argument("--action-id", required=True)
     storage_apply_parser.add_argument("--dry-run", action="store_true", help="plan only; this is also the default unless --confirm is passed")
@@ -51586,6 +53418,7 @@ def main(argv: list[str]) -> int:
     storage_candidates_sub = storage_candidates_parser.add_subparsers(dest="storage_candidates_command", required=True)
     storage_candidates_refresh_parser = storage_candidates_sub.add_parser("refresh")
     storage_candidates_refresh_parser.add_argument("--deep", action="store_true", help="run owner, process, Podman, Git, Vault and fingerprint evidence adapters")
+    storage_candidates_refresh_parser.add_argument("--if-due", action="store_true", help="with --deep, continue partial sweeps or refresh a complete snapshot after 24 hours")
     storage_candidates_refresh_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_candidates_list_parser = storage_candidates_sub.add_parser("list")
     storage_candidates_list_parser.add_argument("--verdict", action="append", default=[])
@@ -53687,7 +55520,9 @@ def main(argv: list[str]) -> int:
         if args.storage_command == "candidates":
             command = args.storage_candidates_command
             if command == "refresh":
-                data = storage_candidates_refresh(deep=bool(args.deep), write_latest=True)
+                if args.if_due and not args.deep:
+                    parser.error("--if-due requires --deep")
+                data = storage_candidates_refresh_if_due() if args.if_due else storage_candidates_refresh(deep=bool(args.deep), write_latest=True)
             elif command == "list":
                 data = storage_candidates_list(
                     verdicts=args.verdict,
@@ -53822,6 +55657,29 @@ def main(argv: list[str]) -> int:
                 print_json(data)
             else:
                 print_storage_write_preflight_text(data)
+            return 0 if data.get("ok") else 1
+        if args.storage_command == "write-reservation":
+            if args.storage_reservation_command == "acquire":
+                data = storage_reservation_acquire(
+                    reservation_id=str(args.reservation_id),
+                    kind=str(args.kind),
+                    requested_bytes=int(args.bytes_required),
+                    target=str(args.target),
+                    owner=str(args.owner),
+                    ttl_seconds=int(args.ttl_seconds),
+                )
+            elif args.storage_reservation_command == "release":
+                data = storage_reservation_release(str(args.reservation_id))
+            elif args.storage_reservation_command == "expire":
+                data = storage_reservations_expire()
+            elif args.storage_reservation_command == "list":
+                data = storage_reservations_list()
+            else:
+                parser.error("unknown storage write-reservation command")
+            if args.json:
+                print_json(data)
+            else:
+                print(f"storage reservation: {data.get('decision')} active={data.get('reservation', {}).get('active') if isinstance(data.get('reservation'), dict) else None}")
             return 0 if data.get("ok") else 1
         if args.storage_command == "apply":
             data = storage_apply(

@@ -94,6 +94,7 @@
       "storage_cleanup_plan_latest": "{{ABYSS_MACHINE_STATE}}/storage/cleanup-plan/latest.json",
       "storage_monitor_latest": "{{ABYSS_MACHINE_STATE}}/storage/monitor/latest.json",
       "storage_write_preflight_latest": "{{ABYSS_MACHINE_STATE}}/storage/write-preflight/latest.json",
+      "storage_write_reservations": "{{ABYSS_MACHINE_STATE}}/storage/reservations",
       "storage_apply_latest": "{{ABYSS_MACHINE_STATE}}/storage/apply/latest.json",
       "storage_candidates_latest": "{{ABYSS_MACHINE_STATE}}/storage/candidates/latest.json",
       "storage_candidates_manifests": "{{ABYSS_MACHINE_STATE}}/storage/candidates/manifests",
@@ -123,6 +124,10 @@
       "storage_cleanup_plan_refresh": "abyss-machine storage cleanup-plan --refresh-inventory --json",
       "storage_monitor": "abyss-machine storage monitor --json",
       "storage_write_preflight": "abyss-machine storage write-preflight --kind KIND --bytes BYTES --target PATH --json",
+      "storage_write_reservation_acquire": "abyss-machine storage write-reservation acquire --reservation-id ID --kind KIND --bytes BYTES --target PATH --owner OWNER --ttl-seconds 3600 --json",
+      "storage_write_reservation_release": "abyss-machine storage write-reservation release --reservation-id ID --json",
+      "storage_write_reservation_expire": "abyss-machine storage write-reservation expire --json",
+      "storage_write_reservation_list": "abyss-machine storage write-reservation list --json",
       "storage_apply_dry_run": "abyss-machine storage apply --action-id ID --dry-run --json",
       "storage_apply_confirm": "abyss-machine storage apply --action-id ID --confirm --json",
       "storage_candidates_refresh": "abyss-machine storage candidates refresh --json",
@@ -302,7 +307,9 @@
       "daily_jsonl": "{{ABYSS_MACHINE_STATE}}/storage/write-preflight/YYYY/MM/YYYY-MM-DD.jsonl",
       "allowed_host_root": "{{ABYSS_MACHINE_SRV}}",
       "protected_roots_rule": "{{ABYSS_OS_ROOT}}, /srv/GAMES, /srv/games, /srv/work, /work, abyss-stack roots, and unknown /srv/* are denied for machine-owned writes",
-      "rule": "Run before large downloads, model caches, runtimes, benchmark artifacts, container storage, temp data, or generated artifacts."
+      "rule": "Run before large downloads, model caches, runtimes, benchmark artifacts, container storage, temp data, or generated artifacts.",
+      "reservation_root": "{{ABYSS_MACHINE_STATE}}/storage/reservations",
+      "reservation_rule": "write-preflight accounts for active leases; acquire/release/expire are explicit flock-protected accounting operations and never create or reserve data files."
   },
   "apply": {
       "status": "active",
@@ -327,6 +334,8 @@
       "missing_or_expired_claim_is_not_permission": true,
       "history_limit": 32,
       "minimum_reclaimable_bytes": 1,
+      "deep_max_age_seconds": 172800,
+      "light_max_age_seconds": 7200,
       "default": {
         "minimum_observations": 3,
         "quiet_seconds": 259200
