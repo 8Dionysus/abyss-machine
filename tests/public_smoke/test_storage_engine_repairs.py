@@ -205,6 +205,169 @@ def test_candidate_deep_refresh_preserves_runtime_errors_from_coverage(monkeypat
     assert refreshed["coverage"]["runtime_error_count"] == 1
 
 
+def test_owner_candidate_adapter_contains_invalid_utf8(monkeypatch, tmp_path: Path) -> None:
+    aoa_root = tmp_path / "aoa"
+    script = aoa_root / "scripts" / "aoa_session_memory.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# fixture\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_AOA_SESSION_MEMORY_ROOT", aoa_root)
+
+    class Completed:
+        returncode = 0
+        stdout = b'{"status":"ok"}\xff'
+        stderr = b"owner diagnostic\xff"
+
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, "kwargs": kwargs})
+        return Completed()
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    result = cli.storage_candidate_owner_aoa_document()
+
+    assert result["status"] == "owner_adapter_invalid_json"
+    assert "UnicodeDecodeError" not in result["error"]
+    assert "text" not in calls[0]["kwargs"]
+
+
+def test_candidate_deep_refresh_carries_last_good_on_discovery_error(monkeypatch) -> None:
+    generated_at = "2026-09-04T19:00:00+00:00"
+    last_deep_at = "2026-09-04T18:00:00+00:00"
+    previous = {
+        "schema": "abyss_machine_storage_candidates_v1",
+        "version": "test",
+        "generated_at": last_deep_at,
+        "ok": True,
+        "deep": True,
+        "last_deep_at": last_deep_at,
+        "snapshot_id": "reclaim-snapshot-last-good",
+        "policy": {"automatic_deletion": False},
+        "coverage": {
+            "discovered": 1,
+            "observed": 1,
+            "adapters": ["test"],
+            "adapter_count": 1,
+            "physical_measured": 1,
+            "physical_unknown": 0,
+            "fingerprint_complete": 1,
+            "fingerprint_incomplete": 0,
+            "evidence_complete": 1,
+            "evidence_incomplete": 0,
+            "runtime_errors": [],
+            "pressure_findings": [],
+            "runtime_error_count": 0,
+            "pressure_finding_count": 0,
+        },
+        "summary": {
+            "candidates": 1,
+            "ready": 0,
+            "delete_ready": 0,
+            "archive_ready": 0,
+            "changed": 0,
+            "retired": 0,
+            "physical_bytes": 10,
+            "reclaimable_bytes": 0,
+        },
+        "candidates": [{
+            "candidate_id": "reclaim-keep",
+            "path": "/srv/abyss-machine/tmp/keep",
+            "owner": "test-owner",
+            "kind": "generated_tmp",
+            "source_adapter": "test",
+            "verdict": "blocked_unknown",
+            "physical_bytes": 10,
+            "reclaimable_bytes": 0,
+        }],
+        "retired": [],
+        "changes": [],
+    }
+
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (previous, None))
+
+    def fail_discovery(**kwargs):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", fail_discovery)
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+
+    assert refreshed["ok"] is False
+    assert [item["candidate_id"] for item in refreshed["candidates"]] == ["reclaim-keep"]
+    assert refreshed["retired"] == []
+    assert refreshed["changes"] == []
+    assert refreshed["snapshot_id"] == "reclaim-snapshot-last-good"
+    assert refreshed["last_deep_at"] == last_deep_at
+    assert refreshed["coverage"]["mode"] == "deep_error_carry_forward"
+    assert refreshed["coverage"]["discovered"] == 1
+    assert refreshed["coverage"]["runtime_error_count"] == 1
+    assert refreshed["runtime_errors"][0]["surface"] == "discovery"
+    assert refreshed["summary"]["runtime_error_count"] == 1
+    assert refreshed["summary"]["retired"] == 0
+    assert refreshed["freshness"]["refresh_failed"] is True
+
+
+def test_candidate_deep_refresh_carries_last_good_on_observation_error(monkeypatch) -> None:
+    generated_at = "2026-09-04T19:00:00+00:00"
+    last_deep_at = "2026-09-04T18:00:00+00:00"
+    previous = {
+        "generated_at": last_deep_at,
+        "last_deep_at": last_deep_at,
+        "snapshot_id": "reclaim-snapshot-last-good",
+        "coverage": {"runtime_errors": [], "pressure_findings": [], "runtime_error_count": 0, "pressure_finding_count": 0},
+        "summary": {"candidates": 1, "retired": 0},
+        "candidates": [{
+            "candidate_id": "reclaim-keep",
+            "path": "/srv/abyss-machine/tmp/keep",
+            "owner": "test-owner",
+            "kind": "generated_tmp",
+            "verdict": "blocked_unknown",
+            "physical_bytes": 10,
+            "reclaimable_bytes": 0,
+        }],
+    }
+
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (previous, None))
+    monkeypatch.setattr(
+        cli,
+        "storage_candidate_discover_specs",
+        lambda **kwargs: [{"path": "/srv/abyss-machine/tmp/new", "source_adapter": "test"}],
+    )
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli, "storage_path_protection", lambda path: {"decision": "allow_candidate"})
+
+    def fail_observation(*args, **kwargs):
+        raise OSError("candidate disappeared during observation")
+
+    monkeypatch.setattr(cli.storage_candidate_adapters, "collect_observation", fail_observation)
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+
+    assert refreshed["ok"] is False
+    assert [item["candidate_id"] for item in refreshed["candidates"]] == ["reclaim-keep"]
+    assert refreshed["retired"] == []
+    assert refreshed["last_deep_at"] == last_deep_at
+    assert refreshed["refresh_result"]["status"] == "deep_error_carry_forward"
+    assert refreshed["runtime_errors"][0]["surface"] == "observation"
+    assert refreshed["runtime_errors"][0]["path"] == "/srv/abyss-machine/tmp/new"
+
+
 def test_reservations_are_atomic_idempotent_and_expire(tmp_path: Path) -> None:
     root = tmp_path / "reservations"
     target = tmp_path / "future-write"

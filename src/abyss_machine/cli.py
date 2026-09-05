@@ -15567,11 +15567,45 @@ def storage_candidate_runtime_documents() -> list[tuple[str, dict[str, Any]]]:
     ])
 
 
+def _storage_candidate_owner_run(cmd: list[str], timeout: float = 180.0) -> dict[str, Any]:
+    """Run the owner JSON adapter without letting diagnostic bytes abort discovery."""
+    try:
+        # This protocol is decoded below so an owner diagnostic containing an
+        # arbitrary byte cannot raise UnicodeDecodeError through the whole
+        # candidate discovery pass. Invalid JSON remains an explicit adapter
+        # error; it is never converted into an empty successful document.
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return {"ok": False, "returncode": 127, "stdout": "", "stderr": "not found"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "returncode": 124, "stdout": "", "stderr": "timeout"}
+
+    def decode(value: Any) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace").strip()
+        return str(value or "").strip()
+
+    stdout = decode(getattr(proc, "stdout", ""))
+    stderr = decode(getattr(proc, "stderr", ""))
+    return {
+        "ok": getattr(proc, "returncode", 1) == 0,
+        "returncode": getattr(proc, "returncode", 1),
+        "stdout": stdout,
+        "stderr": stderr,
+    }
+
+
 def storage_candidate_owner_aoa_document() -> dict[str, Any]:
     script = DEFAULT_AOA_SESSION_MEMORY_ROOT / "scripts" / "aoa_session_memory.py"
     if not script.exists():
         return {"status": "owner_adapter_unavailable", "error": f"missing {script}"}
-    result = run([
+    result = _storage_candidate_owner_run([
         str(script),
         "maintenance-cleanup",
         "--workspace-root", str(DEFAULT_AOA_SESSION_MEMORY_ROOT.parent),
@@ -15693,6 +15727,105 @@ def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> di
     return result
 
 
+def _storage_candidate_deep_failure_document(
+    previous: Mapping[str, Any],
+    *,
+    generated_at: str,
+    runtime_errors: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Keep the last good candidate set when a deep pass cannot complete."""
+    previous_candidates = [
+        item for item in previous.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(previous.get("candidates"), list) else []
+    document = json.loads(json.dumps(previous)) if previous else {}
+    configured_policy = storage_candidate_policy()
+    if not document:
+        document = {
+            "schema": f"{SCHEMA_PREFIX}_storage_candidates_v1",
+            "version": VERSION,
+            "policy": {**configured_policy, "automatic_deletion": False},
+            "snapshot_id": None,
+            "candidates": [],
+        }
+
+    previous_coverage = document.get("coverage")
+    derived_coverage = storage_candidate_contracts.coverage_summary(previous_candidates)
+    if isinstance(previous_coverage, dict):
+        coverage = json.loads(json.dumps(previous_coverage))
+        for key, value in derived_coverage.items():
+            coverage.setdefault(key, value)
+    else:
+        coverage = derived_coverage
+    prior_errors = coverage.get("runtime_errors") if isinstance(coverage.get("runtime_errors"), list) else []
+    current_errors = [dict(item) for item in runtime_errors if isinstance(item, Mapping)]
+    all_errors = [item for item in prior_errors if isinstance(item, Mapping)] + current_errors
+    coverage["mode"] = "deep_error_carry_forward"
+    coverage["new_results"] = 0
+    coverage["runtime_errors"] = all_errors[:200]
+    coverage["runtime_error_count"] = len(all_errors)
+    pressure_findings = coverage.get("pressure_findings")
+    if not isinstance(pressure_findings, list):
+        pressure_findings = []
+        coverage["pressure_findings"] = pressure_findings
+    if not isinstance(coverage.get("pressure_finding_count"), int):
+        coverage["pressure_finding_count"] = len(pressure_findings)
+
+    candidates = [dict(item) for item in previous_candidates]
+    summary = document.get("summary") if isinstance(document.get("summary"), dict) else {}
+    summary = json.loads(json.dumps(summary))
+    # The candidate set and its accounting are last-good evidence. Preserve
+    # those values and only reset transition fields for this failed attempt.
+    summary.update({
+        "candidates": len(candidates),
+        "changed": 0,
+        "retired": 0,
+        "runtime_error_count": coverage.get("runtime_error_count", 0),
+        "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+    })
+    last_deep_at = document.get("last_deep_at")
+    if last_deep_at is None:
+        prior_freshness = document.get("freshness")
+        if isinstance(prior_freshness, dict):
+            last_deep_at = prior_freshness.get("last_deep_at")
+    freshness = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=last_deep_at,
+        now_time=storage_candidate_contracts.parse_time(generated_at),
+        max_age_seconds=int(configured_policy.get("deep_max_age_seconds", 172800)),
+    )
+    freshness["refresh_failed"] = True
+    freshness["reason"] = "deep_refresh_failed_last_good_preserved"
+    document.update({
+        "schema": document.get("schema") or f"{SCHEMA_PREFIX}_storage_candidates_v1",
+        "version": VERSION,
+        "generated_at": generated_at,
+        "ok": False,
+        "deep": True,
+        "last_deep_at": last_deep_at,
+        "freshness": freshness,
+        "coverage": coverage,
+        "runtime_errors": list(coverage.get("runtime_errors", [])),
+        "pressure_findings": list(pressure_findings),
+        "refresh_result": {
+            "mode": "deep",
+            "status": "deep_error_carry_forward",
+            "new_results": 0,
+            "runtime_error_count": coverage.get("runtime_error_count", 0),
+            "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+        },
+        "summary": summary,
+        "changes": [],
+        "candidates": candidates,
+        "retired": [],
+        "paths": storage_candidate_paths(),
+    })
+    policy = document.get("policy") if isinstance(document.get("policy"), dict) else {**configured_policy}
+    policy["automatic_deletion"] = False
+    document["policy"] = policy
+    return document
+
+
 def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str) -> dict[str, Any]:
     manifests = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT)
     configured_policy = storage_candidate_policy()
@@ -15810,43 +15943,61 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                 ))
             except Exception as exc:  # one inaccessible candidate must not erase the snapshot
                 discovery_errors.append({"surface": "observation", "path": path_text, "error": str(exc)[:1000]})
-        data = storage_candidate_contracts.candidates_document(
-            observations,
-            previous_document=previous,
-            configured_policy=storage_candidate_policy(),
-            schema_prefix=SCHEMA_PREFIX,
-            version=VERSION,
-            generated_at=generated_at,
-            paths=storage_candidate_paths(),
-            deep=True,
-        )
-        data["last_deep_at"] = generated_at
-        coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
-        coverage["mode"] = "deep"
-        coverage["new_results"] = len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0
-        runtime_errors = list(coverage.get("runtime_errors", []))
         if discovery_errors:
-            runtime_errors.extend(discovery_errors)
-        coverage["runtime_errors"] = runtime_errors
-        coverage["runtime_error_count"] = len(runtime_errors)
-        # A fresh snapshot with an inaccessible evidence surface is still a
-        # runtime failure even when candidate discovery itself succeeded.
-        data["ok"] = not bool(runtime_errors)
-        data["coverage"] = coverage
-        data["runtime_errors"] = list(coverage.get("runtime_errors", []))
-        data["pressure_findings"] = list(coverage.get("pressure_findings", []))
-        data["freshness"] = storage_candidate_contracts.freshness_status(
-            generated_at=generated_at,
-            last_deep_at=generated_at,
-            max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
-        )
-        data["refresh_result"] = {
-            "mode": "deep",
-            "status": "new_results" if data.get("candidates") else "no_results",
-            "new_results": coverage.get("new_results", 0),
-            "runtime_error_count": coverage.get("runtime_error_count", 0),
-            "pressure_finding_count": coverage.get("pressure_finding_count", 0),
-        }
+            # A partial discovery is not evidence that the missing paths were
+            # retired. Keep the last complete document and expose the failed
+            # surface so consumers can distinguish stale evidence from a clean
+            # empty inventory.
+            data = _storage_candidate_deep_failure_document(
+                previous,
+                generated_at=generated_at,
+                runtime_errors=discovery_errors,
+            )
+        else:
+            data = storage_candidate_contracts.candidates_document(
+                observations,
+                previous_document=previous,
+                configured_policy=storage_candidate_policy(),
+                schema_prefix=SCHEMA_PREFIX,
+                version=VERSION,
+                generated_at=generated_at,
+                paths=storage_candidate_paths(),
+                deep=True,
+            )
+            data["last_deep_at"] = generated_at
+            coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+            coverage["mode"] = "deep"
+            coverage["new_results"] = len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0
+            runtime_errors = list(coverage.get("runtime_errors", []))
+            coverage["runtime_errors"] = runtime_errors
+            coverage["runtime_error_count"] = len(runtime_errors)
+            pressure_findings = coverage.get("pressure_findings")
+            if not isinstance(pressure_findings, list):
+                pressure_findings = []
+                coverage["pressure_findings"] = pressure_findings
+            coverage["pressure_finding_count"] = len(pressure_findings)
+            # A fresh snapshot with an inaccessible evidence surface is still a
+            # runtime failure even when candidate discovery itself succeeded.
+            data["ok"] = not bool(runtime_errors)
+            data["coverage"] = coverage
+            data["runtime_errors"] = list(coverage.get("runtime_errors", []))
+            data["pressure_findings"] = list(coverage.get("pressure_findings", []))
+            data["freshness"] = storage_candidate_contracts.freshness_status(
+                generated_at=generated_at,
+                last_deep_at=generated_at,
+                max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
+            )
+            summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+            summary["runtime_error_count"] = coverage.get("runtime_error_count", 0)
+            summary["pressure_finding_count"] = coverage.get("pressure_finding_count", 0)
+            data["summary"] = summary
+            data["refresh_result"] = {
+                "mode": "deep",
+                "status": "new_results" if data.get("candidates") else "no_results",
+                "new_results": coverage.get("new_results", 0),
+                "runtime_error_count": coverage.get("runtime_error_count", 0),
+                "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+            }
     if write_latest:
         latest_error = safe_atomic_write_json(STORAGE_CANDIDATES_LATEST_PATH, data, 0o664)
         daily_error = safe_append_jsonl(
