@@ -1251,21 +1251,39 @@ def _write_role_registry_latest(
     )
 
 
-def _mock_role_registry_trust_tools_available(monkeypatch: pytest.MonkeyPatch) -> None:
+def _mock_trust_tools_available(
+    monkeypatch: pytest.MonkeyPatch,
+    controls: tuple[str, ...] = ("abi_signature", "slsa_in_toto"),
+) -> None:
     monkeypatch.setattr(
         cli,
         "artifacts_trust_tools",
         lambda write_latest=False: {
             "summary": {
-                "status": "ok",
-                "available_controls": ["abi_signature", "slsa_in_toto"],
+                "status": "ready",
+                "available_controls": list(controls),
                 "missing_controls": [],
             }
         },
     )
 
 
-def test_trust_coverage_blocks_stale_abi_registry_latest(tmp_path: Path) -> None:
+@pytest.fixture
+def source_freshness_toolchain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Source/registry cases assume tools exist; they do not probe the host.
+
+    Real tool discovery/version execution is covered by test_artifact_trust_tools_python.
+    The unavailable-control case below supplies its own explicitly partial inventory.
+    Registry IO, signatures, trust gates and source freshness remain real here.
+    """
+    _mock_trust_tools_available(
+        monkeypatch, ("abi_signature", "sbom", "slsa_in_toto", "sigstore_cosign")
+    )
+
+
+def test_trust_coverage_blocks_stale_abi_registry_latest(
+    tmp_path: Path, source_freshness_toolchain: None,
+) -> None:
     _bundle, registry = _public_source_seed_registry(tmp_path)
     _rewrite_latest_record(registry, abi_subject_digest="sha256:" + "0" * 64)
 
@@ -1284,7 +1302,9 @@ def test_trust_coverage_blocks_stale_abi_registry_latest(tmp_path: Path) -> None
     assert "stale against current source contracts" in row["remaining_blocker"]
 
 
-def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) -> None:
+def test_trust_coverage_blocks_stale_manifest_consumer_contract(
+    tmp_path: Path, source_freshness_toolchain: None,
+) -> None:
     _bundle, registry = _public_source_seed_registry(tmp_path)
     _rewrite_latest_record(
         registry,
@@ -1306,7 +1326,9 @@ def test_trust_coverage_blocks_stale_manifest_consumer_contract(tmp_path: Path) 
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
 
 
-def test_trust_coverage_source_root_selects_abi_freshness(tmp_path: Path) -> None:
+def test_trust_coverage_source_root_selects_abi_freshness(
+    tmp_path: Path, source_freshness_toolchain: None,
+) -> None:
     _bundle, registry = _public_source_seed_registry(tmp_path)
     fresh_root = _copy_contract_source_root(tmp_path / "fresh-source-root")
     stale_root = _copy_contract_source_root(tmp_path / "stale-source-root")
@@ -1338,7 +1360,9 @@ def test_trust_coverage_source_root_selects_abi_freshness(tmp_path: Path) -> Non
     assert fresh_row["status"] == "DURABLE_GATE_COVERED"
 
 
-def test_trust_coverage_source_ref_context_blocks_unproved_ref(tmp_path: Path) -> None:
+def test_trust_coverage_source_ref_context_blocks_unproved_ref(
+    tmp_path: Path, source_freshness_toolchain: None,
+) -> None:
     _bundle, registry = _public_source_seed_registry(tmp_path)
     source_root = _copy_contract_source_root(tmp_path / "source-root")
 
@@ -1446,7 +1470,7 @@ def test_trust_coverage_checks_cross_repo_manifest_consumer_contract(
     _write_role_registry_source_manifest(workspace, consumer_contract=consumer_contract)
     _write_role_registry_latest(registry, consumer_contract=consumer_contract)
     monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
-    _mock_role_registry_trust_tools_available(monkeypatch)
+    _mock_trust_tools_available(monkeypatch)
 
     coverage = cli.artifacts_trust_coverage(
         registry_dir=registry,
@@ -1526,7 +1550,7 @@ def test_trust_coverage_falls_back_to_durable_source_ref_for_manifest(
         source_ref=str(manifest_path),
     )
     monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
-    _mock_role_registry_trust_tools_available(monkeypatch)
+    _mock_trust_tools_available(monkeypatch)
 
     coverage = cli.artifacts_trust_coverage(
         registry_dir=registry,
@@ -1568,7 +1592,7 @@ def test_trust_coverage_allows_current_manifest_after_stale_candidate(
         source_ref=str(current_manifest),
     )
     monkeypatch.setenv("ABYSS_MACHINE_ARTIFACT_WORKSPACE_ROOTS", str(workspace))
-    _mock_role_registry_trust_tools_available(monkeypatch)
+    _mock_trust_tools_available(monkeypatch)
 
     coverage = cli.artifacts_trust_coverage(
         registry_dir=registry,
@@ -1585,7 +1609,9 @@ def test_trust_coverage_allows_current_manifest_after_stale_candidate(
     assert row["status"] == "DURABLE_GATE_COVERED"
 
 
-def test_trust_coverage_checks_requirement_manifest_when_latest_ref_is_not_manifest(tmp_path: Path) -> None:
+def test_trust_coverage_checks_requirement_manifest_when_latest_ref_is_not_manifest(
+    tmp_path: Path, source_freshness_toolchain: None,
+) -> None:
     _bundle, registry = _public_source_seed_registry(tmp_path)
     _rewrite_latest_record(
         registry,
@@ -1614,6 +1640,7 @@ def test_trust_coverage_checks_requirement_manifest_when_latest_ref_is_not_manif
 def test_trust_coverage_blocks_stale_cross_repo_manifest_consumer_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    source_freshness_toolchain: None,
 ) -> None:
     registry = tmp_path / "registry"
     workspace = tmp_path / "workspace"
@@ -1646,7 +1673,9 @@ def test_trust_coverage_blocks_stale_cross_repo_manifest_consumer_contract(
     assert row["status"] == "DEFERRED_WITH_REAL_BLOCKER"
 
 
-def test_trust_coverage_blocks_unresolved_cross_repo_manifest(tmp_path: Path) -> None:
+def test_trust_coverage_blocks_unresolved_cross_repo_manifest(
+    tmp_path: Path, source_freshness_toolchain: None,
+) -> None:
     registry = tmp_path / "registry"
     consumer_contract = {
         "stable_interface": "abyss-machine artifacts trust-gate --artifact-class role_contract_registry --consumer-intent agent --json",

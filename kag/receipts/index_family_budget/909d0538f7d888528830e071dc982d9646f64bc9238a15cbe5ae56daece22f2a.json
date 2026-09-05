@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 14714420,
+  "allowed_tracked_bytes": 29108419,
+  "approved_by": "repository-owner",
+  "base_ref": "dccb01b37c50df07afbe3e990062e2ff6a7445fc",
+  "changed_generated_bytes": 14714420,
+  "changed_generated_files": 169,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "909d0538f7d888528830e071dc982d9646f64bc9238a15cbe5ae56daece22f2a",
+  "reason": "Regenerate the portable owner family for the reviewed Machine trust-coverage fixture source change; derived KAG content only, with no owner semantics or budget policy change.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 29108419,
+  "tracked_bytes_max": 27262976
+}
