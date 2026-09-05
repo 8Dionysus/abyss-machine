@@ -19,6 +19,13 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture
+def socket_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    # AF_UNIX addresses have a small fixed limit; test names plus xdist's
+    # worker directory can exceed it even on the approved short temp root.
+    return tmp_path_factory.mktemp("sp") / "s"
+
+
 def _request(
     path: str, *, request_id: str = "test-request", **overrides: object
 ) -> bytes:
@@ -262,10 +269,10 @@ def test_protocol_request_and_response_sizes_are_bounded() -> None:
 
 def test_client_accepts_authenticated_incomplete_response_without_fallback(
     tmp_path: Path,
+    socket_path: Path,
 ) -> None:
     root = tmp_path / "root"
     root.mkdir()
-    socket_path = tmp_path / "probe.sock"
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(socket_path))
     listener.listen(1)
@@ -317,10 +324,10 @@ def test_client_accepts_authenticated_incomplete_response_without_fallback(
 
 def test_client_rejects_top_level_complete_mismatch_without_fallback(
     tmp_path: Path,
+    socket_path: Path,
 ) -> None:
     root = tmp_path / "root"
     root.mkdir()
-    socket_path = tmp_path / "probe.sock"
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(socket_path))
     listener.listen(1)
@@ -372,12 +379,12 @@ def test_client_rejects_top_level_complete_mismatch_without_fallback(
 
 def test_bulk_owner_probe_isolates_out_of_scope_diagnostic_path(
     tmp_path: Path,
+    socket_path: Path,
 ) -> None:
     root = tmp_path / "root"
     root.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    socket_path = tmp_path / "probe.sock"
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(socket_path))
     listener.listen(1)
