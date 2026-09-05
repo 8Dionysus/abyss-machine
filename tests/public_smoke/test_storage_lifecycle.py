@@ -274,8 +274,8 @@ def test_reference_adapter_errors_are_not_authorized_as_clear(monkeypatch, tmp_p
     workspace = tmp_path / "work" / "job"
     workspace.mkdir(parents=True)
     monkeypatch.setattr(
-        adapters.storage_candidate_adapters,
-        "process_references",
+        adapters.storage_process_probe,
+        "owner_process_references",
         lambda _paths: {str(workspace): {"checked": False, "active": False, "errors": ["proc unavailable"]}},
     )
     monkeypatch.setattr(
