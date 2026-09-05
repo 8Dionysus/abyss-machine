@@ -19,6 +19,14 @@ from . import resource_adapters
 from . import storage_process_probe
 
 
+LEASE_TOKEN_PREFIX = "lease-"
+
+
+def _new_lease_token() -> str:
+    """Mint a CLI-safe capability without changing its random payload."""
+    return f"{LEASE_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
+
+
 def now_utc() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
@@ -359,7 +367,7 @@ def register_workspace(
         return {"ok": False, "errors": ["owner_required"]}
     if workspace.exists() and not workspace.is_dir():
         return {"ok": False, "errors": ["workspace_must_be_directory"]}
-    token = secrets.token_urlsafe(32)
+    token = _new_lease_token()
     nonce = secrets.token_hex(16)
     launcher_created = False
     if not workspace.exists() and create:
