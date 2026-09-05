@@ -119,7 +119,7 @@ def _read_reaper_state(root: Path) -> dict[str, Any]:
             "cursor": None,
             "revision": 0,
             "status": "missing",
-            "reason": None,
+            "reason": "state_missing",
         }
     value = read_json(path)
     if value is None:
@@ -135,6 +135,13 @@ def _read_reaper_state(root: Path) -> dict[str, Any]:
             "revision": 0,
             "status": "invalid",
             "reason": "state_schema_mismatch",
+        }
+    if "cursor" not in value:
+        return {
+            "cursor": None,
+            "revision": 0,
+            "status": "invalid",
+            "reason": "state_cursor_missing",
         }
     cursor = value.get("cursor")
     revision = value.get("revision", 0)
@@ -232,7 +239,43 @@ def _fingerprint_failure(
     return result
 
 
-def workspace_identity_fingerprint(path: Path, *, max_entries: int = 100_000) -> dict[str, Any]:
+def _restore_walk_groups(
+    path: Path, original_root: Path | None, current_path: Path,
+    dirnames: list[str], filenames: list[str], errors: list[dict[str, str]],
+) -> None:
+    if original_root is not None and original_root != path:
+        # os.walk groups links by the target's type. A self-absolute
+        # directory link becomes broken after detach, changing the
+        # legacy digest order despite unchanged lstat/readlink bytes.
+        # Reconstruct only that grouping in the recorded namespace;
+        # never traverse links or replace the original sealed digest.
+        original_dirs = set(dirnames)
+        for name in [*dirnames, *filenames]:
+            item = current_path / name
+            try:
+                if not item.is_symlink():
+                    continue
+                link = Path(os.readlink(item))
+                logical_parent = original_root / current_path.relative_to(path)
+                target = Path(os.path.normpath(str(link if link.is_absolute() else logical_parent / link)))
+                try:
+                    relative_target = target.relative_to(original_root)
+                except ValueError:
+                    continue
+                if (path / relative_target).is_dir():
+                    original_dirs.add(name)
+                else:
+                    original_dirs.discard(name)
+            except OSError as exc:
+                errors.append({"path": str(item), "error": str(exc)})
+        names = set(dirnames) | set(filenames)
+        dirnames[:] = sorted(original_dirs)
+        filenames[:] = sorted(names - original_dirs)
+
+
+def workspace_identity_fingerprint(
+    path: Path, *, max_entries: int = 100_000, original_root: Path | None = None,
+) -> dict[str, Any]:
     digest = hashlib.sha256()
     entries = 0
     errors: list[dict[str, str]] = []
@@ -296,6 +339,7 @@ def workspace_identity_fingerprint(path: Path, *, max_entries: int = 100_000) ->
 
         for current, dirnames, filenames in os.walk(path, topdown=True, followlinks=False, onerror=onerror):
             current_path = Path(current)
+            _restore_walk_groups(path, original_root, current_path, dirnames, filenames, errors)
             dirnames.sort()
             filenames.sort()
             for name in list(dirnames):
@@ -331,7 +375,9 @@ def workspace_identity_fingerprint(path: Path, *, max_entries: int = 100_000) ->
     }
 
 
-def workspace_content_fingerprint(path: Path, *, max_entries: int = 100_000) -> dict[str, Any]:
+def workspace_content_fingerprint(
+    path: Path, *, max_entries: int = 100_000, original_root: Path | None = None,
+) -> dict[str, Any]:
     digest = hashlib.sha256()
     entries = 0
     errors: list[dict[str, str]] = []
@@ -392,6 +438,7 @@ def workspace_content_fingerprint(path: Path, *, max_entries: int = 100_000) -> 
 
         for current, dirnames, filenames in os.walk(path, topdown=True, followlinks=False, onerror=onerror):
             current_path = Path(current)
+            _restore_walk_groups(path, original_root, current_path, dirnames, filenames, errors)
             dirnames.sort()
             filenames.sort()
             for name in list(dirnames):
@@ -781,6 +828,7 @@ def _verify_archive_state(
     expected_digest: Any,
     *,
     max_entries: int,
+    original_root: Path,
 ) -> dict[str, Any]:
     expected_identity = expected_binding.get("identity") if isinstance(expected_binding, Mapping) else None
     if not isinstance(expected_identity, Mapping):
@@ -792,7 +840,7 @@ def _verify_archive_state(
         return {"ok": False, "reasons": ["archive_mount_changed"], "archive_binding": first}
     if not target.exists():
         return {"ok": False, "reasons": ["archive_target_missing"], "archive_binding": first}
-    archived = workspace_content_fingerprint(target, max_entries=max_entries)
+    archived = workspace_content_fingerprint(target, max_entries=max_entries, original_root=original_root)
     if archived.get("complete") is not True or archived.get("digest") != expected_digest:
         return {"ok": False, "reasons": ["archive_target_digest_mismatch"], "archive": archived}
     second = archive_mount_binding(target, required_mount)
@@ -911,6 +959,7 @@ def execute_released_workspace(
                     recovered_receipt.get("archive_mount_binding") if isinstance(recovered_receipt.get("archive_mount_binding"), Mapping) else None,
                     recovered_receipt.get("archive_content_digest"),
                     max_entries=max_entries,
+                    original_root=workspace,
                 )
                 if not verification["ok"]:
                     return {
@@ -965,6 +1014,7 @@ def execute_released_workspace(
                 receipt.get("archive_mount_binding") if isinstance(receipt.get("archive_mount_binding"), Mapping) else None,
                 archive_content_digest,
                 max_entries=max_entries,
+                original_root=workspace,
             )
             if not verification["ok"]:
                 return {
@@ -974,13 +1024,13 @@ def execute_released_workspace(
                     "reasons": ["resumed_archive_not_verified", *verification.get("reasons", [])],
                     "archive": verification,
                 }
-            source_content = workspace_content_fingerprint(subject, max_entries=max_entries)
+            source_content = workspace_content_fingerprint(subject, max_entries=max_entries, original_root=workspace)
             if source_content.get("complete") is not True or source_content.get("digest") != archive_content_digest:
                 return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["resumed_archive_not_verified"]}
     else:
         if journal_valid and journal is not None and journal.get("phase") == "applied":
             return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["execution_journal_already_applied"]}
-        fingerprint = workspace_identity_fingerprint(subject, max_entries=max_entries)
+        fingerprint = workspace_identity_fingerprint(subject, max_entries=max_entries, original_root=workspace)
         if fingerprint.get("complete") is not True or fingerprint.get("digest") != expected:
             return {
                 "ok": False,
@@ -1008,16 +1058,16 @@ def execute_released_workspace(
             if partial.exists():
                 return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_partial_requires_owner_review"]}
             if archive_target.exists():
-                source_content = workspace_content_fingerprint(subject, max_entries=max_entries)
-                archived = workspace_content_fingerprint(archive_target, max_entries=max_entries)
+                source_content = workspace_content_fingerprint(subject, max_entries=max_entries, original_root=workspace)
+                archived = workspace_content_fingerprint(archive_target, max_entries=max_entries, original_root=workspace)
                 if source_content.get("complete") is not True or archived.get("complete") is not True or archived.get("digest") != source_content.get("digest"):
                     return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_target_conflict"]}
                 archive_content_digest = source_content.get("digest")
             else:
                 partial.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(subject, partial, symlinks=True)
-                source_content = workspace_content_fingerprint(subject, max_entries=max_entries)
-                archived = workspace_content_fingerprint(partial, max_entries=max_entries)
+                source_content = workspace_content_fingerprint(subject, max_entries=max_entries, original_root=workspace)
+                archived = workspace_content_fingerprint(partial, max_entries=max_entries, original_root=workspace)
                 if source_content.get("complete") is not True or archived.get("complete") is not True or archived.get("digest") != source_content.get("digest"):
                     partial_identity = workspace_identity_fingerprint(partial, max_entries=max_entries)
                     if partial_identity.get("complete") is True:
@@ -1034,6 +1084,7 @@ def execute_released_workspace(
                 archive_binding,
                 archive_content_digest,
                 max_entries=max_entries,
+                original_root=workspace,
             )
             if not verification["ok"]:
                 return {
@@ -1050,7 +1101,7 @@ def execute_released_workspace(
     if final_refs.get("active") is True or final_refs.get("checked") is not True:
         reason = "live_reference_before_detach" if final_refs.get("active") is True else "reference_probe_unavailable_before_detach"
         return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": [reason], "references": final_refs}
-    final_identity = workspace_identity_fingerprint(subject, max_entries=max_entries)
+    final_identity = workspace_identity_fingerprint(subject, max_entries=max_entries, original_root=workspace)
     if final_identity.get("complete") is not True or final_identity.get("digest") != expected:
         return {
             "ok": False,
@@ -1105,6 +1156,7 @@ def execute_released_workspace(
             receipt.get("archive_mount_binding") if isinstance(receipt.get("archive_mount_binding"), Mapping) else archive_binding,
             receipt.get("archive_content_digest"),
             max_entries=max_entries,
+            original_root=workspace,
         )
         if not verification["ok"]:
             return {
@@ -1119,7 +1171,7 @@ def execute_released_workspace(
     if removal_refs.get("active") is True or removal_refs.get("checked") is not True:
         reason = "live_reference_before_cleanup" if removal_refs.get("active") is True else "reference_probe_unavailable_before_cleanup"
         return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": [reason], "references": removal_refs}
-    removal_identity = workspace_identity_fingerprint(tombstone, max_entries=max_entries)
+    removal_identity = workspace_identity_fingerprint(tombstone, max_entries=max_entries, original_root=workspace)
     if removal_identity.get("complete") is not True or removal_identity.get("digest") != expected:
         return {
             "ok": False,

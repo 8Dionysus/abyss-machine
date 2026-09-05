@@ -71,6 +71,16 @@ without overwrite, and only then detaches the local inode. A per-workspace
 execution journal makes an authorized detach resumable after interruption.
 Each applied action writes a byte receipt.
 
+Detachment and archive verification retain the recorded workspace namespace
+when grouping internal symlinks for fingerprinting. An absolute directory link
+can become broken after a rename without any change to its own metadata or
+target text; this must not reorder the sealed fingerprint. Verification still
+requires the exact original digest and all entry metadata, and never traverses
+symlink directories. Existing seals are not replaced to authorize recovery.
+An embedded receipt in a `detached` journal is provisional: reclaimed bytes are
+confirmed only after the journal is `applied`, its standalone receipt exists,
+and the local tombstone is absent.
+
 The archive executor requires an exact live mount (default `/abyss` for older
 plans), a target beneath it without symlink ancestors, and the same mount
 identity before local detach/removal. An absent Vault never creates archive
