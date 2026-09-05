@@ -343,6 +343,7 @@ except ImportError:  # pragma: no cover - supports direct execution of an instal
     from abyss_machine import runtime_evidence_contracts
     from abyss_machine import storage_candidate_adapters
     from abyss_machine import storage_candidate_contracts
+    from abyss_machine import storage_reservations
     from abyss_machine import typing_capture_contracts
     from abyss_machine.nervous_index import (
         allowed_source_ids as build_nervous_index_allowed_source_ids,
