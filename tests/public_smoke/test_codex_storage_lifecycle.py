@@ -17,6 +17,16 @@ def lifecycle(tmp_path):
                      required_mount=None)
 
 
+@pytest.fixture(autouse=True)
+def _fixture_workspace_reference_probe(monkeypatch):
+    """Keep native lifecycle fixtures independent from unrelated host /proc users."""
+    monkeypatch.setattr(
+        storage_lifecycle_adapters,
+        "_path_has_live_refs",
+        lambda _path: {"active": False, "checked": True, "errors": [], "process": {}, "mount": {}},
+    )
+
+
 def event(name="SessionStart", **extra):
     return {"session_id": "native-task-123", "hook_event_name": name, **extra}
 

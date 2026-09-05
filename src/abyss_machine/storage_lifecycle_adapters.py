@@ -104,22 +104,87 @@ def load_records(root: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _mount_boundary_error(
+    item: Path,
+    root: Path,
+    root_device: int,
+    mount_points: set[str],
+    item_stat: os.stat_result,
+) -> str | None:
+    """Return a reason when an entry would cross a mount boundary.
+
+    ``st_dev`` catches ordinary cross-device mounts.  The mountpoint list is
+    also required because bind mounts can report the same device as their
+    parent.  The root itself is allowed unless it is a non-root mountpoint;
+    nested mountpoints are always rejected before they can be traversed.
+    """
+    item_name = os.path.normpath(str(item))
+    root_name = os.path.normpath(str(root))
+    if item_name != root_name and item_name in mount_points:
+        return "nested_mount_boundary"
+    if item_stat.st_dev != root_device:
+        return "cross_device_boundary"
+    return None
+
+
+def _fingerprint_failure(
+    *,
+    max_entries: int,
+    errors: list[dict[str, str]],
+    content_hashed: bool = False,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "digest": None,
+        "complete": False,
+        "entries": 0,
+        "max_entries": max_entries,
+        "truncated": False,
+        "errors": errors[:20],
+    }
+    if content_hashed:
+        result["content_hashed"] = True
+    else:
+        result["rename_stable_root_identity"] = True
+    return result
+
+
 def workspace_identity_fingerprint(path: Path, *, max_entries: int = 100_000) -> dict[str, Any]:
     digest = hashlib.sha256()
     entries = 0
     errors: list[dict[str, str]] = []
     truncated = False
 
-    def include(item: Path, relative: str, *, root: bool = False) -> None:
+    try:
+        root_stat = path.lstat()
+    except OSError as exc:
+        return _fingerprint_failure(
+            max_entries=max_entries,
+            errors=[{"path": str(path), "error": str(exc)}],
+        )
+    mount_points, mount_errors = _mount_points_snapshot()
+    if mount_points is None:
+        return _fingerprint_failure(
+            max_entries=max_entries,
+            errors=[{"path": str(path), "error": error} for error in mount_errors],
+        )
+    root_name = os.path.normpath(str(path))
+    if root_name != "/" and root_name in mount_points:
+        errors.append({"path": str(path), "error": "workspace_root_mount_boundary"})
+
+    def include(item: Path, relative: str, *, root: bool = False) -> tuple[bool, os.stat_result | None]:
         nonlocal entries, truncated
         if entries >= max(1, max_entries):
             truncated = True
-            return
+            return False, None
         try:
             item_stat = item.lstat()
         except OSError as exc:
             errors.append({"path": str(item), "error": str(exc)})
-            return
+            return False, None
+        boundary = _mount_boundary_error(item, path, root_stat.st_dev, mount_points, item_stat)
+        if boundary is not None:
+            errors.append({"path": str(item), "error": boundary})
+            return False, item_stat
         row = [
             relative,
             stat.S_IFMT(item_stat.st_mode),
@@ -138,15 +203,35 @@ def workspace_identity_fingerprint(path: Path, *, max_entries: int = 100_000) ->
                 errors.append({"path": str(item), "error": str(exc)})
         digest.update((json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode())
         entries += 1
+        return True, item_stat
 
-    include(path, ".", root=True)
-    if path.is_dir() and not path.is_symlink():
-        for current, dirnames, filenames in os.walk(path, topdown=True, followlinks=False):
+    _included, _ = include(path, ".", root=True)
+    if stat.S_ISDIR(root_stat.st_mode) and not stat.S_ISLNK(root_stat.st_mode):
+        def onerror(exc: OSError) -> None:
+            errors.append({"path": str(getattr(exc, "filename", path)), "error": str(exc)})
+
+        for current, dirnames, filenames in os.walk(path, topdown=True, followlinks=False, onerror=onerror):
             current_path = Path(current)
             dirnames.sort()
             filenames.sort()
-            for name in [*dirnames, *filenames]:
-                include(current_path / name, str((current_path / name).relative_to(path)))
+            for name in list(dirnames):
+                included, child_stat = include(
+                    current_path / name,
+                    str((current_path / name).relative_to(path)),
+                )
+                if (not included or child_stat is None
+                        or not stat.S_ISDIR(child_stat.st_mode)
+                        or stat.S_ISLNK(child_stat.st_mode)):
+                    dirnames.remove(name)
+                if truncated:
+                    break
+            if truncated:
+                break
+            for name in filenames:
+                include(
+                    current_path / name,
+                    str((current_path / name).relative_to(path)),
+                )
                 if truncated:
                     break
             if truncated:
@@ -168,13 +253,36 @@ def workspace_content_fingerprint(path: Path, *, max_entries: int = 100_000) -> 
     errors: list[dict[str, str]] = []
     truncated = False
 
-    def include(item: Path, relative: str) -> None:
+    try:
+        root_stat = path.lstat()
+    except OSError as exc:
+        return _fingerprint_failure(
+            max_entries=max_entries,
+            errors=[{"path": str(path), "error": str(exc)}],
+            content_hashed=True,
+        )
+    mount_points, mount_errors = _mount_points_snapshot()
+    if mount_points is None:
+        return _fingerprint_failure(
+            max_entries=max_entries,
+            errors=[{"path": str(path), "error": error} for error in mount_errors],
+            content_hashed=True,
+        )
+    root_name = os.path.normpath(str(path))
+    if root_name != "/" and root_name in mount_points:
+        errors.append({"path": str(path), "error": "workspace_root_mount_boundary"})
+
+    def include(item: Path, relative: str) -> tuple[bool, os.stat_result | None]:
         nonlocal entries, truncated
         if entries >= max(1, max_entries):
             truncated = True
-            return
+            return False, None
         try:
             item_stat = item.lstat()
+            boundary = _mount_boundary_error(item, path, root_stat.st_dev, mount_points, item_stat)
+            if boundary is not None:
+                errors.append({"path": str(item), "error": boundary})
+                return False, item_stat
             kind = stat.S_IFMT(item_stat.st_mode)
             stable_size = item_stat.st_size if stat.S_ISREG(item_stat.st_mode) or stat.S_ISLNK(item_stat.st_mode) else None
             digest.update((json.dumps([relative, kind, item_stat.st_mode, stable_size], separators=(",", ":")) + "\n").encode())
@@ -188,16 +296,38 @@ def workspace_content_fingerprint(path: Path, *, max_entries: int = 100_000) -> 
                 errors.append({"path": str(item), "error": "unsupported_special_file"})
         except OSError as exc:
             errors.append({"path": str(item), "error": str(exc)})
+            entries += 1
+            return False, None
         entries += 1
+        return True, item_stat
 
-    include(path, ".")
-    if path.is_dir() and not path.is_symlink():
-        for current, dirnames, filenames in os.walk(path, topdown=True, followlinks=False):
+    _included, _ = include(path, ".")
+    if stat.S_ISDIR(root_stat.st_mode) and not stat.S_ISLNK(root_stat.st_mode):
+        def onerror(exc: OSError) -> None:
+            errors.append({"path": str(getattr(exc, "filename", path)), "error": str(exc)})
+
+        for current, dirnames, filenames in os.walk(path, topdown=True, followlinks=False, onerror=onerror):
             current_path = Path(current)
             dirnames.sort()
             filenames.sort()
-            for name in [*dirnames, *filenames]:
-                include(current_path / name, str((current_path / name).relative_to(path)))
+            for name in list(dirnames):
+                included, child_stat = include(
+                    current_path / name,
+                    str((current_path / name).relative_to(path)),
+                )
+                if (not included or child_stat is None
+                        or not stat.S_ISDIR(child_stat.st_mode)
+                        or stat.S_ISLNK(child_stat.st_mode)):
+                    dirnames.remove(name)
+                if truncated:
+                    break
+            if truncated:
+                break
+            for name in filenames:
+                include(
+                    current_path / name,
+                    str((current_path / name).relative_to(path)),
+                )
                 if truncated:
                     break
             if truncated:
@@ -407,10 +537,34 @@ def finalize_managed_workspace(
 
 def _path_has_live_refs(path: Path) -> dict[str, Any]:
     text = str(path)
-    process = storage_candidate_adapters.process_references([text]).get(text, {})
-    mount = storage_candidate_adapters.mount_references(path)
+    try:
+        process_result = storage_candidate_adapters.process_references([text])
+        process_value = process_result.get(text, {}) if isinstance(process_result, Mapping) else {}
+        process = process_value if isinstance(process_value, Mapping) else {"checked": False, "active": False, "errors": ["invalid_probe"]}
+    except Exception as exc:  # a failed safety probe must never authorize cleanup
+        process = {"checked": False, "active": False, "refs": [], "errors": [str(exc)]}
+    try:
+        mount_value = storage_candidate_adapters.mount_references(path)
+        mount = mount_value if isinstance(mount_value, Mapping) else {"checked": False, "active": False, "errors": ["invalid_probe"]}
+    except Exception as exc:  # a failed safety probe must never authorize cleanup
+        mount = {"checked": False, "active": False, "refs": [], "errors": [str(exc)]}
+
+    def checked(probe: Any) -> bool:
+        return (
+            isinstance(probe, Mapping)
+            and probe.get("checked") is True
+            and not probe.get("errors")
+            and not probe.get("error")
+        )
+
+    probe_errors: list[Any] = []
+    for probe_name, probe in (("process", process), ("mount", mount)):
+        if not checked(probe):
+            probe_errors.append({"probe": probe_name, "errors": probe.get("errors") if isinstance(probe, Mapping) else ["invalid_probe"]})
     return {
         "active": process.get("active") is True or mount.get("active") is True,
+        "checked": checked(process) and checked(mount),
+        "errors": probe_errors,
         "process": process,
         "mount": mount,
     }
@@ -431,6 +585,138 @@ def _atomic_detach(workspace: Path, workspace_id: str, expected_inode: int) -> P
 
 def _read_mountinfo() -> str:
     return Path("/proc/self/mountinfo").read_text()
+
+
+def _decode_mountinfo_path(value: str) -> str:
+    return re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), value)
+
+
+def _mount_points_snapshot() -> tuple[set[str] | None, list[str]]:
+    """Read mountpoints once and fail closed if the snapshot is unusable."""
+    try:
+        raw = _read_mountinfo()
+    except (OSError, TypeError, ValueError) as exc:
+        return None, [f"mountinfo_unavailable:{exc}"]
+    if not isinstance(raw, str) or not raw.strip():
+        return None, ["mountinfo_empty"]
+    points: set[str] = set()
+    for line_number, line in enumerate(raw.splitlines(), start=1):
+        fields = line.split()
+        if not fields:
+            continue
+        try:
+            separator = fields.index("-")
+        except ValueError:
+            return None, [f"mountinfo_invalid_line:{line_number}"]
+        if separator < 6 or separator + 2 >= len(fields) or len(fields) < 6:
+            return None, [f"mountinfo_invalid_line:{line_number}"]
+        mountpoint = _decode_mountinfo_path(fields[4])
+        if not mountpoint.startswith("/"):
+            return None, [f"mountinfo_invalid_mountpoint:{line_number}"]
+        points.add(os.path.normpath(mountpoint))
+    if not points:
+        return None, ["mountinfo_empty"]
+    return points, []
+
+
+def _safe_receipt_path(root: Path, workspace_id: str, value: Any) -> tuple[Path | None, str | None]:
+    candidate = Path(str(value or ""))
+    receipts_root = (root / "receipts").absolute()
+    if not candidate.is_absolute():
+        return None, "execution_receipt_path_not_absolute"
+    candidate = candidate.absolute()
+    if candidate.parent != receipts_root:
+        return None, "execution_receipt_path_outside_receipts"
+    expected_name = re.fullmatch(
+        rf"{re.escape(workspace_id)}-\d{{8}}T\d{{6}}\.\d{{6}}Z\.json",
+        candidate.name,
+    )
+    if expected_name is None:
+        return None, "execution_receipt_path_invalid"
+    for parent in (receipts_root, candidate):
+        try:
+            if parent.is_symlink():
+                return None, "execution_receipt_path_symlink"
+        except OSError:
+            return None, "execution_receipt_path_unavailable"
+    return candidate, None
+
+
+def _validated_execution_receipt(
+    root: Path,
+    workspace_id: str,
+    expected_digest: Any,
+    journal: Mapping[str, Any],
+    decision: Any,
+    archive_target: Path | None,
+) -> tuple[dict[str, Any] | None, Path | None, list[str]]:
+    raw_receipt = journal.get("receipt")
+    if not isinstance(raw_receipt, Mapping):
+        return None, None, ["execution_receipt_missing"]
+    receipt = dict(raw_receipt)
+    required = (
+        receipt.get("schema") == "abyss_machine_storage_workspace_receipt_v1",
+        receipt.get("workspace_id") == workspace_id,
+        receipt.get("seal_fingerprint_digest") == expected_digest,
+        receipt.get("action") == str(decision).lower(),
+        receipt.get("valid") is True,
+    )
+    if not all(required):
+        return None, None, ["execution_receipt_identity_mismatch"]
+    persisted, path_error = _safe_receipt_path(root, workspace_id, journal.get("receipt_path"))
+    if persisted is None:
+        return None, None, [path_error or "execution_receipt_path_invalid"]
+    if archive_target is not None:
+        if str(receipt.get("archive_target") or "") != str(archive_target):
+            return None, None, ["execution_receipt_archive_target_mismatch"]
+        binding = receipt.get("archive_mount_binding")
+        digest = receipt.get("archive_content_digest")
+        if not isinstance(binding, Mapping) or not isinstance(binding.get("identity"), Mapping):
+            return None, None, ["execution_receipt_archive_binding_missing"]
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            return None, None, ["execution_receipt_archive_digest_missing"]
+    elif receipt.get("archive_target") not in {None, ""}:
+        return None, None, ["execution_receipt_archive_target_unexpected"]
+    return receipt, persisted, []
+
+
+def _persist_execution_receipt(path: Path, receipt: Mapping[str, Any]) -> bool:
+    try:
+        if path.exists():
+            return read_json(path) == dict(receipt)
+        atomic_write_json(path, receipt)
+        return True
+    except OSError:
+        return False
+
+
+def _verify_archive_state(
+    target: Path,
+    required_mount: Path,
+    expected_binding: Mapping[str, Any] | None,
+    expected_digest: Any,
+    *,
+    max_entries: int,
+) -> dict[str, Any]:
+    expected_identity = expected_binding.get("identity") if isinstance(expected_binding, Mapping) else None
+    if not isinstance(expected_identity, Mapping):
+        return {"ok": False, "reasons": ["archive_binding_identity_missing"]}
+    first = archive_mount_binding(target, required_mount)
+    if not first.get("ok"):
+        return {"ok": False, "reasons": ["archive_mount_unavailable", *first.get("reasons", [])], "archive_binding": first}
+    if first.get("identity") != dict(expected_identity):
+        return {"ok": False, "reasons": ["archive_mount_changed"], "archive_binding": first}
+    if not target.exists():
+        return {"ok": False, "reasons": ["archive_target_missing"], "archive_binding": first}
+    archived = workspace_content_fingerprint(target, max_entries=max_entries)
+    if archived.get("complete") is not True or archived.get("digest") != expected_digest:
+        return {"ok": False, "reasons": ["archive_target_digest_mismatch"], "archive": archived}
+    second = archive_mount_binding(target, required_mount)
+    if not second.get("ok"):
+        return {"ok": False, "reasons": ["archive_mount_changed", *second.get("reasons", [])], "archive_binding": second}
+    if second.get("identity") != dict(expected_identity):
+        return {"ok": False, "reasons": ["archive_mount_changed"], "archive_binding": second}
+    return {"ok": True, "archive_binding": second, "archive": archived}
 
 
 def archive_mount_binding(target: Path, required_mount: Path) -> dict[str, Any]:
@@ -488,6 +774,7 @@ def execute_released_workspace(
     workspace_id = str(record.get("workspace_id") or "")
     if not eligibility["eligible"]:
         return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": eligibility["reasons"]}
+
     workspace = Path(str(record.get("path") or ""))
     tombstone = workspace.parent / f".abyss-released-{workspace_id}"
     expected = ((record.get("seal") or {}).get("fingerprint") or {}).get("digest")
@@ -501,48 +788,133 @@ def execute_released_workspace(
     )
     if workspace.exists() and tombstone.exists():
         return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["workspace_and_tombstone_both_exist"]}
-    detached = not workspace.exists() and tombstone.exists()
-    subject = tombstone if detached else workspace
-    if not subject.exists():
-        if journal_valid:
-            receipt = journal.get("receipt") if isinstance(journal.get("receipt"), Mapping) else None
-            persisted_receipt = Path(str(journal.get("receipt_path") or ""))
-            if receipt is not None and persisted_receipt.is_absolute():
-                if not persisted_receipt.exists():
-                    atomic_write_json(persisted_receipt, receipt)
-                journal["phase"] = "applied"
-                journal["updated_at"] = now_iso()
-                atomic_write_json(journal_path, journal)
-                return {"ok": True, "workspace_id": workspace_id, "decision": "applied", "receipt": receipt}
-        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["workspace_missing_without_receipt"]}
-    refs = _path_has_live_refs(subject)
-    if refs["active"]:
-        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["live_reference"], "references": refs}
-    disposition = record.get("disposition") if isinstance(record.get("disposition"), Mapping) else {}
+
+    raw_disposition = record.get("disposition")
+    disposition: Mapping[str, Any] = raw_disposition if isinstance(raw_disposition, Mapping) else {}
     decision = disposition.get("decision")
-    plan = disposition.get("plan") if isinstance(disposition.get("plan"), Mapping) else {}
+    raw_plan = disposition.get("plan")
+    plan: Mapping[str, Any] = raw_plan if isinstance(raw_plan, Mapping) else {}
     archive_target = Path(str(plan.get("target") or "")) if decision == "ARCHIVE" else None
     archive_mount = Path(str(plan.get("required_mount") or "/abyss"))
     archive_binding = archive_mount_binding(archive_target, archive_mount) if archive_target else None
     if archive_binding is not None and not archive_binding["ok"]:
-        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked",
-                "reasons": archive_binding["reasons"], "archive_binding": archive_binding}
+        return {
+            "ok": False,
+            "workspace_id": workspace_id,
+            "decision": "blocked",
+            "reasons": archive_binding["reasons"],
+            "archive_binding": archive_binding,
+        }
+
+    detached = not workspace.exists() and tombstone.exists()
+    subject = tombstone if detached else workspace
+    if not subject.exists():
+        if journal_valid and journal is not None:
+            recovered_receipt, recovered_receipt_path, receipt_errors = _validated_execution_receipt(
+                root, workspace_id, expected, journal, decision, archive_target,
+            )
+            if recovered_receipt is None or recovered_receipt_path is None:
+                return {
+                    "ok": False,
+                    "workspace_id": workspace_id,
+                    "decision": "blocked",
+                    "reasons": receipt_errors,
+                }
+            if archive_target is not None:
+                verification = _verify_archive_state(
+                    archive_target,
+                    archive_mount,
+                    recovered_receipt.get("archive_mount_binding") if isinstance(recovered_receipt.get("archive_mount_binding"), Mapping) else None,
+                    recovered_receipt.get("archive_content_digest"),
+                    max_entries=max_entries,
+                )
+                if not verification["ok"]:
+                    return {
+                        "ok": False,
+                        "workspace_id": workspace_id,
+                        "decision": "blocked",
+                        "reasons": ["archive_not_verified_after_detach", *verification.get("reasons", [])],
+                        "archive": verification,
+                    }
+            if not _persist_execution_receipt(recovered_receipt_path, recovered_receipt):
+                return {
+                    "ok": False,
+                    "workspace_id": workspace_id,
+                    "decision": "blocked",
+                    "reasons": ["execution_receipt_persistence_mismatch"],
+                }
+            journal["phase"] = "applied"
+            journal["updated_at"] = now_iso()
+            atomic_write_json(journal_path, journal)
+            return {"ok": True, "workspace_id": workspace_id, "decision": "applied", "receipt": recovered_receipt}
+        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["workspace_missing_without_receipt"]}
+
+    refs = _path_has_live_refs(subject)
+    if refs.get("active") is True or refs.get("checked") is not True:
+        reason = "live_reference" if refs.get("active") is True else "reference_probe_unavailable"
+        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": [reason], "references": refs}
+
+    receipt: dict[str, Any]
+    persisted_receipt: Path
+    archive_content_digest: str | None = None
     if journal_valid and journal is not None and journal.get("phase") == "detached":
-        receipt = dict(journal.get("receipt") if isinstance(journal.get("receipt"), Mapping) else {})
+        receipt_value, persisted_receipt_value, receipt_errors = _validated_execution_receipt(
+            root, workspace_id, expected, journal, decision, archive_target,
+        )
+        if receipt_value is None or persisted_receipt_value is None:
+            return {
+                "ok": False,
+                "workspace_id": workspace_id,
+                "decision": "blocked",
+                "reasons": receipt_errors,
+            }
+        receipt = receipt_value
+        persisted_receipt = persisted_receipt_value
+        before = receipt.get("before_bytes")
+        if not isinstance(before, int) or before < 0:
+            return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["execution_receipt_size_invalid"]}
+        archive_content_digest = receipt.get("archive_content_digest") if archive_target is not None else None
         if archive_target is not None:
+            verification = _verify_archive_state(
+                archive_target,
+                archive_mount,
+                receipt.get("archive_mount_binding") if isinstance(receipt.get("archive_mount_binding"), Mapping) else None,
+                archive_content_digest,
+                max_entries=max_entries,
+            )
+            if not verification["ok"]:
+                return {
+                    "ok": False,
+                    "workspace_id": workspace_id,
+                    "decision": "blocked",
+                    "reasons": ["resumed_archive_not_verified", *verification.get("reasons", [])],
+                    "archive": verification,
+                }
             source_content = workspace_content_fingerprint(subject, max_entries=max_entries)
-            archived = workspace_content_fingerprint(archive_target, max_entries=max_entries)
-            if not source_content.get("complete") or not archived.get("complete") or source_content.get("digest") != archived.get("digest"):
+            if source_content.get("complete") is not True or source_content.get("digest") != archive_content_digest:
                 return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["resumed_archive_not_verified"]}
     else:
+        if journal_valid and journal is not None and journal.get("phase") == "applied":
+            return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["execution_journal_already_applied"]}
         fingerprint = workspace_identity_fingerprint(subject, max_entries=max_entries)
         if fingerprint.get("complete") is not True or fingerprint.get("digest") != expected:
-            return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["fingerprint_drift"], "fingerprint": fingerprint}
+            return {
+                "ok": False,
+                "workspace_id": workspace_id,
+                "decision": "blocked",
+                "reasons": ["fingerprint_drift"],
+                "fingerprint": fingerprint,
+            }
         before_value, before_evidence = storage_candidate_adapters.physical_size_bytes(subject)
         if before_value is None:
-            return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["physical_size_unavailable"], "evidence": before_evidence}
+            return {
+                "ok": False,
+                "workspace_id": workspace_id,
+                "decision": "blocked",
+                "reasons": ["physical_size_unavailable"],
+                "evidence": before_evidence,
+            }
         before = before_value
-        inode = subject.stat(follow_symlinks=False).st_ino
         if archive_target is not None:
             workspace_real = subject.resolve(strict=True)
             target_real = archive_target.resolve(strict=False)
@@ -556,23 +928,62 @@ def execute_released_workspace(
                 archived = workspace_content_fingerprint(archive_target, max_entries=max_entries)
                 if source_content.get("complete") is not True or archived.get("complete") is not True or archived.get("digest") != source_content.get("digest"):
                     return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_target_conflict"]}
+                archive_content_digest = source_content.get("digest")
             else:
                 partial.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(subject, partial, symlinks=True)
                 source_content = workspace_content_fingerprint(subject, max_entries=max_entries)
                 archived = workspace_content_fingerprint(partial, max_entries=max_entries)
                 if source_content.get("complete") is not True or archived.get("complete") is not True or archived.get("digest") != source_content.get("digest"):
-                    shutil.rmtree(partial)
+                    partial_identity = workspace_identity_fingerprint(partial, max_entries=max_entries)
+                    if partial_identity.get("complete") is True:
+                        try:
+                            shutil.rmtree(partial)
+                        except OSError:
+                            pass
                     return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_fingerprint_mismatch"]}
+                archive_content_digest = source_content.get("digest")
                 os.rename(partial, archive_target)
-            rebound = archive_mount_binding(archive_target, archive_mount)
-            if not rebound["ok"] or rebound.get("identity") != archive_binding.get("identity"):
-                return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_mount_changed_before_detach"], "archive_binding": rebound}
-            unchanged = workspace_identity_fingerprint(subject, max_entries=max_entries)
-            if not unchanged.get("complete") or unchanged.get("digest") != expected:
-                return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["workspace_changed_during_archive"]}
-        if not detached:
+            verification = _verify_archive_state(
+                archive_target,
+                archive_mount,
+                archive_binding,
+                archive_content_digest,
+                max_entries=max_entries,
+            )
+            if not verification["ok"]:
+                return {
+                    "ok": False,
+                    "workspace_id": workspace_id,
+                    "decision": "blocked",
+                    "reasons": ["archive_mount_changed_before_detach", *verification.get("reasons", [])],
+                    "archive": verification,
+                }
+            archive_binding = verification.get("archive_binding", archive_binding)
+
+    # The initial probe is deliberately repeated immediately before detach.
+    final_refs = _path_has_live_refs(subject)
+    if final_refs.get("active") is True or final_refs.get("checked") is not True:
+        reason = "live_reference_before_detach" if final_refs.get("active") is True else "reference_probe_unavailable_before_detach"
+        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": [reason], "references": final_refs}
+    final_identity = workspace_identity_fingerprint(subject, max_entries=max_entries)
+    if final_identity.get("complete") is not True or final_identity.get("digest") != expected:
+        return {
+            "ok": False,
+            "workspace_id": workspace_id,
+            "decision": "blocked",
+            "reasons": ["fingerprint_drift_before_detach"],
+            "fingerprint": final_identity,
+        }
+
+    if not detached:
+        try:
+            inode = subject.stat(follow_symlinks=False).st_ino
             tombstone = _atomic_detach(workspace, workspace_id, inode)
+        except (OSError, RuntimeError) as exc:
+            return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["detach_failed"], "error": str(exc)}
+
+    if not (journal_valid and journal is not None and journal.get("phase") == "detached"):
         applied_at = now_iso()
         receipt = {
             "schema": "abyss_machine_storage_workspace_receipt_v1",
@@ -584,33 +995,62 @@ def execute_released_workspace(
             "after_bytes": 0,
             "reclaimed_bytes": before,
             "seal_fingerprint_digest": expected,
+            "subject_identity_digest": expected,
             "archive_target": str(archive_target) if archive_target else None,
+            "archive_content_digest": archive_content_digest,
             "archive_mount_binding": archive_binding,
             "owner_evidence_refs": disposition.get("owner_evidence_refs") or [],
             "valid": True,
         }
+        persisted_receipt = (receipt_path(root, workspace_id)).absolute()
         journal = {
             "schema": "abyss_machine_storage_workspace_execution_v1",
             "workspace_id": workspace_id,
             "phase": "detached",
             "seal_fingerprint_digest": expected,
-            "receipt_path": str(receipt_path(root, workspace_id)),
+            "receipt_path": str(persisted_receipt),
             "receipt": receipt,
             "updated_at": applied_at,
         }
         atomic_write_json(journal_path, journal)
+
     if archive_target is not None:
-        rebound = archive_mount_binding(archive_target, archive_mount)
-        if not rebound["ok"] or rebound.get("identity") != archive_binding.get("identity"):
-            return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_mount_changed_before_local_removal"]}
+        verification = _verify_archive_state(
+            archive_target,
+            archive_mount,
+            receipt.get("archive_mount_binding") if isinstance(receipt.get("archive_mount_binding"), Mapping) else archive_binding,
+            receipt.get("archive_content_digest"),
+            max_entries=max_entries,
+        )
+        if not verification["ok"]:
+            return {
+                "ok": False,
+                "workspace_id": workspace_id,
+                "decision": "blocked",
+                "reasons": ["archive_mount_changed_before_local_removal", *verification.get("reasons", [])],
+                "archive": verification,
+            }
+
+    removal_refs = _path_has_live_refs(tombstone)
+    if removal_refs.get("active") is True or removal_refs.get("checked") is not True:
+        reason = "live_reference_before_cleanup" if removal_refs.get("active") is True else "reference_probe_unavailable_before_cleanup"
+        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": [reason], "references": removal_refs}
+    removal_identity = workspace_identity_fingerprint(tombstone, max_entries=max_entries)
+    if removal_identity.get("complete") is not True or removal_identity.get("digest") != expected:
+        return {
+            "ok": False,
+            "workspace_id": workspace_id,
+            "decision": "blocked",
+            "reasons": ["tombstone_identity_changed_before_cleanup"],
+            "fingerprint": removal_identity,
+        }
     try:
         shutil.rmtree(tombstone)
     except OSError as exc:
         return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["detached_cleanup_incomplete"], "error": str(exc)}
-    persisted_receipt = Path(str((journal or {}).get("receipt_path") or ""))
-    if not persisted_receipt.is_absolute():
-        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["execution_journal_invalid"]}
-    atomic_write_json(persisted_receipt, receipt)
+
+    if not _persist_execution_receipt(persisted_receipt, receipt):
+        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["execution_receipt_persistence_mismatch"]}
     journal["phase"] = "applied"
     journal["updated_at"] = now_iso()
     atomic_write_json(journal_path, journal)
@@ -644,7 +1084,11 @@ def reap(root: Path, *, limit: int = 1, now_time: dt.datetime | None = None) -> 
                 if expiry is not None and expiry <= resolved_now.astimezone(dt.timezone.utc) and unit_state.get("active") is False and unit_state.get("state") not in {"unknown", "failed-to-read"}:
                     workspace = Path(str(record.get("path") or ""))
                     refs = _path_has_live_refs(workspace) if workspace.exists() else {"active": False}
-                    if workspace.exists() and refs.get("active") is False:
+                    if workspace.exists() and (refs.get("active") is True or refs.get("checked") is not True):
+                        examined += 1
+                        reason = "live_reference" if refs.get("active") is True else "reference_probe_unavailable"
+                        blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": [reason], "references": refs})
+                    elif workspace.exists() and refs.get("active") is False and refs.get("checked") is True:
                         examined += 1
                         fingerprint = workspace_identity_fingerprint(workspace, max_entries=100_000)
                         physical, evidence = storage_candidate_adapters.physical_size_bytes(workspace)
@@ -661,7 +1105,9 @@ def reap(root: Path, *, limit: int = 1, now_time: dt.datetime | None = None) -> 
                                     atomic_write_json(record_path(root, workspace_id), recovery["record"])
                             recovered.append({"workspace_id": record.get("workspace_id"), "decision": "sealed_unknown"})
                         elif physical is None:
-                            blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": ["physical_size_unavailable"], "evidence": evidence})
+                            blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": ["physical_size_unavailable", *(recovery.get("errors") or [])], "evidence": evidence, "fingerprint": fingerprint})
+                        else:
+                            blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": recovery.get("errors") or ["recovery_blocked"], "evidence": evidence, "fingerprint": fingerprint})
                         if examined >= resolved_limit:
                             break
                 continue
