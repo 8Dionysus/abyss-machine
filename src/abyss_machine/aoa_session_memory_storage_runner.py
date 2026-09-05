@@ -461,8 +461,6 @@ def owner_resource_argv(
         "--owner-script",
         str(owner_script),
         "--",
-        str(config.python_executable),
-        str(owner_script),
         "raw-block-storage-compact",
         "all",
         "--workspace-root",

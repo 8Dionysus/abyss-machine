@@ -784,7 +784,7 @@ abyss-machine storage candidates validate CANDIDATE_ID --json
 abyss-machine storage candidates claim --claim-id CLAIM_ID --candidate-id CANDIDATE_ID --owner OWNER --purpose PURPOSE --ttl-seconds 86400 --json
 abyss-machine storage candidates release --claim-id CLAIM_ID --json
 abyss-machine storage lifecycle status --json
-abyss-machine storage lifecycle reap --limit 1 --json
+abyss-machine storage lifecycle reap --limit 1 --scan-limit 8 --json
 abyss-machine resource launch --workspace /srv/abyss-machine/tmp/OWNER/JOB --workspace-owner OWNER -- COMMAND...
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_USER_HOME}}/.cache/example --json
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --json
