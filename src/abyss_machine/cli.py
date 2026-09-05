@@ -19551,14 +19551,10 @@ def resource_launch(
         1.0,
         float(startup_policy.get("launch_attestation_max_age_sec", 120.0)),
     )
-    launch_attestation_max_age_sec = (
-        min(
-            configured_launch_attestation_max_age_sec,
-            max(1.0, resource_live_input_coalesce_seconds()),
-        )
-        if effective_sample_thermal
-        else configured_launch_attestation_max_age_sec
-    )
+    # Live-input coalescing bounds reuse of those inputs; it must not shorten
+    # the launch freshness policy or make an atomic plan invalidate its own
+    # attestation when plan assembly takes longer than the coalesce interval.
+    launch_attestation_max_age_sec = configured_launch_attestation_max_age_sec
     launch_attestations_required = bool(
         effective_sample_thermal
         or (bytes_required is not None and target)
