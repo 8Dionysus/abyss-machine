@@ -555,24 +555,25 @@ def test_artifacts_validate_document_contract_is_module_owned(tmp_path: Path) ->
     assert actual["non_claims"] == list(artifact_bundles.ARTIFACTS_VALIDATE_NON_CLAIMS)
 
 
-def test_artifacts_validate_cli_entrypoint_writes_public_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    validate_root = tmp_path / "validate"
-    monkeypatch.setattr(cli, "ARTIFACTS_VALIDATE_ROOT", validate_root)
-    monkeypatch.setattr(cli, "ARTIFACTS_VALIDATE_LATEST_PATH", validate_root / "latest.json")
-    monkeypatch.setattr(cli, "ARTIFACTS_INDEX_PATH", tmp_path / "index.json")
-
-    rc = cli.main(["artifacts", "validate", "--json"])
-    captured = capsys.readouterr()
-    data = json.loads(captured.out)
+def test_artifacts_validate_cli_entrypoint_writes_public_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This checks the real CLI and durable JSON writes, not installed tools or
+    # the operator's cache inventory. Configurable roots stay in the fixture;
+    # fixed host-policy probes remain read-only and intentionally unmocked.
+    monkeypatch.setenv("PATH", str(tmp_path / "no-external-tools"))
+    result = _run_artifact_cli(tmp_path, "validate")
+    data = json.loads(result.stdout)
+    artifacts_root = tmp_path / "state" / "artifacts"
+    validate_root = artifacts_root / "validate"
 
     assert data["schema"] == "abyss_machine_artifacts_validate_v1"
     assert data["scope"] == "artifacts evidence subsystem"
     assert data["latest"] == str(validate_root / "latest.json")
     assert data["non_claims"] == list(artifact_bundles.ARTIFACTS_VALIDATE_NON_CLAIMS)
-    assert rc == (1 if data["summary"]["fails"] else 0)
+    assert result.returncode == (1 if data["summary"]["fails"] else 0)
+    assert data["summary"]["fails"] > 0  # Missing fixture contracts stay failures.
     latest = json.loads((validate_root / "latest.json").read_text(encoding="utf-8"))
     assert latest["schema"] == data["schema"]
-    assert (tmp_path / "index.json").is_file()
+    assert (artifacts_root / "index.json").is_file()
 
 
 def test_state_history_append_survives_unavailable_optional_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4784,13 +4785,19 @@ def _write_oci_runtime_registry_record(tmp_path: Path) -> tuple[Path, str, str]:
 
 
 def _isolated_cli_env(tmp_path: Path) -> dict[str, str]:
-    env = os.environ.copy()
+    # Keep configurable roots inside the fixture. The CLI still has deliberate
+    # read-only probes for fixed host policy paths (/etc, /proc, and /abyss);
+    # this test exercises that real call path rather than broad-mocking it.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ABYSS_")}
     env.update(
         {
             "PYTHONPATH": str(SRC_ROOT),
             "PYTHONDONTWRITEBYTECODE": "1",
+            "HOME": str(tmp_path / "home"),
             "ABYSS_USER": "agent",
             "ABYSS_USER_HOME": str(tmp_path / "home"),
+            "ABYSS_OS_ROOT": str(tmp_path / "srv" / "AbyssOS"),
+            "ABYSS_VAULT_MOUNT": str(tmp_path / "vault"),
             "ABYSS_MACHINE_ETC_ROOT": str(tmp_path / "etc" / "abyss-machine"),
             "ABYSS_MACHINE_STATE_ROOT": str(tmp_path / "state"),
             "ABYSS_MACHINE_ROOT": str(tmp_path / "srv" / "abyss-machine"),

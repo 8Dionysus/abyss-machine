@@ -110,32 +110,17 @@
       ]
     },
     {
-      "id": "first-run-installed-projection",
-      "tier": "semantic",
-      "priority": 90,
-      "depends_on": ["validation-graph-contract"],
-      "provides_evidence": ["first-run-installed-projection"],
-      "timeout_seconds": 900,
-      "inputs": ["**"],
-      "steps": [
-        {
-          "id": "first-run-installed-projection",
-          "argv": ["{python}", "scripts/validators/first_run_installed_projection.py"]
-        }
-      ]
-    },
-    {
       "id": "public-smoke-tests",
       "tier": "contextual",
       "priority": 90,
       "depends_on": ["validation-graph-contract"],
-      "provides_evidence": ["public-smoke-corpus"],
+      "provides_evidence": ["public-smoke-corpus", "first-run-installed-projection"],
       "timeout_seconds": 900,
       "inputs": ["**"],
       "steps": [
         {
           "id": "public-smoke-tests",
-          "argv": ["{python}", "-m", "pytest", "-q", "-n", "2"]
+          "argv": ["{python}", "-m", "pytest", "-q", "-n", "2", "--dist", "loadfile"]
         }
       ]
     },

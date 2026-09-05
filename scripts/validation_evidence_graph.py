@@ -21,7 +21,7 @@ SDK_PIN = "b73c8aca9ef5275df0ec9e3e55d446db08823fb2"
 PYTEST_XDIST_DISTRIBUTION = "pytest-xdist"
 PYTEST_XDIST_PIN = "3.8.0"
 SERIAL_PYTEST_COMMAND = ("{python}", "-m", "pytest", "-q")
-GRAPH_PYTEST_COMMAND = (*SERIAL_PYTEST_COMMAND, "-n", "2")
+GRAPH_PYTEST_COMMAND = (*SERIAL_PYTEST_COMMAND, "-n", "2", "--dist", "loadfile")
 SDK_RUNNER_RELATIVE_PATH = Path(
     "mechanics/release-support/parts/validation-evidence-graph/scripts/validation_graph.py"
 )
