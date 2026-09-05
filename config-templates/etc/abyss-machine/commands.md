@@ -302,6 +302,30 @@ resource plan: `abyss-machine resource plan --class CLASS --kind KIND --memory-d
 resource orchestrator: `abyss-machine resource orchestrator --json`, broad read-only matrix audit for future agents and stack bridges
 resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; medium-or-larger starts use a fresh live decision plus an atomic runtime-only startup reservation, without a resident controller; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
 resource validation: `abyss-machine resource validate --json`
+
+Bounded light maintenance is opt-in through
+`startup_admission.bounded_light_maintenance` in the host resource policy.
+The public default is disabled with an empty `contract_allowlist`. Each entry
+binds one exact `owner`, `demand_key` and `command_identity` (the hash of the
+normalized executed argv). Only explicit `--activity maintenance`, class
+`light`, kind `generic` can qualify. Admission requires at least three
+individually fresh successful runtime unit samples, measured durations no
+greater than five seconds, and a memory estimate no greater than 64 MiB.
+Failed, legacy, mixed-command or incompletely measured profiles do not qualify.
+The exception only removes the active-memory-stall deferral; physical reserve,
+leases, swap, game, thermal and storage checks still apply at every launch.
+
+For a reviewed capacity-only contract, include
+`storage capacity --expected-code-generation GENERATION --json` in the exact
+argv. The capacity command rejects a different installed immutable generation
+before collecting or writing observations. After a code refresh, review the
+new generation and train a new exact command profile through ordinary admitted
+launches before updating the host allowlist. An argv hash alone does not prove
+the contents of an arbitrary script. Do not import diagnostic rusage samples
+as unit-peak evidence or relabel maintenance as foreground to bootstrap it.
+Historical duration is an admission qualification, not a runtime or I/O quota;
+keep the command intrinsically bounded and use the launch timeout. This route
+does not admit deep scans, reapers or session compaction as tiny jobs.
 OS Abyss heartbeats: `abyss-machine heartbeats pulse --json`, recurring compact pulse over current machine evidence and reaction candidates; writes heartbeat facts only and keeps `automatic_action=false`
 reaction candidates: `abyss-machine reactions --json`, non-executing evidence-to-action-candidate read model over nervous, doctor, resource, and selected systemd facts; candidates are suggestions only and keep `automatic=false`
 response routes: `abyss-machine responses --json`, owner-gated route read model over reaction candidates; response routes preserve suggested commands and approval gates but keep `automatic_response=false`
