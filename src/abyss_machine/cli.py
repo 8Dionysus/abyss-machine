@@ -15687,7 +15687,11 @@ def storage_candidate_owner_aoa_document() -> dict[str, Any]:
     }
 
 
-def storage_candidate_discover_specs(*, artifact_snapshot: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def storage_candidate_discover_specs(
+    *,
+    artifact_snapshot: dict[str, Any] | None = None,
+    producer_status: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     manifests = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT)
     tmp_specs = storage_candidate_adapters.direct_child_specs(
@@ -15731,13 +15735,37 @@ def storage_candidate_discover_specs(*, artifact_snapshot: dict[str, Any] | None
         or not aoa_status
         or aoa_document.get("ok") is False
     )
+    aoa_deferred = (
+        aoa_status == "deferred_active_writer"
+        and aoa_document.get("lock_active") is True
+        and aoa_document.get("ok") is False
+    )
+    if producer_status is not None:
+        producer_status["aoa_owner_verdict"] = {
+            "source_adapter": "aoa_owner_verdict",
+            "owner": "aoa-session-memory",
+            "status": aoa_status or "missing_status",
+            "ok": aoa_document.get("ok") is True,
+            "deferred": aoa_deferred,
+            "lock_active": aoa_document.get("lock_active") is True,
+            "reason": str(aoa_document.get("error") or aoa_status or "missing owner status")[:1000],
+        }
+        if aoa_document.get("owner_adapter_returncode") is not None:
+            producer_status["aoa_owner_verdict"]["returncode"] = aoa_document.get("owner_adapter_returncode")
     if owner_adapter_failed:
-        raise RuntimeError(
-            "aoa_owner_adapter_failed: "
-            f"status={aoa_status or 'missing_status'} "
-            f"error={str(aoa_document.get('error') or 'invalid owner document')[:1000]}"
-        )
-    specs.extend(storage_candidate_adapters.aoa_specs(aoa_document))
+        if aoa_deferred and producer_status is not None:
+            # The owner producer is deliberately skipped for this pass. The
+            # refresh layer will carry forward only its last-good candidates;
+            # all independent producers above remain current and observable.
+            pass
+        else:
+            raise RuntimeError(
+                "aoa_owner_adapter_failed: "
+                f"status={aoa_status or 'missing_status'} "
+                f"error={str(aoa_document.get('error') or 'invalid owner document')[:1000]}"
+            )
+    else:
+        specs.extend(storage_candidate_adapters.aoa_specs(aoa_document))
     specs.extend(storage_candidate_adapters.manifest_specs(manifests))
 
     priority = {
@@ -15981,6 +16009,211 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
     return document
 
 
+def _storage_candidate_is_aoa_owner_record(item: Mapping[str, Any]) -> bool:
+    return (
+        str(item.get("source_adapter") or "") == "aoa_owner_verdict"
+        and str(item.get("owner") or "") == "aoa-session-memory"
+    )
+
+
+def _storage_candidate_previous_last_deep_at(previous: Mapping[str, Any]) -> Any:
+    last_deep_at = previous.get("last_deep_at")
+    if last_deep_at is None:
+        freshness = previous.get("freshness") if isinstance(previous.get("freshness"), Mapping) else {}
+        last_deep_at = freshness.get("last_deep_at")
+    return last_deep_at
+
+
+def _storage_candidate_aoa_last_good_at(records: Sequence[Mapping[str, Any]]) -> str | None:
+    timestamps = [
+        storage_candidate_contracts.parse_time(item.get("observed_at"))
+        for item in records
+        if _storage_candidate_is_aoa_owner_record(item)
+    ]
+    parsed = [item for item in timestamps if item is not None]
+    return max(parsed).isoformat() if parsed else None
+
+
+def _storage_candidate_rebuild_summary(
+    records: Sequence[Mapping[str, Any]],
+    coverage: Mapping[str, Any],
+    retired: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    by_verdict: dict[str, dict[str, int]] = {}
+    for item in records:
+        verdict = str(item.get("verdict") or "blocked_unknown")
+        summary = by_verdict.setdefault(verdict, {"candidates": 0, "physical_bytes": 0, "reclaimable_bytes": 0})
+        summary["candidates"] += 1
+        summary["physical_bytes"] += max(0, safe_int(item.get("physical_bytes"), 0))
+        summary["reclaimable_bytes"] += max(0, safe_int(item.get("reclaimable_bytes"), 0))
+    return {
+        "candidates": len(records),
+        "ready": sum(1 for item in records if item.get("verdict") in storage_candidate_contracts.READY_VERDICTS),
+        "delete_ready": sum(1 for item in records if item.get("verdict") in storage_candidate_contracts.DELETE_READY_VERDICTS),
+        "archive_ready": sum(1 for item in records if item.get("verdict") == "archive_ready"),
+        "changed": sum(1 for item in records if isinstance(item.get("transition"), Mapping) and item["transition"].get("changed") is True),
+        "retired": len(retired),
+        "physical_bytes": sum(max(0, safe_int(item.get("physical_bytes"), 0)) for item in records),
+        "reclaimable_bytes": sum(
+            max(0, safe_int(item.get("reclaimable_bytes"), 0))
+            for item in records
+            if not item.get("overlap")
+        ),
+        "physical_measured": coverage.get("physical_measured"),
+        "fingerprint_complete": coverage.get("fingerprint_complete"),
+        "runtime_error_count": coverage.get("runtime_error_count"),
+        "pressure_finding_count": coverage.get("pressure_finding_count"),
+        "by_verdict": by_verdict,
+    }
+
+
+def _storage_candidate_merge_retired_records(
+    data: Mapping[str, Any],
+    previous: Mapping[str, Any],
+    *,
+    protected_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    current_ids = {
+        str(item.get("candidate_id") or "")
+        for item in data.get("candidates", [])
+        if isinstance(item, Mapping) and item.get("candidate_id")
+    } if isinstance(data.get("candidates"), list) else set()
+    protected = protected_ids or set()
+    sources: list[Any] = [data.get("retired")]
+    previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    if previous.get("partial") is True or previous_coverage.get("partial") is True:
+        sources.append(previous.get("retired"))
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in sources:
+        if not isinstance(source, list):
+            continue
+        for item in source:
+            if not isinstance(item, Mapping):
+                continue
+            candidate_id = str(item.get("candidate_id") or "")
+            if not candidate_id or candidate_id in current_ids or candidate_id in protected or candidate_id in seen:
+                continue
+            seen.add(candidate_id)
+            merged.append(dict(item))
+            if len(merged) >= 200:
+                return merged
+    return merged
+
+
+def _storage_candidate_apply_aoa_deferred_carry_forward(
+    data: dict[str, Any],
+    previous: Mapping[str, Any],
+    *,
+    generated_at: str,
+    owner_status: Mapping[str, Any],
+) -> dict[str, Any]:
+    previous_candidates = [
+        dict(item)
+        for item in previous.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(previous.get("candidates"), list) else []
+    carried = [item for item in previous_candidates if _storage_candidate_is_aoa_owner_record(item)]
+    current = [
+        dict(item)
+        for item in data.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(data.get("candidates"), list) else []
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for item in current:
+        candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id:
+            by_id.setdefault(candidate_id, item)
+    carried_ids: list[str] = []
+    for item in carried:
+        candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id and candidate_id not in by_id:
+            by_id[candidate_id] = item
+            carried_ids.append(candidate_id)
+
+    records = list(by_id.values())
+    records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
+    retired = _storage_candidate_merge_retired_records(
+        data,
+        previous,
+        protected_ids=set(carried_ids),
+    )
+
+    coverage = storage_candidate_contracts.coverage_summary(records)
+    last_good_at = _storage_candidate_aoa_last_good_at(carried)
+    owner_coverage: dict[str, Any] = {
+        "source_adapter": "aoa_owner_verdict",
+        "owner": "aoa-session-memory",
+        "status": str(owner_status.get("status") or "deferred_active_writer"),
+        "state": "deferred",
+        "ok": False,
+        "deferred": True,
+        "lock_active": owner_status.get("lock_active") is True,
+        "last_good_at": last_good_at,
+        "carried_forward_count": len(carried_ids),
+        "reason": str(owner_status.get("reason") or "owner active writer deferred")[:1000],
+    }
+    if owner_status.get("returncode") is not None:
+        owner_coverage["returncode"] = owner_status.get("returncode")
+    coverage.update({
+        "mode": "deep_partial_aoa_owner_deferred",
+        "partial": True,
+        "complete": False,
+        "current_results": len(current),
+        "carried_forward_count": len(carried_ids),
+        "owner_coverage": owner_coverage,
+        "producer_status": {"aoa_owner_verdict": owner_coverage},
+    })
+    last_deep_at = _storage_candidate_previous_last_deep_at(previous)
+    freshness = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=last_deep_at,
+        now_time=storage_candidate_contracts.parse_time(generated_at),
+        max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
+    )
+    freshness.update({
+        "partial": True,
+        "complete": False,
+        "reason": "aoa_owner_deferred_last_good_preserved",
+    })
+    data.update({
+        "snapshot_id": storage_candidate_contracts.snapshot_id(records),
+        "ok": False,
+        "partial": True,
+        "complete": False,
+        "last_deep_at": last_deep_at,
+        "freshness": freshness,
+        "coverage": coverage,
+        "runtime_errors": list(coverage.get("runtime_errors", [])),
+        "pressure_findings": list(coverage.get("pressure_findings", [])),
+        "summary": _storage_candidate_rebuild_summary(records, coverage, retired),
+        "changes": [
+            {
+                "candidate_id": item.get("candidate_id"),
+                "path": item.get("path"),
+                "previous": item.get("transition", {}).get("previous") if isinstance(item.get("transition"), Mapping) else None,
+                "current": item.get("verdict"),
+            }
+            for item in records
+            if isinstance(item.get("transition"), Mapping) and item["transition"].get("changed") is True
+            and str(item.get("candidate_id") or "") not in set(carried_ids)
+        ],
+        "candidates": records,
+        "retired": retired,
+        "producer_coverage": {"aoa_owner_verdict": owner_coverage},
+        "refresh_result": {
+            "mode": "deep",
+            "status": "partial_aoa_owner_deferred",
+            "new_results": len(current),
+            "carried_forward_count": len(carried_ids),
+            "runtime_error_count": coverage.get("runtime_error_count", 0),
+            "pressure_finding_count": coverage.get("pressure_finding_count", 0),
+        },
+    })
+    return data
+
+
 def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapshot: dict[str, Any] | None = None, write_latest: bool = True) -> dict[str, Any]:
     generated_at = now_iso()
     previous, _ = load_json_document(STORAGE_CANDIDATES_LATEST_PATH)
@@ -15989,8 +16222,12 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
         data = storage_candidate_light_refresh(previous, generated_at)
     else:
         discovery_errors: list[dict[str, Any]] = []
+        producer_status: dict[str, Any] = {}
         try:
-            specs = storage_candidate_discover_specs(artifact_snapshot=artifact_snapshot)
+            specs = storage_candidate_discover_specs(
+                artifact_snapshot=artifact_snapshot,
+                producer_status=producer_status,
+            )
         except Exception as exc:  # bounded route: persist the failure instead of claiming a fresh scan
             specs = []
             discovery_errors.append({"surface": "discovery", "error": str(exc)[:1000]})
@@ -16049,6 +16286,14 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                 paths=storage_candidate_paths(),
                 deep=True,
             )
+            previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+            if previous.get("partial") is True or previous_coverage.get("partial") is True:
+                # A successful recovery must retain bounded retirement events
+                # from the preceding partial pass while dropping any item
+                # that has since been rediscovered.
+                data["retired"] = _storage_candidate_merge_retired_records(data, previous)
+                if isinstance(data.get("summary"), dict):
+                    data["summary"]["retired"] = len(data["retired"])
             data["last_deep_at"] = generated_at
             coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
             coverage["mode"] = "deep"
@@ -16083,6 +16328,14 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                 "runtime_error_count": coverage.get("runtime_error_count", 0),
                 "pressure_finding_count": coverage.get("pressure_finding_count", 0),
             }
+            aoa_status = producer_status.get("aoa_owner_verdict")
+            if isinstance(aoa_status, Mapping) and aoa_status.get("deferred") is True:
+                data = _storage_candidate_apply_aoa_deferred_carry_forward(
+                    data,
+                    previous,
+                    generated_at=generated_at,
+                    owner_status=aoa_status,
+                )
     if write_latest:
         latest_error = safe_atomic_write_json(STORAGE_CANDIDATES_LATEST_PATH, data, 0o664)
         daily_error = safe_append_jsonl(

@@ -352,6 +352,46 @@ def test_candidate_discovery_rejects_owner_adapter_error_document(monkeypatch) -
     assert "owner_adapter_failed" in message
 
 
+def test_candidate_discovery_reports_deferred_aoa_without_erasing_other_producers(monkeypatch) -> None:
+    def patch_empty_producers(patch) -> None:
+        patch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "direct_child_specs", lambda *args, **kwargs: [])
+        patch.setattr(cli.storage_candidate_adapters, "runtime_specs", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "artifact_specs", lambda snapshot: [])
+        patch.setattr(cli.storage_candidate_adapters, "huggingface_specs", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "git_specs", lambda roots: [])
+        patch.setattr(cli, "command_exists", lambda name: False)
+
+    patch_empty_producers(monkeypatch)
+    monkeypatch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+    monkeypatch.setattr(
+        cli,
+        "storage_candidate_owner_aoa_document",
+        lambda: {
+            "status": "deferred_active_writer",
+            "ok": False,
+            "lock_active": True,
+            "error": "maintenance writer is active",
+            "owner_adapter_returncode": 1,
+        },
+    )
+
+    producer_status: dict[str, object] = {}
+    specs = cli.storage_candidate_discover_specs(producer_status=producer_status)
+
+    assert specs == []
+    assert producer_status["aoa_owner_verdict"] == {
+        "source_adapter": "aoa_owner_verdict",
+        "owner": "aoa-session-memory",
+        "status": "deferred_active_writer",
+        "ok": False,
+        "deferred": True,
+        "lock_active": True,
+        "reason": "maintenance writer is active",
+        "returncode": 1,
+    }
+
+
 def test_candidate_discovery_rejects_required_producer_failures(monkeypatch) -> None:
     def patch_empty_producers(patch) -> None:
         patch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
@@ -521,6 +561,233 @@ def test_candidate_deep_refresh_carries_last_good_on_observation_error(monkeypat
     assert refreshed["refresh_result"]["status"] == "deep_error_carry_forward"
     assert refreshed["runtime_errors"][0]["surface"] == "observation"
     assert refreshed["runtime_errors"][0]["path"] == "/srv/abyss-machine/tmp/new"
+
+
+def test_candidate_deep_refresh_defers_only_aoa_and_recovers_without_false_retirement(monkeypatch) -> None:
+    last_good_at = "2026-09-04T18:00:00+00:00"
+    partial_at = "2026-09-04T19:00:00+00:00"
+    recovered_at = "2026-09-04T19:05:00+00:00"
+    aoa_path = "/srv/abyss-machine/tmp/aoa-session-stage"
+    old_path = "/srv/abyss-machine/tmp/old-cache"
+    current_path = "/srv/abyss-machine/tmp/current-cache"
+
+    def candidate_observation(
+        *,
+        candidate_id: str,
+        path: str,
+        owner: str,
+        kind: str,
+        source_id: str,
+        source_adapter: str,
+        observed_at: str,
+        physical_bytes: int,
+    ) -> dict[str, object]:
+        evidence = {
+            key: {"checked": True, "active": False}
+            for key in (
+                "process_refs",
+                "mount_refs",
+                "service_refs",
+                "container_refs",
+                "config_refs",
+                "runtime_refs",
+            )
+        }
+        evidence.update({
+            "protection": {"decision": "allow_candidate"},
+            "active_claims": [],
+            "physical_size": {"checked": True, "ok": True},
+            "unique_data": {"status": "clear"},
+            "recovery": {"verified": True, "command": "rebuild"},
+        })
+        return {
+            "candidate_id": candidate_id,
+            "path": path,
+            "owner": owner,
+            "kind": kind,
+            "source_id": source_id,
+            "source_adapter": source_adapter,
+            "exists": True,
+            "physical_bytes": physical_bytes,
+            "reclaimable_bytes": physical_bytes,
+            "fingerprint": {"digest": f"digest-{candidate_id}", "complete": True},
+            "latest_mtime": last_good_at,
+            "observed_at": observed_at,
+            "evidence": evidence,
+            "executor": {"type": "test-owner-cleanup", "owner_specific": True},
+        }
+
+    aoa_id = storage_candidate_contracts.stable_candidate_id(
+        owner="aoa-session-memory",
+        kind="aoa_owner_debris",
+        path=aoa_path,
+        source_id="aoa-maintenance:stage:aoa",
+    )
+    old_id = storage_candidate_contracts.stable_candidate_id(
+        owner="cache-owner",
+        kind="generated_tmp",
+        path=old_path,
+        source_id="tmp:old",
+    )
+    current_id = storage_candidate_contracts.stable_candidate_id(
+        owner="cache-owner",
+        kind="generated_tmp",
+        path=current_path,
+        source_id="tmp:current",
+    )
+    previous = storage_candidate_contracts.candidates_document(
+        [
+            candidate_observation(
+                candidate_id=aoa_id,
+                path=aoa_path,
+                owner="aoa-session-memory",
+                kind="aoa_owner_debris",
+                source_id="aoa-maintenance:stage:aoa",
+                source_adapter="aoa_owner_verdict",
+                observed_at=last_good_at,
+                physical_bytes=12,
+            ),
+            candidate_observation(
+                candidate_id=old_id,
+                path=old_path,
+                owner="cache-owner",
+                kind="generated_tmp",
+                source_id="tmp:old",
+                source_adapter="tmp_children",
+                observed_at=last_good_at,
+                physical_bytes=8,
+            ),
+        ],
+        previous_document=None,
+        configured_policy={"deep_max_age_seconds": 172800},
+        schema_prefix="abyss_machine",
+        version="test",
+        generated_at=last_good_at,
+        paths={},
+        deep=True,
+    )
+    previous["last_deep_at"] = last_good_at
+    previous["generated_at"] = last_good_at
+    previous["ok"] = True
+
+    latest = {"document": previous}
+    refresh_times = iter((partial_at, recovered_at))
+    discovery_calls = 0
+
+    def fake_discover(**kwargs):
+        nonlocal discovery_calls
+        producer_status = kwargs["producer_status"]
+        if discovery_calls == 0:
+            producer_status["aoa_owner_verdict"] = {
+                "source_adapter": "aoa_owner_verdict",
+                "owner": "aoa-session-memory",
+                "status": "deferred_active_writer",
+                "ok": False,
+                "deferred": True,
+                "lock_active": True,
+                "reason": "maintenance writer is active",
+                "returncode": 1,
+            }
+            specs = [{
+                "candidate_id": current_id,
+                "path": current_path,
+                "owner": "cache-owner",
+                "kind": "generated_tmp",
+                "source_id": "tmp:current",
+                "source_adapter": "tmp_children",
+            }]
+        else:
+            producer_status["aoa_owner_verdict"] = {
+                "source_adapter": "aoa_owner_verdict",
+                "owner": "aoa-session-memory",
+                "status": "nothing_to_do",
+                "ok": True,
+                "deferred": False,
+                "lock_active": False,
+                "reason": "owner writer is free",
+            }
+            specs = [
+                {
+                    "candidate_id": current_id,
+                    "path": current_path,
+                    "owner": "cache-owner",
+                    "kind": "generated_tmp",
+                    "source_id": "tmp:current",
+                    "source_adapter": "tmp_children",
+                },
+                {
+                    "candidate_id": aoa_id,
+                    "path": aoa_path,
+                    "owner": "aoa-session-memory",
+                    "kind": "aoa_owner_debris",
+                    "source_id": "aoa-maintenance:stage:aoa",
+                    "source_adapter": "aoa_owner_verdict",
+                },
+            ]
+        discovery_calls += 1
+        return specs
+
+    def fake_collect(spec, **kwargs):
+        return candidate_observation(
+            candidate_id=str(spec["candidate_id"]),
+            path=str(spec["path"]),
+            owner=str(spec["owner"]),
+            kind=str(spec["kind"]),
+            source_id=str(spec["source_id"]),
+            source_adapter=str(spec["source_adapter"]),
+            observed_at=str(kwargs["generated_at"]),
+            physical_bytes=10 if spec["candidate_id"] == current_id else 14,
+        )
+
+    def load_latest(path):
+        return latest["document"], None
+
+    monkeypatch.setattr(cli, "now_iso", lambda: next(refresh_times))
+    monkeypatch.setattr(cli, "load_json_document", load_latest)
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", fake_discover)
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli.storage_candidate_adapters, "collect_observation", fake_collect)
+    monkeypatch.setattr(cli, "storage_path_protection", lambda path: {"decision": "allow_candidate"})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    partial = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    latest["document"] = partial
+
+    partial_ids = [item["candidate_id"] for item in partial["candidates"]]
+    assert partial["ok"] is False
+    assert partial["partial"] is True
+    assert partial["complete"] is False
+    assert partial["last_deep_at"] == last_good_at
+    assert partial["freshness"]["last_deep_at"] == last_good_at
+    assert partial["freshness"]["partial"] is True
+    assert partial["freshness"]["complete"] is False
+    assert len(partial_ids) == len(set(partial_ids))
+    assert set(partial_ids) == {aoa_id, current_id}
+    assert aoa_id not in {item["candidate_id"] for item in partial["retired"]}
+    assert old_id in {item["candidate_id"] for item in partial["retired"]}
+    assert partial["coverage"]["owner_coverage"]["status"] == "deferred_active_writer"
+    assert partial["coverage"]["owner_coverage"]["last_good_at"] == last_good_at
+    assert partial["coverage"]["owner_coverage"]["carried_forward_count"] == 1
+    assert partial["coverage"]["current_results"] == 1
+
+    recovered = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    recovered_ids = [item["candidate_id"] for item in recovered["candidates"]]
+    assert recovered["ok"] is True
+    assert recovered.get("partial", False) is False
+    assert recovered.get("complete", False) is False
+    assert recovered["last_deep_at"] == recovered_at
+    assert len(recovered_ids) == len(set(recovered_ids))
+    assert set(recovered_ids) == {aoa_id, current_id}
+    assert aoa_id not in {item["candidate_id"] for item in recovered["retired"]}
+    assert old_id in {item["candidate_id"] for item in recovered["retired"]}
+    assert recovered["summary"]["retired"] == 1
+    assert recovered["freshness"]["status"] == "fresh"
+    assert discovery_calls == 2
 
 
 def test_reservations_are_atomic_idempotent_and_expire(tmp_path: Path) -> None:
