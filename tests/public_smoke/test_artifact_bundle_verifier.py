@@ -11096,6 +11096,9 @@ def test_aoa_session_memory_portable_bundle_generates_controls_and_update_gate(
     assert verify["verified_controls"] == ["abi_signature", "sbom", "slsa_in_toto"]
     assert identity["bundle_manifest_ref"] == "manifests/artifact_bundles/portable_bundle.bundle.json"
     assert identity["deferred_controls"]["c2pa"]["reason"].startswith("not public media")
+    # Portable sidecars are audited by the consuming kernel after export.
+    # Verification guidance must not reintroduce host-only paths into them.
+    assert all("/srv/" not in command and "/home/" not in command for command in identity["verification"])
     assert abi["external_subject"]["artifact_class"] == "aoa_session_memory_portable_bundle"
     assert abi["external_subject"]["artifact_identity"]["abi_epoch"] == "aoa_session_memory_portable_bundle_v1"
     assert len(subjects["files"]) == 16
