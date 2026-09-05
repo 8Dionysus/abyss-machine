@@ -732,8 +732,9 @@ def bootstrap_args(paths: dict[str, Path]) -> list[str]:
     ]
 
 
-def source_help_report(tmp_root: Path) -> dict[str, Any]:
-    env = source_env()
+def source_help_report(tmp_root: Path, *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    if env is None:
+        env = source_env()
     surfaces: dict[str, list[str]] = {}
     failures: list[str] = []
     for surface in HELP_SURFACES:
@@ -810,11 +811,11 @@ def critical_help_option_report(
     }
 
 
-def source_critical_help_option_report(tmp_root: Path) -> dict[str, Any]:
+def source_critical_help_option_report(tmp_root: Path, *, env: dict[str, str] | None = None) -> dict[str, Any]:
     return critical_help_option_report(
         [sys.executable, "-m", "abyss_machine.cli"],
         cwd=tmp_root,
-        env=source_env(),
+        env=source_env() if env is None else env,
         label="source",
     )
 
@@ -1422,15 +1423,29 @@ def build_report(args: argparse.Namespace, projection_root: Path) -> dict[str, A
 
     # Installation is complete. These read-only help reports have independent
     # outputs; keep every real CLI invocation while overlapping two reports.
-    with ThreadPoolExecutor(max_workers=2) as help_pool:
-        source_help_future = help_pool.submit(source_help_report, paths["root"])
+    # Source checkout modules get a fresh external cache so an unchanged
+    # source file cannot reuse a stale timestamp/size hit across validator
+    # runs. The installed generation keeps its own install-time bytecode.
+    with (
+        tempfile.TemporaryDirectory(prefix="help-bytecode-", dir=paths["root"]) as bytecode_root,
+        ThreadPoolExecutor(max_workers=2) as help_pool,
+    ):
+        source_help_env = source_env()
+        source_help_env.pop("PYTHONDONTWRITEBYTECODE", None)
+        source_help_env["PYTHONPYCACHEPREFIX"] = bytecode_root
+        installed_help_env = dict(env)
+        # install_code_projection already compiles the immutable installed
+        # generation. Keep its cache readable instead of recompiling every
+        # installed help subprocess into the source-side temporary cache.
+        installed_help_env.pop("PYTHONPYCACHEPREFIX", None)
+        source_help_future = help_pool.submit(source_help_report, paths["root"], env=source_help_env)
         installed_help_future = help_pool.submit(
-            installed_help_report, installed, cwd=paths["root"], env=env, label="temp-installed"
+            installed_help_report, installed, cwd=paths["root"], env=installed_help_env, label="temp-installed"
         )
-        source_options_future = help_pool.submit(source_critical_help_option_report, paths["root"])
+        source_options_future = help_pool.submit(source_critical_help_option_report, paths["root"], env=source_help_env)
         installed_options_future = help_pool.submit(
             installed_critical_help_option_report,
-            installed, cwd=paths["root"], env=env, label="temp-installed",
+            installed, cwd=paths["root"], env=installed_help_env, label="temp-installed",
         )
         source_help = source_help_future.result()
         temp_installed_help = installed_help_future.result()
