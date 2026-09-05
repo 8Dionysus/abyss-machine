@@ -15114,6 +15114,20 @@ def storage_reservations_expire() -> dict[str, Any]:
     return storage_reservations.expire_reservations(STORAGE_RESERVATIONS_ROOT)
 
 
+def resource_launch_storage_reservation_ttl(timeout_sec: float) -> int:
+    """Give pre-launch failures a bounded lease while terminal holds cover runs."""
+    if timeout_sec > 0:
+        timeout_ceiling = int(timeout_sec) + 1
+        return max(60, timeout_ceiling + 60)
+    return 3600
+
+
+def resource_launch_storage_reservation_kind(resource_kind: str) -> str:
+    """Use the existing write-preflight storage kind for resource launch writes."""
+    _ = resource_kind
+    return "artifact"
+
+
 def storage_write_preflight(
     kind: str,
     bytes_required: int,
@@ -15161,6 +15175,69 @@ def storage_write_preflight(
     )
     decision = str(decision_result["decision"])
     reasons = list(decision_result["reasons"])
+    pressure_findings: list[dict[str, Any]] = []
+    for scope, pressure_class in (
+        ("root", pressure_summary.get("root_pressure_class")),
+        ("srv", pressure_summary.get("srv_pressure_class")),
+    ):
+        normalized_class = str(pressure_class or "").strip()
+        if normalized_class in {"watch", "warning", "critical"}:
+            pressure_findings.append(
+                {
+                    "scope": scope,
+                    "class": normalized_class,
+                    "kind": "capacity_pressure",
+                }
+            )
+    pressure_runtime_errors: list[dict[str, Any]] = []
+    if not isinstance(pressure, dict):
+        pressure_runtime_errors.append(
+            {"surface": "pressure", "error": "pressure_document_invalid"}
+        )
+    else:
+        if not bool(pressure.get("policy_ok", True)):
+            pressure_runtime_errors.append(
+                {"surface": "policy", "error": "storage_policy_unavailable"}
+            )
+        if isinstance(pressure.get("write_errors"), list):
+            pressure_runtime_errors.extend(
+                {
+                    "surface": "pressure_write",
+                    "error": str(error),
+                }
+                for error in pressure.get("write_errors", [])
+                if str(error)
+            )
+        # storage_pressure.ok is intentionally not treated as a write error:
+        # storage_status marks a critical root as not-ok even when the pressure
+        # document and the requested host-owned target are observable.  Keep
+        # actual collection failures visible without turning a pressure fact
+        # into an unrelated target denial.
+        if pressure.get("ok") is False and not any(
+            item.get("class") == "critical" for item in pressure_findings
+        ):
+            pressure_runtime_errors.append(
+                {"surface": "pressure", "error": "pressure_collection_not_ok"}
+            )
+    runtime_errors: list[dict[str, Any]] = [*pressure_runtime_errors]
+    if target_reservations.get("ok") is False:
+        runtime_errors.append(
+            {"surface": "target_reservations", "error": "reservation_state_invalid"}
+        )
+    if recommended_reservations.get("ok") is False:
+        runtime_errors.append(
+            {"surface": "recommended_reservations", "error": "reservation_state_invalid"}
+        )
+    target_capacity = target_decision_usage.get("available_to_user_bytes")
+    recommended_capacity = recommended_decision_usage.get("available_to_user_bytes")
+    if not isinstance(target_capacity, int):
+        runtime_errors.append(
+            {"surface": "target_capacity", "error": "capacity_unavailable"}
+        )
+    if not isinstance(recommended_capacity, int):
+        runtime_errors.append(
+            {"surface": "recommended_capacity", "error": "capacity_unavailable"}
+        )
     hooks = run_storage_hooks(
         "pre_large_write",
         {
@@ -15173,17 +15250,23 @@ def storage_write_preflight(
         },
         enforce=False,
     )
+    if hooks.get("ok") is False:
+        runtime_errors.append(
+            {"surface": "hooks", "error": "storage_hook_failed"}
+        )
     data = {
         "schema": f"{SCHEMA_PREFIX}_storage_write_preflight_v1",
         "version": VERSION,
         "generated_at": now_iso(),
         "ok": (
             decision != "deny"
-            and bool(pressure.get("ok"))
+            and not runtime_errors
             and bool(hooks.get("ok", True))
         ),
         "decision": decision,
         "reasons": reasons,
+        "pressure_findings": pressure_findings,
+        "runtime_errors": runtime_errors,
         "paths": {
             "latest": str(STORAGE_WRITE_PREFLIGHT_LATEST_PATH),
             "daily_glob": str(STORAGE_WRITE_PREFLIGHT_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
@@ -15214,6 +15297,9 @@ def storage_write_preflight(
             ),
             "source_schema": pressure.get("schema"),
             "source_generated_at": pressure.get("generated_at"),
+            "findings": pressure_findings,
+            "runtime_errors": pressure_runtime_errors,
+            "status": "finding" if pressure_findings else ("error" if pressure_runtime_errors else "ok"),
         },
         "target": {
             "protection": protection,
@@ -15241,6 +15327,8 @@ def storage_write_preflight(
             "fresh_pressure_and_capacity_gate": True,
             "full_cleanup_monitor_not_required": True,
             "process_guard_not_a_write_admission_input": True,
+            "pressure_findings_do_not_override_allowed_target": True,
+            "runtime_errors_fail_closed": True,
         },
         "hooks": {"pre_large_write": hooks},
         "reservations": {
@@ -15735,10 +15823,14 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
         coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
         coverage["mode"] = "deep"
         coverage["new_results"] = len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0
+        runtime_errors = list(coverage.get("runtime_errors", []))
         if discovery_errors:
-            coverage["runtime_errors"] = list(coverage.get("runtime_errors", [])) + discovery_errors
-            coverage["runtime_error_count"] = len(coverage["runtime_errors"])
-        data["ok"] = not bool(discovery_errors)
+            runtime_errors.extend(discovery_errors)
+        coverage["runtime_errors"] = runtime_errors
+        coverage["runtime_error_count"] = len(runtime_errors)
+        # A fresh snapshot with an inaccessible evidence surface is still a
+        # runtime failure even when candidate discovery itself succeeded.
+        data["ok"] = not bool(runtime_errors)
         data["coverage"] = coverage
         data["runtime_errors"] = list(coverage.get("runtime_errors", []))
         data["pressure_findings"] = list(coverage.get("pressure_findings", []))
@@ -17205,6 +17297,13 @@ def resource_paths() -> dict[str, Any]:
             "reservations": str(resource_adapters.reservations_root(os.environ, uid=os.getuid())),
             "retention": "runtime_only",
         },
+        "storage_reservations": {
+            "root": str(STORAGE_RESERVATIONS_ROOT),
+            "records": str(STORAGE_RESERVATIONS_ROOT / "records"),
+            "retention_limit": storage_reservations.TERMINAL_RETENTION_LIMIT,
+            "resource_launch_binding": "explicit --bytes plus --target only",
+            "release": "confirmed systemd terminal state",
+        },
         "validate": str(RESOURCE_VALIDATE_LATEST_PATH),
         "commands": {
             "paths": "abyss-machine resource paths --json",
@@ -18171,6 +18270,31 @@ def resource_launch(
     if clean_command and not unit:
         generated_unit = resource_generated_unit_name(kind, workload_class, unit_type)
         launch_unit = generated_unit
+    storage_reservation_requested = bytes_required is not None or target is not None
+    storage_reservation_pair_valid = (
+        bytes_required is not None
+        and bool(str(target or "").strip())
+        and int(bytes_required) >= 0
+    ) if bytes_required is not None else not storage_reservation_requested
+    storage_reservation_input_error: str | None = None
+    if storage_reservation_requested and not storage_reservation_pair_valid:
+        if bytes_required is None or not str(target or "").strip():
+            storage_reservation_input_error = "storage_reservation_bytes_and_target_required"
+        else:
+            storage_reservation_input_error = "storage_reservation_bytes_must_be_nonnegative"
+    storage_reservation: dict[str, Any] | None = None
+    storage_reservation_result: dict[str, Any] | None = None
+    storage_reservation_release: dict[str, Any] | None = None
+    storage_reservation_owner = str(demand_owner or resource_valid_kind(kind)).strip() or resource_valid_kind(kind)
+    storage_reservation_id = (
+        f"resource-launch:{launch_unit or resource_valid_kind(kind)}:{os.getpid()}:{time.time_ns()}"
+        if storage_reservation_pair_valid and clean_command
+        else None
+    )
+    storage_execution_identity = (
+        f"{storage_reservation_id}:execution" if storage_reservation_id else None
+    )
+    storage_reservation_ttl = resource_launch_storage_reservation_ttl(timeout_sec)
     policy = resource_policy_document()
     startup_policy = policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {}
     reservation_root = resource_adapters.reservations_root(os.environ, uid=os.getuid())
@@ -18495,6 +18619,102 @@ def resource_launch(
                                     reservation_root,
                                     lease,
                                 )
+                            if (
+                                storage_reservation_pair_valid
+                                and storage_reservation_input_error is None
+                                and not storage_reservation
+                            ):
+                                target_path = Path(str(target)).expanduser()
+                                protection = storage_path_protection(target_path)
+                                if (
+                                    protection.get("decision") != "allow_candidate"
+                                    or protection.get("class") != "host_owned_allowed"
+                                ):
+                                    storage_reservation_result = {
+                                        "schema": storage_reservations.SCHEMA,
+                                        "ok": False,
+                                        "decision": "blocked",
+                                        "reservation_id": storage_reservation_id,
+                                        "error": "reservation_target_protected_or_unknown",
+                                        "protection": protection,
+                                    }
+                                else:
+                                    requested_storage_bytes = max(0, int(bytes_required or 0))
+                                    min_free_after = max(
+                                        5 * 1024 * 1024 * 1024,
+                                        int(requested_storage_bytes * 0.10),
+                                    )
+                                    try:
+                                        storage_reservation_result = storage_reservations.acquire_reservation(
+                                            STORAGE_RESERVATIONS_ROOT,
+                                            reservation_id=str(storage_reservation_id),
+                                            kind=resource_launch_storage_reservation_kind(
+                                                resource_valid_kind(kind)
+                                            ),
+                                            requested_bytes=requested_storage_bytes,
+                                            target=target_path,
+                                            owner=storage_reservation_owner,
+                                            ttl_seconds=storage_reservation_ttl,
+                                            min_free_after=min_free_after,
+                                            hold_until_terminal=True,
+                                            execution_identity=storage_execution_identity,
+                                        )
+                                    except (OSError, TypeError, ValueError) as exc:
+                                        storage_reservation_result = {
+                                            "schema": storage_reservations.SCHEMA,
+                                            "ok": False,
+                                            "decision": "blocked",
+                                            "reservation_id": storage_reservation_id,
+                                            "error": "storage_reservation_acquire_error",
+                                            "detail": str(exc)[:500],
+                                        }
+                                if storage_reservation_result.get("ok") is True:
+                                    record = storage_reservation_result.get("reservation")
+                                    if isinstance(record, dict):
+                                        storage_reservation = {
+                                            "reservation_id": str(
+                                                record.get("reservation_id")
+                                                or storage_reservation_id
+                                            ),
+                                            "owner": str(
+                                                record.get("owner")
+                                                or storage_reservation_owner
+                                            ),
+                                            "execution_identity": record.get(
+                                                "execution_identity"
+                                            ),
+                                            "requested_bytes": record.get(
+                                                "requested_bytes"
+                                            ),
+                                            "target": record.get("target"),
+                                            "kind": record.get("kind"),
+                                            "ttl_seconds": storage_reservation_ttl,
+                                        }
+                                    else:
+                                        # Never launch without carrying the
+                                        # identity required to release the
+                                        # accounting record that was acquired.
+                                        storage_reservation_result = {
+                                            "schema": storage_reservations.SCHEMA,
+                                            "ok": False,
+                                            "decision": "blocked",
+                                            "reservation_id": storage_reservation_id,
+                                            "error": "storage_reservation_record_missing",
+                                        }
+                                elif isinstance(lease, dict):
+                                    # The disk admission failed while the
+                                    # shared resource lock was held; release
+                                    # the memory startup lease before leaving
+                                    # the atomic admission section.
+                                    lease_id = str(lease.get("id") or "")
+                                    if lease_id:
+                                        resource_adapters.remove_lease(
+                                            reservation_root,
+                                            lease_id,
+                                        )
+                                    lease = None
+                                    lease_path = None
+                                    lease_released = True
                 finally:
                     admission_lock_held_sec += max(
                         0.0,
@@ -18511,11 +18731,86 @@ def resource_launch(
 
     blocked = list(plan.get("blocked_reasons") or [])
     denied = list(plan.get("denied_reasons") or [])
+    if storage_reservation_input_error:
+        denied.append(storage_reservation_input_error)
+    if (
+        storage_reservation_requested
+        and storage_reservation_pair_valid
+        and storage_reservation_result is not None
+        and storage_reservation_result.get("ok") is not True
+    ):
+        denied.append("storage_reservation_acquire_failed")
     if not clean_command:
         denied.append("missing_command")
+    denied = list(dict.fromkeys(str(item) for item in denied))
+
+    def release_prelaunch_storage_reservation() -> None:
+        """Release an acquired lease when validation prevents any launch."""
+        nonlocal storage_reservation_release
+        if not isinstance(storage_reservation, dict) or storage_reservation_release is not None:
+            return
+        reservation_id = str(storage_reservation.get("reservation_id") or "")
+        try:
+            released = storage_reservations.release_reservation(
+                STORAGE_RESERVATIONS_ROOT,
+                reservation_id,
+                owner=str(storage_reservation.get("owner") or "") or None,
+                execution_identity=(
+                    str(storage_reservation.get("execution_identity"))
+                    if storage_reservation.get("execution_identity")
+                    else None
+                ),
+            )
+            storage_reservation_release = {
+                "requested": True,
+                **released,
+                "release_pending": not bool(released.get("ok")),
+                "completion": {
+                    "confirmed_terminal": True,
+                    "confirmation": "prelaunch_validation_failed",
+                    "unit": launch_unit,
+                },
+            }
+        except (OSError, TypeError, ValueError) as exc:
+            storage_reservation_release = {
+                "requested": True,
+                "ok": False,
+                "decision": "blocked",
+                "release_pending": True,
+                "reservation_id": reservation_id,
+                "error": "storage_reservation_release_error",
+                "detail": str(exc)[:500],
+                "completion": {
+                    "confirmed_terminal": True,
+                    "confirmation": "prelaunch_validation_failed",
+                    "unit": launch_unit,
+                },
+            }
+
+    def release_prelaunch_memory_lease() -> None:
+        """Match the storage cleanup when post-admission validation denies launch."""
+        nonlocal lease, lease_path, lease_released
+        if not isinstance(lease, dict):
+            return
+        lease_id = str(lease.get("id") or "")
+        if lease_id:
+            resource_adapters.remove_lease(reservation_root, lease_id)
+        lease = None
+        lease_path = None
+        lease_released = True
+
+    if denied or blocked:
+        # Input validation can fail after the shared admission section (for
+        # example an incomplete --bytes/--target pair).  Do not leave a
+        # startup lease or accounting record behind when no unit will run.
+        release_prelaunch_storage_reservation()
+        release_prelaunch_memory_lease()
+
     workspace_lifecycle: dict[str, Any] | None = None
     if bool(workspace_path) != bool(workspace_owner):
         denied.append("managed_workspace_path_and_owner_required_together")
+        release_prelaunch_storage_reservation()
+        release_prelaunch_memory_lease()
     if not dry_run and not denied and not blocked and clean_command and workspace_path and workspace_owner:
         registered = storage_lifecycle_adapters.register_workspace(
             STORAGE_LIFECYCLE_ROOT,
@@ -18543,6 +18838,8 @@ def resource_launch(
                 environment.update(registered["environment"])
         else:
             denied.append("managed_workspace_registration_failed")
+            release_prelaunch_storage_reservation()
+            release_prelaunch_memory_lease()
     systemd_cmd = resource_systemd_command(plan, clean_command, unit=launch_unit, same_dir=same_dir) if clean_command else []
     planning_elapsed_sec = max(
         0.0,
@@ -18558,11 +18855,41 @@ def resource_launch(
         observation: dict[str, Any] | None,
         waiter: str,
     ) -> dict[str, Any]:
+        storage_accounting_complete = bool(
+            dry_run
+            or not storage_reservation_requested
+            or (
+                isinstance(storage_reservation_release, dict)
+                and storage_reservation_release.get("ok") is True
+                and not storage_reservation_release.get("release_pending")
+            )
+        )
+        storage_document = {
+            "requested": bool(storage_reservation_requested),
+            "accounting_complete": storage_accounting_complete,
+            "reservation": storage_reservation,
+            "acquire": storage_reservation_result,
+            "release": storage_reservation_release,
+            "root": str(STORAGE_RESERVATIONS_ROOT),
+            "policy": {
+                "owner": storage_reservation_owner,
+                "kind": resource_launch_storage_reservation_kind(
+                    resource_valid_kind(kind)
+                ),
+                "hold_until_terminal": bool(storage_reservation_requested),
+                "terminal_confirmation_required": True,
+            },
+        }
         return {
             "schema": f"{SCHEMA_PREFIX}_resource_launch_v1",
             "version": VERSION,
             "generated_at": now_iso(),
-            "ok": not denied and not blocked and (dry_run or bool(execution and execution.get("ok"))),
+            "ok": (
+                not denied
+                and not blocked
+                and (dry_run or bool(execution and execution.get("ok")))
+                and storage_accounting_complete
+            ),
             "dry_run": bool(dry_run),
             "request_started_at": request_started_at,
             "started_at": started_at,
@@ -18589,6 +18916,7 @@ def resource_launch(
                 "command": clean_command,
                 "bytes_required": bytes_required,
                 "target": target,
+                "storage_reservation_requested": bool(storage_reservation_requested),
                 "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
                 "demand_key": resolved_demand_key,
                 "demand_owner": demand_owner,
@@ -18641,7 +18969,7 @@ def resource_launch(
                     "held_sec": round(admission_lock_held_sec, 3),
                     "contains_expensive_preflight": False,
                     "atomic_scope": (
-                        "fresh_resource_plan_reservation_recheck_and_lease"
+                        "fresh_resource_plan_reservation_recheck_memory_lease_and_storage_reservation"
                     ),
                 },
             },
@@ -18656,6 +18984,7 @@ def resource_launch(
                 "demand_profile_path": str(demand_profile_path),
                 "demand_observation": observation,
             },
+            "storage_reservation": storage_document,
             "paths": {
                 "latest": str(RESOURCE_RUN_LATEST_PATH),
                 "retention": "latest_only",
@@ -18682,6 +19011,12 @@ def resource_launch(
                 "runtime_peak_learning": True,
                 "runtime_profile_is_bounded_and_ephemeral": True,
                 "static_memory_caps_applied": False,
+                "storage_reservation_explicit_bytes_target_only": True,
+                "storage_reservation_acquired_under_admission_lock": bool(
+                    storage_reservation is not None
+                ),
+                "storage_reservation_release_requires_terminal_confirmation": True,
+                "storage_reservation_does_not_wrap_native_codex_agents": True,
                 "long_waiter": waiter,
             },
         }
@@ -18717,6 +19052,8 @@ def resource_launch(
                     "profile_max_entries": int(startup_policy.get("profile_max_entries", 64)),
                     "profile_max_samples": int(startup_policy.get("profile_max_samples", 16)),
                     "workspace_lifecycle": workspace_lifecycle,
+                    "storage_reservation": storage_reservation,
+                    "storage_reservation_root": str(STORAGE_RESERVATIONS_ROOT),
                 },
                 "write_latest": bool(write_latest),
                 "latest_path": str(RESOURCE_RUN_LATEST_PATH),
@@ -18730,11 +19067,33 @@ def resource_launch(
                     lease_id = str(lease.get("id") or "")
                     if lease_id:
                         resource_adapters.remove_lease(reservation_root, lease_id)
+                if isinstance(storage_reservation, dict):
+                    storage_reservations.release_reservation(
+                        STORAGE_RESERVATIONS_ROOT,
+                        str(storage_reservation.get("reservation_id") or ""),
+                        owner=str(storage_reservation.get("owner") or "") or None,
+                        execution_identity=(
+                            str(storage_reservation.get("execution_identity"))
+                            if storage_reservation.get("execution_identity")
+                            else None
+                        ),
+                    )
                 raise
             if isinstance(lease, dict):
                 lease_id = str(lease.get("id") or "")
                 if lease_id:
                     resource_adapters.remove_lease(reservation_root, lease_id)
+            if isinstance(storage_reservation, dict):
+                storage_reservations.release_reservation(
+                    STORAGE_RESERVATIONS_ROOT,
+                    str(storage_reservation.get("reservation_id") or ""),
+                    owner=str(storage_reservation.get("owner") or "") or None,
+                    execution_identity=(
+                        str(storage_reservation.get("execution_identity"))
+                        if storage_reservation.get("execution_identity")
+                        else None
+                    ),
+                )
             raise RuntimeError("resource launch execution delegate returned unexpectedly")
         outcome = resource_adapters.execute_systemd_launch(
             systemd_command=systemd_cmd,
@@ -18752,11 +19111,18 @@ def resource_launch(
             profile_max_entries=int(startup_policy.get("profile_max_entries", 64)),
             profile_max_samples=int(startup_policy.get("profile_max_samples", 16)),
             parse_output=resource_parse_systemd_run_output,
+            storage_reservation=storage_reservation,
+            storage_reservation_root=STORAGE_RESERVATIONS_ROOT,
         )
         result = outcome["execution"]
         elapsed = float(outcome["elapsed_sec"])
         lease_released = bool(outcome["lease_released"])
         demand_observation = outcome.get("demand_observation")
+        storage_reservation_release = (
+            outcome.get("storage_reservation_release")
+            if isinstance(outcome.get("storage_reservation_release"), dict)
+            else None
+        )
         workspace_finalization = None
         if workspace_lifecycle:
             workspace_finalization = storage_lifecycle_adapters.finalize_managed_workspace(

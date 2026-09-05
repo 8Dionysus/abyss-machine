@@ -16,28 +16,29 @@ from abyss_machine import ai_runtime_contracts
 
 
 def test_policy_user_binding_does_not_embed_operator_placeholder(monkeypatch) -> None:
-    monkeypatch.setattr(cli, "ABYSS_USER_HOME", Path("/home/dionysus"))
+    test_home = Path("/home/testing-user")
+    monkeypatch.setattr(cli, "ABYSS_USER_HOME", test_home)
     monkeypatch.setattr(cli, "ABYSS_MACHINE_CACHE_ROOT", Path("/srv/abyss-machine/cache"))
 
     assert cli.rootless_podman_target_graphroot() == Path(
-        "/srv/abyss-machine/storage/home/dionysus/containers/storage"
+        "/srv/abyss-machine/storage/home/testing-user/containers/storage"
     )
     assert cli.routed_home_cache_path("pip") == Path(
-        "/srv/abyss-machine/cache/home/dionysus/cache/pip"
+        "/srv/abyss-machine/cache/home/testing-user/cache/pip"
     )
     assert "operator" not in str(cli.routed_home_cache_path("pip"))
 
 
 def test_ai_subprocess_cache_routes_follow_policy_home() -> None:
     env = ai_runtime_contracts.subprocess_env(
-        {"ABYSS_USER_HOME": "/home/dionysus"},
+        {"ABYSS_USER_HOME": "/home/testing-user"},
         machine_cache_root=Path("/srv/abyss-machine/cache"),
         ai_cache_root=Path("/srv/abyss-machine/cache/ai"),
         tmp_root=Path("/srv/abyss-machine/tmp"),
         openvino_cache_root=Path("/srv/abyss-machine/cache/ai/openvino"),
     )
-    assert env["XDG_CACHE_HOME"] == "/srv/abyss-machine/cache/home/dionysus/cache"
-    assert env["PIP_CACHE_DIR"] == "/srv/abyss-machine/cache/home/dionysus/cache/pip"
+    assert env["XDG_CACHE_HOME"] == "/srv/abyss-machine/cache/home/testing-user/cache"
+    assert env["PIP_CACHE_DIR"] == "/srv/abyss-machine/cache/home/testing-user/cache/pip"
     assert "operator" not in env["PIP_CACHE_DIR"]
 
 
@@ -166,6 +167,42 @@ def test_candidate_freshness_and_coverage_separate_runtime_and_pressure() -> Non
     assert document["coverage"]["physical_measured"] == 1
     assert document["runtime_errors"] == []
     assert document["pressure_findings"][0]["candidate_id"] == document["candidates"][0]["candidate_id"]
+
+
+def test_candidate_deep_refresh_preserves_runtime_errors_from_coverage(monkeypatch) -> None:
+    runtime_error = {
+        "candidate_id": "candidate-a",
+        "surface": "service_refs",
+        "error": "service probe failed",
+    }
+
+    monkeypatch.setattr(cli, "load_json_document", lambda path: ({}, None))
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", lambda **kwargs: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(
+        cli.storage_candidate_contracts,
+        "candidates_document",
+        lambda observations, **kwargs: {
+            "ok": True,
+            "candidates": [],
+            "coverage": {
+                "runtime_errors": [runtime_error],
+                "pressure_findings": [],
+            },
+        },
+    )
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+
+    assert refreshed["ok"] is False
+    assert refreshed["runtime_errors"] == [runtime_error]
+    assert refreshed["coverage"]["runtime_error_count"] == 1
 
 
 def test_reservations_are_atomic_idempotent_and_expire(tmp_path: Path) -> None:

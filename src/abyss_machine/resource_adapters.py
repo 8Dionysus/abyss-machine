@@ -13,6 +13,11 @@ import tempfile
 import time
 from typing import Any, Callable, Iterable, Mapping
 
+try:
+    from . import storage_reservations
+except ImportError:
+    import storage_reservations  # type: ignore[no-redef]
+
 
 UnitStatePort = Callable[[str], dict[str, Any]]
 PidAlivePort = Callable[[int], bool]
@@ -455,6 +460,129 @@ def systemd_user_unit_cleanup(
     return data
 
 
+def _confirm_systemd_unit_terminal(
+    unit: str,
+    *,
+    unit_state_port: UnitStatePort | None,
+    source: str,
+) -> dict[str, Any]:
+    """Return terminal evidence without treating a timeout as completion."""
+    normalized_unit = str(unit or "").strip()
+    if not normalized_unit:
+        return {
+            "confirmed_terminal": False,
+            "confirmation": "unit_identity_unavailable",
+            "unit": None,
+        }
+    state_reader = unit_state_port or systemd_user_unit_state
+    try:
+        state = state_reader(normalized_unit)
+    except Exception as exc:  # a failed probe is uncertainty, not completion
+        return {
+            "confirmed_terminal": False,
+            "confirmation": "unit_state_probe_error",
+            "unit": normalized_unit,
+            "state_error": str(exc)[:500],
+        }
+    if not isinstance(state, Mapping):
+        return {
+            "confirmed_terminal": False,
+            "confirmation": "unit_state_invalid",
+            "unit": normalized_unit,
+        }
+    active = state.get("active") is True or str(state.get("state") or "") in {
+        "active",
+        "activating",
+        "reloading",
+        "deactivating",
+    }
+    state_name = str(state.get("state") or "").strip().lower()
+    terminal_state = state_name in {
+        "inactive",
+        "failed",
+        "dead",
+        "exited",
+        "missing",
+        "not-found",
+        "not_found",
+        "gone",
+    }
+    # ``systemd_user_unit_state`` reports ``exists=False`` when its probe
+    # itself fails.  A probe error or an unknown state is uncertainty, not
+    # evidence that the workload has stopped.
+    probe_error = state.get("error") or state.get("state_error")
+    confirmed = bool(
+        not probe_error
+        and not active
+        and (
+            terminal_state
+            or (
+                state.get("exists") is False
+                and state_name in {"missing", "not-found", "not_found", "gone"}
+            )
+        )
+    )
+    return {
+        "confirmed_terminal": confirmed,
+        "confirmation": source if confirmed else "unit_still_active_or_unknown",
+        "unit": normalized_unit,
+        "state": dict(state),
+    }
+
+
+def _release_storage_reservation(
+    reservation: Mapping[str, Any] | None,
+    reservation_root: Path | None,
+    completion: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Release only after terminal evidence; keep active state on uncertainty."""
+    if not isinstance(reservation, Mapping):
+        return {"requested": False, "ok": True, "decision": "not_requested"}
+    reservation_id = str(reservation.get("reservation_id") or "").strip()
+    if not reservation_id or reservation_root is None:
+        return {
+            "requested": True,
+            "ok": False,
+            "decision": "blocked",
+            "error": "storage_reservation_identity_incomplete",
+        }
+    if completion.get("confirmed_terminal") is not True:
+        return {
+            "requested": True,
+            "ok": True,
+            "decision": "deferred_until_terminal",
+            "release_pending": True,
+            "reservation_id": reservation_id,
+            "completion": dict(completion),
+        }
+    try:
+        released = storage_reservations.release_reservation(
+            Path(reservation_root),
+            reservation_id,
+            owner=(str(reservation.get("owner")) if reservation.get("owner") else None),
+            execution_identity=(
+                str(reservation.get("execution_identity"))
+                if reservation.get("execution_identity")
+                else None
+            ),
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        return {
+            "requested": True,
+            "ok": False,
+            "decision": "blocked",
+            "error": "storage_reservation_release_error",
+            "detail": str(exc)[:500],
+            "reservation_id": reservation_id,
+        }
+    return {
+        "requested": True,
+        **released,
+        "release_pending": not bool(released.get("ok")),
+        "completion": dict(completion),
+    }
+
+
 def execute_systemd_launch(
     *,
     systemd_command: list[str],
@@ -473,6 +601,9 @@ def execute_systemd_launch(
     profile_max_samples: int,
     parse_output: Callable[[str], dict[str, Any]],
     run_port: RunPort | None = None,
+    unit_state_port: UnitStatePort | None = None,
+    storage_reservation: Mapping[str, Any] | None = None,
+    storage_reservation_root: Path | None = None,
 ) -> dict[str, Any]:
     runner = run_port or subprocess.run
     launch_started_epoch = time.time()
@@ -484,6 +615,11 @@ def execute_systemd_launch(
     result: dict[str, Any]
     lease_released = False
     launch_completed = False
+    completion: dict[str, Any] = {
+        "confirmed_terminal": False,
+        "confirmation": "unconfirmed",
+        "unit": launch_unit,
+    }
     try:
         proc = runner(
             systemd_command,
@@ -507,6 +643,23 @@ def execute_systemd_launch(
             "stderr_tail": proc.stderr[-4000:],
             "systemd": systemd_info,
         }
+        completion["unit"] = systemd_info.get("unit") or launch_unit
+        if unit_type != "scope":
+            # The service launch command includes --wait, so a returned
+            # subprocess means systemd has observed the unit's terminal
+            # result, including a non-zero workload exit status.
+            completion.update(
+                {
+                    "confirmed_terminal": True,
+                    "confirmation": "systemd_run_wait",
+                }
+            )
+        else:
+            completion = _confirm_systemd_unit_terminal(
+                str(completion.get("unit") or ""),
+                unit_state_port=unit_state_port,
+                source="scope_unit_state_after_run",
+            )
     except FileNotFoundError:
         result = {
             "ok": False,
@@ -514,6 +667,29 @@ def execute_systemd_launch(
             "stdout_tail": "",
             "stderr_tail": "systemd-run not found",
             "systemd": {},
+        }
+        completion = {
+            "confirmed_terminal": True,
+            "confirmation": "systemd_runner_missing",
+            "unit": None,
+        }
+    except OSError as exc:
+        # subprocess.run raises before a systemd unit can be started for
+        # invocation errors such as permission or resource failures.  Record
+        # the failure as terminal so an acquired accounting lease cannot be
+        # stranded when there is no runner process to finish it.
+        result = {
+            "ok": False,
+            "returncode": 126,
+            "stdout_tail": "",
+            "stderr_tail": str(exc)[:4000],
+            "systemd": {},
+        }
+        completion = {
+            "confirmed_terminal": True,
+            "confirmation": "systemd_runner_error",
+            "unit": None,
+            "error": str(exc)[:500],
         }
     except subprocess.TimeoutExpired as exc:
         stdout_tail = (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else ""
@@ -533,10 +709,23 @@ def execute_systemd_launch(
             "systemd": parsed,
             "timeout_cleanup": cleanup,
         }
+        completion = _confirm_systemd_unit_terminal(
+            str(cleanup_unit or ""),
+            unit_state_port=unit_state_port,
+            source="timeout_cleanup_unit_state",
+        )
     finally:
         if isinstance(lease, Mapping):
             lease_id = str(lease.get("id") or "")
             lease_released = remove_lease(reservation_root, lease_id) or not lease_path(reservation_root, lease_id).exists()
+
+    result["completion"] = completion
+    storage_reservation_release = _release_storage_reservation(
+        storage_reservation,
+        storage_reservation_root,
+        completion,
+    )
+    result["storage_reservation_release"] = storage_reservation_release
 
     demand_observation: dict[str, Any] | None = None
     if launch_unit and unit_type == "service" and launch_completed:
@@ -590,6 +779,8 @@ def execute_systemd_launch(
         "execution": result,
         "lease_released": lease_released,
         "demand_observation": demand_observation,
+        "completion": completion,
+        "storage_reservation_release": storage_reservation_release,
     }
 
 

@@ -5,7 +5,9 @@ filesystem space, or grant permission to mutate a target.  The caller must
 still run write-preflight and its owner-specific hooks immediately before the
 write.  A single flock-protected directory makes acquire/release/expiry
 updates atomic for concurrent user processes without introducing a resident
-resource controller.
+resource controller.  A resource launch may hold a lease past its nominal
+TTL until its systemd unit has a confirmed terminal state; expiry never
+silently releases such a lease.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from .storage_adapters import disk_usage_summary, existing_ancestor
 
 
 SCHEMA = "abyss_machine_storage_write_reservation_v1"
+TERMINAL_RETENTION_LIMIT = 128
 
 
 def _now() -> dt.datetime:
@@ -140,6 +143,8 @@ def _state_errors_unlocked(root: Path) -> list[dict[str, Any]]:
             errors.append({"path": str(path), "error": "active_flag_invalid"})
         if value.get("active") is True and _parse_time(value.get("expires_at")) is None:
             errors.append({"path": str(path), "error": "active_expiry_invalid"})
+        if "hold_until_terminal" in value and not isinstance(value.get("hold_until_terminal"), bool):
+            errors.append({"path": str(path), "error": "hold_until_terminal_invalid"})
         if not str(value.get("filesystem_key") or ""):
             errors.append({"path": str(path), "error": "filesystem_key_missing"})
     return errors
@@ -157,12 +162,75 @@ def _expire_unlocked(root: Path, now: dt.datetime) -> list[dict[str, Any]]:
             continue
         if deadline > now:
             continue
+        if record.get("hold_until_terminal") is True:
+            if record.get("expiry_deferred") is not True:
+                record["expiry_deferred"] = True
+                record["expiry_deferred_at"] = _iso(now)
+                record["status"] = "active_terminal_hold"
+                _atomic_write(_reservation_path(root, str(record.get("reservation_id") or "")), record)
+            continue
         record["active"] = False
         record["status"] = "expired"
         record["expired_at"] = _iso(now)
         _atomic_write(_reservation_path(root, str(record.get("reservation_id") or "")), record)
         expired.append(record)
     return expired
+
+
+def _terminal_time(record: Mapping[str, Any]) -> dt.datetime:
+    for field in ("released_at", "expired_at", "finished_at", "issued_at"):
+        parsed = _parse_time(record.get(field))
+        if parsed is not None:
+            return parsed
+    return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+
+
+def _prune_terminal_unlocked(
+    root: Path,
+    *,
+    retention_limit: int = TERMINAL_RETENTION_LIMIT,
+) -> list[dict[str, Any]]:
+    """Keep active state intact while bounding completed lease metadata."""
+    limit = max(1, int(retention_limit))
+    terminal: list[tuple[Path, dict[str, Any]]] = []
+    records_root = root / "records"
+    for path in sorted(records_root.glob("*.json")):
+        if path.is_symlink():
+            continue
+        record = _read(path)
+        if not isinstance(record, dict):
+            continue
+        if record.get("schema") != SCHEMA or record.get("active") is not False:
+            continue
+        if record.get("status") not in {"released", "expired"}:
+            continue
+        terminal.append((path, record))
+    terminal.sort(key=lambda item: (_terminal_time(item[1]), item[0].name))
+    removed: list[dict[str, Any]] = []
+    for path, record in terminal[:-limit]:
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(
+            {
+                "reservation_id": record.get("reservation_id"),
+                "status": record.get("status"),
+                "path": str(path),
+            }
+        )
+    return removed
+
+
+def _expiry_deferred_unlocked(root: Path, now: dt.datetime) -> list[dict[str, Any]]:
+    deferred: list[dict[str, Any]] = []
+    for record in _records_unlocked(root):
+        if record.get("active") is not True or record.get("hold_until_terminal") is not True:
+            continue
+        deadline = _parse_time(record.get("expires_at"))
+        if deadline is not None and deadline <= now:
+            deferred.append(record)
+    return deferred
 
 
 def _capacity(
@@ -176,13 +244,23 @@ def _capacity(
         return dict(disk_usage(target))
 
 
-def list_reservations(root: Path, *, now: dt.datetime | None = None) -> dict[str, Any]:
+def list_reservations(
+    root: Path,
+    *,
+    now: dt.datetime | None = None,
+    terminal_retention_limit: int = TERMINAL_RETENTION_LIMIT,
+) -> dict[str, Any]:
     now = now or _now()
     with _lock(root) as handle:
         try:
             expired = _expire_unlocked(root, now)
+            pruned = _prune_terminal_unlocked(
+                root,
+                retention_limit=terminal_retention_limit,
+            )
             records = _records_unlocked(root)
             state_errors = _state_errors_unlocked(root)
+            deferred = _expiry_deferred_unlocked(root, now)
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     active = [item for item in records if item.get("active") is True]
@@ -193,6 +271,10 @@ def list_reservations(root: Path, *, now: dt.datetime | None = None) -> dict[str
         "records": records,
         "active": active,
         "expired_count": len(expired),
+        "expiry_deferred_count": len(deferred),
+        "expiry_deferred": deferred,
+        "pruned_count": len(pruned),
+        "terminal_retention_limit": max(1, int(terminal_retention_limit)),
         "state_errors": state_errors[:200],
         "active_reserved_bytes": sum(max(0, int(item.get("requested_bytes") or 0)) for item in active),
         "automatic_write": False,
@@ -251,6 +333,8 @@ def acquire_reservation(
     owner: str,
     ttl_seconds: int = 3600,
     min_free_after: int = 0,
+    hold_until_terminal: bool = False,
+    execution_identity: str | None = None,
     now: dt.datetime | None = None,
     disk_usage: Callable[..., Mapping[str, Any]] = disk_usage_summary,
 ) -> dict[str, Any]:
@@ -266,6 +350,7 @@ def acquire_reservation(
     with _lock(root) as handle:
         try:
             expired = _expire_unlocked(root, now)
+            pruned = _prune_terminal_unlocked(root)
             records = _records_unlocked(root)
             state_errors = _state_errors_unlocked(root)
             if state_errors:
@@ -286,7 +371,20 @@ def acquire_reservation(
                     and str(existing.get("owner") or "") == str(owner)
                 )
                 if same_request:
-                    return {"schema": SCHEMA, "ok": True, "decision": "already_reserved", "reservation": existing, "expired_count": len(expired)}
+                    if hold_until_terminal and existing.get("hold_until_terminal") is not True:
+                        existing["hold_until_terminal"] = True
+                        existing["status"] = "active_terminal_hold"
+                        if execution_identity and not existing.get("execution_identity"):
+                            existing["execution_identity"] = str(execution_identity)[:240]
+                        _atomic_write(_reservation_path(root, reservation_id), existing)
+                    return {
+                        "schema": SCHEMA,
+                        "ok": True,
+                        "decision": "already_reserved",
+                        "reservation": existing,
+                        "expired_count": len(expired),
+                        "pruned_count": len(pruned),
+                    }
                 return {"schema": SCHEMA, "ok": False, "decision": "conflict", "reservation_id": reservation_id, "error": "active_reservation_id_conflict"}
 
             usage = _capacity(target, disk_usage=disk_usage)
@@ -326,6 +424,8 @@ def acquire_reservation(
                 "active": True,
                 "status": "active",
                 "filesystem_key": filesystem_key,
+                "hold_until_terminal": bool(hold_until_terminal),
+                "execution_identity": str(execution_identity)[:240] if execution_identity else None,
                 "capacity": {
                     "available_to_user_bytes": available,
                     "active_reserved_bytes_before": active_reserved,
@@ -335,37 +435,103 @@ def acquire_reservation(
                 "automatic_write": False,
             }
             _atomic_write(_reservation_path(root, reservation_id), record)
-            return {"schema": SCHEMA, "ok": True, "decision": "reserved", "reservation": record, "expired_count": len(expired)}
+            return {
+                "schema": SCHEMA,
+                "ok": True,
+                "decision": "reserved",
+                "reservation": record,
+                "expired_count": len(expired),
+                "pruned_count": len(pruned),
+            }
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def release_reservation(root: Path, reservation_id: str, *, now: dt.datetime | None = None) -> dict[str, Any]:
+def release_reservation(
+    root: Path,
+    reservation_id: str,
+    *,
+    owner: str | None = None,
+    execution_identity: str | None = None,
+    now: dt.datetime | None = None,
+    terminal_retention_limit: int = TERMINAL_RETENTION_LIMIT,
+) -> dict[str, Any]:
     now = now or _now()
     with _lock(root) as handle:
         try:
             _expire_unlocked(root, now)
+            pruned = _prune_terminal_unlocked(
+                root,
+                retention_limit=terminal_retention_limit,
+            )
             path = _reservation_path(root, reservation_id)
             record = _read(path)
             if record is None:
                 return {"schema": SCHEMA, "ok": False, "decision": "missing", "reservation_id": reservation_id, "error": "reservation_not_found"}
+            if owner is not None and str(record.get("owner") or "") != str(owner):
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "reservation_owner_mismatch",
+                }
+            if execution_identity is not None and str(record.get("execution_identity") or "") != str(execution_identity):
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "reservation_execution_identity_mismatch",
+                }
             if record.get("active") is not True:
-                return {"schema": SCHEMA, "ok": True, "decision": "already_released", "reservation_id": reservation_id, "reservation": record}
+                return {
+                    "schema": SCHEMA,
+                    "ok": True,
+                    "decision": "already_released",
+                    "reservation_id": reservation_id,
+                    "reservation": record,
+                    "pruned_count": len(pruned),
+                }
             record["active"] = False
             record["status"] = "released"
             record["released_at"] = _iso(now)
+            record["hold_until_terminal"] = False
             _atomic_write(path, record)
-            return {"schema": SCHEMA, "ok": True, "decision": "released", "reservation_id": reservation_id, "reservation": record}
+            pruned.extend(
+                _prune_terminal_unlocked(
+                    root,
+                    retention_limit=terminal_retention_limit,
+                )
+            )
+            return {
+                "schema": SCHEMA,
+                "ok": True,
+                "decision": "released",
+                "reservation_id": reservation_id,
+                "reservation": record,
+                "pruned_count": len(pruned),
+            }
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def expire_reservations(root: Path, *, now: dt.datetime | None = None) -> dict[str, Any]:
+def expire_reservations(
+    root: Path,
+    *,
+    now: dt.datetime | None = None,
+    terminal_retention_limit: int = TERMINAL_RETENTION_LIMIT,
+) -> dict[str, Any]:
     now = now or _now()
     with _lock(root) as handle:
         try:
             expired = _expire_unlocked(root, now)
+            pruned = _prune_terminal_unlocked(
+                root,
+                retention_limit=terminal_retention_limit,
+            )
             state_errors = _state_errors_unlocked(root)
+            deferred = _expiry_deferred_unlocked(root, now)
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     return {
@@ -375,5 +541,9 @@ def expire_reservations(root: Path, *, now: dt.datetime | None = None) -> dict[s
         "generated_at": _iso(now),
         "expired": expired,
         "expired_count": len(expired),
+        "expiry_deferred_count": len(deferred),
+        "expiry_deferred": deferred,
+        "pruned_count": len(pruned),
+        "terminal_retention_limit": max(1, int(terminal_retention_limit)),
         "state_errors": state_errors[:200],
     }
