@@ -45,7 +45,9 @@ adapter's systemd wait margin; when those reserves are exhausted the runner
 defers before starting another unit.  Every attempt has a unique transient
 unit name.  If the outer wait expires, the runner issues a bounded stop and
 terminal-state probe and records the unit as pending when systemd cannot prove
-termination; it never retries an unresolved unit.  The owner runs through a
+termination; it never retries an unresolved unit.  A later timer tick relies
+on the existing resource admission lease and unknown-unit state to block
+overlap until that exact unit reaches terminal state.  The owner runs through a
 child wrapper inside the same resource lease, which drains stdout and stderr
 concurrently, stops the child as soon as either stream crosses its cap, and
 emits a summary below the resource adapter's 4 KiB tail.

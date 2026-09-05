@@ -748,7 +748,9 @@ def test_resource_timeout_probes_active_unit_and_does_not_retry(tmp_path: Path) 
     assert payload["status"] == "resource_launch_timeout_pending"
     assert payload["ok"] is False
     assert payload["deferred"] is True
-    assert payload["mutates"] is False
+    assert payload["mutates"] is None
+    assert payload["possibly_mutated"] is True
+    assert payload["mutation_state"] == "unknown_after_timeout"
     assert resource_calls == 1
     assert len(payload["attempts"]) == 1
     resource_summary = payload["resource_launch"]
@@ -762,6 +764,10 @@ def test_resource_timeout_probes_active_unit_and_does_not_retry(tmp_path: Path) 
     assert recovery["confirmed_terminal"] is False
     assert recovery["probe"]["state"]["ActiveState"] == "active"
     assert calls[-1][:3] == ["systemctl", "--user", "show"]
+    assert runner._resource_unit_name(1, run_id="run-a") != runner._resource_unit_name(
+        1,
+        run_id="run-b",
+    )
 
 
 def test_resource_adapter_timeout_document_enters_the_same_recovery_route() -> None:

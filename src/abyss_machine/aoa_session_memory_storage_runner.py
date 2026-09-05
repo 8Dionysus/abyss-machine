@@ -831,8 +831,6 @@ def _emit_child_payload(payload: Mapping[str, Any]) -> None:
 
 def _signal_owner_process(process: subprocess.Popen[Any], signal_number: int) -> None:
     """Signal the owner and its descendants without relying on output limits."""
-    if process.poll() is not None:
-        return
     try:
         os.killpg(process.pid, signal_number)
         return
@@ -1666,6 +1664,7 @@ def run_once(
             resource_summary = {
                 **_command_summary(result),
                 "resource_unit": resource_unit,
+                "possibly_mutated": True,
                 "timeout_source": (
                     "outer_wait"
                     if result.get("error") == "command_timeout"
@@ -1682,6 +1681,7 @@ def run_once(
             "returncode": resource_summary.get("returncode"),
             "owner_status": owner_summary.get("status") if owner_summary else None,
             "resource_unit": resource_unit,
+            "possibly_mutated": resource_summary.get("possibly_mutated", False),
             "terminal_confirmed": (
                 resource_summary.get("timeout_recovery", {}).get("confirmed_terminal")
                 if isinstance(resource_summary.get("timeout_recovery"), Mapping)
@@ -1732,7 +1732,9 @@ def run_once(
             "status": classification,
             "ok": False,
             "deferred": True,
-            "mutates": False,
+            "mutates": None,
+            "possibly_mutated": True,
+            "mutation_state": "unknown_after_timeout",
             "errors": ["resource_unit_terminal_state_unknown"],
         })
     elif classification == "resource_launch_timeout":
@@ -1740,7 +1742,9 @@ def run_once(
             "status": classification,
             "ok": False,
             "deferred": False,
-            "mutates": False,
+            "mutates": None,
+            "possibly_mutated": True,
+            "mutation_state": "unknown_after_timeout",
             "errors": [classification],
         })
     else:
