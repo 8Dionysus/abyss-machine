@@ -276,6 +276,54 @@ def test_resource_demand_profiles_are_bounded_and_use_observed_footprint() -> No
     assert profile["estimate_mib"] == 311.25
 
 
+def test_resource_demand_profiles_record_optional_identity_and_elapsed_metrics() -> None:
+    identity = "argv-sha256:" + ("a" * 64)
+    document: dict[str, object] = {}
+    for index in range(3):
+        document = resource_adapters.update_demand_profiles(
+            document,
+            key="light-maintenance",
+            owner="aoa-session-memory",
+            kind="generic",
+            memory_peak_mib=24,
+            memory_swap_peak_mib=0,
+            observed_at_epoch=1000 + index,
+            execution_succeeded=True,
+            execution_returncode=0,
+            command_identity=identity,
+            elapsed_sec=0.5,
+            multiplier=1.25,
+            max_entries=64,
+            max_samples=16,
+        )
+
+    profile = document["profiles"]["light-maintenance"]
+    assert profile["successful_sample_count"] == 3
+    assert profile["duration_sample_count"] == 3
+    assert profile["observed_max_elapsed_sec"] == 0.5
+    assert all(sample["command_identity"] == identity for sample in profile["samples"])
+    assert all(sample["elapsed_sec"] == 0.5 for sample in profile["samples"])
+
+    legacy = resource_adapters.update_demand_profiles(
+        {},
+        key="legacy",
+        owner="fixture",
+        kind="generic",
+        memory_peak_mib=24,
+        memory_swap_peak_mib=0,
+        observed_at_epoch=1000,
+        execution_succeeded=True,
+        execution_returncode=0,
+        multiplier=1.25,
+        max_entries=64,
+        max_samples=16,
+    )
+    legacy_profile = legacy["profiles"]["legacy"]
+    assert legacy_profile["successful_sample_count"] == 1
+    assert legacy_profile["duration_sample_count"] == 0
+    assert "elapsed_sec" not in legacy_profile["samples"][0]
+
+
 def test_resource_journal_peak_parser_uses_exact_unit_and_memory_plus_swap() -> None:
     unit = "abyss-machine-indexing-probe-fixture.service"
     commands: list[list[str]] = []
@@ -325,6 +373,7 @@ def test_resource_launch_uses_systemd_summary_when_collected_unit_has_no_journal
     tmp_path: Path,
 ) -> None:
     unit = "abyss-machine-indexing-probe-fixture.service"
+    identity = "argv-sha256:" + ("b" * 64)
     monkeypatch.setattr(
         resource_adapters,
         "journal_unit_resource_peaks",
@@ -355,6 +404,7 @@ def test_resource_launch_uses_systemd_summary_when_collected_unit_has_no_journal
             "result": "success",
             "memory_peak": "1.7M (swap: 32K)",
         },
+        command_identity=identity,
         run_port=lambda command, **_kwargs: subprocess.CompletedProcess(
             command,
             0,
@@ -367,6 +417,9 @@ def test_resource_launch_uses_systemd_summary_when_collected_unit_has_no_journal
     assert observation["recorded"] is True
     assert observation["peaks"]["source"] == "systemd_run_summary"
     assert observation["peaks"]["journal_fallback"]["error"] == "resource_peak_not_found"
+    assert observation["elapsed_sec"] >= 0.0
+    assert observation["record"]["profile"]["samples"][-1]["command_identity"] == identity
+    assert observation["record"]["profile"]["samples"][-1]["elapsed_sec"] == observation["elapsed_sec"]
     assert observation["record"]["profile"]["estimate_mib"] == 2.164
 
 

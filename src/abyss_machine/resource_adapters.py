@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -158,6 +159,23 @@ def demand_profile(document: Mapping[str, Any], key: str | None) -> dict[str, An
     return dict(profile) if isinstance(profile, dict) else None
 
 
+def _valid_command_identity(value: Any) -> str | None:
+    identity = str(value or "").strip()
+    if re.fullmatch(r"argv-sha256:[0-9a-f]{64}", identity):
+        return identity
+    return None
+
+
+def _bounded_elapsed_sec(value: Any) -> float | None:
+    try:
+        elapsed = float(value)
+    except (TypeError, ValueError):
+        elapsed = None
+    if elapsed is None or not math.isfinite(elapsed) or elapsed < 0.0 or elapsed > 86400.0:
+        return None
+    return round(elapsed, 3)
+
+
 def update_demand_profiles(
     document: Mapping[str, Any],
     *,
@@ -170,6 +188,8 @@ def update_demand_profiles(
     execution_succeeded: bool | None = None,
     execution_returncode: int | None = None,
     requested_demand_mib: float | None = None,
+    command_identity: str | None = None,
+    elapsed_sec: float | None = None,
     multiplier: float = 1.25,
     max_entries: int = 64,
     max_samples: int = 16,
@@ -191,6 +211,12 @@ def update_demand_profiles(
         sample["execution_returncode"] = int(execution_returncode)
     if requested_demand_mib is not None:
         sample["requested_demand_mib"] = round(max(0.0, float(requested_demand_mib)), 3)
+    normalized_command_identity = _valid_command_identity(command_identity)
+    if normalized_command_identity is not None:
+        sample["command_identity"] = normalized_command_identity
+    bounded_elapsed = _bounded_elapsed_sec(elapsed_sec)
+    if bounded_elapsed is not None:
+        sample["elapsed_sec"] = bounded_elapsed
     samples = [dict(item) for item in old_samples if isinstance(item, dict)] + [sample]
     samples = samples[-max(1, min(int(max_samples), 64)):]
     observed_max = max(float(item.get("footprint_peak_mib") or 0.0) for item in samples)
@@ -203,6 +229,14 @@ def update_demand_profiles(
         default=0.0,
     )
     observed_estimate = observed_max * max(1.0, float(multiplier))
+    successful_samples = [
+        item for item in samples if item.get("execution_succeeded") is True
+    ]
+    observed_durations = [
+        duration
+        for item in successful_samples
+        if (duration := _bounded_elapsed_sec(item.get("elapsed_sec"))) is not None
+    ]
     estimate_source = (
         "failed_execution_request_floor"
         if failed_demand_floor > observed_estimate
@@ -219,6 +253,9 @@ def update_demand_profiles(
             "failed_demand_floor_mib": round(failed_demand_floor, 3),
             "estimate_mib": round(max(observed_estimate, failed_demand_floor), 3),
             "estimate_source": estimate_source,
+            "successful_sample_count": len(successful_samples),
+            "duration_sample_count": len(observed_durations),
+            "observed_max_elapsed_sec": max(observed_durations, default=None),
             "samples": samples,
         }
     )
@@ -246,6 +283,8 @@ def record_demand_observation(
     execution_succeeded: bool | None = None,
     execution_returncode: int | None = None,
     requested_demand_mib: float | None = None,
+    command_identity: str | None = None,
+    elapsed_sec: float | None = None,
     multiplier: float = 1.25,
     max_entries: int = 64,
     max_samples: int = 16,
@@ -266,6 +305,8 @@ def record_demand_observation(
             execution_succeeded=execution_succeeded,
             execution_returncode=execution_returncode,
             requested_demand_mib=requested_demand_mib,
+            command_identity=command_identity,
+            elapsed_sec=elapsed_sec,
             multiplier=multiplier,
             max_entries=max_entries,
             max_samples=max_samples,
@@ -648,6 +689,7 @@ def execute_systemd_launch(
     profile_max_entries: int,
     profile_max_samples: int,
     parse_output: Callable[[str], dict[str, Any]],
+    command_identity: str | None = None,
     run_port: RunPort | None = None,
     unit_state_port: UnitStatePort | None = None,
     storage_reservation: Mapping[str, Any] | None = None,
@@ -664,6 +706,7 @@ def execute_systemd_launch(
     lease_released = False
     lease_terminal_pending = False
     launch_completed = False
+    execution_elapsed_sec: float | None = None
     completion: dict[str, Any] = {
         "confirmed_terminal": False,
         "confirmation": "unconfirmed",
@@ -678,6 +721,7 @@ def execute_systemd_launch(
             timeout=timeout_value,
             check=False,
         )
+        execution_elapsed_sec = max(0.0, time.monotonic() - started)
         combined = f"{proc.stdout}\n{proc.stderr}"
         launch_completed = True
         systemd_info = parse_output(combined)
@@ -811,6 +855,8 @@ def execute_systemd_launch(
             "execution_returncode": result.get("returncode"),
             "requested_demand_mib": lease.get("demand_mib") if isinstance(lease, Mapping) else None,
         }
+        if execution_elapsed_sec is not None:
+            observation["elapsed_sec"] = round(execution_elapsed_sec, 3)
         if peaks.get("ok") and demand_key:
             try:
                 recorded = record_demand_observation(
@@ -828,6 +874,8 @@ def execute_systemd_launch(
                         if isinstance(lease, Mapping) and lease.get("demand_mib") is not None
                         else None
                     ),
+                    command_identity=command_identity,
+                    elapsed_sec=execution_elapsed_sec,
                     multiplier=observed_peak_multiplier,
                     max_entries=profile_max_entries,
                     max_samples=profile_max_samples,

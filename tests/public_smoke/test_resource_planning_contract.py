@@ -11,6 +11,83 @@ if str(SRC_ROOT) not in sys.path:
 from abyss_machine import resource_planning
 
 
+def _light_maintenance_policy(identity: str) -> dict[str, object]:
+    policy = resource_planning.default_policy(version="test")
+    policy["startup_admission"]["bounded_light_maintenance"] = {
+        "enabled": True,
+        "contract_allowlist": [
+            {
+                "owner": "abyss-machine",
+                "demand_key": "storage-capacity",
+                "command_identity": identity,
+            }
+        ],
+        "max_estimate_mib": 64,
+        "min_successful_samples": 3,
+        "max_profile_age_sec": 300,
+        "max_elapsed_sec": 5,
+    }
+    return policy
+
+
+def _light_profile(
+    identity: str,
+    *,
+    missing_duration: bool = False,
+    mixed_identity: bool = False,
+    observed_epochs: list[float] | None = None,
+    failed_sample: bool = False,
+) -> dict[str, object]:
+    samples: list[dict[str, object]] = []
+    for index in range(3):
+        sample: dict[str, object] = {
+            "observed_at_epoch": (
+                observed_epochs or [990.0, 991.0, 992.0]
+            )[index],
+            "memory_peak_mib": 24.0,
+            "memory_swap_peak_mib": 0.0,
+            "footprint_peak_mib": 24.0,
+            "execution_succeeded": not failed_sample or index != 0,
+            "execution_returncode": 0 if not failed_sample or index != 0 else 1,
+            "command_identity": (
+                identity
+                if not mixed_identity or index < 2
+                else f"{identity}-other"
+            ),
+        }
+        if (not missing_duration or index) and (
+            not failed_sample or index != 0
+        ):
+            sample["elapsed_sec"] = 0.5
+        samples.append(sample)
+    return {
+        "key": "storage-capacity",
+        "owner": "abyss-machine",
+        "kind": "generic",
+        "sample_count": 3,
+        "observed_max_mib": 24.0,
+        "failed_demand_floor_mib": 0.0,
+        "estimate_mib": 30.0,
+        "estimate_source": "runtime_observed_unit_peak",
+        "samples": samples,
+    }
+
+
+def test_resource_command_identity_hashes_caller_argv_without_retaining_it() -> None:
+    first = resource_planning.command_identity(["--", "storage", "capacity"])
+    second = resource_planning.command_identity(["storage", "capacity"])
+    empty_arg = resource_planning.command_identity(["storage", "", "capacity"])
+    changed = resource_planning.command_identity(["storage", "capacity", "--json"])
+
+    assert first != second
+    assert second != empty_arg
+    assert first is not None
+    assert first.startswith("argv-sha256:")
+    assert len(first) == len("argv-sha256:") + 64
+    assert changed != first
+    assert resource_planning.command_identity("aoa-session-memory") is None
+
+
 def test_resource_owner_activity_requires_explicit_foreground_and_rejects_conflicts() -> None:
     unspecified = resource_planning.owner_activity(None, unattended=False)
     legacy_background = resource_planning.owner_activity(None, unattended=True)
@@ -225,6 +302,316 @@ def test_resource_startup_projection_defers_only_new_unattended_work_during_acti
     assert foreground_active_stall["admission"]["unattended_start"] is False
     assert quiet_unattended["admission"]["allowed"] is True
     assert quiet_unattended["admission"]["active_stall"] is False
+
+
+def test_resource_bounded_light_maintenance_requires_measured_identity_and_duration() -> None:
+    identity = resource_planning.command_identity(
+        ["/usr/local/bin/abyss-machine", "storage", "capacity", "--json"]
+    )
+    assert identity is not None
+    policy = _light_maintenance_policy(identity)
+    demand = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="light",
+        kind="generic",
+        explicit_mib=None,
+        demand_key="storage-capacity",
+        demand_owner="abyss-machine",
+        learned_profile=_light_profile(identity),
+        command_identity=identity,
+    )
+    projection = resource_planning.startup_demand_projection(
+        memory_summary={
+            "mem_total_mib": 32000,
+            "mem_available_mib": 13000,
+            "psi_some_avg10": 0.0,
+            "psi_full_avg10": 3.0,
+        },
+        current_memory_class="critical",
+        memory_policy={
+            "thresholds": {
+                "mem_available_percent": {
+                    "watch_below": 30,
+                    "warm_below": 22,
+                    "hot_below": 14,
+                    "critical_below": 8,
+                },
+                "psi_some_avg10": {"hot_above": 8.0},
+                "psi_full_avg10": {"hot_above": 2.0},
+            }
+        },
+        demand=demand,
+        reservations={
+            "summary": {
+                "active_count": 0,
+                "known_count": 0,
+                "unknown_count": 0,
+                "outstanding_mib": 0,
+            }
+        },
+        unattended=True,
+        activity="maintenance",
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+
+    assert projection["admission"]["bounded_light_maintenance"]["eligible"] is True
+    assert projection["admission"]["bounded_light_maintenance"]["observed_max_elapsed_sec"] == 0.5
+    assert projection["admission"]["blocked_reasons"] == []
+    assert projection["admission"]["active_stall"] is True
+
+    actual_compactor = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="medium",
+        kind="indexing",
+        explicit_mib=2048,
+        demand_key="aoa-session-memory:raw-block-storage-compact",
+        demand_owner="aoa-session-memory",
+    )
+    actual_compactor_projection = resource_planning.startup_demand_projection(
+        memory_summary={"mem_total_mib": 32000, "mem_available_mib": 13000, "psi_full_avg10": 3.0},
+        current_memory_class="critical",
+        memory_policy={"thresholds": {"psi_full_avg10": {"hot_above": 2.0}}},
+        demand=actual_compactor,
+        reservations={"summary": {"unknown_count": 0, "outstanding_mib": 0}},
+        unattended=True,
+        activity="maintenance",
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert actual_compactor_projection["admission"]["bounded_light_maintenance"]["reason"] == (
+        "bounded_light_maintenance_requires_light_class"
+    )
+    assert actual_compactor_projection["admission"]["blocked_reasons"] == [
+        "new_unattended_work_during_active_memory_stall"
+    ]
+
+
+def test_resource_bounded_light_maintenance_preserves_hard_reserve_and_rejects_stale_profiles() -> None:
+    identity = resource_planning.command_identity(
+        ["/usr/local/bin/abyss-machine", "storage", "capacity", "--json"]
+    )
+    assert identity is not None
+    policy = _light_maintenance_policy(identity)
+    demand = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="light",
+        kind="generic",
+        explicit_mib=None,
+        demand_key="storage-capacity",
+        demand_owner="abyss-machine",
+        learned_profile=_light_profile(identity),
+        command_identity=identity,
+    )
+    reserve_projection = resource_planning.startup_demand_projection(
+        memory_summary={"mem_total_mib": 32000, "mem_available_mib": 2000, "psi_full_avg10": 3.0},
+        current_memory_class="critical",
+        memory_policy={"thresholds": {"psi_full_avg10": {"hot_above": 2.0}}},
+        demand=demand,
+        reservations={"summary": {"unknown_count": 0, "outstanding_mib": 0}},
+        unattended=True,
+        activity="maintenance",
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert reserve_projection["admission"]["bounded_light_maintenance"]["eligible"] is True
+    assert reserve_projection["admission"]["blocked_reasons"] == [
+        "projected_mem_available_below_hard_reserve"
+    ]
+
+    old_demand = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="light",
+        kind="generic",
+        explicit_mib=None,
+        demand_key="storage-capacity",
+        demand_owner="abyss-machine",
+        learned_profile=_light_profile(identity, missing_duration=True),
+        command_identity=identity,
+    )
+    old_eligibility = resource_planning.bounded_light_maintenance_eligibility(
+        demand=old_demand,
+        activity="maintenance",
+        unattended=True,
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert old_eligibility["reason"] == "bounded_light_maintenance_profile_duration_missing"
+
+    stale_profile = _light_profile(identity)
+    for sample in stale_profile["samples"]:
+        sample["observed_at_epoch"] = 600.0
+    stale_demand = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="light",
+        kind="generic",
+        explicit_mib=None,
+        demand_key="storage-capacity",
+        demand_owner="abyss-machine",
+        learned_profile=stale_profile,
+        command_identity=identity,
+    )
+    stale_eligibility = resource_planning.bounded_light_maintenance_eligibility(
+        demand=stale_demand,
+        activity="maintenance",
+        unattended=True,
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert stale_eligibility["reason"] == (
+        "bounded_light_maintenance_profile_fresh_samples_insufficient"
+    )
+
+    implicit_activity = resource_planning.bounded_light_maintenance_eligibility(
+        demand=demand,
+        activity=None,
+        unattended=True,
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert implicit_activity["reason"] == (
+        "bounded_light_maintenance_requires_explicit_maintenance"
+    )
+
+    mixed_demand = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="light",
+        kind="generic",
+        explicit_mib=None,
+        demand_key="storage-capacity",
+        demand_owner="abyss-machine",
+        learned_profile=_light_profile(identity, mixed_identity=True),
+        command_identity=identity,
+    )
+    mixed_eligibility = resource_planning.bounded_light_maintenance_eligibility(
+        demand=mixed_demand,
+        activity="maintenance",
+        unattended=True,
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert mixed_eligibility["reason"] == (
+        "bounded_light_maintenance_profile_command_identity_mismatch"
+    )
+
+
+def test_resource_bounded_light_maintenance_rejects_failed_and_nonfresh_samples() -> None:
+    identity = resource_planning.command_identity(
+        ["/usr/local/bin/abyss-machine", "storage", "capacity", "--json"]
+    )
+    assert identity is not None
+    policy = _light_maintenance_policy(identity)
+
+    def eligibility(profile: dict[str, object]) -> dict[str, object]:
+        demand = resource_planning.resolve_startup_demand(
+            policy,
+            workload_class="light",
+            kind="generic",
+            explicit_mib=None,
+            demand_key="storage-capacity",
+            demand_owner="abyss-machine",
+            learned_profile=profile,
+            command_identity=identity,
+        )
+        return resource_planning.bounded_light_maintenance_eligibility(
+            demand=demand,
+            activity="maintenance",
+            unattended=True,
+            admission_policy=policy["startup_admission"],
+            now_epoch=1000.0,
+        )
+
+    failed_profile = _light_profile(identity)
+    failed_profile["samples"].append(
+        {
+            "observed_at_epoch": 999.0,
+            "execution_succeeded": False,
+            "execution_returncode": 1,
+            "command_identity": identity,
+            "requested_demand_mib": 0.0,
+        }
+    )
+    failed = eligibility(failed_profile)
+    assert failed["reason"] == "bounded_light_maintenance_profile_has_failed_samples"
+
+    ancient_and_fresh = eligibility(
+        _light_profile(identity, observed_epochs=[600.0, 601.0, 999.0])
+    )
+    assert ancient_and_fresh["reason"] == (
+        "bounded_light_maintenance_profile_fresh_samples_insufficient"
+    )
+    assert ancient_and_fresh["fresh_successful_sample_count"] == 1
+
+    future = eligibility(
+        _light_profile(identity, observed_epochs=[990.0, 991.0, 1001.0])
+    )
+    assert future["reason"] == (
+        "bounded_light_maintenance_profile_fresh_samples_insufficient"
+    )
+    assert future["fresh_successful_sample_count"] == 2
+
+
+def test_resource_bounded_light_maintenance_rejects_malformed_policy_and_cross_product() -> None:
+    identity = resource_planning.command_identity(
+        ["/usr/local/bin/abyss-machine", "storage", "capacity", "--json"]
+    )
+    assert identity is not None
+    policy = _light_maintenance_policy(identity)
+    policy["startup_admission"]["bounded_light_maintenance"][
+        "min_successful_samples"
+    ] = float("nan")
+    demand = resource_planning.resolve_startup_demand(
+        policy,
+        workload_class="light",
+        kind="generic",
+        explicit_mib=None,
+        demand_key="storage-capacity",
+        demand_owner="abyss-machine",
+        learned_profile=_light_profile(identity),
+        command_identity=identity,
+    )
+    malformed = resource_planning.bounded_light_maintenance_eligibility(
+        demand=demand,
+        activity="maintenance",
+        unattended=True,
+        admission_policy=policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert malformed["reason"] == (
+        "bounded_light_maintenance_policy_min_samples_invalid"
+    )
+
+    cross_product_policy = _light_maintenance_policy(identity)
+    cross_product_policy["startup_admission"]["bounded_light_maintenance"][
+        "contract_allowlist"
+    ].append(
+        {
+            "owner": "other-owner",
+            "demand_key": "other-key",
+            "command_identity": "argv-sha256:" + ("b" * 64),
+        }
+    )
+    cross_profile = _light_profile(identity)
+    cross_profile["key"] = "other-key"
+    cross_profile["owner"] = "abyss-machine"
+    cross_demand = resource_planning.resolve_startup_demand(
+        cross_product_policy,
+        workload_class="light",
+        kind="generic",
+        explicit_mib=None,
+        demand_key="other-key",
+        demand_owner="abyss-machine",
+        learned_profile=cross_profile,
+        command_identity=identity,
+    )
+    cross_product = resource_planning.bounded_light_maintenance_eligibility(
+        demand=cross_demand,
+        activity="maintenance",
+        unattended=True,
+        admission_policy=cross_product_policy["startup_admission"],
+        now_epoch=1000.0,
+    )
+    assert cross_product["reason"] == "bounded_light_maintenance_identity_not_allowlisted"
 
 
 def test_runtime_cold_load_plan_preserves_reserve_and_uses_owner_activity() -> None:

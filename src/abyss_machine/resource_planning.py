@@ -6,13 +6,14 @@ import math
 import os
 import re
 import time
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 
 RESOURCE_CLASSES = {"probe", "light", "medium", "heavy", "sustained"}
 RESOURCE_KINDS = {"ai", "agent", "benchmark", "indexing", "generic"}
 OWNER_ACTIVITIES = {"foreground", "background", "maintenance", "unspecified"}
 _OWNER_IDENTITY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@+~-]*$")
+_COMMAND_IDENTITY_RE = re.compile(r"^argv-sha256:[0-9a-f]{64}$")
 
 
 def _nested_get(data: Any, path: list[str]) -> Any:
@@ -33,6 +34,21 @@ def _float_value(value: Any, default: float | None = None) -> float | None:
         return float(str(value))
     except (TypeError, ValueError):
         return default
+
+
+def command_identity(command: Iterable[str] | None) -> str | None:
+    """Hash the argv actually passed by the caller without retaining argv."""
+    if isinstance(command, (str, bytes)) or command is None:
+        return None
+    normalized = [str(item) for item in command]
+    if not normalized:
+        return None
+    encoded = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8", errors="replace")
+    return f"argv-sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def workload_level(name: str | None) -> int:
@@ -140,6 +156,14 @@ def default_policy(*, schema_prefix: str = "abyss_machine", version: str = "") -
             "observed_peak_multiplier": 1.25,
             "profile_max_entries": 64,
             "profile_max_samples": 16,
+            "bounded_light_maintenance": {
+                "enabled": False,
+                "contract_allowlist": [],
+                "max_estimate_mib": 64,
+                "min_successful_samples": 3,
+                "max_profile_age_sec": 86400,
+                "max_elapsed_sec": 5.0,
+            },
             "bootstrap_demand_mib": {
                 "agent": {"medium": 2048, "heavy": 4096, "sustained": 4096},
                 "indexing": {"medium": 2048, "heavy": 4096, "sustained": 6144},
@@ -407,6 +431,280 @@ def force_effective_for_request(force: bool, unattended: bool) -> bool:
     return bool(force) and not bool(unattended)
 
 
+def _profile_observation_summary(
+    learned_profile: Mapping[str, Any] | None,
+    *,
+    expected_command_identity: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(learned_profile, Mapping):
+        return {
+            "present": False,
+            "key": None,
+            "owner": None,
+            "kind": None,
+            "sample_count": 0,
+            "successful_sample_count": 0,
+            "failed_sample_count": 0,
+            "missing_duration_success_count": 0,
+            "all_command_identities_match": False,
+            "command_identity_count": 0,
+            "successful_observed_at_epochs": [],
+            "invalid_success_observed_at_count": 0,
+            "estimate_mib": None,
+            "estimate_source": None,
+            "failed_demand_floor_mib": None,
+            "latest_success_observed_at_epoch": None,
+            "max_success_elapsed_sec": None,
+        }
+
+    raw_samples = learned_profile.get("samples")
+    samples = (
+        [item for item in raw_samples if isinstance(item, Mapping)]
+        if isinstance(raw_samples, list)
+        else []
+    )
+    successful = [item for item in samples if item.get("execution_succeeded") is True]
+    failed = [item for item in samples if item.get("execution_succeeded") is False]
+    durations: list[float] = []
+    missing_duration_success_count = 0
+    for item in successful:
+        elapsed = _float_value(item.get("elapsed_sec"), None)
+        if elapsed is None or not math.isfinite(elapsed) or elapsed < 0.0:
+            missing_duration_success_count += 1
+        else:
+            durations.append(elapsed)
+    observed_epochs: list[float] = []
+    invalid_success_observed_at_count = 0
+    for item in successful:
+        observed = _float_value(item.get("observed_at_epoch"), None)
+        if observed is None or not math.isfinite(observed) or observed < 0.0:
+            invalid_success_observed_at_count += 1
+        else:
+            observed_epochs.append(observed)
+    identities = {
+        str(item.get("command_identity"))
+        for item in samples
+        if str(item.get("command_identity") or "").strip()
+    }
+    all_command_identities_match = bool(samples) and bool(expected_command_identity) and all(
+        item.get("command_identity") == expected_command_identity for item in samples
+    )
+    return {
+        "present": True,
+        "key": str(learned_profile.get("key") or "") or None,
+        "owner": str(learned_profile.get("owner") or "") or None,
+        "kind": str(learned_profile.get("kind") or "") or None,
+        "sample_count": len(samples),
+        "successful_sample_count": len(successful),
+        "failed_sample_count": len(failed),
+        "missing_duration_success_count": missing_duration_success_count,
+        "all_command_identities_match": all_command_identities_match,
+        "command_identity_count": len(identities),
+        "successful_observed_at_epochs": observed_epochs,
+        "invalid_success_observed_at_count": invalid_success_observed_at_count,
+        "estimate_mib": _float_value(learned_profile.get("estimate_mib"), None),
+        "estimate_source": str(learned_profile.get("estimate_source") or "") or None,
+        "failed_demand_floor_mib": _float_value(
+            learned_profile.get("failed_demand_floor_mib"), None
+        ),
+        "latest_success_observed_at_epoch": max(observed_epochs, default=None),
+        "max_success_elapsed_sec": max(durations, default=None),
+    }
+
+
+def bounded_light_maintenance_eligibility(
+    *,
+    demand: Mapping[str, Any],
+    activity: str | None,
+    unattended: bool,
+    admission_policy: Mapping[str, Any] | None,
+    now_epoch: float | None = None,
+) -> dict[str, Any]:
+    """Check the opt-in, owner-specific exception to active-stall deferral."""
+    startup = admission_policy if isinstance(admission_policy, Mapping) else {}
+    configured = startup.get("bounded_light_maintenance")
+    policy = configured if isinstance(configured, Mapping) else {}
+    base = {
+        "eligible": False,
+        "policy_enabled": policy.get("enabled") is True,
+        "owner": demand.get("owner"),
+        "key": demand.get("key"),
+        "class": demand.get("class"),
+        "kind": demand.get("kind"),
+        "command_identity": demand.get("command_identity"),
+    }
+
+    def rejected(reason: str, **facts: Any) -> dict[str, Any]:
+        return {**base, "reason": reason, **facts}
+
+    if policy.get("enabled") is not True:
+        return rejected("bounded_light_maintenance_disabled")
+    activity_data = owner_activity(activity, unattended=unattended)
+    if not activity_data.get("valid"):
+        return rejected("bounded_light_maintenance_activity_invalid")
+    if not activity_data.get("explicit") or activity_data.get("normalized") != "maintenance":
+        return rejected("bounded_light_maintenance_requires_explicit_maintenance")
+    if demand.get("class") != "light":
+        return rejected("bounded_light_maintenance_requires_light_class")
+    if demand.get("kind") != "generic":
+        return rejected("bounded_light_maintenance_requires_generic_kind")
+
+    owner = str(demand.get("owner") or "")
+    key = str(demand.get("key") or "")
+    identity = str(demand.get("command_identity") or "")
+    contract_allowlist = policy.get("contract_allowlist")
+    if not isinstance(contract_allowlist, list):
+        return rejected("bounded_light_maintenance_allowlist_invalid")
+    if not contract_allowlist:
+        return rejected("bounded_light_maintenance_allowlist_empty")
+    if not identity:
+        return rejected("bounded_light_maintenance_command_identity_required")
+    if not _COMMAND_IDENTITY_RE.fullmatch(identity):
+        return rejected("bounded_light_maintenance_command_identity_invalid")
+    exact_contract = any(
+        isinstance(item, Mapping)
+        and str(item.get("owner") or "") == owner
+        and str(item.get("demand_key") or "") == key
+        and str(item.get("command_identity") or "") == identity
+        for item in contract_allowlist
+    )
+    if not exact_contract:
+        return rejected("bounded_light_maintenance_identity_not_allowlisted")
+
+    profile = demand.get("profile_qualification")
+    if not isinstance(profile, Mapping) or not profile.get("present"):
+        return rejected("bounded_light_maintenance_profile_missing")
+    if (
+        profile.get("key") != key
+        or profile.get("owner") != owner
+        or profile.get("kind") != demand.get("kind")
+    ):
+        return rejected("bounded_light_maintenance_profile_identity_mismatch")
+    if profile.get("all_command_identities_match") is not True:
+        return rejected("bounded_light_maintenance_profile_command_identity_mismatch")
+
+    configured_min_samples = _float_value(policy.get("min_successful_samples"), None)
+    if (
+        configured_min_samples is None
+        or not math.isfinite(configured_min_samples)
+        or configured_min_samples < 3.0
+        or not configured_min_samples.is_integer()
+    ):
+        return rejected("bounded_light_maintenance_policy_min_samples_invalid")
+    min_samples = int(configured_min_samples)
+    successful_count = int(_float_value(profile.get("successful_sample_count"), 0.0) or 0)
+    if successful_count < min_samples:
+        return rejected(
+            "bounded_light_maintenance_profile_samples_insufficient",
+            successful_sample_count=successful_count,
+            min_successful_samples=min_samples,
+        )
+    failed_count = int(_float_value(profile.get("failed_sample_count"), 0.0) or 0)
+    if failed_count > 0:
+        return rejected("bounded_light_maintenance_profile_has_failed_samples")
+    if int(_float_value(profile.get("missing_duration_success_count"), 0.0) or 0) > 0:
+        return rejected("bounded_light_maintenance_profile_duration_missing")
+
+    failed_floor = _float_value(profile.get("failed_demand_floor_mib"), None)
+    if (
+        failed_floor is None
+        or not math.isfinite(failed_floor)
+        or failed_floor < 0.0
+        or failed_floor > 0.0
+    ):
+        return rejected("bounded_light_maintenance_profile_failed_demand_floor")
+
+    max_estimate_mib = _float_value(policy.get("max_estimate_mib"), None)
+    profile_estimate_mib = _float_value(profile.get("estimate_mib"), None)
+    requested_mib = _float_value(demand.get("demand_mib"), None)
+    if (
+        max_estimate_mib is None
+        or not math.isfinite(max_estimate_mib)
+        or max_estimate_mib <= 0.0
+        or profile_estimate_mib is None
+        or not math.isfinite(profile_estimate_mib)
+        or profile_estimate_mib < 0.0
+        or requested_mib is None
+        or not math.isfinite(requested_mib)
+        or requested_mib < 0.0
+        or profile_estimate_mib > max_estimate_mib
+        or requested_mib > max_estimate_mib
+    ):
+        return rejected(
+            "bounded_light_maintenance_estimate_exceeds_cap",
+            max_estimate_mib=max_estimate_mib,
+            profile_estimate_mib=profile_estimate_mib,
+            requested_mib=requested_mib,
+        )
+    if profile.get("estimate_source") != "runtime_observed_unit_peak":
+        return rejected("bounded_light_maintenance_profile_estimate_unobserved")
+
+    current_epoch = time.time() if now_epoch is None else _float_value(now_epoch, None)
+    if current_epoch is None or not math.isfinite(current_epoch) or current_epoch < 0.0:
+        return rejected("bounded_light_maintenance_clock_invalid")
+    max_age_sec = _float_value(policy.get("max_profile_age_sec"), None)
+    observed_epochs = profile.get("successful_observed_at_epochs")
+    if not isinstance(observed_epochs, list):
+        observed_epochs = []
+    fresh_epochs = []
+    invalid_future_count = 0
+    for observed in observed_epochs:
+        observed_value = _float_value(observed, None)
+        if observed_value is None or not math.isfinite(observed_value) or observed_value > current_epoch:
+            invalid_future_count += 1
+        elif max_age_sec is not None and current_epoch - observed_value <= max_age_sec:
+            fresh_epochs.append(observed_value)
+    latest_success = max(observed_epochs, default=None)
+    if (
+        int(_float_value(profile.get("invalid_success_observed_at_count"), 0.0) or 0) > 0
+        or invalid_future_count > 0
+        or max_age_sec is None
+        or not math.isfinite(max_age_sec)
+        or max_age_sec <= 0.0
+        or len(fresh_epochs) < min_samples
+    ):
+        return rejected(
+            "bounded_light_maintenance_profile_fresh_samples_insufficient",
+            latest_success_observed_at_epoch=latest_success,
+            fresh_successful_sample_count=len(fresh_epochs),
+            profile_age_sec=(
+                None
+                if latest_success is None
+                else round(max(0.0, current_epoch - latest_success), 3)
+            ),
+            max_profile_age_sec=max_age_sec,
+        )
+
+    max_elapsed_sec = _float_value(policy.get("max_elapsed_sec"), None)
+    observed_elapsed_sec = _float_value(profile.get("max_success_elapsed_sec"), None)
+    if (
+        max_elapsed_sec is None
+        or not math.isfinite(max_elapsed_sec)
+        or max_elapsed_sec <= 0.0
+        or observed_elapsed_sec is None
+        or not math.isfinite(observed_elapsed_sec)
+        or observed_elapsed_sec > max_elapsed_sec
+    ):
+        return rejected(
+            "bounded_light_maintenance_profile_duration_exceeds_cap",
+            max_elapsed_sec=max_elapsed_sec,
+            observed_max_elapsed_sec=observed_elapsed_sec,
+        )
+    return {
+        **base,
+        "eligible": True,
+        "reason": "bounded_light_maintenance_eligible",
+        "successful_sample_count": successful_count,
+        "profile_estimate_mib": round(profile_estimate_mib, 3),
+        "requested_mib": round(requested_mib, 3),
+        "profile_age_sec": round(max(0.0, current_epoch - latest_success), 3),
+        "max_profile_age_sec": round(max_age_sec, 3),
+        "observed_max_elapsed_sec": round(observed_elapsed_sec, 3),
+        "max_elapsed_sec": round(max_elapsed_sec, 3),
+        "max_estimate_mib": round(max_estimate_mib, 3),
+    }
+
+
 def resolve_startup_demand(
     policy: dict[str, Any],
     *,
@@ -418,6 +716,7 @@ def resolve_startup_demand(
     estimate_source: str | None = None,
     estimate_confidence: str | None = None,
     learned_profile: Mapping[str, Any] | None = None,
+    command_identity: str | None = None,
 ) -> dict[str, Any]:
     normalized_class = normalize_class(workload_class)
     normalized_kind = normalize_kind(kind)
@@ -465,6 +764,10 @@ def resolve_startup_demand(
     if demand_mib == 0.0:
         reservation_required = False
     calibrated = used_explicit or used_learned
+    profile_summary = _profile_observation_summary(
+        learned_profile,
+        expected_command_identity=command_identity,
+    )
     return {
         "enabled": enabled,
         "valid": invalid_reason is None,
@@ -475,6 +778,7 @@ def resolve_startup_demand(
         "demand_mib": None if demand_mib is None else round(demand_mib, 3),
         "key": str(demand_key or "").strip() or None,
         "owner": str(demand_owner or normalized_kind).strip() or normalized_kind,
+        "command_identity": str(command_identity or "").strip() or None,
         "estimate_source": source or "unknown",
         "estimate_confidence": confidence or "unknown",
         "calibration": "owner" if used_explicit else ("learned" if used_learned else "bootstrap_uncalibrated" if used_bootstrap else "unknown"),
@@ -483,6 +787,7 @@ def resolve_startup_demand(
         "class": normalized_class,
         "kind": normalized_kind,
         "unknown_startup_lane": reservation_required and not calibrated,
+        "profile_qualification": profile_summary,
     }
 
 
@@ -502,7 +807,9 @@ def startup_demand_projection(
     demand: Mapping[str, Any],
     reservations: Mapping[str, Any],
     unattended: bool = False,
+    activity: str | None = None,
     admission_policy: Mapping[str, Any] | None = None,
+    now_epoch: float | None = None,
 ) -> dict[str, Any]:
     raw_current_available = _float_value(memory_summary.get("mem_available_mib"), None)
     availability_known = raw_current_available is not None
@@ -542,6 +849,13 @@ def startup_demand_projection(
     )
     unknown_some_threshold = max(0.0, _float_value(startup.get("unknown_psi_some_avg10_at_or_above"), 2.0) or 2.0)
     unknown_full_threshold = max(0.0, _float_value(startup.get("unknown_psi_full_avg10_at_or_above"), 0.5) or 0.5)
+    light_maintenance = bounded_light_maintenance_eligibility(
+        demand=demand,
+        activity=activity,
+        unattended=unattended,
+        admission_policy=startup,
+        now_epoch=now_epoch,
+    )
     safety_blocks: list[str] = []
     safety_denials: list[str] = []
     reservation_state_ok = reservations.get("ok") is not False
@@ -550,7 +864,12 @@ def startup_demand_projection(
     estimate_available = bool(demand.get("estimate_available", demand.get("known")))
     if availability_known and demand.get("reservation_required") and estimate_available and projected_available < hard_floor_mib:
         safety_blocks.append("projected_mem_available_below_hard_reserve")
-    if demand.get("reservation_required") and unattended and active_stall:
+    if (
+        demand.get("reservation_required")
+        and unattended
+        and active_stall
+        and light_maintenance.get("eligible") is not True
+    ):
         safety_blocks.append("new_unattended_work_during_active_memory_stall")
     if demand.get("unknown_startup_lane"):
         unreserved_available = max(0.0, current_available - outstanding_mib)
@@ -595,6 +914,7 @@ def startup_demand_projection(
             "unknown_mem_available_floor_mib": round(unknown_floor_mib, 3),
             "pressure_facts_assign_importance": False,
             "reservation_state_ok": reservation_state_ok,
+            "bounded_light_maintenance": light_maintenance,
         },
         "policy": {
             "zram_free_not_counted_as_ram": True,
@@ -602,6 +922,8 @@ def startup_demand_projection(
             "current_pressure_class_is_floor": True,
             "projected_pressure_class_is_advisory": True,
             "hard_floor_protects_host_reserve_not_workload_priority": True,
+            "bounded_light_maintenance_only_waives_active_stall": True,
+            "bounded_light_maintenance_preserves_hard_reserve": True,
         },
     }
 
@@ -643,6 +965,7 @@ def runtime_admission_plan(
         demand=demand,
         reservations=reservations,
         unattended=bool(activity_data.get("background")),
+        activity=str(request.get("activity") or "") or None,
         admission_policy=startup_policy,
     )
     admission = projection.get("admission") if isinstance(projection.get("admission"), dict) else {}
