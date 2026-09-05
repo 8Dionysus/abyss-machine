@@ -41,8 +41,10 @@ def run_validator(tmp_path: Path) -> dict:
         check=False,
         timeout=VALIDATOR_TIMEOUT_SEC,
     )
-    assert result.returncode == 0, result.stdout + result.stderr[-1000:]
     payload = json.loads(result.stdout)
+    # The report is large and module-fixture failures are repeated per test.
+    # Show the actual failures, not thousands of lines of successful surfaces.
+    assert result.returncode == 0, str(payload.get("failures", []))[:2000] + result.stderr[-1000:]
     assert payload["schema"] == "abyss_machine_first_run_installed_projection_v1"
     assert payload["ok"] is True
     return payload

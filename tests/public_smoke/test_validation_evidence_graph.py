@@ -47,6 +47,31 @@ def test_owner_graph_preserves_serial_leaf_scope_with_only_pinned_scheduler_delt
     validation_evidence_graph.require_schedule_equivalent_serial_inventory()
 
 
+def test_public_smoke_node_owns_first_run_projection_evidence() -> None:
+    manifest = json.loads(
+        validation_evidence_graph.MANIFEST_PATH.read_text(encoding="utf-8")
+    )
+    first_run_nodes = [
+        node for node in manifest["nodes"] if node["id"] == "first-run-installed-projection"
+    ]
+    public_smoke = next(
+        node for node in manifest["nodes"] if node["id"] == "public-smoke-tests"
+    )
+
+    assert first_run_nodes == []
+    assert "first-run-installed-projection" in public_smoke["provides_evidence"]
+    assert public_smoke["steps"][0]["argv"] == [
+        "{python}",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "2",
+        "--dist",
+        "loadfile",
+    ]
+
+
 def test_inventory_guard_reports_an_omitted_serial_obligation(tmp_path: Path) -> None:
     payload = json.loads(validation_evidence_graph.MANIFEST_PATH.read_text(encoding="utf-8"))
     source_node = next(node for node in payload["nodes"] if node["id"] == "public-source-contracts")
