@@ -194,10 +194,12 @@ def test_storage_monitor_timer_reserves_measured_startup_memory() -> None:
     start_index = next(index for index, line in enumerate(lines) if line.startswith("ExecStart="))
     assert pre_index < start_index
     assert lines[pre_index].endswith("/abyss-machine storage capacity --json")
+    assert "TimeoutStartSec=3min" in unit
 
     exec_start = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
 
     assert " resource launch --class medium --kind indexing --unattended " in exec_start
+    assert " --timeout 110 " in exec_start
     assert " --memory-demand-mib 2048 " in exec_start
     assert " --demand-key abyss-machine:storage-monitor:hourly " in exec_start
     assert " --demand-owner abyss-machine-storage " in exec_start
