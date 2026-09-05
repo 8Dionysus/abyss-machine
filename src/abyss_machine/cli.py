@@ -53419,7 +53419,7 @@ def main(argv: list[str]) -> int:
                 "--scan-limit",
                 type=int,
                 default=storage_lifecycle_adapters.DEFAULT_REAP_SCAN_LIMIT,
-                help="maximum released or expired workspace attempts per invocation",
+                help="maximum lifecycle records inspected per invocation",
             )
         lifecycle_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_lifecycle_open_parser = storage_lifecycle_sub.add_parser("open")

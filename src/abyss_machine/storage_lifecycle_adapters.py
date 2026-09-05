@@ -22,6 +22,7 @@ from . import storage_process_probe
 LEASE_TOKEN_PREFIX = "lease-"
 DEFAULT_REAP_SCAN_LIMIT = 8
 MAX_REAP_SCAN_LIMIT = 32
+REAPER_STATE_SCHEMA = "abyss_machine_storage_workspace_reaper_state_v1"
 
 
 def _new_lease_token() -> str:
@@ -98,12 +99,84 @@ def execution_journal_path(root: Path, workspace_id: str) -> Path:
     return root / "executions" / f"{workspace_id}.json"
 
 
+def reaper_state_path(root: Path) -> Path:
+    """Return the owner-local cursor state beside the lifecycle registry."""
+    return root / "reaper-state.json"
+
+
 def read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _read_reaper_state(root: Path) -> dict[str, Any]:
+    path = reaper_state_path(root)
+    if not path.exists():
+        return {
+            "cursor": None,
+            "revision": 0,
+            "status": "missing",
+            "reason": None,
+        }
+    value = read_json(path)
+    if value is None:
+        return {
+            "cursor": None,
+            "revision": 0,
+            "status": "invalid",
+            "reason": "state_unreadable",
+        }
+    if value.get("schema") != REAPER_STATE_SCHEMA:
+        return {
+            "cursor": None,
+            "revision": 0,
+            "status": "invalid",
+            "reason": "state_schema_mismatch",
+        }
+    cursor = value.get("cursor")
+    revision = value.get("revision", 0)
+    if cursor is not None and (not isinstance(cursor, str) or not cursor):
+        return {
+            "cursor": None,
+            "revision": 0,
+            "status": "invalid",
+            "reason": "state_cursor_invalid",
+        }
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        return {
+            "cursor": None,
+            "revision": 0,
+            "status": "invalid",
+            "reason": "state_revision_invalid",
+        }
+    return {
+        "cursor": cursor,
+        "revision": revision,
+        "status": "valid",
+        "reason": None,
+    }
+
+
+def _rotated_records(
+    records: list[dict[str, Any]],
+    cursor: str | None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    ordered: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for record in records:
+        workspace_id = str(record.get("workspace_id") or "")
+        if workspace_id and workspace_id not in seen_ids:
+            ordered.append(record)
+            seen_ids.add(workspace_id)
+    if not ordered or cursor is None:
+        return ordered, None
+    for index, record in enumerate(ordered):
+        if str(record.get("workspace_id") or "") == cursor:
+            return ordered[index + 1 :] + ordered[: index + 1], None
+    return ordered, "cursor_missing"
 
 
 def load_records(root: Path) -> list[dict[str, Any]]:
@@ -1080,15 +1153,24 @@ def reap(
     recovered: list[dict[str, Any]] = []
     resolved_now = now_time or now_utc()
     examined = 0
+    scanned = 0
     mutations = 0
     resolved_limit = max(1, limit)
     resolved_scan_limit = max(1, min(int(scan_limit), MAX_REAP_SCAN_LIMIT))
     with registry_lock(root):
+        state_before = _read_reaper_state(root)
         records = load_records(root)
-    for listed_record in records:
+    rotated_records, cursor_reset_reason = _rotated_records(records, state_before.get("cursor"))
+    cursor_before = state_before.get("cursor")
+    cursor_after = cursor_before
+    for listed_record in rotated_records:
+        if scanned >= resolved_scan_limit:
+            break
         workspace_id = str(listed_record.get("workspace_id") or "")
         if not workspace_id:
             continue
+        scanned += 1
+        cursor_after = workspace_id
         with workspace_lock(root, workspace_id, blocking=False) as acquired:
             if not acquired:
                 continue
@@ -1129,7 +1211,7 @@ def reap(
                             blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": ["physical_size_unavailable", *(recovery.get("errors") or [])], "evidence": evidence, "fingerprint": fingerprint})
                         else:
                             blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": recovery.get("errors") or ["recovery_blocked"], "evidence": evidence, "fingerprint": fingerprint})
-                    if mutations >= resolved_limit or examined >= resolved_scan_limit:
+                    if mutations >= resolved_limit or scanned >= resolved_scan_limit:
                         break
                 continue
             if record.get("state") != "released" or isinstance(record.get("execution"), Mapping):
@@ -1148,15 +1230,52 @@ def reap(
                 mutations += 1
             else:
                 blocked.append(result)
-            if mutations >= resolved_limit or examined >= resolved_scan_limit:
+            if mutations >= resolved_limit or scanned >= resolved_scan_limit:
                 break
+    cursor_commit: dict[str, Any] = {
+        "path": str(reaper_state_path(root)),
+        "before": cursor_before,
+        "after": cursor_after,
+        "committed": False,
+        "revision_before": int(state_before.get("revision") or 0),
+        "revision_after": None,
+        "reset_reason": state_before.get("reason") or cursor_reset_reason,
+        "reason": "no_records_scanned",
+    }
+    if scanned:
+        with registry_lock(root):
+            current_state = _read_reaper_state(root)
+            expected_revision = int(state_before.get("revision") or 0)
+            current_revision = int(current_state.get("revision") or 0)
+            if current_revision != expected_revision:
+                cursor_commit["reason"] = "cursor_changed_concurrently"
+                cursor_commit["current"] = current_state.get("cursor")
+                cursor_commit["revision_after"] = current_revision
+            else:
+                next_state = {
+                    "schema": REAPER_STATE_SCHEMA,
+                    "cursor": cursor_after,
+                    "revision": expected_revision + 1,
+                    "updated_at": now_iso(),
+                }
+                try:
+                    atomic_write_json(reaper_state_path(root), next_state)
+                except OSError as exc:
+                    cursor_commit["reason"] = "cursor_persist_failed"
+                    cursor_commit["error"] = str(exc)
+                else:
+                    cursor_commit["committed"] = True
+                    cursor_commit["reason"] = None
+                    cursor_commit["revision_after"] = expected_revision + 1
     return {
         "schema": "abyss_machine_storage_workspace_reap_v1",
         "ok": True,
         "applied": applied,
         "blocked": blocked,
         "recovered": recovered,
+        "cursor": cursor_commit,
         "summary": {
+            "scanned": scanned,
             "examined": examined,
             "scan_limit": resolved_scan_limit,
             "mutations": mutations,

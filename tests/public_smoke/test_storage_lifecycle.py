@@ -262,6 +262,109 @@ def test_reaper_scans_past_blocked_candidate_with_bounded_attempts(monkeypatch, 
     assert "execution" not in (adapters.read_json(adapters.record_path(root, scan_limited["workspace_id"])) or {})
 
 
+def test_reaper_cursor_rotates_blocked_prefix_across_invocations(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "state"
+    records: list[dict] = []
+    for name in ("blocked-one", "blocked-two", "eligible-tail"):
+        workspace = tmp_path / "work" / name
+        opened = adapters.register_workspace(root, owner="fixture", workspace=workspace, unit=None)
+        (workspace / "derived").write_text(name, encoding="utf-8")
+        assert adapters.seal_registered_workspace(
+            root,
+            workspace_id=opened["record"]["workspace_id"],
+            lease_token=opened["lease_token"],
+        )["ok"]
+        callback = Path(opened["record"]["callback_path"])
+        callback.parent.mkdir(parents=True, exist_ok=True)
+        callback.write_text(json.dumps({"decision": "DELETE", "plan": {"kind": "delete_workspace"}}), encoding="utf-8")
+        assert adapters.consume_owner_callback(
+            root,
+            workspace_id=opened["record"]["workspace_id"],
+            grace_seconds=0,
+        )["released"]
+        record = adapters.read_json(adapters.record_path(root, opened["record"]["workspace_id"]))
+        assert record is not None
+        records.append(record)
+
+    blocked_one, blocked_two, eligible = records
+    for blocked in (blocked_one, blocked_two):
+        (Path(blocked["path"]) / "late-result").write_text("changed after seal", encoding="utf-8")
+    monkeypatch.setattr(adapters, "load_records", lambda _root: records)
+    future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1)
+
+    first = adapters.reap(root, limit=1, scan_limit=2, now_time=future)
+
+    assert first["summary"]["scanned"] == 2
+    assert first["summary"]["examined"] == 2
+    assert first["summary"]["mutations"] == 0
+    assert {item["workspace_id"] for item in first["blocked"]} == {
+        blocked_one["workspace_id"],
+        blocked_two["workspace_id"],
+    }
+    assert first["cursor"]["before"] is None
+    assert first["cursor"]["after"] == blocked_two["workspace_id"]
+    assert first["cursor"]["committed"] is True
+
+    second = adapters.reap(root, limit=1, scan_limit=2, now_time=future + dt.timedelta(seconds=1))
+
+    assert second["summary"]["scanned"] == 1
+    assert second["summary"]["examined"] == 1
+    assert second["summary"]["mutations"] == 1
+    assert second["applied"][0]["workspace_id"] == eligible["workspace_id"]
+    assert second["cursor"]["before"] == blocked_two["workspace_id"]
+    assert second["cursor"]["after"] == eligible["workspace_id"]
+    assert adapters.read_json(adapters.reaper_state_path(root))["cursor"] == eligible["workspace_id"]
+
+
+def test_reaper_cursor_resets_when_saved_record_id_is_missing(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "state"
+    records: list[dict] = []
+    for name in ("blocked", "eligible"):
+        workspace = tmp_path / "work" / name
+        opened = adapters.register_workspace(root, owner="fixture", workspace=workspace, unit=None)
+        (workspace / "derived").write_text(name, encoding="utf-8")
+        assert adapters.seal_registered_workspace(
+            root,
+            workspace_id=opened["record"]["workspace_id"],
+            lease_token=opened["lease_token"],
+        )["ok"]
+        callback = Path(opened["record"]["callback_path"])
+        callback.parent.mkdir(parents=True, exist_ok=True)
+        callback.write_text(json.dumps({"decision": "DELETE", "plan": {"kind": "delete_workspace"}}), encoding="utf-8")
+        assert adapters.consume_owner_callback(
+            root,
+            workspace_id=opened["record"]["workspace_id"],
+            grace_seconds=0,
+        )["released"]
+        record = adapters.read_json(adapters.record_path(root, opened["record"]["workspace_id"]))
+        assert record is not None
+        records.append(record)
+
+    blocked, eligible = records
+    (Path(blocked["path"]) / "late-result").write_text("changed after seal", encoding="utf-8")
+    adapters.atomic_write_json(
+        adapters.reaper_state_path(root),
+        {
+            "schema": adapters.REAPER_STATE_SCHEMA,
+            "cursor": "deleted-workspace-id",
+            "revision": 4,
+        },
+    )
+    monkeypatch.setattr(adapters, "load_records", lambda _root: records)
+
+    result = adapters.reap(
+        root,
+        limit=1,
+        scan_limit=2,
+        now_time=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1),
+    )
+
+    assert result["cursor"]["reset_reason"] == "cursor_missing"
+    assert result["cursor"]["committed"] is True
+    assert result["summary"]["scanned"] == 2
+    assert result["applied"][0]["workspace_id"] == eligible["workspace_id"]
+
+
 def test_reaper_resumes_from_detach_journal_after_cleanup_failure(monkeypatch, tmp_path: Path) -> None:
     root = tmp_path / "state"
     workspace = tmp_path / "work" / "job"
