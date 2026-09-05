@@ -426,3 +426,181 @@ def test_resource_launch_learns_peak_from_completed_failed_unit(
     assert observation["record"]["profile"]["failed_demand_floor_mib"] == 16384.0
     assert observation["record"]["profile"]["estimate_mib"] == 16384.0
     assert observation["record"]["profile"]["estimate_source"] == "failed_execution_request_floor"
+
+
+def test_resource_launch_retains_admission_lease_when_timeout_terminal_is_unknown(
+    monkeypatch, tmp_path: Path
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    unit = "lease-terminal-unknown.service"
+    lease = {
+        "id": "lease-terminal-unknown",
+        "launcher_pid": 4242,
+        "unit": unit,
+        "demand_mib": 2048,
+        "expires_at_epoch": 9999999999.0,
+    }
+    lease_file = resource_adapters.atomic_write_lease(reservation_root, lease)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(resource_adapters.shutil, "which", lambda _name: "/usr/bin/systemctl")
+
+    def run_port(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        command = [str(item) for item in command]
+        calls.append(command)
+        if command[0] == "systemd-run":
+            raise subprocess.TimeoutExpired(
+                command,
+                kwargs.get("timeout"),
+                output=f"Running as unit: {unit}\n",
+                stderr="",
+            )
+        if command[:3] == ["systemctl", "--user", "stop"]:
+            return subprocess.CompletedProcess(command, 1, "", "stop failed\n")
+        if command[:3] == ["systemctl", "--user", "is-active"]:
+            return subprocess.CompletedProcess(command, 0, "active\n", "")
+        if command[:3] == ["systemctl", "--user", "kill"]:
+            return subprocess.CompletedProcess(command, 1, "", "kill failed\n")
+        raise AssertionError(f"unexpected command: {command}")
+
+    outcome = resource_adapters.execute_systemd_launch(
+        systemd_command=["systemd-run", "--user", "--wait", "--pipe", "/bin/true"],
+        launch_unit=unit,
+        generated_unit=None,
+        unit_type="service",
+        timeout_sec=1,
+        lease=lease,
+        reservation_root=reservation_root,
+        demand_profile_path=tmp_path / "profiles.json",
+        demand_key=None,
+        demand_owner=None,
+        kind="indexing",
+        observed_peak_multiplier=1.25,
+        profile_max_entries=64,
+        profile_max_samples=16,
+        parse_output=lambda _text: {"unit": unit},
+        run_port=run_port,
+        unit_state_port=lambda _unit: {
+            "exists": False,
+            "active": False,
+            "state": "unknown",
+            "error": "state probe unavailable",
+        },
+    )
+
+    assert outcome["completion"]["confirmed_terminal"] is False
+    assert outcome["completion"]["confirmation"] == "unit_still_active_or_unknown"
+    assert outcome["completion"]["state"]["error"] == "state probe unavailable"
+    assert outcome["lease_released"] is False
+    assert lease_file.exists()
+    assert any(call[:3] == ["systemctl", "--user", "stop"] for call in calls)
+    assert any(call[:3] == ["systemctl", "--user", "kill"] for call in calls)
+
+
+def test_resource_launch_retains_admission_lease_after_successful_stop_but_unknown_state(
+    monkeypatch, tmp_path: Path
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    unit = "lease-state-unknown.service"
+    lease = {
+        "id": "lease-state-unknown",
+        "launcher_pid": 4242,
+        "unit": unit,
+        "demand_mib": 2048,
+        "expires_at_epoch": 9999999999.0,
+    }
+    lease_file = resource_adapters.atomic_write_lease(reservation_root, lease)
+    monkeypatch.setattr(resource_adapters.shutil, "which", lambda _name: "/usr/bin/systemctl")
+
+    def run_port(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        command = [str(item) for item in command]
+        if command[0] == "systemd-run":
+            raise subprocess.TimeoutExpired(
+                command,
+                kwargs.get("timeout"),
+                output=f"Running as unit: {unit}\n",
+                stderr="",
+            )
+        if command[:3] == ["systemctl", "--user", "stop"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[:3] == ["systemctl", "--user", "is-active"]:
+            return subprocess.CompletedProcess(command, 3, "inactive\n", "")
+        raise AssertionError(f"unexpected command: {command}")
+
+    outcome = resource_adapters.execute_systemd_launch(
+        systemd_command=["systemd-run", "--user", "--wait", "--pipe", "/bin/true"],
+        launch_unit=unit,
+        generated_unit=None,
+        unit_type="service",
+        timeout_sec=1,
+        lease=lease,
+        reservation_root=reservation_root,
+        demand_profile_path=tmp_path / "profiles.json",
+        demand_key=None,
+        demand_owner=None,
+        kind="indexing",
+        observed_peak_multiplier=1.25,
+        profile_max_entries=64,
+        profile_max_samples=16,
+        parse_output=lambda _text: {"unit": unit},
+        run_port=run_port,
+        unit_state_port=lambda _unit: {
+            "exists": True,
+            "active": False,
+            "state": "unknown",
+            "error": "state probe unavailable",
+        },
+    )
+
+    assert outcome["completion"]["confirmed_terminal"] is False
+    assert outcome["completion"]["confirmation"] == "unit_still_active_or_unknown"
+    assert outcome["completion"]["state"]["error"] == "state probe unavailable"
+    assert outcome["lease_released"] is False
+    assert lease_file.exists()
+
+
+def test_resource_launch_releases_admission_lease_after_confirmed_terminal(
+    monkeypatch, tmp_path: Path
+) -> None:
+    reservation_root = tmp_path / "reservations"
+    unit = "lease-terminal-success.service"
+    lease = {
+        "id": "lease-terminal-success",
+        "launcher_pid": 4242,
+        "unit": unit,
+        "demand_mib": 2048,
+        "expires_at_epoch": 9999999999.0,
+    }
+    lease_file = resource_adapters.atomic_write_lease(reservation_root, lease)
+    monkeypatch.setattr(
+        resource_adapters,
+        "journal_unit_resource_peaks",
+        lambda _unit, **_kwargs: {"ok": False, "error": "fixture_no_peak"},
+    )
+
+    def run_port(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        command = [str(item) for item in command]
+        return subprocess.CompletedProcess(command, 0, "", "Finished with result: success\n")
+
+    outcome = resource_adapters.execute_systemd_launch(
+        systemd_command=["systemd-run", "--user", "--wait", "--pipe", "/bin/true"],
+        launch_unit=unit,
+        generated_unit=None,
+        unit_type="service",
+        timeout_sec=1,
+        lease=lease,
+        reservation_root=reservation_root,
+        demand_profile_path=tmp_path / "profiles.json",
+        demand_key=None,
+        demand_owner=None,
+        kind="indexing",
+        observed_peak_multiplier=1.25,
+        profile_max_entries=64,
+        profile_max_samples=16,
+        parse_output=lambda _text: {"unit": unit},
+        run_port=run_port,
+    )
+
+    assert outcome["completion"]["confirmed_terminal"] is True
+    assert outcome["completion"]["confirmation"] == "systemd_run_wait"
+    assert outcome["lease_released"] is True
+    assert not lease_file.exists()

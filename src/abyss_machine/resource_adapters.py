@@ -717,7 +717,15 @@ def execute_systemd_launch(
     finally:
         if isinstance(lease, Mapping):
             lease_id = str(lease.get("id") or "")
-            lease_released = remove_lease(reservation_root, lease_id) or not lease_path(reservation_root, lease_id).exists()
+            # The admission lease is the only durable indication that this
+            # transient workload may still be consuming the admitted budget.
+            # Keep it when terminal state is unknown so the next admission
+            # cannot start concurrently with a unit that may still be alive.
+            # The reservation accounting path below has the same fail-closed
+            # rule, but is a separate storage reservation and must not be
+            # conflated with this memory/admission lease.
+            if completion.get("confirmed_terminal") is True:
+                lease_released = remove_lease(reservation_root, lease_id) or not lease_path(reservation_root, lease_id).exists()
 
     result["completion"] = completion
     storage_reservation_release = _release_storage_reservation(
