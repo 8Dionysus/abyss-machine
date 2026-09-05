@@ -20,6 +20,8 @@ from . import storage_process_probe
 
 
 LEASE_TOKEN_PREFIX = "lease-"
+DEFAULT_REAP_SCAN_LIMIT = 8
+MAX_REAP_SCAN_LIMIT = 32
 
 
 def _new_lease_token() -> str:
@@ -1066,13 +1068,21 @@ def execute_released_workspace(
     return {"ok": True, "workspace_id": workspace_id, "decision": "applied", "receipt": receipt}
 
 
-def reap(root: Path, *, limit: int = 1, now_time: dt.datetime | None = None) -> dict[str, Any]:
+def reap(
+    root: Path,
+    *,
+    limit: int = 1,
+    scan_limit: int = DEFAULT_REAP_SCAN_LIMIT,
+    now_time: dt.datetime | None = None,
+) -> dict[str, Any]:
     applied: list[dict[str, Any]] = []
     blocked: list[dict[str, Any]] = []
     recovered: list[dict[str, Any]] = []
     resolved_now = now_time or now_utc()
     examined = 0
+    mutations = 0
     resolved_limit = max(1, limit)
+    resolved_scan_limit = max(1, min(int(scan_limit), MAX_REAP_SCAN_LIMIT))
     with registry_lock(root):
         records = load_records(root)
     for listed_record in records:
@@ -1092,13 +1102,14 @@ def reap(root: Path, *, limit: int = 1, now_time: dt.datetime | None = None) -> 
                 unit_state = resource_adapters.systemd_user_unit_state(unit) if unit else {"exists": False, "active": False, "state": "not-found"}
                 if expiry is not None and expiry <= resolved_now.astimezone(dt.timezone.utc) and unit_state.get("active") is False and unit_state.get("state") not in {"unknown", "failed-to-read"}:
                     workspace = Path(str(record.get("path") or ""))
+                    if not workspace.exists():
+                        continue
+                    examined += 1
                     refs = _path_has_live_refs(workspace) if workspace.exists() else {"active": False}
                     if workspace.exists() and (refs.get("active") is True or refs.get("checked") is not True):
-                        examined += 1
                         reason = "live_reference" if refs.get("active") is True else "reference_probe_unavailable"
                         blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": [reason], "references": refs})
                     elif workspace.exists() and refs.get("active") is False and refs.get("checked") is True:
-                        examined += 1
                         fingerprint = workspace_identity_fingerprint(workspace, max_entries=100_000)
                         physical, evidence = storage_candidate_adapters.physical_size_bytes(workspace)
                         recovery = contracts.recover_abandoned_workspace(
@@ -1113,12 +1124,13 @@ def reap(root: Path, *, limit: int = 1, now_time: dt.datetime | None = None) -> 
                                 if current is not None and current.get("state") == "open":
                                     atomic_write_json(record_path(root, workspace_id), recovery["record"])
                             recovered.append({"workspace_id": record.get("workspace_id"), "decision": "sealed_unknown"})
+                            mutations += 1
                         elif physical is None:
                             blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": ["physical_size_unavailable", *(recovery.get("errors") or [])], "evidence": evidence, "fingerprint": fingerprint})
                         else:
                             blocked.append({"workspace_id": record.get("workspace_id"), "decision": "blocked", "reasons": recovery.get("errors") or ["recovery_blocked"], "evidence": evidence, "fingerprint": fingerprint})
-                        if examined >= resolved_limit:
-                            break
+                    if mutations >= resolved_limit or examined >= resolved_scan_limit:
+                        break
                 continue
             if record.get("state") != "released" or isinstance(record.get("execution"), Mapping):
                 continue
@@ -1133,9 +1145,10 @@ def reap(root: Path, *, limit: int = 1, now_time: dt.datetime | None = None) -> 
                 with registry_lock(root):
                     atomic_write_json(record_path(root, workspace_id), record)
                 applied.append(result)
+                mutations += 1
             else:
                 blocked.append(result)
-            if examined >= resolved_limit:
+            if mutations >= resolved_limit or examined >= resolved_scan_limit:
                 break
     return {
         "schema": "abyss_machine_storage_workspace_reap_v1",
@@ -1143,7 +1156,15 @@ def reap(root: Path, *, limit: int = 1, now_time: dt.datetime | None = None) -> 
         "applied": applied,
         "blocked": blocked,
         "recovered": recovered,
-        "summary": {"examined": examined, "applied": len(applied), "blocked": len(blocked), "recovered": len(recovered), "reclaimed_bytes": sum(int(item.get("receipt", {}).get("reclaimed_bytes") or 0) for item in applied)},
+        "summary": {
+            "examined": examined,
+            "scan_limit": resolved_scan_limit,
+            "mutations": mutations,
+            "applied": len(applied),
+            "blocked": len(blocked),
+            "recovered": len(recovered),
+            "reclaimed_bytes": sum(int(item.get("receipt", {}).get("reclaimed_bytes") or 0) for item in applied),
+        },
     }
 
 

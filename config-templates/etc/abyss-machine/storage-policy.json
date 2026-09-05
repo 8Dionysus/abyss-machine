@@ -136,7 +136,7 @@
       "storage_candidates_explain": "abyss-machine storage candidates explain ID --json",
       "storage_candidates_validate": "abyss-machine storage candidates validate ID --json",
       "storage_lifecycle_status": "abyss-machine storage lifecycle status --json",
-      "storage_lifecycle_reap": "abyss-machine storage lifecycle reap --limit 1 --json",
+      "storage_lifecycle_reap": "abyss-machine storage lifecycle reap --limit 1 --scan-limit 8 --json",
       "process_paths": "abyss-machine processes paths --json",
     "process_latest": "abyss-machine processes latest --json",
     "process_snapshot": "abyss-machine processes snapshot --json"

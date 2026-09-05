@@ -90,10 +90,25 @@ def test_storage_lifecycle_preserves_validation_for_legacy_token(tmp_path: Path)
     assert sealed["record"]["state"] == "sealed"
 
 
+def test_storage_lifecycle_cli_reap_passes_mutation_and_scan_bounds(monkeypatch, capsys, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(cli, "STORAGE_LIFECYCLE_ROOT", tmp_path / "state")
+
+    def fake_reap(root: Path, *, limit: int, scan_limit: int) -> dict[str, object]:
+        captured.update({"root": root, "limit": limit, "scan_limit": scan_limit})
+        return {"schema": "abyss_machine_storage_workspace_reap_v1", "ok": True, "summary": {}}
+
+    monkeypatch.setattr(cli.storage_lifecycle_adapters, "reap", fake_reap)
+    returncode, _ = _run(capsys, "reap", "--limit", "1", "--scan-limit", "2")
+
+    assert returncode == 0
+    assert captured == {"root": tmp_path / "state", "limit": 1, "scan_limit": 2}
+
+
 def test_lifecycle_reaper_timer_is_core_and_bounded() -> None:
     service = (ROOT / "systemd" / "user" / "abyss-storage-lifecycle-reaper.service").read_text(encoding="utf-8")
     timer = (ROOT / "systemd" / "user" / "abyss-storage-lifecycle-reaper.timer").read_text(encoding="utf-8")
     bootstrap = (ROOT / "scripts" / "abyss-machine-bootstrap").read_text(encoding="utf-8")
-    assert "storage lifecycle reap --limit 1 --json" in service
+    assert "storage lifecycle reap --limit 1 --scan-limit 8 --json" in service
     assert "OnUnitInactiveSec=5min" in timer
     assert '"abyss-storage-lifecycle-reaper.timer"' in bootstrap

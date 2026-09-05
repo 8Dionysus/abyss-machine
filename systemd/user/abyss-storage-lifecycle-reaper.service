@@ -10,6 +10,6 @@ IOSchedulingClass=idle
 CPUWeight=15
 IOWeight=15
 TimeoutStartSec=30min
-ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage lifecycle reap --limit 1 --json
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage lifecycle reap --limit 1 --scan-limit 8 --json
 StandardOutput=null
 StandardError=journal

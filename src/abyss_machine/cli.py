@@ -15504,7 +15504,7 @@ def storage_paths() -> dict[str, Any]:
         "root": str(STORAGE_LIFECYCLE_ROOT),
         "commands": {
             "status": "abyss-machine storage lifecycle status --json",
-            "reap": "abyss-machine storage lifecycle reap --limit 1 --json",
+            "reap": "abyss-machine storage lifecycle reap --limit 1 --scan-limit 8 --json",
         },
     }
     document["reservations"] = {
@@ -53414,7 +53414,13 @@ def main(argv: list[str]) -> int:
     for lifecycle_name in ("status", "reap"):
         lifecycle_parser = storage_lifecycle_sub.add_parser(lifecycle_name)
         if lifecycle_name == "reap":
-            lifecycle_parser.add_argument("--limit", type=int, default=1)
+            lifecycle_parser.add_argument("--limit", type=int, default=1, help="maximum successful lifecycle mutations")
+            lifecycle_parser.add_argument(
+                "--scan-limit",
+                type=int,
+                default=storage_lifecycle_adapters.DEFAULT_REAP_SCAN_LIMIT,
+                help="maximum released or expired workspace attempts per invocation",
+            )
         lifecycle_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_lifecycle_open_parser = storage_lifecycle_sub.add_parser("open")
     storage_lifecycle_open_parser.add_argument("--owner", required=True)
@@ -55485,6 +55491,7 @@ def main(argv: list[str]) -> int:
                 data = storage_lifecycle_adapters.reap(
                     STORAGE_LIFECYCLE_ROOT,
                     limit=max(1, int(args.limit)),
+                    scan_limit=max(1, int(args.scan_limit)),
                 )
             elif command == "open":
                 data = storage_lifecycle_adapters.register_workspace(

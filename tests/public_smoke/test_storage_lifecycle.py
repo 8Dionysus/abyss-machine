@@ -210,6 +210,58 @@ def test_reaper_resumes_authorized_atomic_detach_after_crash(tmp_path: Path) -> 
     assert not tombstone.exists()
 
 
+def test_reaper_scans_past_blocked_candidate_with_bounded_attempts(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "state"
+    records: list[dict] = []
+    for name in ("blocked", "eligible", "scan-limited"):
+        workspace = tmp_path / "work" / name
+        opened = adapters.register_workspace(root, owner="fixture", workspace=workspace, unit=None)
+        (workspace / "derived").write_text(name, encoding="utf-8")
+        assert adapters.seal_registered_workspace(
+            root,
+            workspace_id=opened["record"]["workspace_id"],
+            lease_token=opened["lease_token"],
+        )["ok"]
+        callback = Path(opened["record"]["callback_path"])
+        callback.parent.mkdir(parents=True, exist_ok=True)
+        callback.write_text(json.dumps({"decision": "DELETE", "plan": {"kind": "delete_workspace"}}), encoding="utf-8")
+        assert adapters.consume_owner_callback(
+            root,
+            workspace_id=opened["record"]["workspace_id"],
+            grace_seconds=0,
+        )["released"]
+        record = adapters.read_json(adapters.record_path(root, opened["record"]["workspace_id"]))
+        assert record is not None
+        records.append(record)
+
+    blocked, eligible, scan_limited = records
+    (Path(blocked["path"]) / "late-result").write_text("changed after seal", encoding="utf-8")
+    monkeypatch.setattr(adapters, "load_records", lambda _root: records)
+
+    result = adapters.reap(
+        root,
+        limit=1,
+        scan_limit=2,
+        now_time=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1),
+    )
+
+    summary = result["summary"]
+    assert summary["examined"] == 2
+    assert summary["scan_limit"] == 2
+    assert summary["mutations"] == 1
+    assert summary["applied"] == 1
+    assert summary["blocked"] == 1
+    assert summary["recovered"] == 0
+    assert summary["reclaimed_bytes"] > 0
+    assert result["blocked"][0]["workspace_id"] == blocked["workspace_id"]
+    assert "fingerprint_drift" in result["blocked"][0]["reasons"]
+    assert result["applied"][0]["workspace_id"] == eligible["workspace_id"]
+    assert not Path(eligible["path"]).exists()
+    assert Path(blocked["path"]).exists()
+    assert Path(scan_limited["path"]).exists()
+    assert "execution" not in (adapters.read_json(adapters.record_path(root, scan_limited["workspace_id"])) or {})
+
+
 def test_reaper_resumes_from_detach_journal_after_cleanup_failure(monkeypatch, tmp_path: Path) -> None:
     root = tmp_path / "state"
     workspace = tmp_path / "work" / "job"

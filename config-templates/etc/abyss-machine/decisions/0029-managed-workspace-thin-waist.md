@@ -92,7 +92,7 @@ visible as unmanaged integration gaps.
 
 ```bash
 abyss-machine storage lifecycle status --json
-abyss-machine storage lifecycle reap --limit 1 --json
+abyss-machine storage lifecycle reap --limit 1 --scan-limit 8 --json
 ```
 
 ## Follow-up Route

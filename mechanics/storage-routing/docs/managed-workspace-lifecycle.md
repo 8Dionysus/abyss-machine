@@ -53,13 +53,16 @@ No callback is `UNKNOWN`; it never grants mutation.
 ## Executor
 
 The launcher seals on process completion. The lightweight reaper inspects only
-released registry records and processes at most one object per invocation. It
-rechecks the grace deadline, live process and mount references, full seal
-fingerprint, and original inode. Delete detaches the exact inode with an atomic
-sibling rename before removal. Archive copies to a partial target, verifies the
-same content digest, publishes the archive without overwrite, and only then
-detaches the local inode. A per-workspace execution journal makes an authorized
-detach resumable after interruption. Each applied action writes a byte receipt.
+released registry records and permits at most one successful mutation per
+invocation by default. Its separate small scan bound (`--scan-limit 8`) lets a
+blocked record remain visible while a later eligible record can be attempted;
+the bound prevents an unbounded registry walk. It rechecks the grace deadline,
+live process and mount references, full seal fingerprint, and original inode.
+Delete detaches the exact inode with an atomic sibling rename before removal.
+Archive copies to a partial target, verifies the same content digest, publishes
+the archive without overwrite, and only then detaches the local inode. A
+per-workspace execution journal makes an authorized detach resumable after
+interruption. Each applied action writes a byte receipt.
 
 The archive executor requires an exact live mount (default `/abyss` for older
 plans), a target beneath it without symlink ancestors, and the same mount
@@ -75,6 +78,7 @@ under the separate candidate/reconciliation route.
 
 ```bash
 abyss-machine storage lifecycle status --json
+abyss-machine storage lifecycle reap --limit 1 --scan-limit 8 --json
 ```
 
 The compact readout exposes `active_managed_bytes`,
