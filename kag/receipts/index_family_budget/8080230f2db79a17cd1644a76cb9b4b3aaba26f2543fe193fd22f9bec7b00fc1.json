@@ -8,7 +8,7 @@
   "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
   "default_limit_bytes": 1048576,
   "head_family_digest": "8080230f2db79a17cd1644a76cb9b4b3aaba26f2543fe193fd22f9bec7b00fc1",
-  "reason": "Refresh the exact portable owner family for the reviewed source validator help-cache split; keep the installed generation bytecode boundary and standing KAG budgets unchanged.",
+  "reason": "Refresh the exact portable owner family after the reviewed help-cache validator and its generated ABI companion; keep standing KAG budgets unchanged.",
   "repo": "abyss-machine",
   "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
   "scope": "generated_delta_and_tracked_size",
