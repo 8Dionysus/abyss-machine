@@ -16310,13 +16310,23 @@ def _storage_candidate_deep_progress(
         prior_copy = dict(prior)
         prior_cursor = min(max(0, safe_int(prior.get("cursor"), 0)), total)
         if str(prior.get("inventory_digest") or "") == inventory_digest:
+            if prior_copy.get("deferred_prefix") is True and prior_cursor == 0:
+                # The suffix pass reached the end on the previous run.  This
+                # invocation now owns the deferred prefix, so a complete
+                # prefix pass may close the sweep.
+                prior_copy["prefix_pass"] = True
+                prior_copy["deferred_prefix"] = False
             return prior_cursor, prior_copy
 
         # A changing temporary root must not restart a sweep at zero every
-        # time a child appears. Resume after the last stable identity; if a
-        # newly discovered identity sorts before it, visit the earliest such
-        # identity so it cannot starve behind the suffix.
-        prior_cursor_id = str(prior.get("cursor_candidate_id") or "")
+        # time a child appears. Resume after the last stable identity. Any
+        # newly discovered identity that sorts before it is handled by a
+        # deferred prefix pass after this suffix reaches its end.
+        prior_cursor_id = str(
+            prior.get("cursor_candidate_id")
+            or prior.get("last_processed_candidate_id")
+            or ""
+        )
         current_ids = [_storage_candidate_spec_id(spec) for spec in specs]
         resume = current_ids.index(prior_cursor_id) + 1 if prior_cursor_id in current_ids else prior_cursor
         previous_ids = {
@@ -16324,9 +16334,18 @@ def _storage_candidate_deep_progress(
             for item in previous.get("candidates", [])
             if isinstance(item, Mapping) and item.get("candidate_id")
         } if isinstance(previous.get("candidates"), list) else set()
-        unseen_before = [index for index, candidate_id in enumerate(current_ids) if candidate_id not in previous_ids and index < resume]
+        unseen_before = [
+            index
+            for index, candidate_id in enumerate(current_ids)
+            if candidate_id not in previous_ids and index < resume
+        ]
         prior_copy["inventory_changed"] = True
-        return (min(unseen_before) if unseen_before else min(resume, total)), prior_copy
+        # Keep the existing suffix cursor. New prefix members are visited in
+        # a deferred prefix pass after the suffix reaches the end, which means
+        # repeated insertions cannot keep restarting the same suffix.
+        prior_copy["deferred_prefix"] = bool(unseen_before)
+        prior_copy["prefix_pass"] = False
+        return min(resume, total), prior_copy
     return 0, {}
 
 
@@ -16418,6 +16437,7 @@ def _storage_candidate_build_bounded_document(
     candidate_document: Mapping[str, Any],
     complete: bool,
     deadline_exceeded: bool,
+    deferred_prefix: bool = False,
 ) -> dict[str, Any]:
     current = [_storage_candidate_current_record(item) for item in candidate_document.get("candidates", []) if isinstance(item, Mapping)]
     current_ids = {str(item.get("candidate_id") or "") for item in current if item.get("candidate_id")}
@@ -16428,16 +16448,6 @@ def _storage_candidate_build_bounded_document(
     } if isinstance(previous.get("candidates"), list) else {}
     full_ids = {_storage_candidate_spec_id(spec) for spec in specs}
     records_by_id: dict[str, dict[str, Any]] = {str(item.get("candidate_id")): item for item in current if item.get("candidate_id")}
-    carried_count = 0
-    for candidate_id, item in previous_candidates.items():
-        if candidate_id in records_by_id or (complete and candidate_id not in full_ids):
-            continue
-        records_by_id[candidate_id] = _storage_candidate_carried_record(item, generated_at)
-        carried_count += 1
-    records = list(records_by_id.values())
-    records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
-
-    coverage = storage_candidate_contracts.coverage_summary(records)
     candidate_coverage = candidate_document.get("coverage") if isinstance(candidate_document.get("coverage"), Mapping) else {}
     prior_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
     prior_errors = prior_coverage.get("runtime_errors") if isinstance(prior_coverage.get("runtime_errors"), list) else []
@@ -16451,22 +16461,55 @@ def _storage_candidate_build_bounded_document(
         for item in current_errors
         if item.get("candidate_id")
     }
-    current_ids = {str(item.get("candidate_id") or "") for item in current if item.get("candidate_id")}
-    retained_prior_errors = []
+    # ``complete`` means that the cursor reached the end of this inventory;
+    # a deferred prefix is intentionally outside that claim.  Derive the
+    # final completeness before carrying or dropping records so a retained
+    # error cannot turn a partial suffix into an apparent clean absence pass.
+    inventory_complete = bool(complete and not deferred_prefix)
+    prior_errors_by_candidate: dict[str, list[dict[str, Any]]] = {}
+    retained_prior_errors: list[dict[str, Any]] = []
     for item in prior_errors:
         if not isinstance(item, Mapping):
             continue
         candidate_id = str(item.get("candidate_id") or "")
+        if candidate_id and candidate_id not in full_ids:
+            # Discovery completed successfully and no longer reports this
+            # identity.  Resolve its old observation blocker for progress,
+            # while the carried record/retirement evidence keeps the reason
+            # visible until the observation sweep itself is complete.
+            prior_errors_by_candidate.setdefault(candidate_id, []).append(dict(item))
+            continue
         # A candidate-specific blocker is cleared only after that candidate
-        # was observed successfully in the current pass. Global blockers stay
-        # visible until a complete pass has retried the inventory.
+        # was observed successfully in the current pass.
         if candidate_id and candidate_id in current_ids and candidate_id not in current_error_ids:
             continue
-        if not candidate_id and complete:
+        # Global blockers stay visible until a complete pass has retried the
+        # inventory; partial discovery must never clear them.
+        if not candidate_id and inventory_complete:
             continue
         retained_prior_errors.append(dict(item))
     errors = retained_prior_errors + current_errors
-    complete = bool(complete and not errors)
+    complete = bool(inventory_complete and not errors)
+
+    carried_count = 0
+    for candidate_id, item in previous_candidates.items():
+        if candidate_id in records_by_id:
+            continue
+        # A disappeared record is retained for every partial/error pass.  It
+        # may be removed only after the effective complete state is known.
+        if complete and candidate_id not in full_ids:
+            continue
+        carried = _storage_candidate_carried_record(item, generated_at)
+        absence_errors = prior_errors_by_candidate.get(candidate_id)
+        if absence_errors:
+            carried["discovery_absent"] = True
+            carried["prior_runtime_errors"] = absence_errors[:20]
+        records_by_id[candidate_id] = carried
+        carried_count += 1
+    records = list(records_by_id.values())
+    records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
+
+    coverage = storage_candidate_contracts.coverage_summary(records)
     coverage.update({
         "mode": "deep" if complete else ("deep_partial_deadline" if deadline_exceeded else "deep_partial_batch"),
         "discovered": len(specs),
@@ -16488,6 +16531,14 @@ def _storage_candidate_build_bounded_document(
         candidate_document_retired=[item for item in candidate_document.get("retired", []) if isinstance(item, Mapping)] if isinstance(candidate_document.get("retired"), list) else [],
         complete=complete,
     )
+    # Keep the last owner-visible blocker attached to an absence retirement.
+    # The complete inventory resolves the old candidate error for current
+    # coverage, while the retirement evidence still explains why that record
+    # was previously held back.
+    for item in retired:
+        details = prior_errors_by_candidate.get(str(item.get("candidate_id") or ""))
+        if details:
+            item["prior_runtime_errors"] = details[:20]
     progress_cursor = cursor_after if complete or cursor_after < len(specs) else cursor_before
     if errors and cursor_after >= len(specs):
         blocked_indices = [
@@ -16499,12 +16550,19 @@ def _storage_candidate_build_bounded_document(
             }
         ]
         progress_cursor = min(blocked_indices) if blocked_indices else cursor_before
+    elif deferred_prefix and cursor_after >= len(specs):
+        # The stable suffix has been serviced.  Start a separate prefix pass
+        # on the next invocation; a new prefix insertion cannot reset this
+        # suffix cursor and therefore cannot starve its completion.
+        progress_cursor = 0
+    processed_this_run = max(0, cursor_after - cursor_before)
     progress = {
         "status": "complete" if complete else "partial",
         "inventory_digest": _storage_candidate_inventory_digest(specs),
         "total": len(specs),
         "cursor": progress_cursor,
         "processed": progress_cursor,
+        "processed_this_run": processed_this_run,
         "remaining": max(0, len(specs) - progress_cursor),
         "batch_limit": batch_limit,
         "budget_seconds": budget_seconds,
@@ -16514,8 +16572,13 @@ def _storage_candidate_build_bounded_document(
         "continuation_required": not complete,
         "resume_policy": "cursor_candidate_id",
     }
+    if not errors and cursor_after > 0 and cursor_after <= len(specs):
+        progress["last_processed_candidate_id"] = _storage_candidate_spec_id(specs[cursor_after - 1])
     if progress_cursor > 0 and progress_cursor <= len(specs):
         progress["cursor_candidate_id"] = _storage_candidate_spec_id(specs[progress_cursor - 1])
+    if deferred_prefix and not complete:
+        progress["deferred_prefix"] = True
+        progress["prefix_pass"] = False
     prior_started = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
     progress["started_at"] = prior_started.get("started_at") if prior_started.get("status") == "partial" else generated_at
     if prior_started.get("status") == "partial" and str(prior_started.get("inventory_digest") or "") != progress["inventory_digest"]:
@@ -16546,7 +16609,7 @@ def _storage_candidate_build_bounded_document(
             "status": "new_results" if complete and records else ("deep_partial_deadline" if deadline_exceeded else "deep_partial_batch"),
             "new_results": len(current),
             "carried_forward_count": carried_count,
-            "processed": progress_cursor - cursor_before,
+            "processed": processed_this_run,
             "remaining": max(0, len(specs) - progress_cursor),
             "continuation_required": not complete,
             "elapsed_seconds": round(max(0.0, elapsed_seconds), 3),
@@ -16740,6 +16803,7 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
             ordered_specs = _storage_candidate_ordered_specs(specs)
             inventory_digest = _storage_candidate_inventory_digest(ordered_specs)
             cursor, prior_progress = _storage_candidate_deep_progress(previous, inventory_digest, ordered_specs)
+            deferred_prefix = bool(prior_progress.get("deferred_prefix") is True)
             budget_seconds = max(1.0, float(STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS))
             batch_limit = max(1, int(STORAGE_CANDIDATE_DEEP_BATCH_LIMIT))
             deadline = deep_started + budget_seconds
@@ -16799,9 +16863,9 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                     except Exception as exc:  # one inaccessible candidate must not erase the snapshot
                         runtime_errors.append({"surface": "observation", "path": path_text, "candidate_id": _storage_candidate_spec_id(spec), "error": str(exc)[:1000]})
                         break
-                cursor_after = next_cursor
-            if not batch_specs:
-                cursor_after = cursor
+            # Both the pre-deadline and observation-loop branches leave the
+            # same explicit cursor result for the merge layer.
+            cursor_after = next_cursor
             if runtime_errors and not observations and not prior_progress and not deadline_exceeded:
                 # Preserve the existing strict error shape for a producer that
                 # cannot produce even its first observation.  No empty result
@@ -16837,6 +16901,7 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                     candidate_document=candidate_document,
                     complete=cursor_after >= len(ordered_specs) and not runtime_errors,
                     deadline_exceeded=deadline_exceeded,
+                    deferred_prefix=deferred_prefix,
                 )
             aoa_status = producer_status.get("aoa_owner_verdict")
             if isinstance(aoa_status, Mapping) and aoa_status.get("deferred") is True and data.get("refresh_result", {}).get("status") != "deep_error_carry_forward":

@@ -1146,6 +1146,30 @@ def test_bounded_deep_deadline_keeps_last_good_and_does_not_retire_failed_object
     assert refreshed["runtime_errors"][0]["error"] == "deadline_exceeded"
 
 
+def test_bounded_deep_pre_batch_deadline_has_explicit_cursor_result(monkeypatch) -> None:
+    ticks = iter((100.0, 102.0, 102.0))
+    spec = {"candidate_id": "reclaim-pending", "path": "/srv/abyss-machine/tmp/pending", "owner": "test", "kind": "generated_tmp"}
+    monkeypatch.setattr(cli.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BATCH_LIMIT", 1)
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS", 1.0)
+    monkeypatch.setattr(cli, "now_iso", lambda: "2026-09-05T20:30:00+00:00")
+    monkeypatch.setattr(cli, "load_json_document", lambda path: ({}, None))
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", lambda **kwargs: [spec])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+
+    refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    assert refreshed["partial"] is True
+    assert refreshed["ok"] is False
+    assert refreshed["deep_progress"]["cursor"] == 0
+    assert refreshed["deep_progress"]["remaining"] == 1
+    assert refreshed["runtime_errors"][0]["error"] == "deadline_exceeded_before_batch"
+    assert refreshed["retired"] == []
+
+
 def test_bounded_deep_inventory_churn_resumes_after_stable_identity() -> None:
     specs = [
         {"candidate_id": f"reclaim-{letter}", "path": f"/srv/abyss-machine/tmp/{letter}", "owner": "test", "kind": "generated_tmp"}
@@ -1172,8 +1196,78 @@ def test_bounded_deep_inventory_churn_resumes_after_stable_identity() -> None:
     ]
     ordered_prefix_specs = cli._storage_candidate_ordered_specs(prefix_specs)
     prefix_digest = cli._storage_candidate_inventory_digest(ordered_prefix_specs)
-    prefix_cursor, _ = cli._storage_candidate_deep_progress(previous, prefix_digest, ordered_prefix_specs)
-    assert prefix_cursor == 1
+    prefix_cursor, prefix_state = cli._storage_candidate_deep_progress(previous, prefix_digest, ordered_prefix_specs)
+    assert prefix_cursor == 3
+    assert prefix_state["deferred_prefix"] is True
+
+    def record(candidate_id: str) -> dict[str, object]:
+        return {
+            "candidate_id": candidate_id,
+            "path": f"/srv/abyss-machine/tmp/{candidate_id.removeprefix('reclaim-')}",
+            "source_adapter": "test",
+            "physical_bytes": 1,
+            "reclaimable_bytes": 1,
+            "fingerprint": {"digest": candidate_id, "complete": True},
+            "evidence": {
+                key: {"checked": True, "active": False}
+                for key in ("process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs")
+            },
+        }
+
+    # Finish the stable suffix while the new prefix is deferred.  The
+    # resulting state keeps an anchor at the suffix end and starts a separate
+    # prefix pass instead of pretending that the inventory is complete.
+    suffix_result = cli._storage_candidate_build_bounded_document(
+        [record(candidate_id) for candidate_id in ("reclaim-c", "reclaim-d", "reclaim-z")],
+        previous=previous,
+        specs=ordered_prefix_specs,
+        cursor_before=prefix_cursor,
+        cursor_after=len(ordered_prefix_specs),
+        generated_at="2026-09-05T19:02:00+00:00",
+        elapsed_seconds=1.0,
+        budget_seconds=120.0,
+        batch_limit=4096,
+        runtime_errors=[],
+        producer_status={},
+        candidate_document={
+            "candidates": [record(candidate_id) for candidate_id in ("reclaim-c", "reclaim-d", "reclaim-z")],
+            "retired": [],
+            "changes": [],
+            "coverage": {"runtime_errors": [], "pressure_findings": []},
+        },
+        complete=True,
+        deadline_exceeded=False,
+        deferred_prefix=True,
+    )
+    assert suffix_result["partial"] is True
+    assert suffix_result["deep_progress"]["deferred_prefix"] is True
+    assert suffix_result["deep_progress"]["last_processed_candidate_id"] == "reclaim-z"
+    assert suffix_result["coverage"]["observed"] == len(ordered_prefix_specs)
+
+    # Repeated new identities before the old cursor still resume after the
+    # serviced suffix.  They cannot reset the scan to the earliest prefix.
+    repeated_prefix_specs = cli._storage_candidate_ordered_specs([
+        {"candidate_id": "reclaim-ab", "path": "/srv/abyss-machine/tmp/ab", "owner": "test", "kind": "generated_tmp"},
+        {"candidate_id": "reclaim-aa", "path": "/srv/abyss-machine/tmp/aa", "owner": "test", "kind": "generated_tmp"},
+        *prefix_specs,
+    ])
+    repeated_digest = cli._storage_candidate_inventory_digest(repeated_prefix_specs)
+    repeated_cursor, repeated_state = cli._storage_candidate_deep_progress(
+        suffix_result,
+        repeated_digest,
+        repeated_prefix_specs,
+    )
+    assert repeated_cursor == len(repeated_prefix_specs)
+    assert repeated_state["deferred_prefix"] is True
+
+    prefix_pass_cursor, prefix_pass_state = cli._storage_candidate_deep_progress(
+        suffix_result,
+        cli._storage_candidate_inventory_digest(ordered_prefix_specs),
+        ordered_prefix_specs,
+    )
+    assert prefix_pass_cursor == 0
+    assert prefix_pass_state["prefix_pass"] is True
+    assert prefix_pass_state["deferred_prefix"] is False
 
 
 def test_bounded_deep_does_not_claim_complete_while_earlier_error_is_unresolved() -> None:
@@ -1181,8 +1275,12 @@ def test_bounded_deep_does_not_claim_complete_while_earlier_error_is_unresolved(
         "last_deep_at": "2026-09-05T17:00:00+00:00",
         "candidates": [
             {"candidate_id": "reclaim-a", "path": "/srv/abyss-machine/tmp/a", "observed_at": "2026-09-05T17:00:00+00:00"},
+            {"candidate_id": "reclaim-gone", "path": "/srv/abyss-machine/tmp/gone", "observed_at": "2026-09-05T17:00:00+00:00"},
         ],
-        "coverage": {"runtime_errors": [{"candidate_id": "reclaim-a", "surface": "process_refs", "error": "permission"}]},
+        "coverage": {"runtime_errors": [
+            {"candidate_id": "reclaim-a", "surface": "process_refs", "error": "permission"},
+            {"candidate_id": "reclaim-gone", "surface": "process_refs", "error": "stale permission"},
+        ]},
         "deep_progress": {"status": "partial", "cursor": 1, "cursor_candidate_id": "reclaim-a"},
     }
     current = {
@@ -1223,4 +1321,58 @@ def test_bounded_deep_does_not_claim_complete_while_earlier_error_is_unresolved(
     assert result["deep_progress"]["cursor"] == 0
     assert result["last_deep_at"] == "2026-09-05T17:00:00+00:00"
     assert any(item.get("candidate_id") == "reclaim-a" for item in result["runtime_errors"])
+    gone = next(item for item in result["candidates"] if item["candidate_id"] == "reclaim-gone")
+    assert gone["discovery_absent"] is True
+    assert gone["prior_runtime_errors"][0]["error"] == "stale permission"
     assert result["retired"] == []
+
+
+def test_bounded_deep_complete_absence_clears_disappeared_candidate_error() -> None:
+    previous = {
+        "last_deep_at": "2026-09-05T17:00:00+00:00",
+        "candidates": [{"candidate_id": "reclaim-gone", "path": "/srv/abyss-machine/tmp/gone", "observed_at": "2026-09-05T17:00:00+00:00"}],
+        "coverage": {
+            "runtime_errors": [{"candidate_id": "reclaim-gone", "surface": "process_refs", "error": "permission"}],
+            "pressure_findings": [],
+        },
+    }
+    current = {
+        "candidate_id": "reclaim-current",
+        "path": "/srv/abyss-machine/tmp/current",
+        "observed_at": "2026-09-05T19:00:00+00:00",
+        "physical_bytes": 1,
+        "reclaimable_bytes": 1,
+        "fingerprint": {"digest": "current", "complete": True},
+        "evidence": {
+            key: {"checked": True, "active": False}
+            for key in ("process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs")
+        },
+    }
+    result = cli._storage_candidate_build_bounded_document(
+        [current],
+        previous=previous,
+        specs=[{"candidate_id": "reclaim-current", "path": current["path"]}],
+        cursor_before=0,
+        cursor_after=1,
+        generated_at="2026-09-05T19:01:00+00:00",
+        elapsed_seconds=1.0,
+        budget_seconds=120.0,
+        batch_limit=2,
+        runtime_errors=[],
+        producer_status={},
+        candidate_document={
+            "candidates": [current],
+            "retired": [],
+            "changes": [],
+            "coverage": {"runtime_errors": [], "pressure_findings": []},
+        },
+        complete=True,
+        deadline_exceeded=False,
+    )
+    assert result["ok"] is True
+    assert result["partial"] is False
+    assert result["runtime_errors"] == []
+    assert "reclaim-gone" not in {item["candidate_id"] for item in result["candidates"]}
+    assert "reclaim-gone" in {item["candidate_id"] for item in result["retired"]}
+    retired = next(item for item in result["retired"] if item["candidate_id"] == "reclaim-gone")
+    assert retired["prior_runtime_errors"][0]["error"] == "permission"
