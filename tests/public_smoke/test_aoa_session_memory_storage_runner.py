@@ -277,6 +277,60 @@ def test_resource_command_uses_owner_lease_without_bytes_target_and_keeps_pilot_
     assert "--confirm-remove-plain" in runner.owner_resource_argv(reclaim)
 
 
+def test_resource_command_emits_exact_child_argv_and_runs_harmless_owner(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _config(tmp_path)
+    payload = _maintenance_payload("applied", ok=True, mutates=True)
+    owner_script = config.bundle_dir / runner.OWNER_SCRIPT_RELATIVE
+    owner_script.write_text(
+        "import json\n"
+        "import sys\n"
+        "assert sys.argv[1:3] == ['raw-block-storage-compact', 'all'], sys.argv[1:3]\n"
+        f"print({json.dumps(json.dumps(payload, ensure_ascii=False))})\n",
+        encoding="utf-8",
+    )
+
+    resource_argv = runner.owner_resource_argv(
+        config, attempt=3, run_id="argv-regression"
+    )
+    resource_command = resource_argv[resource_argv.index("--") + 1 :]
+    assert resource_command[:3] == [
+        str(config.host_cli),
+        "storage",
+        "aoa-session-memory-compact-child",
+    ]
+    child_argv = resource_command[3:]
+    child_separator = child_argv.index("--")
+    assert child_argv[child_separator + 1 :] == [
+        "raw-block-storage-compact",
+        "all",
+        "--workspace-root",
+        str(config.workspace_root),
+        "--aoa-root",
+        str(config.aoa_root),
+        "--scheduled",
+        "--limit",
+        str(config.session_limit),
+        "--scan-limit",
+        str(config.scan_limit),
+        "--max-plain-bytes",
+        str(config.max_plain_bytes),
+        "--sample-limit",
+        str(config.sample_limit),
+        "--apply",
+        "--write-report",
+        "--include-open-tail",
+    ]
+
+    code = runner.child_main(child_argv)
+    output = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert output["artifact_type"] == runner.OWNER_MAINTENANCE_ARTIFACT_TYPE
+    assert output["owner_payload_complete"] is True
+    assert output["child_returncode"] == 0
+
+
 def test_reclaim_mode_without_verified_pilot_fails_config(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
     path.write_text(
