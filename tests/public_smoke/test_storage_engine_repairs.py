@@ -981,7 +981,7 @@ def test_write_preflight_denies_unknown_reservation_state() -> None:
 
 def test_candidate_deep_timer_does_not_hide_resource_blocks() -> None:
     service = (ROOT / "systemd" / "user" / "abyss-storage-candidates-deep.service").read_text(encoding="utf-8")
-    assert "storage candidates refresh --deep --json" in service
+    assert "storage candidates refresh --deep --if-due --json" in service
     assert "--success-on-block" not in service
 
 
