@@ -39,11 +39,16 @@ Each enabled run performs these bounded steps:
 
 Lock contention retries after 5, 15, and 30 seconds, with a 15-minute total
 deadline.  Each resource launch receives the remaining deadline minus a
-10-second outer timeout reserve (the existing resource adapter adds its own
-5-second systemd wait margin); when that reserve is exhausted the runner
-defers before starting another unit.  The owner runs through a child wrapper
-inside the same resource lease, which captures complete bounded output in
-temporary files and emits a summary below the resource adapter's 4 KiB tail.
+15-second post-timeout stop/probe reserve.  Its inner resource timeout leaves
+another 45 seconds for policy planning, lease admission, and the resource
+adapter's systemd wait margin; when those reserves are exhausted the runner
+defers before starting another unit.  Every attempt has a unique transient
+unit name.  If the outer wait expires, the runner issues a bounded stop and
+terminal-state probe and records the unit as pending when systemd cannot prove
+termination; it never retries an unresolved unit.  The owner runs through a
+child wrapper inside the same resource lease, which drains stdout and stderr
+concurrently, stops the child as soon as either stream crosses its cap, and
+emits a summary below the resource adapter's 4 KiB tail.
 The runner records only compact status, counters, cursor outcome,
 and audit summaries under
 `{{ABYSS_MACHINE_STATE}}/storage/aoa-session-memory-raw-block-compact/latest.json`;

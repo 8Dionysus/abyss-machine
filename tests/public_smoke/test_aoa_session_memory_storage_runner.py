@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -264,6 +265,7 @@ def test_resource_command_uses_owner_lease_without_bytes_target_and_keeps_pilot_
     )
     assert argv[argv.index("--kind") + 1] == runner.RESOURCE_KIND
     assert argv[argv.index("--demand-key") + 1] == runner.RESOURCE_DEMAND_KEY
+    assert argv[argv.index("--unit") + 1] == runner._resource_unit_name(1)
 
     reclaim = replace(
         config,
@@ -646,6 +648,132 @@ def test_child_wrapper_rejects_oversized_capture_without_emitting_raw_output(
     assert output["diagnostic_codes"] == ["child_output_oversize"]
     assert output["child_stdout_bytes"] > 16
     assert "x" * 32 not in json.dumps(output)
+
+
+@pytest.mark.parametrize(
+    ("stream", "script", "byte_key"),
+    [
+        (
+            "stdout",
+            "import sys\nwhile True:\n    sys.stdout.write('x' * 4096)\n    sys.stdout.flush()\n",
+            "child_stdout_bytes",
+        ),
+        (
+            "stderr",
+            "import sys\nwhile True:\n    sys.stderr.write('e' * 4096)\n    sys.stderr.flush()\n",
+            "child_stderr_bytes",
+        ),
+    ],
+)
+def test_child_capture_stops_a_streaming_owner_at_the_cap(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    stream: str,
+    script: str,
+    byte_key: str,
+) -> None:
+    """The cap applies while bytes are produced, including a never-ending child."""
+    owner_script = tmp_path / f"owner-{stream}.py"
+    owner_script.write_text(script, encoding="utf-8")
+    started = time.monotonic()
+    code = runner.child_main(
+        [
+            "--python",
+            sys.executable,
+            "--owner-script",
+            str(owner_script),
+            "--max-capture-bytes",
+            "16",
+            "--",
+            "raw-block-storage-compact",
+            "all",
+        ]
+    )
+    elapsed = time.monotonic() - started
+    output = json.loads(capsys.readouterr().out)
+    assert elapsed < 5
+    assert code == 1
+    assert output["diagnostic_codes"] == ["child_output_oversize"]
+    assert output[byte_key] > 16
+    assert "x" * 32 not in json.dumps(output)
+    assert "e" * 32 not in json.dumps(output)
+
+
+def test_resource_timeout_probes_active_unit_and_does_not_retry(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    gate = json.dumps(_trust_payload(config))
+    calls: list[list[str]] = []
+    resource_calls = 0
+    clock_value = [0.0]
+
+    def clock() -> float:
+        return clock_value[0]
+
+    def fake(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal resource_calls
+        calls.append(argv)
+        if argv[1:3] == ["artifacts", "trust-gate"]:
+            return subprocess.CompletedProcess(argv, 0, gate, "")
+        if argv[1:3] == ["timer-preflight", "sessions"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[:4] == ["systemctl", "--user", "stop", "--no-block"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[:3] == ["systemctl", "--user", "show"]:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "LoadState=loaded\nActiveState=active\nSubState=running\n",
+                "",
+            )
+        if argv[1:3] == ["resource", "launch"]:
+            resource_calls += 1
+            outer_timeout = float(kwargs["timeout"])
+            clock_value[0] = outer_timeout
+            assert outer_timeout == config.retry_deadline_sec - runner.RESOURCE_POST_TIMEOUT_PROBE_SEC
+            assert float(argv[argv.index("--timeout") + 1]) == (
+                config.retry_deadline_sec - runner.RESOURCE_TIMEOUT_RESERVE_SEC
+            )
+            raise subprocess.TimeoutExpired(argv, timeout=outer_timeout)
+        pytest.fail(f"unexpected command: {argv}")
+
+    payload = runner.run_once(
+        config,
+        run_port=fake,
+        clock_port=clock,
+        write_state=False,
+    )
+    assert payload["status"] == "resource_launch_timeout_pending"
+    assert payload["ok"] is False
+    assert payload["deferred"] is True
+    assert payload["mutates"] is False
+    assert resource_calls == 1
+    assert len(payload["attempts"]) == 1
+    resource_summary = payload["resource_launch"]
+    unit = resource_summary["resource_unit"]
+    assert unit == runner._resource_unit_name(1)
+    recovery = resource_summary["timeout_recovery"]
+    assert recovery["unit"] == unit
+    assert recovery["pending"] is True
+    assert recovery["confirmed_terminal"] is False
+    assert recovery["probe"]["state"]["ActiveState"] == "active"
+    assert calls[-1][:3] == ["systemctl", "--user", "show"]
+
+
+def test_resource_adapter_timeout_document_enters_the_same_recovery_route() -> None:
+    result = {
+        "returncode": 1,
+        "stdout": json.dumps(
+            {
+                "ok": False,
+                "execution": {"returncode": 124, "timeout_cleanup": {"unit": "opaque"}},
+            }
+        ),
+        "stderr": "",
+    }
+    assert runner._resource_result_indicates_timeout(result) is True
+    assert runner._resource_result_indicates_timeout(
+        {"returncode": 1, "stdout": json.dumps({"ok": False}), "stderr": ""}
+    ) is False
 
 
 def test_session_lease_deferral_is_reported_without_false_failure(tmp_path: Path) -> None:

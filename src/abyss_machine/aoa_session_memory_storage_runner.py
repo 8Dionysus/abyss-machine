@@ -13,6 +13,8 @@ import argparse
 import datetime as dt
 import json
 import os
+import selectors
+import signal
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -45,7 +47,14 @@ MAX_RETRY_DEADLINE_SEC = 15 * 60
 RETRY_DELAYS_SEC = (5, 15, 30)
 MAX_CHILD_CAPTURE_BYTES = 8 * 1024 * 1024
 MAX_CHILD_SUMMARY_BYTES = 3500
-RESOURCE_TIMEOUT_RESERVE_SEC = 10
+# The resource command performs policy planning and lease admission before it
+# calls systemd-run.  Keep that phase, the adapter's own wait margin, and a
+# bounded post-timeout unit probe inside the single runner deadline.
+RESOURCE_PRELAUNCH_RESERVE_SEC = 45
+RESOURCE_POST_TIMEOUT_PROBE_SEC = 15
+RESOURCE_TIMEOUT_RESERVE_SEC = (
+    RESOURCE_PRELAUNCH_RESERVE_SEC + RESOURCE_POST_TIMEOUT_PROBE_SEC
+)
 RESOURCE_MIN_TIMEOUT_SEC = 1
 DEFAULT_CONFIG_PATH = Path("/etc/abyss-machine/aoa-session-memory-storage.json")
 DEFAULT_REGISTRY_DIR = Path("/var/lib/abyss-machine/artifacts/bundle-registry")
@@ -374,16 +383,29 @@ def vault_preflight_argv(config: RunnerConfig) -> list[str]:
     return [str(config.backup_cli), "timer-preflight", "sessions"]
 
 
+def _resource_unit_name(attempt: int) -> str:
+    """Return a unique, stable transient unit identity for one attempt."""
+    # The PID prevents a later runner invocation from probing or stopping an
+    # earlier unit.  The attempt number lets lock retries remain distinguishable
+    # while keeping the identity free of session names or private paths.
+    return f"aoa-session-memory-raw-block-compact-{os.getpid()}-{attempt}.service"
+
+
 def owner_resource_argv(
     config: RunnerConfig,
     *,
     bundle_dir: Path | None = None,
     outer_timeout_sec: float | None = None,
+    attempt: int = 1,
 ) -> list[str]:
     admitted_bundle = bundle_dir if bundle_dir is not None else config.bundle_dir
     owner_script = admitted_bundle / OWNER_SCRIPT_RELATIVE
     outer_timeout = (
-        float(config.retry_deadline_sec)
+        max(
+            float(RESOURCE_MIN_TIMEOUT_SEC),
+            float(config.retry_deadline_sec)
+            - float(RESOURCE_POST_TIMEOUT_PROBE_SEC),
+        )
         if outer_timeout_sec is None
         else max(0.0, float(outer_timeout_sec))
     )
@@ -391,7 +413,7 @@ def owner_resource_argv(
         float(RESOURCE_MIN_TIMEOUT_SEC),
         min(
             float(config.retry_deadline_sec),
-            outer_timeout - float(RESOURCE_TIMEOUT_RESERVE_SEC),
+            outer_timeout - float(RESOURCE_PRELAUNCH_RESERVE_SEC),
         ),
     )
     resource_timeout_text = (
@@ -422,6 +444,8 @@ def owner_resource_argv(
         RESOURCE_ESTIMATE_CONFIDENCE,
         "--success-on-block",
         "--no-thermal-sample",
+        "--unit",
+        _resource_unit_name(attempt),
         "--json",
         "--",
         str(config.host_cli),
@@ -496,6 +520,33 @@ def _json_documents(value: str, *, max_chars: int = 131072) -> list[dict[str, An
             continue
         add(candidate)
     return documents
+
+
+def _resource_result_indicates_timeout(result: Mapping[str, Any]) -> bool:
+    """Recognize both an outer wait timeout and adapter-reported timeout."""
+    try:
+        top_returncode = int(result.get("returncode", 1))
+    except (TypeError, ValueError):
+        top_returncode = 1
+    if result.get("error") == "command_timeout" or top_returncode == 124:
+        return True
+    documents = _json_documents(str(result.get("stdout") or ""))
+
+    def visit(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            try:
+                if int(value.get("returncode", -1)) == 124:
+                    return True
+            except (TypeError, ValueError):
+                pass
+            if value.get("error") == "command_timeout":
+                return True
+            return any(visit(item) for item in value.values())
+        if isinstance(value, list):
+            return any(visit(item) for item in value)
+        return False
+
+    return any(visit(document) for document in documents)
 
 
 def _owner_like(value: Mapping[str, Any]) -> bool:
@@ -773,28 +824,156 @@ def _emit_child_payload(payload: Mapping[str, Any]) -> None:
     print(json.dumps(_bounded_child_summary(payload), ensure_ascii=False, sort_keys=True))
 
 
+def _signal_owner_process(process: subprocess.Popen[Any], signal_number: int) -> None:
+    """Signal the owner and its descendants without relying on output limits."""
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal_number)
+        return
+    except (OSError, ProcessLookupError):
+        pass
+    try:
+        process.send_signal(signal_number)
+    except (OSError, ProcessLookupError):
+        return
+
+
 def _capture_owner_json(
     argv: Sequence[str],
     *,
     max_bytes: int,
 ) -> tuple[int, str | None, int, int, str | None]:
-    """Run the owner with bounded disk-backed capture, never retaining raw output."""
+    """Run the owner with bounded streaming capture, never retaining raw output.
+
+    Both pipes are drained concurrently so a verbose owner cannot deadlock on
+    the other stream.  Once either stream crosses the cap, the owner process
+    group is terminated and subsequent bytes are discarded; the temporary
+    files therefore stay bounded while cleanup still reaches a terminal child.
+    """
+    stdout_bytes = 0
+    stderr_bytes = 0
+    capture_error: str | None = None
     try:
         with tempfile.TemporaryFile(mode="w+b") as stdout_file, tempfile.TemporaryFile(
             mode="w+b"
         ) as stderr_file:
             process = subprocess.Popen(
                 list(argv),
-                stdout=stdout_file,
-                stderr=stderr_file,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
             )
-            returncode = int(process.wait())
-            stdout_file.seek(0, os.SEEK_END)
-            stdout_bytes = int(stdout_file.tell())
-            stderr_file.seek(0, os.SEEK_END)
-            stderr_bytes = int(stderr_file.tell())
-            if stdout_bytes > max_bytes:
-                return returncode, None, stdout_bytes, stderr_bytes, "child_output_oversize"
+            selector = selectors.DefaultSelector()
+            streams: dict[Any, tuple[str, Any]] = {}
+            stdout_stream: Any = process.stdout
+            stderr_stream: Any = process.stderr
+            if stdout_stream is not None:
+                selector.register(stdout_stream, selectors.EVENT_READ, "stdout")
+                streams[stdout_stream] = ("stdout", stdout_file)
+            if stderr_stream is not None:
+                selector.register(stderr_stream, selectors.EVENT_READ, "stderr")
+                streams[stderr_stream] = ("stderr", stderr_file)
+
+            stop_deadline: float | None = None
+            kill_deadline: float | None = None
+            try:
+                while streams:
+                    now = time.monotonic()
+                    if capture_error is not None:
+                        if stop_deadline is not None and now >= stop_deadline:
+                            _signal_owner_process(process, signal.SIGKILL)
+                            if kill_deadline is None:
+                                kill_deadline = now + 1.0
+                        if kill_deadline is not None and now >= kill_deadline:
+                            # A descendant that inherited a pipe can keep EOF
+                            # from arriving.  The process group was already
+                            # killed; closing our descriptors bounds cleanup.
+                            for registered_stream in list(streams):
+                                try:
+                                    selector.unregister(registered_stream)
+                                except (KeyError, ValueError):
+                                    pass
+                                try:
+                                    registered_stream.close()
+                                except OSError:
+                                    pass
+                                streams.pop(registered_stream, None)
+                            break
+
+                    timeout = 0.1
+                    if stop_deadline is not None:
+                        timeout = max(0.0, min(timeout, stop_deadline - now))
+                    if kill_deadline is not None:
+                        timeout = max(0.0, min(timeout, kill_deadline - now))
+                    events = selector.select(timeout)
+                    if not events:
+                        continue
+                    for key, _mask in events:
+                        stream: Any = key.fileobj
+                        stream_info = streams.get(stream)
+                        if stream_info is None:
+                            continue
+                        stream_name, target = stream_info
+                        try:
+                            read1 = getattr(stream, "read1", stream.read)
+                            chunk = read1(65536)
+                        except OSError:
+                            chunk = b""
+                        if not chunk:
+                            try:
+                                selector.unregister(stream)
+                            except (KeyError, ValueError):
+                                pass
+                            streams.pop(stream, None)
+                            try:
+                                stream.close()
+                            except OSError:
+                                pass
+                            continue
+
+                        if stream_name == "stdout":
+                            previous = stdout_bytes
+                            stdout_bytes = min(max_bytes + 1, previous + len(chunk))
+                        else:
+                            previous = stderr_bytes
+                            stderr_bytes = min(max_bytes + 1, previous + len(chunk))
+                        allowed = max(0, max_bytes - previous)
+                        if allowed:
+                            try:
+                                target.write(chunk[:allowed])
+                            except OSError:
+                                if capture_error is None:
+                                    capture_error = "child_capture_write_error"
+                                    _signal_owner_process(process, signal.SIGTERM)
+                                    stop_deadline = time.monotonic() + 2.0
+                        if previous + len(chunk) > max_bytes and capture_error is None:
+                            capture_error = "child_output_oversize"
+                            _signal_owner_process(process, signal.SIGTERM)
+                            stop_deadline = time.monotonic() + 2.0
+            finally:
+                selector.close()
+
+            if process.poll() is None:
+                # Normal completion should have closed both pipes.  Oversize
+                # cleanup has a short, explicit terminal wait before KILL.
+                wait_timeout = 1.0 if capture_error is not None else 2.0
+                try:
+                    returncode = int(process.wait(timeout=wait_timeout))
+                except subprocess.TimeoutExpired:
+                    _signal_owner_process(process, signal.SIGKILL)
+                    try:
+                        returncode = int(process.wait(timeout=1.0))
+                    except subprocess.TimeoutExpired:
+                        returncode = 124
+                        if capture_error is None:
+                            capture_error = "child_process_timeout"
+            else:
+                returncode = int(process.returncode)
+
+            if capture_error is not None:
+                return returncode, None, stdout_bytes, stderr_bytes, capture_error
             stdout_file.seek(0)
             output = stdout_file.read(max_bytes + 1)
     except FileNotFoundError:
@@ -958,6 +1137,120 @@ def _run_command(
         "returncode": int(getattr(completed, "returncode", 1)),
         "stdout": str(getattr(completed, "stdout", "") or ""),
         "stderr": str(getattr(completed, "stderr", "") or ""),
+    }
+
+
+def _parse_systemd_unit_properties(value: str) -> dict[str, str]:
+    properties: dict[str, str] = {}
+    for line in str(value or "").splitlines():
+        key, separator, item = line.partition("=")
+        if separator and key in {"LoadState", "ActiveState", "SubState"}:
+            properties[key] = item.strip()
+    return properties
+
+
+def _unit_timeout_probe(
+    result: Mapping[str, Any],
+    *,
+    unit: str,
+) -> dict[str, Any]:
+    """Classify only explicit systemd terminal state as safe cleanup."""
+    properties = _parse_systemd_unit_properties(str(result.get("stdout") or ""))
+    load_state = properties.get("LoadState", "unknown").lower()
+    active_state = properties.get("ActiveState", "unknown").lower()
+    active = active_state in {"active", "activating", "reloading", "deactivating"}
+    terminal = active_state in {"inactive", "failed", "dead", "exited"}
+    # A show response with LoadState=not-found is explicit evidence that the
+    # unique transient unit is gone, even when systemctl uses rc=1 for it.
+    missing = load_state == "not-found" and active_state in {"", "unknown", "inactive"}
+    confirmed = bool(
+        not result.get("error")
+        and not active
+        and (terminal or missing)
+    )
+    return {
+        "unit": unit,
+        "confirmed_terminal": confirmed,
+        "pending": not confirmed,
+        "state": {
+            key: properties[key]
+            for key in ("LoadState", "ActiveState", "SubState")
+            if key in properties
+        },
+        "confirmation": "unit_terminal" if confirmed else "unit_still_active_or_unknown",
+    }
+
+
+def _recover_timed_out_resource_unit(
+    unit: str,
+    *,
+    run_port: RunPort,
+    budget_sec: float,
+) -> dict[str, Any]:
+    """Stop and probe one timed-out transient unit within a fixed budget.
+
+    The unit name is supplied by this runner and is unique for the attempt.
+    A failed stop or an inconclusive probe is retained as pending evidence;
+    callers must not retry while the unit's terminal state is unknown.
+    """
+    normalized_unit = str(unit or "").strip()
+    if not normalized_unit:
+        return {
+            "unit": None,
+            "confirmed_terminal": False,
+            "pending": True,
+            "confirmation": "unit_identity_unavailable",
+        }
+    budget = max(0.0, float(budget_sec))
+    if budget < 0.2:
+        return {
+            "unit": normalized_unit,
+            "confirmed_terminal": False,
+            "pending": True,
+            "confirmation": "terminal_probe_budget_exhausted",
+        }
+    started = time.monotonic()
+    stop_timeout = min(5.0, max(0.1, budget * 0.4))
+    stop_result = _run_command(
+        ["systemctl", "--user", "stop", "--no-block", normalized_unit],
+        run_port=run_port,
+        timeout_sec=stop_timeout,
+    )
+    elapsed = max(0.0, time.monotonic() - started)
+    probe_budget = budget - elapsed
+    if probe_budget <= 0.1:
+        probe_result: dict[str, Any] = {
+            "returncode": 124,
+            "stdout": "",
+            "stderr": "",
+            "error": "terminal_probe_budget_exhausted",
+        }
+    else:
+        probe_result = _run_command(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                normalized_unit,
+                "--property=LoadState",
+                "--property=ActiveState",
+                "--property=SubState",
+                "--no-pager",
+            ],
+            run_port=run_port,
+            timeout_sec=probe_budget,
+        )
+    probe = _unit_timeout_probe(probe_result, unit=normalized_unit)
+    return {
+        "unit": normalized_unit,
+        "stop": _command_summary(stop_result),
+        "probe": {
+            **_command_summary(probe_result),
+            "state": probe["state"],
+        },
+        "confirmed_terminal": probe["confirmed_terminal"],
+        "pending": probe["pending"],
+        "confirmation": probe["confirmation"],
     }
 
 
@@ -1136,6 +1429,8 @@ def _base_summary(config: RunnerConfig) -> dict[str, Any]:
             "deadline_sec": min(config.retry_deadline_sec, MAX_RETRY_DEADLINE_SEC),
             "retry_statuses": sorted(RETRYABLE_OWNER_STATUSES),
             "resource_timeout_reserve_sec": RESOURCE_TIMEOUT_RESERVE_SEC,
+            "resource_prelaunch_reserve_sec": RESOURCE_PRELAUNCH_RESERVE_SEC,
+            "resource_post_timeout_probe_sec": RESOURCE_POST_TIMEOUT_PROBE_SEC,
         },
         "paths": {
             "config": str(config.config_path),
@@ -1326,24 +1621,64 @@ def run_once(
     resource_summary: dict[str, Any] = {}
     for attempt in range(len(config.retry_delays_sec) + 1):
         remaining = deadline - clock_port()
+        # Reserve the post-timeout stop/probe before assigning the resource
+        # command its outer wait.  The inner timeout then leaves a separate
+        # pre-launch/adapter margin for planning and systemd-run's own +5s.
         if remaining <= RESOURCE_TIMEOUT_RESERVE_SEC + RESOURCE_MIN_TIMEOUT_SEC:
             classification = "deferred_retry_deadline"
             break
-        result = _run_command(
-            owner_resource_argv(
-                config,
-                bundle_dir=admitted_store_path,
-                outer_timeout_sec=remaining,
-            ),
-            run_port=run_port,
-            timeout_sec=remaining,
+        outer_timeout = remaining - float(RESOURCE_POST_TIMEOUT_PROBE_SEC)
+        resource_unit = _resource_unit_name(attempt + 1)
+        resource_argv = owner_resource_argv(
+            config,
+            bundle_dir=admitted_store_path,
+            outer_timeout_sec=outer_timeout,
+            attempt=attempt + 1,
         )
-        classification, owner_summary, resource_summary = _classify_resource_result(result)
+        result = _run_command(
+            resource_argv,
+            run_port=run_port,
+            timeout_sec=outer_timeout,
+        )
+        if _resource_result_indicates_timeout(result):
+            timeout_recovery = _recover_timed_out_resource_unit(
+                resource_unit,
+                run_port=run_port,
+                budget_sec=min(
+                    float(RESOURCE_POST_TIMEOUT_PROBE_SEC),
+                    max(0.0, deadline - clock_port()),
+                ),
+            )
+            classification = (
+                "resource_launch_timeout"
+                if timeout_recovery.get("confirmed_terminal") is True
+                else "resource_launch_timeout_pending"
+            )
+            owner_summary = None
+            resource_summary = {
+                **_command_summary(result),
+                "resource_unit": resource_unit,
+                "timeout_source": (
+                    "outer_wait"
+                    if result.get("error") == "command_timeout"
+                    else "resource_execution"
+                ),
+                "timeout_recovery": timeout_recovery,
+            }
+        else:
+            classification, owner_summary, resource_summary = _classify_resource_result(result)
+            resource_summary["resource_unit"] = resource_unit
         attempts.append({
             "number": attempt + 1,
             "classification": classification,
             "returncode": resource_summary.get("returncode"),
             "owner_status": owner_summary.get("status") if owner_summary else None,
+            "resource_unit": resource_unit,
+            "terminal_confirmed": (
+                resource_summary.get("timeout_recovery", {}).get("confirmed_terminal")
+                if isinstance(resource_summary.get("timeout_recovery"), Mapping)
+                else None
+            ),
         })
         if classification != "deferred_lock_busy":
             break
@@ -1381,6 +1716,24 @@ def run_once(
             "ok": True,
             "deferred": True,
             "mutates": bool(owner_summary and owner_summary.get("mutates") is True),
+        })
+    elif classification == "resource_launch_timeout_pending":
+        # Keep the unit handle visible and fail closed.  The host lease cleanup
+        # path may still be pending, so a retry here could overlap live work.
+        summary.update({
+            "status": classification,
+            "ok": False,
+            "deferred": True,
+            "mutates": False,
+            "errors": ["resource_unit_terminal_state_unknown"],
+        })
+    elif classification == "resource_launch_timeout":
+        summary.update({
+            "status": classification,
+            "ok": False,
+            "deferred": False,
+            "mutates": False,
+            "errors": [classification],
         })
     else:
         summary.update({"status": classification, "errors": [classification], "mutates": False})
