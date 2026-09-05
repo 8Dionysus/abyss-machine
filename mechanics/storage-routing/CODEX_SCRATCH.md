@@ -4,10 +4,11 @@ The native hook adapter assigns temporary shell files to their Codex task and
 feeds the existing host storage candidate/claim plane. It does not run agents,
 read transcripts, classify task completion, or delete files.
 
-Source entrypoint: `scripts/abyss-codex-storage`. Install that script beside
-`abyss-machine` after the corresponding package generation has been installed.
-The module is `abyss_machine.codex_storage_lifecycle`. Source invocation needs
-no installed host CLI.
+Installed entrypoint: `abyss-machine storage codex`. The standard bootstrap
+launcher dispatches directly into the active package generation without
+importing the large CLI binder. The module is
+`abyss_machine.codex_storage_lifecycle`; `scripts/abyss-codex-storage` is a source
+convenience wrapper. No separate helper installation is required.
 
 ## Event behavior
 
@@ -47,7 +48,7 @@ runtime state.
 Example owner closeout after preserving results:
 
 ```sh
-abyss-codex-storage close --session-id TASK_ID --receipt /durable/path/closeout.json
+abyss-machine storage codex close --session-id TASK_ID --receipt /durable/path/closeout.json
 abyss-machine storage candidates explain CANDIDATE_ID --json
 ```
 

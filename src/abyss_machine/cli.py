@@ -51346,6 +51346,9 @@ def print_mode_list_text(data: dict[str, Any]) -> None:
 
 
 def main(argv: list[str]) -> int:
+    if argv[:2] == ["storage", "codex"]:
+        from abyss_machine.codex_storage_lifecycle import main as codex_storage_main
+        return codex_storage_main(argv[2:])
     parser = argparse.ArgumentParser(description="Abyss OS host-machine bridge")
     sub = parser.add_subparsers(dest="command", required=True)
     known_top_level_commands = {
@@ -51503,6 +51506,7 @@ def main(argv: list[str]) -> int:
 
     storage_parser = add_top_level_parser("storage", help="inspect host storage routing, policy, hooks and cache pressure")
     storage_sub = storage_parser.add_subparsers(dest="storage_command", required=True)
+    storage_sub.add_parser("codex", help="native Codex scratch ownership and closeout")
     storage_status_parser = storage_sub.add_parser("status")
     storage_status_parser.add_argument("--full", action="store_true", help="run a fresh AI model/cache storage scan")
     storage_status_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")

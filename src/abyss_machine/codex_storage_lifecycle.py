@@ -165,7 +165,7 @@ class Lifecycle:
             "Keep durable results and source worktrees outside it. "
             "Before a large write reserve its bytes through the host storage route. "
             "At actual task closeout preserve results, then explicitly close this scratch "
-            "with abyss-codex-storage close --session-id ID --receipt PATH. "
+            "with abyss-machine storage codex close --session-id ID --receipt PATH. "
             "Stop, idle and claim expiry do not authorize deletion."
         )
         if name == "PreToolUse" and route_temp and event.get("tool_name") in {"Bash", "exec_command"}:

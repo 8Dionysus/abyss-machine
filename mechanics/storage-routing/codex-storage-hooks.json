@@ -1,12 +1,12 @@
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook", "timeout": 3, "statusMessage": "Registering task scratch"}]}],
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook", "timeout": 3, "statusMessage": "Renewing task scratch ownership"}]}],
-    "SubagentStart": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook", "timeout": 3, "statusMessage": "Registering subagent scratch"}]}],
-    "PreToolUse": [{"matcher": "^Bash$", "hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook --route-temp", "timeout": 3, "statusMessage": "Routing task temporary files"}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook", "timeout": 3, "statusMessage": "Recording scratch activity"}]}],
-    "SessionEnd": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook", "timeout": 3, "statusMessage": "Recording scratch session end"}]}],
-    "SubagentStop": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook", "timeout": 3, "statusMessage": "Recording subagent scratch activity"}]}],
-    "Interrupt": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-codex-storage hook", "timeout": 3, "statusMessage": "Preserving interrupted scratch"}]}]
+    "SessionStart": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook", "timeout": 3, "statusMessage": "Registering task scratch"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook", "timeout": 3, "statusMessage": "Renewing task scratch ownership"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook", "timeout": 3, "statusMessage": "Registering subagent scratch"}]}],
+    "PreToolUse": [{"matcher": "^Bash$", "hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook --route-temp", "timeout": 3, "statusMessage": "Routing task temporary files"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook", "timeout": 3, "statusMessage": "Recording scratch activity"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook", "timeout": 3, "statusMessage": "Recording scratch session end"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook", "timeout": 3, "statusMessage": "Recording subagent scratch activity"}]}],
+    "Interrupt": [{"hooks": [{"type": "command", "command": "/usr/local/bin/abyss-machine storage codex hook", "timeout": 3, "statusMessage": "Preserving interrupted scratch"}]}]
   }
 }
