@@ -16,6 +16,7 @@ from typing import Any, Iterator, Mapping
 from . import storage_candidate_adapters
 from . import storage_lifecycle_contracts as contracts
 from . import resource_adapters
+from . import storage_process_probe
 
 
 def now_utc() -> dt.datetime:
@@ -538,7 +539,7 @@ def finalize_managed_workspace(
 def _path_has_live_refs(path: Path) -> dict[str, Any]:
     text = str(path)
     try:
-        process_result = storage_candidate_adapters.process_references([text])
+        process_result = storage_process_probe.owner_process_references([text])
         process_value = process_result.get(text, {}) if isinstance(process_result, Mapping) else {}
         process = process_value if isinstance(process_value, Mapping) else {"checked": False, "active": False, "errors": ["invalid_probe"]}
     except Exception as exc:  # a failed safety probe must never authorize cleanup

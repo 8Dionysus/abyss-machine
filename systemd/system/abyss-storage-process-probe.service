@@ -1,0 +1,36 @@
+[Unit]
+Description=Abyss Machine bounded authenticated storage process probe
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+After=abyss-storage-process-probe.socket
+Requires=abyss-storage-process-probe.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=ABYSS_STORAGE_PROCESS_PROBE_ALLOWED_USER={{ABYSS_USER}}
+Environment=ABYSS_STORAGE_PROCESS_PROBE_ALLOWED_ROOTS={{ABYSS_MACHINE_SRV}}:{{ABYSS_OS_ROOT}}
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage process-probe --serve
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_SYS_PTRACE
+AmbientCapabilities=CAP_SYS_PTRACE
+ProcSubset=all
+ProtectProc=default
+UMask=0077
+StandardOutput=journal
+StandardError=journal
