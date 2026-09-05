@@ -232,6 +232,129 @@ def test_owner_candidate_adapter_contains_invalid_utf8(monkeypatch, tmp_path: Pa
     assert "text" not in calls[0]["kwargs"]
 
 
+def test_candidate_refresh_propagates_owner_adapter_invalid_json(monkeypatch) -> None:
+    generated_at = "2026-09-04T19:00:00+00:00"
+    last_deep_at = "2026-09-04T18:00:00+00:00"
+    previous = {
+        "generated_at": last_deep_at,
+        "last_deep_at": last_deep_at,
+        "snapshot_id": "reclaim-snapshot-last-good",
+        "coverage": {
+            "discovered": 1,
+            "observed": 1,
+            "runtime_errors": [],
+            "pressure_findings": [],
+            "runtime_error_count": 0,
+            "pressure_finding_count": 0,
+        },
+        "summary": {"candidates": 1, "retired": 0, "runtime_error_count": 0},
+        "candidates": [{
+            "candidate_id": "reclaim-keep",
+            "path": "/srv/abyss-machine/tmp/keep",
+            "owner": "test-owner",
+            "kind": "generated_tmp",
+            "verdict": "blocked_unknown",
+            "physical_bytes": 10,
+            "reclaimable_bytes": 0,
+        }],
+    }
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (previous, None))
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "direct_child_specs", lambda *args, **kwargs: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "runtime_specs", lambda root: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "artifact_specs", lambda snapshot: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "huggingface_specs", lambda root: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "git_specs", lambda roots: [])
+    monkeypatch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+    monkeypatch.setattr(cli, "command_exists", lambda name: False)
+    monkeypatch.setattr(
+        cli,
+        "storage_candidate_owner_aoa_document",
+        lambda: {"status": "owner_adapter_invalid_json", "error": "invalid owner JSON"},
+    )
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+
+    assert refreshed["ok"] is False
+    assert [item["candidate_id"] for item in refreshed["candidates"]] == ["reclaim-keep"]
+    assert refreshed["retired"] == []
+    assert refreshed["last_deep_at"] == last_deep_at
+    assert refreshed["runtime_errors"][0]["surface"] == "discovery"
+    assert "owner_adapter_invalid_json" in refreshed["runtime_errors"][0]["error"]
+    assert refreshed["summary"]["runtime_error_count"] == 1
+
+
+def test_candidate_discovery_rejects_owner_adapter_error_document(monkeypatch) -> None:
+    def patch_empty_producers(patch) -> None:
+        patch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "direct_child_specs", lambda *args, **kwargs: [])
+        patch.setattr(cli.storage_candidate_adapters, "runtime_specs", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "artifact_specs", lambda snapshot: [])
+        patch.setattr(cli.storage_candidate_adapters, "huggingface_specs", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "git_specs", lambda roots: [])
+        patch.setattr(cli, "command_exists", lambda name: False)
+
+    patch_empty_producers(monkeypatch)
+    monkeypatch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+    monkeypatch.setattr(
+        cli,
+        "storage_candidate_owner_aoa_document",
+        lambda: {"status": "owner_adapter_failed", "error": "owner command failed"},
+    )
+
+    try:
+        cli.storage_candidate_discover_specs()
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("owner adapter failure must not become an empty discovery")
+
+    assert "aoa_owner_adapter_failed" in message
+    assert "owner_adapter_failed" in message
+
+
+def test_candidate_discovery_rejects_required_producer_failures(monkeypatch) -> None:
+    def patch_empty_producers(patch) -> None:
+        patch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "direct_child_specs", lambda *args, **kwargs: [])
+        patch.setattr(cli.storage_candidate_adapters, "runtime_specs", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "artifact_specs", lambda snapshot: [])
+        patch.setattr(cli.storage_candidate_adapters, "huggingface_specs", lambda root: [])
+        patch.setattr(cli.storage_candidate_adapters, "git_specs", lambda roots: [])
+        patch.setattr(cli, "storage_candidate_owner_aoa_document", lambda: {"status": "nothing_to_do", "ok": True})
+
+    with monkeypatch.context() as patch:
+        patch_empty_producers(patch)
+        patch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": False, "error": "snapshot producer failed"})
+        try:
+            cli.storage_candidate_discover_specs()
+        except RuntimeError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("artifact snapshot failure must not become an empty discovery")
+        assert "artifact_snapshot_failed" in message
+
+    with monkeypatch.context() as patch:
+        patch_empty_producers(patch)
+        patch.setattr(cli, "artifacts_snapshot", lambda **kwargs: {"ok": True, "records": []})
+        patch.setattr(cli, "command_exists", lambda name: name == "podman")
+        patch.setattr(cli, "run", lambda *args, **kwargs: {"ok": False, "stderr": "podman discovery failed"})
+        try:
+            cli.storage_candidate_discover_specs()
+        except RuntimeError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("podman failure must not become an empty discovery")
+        assert "podman_discovery_failed" in message
+
+
 def test_candidate_deep_refresh_carries_last_good_on_discovery_error(monkeypatch) -> None:
     generated_at = "2026-09-04T19:00:00+00:00"
     last_deep_at = "2026-09-04T18:00:00+00:00"

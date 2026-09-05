@@ -15644,14 +15644,35 @@ def storage_candidate_discover_specs(*, artifact_snapshot: dict[str, Any] | None
             source_adapter="tmp_ai_children",
         ))
     snapshot = artifact_snapshot if isinstance(artifact_snapshot, dict) else artifacts_snapshot(scope="all", history_days=14, write_latest=False)
+    if snapshot.get("ok") is False:
+        raise RuntimeError(
+            "artifact_snapshot_failed: "
+            f"{str(snapshot.get('error') or snapshot.get('status') or 'unknown error')[:1000]}"
+        )
     specs.extend(storage_candidate_adapters.artifact_specs(snapshot))
     specs.extend(storage_candidate_adapters.huggingface_specs(AI_CACHE_ROOT / "huggingface"))
     specs.extend(storage_candidate_adapters.git_specs([ABYSS_MACHINE_TMP_ROOT]))
     if command_exists("podman"):
         podman = run(["podman", "system", "df", "-v"], timeout=45.0)
-        if podman.get("ok"):
-            specs.extend(storage_candidate_adapters.podman_specs(str(podman.get("stdout") or "")))
+        if not podman.get("ok"):
+            raise RuntimeError(
+                "podman_discovery_failed: "
+                f"{str(podman.get('stderr') or podman.get('stdout') or 'unknown error')[:1000]}"
+            )
+        specs.extend(storage_candidate_adapters.podman_specs(str(podman.get("stdout") or "")))
     aoa_document = storage_candidate_owner_aoa_document()
+    aoa_status = str(aoa_document.get("status") or "").strip()
+    owner_adapter_failed = (
+        aoa_status.startswith("owner_adapter_")
+        or not aoa_status
+        or aoa_document.get("ok") is False
+    )
+    if owner_adapter_failed:
+        raise RuntimeError(
+            "aoa_owner_adapter_failed: "
+            f"status={aoa_status or 'missing_status'} "
+            f"error={str(aoa_document.get('error') or 'invalid owner document')[:1000]}"
+        )
     specs.extend(storage_candidate_adapters.aoa_specs(aoa_document))
     specs.extend(storage_candidate_adapters.manifest_specs(manifests))
 
