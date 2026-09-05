@@ -15866,19 +15866,20 @@ def _storage_candidate_deep_failure_document(
         }
 
     previous_coverage = document.get("coverage")
-    derived_coverage = storage_candidate_contracts.coverage_summary(previous_candidates)
+    derived_coverage = storage_candidate_contracts.coverage_summary(previous_candidates, error_limit=None)
     if isinstance(previous_coverage, dict):
         coverage = json.loads(json.dumps(previous_coverage))
         for key, value in derived_coverage.items():
             coverage.setdefault(key, value)
     else:
         coverage = derived_coverage
-    prior_errors = coverage.get("runtime_errors") if isinstance(coverage.get("runtime_errors"), list) else []
+    prior_errors = _storage_candidate_full_runtime_errors(coverage, records=previous_candidates)
     current_errors = [dict(item) for item in runtime_errors if isinstance(item, Mapping)]
-    all_errors = [item for item in prior_errors if isinstance(item, Mapping)] + current_errors
+    all_errors = _storage_candidate_unique_runtime_errors(prior_errors, current_errors)
     coverage["mode"] = "deep_error_carry_forward"
     coverage["new_results"] = 0
     coverage["runtime_errors"] = all_errors[:200]
+    coverage["runtime_errors_full"] = all_errors
     coverage["runtime_error_count"] = len(all_errors)
     pressure_findings = coverage.get("pressure_findings")
     if not isinstance(pressure_findings, list):
@@ -16130,14 +16131,23 @@ def _storage_candidate_preserve_partial_light_state(
     """Keep resumable deep progress and its stale/partial label through light refresh."""
     progress = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
     previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    previous_candidates = [
+        item for item in previous.get("candidates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(previous.get("candidates"), list) else []
+    prior_errors = _storage_candidate_full_runtime_errors(
+        previous_coverage,
+        records=previous_candidates,
+    )
+    prior_error_signal = bool(prior_errors) or safe_int(previous_coverage.get("runtime_error_count"), 0) > 0
     if (
         str(progress.get("status") or "") != "partial"
         and previous.get("partial") is not True
         and previous_coverage.get("partial") is not True
+        and not prior_error_signal
     ):
         return data
     coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
-    prior_errors = previous_coverage.get("runtime_errors") if isinstance(previous_coverage.get("runtime_errors"), list) else []
     coverage.update({
         "mode": "light_carry_forward_deep_partial",
         "partial": True,
@@ -16146,8 +16156,9 @@ def _storage_candidate_preserve_partial_light_state(
         "observed": previous_coverage.get("observed", progress.get("processed", 0)),
         "current_results": 0,
         "carried_forward_count": len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0,
-        "runtime_errors": [dict(item) for item in prior_errors if isinstance(item, Mapping)][:200],
-        "runtime_error_count": len([item for item in prior_errors if isinstance(item, Mapping)]),
+        "runtime_errors": prior_errors[:200],
+        "runtime_errors_full": prior_errors,
+        "runtime_error_count": len(prior_errors),
     })
     data["coverage"] = coverage
     data["runtime_errors"] = list(coverage.get("runtime_errors", []))
@@ -16421,6 +16432,47 @@ def _storage_candidate_bounded_retired(
     return merged
 
 
+def _storage_candidate_unique_runtime_errors(
+    *sources: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep one durable error entry per stable diagnostic identity."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in sources:
+        for item in source:
+            if not isinstance(item, Mapping):
+                continue
+            record = dict(item)
+            try:
+                key = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+            except (TypeError, ValueError):
+                key = repr(sorted(record.items(), key=lambda pair: str(pair[0])))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(record)
+    return merged
+
+
+def _storage_candidate_full_runtime_errors(
+    coverage: Mapping[str, Any],
+    *,
+    records: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    """Read full error authority, deriving it from records when older data lacks it."""
+    persisted = coverage.get("runtime_errors_full")
+    persisted_errors = [dict(item) for item in persisted if isinstance(item, Mapping)] if isinstance(persisted, list) else []
+    bounded = coverage.get("runtime_errors")
+    bounded_errors = [dict(item) for item in bounded if isinstance(item, Mapping)] if isinstance(bounded, list) else []
+    derived_errors: list[dict[str, Any]] = []
+    if records:
+        derived = storage_candidate_contracts.coverage_summary(records, error_limit=None)
+        values = derived.get("runtime_errors")
+        if isinstance(values, list):
+            derived_errors = [dict(item) for item in values if isinstance(item, Mapping)]
+    return _storage_candidate_unique_runtime_errors(persisted_errors, derived_errors, bounded_errors)
+
+
 def _storage_candidate_build_bounded_document(
     observations: Sequence[Mapping[str, Any]],
     *,
@@ -16450,12 +16502,25 @@ def _storage_candidate_build_bounded_document(
     records_by_id: dict[str, dict[str, Any]] = {str(item.get("candidate_id")): item for item in current if item.get("candidate_id")}
     candidate_coverage = candidate_document.get("coverage") if isinstance(candidate_document.get("coverage"), Mapping) else {}
     prior_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
-    prior_errors = prior_coverage.get("runtime_errors") if isinstance(prior_coverage.get("runtime_errors"), list) else []
-    candidate_errors = candidate_coverage.get("runtime_errors") if isinstance(candidate_coverage.get("runtime_errors"), list) else []
+    # Keep the complete diagnostic authority separate from the bounded
+    # display list.  Older documents may lack the authority field, so derive
+    # per-object failures from their persisted evidence as a compatibility
+    # fallback.
+    prior_errors = _storage_candidate_full_runtime_errors(
+        prior_coverage,
+        records=list(previous_candidates.values()),
+    )
+    candidate_errors = _storage_candidate_full_runtime_errors(
+        candidate_coverage,
+        records=current,
+    )
     # A complete retry gets a clean error set from the current evidence.  A
     # partial retry carries earlier blockers until the inventory has actually
     # reached the end again.
-    current_errors = [dict(item) for item in candidate_errors if isinstance(item, Mapping)] + [dict(item) for item in runtime_errors if isinstance(item, Mapping)]
+    current_errors = _storage_candidate_unique_runtime_errors(
+        candidate_errors,
+        runtime_errors,
+    )
     current_error_ids = {
         str(item.get("candidate_id") or "")
         for item in current_errors
@@ -16495,10 +16560,9 @@ def _storage_candidate_build_bounded_document(
     for candidate_id, item in previous_candidates.items():
         if candidate_id in records_by_id:
             continue
-        # A disappeared record is retained for every partial/error pass.  It
-        # may be removed only after the effective complete state is known.
-        if complete and candidate_id not in full_ids:
-            continue
+        # Keep every disappeared record until the complete authority has been
+        # derived below.  This prevents a late carried evidence error from
+        # being hidden by an early ``complete`` decision.
         carried = _storage_candidate_carried_record(item, generated_at)
         absence_errors = prior_errors_by_candidate.get(candidate_id)
         if absence_errors:
@@ -16509,7 +16573,29 @@ def _storage_candidate_build_bounded_document(
     records = list(records_by_id.values())
     records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
 
-    coverage = storage_candidate_contracts.coverage_summary(records)
+    # Re-derive errors from the complete carried/current record set.  This
+    # catches failures beyond the 200-entry display window and remains the
+    # authority for the final completion decision.
+    record_coverage = storage_candidate_contracts.coverage_summary(
+        [item for item in records if item.get("discovery_absent") is not True],
+        error_limit=None,
+    )
+    record_errors = record_coverage.get("runtime_errors") if isinstance(record_coverage.get("runtime_errors"), list) else []
+    errors = _storage_candidate_unique_runtime_errors(errors, record_errors)
+    complete = bool(inventory_complete and not errors)
+
+    if complete:
+        records_by_id = {
+            candidate_id: item
+            for candidate_id, item in records_by_id.items()
+            if candidate_id in full_ids
+        }
+        records = list(records_by_id.values())
+        records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
+        carried_count = sum(1 for item in records if item.get("observation_status") == "carried_forward")
+        record_coverage = storage_candidate_contracts.coverage_summary(records, error_limit=None)
+
+    coverage = record_coverage
     coverage.update({
         "mode": "deep" if complete else ("deep_partial_deadline" if deadline_exceeded else "deep_partial_batch"),
         "discovered": len(specs),
@@ -16519,6 +16605,7 @@ def _storage_candidate_build_bounded_document(
         "partial": not complete,
         "complete": complete,
         "runtime_errors": errors[:200],
+        "runtime_errors_full": errors,
         "runtime_error_count": len(errors),
     })
     pressure_findings = coverage.get("pressure_findings") if isinstance(coverage.get("pressure_findings"), list) else []
@@ -16678,17 +16765,18 @@ def _storage_candidate_apply_aoa_deferred_carry_forward(
 
     base_coverage = data.get("coverage") if isinstance(data.get("coverage"), Mapping) else {}
     base_refresh = data.get("refresh_result") if isinstance(data.get("refresh_result"), Mapping) else {}
-    coverage = storage_candidate_contracts.coverage_summary(records)
+    coverage = storage_candidate_contracts.coverage_summary(records, error_limit=None)
     for key in ("discovered", "observed", "current_results", "carried_forward_count", "partial", "complete"):
         if key in base_coverage:
             coverage[key] = base_coverage.get(key)
-    base_errors = base_coverage.get("runtime_errors") if isinstance(base_coverage.get("runtime_errors"), list) else []
-    if base_errors:
-        merged_errors = [dict(item) for item in base_errors if isinstance(item, Mapping)] + [
-            dict(item) for item in coverage.get("runtime_errors", []) if isinstance(item, Mapping)
-        ]
-        coverage["runtime_errors"] = merged_errors[:200]
-        coverage["runtime_error_count"] = len(merged_errors)
+    base_errors = _storage_candidate_full_runtime_errors(base_coverage, records=current)
+    merged_errors = _storage_candidate_unique_runtime_errors(
+        base_errors,
+        coverage.get("runtime_errors", []) if isinstance(coverage.get("runtime_errors"), list) else [],
+    )
+    coverage["runtime_errors"] = merged_errors[:200]
+    coverage["runtime_errors_full"] = merged_errors
+    coverage["runtime_error_count"] = len(merged_errors)
     last_good_at = _storage_candidate_aoa_last_good_at(carried)
     owner_coverage: dict[str, Any] = {
         "source_adapter": "aoa_owner_verdict",
@@ -16862,7 +16950,12 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                         next_cursor += 1
                     except Exception as exc:  # one inaccessible candidate must not erase the snapshot
                         runtime_errors.append({"surface": "observation", "path": path_text, "candidate_id": _storage_candidate_spec_id(spec), "error": str(exc)[:1000]})
-                        break
+                        # A failed object is one failed observation, not a
+                        # failure of the remaining batch. Advance the cursor
+                        # and continue so independent suffix candidates are
+                        # serviced in this bounded pass.
+                        next_cursor += 1
+                        continue
             # Both the pre-deadline and observation-loop branches leave the
             # same explicit cursor result for the merge layer.
             cursor_after = next_cursor

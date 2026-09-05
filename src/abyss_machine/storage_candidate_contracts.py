@@ -207,7 +207,11 @@ def freshness_status(
     }
 
 
-def coverage_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def coverage_summary(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    error_limit: int | None = 200,
+) -> dict[str, Any]:
     """Summarize evidence coverage while keeping runtime failures separate from pressure."""
     rows = [dict(item) for item in records if isinstance(item, Mapping)]
     adapters = sorted({str(item.get("source_adapter") or "unknown") for item in rows})
@@ -256,6 +260,7 @@ def coverage_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             })
         if complete:
             evidence_complete += 1
+    bounded_errors = runtime_errors if error_limit is None else runtime_errors[: max(0, int(error_limit))]
     return {
         "discovered": len(rows),
         "observed": len(rows),
@@ -267,7 +272,7 @@ def coverage_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "fingerprint_incomplete": max(0, len(rows) - fingerprint_complete),
         "evidence_complete": evidence_complete,
         "evidence_incomplete": max(0, len(rows) - evidence_complete),
-        "runtime_errors": runtime_errors[:200],
+        "runtime_errors": bounded_errors,
         "pressure_findings": pressure_findings[:200],
         "runtime_error_count": len(runtime_errors),
         "pressure_finding_count": len(pressure_findings),

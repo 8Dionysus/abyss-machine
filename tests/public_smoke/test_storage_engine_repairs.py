@@ -1170,6 +1170,204 @@ def test_bounded_deep_pre_batch_deadline_has_explicit_cursor_result(monkeypatch)
     assert refreshed["retired"] == []
 
 
+def test_bounded_deep_observation_failure_does_not_starve_healthy_suffix(monkeypatch) -> None:
+    generated_at = "2026-09-05T20:45:00+00:00"
+    bad_id = "reclaim-bad-git-index"
+    healthy_id = "reclaim-healthy-suffix"
+    bad_spec = {
+        "candidate_id": bad_id,
+        "path": "/srv/abyss-machine/tmp/bad-git-index",
+        "owner": "git",
+        "kind": "git_worktree",
+        "source_adapter": "git_worktree",
+    }
+    healthy_spec = {
+        "candidate_id": healthy_id,
+        "path": "/srv/abyss-machine/tmp/healthy-suffix",
+        "owner": "test-owner",
+        "kind": "generated_tmp",
+        "source_adapter": "test",
+    }
+    required_evidence = {
+        key: {"checked": True, "active": False}
+        for key in ("process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs")
+    }
+    last_good_bad = {
+        **bad_spec,
+        "exists": True,
+        "physical_bytes": 4,
+        "reclaimable_bytes": 4,
+        "verdict": "blocked_unknown",
+        "observed_at": "2026-09-05T18:00:00+00:00",
+        "fingerprint": {"digest": "last-good-git-index", "complete": True},
+        "evidence": {**required_evidence, "physical_size": {"checked": True, "ok": True}},
+        "executor": {"type": "git_worktree_remove", "owner_specific": True},
+    }
+    previous = {
+        "last_deep_at": "2026-09-05T18:00:00+00:00",
+        "candidates": [last_good_bad],
+        "coverage": {"runtime_errors": [], "pressure_findings": []},
+        "retired": [],
+    }
+    observed_ids: list[str] = []
+
+    def observation(spec, **kwargs):
+        candidate_id = str(spec["candidate_id"])
+        observed_ids.append(candidate_id)
+        if candidate_id == bad_id:
+            raise RuntimeError("corrupt git index")
+        return {
+            **spec,
+            "exists": True,
+            "physical_bytes": 7,
+            "reclaimable_bytes": 7,
+            "fingerprint": {"digest": healthy_id, "complete": True},
+            "latest_mtime": kwargs["generated_at"],
+            "observed_at": kwargs["generated_at"],
+            "executor": {"type": "test", "owner_specific": True},
+            "evidence": {**required_evidence, "physical_size": {"checked": True, "ok": True}},
+        }
+
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BATCH_LIMIT", 2)
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS", 120.0)
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (previous, None))
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", lambda **kwargs: [bad_spec, healthy_spec])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli.storage_candidate_adapters, "collect_observation", observation)
+    monkeypatch.setattr(cli, "storage_path_protection", lambda path: {"decision": "allow_candidate"})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+
+    assert observed_ids == [bad_id, healthy_id]
+    assert refreshed["ok"] is False
+    assert refreshed["partial"] is True
+    assert refreshed["coverage"]["observed"] == 2
+    assert refreshed["deep_progress"]["processed_this_run"] == 2
+    assert refreshed["deep_progress"]["cursor"] == 0
+    preserved = next(item for item in refreshed["candidates"] if item["candidate_id"] == bad_id)
+    assert preserved["observation_status"] == "carried_forward"
+    assert preserved["fingerprint"]["digest"] == "last-good-git-index"
+    assert any(
+        item.get("candidate_id") == bad_id and item.get("error") == "corrupt git index"
+        for item in refreshed["coverage"]["runtime_errors_full"]
+    )
+    assert any(item["candidate_id"] == healthy_id for item in refreshed["candidates"])
+    assert refreshed["retired"] == []
+
+
+def test_bounded_deep_error_authority_exceeds_display_window_until_reverified() -> None:
+    generated_at = "2026-09-05T21:00:00+00:00"
+    candidate_ids = [f"reclaim-{index:03d}" for index in range(205)]
+    required_evidence = {
+        key: {"checked": True, "active": False}
+        for key in ("process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs")
+    }
+
+    def record(candidate_id: str, *, failed: bool) -> dict[str, object]:
+        evidence = {
+            **required_evidence,
+            "physical_size": {"checked": True, "ok": True},
+        }
+        if failed:
+            evidence["service_refs"] = {"checked": False, "active": False, "error": f"service failure {candidate_id}"}
+        return {
+            "candidate_id": candidate_id,
+            "path": f"/srv/abyss-machine/tmp/{candidate_id}",
+            "source_adapter": "test",
+            "physical_bytes": 1,
+            "reclaimable_bytes": 1,
+            "observed_at": "2026-09-05T18:00:00+00:00",
+            "fingerprint": {"digest": candidate_id, "complete": True},
+            "evidence": evidence,
+            "executor": {"type": "test", "owner_specific": True},
+        }
+
+    failed_records = [record(candidate_id, failed=True) for candidate_id in candidate_ids]
+    previous = {
+        "last_deep_at": "2026-09-05T18:00:00+00:00",
+        "candidates": failed_records,
+        # Emulate an older bounded document: only the first 200 failures are
+        # visible in the persisted display field and no full authority field
+        # is available yet. The builder must derive the missing tail from
+        # carried per-object evidence.
+        "coverage": {
+            "runtime_errors": storage_candidate_contracts.coverage_summary(failed_records)["runtime_errors"],
+            "pressure_findings": [],
+        },
+        "retired": [],
+    }
+    healthy_last = record(candidate_ids[-1], failed=False)
+    common = {
+        "previous": previous,
+        "specs": [
+            {"candidate_id": candidate_id, "path": f"/srv/abyss-machine/tmp/{candidate_id}"}
+            for candidate_id in candidate_ids
+        ],
+        "cursor_before": 204,
+        "cursor_after": 205,
+        "generated_at": generated_at,
+        "elapsed_seconds": 1.0,
+        "budget_seconds": 120.0,
+        "batch_limit": 1,
+        "runtime_errors": [],
+        "producer_status": {},
+        "candidate_document": {
+            "candidates": [healthy_last],
+            "retired": [],
+            "changes": [],
+            "coverage": {"runtime_errors": [], "pressure_findings": []},
+        },
+        "complete": True,
+        "deadline_exceeded": False,
+    }
+    partial = cli._storage_candidate_build_bounded_document([healthy_last], **common)
+
+    assert partial["ok"] is False
+    assert partial["partial"] is True
+    assert len(partial["coverage"]["runtime_errors_full"]) == 204
+    assert len(partial["runtime_errors"]) == 200
+    assert partial["deep_progress"]["status"] == "partial"
+    assert partial["retired"] == []
+
+    light = cli._storage_candidate_preserve_partial_light_state({"coverage": {}}, partial)
+    assert len(light["coverage"]["runtime_errors_full"]) == 204
+    assert len(light["coverage"]["runtime_errors"]) == 200
+
+    healthy_records = [record(candidate_id, failed=False) for candidate_id in candidate_ids]
+    recovered = cli._storage_candidate_build_bounded_document(
+        healthy_records,
+        previous=partial,
+        specs=common["specs"],
+        cursor_before=0,
+        cursor_after=len(candidate_ids),
+        generated_at="2026-09-05T21:01:00+00:00",
+        elapsed_seconds=1.0,
+        budget_seconds=120.0,
+        batch_limit=len(candidate_ids),
+        runtime_errors=[],
+        producer_status={},
+        candidate_document={
+            "candidates": healthy_records,
+            "retired": [],
+            "changes": [],
+            "coverage": {"runtime_errors": [], "pressure_findings": []},
+        },
+        complete=True,
+        deadline_exceeded=False,
+    )
+    assert recovered["ok"] is True
+    assert recovered["partial"] is False
+    assert recovered["coverage"]["runtime_errors_full"] == []
+    assert recovered["retired"] == []
+
+
 def test_bounded_deep_inventory_churn_resumes_after_stable_identity() -> None:
     specs = [
         {"candidate_id": f"reclaim-{letter}", "path": f"/srv/abyss-machine/tmp/{letter}", "owner": "test", "kind": "generated_tmp"}
@@ -1330,7 +1528,12 @@ def test_bounded_deep_does_not_claim_complete_while_earlier_error_is_unresolved(
 def test_bounded_deep_complete_absence_clears_disappeared_candidate_error() -> None:
     previous = {
         "last_deep_at": "2026-09-05T17:00:00+00:00",
-        "candidates": [{"candidate_id": "reclaim-gone", "path": "/srv/abyss-machine/tmp/gone", "observed_at": "2026-09-05T17:00:00+00:00"}],
+        "candidates": [{
+            "candidate_id": "reclaim-gone",
+            "path": "/srv/abyss-machine/tmp/gone",
+            "observed_at": "2026-09-05T17:00:00+00:00",
+            "evidence": {"service_refs": {"checked": False, "error": "permission"}},
+        }],
         "coverage": {
             "runtime_errors": [{"candidate_id": "reclaim-gone", "surface": "process_refs", "error": "permission"}],
             "pressure_findings": [],
