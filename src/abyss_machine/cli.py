@@ -195,6 +195,7 @@ globals().update(
         "self_awareness_validation_contracts",
         "stack_bridge_contracts",
         "storage_adapters",
+        "storage_forecast",
         "storage_contracts",
         "storage_lifecycle_adapters",
         "storage_lifecycle_contracts",
@@ -9180,6 +9181,11 @@ def storage_monitor(
     top = max(5, min(int(top), 200))
     started = time.monotonic()
     steps: list[dict[str, Any]] = []
+    capacity_forecast = storage_forecast.observe(
+        STORAGE_MONITOR_ROOT / "capacity.json",
+        paths=(Path("/"), Path("/srv")),
+        write=write_latest,
+    )
 
     def step_summary(name: str, command: list[str], before: float, document: dict[str, Any]) -> None:
         steps.append({
@@ -9264,6 +9270,7 @@ def storage_monitor(
         "version": VERSION,
         "generated_at": now_iso(),
         "ok": all(bool(item.get("ok", True)) for item in steps),
+        "capacity_forecast": capacity_forecast,
         "paths": {
             "latest": str(STORAGE_MONITOR_LATEST_PATH),
             "daily_glob": str(STORAGE_MONITOR_ROOT / "YYYY" / "MM" / "YYYY-MM-DD.jsonl"),
