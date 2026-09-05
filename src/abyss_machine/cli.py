@@ -16945,6 +16945,14 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                                 "candidate_id": _storage_candidate_spec_id(spec),
                                 "error": "deadline_exceeded",
                             })
+                            # The observation was attempted and consumed the
+                            # remaining budget.  Advance past this object so
+                            # a permanently slow candidate cannot starve the
+                            # healthy suffix on every bounded invocation.
+                            # The pre-attempt deadline branch above leaves the
+                            # cursor unchanged intentionally, so it retries
+                            # the unattempted batch on the next invocation.
+                            next_cursor += 1
                             break
                         observations.append(observation)
                         next_cursor += 1

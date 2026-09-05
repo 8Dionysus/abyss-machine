@@ -1262,6 +1262,129 @@ def test_bounded_deep_observation_failure_does_not_starve_healthy_suffix(monkeyp
     assert refreshed["retired"] == []
 
 
+def test_bounded_deep_attempted_timeout_advances_to_healthy_suffix(monkeypatch) -> None:
+    generated_at = "2026-09-05T20:50:00+00:00"
+    last_deep_at = "2026-09-05T18:00:00+00:00"
+    bad_id = "reclaim-bad-timeout"
+    healthy_id = "reclaim-healthy-after-timeout"
+    bad_spec = {
+        "candidate_id": bad_id,
+        "path": "/srv/abyss-machine/tmp/bad-timeout",
+        "owner": "test-owner",
+        "kind": "generated_tmp",
+        "source_adapter": "test",
+    }
+    healthy_spec = {
+        "candidate_id": healthy_id,
+        "path": "/srv/abyss-machine/tmp/healthy-after-timeout",
+        "owner": "test-owner",
+        "kind": "generated_tmp",
+        "source_adapter": "test",
+    }
+    required_evidence = {
+        key: {"checked": True, "active": False}
+        for key in ("process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs")
+    }
+    last_good_bad = {
+        **bad_spec,
+        "exists": True,
+        "physical_bytes": 4,
+        "reclaimable_bytes": 4,
+        "verdict": "blocked_unknown",
+        "observed_at": last_deep_at,
+        "fingerprint": {"digest": "last-good-timeout", "complete": True},
+        "evidence": {**required_evidence, "physical_size": {"checked": True, "ok": True}},
+        "executor": {"type": "test", "owner_specific": True},
+    }
+    previous = {
+        "last_deep_at": last_deep_at,
+        "candidates": [last_good_bad],
+        "coverage": {"runtime_errors": [], "pressure_findings": []},
+        "retired": [],
+    }
+    current_previous = {"document": previous}
+    observed_ids: list[str] = []
+
+    def observation(spec, **kwargs):
+        candidate_id = str(spec["candidate_id"])
+        observed_ids.append(candidate_id)
+        if candidate_id == bad_id:
+            return {
+                **spec,
+                "exists": True,
+                "physical_bytes": None,
+                "reclaimable_bytes": None,
+                "fingerprint": {
+                    "digest": "partial-timeout",
+                    "complete": False,
+                    "timed_out": True,
+                    "reason": "deadline_exceeded",
+                },
+                "latest_mtime": None,
+                "observed_at": kwargs["generated_at"],
+                "executor": {},
+                "evidence": {"physical_size": {"checked": True, "ok": False, "error": "deadline_exceeded"}},
+            }
+        return {
+            **spec,
+            "exists": True,
+            "physical_bytes": 7,
+            "reclaimable_bytes": 7,
+            "fingerprint": {"digest": "healthy-after-timeout", "complete": True},
+            "latest_mtime": kwargs["generated_at"],
+            "observed_at": kwargs["generated_at"],
+            "executor": {"type": "test", "owner_specific": True},
+            "evidence": {**required_evidence, "physical_size": {"checked": True, "ok": True}},
+        }
+
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BATCH_LIMIT", 2)
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS", 120.0)
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (current_previous["document"], None))
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", lambda **kwargs: [bad_spec, healthy_spec])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli.storage_candidate_adapters, "collect_observation", observation)
+    monkeypatch.setattr(cli, "storage_path_protection", lambda path: {"decision": "allow_candidate"})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    first = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    assert observed_ids == [bad_id]
+    assert first["ok"] is False
+    assert first["partial"] is True
+    assert first["deep_progress"]["cursor"] == 1
+    assert first["coverage"]["observed"] == 1
+    assert first["last_deep_at"] == last_deep_at
+    assert first["retired"] == []
+    preserved = next(item for item in first["candidates"] if item["candidate_id"] == bad_id)
+    assert preserved["observation_status"] == "carried_forward"
+    assert preserved["fingerprint"]["digest"] == "last-good-timeout"
+    assert any(
+        item.get("candidate_id") == bad_id and item.get("error") == "deadline_exceeded"
+        for item in first["coverage"]["runtime_errors_full"]
+    )
+
+    current_previous["document"] = first
+    observed_ids.clear()
+    second = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    assert observed_ids == [healthy_id]
+    assert second["ok"] is False
+    assert second["partial"] is True
+    assert second["coverage"]["observed"] == 2
+    assert second["deep_progress"]["processed_this_run"] == 1
+    assert second["last_deep_at"] == last_deep_at
+    assert second["retired"] == []
+    assert any(item["candidate_id"] == healthy_id for item in second["candidates"])
+    assert any(
+        item.get("candidate_id") == bad_id and item.get("error") == "deadline_exceeded"
+        for item in second["coverage"]["runtime_errors_full"]
+    )
+
+
 def test_bounded_deep_error_authority_exceeds_display_window_until_reverified() -> None:
     generated_at = "2026-09-05T21:00:00+00:00"
     candidate_ids = [f"reclaim-{index:03d}" for index in range(205)]
