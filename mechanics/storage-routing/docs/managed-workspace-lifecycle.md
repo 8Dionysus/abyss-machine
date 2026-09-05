@@ -45,7 +45,7 @@ Before exit, the owner may atomically write the disposition path as JSON:
 For archive, the owner supplies an exact absolute target:
 
 ```json
-{"decision":"ARCHIVE","plan":{"kind":"archive_workspace","target":"/mounted/vault/path/job-id"}}
+{"decision":"ARCHIVE","plan":{"kind":"archive_workspace","target":"/mounted/vault/path/job-id","required_mount":"/mounted/vault"}}
 ```
 
 No callback is `UNKNOWN`; it never grants mutation.
@@ -60,6 +60,12 @@ sibling rename before removal. Archive copies to a partial target, verifies the
 same content digest, publishes the archive without overwrite, and only then
 detaches the local inode. A per-workspace execution journal makes an authorized
 detach resumable after interruption. Each applied action writes a byte receipt.
+
+The archive executor requires an exact live mount (default `/abyss` for older
+plans), a target beneath it without symlink ancestors, and the same mount
+identity before local detach/removal. An absent Vault never creates archive
+payloads in the unmounted directory on `/`. A changed source fingerprint blocks
+detach; resumed detached archives are content-verified again before removal.
 
 An existing directory may be observed and sealed, but it is not eligible for
 automatic disposition because launcher creation was not proven. Old data stays

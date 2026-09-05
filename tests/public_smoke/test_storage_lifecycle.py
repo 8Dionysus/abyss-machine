@@ -197,21 +197,72 @@ def test_reaper_resumes_from_detach_journal_after_cleanup_failure(monkeypatch, t
     assert adapters.read_json(adapters.execution_journal_path(root, opened["record"]["workspace_id"]))["phase"] == "applied"
 
 
-def test_archive_verifies_copy_before_local_removal(tmp_path: Path) -> None:
+def test_archive_verifies_copy_before_local_removal(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "state"
     workspace = tmp_path / "work" / "archive-job"
     archive = tmp_path / "vault" / "archive-job"
+    archive.parent.mkdir()
+    monkeypatch.setattr(adapters, "_read_mountinfo", lambda: f"42 1 0:99 / {archive.parent} rw - btrfs /dev/fixture rw\n")
     opened = adapters.register_workspace(root, owner="fixture", workspace=workspace, unit=None)
     (workspace / "result").write_text("preserve", encoding="utf-8")
     assert adapters.seal_registered_workspace(root, workspace_id=opened["record"]["workspace_id"], lease_token=opened["lease_token"])["ok"]
     callback = Path(opened["record"]["callback_path"])
     callback.parent.mkdir(parents=True, exist_ok=True)
-    callback.write_text(json.dumps({"decision": "ARCHIVE", "plan": {"kind": "archive_workspace", "target": str(archive)}}), encoding="utf-8")
+    callback.write_text(json.dumps({"decision": "ARCHIVE", "plan": {"kind": "archive_workspace", "target": str(archive), "required_mount": str(archive.parent)}}), encoding="utf-8")
     assert adapters.consume_owner_callback(root, workspace_id=opened["record"]["workspace_id"], grace_seconds=0)["released"]
     result = adapters.reap(root, now_time=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1))
     assert result["summary"]["applied"] == 1
     assert not workspace.exists()
     assert (archive / "result").read_text(encoding="utf-8") == "preserve"
+
+
+def test_archive_absent_mount_preserves_source_and_creates_no_destination(tmp_path: Path, monkeypatch) -> None:
+    root, workspace, vault = tmp_path / "state", tmp_path / "work/job", tmp_path / "vault"
+    opened = adapters.register_workspace(root, owner="fixture", workspace=workspace, unit=None)
+    (workspace / "result").write_text("unique")
+    assert adapters.seal_registered_workspace(root, workspace_id=opened["record"]["workspace_id"], lease_token=opened["lease_token"])["ok"]
+    callback = Path(opened["record"]["callback_path"])
+    callback.parent.mkdir(parents=True, exist_ok=True)
+    callback.write_text(json.dumps({"decision": "ARCHIVE", "plan": {"kind": "archive_workspace", "target": str(vault / "job"), "required_mount": str(vault)}}))
+    assert adapters.consume_owner_callback(root, workspace_id=opened["record"]["workspace_id"], grace_seconds=0)["released"]
+    monkeypatch.setattr(adapters, "_read_mountinfo", lambda: "1 0 0:1 / / rw - ext4 /dev/root rw\n")
+    result = adapters.reap(root, now_time=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1))
+    assert result["summary"]["blocked"] == 1
+    assert (workspace / "result").read_text() == "unique"
+    assert not vault.exists()
+
+
+def test_archive_mount_disappears_after_copy_keeps_local_source(tmp_path: Path, monkeypatch) -> None:
+    root, workspace, vault = tmp_path / "state", tmp_path / "work/job", tmp_path / "vault"
+    vault.mkdir()
+    opened = adapters.register_workspace(root, owner="fixture", workspace=workspace, unit=None)
+    (workspace / "result").write_text("unique")
+    assert adapters.seal_registered_workspace(root, workspace_id=opened["record"]["workspace_id"], lease_token=opened["lease_token"])["ok"]
+    callback = Path(opened["record"]["callback_path"])
+    callback.parent.mkdir(parents=True, exist_ok=True)
+    callback.write_text(json.dumps({"decision": "ARCHIVE", "plan": {"kind": "archive_workspace", "target": str(vault / "job"), "required_mount": str(vault)}}))
+    assert adapters.consume_owner_callback(root, workspace_id=opened["record"]["workspace_id"], grace_seconds=0)["released"]
+    monkeypatch.setattr(adapters, "_read_mountinfo", lambda: f"42 1 0:99 / {vault} rw - btrfs /dev/fixture rw\n")
+    original = adapters.shutil.copytree
+    def copy_and_disconnect(*args, **kwargs):
+        value = original(*args, **kwargs)
+        monkeypatch.setattr(adapters, "_read_mountinfo", lambda: "")
+        return value
+    monkeypatch.setattr(adapters.shutil, "copytree", copy_and_disconnect)
+    result = adapters.reap(root, now_time=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1))
+    assert result["summary"]["blocked"] == 1
+    assert workspace.is_dir()
+    assert (workspace / "result").read_text() == "unique"
+
+
+def test_archive_binding_refuses_symlink_escape_and_root_mount(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "escape").symlink_to(tmp_path)
+    monkeypatch.setattr(adapters, "_read_mountinfo", lambda: f"42 1 0:99 / {vault} rw - btrfs /dev/fixture rw\n")
+    assert not adapters.archive_mount_binding(vault / "escape/job", vault)["ok"]
+    assert not adapters.archive_mount_binding(tmp_path / "outside", vault)["ok"]
+    assert not adapters.archive_mount_binding(tmp_path, Path("/"))["ok"]
 
 
 def test_reaper_does_not_hold_registry_lock_during_disposition(monkeypatch, tmp_path: Path) -> None:

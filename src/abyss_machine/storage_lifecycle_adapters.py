@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 import secrets
@@ -388,6 +389,53 @@ def _atomic_detach(workspace: Path, workspace_id: str, expected_inode: int) -> P
     return tombstone
 
 
+def _read_mountinfo() -> str:
+    return Path("/proc/self/mountinfo").read_text()
+
+
+def archive_mount_binding(target: Path, required_mount: Path) -> dict[str, Any]:
+    """Bind an offload destination to a real mount, never its root fallback."""
+    reasons: list[str] = []
+    if (not target.is_absolute() or not required_mount.is_absolute()
+            or required_mount == Path("/") or ".." in target.parts
+            or ".." in required_mount.parts or target == required_mount
+            or not target.is_relative_to(required_mount)):
+        return {"ok": False, "reasons": ["archive_target_outside_required_mount"]}
+    try:
+        for path in (*reversed(target.parents), target):
+            if path.is_symlink():
+                return {"ok": False, "reasons": ["archive_symlink_path"]}
+        matches = []
+        for line in _read_mountinfo().splitlines():
+            fields = line.split()
+            if "-" not in fields or len(fields) < 10:
+                continue
+            separator = fields.index("-")
+            mountpoint = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), fields[4])
+            if Path(mountpoint) == required_mount:
+                matches.append((fields, separator))
+        if len(matches) != 1:
+            return {"ok": False, "reasons": ["archive_required_mount_absent_or_ambiguous"]}
+        fields, separator = matches[0]
+        if "rw" not in fields[5].split(","):
+            reasons.append("archive_mount_read_only")
+        info = required_mount.stat()
+        existing = target
+        while not existing.exists():
+            existing = existing.parent
+        if existing.stat().st_dev != info.st_dev:
+            reasons.append("archive_nested_mount_mismatch")
+        return {
+            "ok": not reasons, "reasons": reasons,
+            "identity": {"required_mount": str(required_mount), "mount_id": fields[0],
+                         "device": fields[2], "fs_root": fields[3],
+                         "filesystem": fields[separator + 1], "source": fields[separator + 2],
+                         "st_dev": info.st_dev, "st_ino": info.st_ino},
+        }
+    except (OSError, IndexError, ValueError) as exc:
+        return {"ok": False, "reasons": ["archive_mount_binding_unavailable"], "error": str(exc)}
+
+
 def execute_released_workspace(
     root: Path,
     record: Mapping[str, Any],
@@ -434,8 +482,18 @@ def execute_released_workspace(
     decision = disposition.get("decision")
     plan = disposition.get("plan") if isinstance(disposition.get("plan"), Mapping) else {}
     archive_target = Path(str(plan.get("target") or "")) if decision == "ARCHIVE" else None
+    archive_mount = Path(str(plan.get("required_mount") or "/abyss"))
+    archive_binding = archive_mount_binding(archive_target, archive_mount) if archive_target else None
+    if archive_binding is not None and not archive_binding["ok"]:
+        return {"ok": False, "workspace_id": workspace_id, "decision": "blocked",
+                "reasons": archive_binding["reasons"], "archive_binding": archive_binding}
     if journal_valid and journal is not None and journal.get("phase") == "detached":
         receipt = dict(journal.get("receipt") if isinstance(journal.get("receipt"), Mapping) else {})
+        if archive_target is not None:
+            source_content = workspace_content_fingerprint(subject, max_entries=max_entries)
+            archived = workspace_content_fingerprint(archive_target, max_entries=max_entries)
+            if not source_content.get("complete") or not archived.get("complete") or source_content.get("digest") != archived.get("digest"):
+                return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["resumed_archive_not_verified"]}
     else:
         fingerprint = workspace_identity_fingerprint(subject, max_entries=max_entries)
         if fingerprint.get("complete") is not True or fingerprint.get("digest") != expected:
@@ -467,6 +525,12 @@ def execute_released_workspace(
                     shutil.rmtree(partial)
                     return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_fingerprint_mismatch"]}
                 os.rename(partial, archive_target)
+            rebound = archive_mount_binding(archive_target, archive_mount)
+            if not rebound["ok"] or rebound.get("identity") != archive_binding.get("identity"):
+                return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_mount_changed_before_detach"], "archive_binding": rebound}
+            unchanged = workspace_identity_fingerprint(subject, max_entries=max_entries)
+            if not unchanged.get("complete") or unchanged.get("digest") != expected:
+                return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["workspace_changed_during_archive"]}
         if not detached:
             tombstone = _atomic_detach(workspace, workspace_id, inode)
         applied_at = now_iso()
@@ -481,6 +545,7 @@ def execute_released_workspace(
             "reclaimed_bytes": before,
             "seal_fingerprint_digest": expected,
             "archive_target": str(archive_target) if archive_target else None,
+            "archive_mount_binding": archive_binding,
             "owner_evidence_refs": disposition.get("owner_evidence_refs") or [],
             "valid": True,
         }
@@ -494,6 +559,10 @@ def execute_released_workspace(
             "updated_at": applied_at,
         }
         atomic_write_json(journal_path, journal)
+    if archive_target is not None:
+        rebound = archive_mount_binding(archive_target, archive_mount)
+        if not rebound["ok"] or rebound.get("identity") != archive_binding.get("identity"):
+            return {"ok": False, "workspace_id": workspace_id, "decision": "blocked", "reasons": ["archive_mount_changed_before_local_removal"]}
     try:
         shutil.rmtree(tombstone)
     except OSError as exc:
