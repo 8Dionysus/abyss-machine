@@ -19029,6 +19029,7 @@ def resource_plan(
     demand_owner: str | None = None,
     estimate_source: str | None = None,
     estimate_confidence: str | None = None,
+    command_identity: str | None = None,
     unit_type: str = "service",
     sample_thermal: bool | None = None,
     write_latest: bool = True,
@@ -19061,6 +19062,7 @@ def resource_plan(
         estimate_source=estimate_source,
         estimate_confidence=estimate_confidence,
         learned_profile=learned_profile,
+        command_identity=command_identity,
     )
     reservations = reservation_data if isinstance(reservation_data, dict) else resource_adapters.reservation_snapshot(
         resource_adapters.reservations_root(os.environ, uid=os.getuid()),
@@ -19236,6 +19238,7 @@ def resource_plan(
         demand=demand,
         reservations=reservations,
         unattended=effective_unattended,
+        activity=activity,
         admission_policy=policy.get("startup_admission") if isinstance(policy.get("startup_admission"), dict) else {},
     )
     projected_class = str(nested_get(demand_projection, ["projected", "memory_class"]) or memory.get("class") or "green")
@@ -19487,6 +19490,7 @@ def resource_launch(
     if clean_command and clean_command[0] == "--":
         clean_command = clean_command[1:]
     resolved_demand_key = resource_planning.command_demand_key(clean_command, demand_key)
+    resolved_command_identity = resource_planning.command_identity(clean_command)
     generated_unit = None
     launch_unit = unit
     if launch_unit and not str(launch_unit).endswith((".service", ".scope")):
@@ -19581,6 +19585,7 @@ def resource_launch(
         "demand_owner": demand_owner,
         "estimate_source": estimate_source,
         "estimate_confidence": estimate_confidence,
+        "command_identity": resolved_command_identity,
         "unit_type": unit_type,
         "sample_thermal": effective_sample_thermal,
         "policy_data": policy,
@@ -19833,6 +19838,7 @@ def resource_launch(
                                     "demand_mib": requested.get("demand_mib"),
                                     "demand_key": requested.get("key") or launch_unit,
                                     "demand_owner": requested.get("owner"),
+                                    "command_identity": requested.get("command_identity"),
                                     "estimate_source": requested.get("estimate_source"),
                                     "estimate_confidence": requested.get("estimate_confidence"),
                                     "calibration": requested.get("calibration"),
@@ -20145,6 +20151,7 @@ def resource_launch(
                 "memory_demand_mib": nested_get(plan, ["inputs", "startup_demand", "requested", "demand_mib"]),
                 "demand_key": resolved_demand_key,
                 "demand_owner": demand_owner,
+                "command_identity": resolved_command_identity,
                 "estimate_source": estimate_source,
                 "estimate_confidence": estimate_confidence,
                 "startup_wait_sec": wait_timeout,
@@ -20272,6 +20279,7 @@ def resource_launch(
                     "demand_profile_path": str(demand_profile_path),
                     "demand_key": resolved_demand_key,
                     "demand_owner": demand_owner,
+                    "command_identity": resolved_command_identity,
                     "kind": resource_valid_kind(kind),
                     "observed_peak_multiplier": float(startup_policy.get("observed_peak_multiplier", 1.25)),
                     "profile_max_entries": int(startup_policy.get("profile_max_entries", 64)),
@@ -20336,6 +20344,7 @@ def resource_launch(
             profile_max_entries=int(startup_policy.get("profile_max_entries", 64)),
             profile_max_samples=int(startup_policy.get("profile_max_samples", 16)),
             parse_output=resource_parse_systemd_run_output,
+            command_identity=resolved_command_identity,
             storage_reservation=storage_reservation,
             storage_reservation_root=STORAGE_RESERVATIONS_ROOT,
         )

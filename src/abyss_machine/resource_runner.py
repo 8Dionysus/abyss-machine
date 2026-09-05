@@ -86,6 +86,7 @@ def finish_document(handoff: dict[str, Any]) -> dict[str, Any]:
         profile_max_entries=int(execution.get("profile_max_entries") or 64),
         profile_max_samples=int(execution.get("profile_max_samples") or 16),
         parse_output=resource_planning.parse_systemd_run_output,
+        command_identity=str(execution.get("command_identity") or "") or None,
         storage_reservation=(
             execution.get("storage_reservation")
             if isinstance(execution.get("storage_reservation"), dict)

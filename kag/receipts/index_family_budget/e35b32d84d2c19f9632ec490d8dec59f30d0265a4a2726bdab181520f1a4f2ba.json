@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25220693,
+  "allowed_tracked_bytes": 30307238,
+  "approved_by": "repository-owner",
+  "base_ref": "505b0cfaee3e795dafaa40cd5faf183482a012c0",
+  "changed_generated_bytes": 25220693,
+  "changed_generated_files": 317,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "e35b32d84d2c19f9632ec490d8dec59f30d0265a4a2726bdab181520f1a4f2ba",
+  "reason": "Reviewed owner source adds measured bounded maintenance admission and generation-bound capacity command; regenerated public family for those exact source changes",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30307238,
+  "tracked_bytes_max": 27262976
+}

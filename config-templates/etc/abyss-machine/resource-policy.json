@@ -99,6 +99,14 @@
     "observed_peak_multiplier": 1.25,
     "profile_max_entries": 64,
     "profile_max_samples": 16,
+    "bounded_light_maintenance": {
+      "enabled": false,
+      "contract_allowlist": [],
+      "max_estimate_mib": 64,
+      "min_successful_samples": 3,
+      "max_profile_age_sec": 86400,
+      "max_elapsed_sec": 5.0
+    },
     "bootstrap_demand_mib": {
       "agent": {"medium": 2048, "heavy": 4096, "sustained": 4096},
       "indexing": {"medium": 2048, "heavy": 4096, "sustained": 6144},
