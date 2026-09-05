@@ -53159,6 +53159,12 @@ def main(argv: list[str]) -> int:
     if argv[:2] == ["storage", "capacity"]:
         from abyss_machine.storage_capacity import main as storage_capacity_main
         return storage_capacity_main(argv[2:])
+    if argv[:2] == ["storage", "aoa-session-memory-compact"]:
+        from abyss_machine.aoa_session_memory_storage_runner import main as storage_runner_main
+        return storage_runner_main(argv[2:])
+    if argv[:2] == ["storage", "aoa-session-memory-compact-child"]:
+        from abyss_machine.aoa_session_memory_storage_runner import child_main
+        return child_main(argv[2:])
     parser = argparse.ArgumentParser(description="Abyss OS host-machine bridge")
     sub = parser.add_subparsers(dest="command", required=True)
     known_top_level_commands = {
