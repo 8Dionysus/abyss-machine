@@ -15797,6 +15797,10 @@ def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> di
         str(spec.get("path")) for spec in specs
         if spec.get("path") and not str(spec.get("path")).startswith("podman://")
     ]
+    # Keep the path/name projection outside the config-file loop.  Deep
+    # refresh normally supplies a bounded batch; rebuilding Path objects for
+    # every file multiplied the cost of the same exact scan.
+    path_names = [(path, Path(path).name) for path in physical_paths]
     result = {
         path: {
             "checked": True,
@@ -15817,8 +15821,7 @@ def storage_candidate_config_refs_by_path(specs: Sequence[dict[str, Any]]) -> di
         except OSError:
             continue
         source_kind = artifact_evidence_source_kind(file_path)
-        for path in physical_paths:
-            name = Path(path).name
+        for path, name in path_names:
             path_hit = bool(path and path in text)
             name_hit = bool(name and name in text)
             matched_tokens = [token for token, present in ((path, path_hit), (name, name_hit)) if present]
@@ -15974,6 +15977,7 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
             "light_refresh": {"mode": "carry_forward_only", "needs_deep_seed": True, "manifest_count": len(manifests), "pending_manifest_candidate_ids": pending_manifest_ids, "freshness": freshness},
             "policy": {**configured_policy, "automatic_deletion": False},
         }
+        document = _storage_candidate_preserve_partial_light_state(document, previous)
         document = _storage_candidate_preserve_deferred_light_state(document, previous)
         document["light_refresh"]["freshness"] = document["freshness"]
         if isinstance(document.get("summary"), dict):
@@ -16015,6 +16019,7 @@ def storage_candidate_light_refresh(previous: dict[str, Any], generated_at: str)
     document["refresh_result"] = {"mode": "light", "status": "carry_forward", "new_results": 0}
     document.setdefault("policy", {})["automatic_deletion"] = False
     document["paths"] = storage_candidate_paths()
+    document = _storage_candidate_preserve_partial_light_state(document, previous)
     document = _storage_candidate_preserve_deferred_light_state(document, previous)
     document["light_refresh"]["freshness"] = document["freshness"]
     return document
@@ -16118,6 +16123,56 @@ def _storage_candidate_preserve_deferred_light_state(
     return data
 
 
+def _storage_candidate_preserve_partial_light_state(
+    data: dict[str, Any],
+    previous: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep resumable deep progress and its stale/partial label through light refresh."""
+    progress = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
+    previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    if (
+        str(progress.get("status") or "") != "partial"
+        and previous.get("partial") is not True
+        and previous_coverage.get("partial") is not True
+    ):
+        return data
+    coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+    prior_errors = previous_coverage.get("runtime_errors") if isinstance(previous_coverage.get("runtime_errors"), list) else []
+    coverage.update({
+        "mode": "light_carry_forward_deep_partial",
+        "partial": True,
+        "complete": False,
+        "discovered": previous_coverage.get("discovered", progress.get("total", 0)),
+        "observed": previous_coverage.get("observed", progress.get("processed", 0)),
+        "current_results": 0,
+        "carried_forward_count": len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0,
+        "runtime_errors": [dict(item) for item in prior_errors if isinstance(item, Mapping)][:200],
+        "runtime_error_count": len([item for item in prior_errors if isinstance(item, Mapping)]),
+    })
+    data["coverage"] = coverage
+    data["runtime_errors"] = list(coverage.get("runtime_errors", []))
+    data["pressure_findings"] = list(coverage.get("pressure_findings", [])) if isinstance(coverage.get("pressure_findings"), list) else []
+    data["ok"] = False
+    data["partial"] = True
+    data["complete"] = False
+    data["last_deep_at"] = _storage_candidate_previous_last_deep_at(previous)
+    freshness = data.get("freshness") if isinstance(data.get("freshness"), dict) else {}
+    freshness.update({
+        "partial": True,
+        "complete": False,
+        "reason": "deep_refresh_partial_last_good_preserved",
+    })
+    data["freshness"] = freshness
+    data["refresh_result"] = {
+        "mode": "light",
+        "status": "carry_forward_deep_partial",
+        "new_results": 0,
+        "remaining": progress.get("remaining"),
+        "reason": "deep_refresh_partial_last_good_preserved",
+    }
+    return data
+
+
 def _storage_candidate_rebuild_summary(
     records: Sequence[Mapping[str, Any]],
     coverage: Mapping[str, Any],
@@ -16185,6 +16240,340 @@ def _storage_candidate_merge_retired_records(
     return merged
 
 
+STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS = 120.0
+# A single service invocation remains deadline-bounded, while allowing the
+# ordinary daily unit to make useful progress before the next continuation.
+STORAGE_CANDIDATE_DEEP_BATCH_LIMIT = 4096
+
+
+def _storage_candidate_spec_id(spec: Mapping[str, Any]) -> str:
+    path = storage_candidate_contracts.canonical_candidate_path(str(spec.get("path") or ""))
+    explicit = str(spec.get("candidate_id") or "").strip()
+    if explicit:
+        return explicit
+    return storage_candidate_contracts.stable_candidate_id(
+        owner=str(spec.get("owner") or "unknown"),
+        kind=str(spec.get("kind") or "unknown"),
+        path=path,
+        source_id=str(spec.get("source_id") or ""),
+    )
+
+
+def _storage_candidate_ordered_specs(specs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Return one deterministic inventory order for resumable deep scans."""
+    by_id: dict[str, dict[str, Any]] = {}
+    for raw in specs:
+        if not isinstance(raw, Mapping) or not raw.get("path"):
+            continue
+        spec = dict(raw)
+        candidate_id = _storage_candidate_spec_id(spec)
+        spec.setdefault("candidate_id", candidate_id)
+        # Discovery normally de-duplicates by path. Keep the first stable
+        # identity if a producer nevertheless emits a duplicate so a cursor
+        # cannot observe the same object twice in one inventory.
+        by_id.setdefault(candidate_id, spec)
+    return sorted(
+        by_id.values(),
+        key=lambda item: (
+            str(item.get("candidate_id") or ""),
+            storage_candidate_contracts.canonical_candidate_path(str(item.get("path") or "")),
+            str(item.get("source_adapter") or ""),
+        ),
+    )
+
+
+def _storage_candidate_inventory_digest(specs: Sequence[Mapping[str, Any]]) -> str:
+    identity = [
+        {
+            "candidate_id": _storage_candidate_spec_id(spec),
+            "path": storage_candidate_contracts.canonical_candidate_path(str(spec.get("path") or "")),
+            "source_adapter": str(spec.get("source_adapter") or ""),
+        }
+        for spec in specs
+        if isinstance(spec, Mapping) and spec.get("path")
+    ]
+    return hashlib.sha256(
+        json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:32]
+
+
+def _storage_candidate_deep_progress(
+    previous: Mapping[str, Any],
+    inventory_digest: str,
+    specs: Sequence[Mapping[str, Any]],
+) -> tuple[int, dict[str, Any]]:
+    total = len(specs)
+    prior = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
+    if (
+        str(prior.get("status") or "") == "partial"
+    ):
+        prior_copy = dict(prior)
+        prior_cursor = min(max(0, safe_int(prior.get("cursor"), 0)), total)
+        if str(prior.get("inventory_digest") or "") == inventory_digest:
+            return prior_cursor, prior_copy
+
+        # A changing temporary root must not restart a sweep at zero every
+        # time a child appears. Resume after the last stable identity; if a
+        # newly discovered identity sorts before it, visit the earliest such
+        # identity so it cannot starve behind the suffix.
+        prior_cursor_id = str(prior.get("cursor_candidate_id") or "")
+        current_ids = [_storage_candidate_spec_id(spec) for spec in specs]
+        resume = current_ids.index(prior_cursor_id) + 1 if prior_cursor_id in current_ids else prior_cursor
+        previous_ids = {
+            str(item.get("candidate_id") or "")
+            for item in previous.get("candidates", [])
+            if isinstance(item, Mapping) and item.get("candidate_id")
+        } if isinstance(previous.get("candidates"), list) else set()
+        unseen_before = [index for index, candidate_id in enumerate(current_ids) if candidate_id not in previous_ids and index < resume]
+        prior_copy["inventory_changed"] = True
+        return (min(unseen_before) if unseen_before else min(resume, total)), prior_copy
+    return 0, {}
+
+
+def _storage_candidate_observation_deadline_hit(observation: Mapping[str, Any]) -> bool:
+    fingerprint = observation.get("fingerprint") if isinstance(observation.get("fingerprint"), Mapping) else {}
+    size = observation.get("evidence", {}).get("physical_size") if isinstance(observation.get("evidence"), Mapping) and isinstance(observation.get("evidence", {}).get("physical_size"), Mapping) else {}
+    return fingerprint.get("timed_out") is True or size.get("error") == "deadline_exceeded"
+
+
+def _storage_candidate_carried_record(item: Mapping[str, Any], generated_at: str) -> dict[str, Any]:
+    carried = dict(item)
+    observed = storage_candidate_contracts.parse_time(item.get("observed_at"))
+    now_time = storage_candidate_contracts.parse_time(generated_at)
+    age = int((now_time - observed).total_seconds()) if now_time and observed else None
+    carried["observation_status"] = "carried_forward"
+    carried["observation_age_seconds"] = max(0, age) if age is not None else None
+    carried.setdefault("last_observed_at", item.get("observed_at"))
+    return carried
+
+
+def _storage_candidate_current_record(item: Mapping[str, Any]) -> dict[str, Any]:
+    current = dict(item)
+    current["observation_status"] = "current_deep"
+    current["observation_age_seconds"] = 0
+    return current
+
+
+def _storage_candidate_bounded_retired(
+    previous: Mapping[str, Any],
+    *,
+    full_ids: set[str],
+    current_ids: set[str],
+    generated_at: str,
+    candidate_document_retired: Sequence[Mapping[str, Any]],
+    complete: bool,
+) -> list[dict[str, Any]]:
+    """Retire only after the complete inventory has been observed."""
+    sources: list[Mapping[str, Any]] = []
+    if complete:
+        prior_by_id = {
+            str(item.get("candidate_id")): item
+            for item in previous.get("candidates", [])
+            if isinstance(item, Mapping) and item.get("candidate_id")
+        } if isinstance(previous.get("candidates"), list) else {}
+        for candidate_id, item in prior_by_id.items():
+            if candidate_id not in full_ids:
+                sources.append({
+                    "candidate_id": candidate_id,
+                    "path": item.get("path"),
+                    "owner": item.get("owner"),
+                    "kind": item.get("kind"),
+                    "last_verdict": item.get("verdict"),
+                    "last_seen": item.get("observed_at"),
+                    "retired_at": generated_at,
+                    "reason": "not_rediscovered_in_current_refresh",
+                })
+        sources.extend(item for item in candidate_document_retired if isinstance(item, Mapping))
+    # A partial inventory cannot establish absence. Preserve already recorded
+    # retirement events, but never manufacture a new event for its batch.
+    prior_retired = previous.get("retired")
+    if isinstance(prior_retired, list):
+        sources.extend(item for item in prior_retired if isinstance(item, Mapping))
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in sources:
+        candidate_id = str(item.get("candidate_id") or "")
+        if not candidate_id or candidate_id in current_ids or candidate_id in full_ids or candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        merged.append(dict(item))
+        if len(merged) >= 200:
+            break
+    return merged
+
+
+def _storage_candidate_build_bounded_document(
+    observations: Sequence[Mapping[str, Any]],
+    *,
+    previous: Mapping[str, Any],
+    specs: Sequence[Mapping[str, Any]],
+    cursor_before: int,
+    cursor_after: int,
+    generated_at: str,
+    elapsed_seconds: float,
+    budget_seconds: float,
+    batch_limit: int,
+    runtime_errors: Sequence[Mapping[str, Any]],
+    producer_status: Mapping[str, Any],
+    candidate_document: Mapping[str, Any],
+    complete: bool,
+    deadline_exceeded: bool,
+) -> dict[str, Any]:
+    current = [_storage_candidate_current_record(item) for item in candidate_document.get("candidates", []) if isinstance(item, Mapping)]
+    current_ids = {str(item.get("candidate_id") or "") for item in current if item.get("candidate_id")}
+    previous_candidates = {
+        str(item.get("candidate_id")): item
+        for item in previous.get("candidates", [])
+        if isinstance(item, Mapping) and item.get("candidate_id")
+    } if isinstance(previous.get("candidates"), list) else {}
+    full_ids = {_storage_candidate_spec_id(spec) for spec in specs}
+    records_by_id: dict[str, dict[str, Any]] = {str(item.get("candidate_id")): item for item in current if item.get("candidate_id")}
+    carried_count = 0
+    for candidate_id, item in previous_candidates.items():
+        if candidate_id in records_by_id or (complete and candidate_id not in full_ids):
+            continue
+        records_by_id[candidate_id] = _storage_candidate_carried_record(item, generated_at)
+        carried_count += 1
+    records = list(records_by_id.values())
+    records.sort(key=lambda item: (safe_int(item.get("reclaimable_bytes"), 0), safe_int(item.get("physical_bytes"), 0)), reverse=True)
+
+    coverage = storage_candidate_contracts.coverage_summary(records)
+    candidate_coverage = candidate_document.get("coverage") if isinstance(candidate_document.get("coverage"), Mapping) else {}
+    prior_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
+    prior_errors = prior_coverage.get("runtime_errors") if isinstance(prior_coverage.get("runtime_errors"), list) else []
+    candidate_errors = candidate_coverage.get("runtime_errors") if isinstance(candidate_coverage.get("runtime_errors"), list) else []
+    # A complete retry gets a clean error set from the current evidence.  A
+    # partial retry carries earlier blockers until the inventory has actually
+    # reached the end again.
+    current_errors = [dict(item) for item in candidate_errors if isinstance(item, Mapping)] + [dict(item) for item in runtime_errors if isinstance(item, Mapping)]
+    current_error_ids = {
+        str(item.get("candidate_id") or "")
+        for item in current_errors
+        if item.get("candidate_id")
+    }
+    current_ids = {str(item.get("candidate_id") or "") for item in current if item.get("candidate_id")}
+    retained_prior_errors = []
+    for item in prior_errors:
+        if not isinstance(item, Mapping):
+            continue
+        candidate_id = str(item.get("candidate_id") or "")
+        # A candidate-specific blocker is cleared only after that candidate
+        # was observed successfully in the current pass. Global blockers stay
+        # visible until a complete pass has retried the inventory.
+        if candidate_id and candidate_id in current_ids and candidate_id not in current_error_ids:
+            continue
+        if not candidate_id and complete:
+            continue
+        retained_prior_errors.append(dict(item))
+    errors = retained_prior_errors + current_errors
+    complete = bool(complete and not errors)
+    coverage.update({
+        "mode": "deep" if complete else ("deep_partial_deadline" if deadline_exceeded else "deep_partial_batch"),
+        "discovered": len(specs),
+        "observed": cursor_after,
+        "current_results": len(current),
+        "carried_forward_count": carried_count,
+        "partial": not complete,
+        "complete": complete,
+        "runtime_errors": errors[:200],
+        "runtime_error_count": len(errors),
+    })
+    pressure_findings = coverage.get("pressure_findings") if isinstance(coverage.get("pressure_findings"), list) else []
+    coverage["pressure_finding_count"] = len(pressure_findings)
+    retired = _storage_candidate_bounded_retired(
+        previous,
+        full_ids=full_ids,
+        current_ids=current_ids,
+        generated_at=generated_at,
+        candidate_document_retired=[item for item in candidate_document.get("retired", []) if isinstance(item, Mapping)] if isinstance(candidate_document.get("retired"), list) else [],
+        complete=complete,
+    )
+    progress_cursor = cursor_after if complete or cursor_after < len(specs) else cursor_before
+    if errors and cursor_after >= len(specs):
+        blocked_indices = [
+            index for index, spec in enumerate(specs)
+            if _storage_candidate_spec_id(spec) in {
+                str(item.get("candidate_id") or "")
+                for item in errors
+                if item.get("candidate_id")
+            }
+        ]
+        progress_cursor = min(blocked_indices) if blocked_indices else cursor_before
+    progress = {
+        "status": "complete" if complete else "partial",
+        "inventory_digest": _storage_candidate_inventory_digest(specs),
+        "total": len(specs),
+        "cursor": progress_cursor,
+        "processed": progress_cursor,
+        "remaining": max(0, len(specs) - progress_cursor),
+        "batch_limit": batch_limit,
+        "budget_seconds": budget_seconds,
+        "elapsed_seconds": round(max(0.0, elapsed_seconds), 3),
+        "last_run_at": generated_at,
+        "deadline_exceeded": bool(deadline_exceeded),
+        "continuation_required": not complete,
+        "resume_policy": "cursor_candidate_id",
+    }
+    if progress_cursor > 0 and progress_cursor <= len(specs):
+        progress["cursor_candidate_id"] = _storage_candidate_spec_id(specs[progress_cursor - 1])
+    prior_started = previous.get("deep_progress") if isinstance(previous.get("deep_progress"), Mapping) else {}
+    progress["started_at"] = prior_started.get("started_at") if prior_started.get("status") == "partial" else generated_at
+    if prior_started.get("status") == "partial" and str(prior_started.get("inventory_digest") or "") != progress["inventory_digest"]:
+        progress["inventory_changed"] = True
+    if runtime_errors:
+        progress["blocked_candidate_ids"] = [
+            str(item.get("candidate_id"))
+            for item in runtime_errors
+            if isinstance(item, Mapping) and item.get("candidate_id")
+        ][:200]
+    data = dict(candidate_document)
+    data.update({
+        "candidates": records,
+        "retired": retired,
+        "snapshot_id": storage_candidate_contracts.snapshot_id(records),
+        "coverage": coverage,
+        "runtime_errors": list(errors[:200]),
+        "pressure_findings": list(pressure_findings),
+        "producer_coverage": {str(key): dict(value) for key, value in producer_status.items() if isinstance(value, Mapping)},
+        "deep_progress": progress,
+        "partial": not complete,
+        "ok": complete and not errors,
+        "paths": storage_candidate_paths(),
+        "summary": _storage_candidate_rebuild_summary(records, coverage, retired),
+        "changes": list(candidate_document.get("changes", [])) if isinstance(candidate_document.get("changes"), list) else [],
+        "refresh_result": {
+            "mode": "deep",
+            "status": "new_results" if complete and records else ("deep_partial_deadline" if deadline_exceeded else "deep_partial_batch"),
+            "new_results": len(current),
+            "carried_forward_count": carried_count,
+            "processed": progress_cursor - cursor_before,
+            "remaining": max(0, len(specs) - progress_cursor),
+            "continuation_required": not complete,
+            "elapsed_seconds": round(max(0.0, elapsed_seconds), 3),
+            "runtime_error_count": len(errors),
+            "pressure_finding_count": len(pressure_findings),
+        },
+    })
+    last_deep_at = generated_at if complete else _storage_candidate_previous_last_deep_at(previous)
+    data["last_deep_at"] = last_deep_at
+    data["freshness"] = storage_candidate_contracts.freshness_status(
+        generated_at=generated_at,
+        last_deep_at=last_deep_at,
+        now_time=storage_candidate_contracts.parse_time(generated_at),
+        max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
+    )
+    if complete:
+        data.pop("complete", None)
+    else:
+        data["complete"] = False
+        data["freshness"].update({
+            "partial": True,
+            "complete": False,
+            "reason": "deep_refresh_partial_last_good_preserved",
+        })
+    return data
+
+
 def _storage_candidate_apply_aoa_deferred_carry_forward(
     data: dict[str, Any],
     previous: Mapping[str, Any],
@@ -16224,7 +16613,19 @@ def _storage_candidate_apply_aoa_deferred_carry_forward(
         protected_ids=set(carried_ids),
     )
 
+    base_coverage = data.get("coverage") if isinstance(data.get("coverage"), Mapping) else {}
+    base_refresh = data.get("refresh_result") if isinstance(data.get("refresh_result"), Mapping) else {}
     coverage = storage_candidate_contracts.coverage_summary(records)
+    for key in ("discovered", "observed", "current_results", "carried_forward_count", "partial", "complete"):
+        if key in base_coverage:
+            coverage[key] = base_coverage.get(key)
+    base_errors = base_coverage.get("runtime_errors") if isinstance(base_coverage.get("runtime_errors"), list) else []
+    if base_errors:
+        merged_errors = [dict(item) for item in base_errors if isinstance(item, Mapping)] + [
+            dict(item) for item in coverage.get("runtime_errors", []) if isinstance(item, Mapping)
+        ]
+        coverage["runtime_errors"] = merged_errors[:200]
+        coverage["runtime_error_count"] = len(merged_errors)
     last_good_at = _storage_candidate_aoa_last_good_at(carried)
     owner_coverage: dict[str, Any] = {
         "source_adapter": "aoa_owner_verdict",
@@ -16244,8 +16645,10 @@ def _storage_candidate_apply_aoa_deferred_carry_forward(
         "mode": "deep_partial_aoa_owner_deferred",
         "partial": True,
         "complete": False,
-        "current_results": len(current),
-        "carried_forward_count": len(carried_ids),
+        "discovered": base_coverage.get("discovered", len(records)),
+        "observed": base_coverage.get("observed", len(current)),
+        "current_results": base_coverage.get("current_results", len(current)),
+        "carried_forward_count": base_coverage.get("carried_forward_count", len(carried_ids)),
         "owner_coverage": owner_coverage,
         "producer_status": {"aoa_owner_verdict": owner_coverage},
     })
@@ -16291,6 +16694,10 @@ def _storage_candidate_apply_aoa_deferred_carry_forward(
             "status": "partial_aoa_owner_deferred",
             "new_results": len(current),
             "carried_forward_count": len(carried_ids),
+            "processed": base_refresh.get("processed"),
+            "remaining": base_refresh.get("remaining"),
+            "elapsed_seconds": base_refresh.get("elapsed_seconds"),
+            "continuation_required": base_refresh.get("continuation_required"),
             "runtime_error_count": coverage.get("runtime_error_count", 0),
             "pressure_finding_count": coverage.get("pressure_finding_count", 0),
         },
@@ -16305,6 +16712,7 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
     if not deep:
         data = storage_candidate_light_refresh(previous, generated_at)
     else:
+        deep_started = time.monotonic()
         discovery_errors: list[dict[str, Any]] = []
         producer_status: dict[str, Any] = {}
         try:
@@ -16318,37 +16726,6 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
         claims = storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_CLAIMS_ROOT)
         runtime_documents = storage_candidate_runtime_documents()
         lane_documents = storage_candidate_lane_documents()
-        process_by_path = storage_candidate_adapters.process_references([str(spec.get("path") or "") for spec in specs])
-        config_by_path = storage_candidate_config_refs_by_path(specs)
-        observations: list[dict[str, Any]] = []
-        for spec in specs:
-            path_text = str(spec.get("path") or "")
-            try:
-                virtual = path_text.startswith("podman://")
-                protection = {"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text))
-                artifact_spec = artifact_spec_for_path(Path(path_text)) if spec.get("source_adapter") == "artifact_snapshot" and not virtual else {}
-                service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
-                container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
-                config_refs = config_by_path.get(path_text, {"checked": virtual, "active": False, "hits": []})
-                for evidence in (service_refs, container_refs, config_refs):
-                    evidence.setdefault("checked", not evidence.get("error"))
-                    evidence.setdefault("active", False)
-                observations.append(storage_candidate_adapters.collect_observation(
-                    spec,
-                    protection=protection,
-                    process_refs=process_by_path.get(path_text, {"checked": virtual, "active": False, "refs": []}),
-                    claims=claims,
-                    runtime_documents=runtime_documents,
-                    lane_documents=lane_documents,
-                    deep=True,
-                    generated_at=generated_at,
-                    max_fingerprint_entries=50_000,
-                    service_refs=service_refs,
-                    container_refs=container_refs,
-                    config_refs=config_refs,
-                ))
-            except Exception as exc:  # one inaccessible candidate must not erase the snapshot
-                discovery_errors.append({"surface": "observation", "path": path_text, "error": str(exc)[:1000]})
         if discovery_errors:
             # A partial discovery is not evidence that the missing paths were
             # retired. Keep the last complete document and expose the failed
@@ -16360,60 +16737,109 @@ def _storage_candidates_refresh_unlocked(*, deep: bool = False, artifact_snapsho
                 runtime_errors=discovery_errors,
             )
         else:
-            data = storage_candidate_contracts.candidates_document(
-                observations,
-                previous_document=previous,
-                configured_policy=storage_candidate_policy(),
-                schema_prefix=SCHEMA_PREFIX,
-                version=VERSION,
-                generated_at=generated_at,
-                paths=storage_candidate_paths(),
-                deep=True,
-            )
-            previous_coverage = previous.get("coverage") if isinstance(previous.get("coverage"), Mapping) else {}
-            if previous.get("partial") is True or previous_coverage.get("partial") is True:
-                # A successful recovery must retain bounded retirement events
-                # from the preceding partial pass while dropping any item
-                # that has since been rediscovered.
-                data["retired"] = _storage_candidate_merge_retired_records(data, previous)
-                if isinstance(data.get("summary"), dict):
-                    data["summary"]["retired"] = len(data["retired"])
-            data["last_deep_at"] = generated_at
-            coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
-            coverage["mode"] = "deep"
-            coverage["new_results"] = len(data.get("candidates", [])) if isinstance(data.get("candidates"), list) else 0
-            runtime_errors = list(coverage.get("runtime_errors", []))
-            coverage["runtime_errors"] = runtime_errors
-            coverage["runtime_error_count"] = len(runtime_errors)
-            pressure_findings = coverage.get("pressure_findings")
-            if not isinstance(pressure_findings, list):
-                pressure_findings = []
-                coverage["pressure_findings"] = pressure_findings
-            coverage["pressure_finding_count"] = len(pressure_findings)
-            # A fresh snapshot with an inaccessible evidence surface is still a
-            # runtime failure even when candidate discovery itself succeeded.
-            data["ok"] = not bool(runtime_errors)
-            data["coverage"] = coverage
-            data["runtime_errors"] = list(coverage.get("runtime_errors", []))
-            data["pressure_findings"] = list(coverage.get("pressure_findings", []))
-            data["freshness"] = storage_candidate_contracts.freshness_status(
-                generated_at=generated_at,
-                last_deep_at=generated_at,
-                max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
-            )
-            summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
-            summary["runtime_error_count"] = coverage.get("runtime_error_count", 0)
-            summary["pressure_finding_count"] = coverage.get("pressure_finding_count", 0)
-            data["summary"] = summary
-            data["refresh_result"] = {
-                "mode": "deep",
-                "status": "new_results" if data.get("candidates") else "no_results",
-                "new_results": coverage.get("new_results", 0),
-                "runtime_error_count": coverage.get("runtime_error_count", 0),
-                "pressure_finding_count": coverage.get("pressure_finding_count", 0),
-            }
+            ordered_specs = _storage_candidate_ordered_specs(specs)
+            inventory_digest = _storage_candidate_inventory_digest(ordered_specs)
+            cursor, prior_progress = _storage_candidate_deep_progress(previous, inventory_digest, ordered_specs)
+            budget_seconds = max(1.0, float(STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS))
+            batch_limit = max(1, int(STORAGE_CANDIDATE_DEEP_BATCH_LIMIT))
+            deadline = deep_started + budget_seconds
+            batch_specs = ordered_specs[cursor : min(len(ordered_specs), cursor + batch_limit)]
+            runtime_errors = []
+            observations: list[dict[str, Any]] = []
+            deadline_exceeded = False
+            next_cursor = cursor
+            if time.monotonic() >= deadline and batch_specs:
+                deadline_exceeded = True
+                runtime_errors.append({"surface": "deep", "error": "deadline_exceeded_before_batch"})
+            else:
+                process_by_path = storage_candidate_adapters.process_references([str(spec.get("path") or "") for spec in batch_specs])
+                config_by_path = storage_candidate_config_refs_by_path(batch_specs)
+                for spec in batch_specs:
+                    if time.monotonic() >= deadline:
+                        deadline_exceeded = True
+                        runtime_errors.append({"surface": "deep", "error": "deadline_exceeded", "candidate_id": _storage_candidate_spec_id(spec)})
+                        break
+                    path_text = str(spec.get("path") or "")
+                    try:
+                        virtual = path_text.startswith("podman://")
+                        protection = {"decision": "allow_candidate", "class": "owner_virtual_object"} if virtual else storage_path_protection(Path(path_text))
+                        artifact_spec = artifact_spec_for_path(Path(path_text)) if spec.get("source_adapter") == "artifact_snapshot" and not virtual else {}
+                        service_refs = artifact_service_refs(artifact_spec) if artifact_spec else {"checked": True, "active": False, "units": []}
+                        container_refs = artifact_container_refs(Path(path_text), artifact_spec) if artifact_spec else {"checked": True, "active": False, "containers": []}
+                        config_refs = config_by_path.get(path_text, {"checked": virtual, "active": False, "hits": []})
+                        for evidence in (service_refs, container_refs, config_refs):
+                            evidence.setdefault("checked", not evidence.get("error"))
+                            evidence.setdefault("active", False)
+                        observation = storage_candidate_adapters.collect_observation(
+                            spec,
+                            protection=protection,
+                            process_refs=process_by_path.get(path_text, {"checked": virtual, "active": False, "refs": []}),
+                            claims=claims,
+                            runtime_documents=runtime_documents,
+                            lane_documents=lane_documents,
+                            deep=True,
+                            generated_at=generated_at,
+                            max_fingerprint_entries=50_000,
+                            service_refs=service_refs,
+                            container_refs=container_refs,
+                            config_refs=config_refs,
+                            deadline=deadline,
+                        )
+                        if _storage_candidate_observation_deadline_hit(observation):
+                            deadline_exceeded = True
+                            runtime_errors.append({
+                                "surface": "observation",
+                                "path": path_text,
+                                "candidate_id": _storage_candidate_spec_id(spec),
+                                "error": "deadline_exceeded",
+                            })
+                            break
+                        observations.append(observation)
+                        next_cursor += 1
+                    except Exception as exc:  # one inaccessible candidate must not erase the snapshot
+                        runtime_errors.append({"surface": "observation", "path": path_text, "candidate_id": _storage_candidate_spec_id(spec), "error": str(exc)[:1000]})
+                        break
+                cursor_after = next_cursor
+            if not batch_specs:
+                cursor_after = cursor
+            if runtime_errors and not observations and not prior_progress and not deadline_exceeded:
+                # Preserve the existing strict error shape for a producer that
+                # cannot produce even its first observation.  No empty result
+                # may turn that failure into a fresh inventory.
+                data = _storage_candidate_deep_failure_document(
+                    previous,
+                    generated_at=generated_at,
+                    runtime_errors=runtime_errors,
+                )
+            else:
+                candidate_document = storage_candidate_contracts.candidates_document(
+                    observations,
+                    previous_document=previous,
+                    configured_policy=storage_candidate_policy(),
+                    schema_prefix=SCHEMA_PREFIX,
+                    version=VERSION,
+                    generated_at=generated_at,
+                    paths=storage_candidate_paths(),
+                    deep=True,
+                )
+                data = _storage_candidate_build_bounded_document(
+                    observations,
+                    previous=previous,
+                    specs=ordered_specs,
+                    cursor_before=cursor,
+                    cursor_after=cursor_after,
+                    generated_at=generated_at,
+                    elapsed_seconds=time.monotonic() - deep_started,
+                    budget_seconds=budget_seconds,
+                    batch_limit=batch_limit,
+                    runtime_errors=runtime_errors,
+                    producer_status=producer_status,
+                    candidate_document=candidate_document,
+                    complete=cursor_after >= len(ordered_specs) and not runtime_errors,
+                    deadline_exceeded=deadline_exceeded,
+                )
             aoa_status = producer_status.get("aoa_owner_verdict")
-            if isinstance(aoa_status, Mapping) and aoa_status.get("deferred") is True:
+            if isinstance(aoa_status, Mapping) and aoa_status.get("deferred") is True and data.get("refresh_result", {}).get("status") != "deep_error_carry_forward":
                 data = _storage_candidate_apply_aoa_deferred_carry_forward(
                     data,
                     previous,

@@ -55,6 +55,27 @@ def test_filesystem_fingerprint_changes_and_truncation_is_not_complete(tmp_path:
     assert truncated["truncated"] is True
 
 
+def test_deep_measurements_report_deadline_without_running_unbounded_du(tmp_path: Path) -> None:
+    target = tmp_path / "tree"
+    target.mkdir()
+    (target / "entry").write_text("data", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def runner(command, timeout):
+        calls.append(list(command))
+        return {"ok": True, "stdout": "1\t" + str(target) + "\n"}
+
+    fingerprint = adapters.filesystem_fingerprint(target, deadline=0.0)
+    physical, evidence = adapters.physical_size_bytes(target, deadline=0.0, runner=runner)
+
+    assert fingerprint["complete"] is False
+    assert fingerprint["timed_out"] is True
+    assert fingerprint["reason"] == "deadline_exceeded"
+    assert physical is None
+    assert evidence["error"] == "deadline_exceeded"
+    assert calls == []
+
+
 def test_process_reference_scan_checks_all_fixture_pids_and_exact_ancestry(tmp_path: Path) -> None:
     target = tmp_path / "candidate"
     target.mkdir()

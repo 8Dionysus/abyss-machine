@@ -9,6 +9,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import time
 from typing import Any, Callable, Mapping, Sequence
 
 from . import storage_candidate_contracts as contracts
@@ -74,10 +75,22 @@ def physical_size_bytes(
     *,
     timeout: float = 120.0,
     runner: CommandRunner = run_command,
+    deadline: float | None = None,
 ) -> tuple[int | None, dict[str, Any]]:
     if not path.exists() and not path.is_symlink():
         return None, {"checked": True, "ok": False, "error": "path_missing", "method": "du -sx -B1"}
-    result = runner(["du", "-sx", "-B1", "--", str(path)], timeout)
+    command_timeout = float(timeout)
+    if deadline is not None:
+        command_timeout = min(command_timeout, max(0.0, deadline - time.monotonic()))
+        if command_timeout <= 0:
+            return None, {
+                "checked": True,
+                "ok": False,
+                "method": "du -sx -B1",
+                "physical": True,
+                "error": "deadline_exceeded",
+            }
+    result = runner(["du", "-sx", "-B1", "--", str(path)], command_timeout)
     if result.get("ok"):
         first = str(result.get("stdout") or "").strip().splitlines()
         if first:
@@ -110,7 +123,12 @@ def _fingerprint_row(path: Path, stat_result: os.stat_result, relative: str) -> 
     return (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8", errors="replace")
 
 
-def filesystem_fingerprint(path: Path, *, max_entries: int = 20_000) -> dict[str, Any]:
+def filesystem_fingerprint(
+    path: Path,
+    *,
+    max_entries: int = 20_000,
+    deadline: float | None = None,
+) -> dict[str, Any]:
     digest = hashlib.sha256()
     errors: list[dict[str, str]] = []
     entries = 0
@@ -119,6 +137,7 @@ def filesystem_fingerprint(path: Path, *, max_entries: int = 20_000) -> dict[str
     symlinks = 0
     latest_mtime_ns = 0
     truncated = False
+    deadline_exceeded = False
     root_device: int | None = None
 
     try:
@@ -134,7 +153,11 @@ def filesystem_fingerprint(path: Path, *, max_entries: int = 20_000) -> dict[str
     root_device = int(root_stat.st_dev)
 
     def include(item: Path, relative: str) -> bool:
-        nonlocal entries, files, directories, symlinks, latest_mtime_ns, truncated
+        nonlocal entries, files, directories, symlinks, latest_mtime_ns, truncated, deadline_exceeded
+        if deadline is not None and time.monotonic() >= deadline:
+            deadline_exceeded = True
+            truncated = True
+            return False
         if entries >= max(1, int(max_entries)):
             truncated = True
             return False
@@ -160,6 +183,10 @@ def filesystem_fingerprint(path: Path, *, max_entries: int = 20_000) -> dict[str
     include(path, ".")
     if path.is_dir() and not path.is_symlink() and not truncated:
         for current, dirnames, filenames in os.walk(path, topdown=True, followlinks=False):
+            if deadline is not None and time.monotonic() >= deadline:
+                deadline_exceeded = True
+                truncated = True
+                break
             current_path = Path(current)
             dirnames.sort()
             filenames.sort()
@@ -198,10 +225,12 @@ def filesystem_fingerprint(path: Path, *, max_entries: int = 20_000) -> dict[str
         latest_mtime = dt.datetime.fromtimestamp(latest_mtime_ns / 1_000_000_000, dt.timezone.utc).isoformat()
     return {
         "digest": digest.hexdigest(),
-        "complete": not errors and not truncated,
+        "complete": not errors and not truncated and not deadline_exceeded,
         "bounded": True,
         "max_entries": max_entries,
         "truncated": truncated,
+        "timed_out": deadline_exceeded,
+        "reason": "deadline_exceeded" if deadline_exceeded else ("max_entries" if truncated else None),
         "entries": entries,
         "files": files,
         "directories": directories,
@@ -330,6 +359,25 @@ def _target_matches_candidate(target: str, candidate: str) -> bool:
     return clean_target == candidate_root or clean_target.startswith(candidate_root.rstrip("/") + "/")
 
 
+def _target_candidate_prefixes(target: str) -> list[str]:
+    """Return absolute target ancestors in root-to-leaf order."""
+    clean_target = target.removesuffix(" (deleted)")
+    if not clean_target.startswith("/"):
+        return []
+    prefixes: list[str] = []
+    current = clean_target
+    while True:
+        prefixes.append(current)
+        if current == "/":
+            break
+        parent = current.rsplit("/", 1)[0] or "/"
+        if parent == current:
+            break
+        current = parent
+    prefixes.reverse()
+    return prefixes
+
+
 def process_references(
     paths: Sequence[str],
     *,
@@ -342,6 +390,13 @@ def process_references(
         path: {"checked": True, "active": False, "refs": [], "errors": [], "pids_scanned": 0}
         for path in selected
     }
+    # Index candidate paths by exact prefix. Resolving only the ancestors of
+    # each observed process target avoids the old O(PIDs * targets *
+    # candidates) scan when a temporary root contains thousands of entries.
+    candidate_by_prefix: dict[str, list[str]] = {}
+    for candidate in selected:
+        candidate_root = candidate.rstrip("/") or "/"
+        candidate_by_prefix.setdefault(candidate_root, []).append(candidate)
     global_errors: list[str] = []
     try:
         pid_dirs = [item for item in proc_root.iterdir() if item.name.isdigit() and item.is_dir()]
@@ -385,15 +440,19 @@ def process_references(
             cmdline = (pid_dir / "cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()[:1000]
         except OSError:
             cmdline = ""
-        for candidate in selected:
-            item = result[candidate]
-            item["pids_scanned"] += 1
-            refs = item["refs"]
-            for source, target in targets:
-                if _target_matches_candidate(target, candidate) and len(refs) < max_refs_per_path:
+        for source, target in targets:
+            for prefix in _target_candidate_prefixes(target):
+                for candidate in candidate_by_prefix.get(prefix, []):
+                    item = result[candidate]
+                    refs = item["refs"]
+                    if len(refs) >= max_refs_per_path:
+                        continue
                     reference = {"pid": pid, "source": source, "target": target, "cmdline": cmdline}
                     if reference not in refs:
                         refs.append(reference)
+    scanned_count = len(pid_dirs)
+    for item in result.values():
+        item["pids_scanned"] = scanned_count
     for item in result.values():
         item["active"] = bool(item["refs"])
         if global_errors:
@@ -931,6 +990,7 @@ def collect_observation(
     service_refs: Mapping[str, Any] | None = None,
     container_refs: Mapping[str, Any] | None = None,
     config_refs: Mapping[str, Any] | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     path_text = contracts.canonical_candidate_path(str(spec.get("path") or ""))
     path = Path(path_text)
@@ -941,8 +1001,8 @@ def collect_observation(
         size_evidence = {"checked": True, "ok": isinstance(physical_bytes, int), "method": "owner unique-size report", "physical": True}
         exists = True
     else:
-        fingerprint = filesystem_fingerprint(path, max_entries=max_fingerprint_entries)
-        physical_bytes, size_evidence = physical_size_bytes(path)
+        fingerprint = filesystem_fingerprint(path, max_entries=max_fingerprint_entries, deadline=deadline)
+        physical_bytes, size_evidence = physical_size_bytes(path, deadline=deadline)
         exists = path.exists() or path.is_symlink()
     latest_mtime = fingerprint.get("latest_mtime")
     archive_manifest = spec.get("archive") if isinstance(spec.get("archive"), Mapping) else {}

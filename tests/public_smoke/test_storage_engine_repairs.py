@@ -983,3 +983,244 @@ def test_candidate_deep_timer_does_not_hide_resource_blocks() -> None:
     service = (ROOT / "systemd" / "user" / "abyss-storage-candidates-deep.service").read_text(encoding="utf-8")
     assert "storage candidates refresh --deep --json" in service
     assert "--success-on-block" not in service
+
+
+def test_bounded_deep_refresh_resumes_without_premature_retirement_or_false_freshness(monkeypatch) -> None:
+    generated = iter((
+        "2026-09-05T19:00:00+00:00",
+        "2026-09-05T19:01:00+00:00",
+        "2026-09-05T19:02:00+00:00",
+    ))
+    old_observed = "2026-09-05T18:00:00+00:00"
+    old = {
+        "candidate_id": "reclaim-old",
+        "path": "/srv/abyss-machine/tmp/old",
+        "owner": "test-owner",
+        "kind": "generated_tmp",
+        "source_adapter": "test",
+        "verdict": "blocked_unknown",
+        "physical_bytes": 4,
+        "reclaimable_bytes": 4,
+        "observed_at": old_observed,
+        "fingerprint": {"digest": "old", "complete": True},
+        "evidence": {key: {"checked": True, "active": False} for key in (
+            "process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs",
+        )},
+        "executor": {"type": "test", "owner_specific": True},
+    }
+    latest = {
+        "generated_at": old_observed,
+        "last_deep_at": old_observed,
+        "candidates": [old],
+        "retired": [],
+        "coverage": {"runtime_errors": [], "pressure_findings": []},
+    }
+    specs = [
+        {"candidate_id": f"reclaim-{letter}", "path": f"/srv/abyss-machine/tmp/{letter}", "owner": "test-owner", "kind": "generated_tmp", "source_id": letter, "source_adapter": "test", "executor": {"type": "test", "owner_specific": True}, "unique_data": {"status": "clear"}, "recovery": {"verified": True, "command": "rebuild"}}
+        for letter in ("a", "b", "c")
+    ]
+
+    def observation(spec, **kwargs):
+        return {
+            **{key: spec.get(key) for key in ("candidate_id", "path", "owner", "kind", "source_id", "source_adapter")},
+            "exists": True,
+            "physical_bytes": 10,
+            "reclaimable_bytes": 10,
+            "fingerprint": {"digest": str(spec["candidate_id"]), "complete": True},
+            "latest_mtime": kwargs["generated_at"],
+            "observed_at": kwargs["generated_at"],
+            "executor": {"type": "test", "owner_specific": True},
+            "evidence": {
+                "protection": {"decision": "allow_candidate"},
+                "physical_size": {"checked": True, "ok": True},
+                **{key: {"checked": True, "active": False} for key in (
+                    "process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs",
+                )},
+                "active_claims": [],
+                "unique_data": {"status": "clear"},
+                "recovery": {"verified": True, "command": "rebuild"},
+            },
+        }
+
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BATCH_LIMIT", 2)
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS", 120.0)
+    monkeypatch.setattr(cli, "now_iso", lambda: next(generated))
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (latest, None))
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", lambda **kwargs: specs)
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli.storage_candidate_adapters, "collect_observation", observation)
+    monkeypatch.setattr(cli, "storage_path_protection", lambda path: {"decision": "allow_candidate"})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    partial = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    assert partial["partial"] is True
+    assert partial["ok"] is False
+    assert partial["deep_progress"]["status"] == "partial"
+    assert partial["deep_progress"]["cursor"] == 2
+    assert partial["last_deep_at"] == old_observed
+    assert partial["retired"] == []
+    assert "reclaim-old" in {item["candidate_id"] for item in partial["candidates"]}
+    assert all(item.get("observation_status") == "current_deep" for item in partial["candidates"] if item["candidate_id"] != "reclaim-old")
+    latest.update(partial)
+
+    light = cli.storage_candidate_light_refresh(partial, "2026-09-05T19:01:30+00:00")
+    assert light["partial"] is True
+    assert light["ok"] is False
+    assert light["deep_progress"]["cursor"] == 2
+    assert light["coverage"]["mode"] == "light_carry_forward_deep_partial"
+    latest.update(light)
+
+    recovered = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    assert recovered["partial"] is False
+    assert recovered["ok"] is True
+    assert recovered["deep_progress"]["status"] == "complete"
+    assert recovered["last_deep_at"] == "2026-09-05T19:01:00+00:00"
+    assert "reclaim-old" not in {item["candidate_id"] for item in recovered["candidates"]}
+    assert "reclaim-old" in {item["candidate_id"] for item in recovered["retired"]}
+    assert len({item["candidate_id"] for item in recovered["candidates"]}) == 3
+
+
+def test_bounded_deep_deadline_keeps_last_good_and_does_not_retire_failed_object(monkeypatch) -> None:
+    generated_at = "2026-09-05T20:00:00+00:00"
+    last_deep_at = "2026-09-05T18:00:00+00:00"
+    old = {
+        "candidate_id": "reclaim-keep",
+        "path": "/srv/abyss-machine/tmp/keep",
+        "owner": "test-owner",
+        "kind": "generated_tmp",
+        "source_adapter": "test",
+        "verdict": "blocked_unknown",
+        "physical_bytes": 8,
+        "reclaimable_bytes": 8,
+        "observed_at": last_deep_at,
+        "fingerprint": {"digest": "old", "complete": True},
+        "evidence": {key: {"checked": True, "active": False} for key in (
+            "process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs",
+        )},
+        "executor": {"type": "test", "owner_specific": True},
+    }
+    latest = {"generated_at": last_deep_at, "last_deep_at": last_deep_at, "candidates": [old], "retired": [], "coverage": {"runtime_errors": [], "pressure_findings": []}}
+    spec = {"candidate_id": "reclaim-new", "path": "/srv/abyss-machine/tmp/new", "owner": "test-owner", "kind": "generated_tmp", "source_id": "new", "source_adapter": "test"}
+
+    def timed_out_observation(spec, **kwargs):
+        return {
+            **spec,
+            "exists": True,
+            "physical_bytes": None,
+            "reclaimable_bytes": None,
+            "fingerprint": {"digest": "partial", "complete": False, "timed_out": True, "reason": "deadline_exceeded"},
+            "latest_mtime": None,
+            "observed_at": kwargs["generated_at"],
+            "executor": {},
+            "evidence": {"physical_size": {"checked": True, "ok": False, "error": "deadline_exceeded"}},
+        }
+
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BATCH_LIMIT", 2)
+    monkeypatch.setattr(cli, "STORAGE_CANDIDATE_DEEP_BUDGET_SECONDS", 120.0)
+    monkeypatch.setattr(cli, "now_iso", lambda: generated_at)
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (latest, None))
+    monkeypatch.setattr(cli, "storage_candidate_discover_specs", lambda **kwargs: [spec])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda root: [])
+    monkeypatch.setattr(cli, "storage_candidate_runtime_documents", lambda: [])
+    monkeypatch.setattr(cli, "storage_candidate_lane_documents", lambda: [])
+    monkeypatch.setattr(cli.storage_candidate_adapters, "process_references", lambda paths: {})
+    monkeypatch.setattr(cli, "storage_candidate_config_refs_by_path", lambda specs: {})
+    monkeypatch.setattr(cli.storage_candidate_adapters, "collect_observation", timed_out_observation)
+    monkeypatch.setattr(cli, "storage_path_protection", lambda path: {"decision": "allow_candidate"})
+    monkeypatch.setattr(cli, "storage_candidate_policy", lambda: {"deep_max_age_seconds": 172800})
+    monkeypatch.setattr(cli, "storage_candidate_paths", lambda: {})
+
+    refreshed = cli._storage_candidates_refresh_unlocked(deep=True, write_latest=False)
+    assert refreshed["ok"] is False
+    assert refreshed["partial"] is True
+    assert refreshed["deep_progress"]["status"] == "partial"
+    assert refreshed["deep_progress"]["cursor"] == 0
+    assert refreshed["last_deep_at"] == last_deep_at
+    assert [item["candidate_id"] for item in refreshed["candidates"]] == ["reclaim-keep"]
+    assert refreshed["retired"] == []
+    assert refreshed["runtime_errors"][0]["error"] == "deadline_exceeded"
+
+
+def test_bounded_deep_inventory_churn_resumes_after_stable_identity() -> None:
+    specs = [
+        {"candidate_id": f"reclaim-{letter}", "path": f"/srv/abyss-machine/tmp/{letter}", "owner": "test", "kind": "generated_tmp"}
+        for letter in ("a", "b", "c", "d", "z")
+    ]
+    previous = {
+        "candidates": [{"candidate_id": "reclaim-a"}, {"candidate_id": "reclaim-b"}],
+        "deep_progress": {
+            "status": "partial",
+            "inventory_digest": "old-digest",
+            "cursor": 2,
+            "cursor_candidate_id": "reclaim-b",
+        },
+    }
+    ordered_specs = cli._storage_candidate_ordered_specs(specs)
+    digest = cli._storage_candidate_inventory_digest(ordered_specs)
+    cursor, state = cli._storage_candidate_deep_progress(previous, digest, ordered_specs)
+    assert cursor == 2
+    assert state["inventory_changed"] is True
+
+    prefix_specs = [
+        {"candidate_id": "reclaim-aa", "path": "/srv/abyss-machine/tmp/aa", "owner": "test", "kind": "generated_tmp"},
+        *specs,
+    ]
+    ordered_prefix_specs = cli._storage_candidate_ordered_specs(prefix_specs)
+    prefix_digest = cli._storage_candidate_inventory_digest(ordered_prefix_specs)
+    prefix_cursor, _ = cli._storage_candidate_deep_progress(previous, prefix_digest, ordered_prefix_specs)
+    assert prefix_cursor == 1
+
+
+def test_bounded_deep_does_not_claim_complete_while_earlier_error_is_unresolved() -> None:
+    previous = {
+        "last_deep_at": "2026-09-05T17:00:00+00:00",
+        "candidates": [
+            {"candidate_id": "reclaim-a", "path": "/srv/abyss-machine/tmp/a", "observed_at": "2026-09-05T17:00:00+00:00"},
+        ],
+        "coverage": {"runtime_errors": [{"candidate_id": "reclaim-a", "surface": "process_refs", "error": "permission"}]},
+        "deep_progress": {"status": "partial", "cursor": 1, "cursor_candidate_id": "reclaim-a"},
+    }
+    current = {
+        "candidate_id": "reclaim-b",
+        "path": "/srv/abyss-machine/tmp/b",
+        "observed_at": "2026-09-05T19:00:00+00:00",
+        "physical_bytes": 1,
+        "reclaimable_bytes": 1,
+        "fingerprint": {"digest": "b", "complete": True},
+        "evidence": {key: {"checked": True, "active": False} for key in (
+            "process_refs", "mount_refs", "service_refs", "container_refs", "config_refs", "runtime_refs",
+        )},
+        "executor": {"type": "test", "owner_specific": True},
+    }
+    specs = [
+        {"candidate_id": "reclaim-a", "path": "/srv/abyss-machine/tmp/a"},
+        {"candidate_id": "reclaim-b", "path": "/srv/abyss-machine/tmp/b"},
+    ]
+    result = cli._storage_candidate_build_bounded_document(
+        [current],
+        previous=previous,
+        specs=specs,
+        cursor_before=1,
+        cursor_after=2,
+        generated_at="2026-09-05T19:01:00+00:00",
+        elapsed_seconds=1.0,
+        budget_seconds=120.0,
+        batch_limit=2,
+        runtime_errors=[],
+        producer_status={},
+        candidate_document={"candidates": [current], "retired": [], "changes": [], "coverage": {"runtime_errors": [], "pressure_findings": []}},
+        complete=True,
+        deadline_exceeded=False,
+    )
+    assert result["ok"] is False
+    assert result["partial"] is True
+    assert result["deep_progress"]["status"] == "partial"
+    assert result["deep_progress"]["cursor"] == 0
+    assert result["last_deep_at"] == "2026-09-05T17:00:00+00:00"
+    assert any(item.get("candidate_id") == "reclaim-a" for item in result["runtime_errors"])
+    assert result["retired"] == []
