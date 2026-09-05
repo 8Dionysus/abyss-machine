@@ -311,6 +311,8 @@ normalized executed argv). Only explicit `--activity maintenance`, class
 `light`, kind `generic` can qualify. Admission requires at least three
 individually fresh successful runtime unit samples, measured durations no
 greater than five seconds, and a memory estimate no greater than 64 MiB.
+The positive startup reservation must cover the measured profile estimate;
+a smaller explicit declaration cannot obtain the exception.
 Failed, legacy, mixed-command or incompletely measured profiles do not qualify.
 The exception only removes the active-memory-stall deferral; physical reserve,
 leases, swap, game, thermal and storage checks still apply at every launch.

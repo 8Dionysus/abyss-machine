@@ -638,6 +638,14 @@ def bounded_light_maintenance_eligibility(
         )
     if profile.get("estimate_source") != "runtime_observed_unit_peak":
         return rejected("bounded_light_maintenance_profile_estimate_unobserved")
+    if requested_mib <= 0.0 or demand.get("reservation_required") is not True:
+        return rejected("bounded_light_maintenance_positive_reservation_required")
+    if requested_mib < profile_estimate_mib:
+        return rejected(
+            "bounded_light_maintenance_request_below_observed_estimate",
+            requested_mib=requested_mib,
+            profile_estimate_mib=profile_estimate_mib,
+        )
 
     current_epoch = time.time() if now_epoch is None else _float_value(now_epoch, None)
     if current_epoch is None or not math.isfinite(current_epoch) or current_epoch < 0.0:

@@ -73,6 +73,37 @@ def _light_profile(
     }
 
 
+def test_measured_maintenance_cannot_discount_its_startup_reservation() -> None:
+    identity = resource_planning.command_identity(["abyss-machine", "storage", "capacity", "--json"])
+    assert identity is not None
+    policy = _light_maintenance_policy(identity)
+    for requested_mib, expected_reason in (
+        (0, "bounded_light_maintenance_positive_reservation_required"),
+        (1, "bounded_light_maintenance_request_below_observed_estimate"),
+        (30, "bounded_light_maintenance_eligible"),
+        (64, "bounded_light_maintenance_eligible"),
+    ):
+        demand = resource_planning.resolve_startup_demand(
+            policy, workload_class="light", kind="generic", explicit_mib=requested_mib,
+            demand_key="storage-capacity", demand_owner="abyss-machine",
+            learned_profile=_light_profile(identity), command_identity=identity,
+        )
+        result = resource_planning.startup_demand_projection(
+            memory_summary={"mem_total_mib": 32000, "mem_available_mib": 13000, "psi_full_avg10": 3},
+            current_memory_class="critical", memory_policy={}, demand=demand,
+            reservations={"summary": {"outstanding_mib": 0}}, unattended=True,
+            activity="maintenance", admission_policy=policy["startup_admission"], now_epoch=1000,
+        )
+        assert result["admission"]["bounded_light_maintenance"]["reason"] == expected_reason
+        if requested_mib == 1:
+            assert result["admission"]["blocked_reasons"] == [
+                "new_unattended_work_during_active_memory_stall"
+            ]
+        elif requested_mib >= 30:
+            assert demand["reservation_required"] is True
+            assert result["admission"]["blocked_reasons"] == []
+
+
 def test_resource_command_identity_hashes_caller_argv_without_retaining_it() -> None:
     first = resource_planning.command_identity(["--", "storage", "capacity"])
     second = resource_planning.command_identity(["storage", "capacity"])
