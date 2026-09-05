@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 25222913,
+  "allowed_tracked_bytes": 30309775,
+  "approved_by": "repository-owner",
+  "base_ref": "505b0cfaee3e795dafaa40cd5faf183482a012c0",
+  "changed_generated_bytes": 25222913,
+  "changed_generated_files": 317,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "c0c7e46e61ddfe3d8a687f6534627edc6bcca1b41566a1c465f0c8544e54e509",
+  "reason": "Regenerate the exact portable family after pinned KAG parity found deterministic generated ordering drift; preserve the existing base-505b0cfa budget authority for the measured maintenance source refresh.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30309775,
+  "tracked_bytes_max": 27262976
+}
