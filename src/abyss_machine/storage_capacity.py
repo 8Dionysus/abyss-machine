@@ -41,7 +41,10 @@ def _print_text(document: dict[str, object]) -> None:
         f"ok={document.get('ok')} "
         f"state={document.get('state_path')}"
     )
-    for root in document.get("roots", []):
+    roots = document.get("roots")
+    if not isinstance(roots, list):
+        return
+    for root in roots:
         if isinstance(root, dict):
             print(
                 f"{root.get('path')}: "
