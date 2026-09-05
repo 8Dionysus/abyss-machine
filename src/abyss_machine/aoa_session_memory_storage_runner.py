@@ -383,12 +383,16 @@ def vault_preflight_argv(config: RunnerConfig) -> list[str]:
     return [str(config.backup_cli), "timer-preflight", "sessions"]
 
 
-def _resource_unit_name(attempt: int) -> str:
+def _resource_unit_name(attempt: int, *, run_id: str | None = None) -> str:
     """Return a unique, stable transient unit identity for one attempt."""
-    # The PID prevents a later runner invocation from probing or stopping an
-    # earlier unit.  The attempt number lets lock retries remain distinguishable
-    # while keeping the identity free of session names or private paths.
-    return f"aoa-session-memory-raw-block-compact-{os.getpid()}-{attempt}.service"
+    # The run token prevents a later invocation with a recycled PID from
+    # probing or stopping an earlier unit.  The attempt number lets lock retries
+    # remain distinguishable while keeping the identity free of session names
+    # or private paths.  The fallback is stable for direct argv construction;
+    # run_once always supplies a fresh token.
+    token = str(run_id or f"pid{os.getpid()}-manual")
+    token = re.sub(r"[^A-Za-z0-9-]", "-", token).strip("-") or "manual"
+    return f"aoa-session-memory-raw-block-compact-{token}-{attempt}.service"
 
 
 def owner_resource_argv(
@@ -397,6 +401,7 @@ def owner_resource_argv(
     bundle_dir: Path | None = None,
     outer_timeout_sec: float | None = None,
     attempt: int = 1,
+    run_id: str | None = None,
 ) -> list[str]:
     admitted_bundle = bundle_dir if bundle_dir is not None else config.bundle_dir
     owner_script = admitted_bundle / OWNER_SCRIPT_RELATIVE
@@ -445,7 +450,7 @@ def owner_resource_argv(
         "--success-on-block",
         "--no-thermal-sample",
         "--unit",
-        _resource_unit_name(attempt),
+        _resource_unit_name(attempt, run_id=run_id),
         "--json",
         "--",
         str(config.host_cli),
@@ -1532,6 +1537,8 @@ def run_once(
     summary["mutates"] = False
     started = clock_port()
     deadline = started + min(config.retry_deadline_sec, MAX_RETRY_DEADLINE_SEC)
+    resource_run_id = f"p{os.getpid()}-{time.time_ns()}"
+    summary["resource_run_id"] = resource_run_id
 
     if config.reclaim_plain and not _reclaim_authorized(config):
         summary.update({
@@ -1628,12 +1635,13 @@ def run_once(
             classification = "deferred_retry_deadline"
             break
         outer_timeout = remaining - float(RESOURCE_POST_TIMEOUT_PROBE_SEC)
-        resource_unit = _resource_unit_name(attempt + 1)
+        resource_unit = _resource_unit_name(attempt + 1, run_id=resource_run_id)
         resource_argv = owner_resource_argv(
             config,
             bundle_dir=admitted_store_path,
             outer_timeout_sec=outer_timeout,
             attempt=attempt + 1,
+            run_id=resource_run_id,
         )
         result = _run_command(
             resource_argv,

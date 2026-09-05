@@ -462,6 +462,9 @@ def test_lock_contention_retries_5_15_then_applies_and_writes_compact_state(tmp_
         "skipped_lock_held",
         "applied",
     ]
+    attempt_units = [item["resource_unit"] for item in payload["attempts"]]
+    assert len(set(attempt_units)) == 3
+    assert all(str(unit).endswith(".service") for unit in attempt_units)
     saved = json.loads((config.state_dir / "latest.json").read_text(encoding="utf-8"))
     assert saved["status"] == "applied"
     assert saved["reservation"]["hard_bytes_reservation"] is False
@@ -750,7 +753,9 @@ def test_resource_timeout_probes_active_unit_and_does_not_retry(tmp_path: Path) 
     assert len(payload["attempts"]) == 1
     resource_summary = payload["resource_launch"]
     unit = resource_summary["resource_unit"]
-    assert unit == runner._resource_unit_name(1)
+    assert unit.endswith(".service")
+    assert unit.startswith("aoa-session-memory-raw-block-compact-")
+    assert payload["resource_run_id"] in unit
     recovery = resource_summary["timeout_recovery"]
     assert recovery["unit"] == unit
     assert recovery["pending"] is True
