@@ -214,7 +214,7 @@ class Lifecycle:
             "lease_token": token,
         }
 
-    def _renew_managed_workspace(self, lifecycle: Mapping[str, Any], now: dt.datetime) -> None:
+    def _renew_managed_workspace(self, lifecycle: Mapping[str, Any], now: dt.datetime) -> dict[str, Any]:
         renewed = storage_lifecycle_adapters.renew_registered_workspace(
             self.lifecycle_root,
             workspace_id=str(lifecycle["workspace_id"]),
@@ -223,8 +223,15 @@ class Lifecycle:
             now_time=now,
         )
         if renewed.get("ok") is not True:
-            errors = ", ".join(str(item) for item in renewed.get("errors", [])[:3])
+            errors_list = renewed.get("errors", [])
+            if isinstance(errors_list, list) and "workspace_not_open" in errors_list:
+                # The reaper can seal an expired workspace between the metadata
+                # read and this renewal. The old path remains protected; the
+                # caller must start a fresh generation instead of reopening it.
+                return renewed
+            errors = ", ".join(str(item) for item in errors_list[:3])
             raise ValueError(f"managed scratch lease renewal failed{': ' + errors if errors else ''}")
+        return renewed
 
     def observe(self, event: Mapping[str, Any], *, route_temp: bool = False,
                 now: dt.datetime | None = None) -> dict[str, Any]:
@@ -259,9 +266,18 @@ class Lifecycle:
             if not previous and path.exists():
                 raise ValueError("refusing to adopt an existing unowned scratch directory")
             managed_lifecycle = self._managed_workspace(previous, path) if previous else None
+            if previous and managed_lifecycle is not None and name in ACTIVE_EVENTS:
+                renewed = self._renew_managed_workspace(managed_lifecycle, now)
+                if renewed.get("ok") is not True:
+                    # An expired open lease may already be sealed by the
+                    # reaper. Never reopen that path; preserve its lifecycle
+                    # record and allocate a protected scratch generation.
+                    previous_workspace_id = managed_lifecycle.get("workspace_id")
+                    generation += 1
+                    path = self._scratch_path(session_id, generation)
+                    previous = {}
+                    managed_lifecycle = None
             if previous and managed_lifecycle is not None:
-                if name in ACTIVE_EVENTS:
-                    self._renew_managed_workspace(managed_lifecycle, now)
                 _directory(path, create=False)
             elif previous:
                 # Legacy native records remain candidate-only.  They are never

@@ -152,6 +152,71 @@ def test_prompt_after_close_creates_new_generation_and_preserves_old_scratch(lif
     assert second_close["state"] == "closed"
 
 
+@pytest.mark.parametrize(
+    "resume_name,resume_route_temp,resume_extra",
+    [
+        ("UserPromptSubmit", False, {}),
+        ("PreToolUse", True, {"tool_name": "Bash", "tool_input": {"command": "printf resumed"}}),
+    ],
+)
+def test_active_event_after_reaper_seal_creates_and_renews_new_generation(
+    lifecycle, resume_name, resume_route_temp, resume_extra
+):
+    start = dt.datetime(2026, 9, 4, tzinfo=dt.timezone.utc)
+    lifecycle.observe(event(), now=start)
+    old_path = lifecycle.scratch_root / "native-task-123"
+    (old_path / "unique.txt").write_text("preserved after idle recovery")
+    old_id = records(lifecycle)["workspace_lifecycle"]["workspace_id"]
+
+    recovered = storage_lifecycle_adapters.reap(
+        lifecycle.lifecycle_root,
+        now_time=start + dt.timedelta(days=2, seconds=1),
+    )
+    assert recovered["summary"]["recovered"] == 1
+    old_managed = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, old_id)
+    )
+    assert old_managed is not None
+    assert old_managed["state"] == "sealed"
+    assert old_managed["disposition"]["decision"] == "UNKNOWN"
+
+    resumed_result = lifecycle.observe(
+        event(resume_name, **resume_extra),
+        route_temp=resume_route_temp,
+        now=start + dt.timedelta(days=2, seconds=2),
+    )
+    resumed = records(lifecycle)
+    assert resumed["generation"] == 2
+    assert resumed["previous_workspace_id"] == old_id
+    new_path = lifecycle.scratch_root / "native-task-123-g2"
+    assert resumed["path"] == str(new_path)
+    assert (old_path / "unique.txt").read_text() == "preserved after idle recovery"
+    assert new_path.is_dir() and list(new_path.iterdir()) == []
+    if resume_name == "PreToolUse":
+        updated = resumed_result["hookSpecificOutput"]["updatedInput"]["command"]
+        assert updated.startswith(f"export TMPDIR={new_path}\n")
+
+    new_id = resumed["workspace_lifecycle"]["workspace_id"]
+    new_managed = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, new_id)
+    )
+    assert new_managed is not None and new_managed["state"] == "open"
+    lease_generation = new_managed["lease"]["generation"]
+
+    result = lifecycle.observe(
+        event("PreToolUse", tool_name="Bash", tool_input={"command": "printf resumed"}),
+        route_temp=True,
+        now=start + dt.timedelta(days=2, seconds=3),
+    )
+    updated = result["hookSpecificOutput"]["updatedInput"]["command"]
+    assert updated.startswith(f"export TMPDIR={new_path}\n")
+    renewed = storage_lifecycle_adapters.read_json(
+        storage_lifecycle_adapters.record_path(lifecycle.lifecycle_root, new_id)
+    )
+    assert renewed is not None and renewed["state"] == "open"
+    assert renewed["lease"]["generation"] == lease_generation + 1
+
+
 def test_explicit_delete_uses_existing_reaper(lifecycle, tmp_path):
     lifecycle.observe(event())
     (lifecycle.scratch_root / "native-task-123" / "derived.txt").write_text("preserve then delete")
