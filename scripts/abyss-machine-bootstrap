@@ -68,6 +68,16 @@ elif sys.argv[1:3] == ["storage", "codex"]:
 elif sys.argv[1:3] == ["storage", "process-probe"]:
     del sys.argv[1:3]
     module = "abyss_machine.storage_process_probe"
+elif sys.argv[1:3] == ["storage", "capacity"]:
+    del sys.argv[1:3]
+    module = "abyss_machine.storage_capacity"
+elif sys.argv[1:3] == ["storage", "aoa-session-memory-compact"]:
+    del sys.argv[1:3]
+    module = "abyss_machine.aoa_session_memory_storage_runner"
+elif sys.argv[1:3] == ["storage", "aoa-session-memory-compact-child"]:
+    del sys.argv[1:3]
+    sys.argv.insert(1, "child")
+    module = "abyss_machine.aoa_session_memory_storage_runner"
 runpy.run_module(module, run_name="__main__")
 """
 CODE_GENERATIONS_DIR_NAME = ".abyss-machine-code-generations"
@@ -134,6 +144,12 @@ PROFILE_UNITS: dict[str, dict[str, list[str]]] = {
         "user": [
             "abyss-machine-doctor.timer",
             "abyss-stack-resource-guards-apply.service",
+        ],
+    },
+    "aoa-session-memory-storage": {
+        "system": [],
+        "user": [
+            "abyss-aoa-session-memory-raw-block-compact.timer",
         ],
     },
 }

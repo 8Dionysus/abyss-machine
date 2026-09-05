@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 17329923,
+  "allowed_tracked_bytes": 30220325,
+  "approved_by": "repository-owner",
+  "base_ref": "f72809b7e21781c1b125588f70961af0042840ee",
+  "changed_generated_bytes": 17329923,
+  "changed_generated_files": 186,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "22eb8739aa6724e856e06135369649d657e58848465e65d538269c5fcd1fb7db",
+  "reason": "Refresh the existing portable owner family for capacity sampling, terminal lease safety and bounded session storage runner; changed source and contract digests require regenerated source-linked records.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30220325,
+  "tracked_bytes_max": 27262976
+}

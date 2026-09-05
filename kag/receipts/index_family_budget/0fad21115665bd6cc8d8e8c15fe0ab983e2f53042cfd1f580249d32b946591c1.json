@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 18713284,
+  "allowed_tracked_bytes": 30225685,
+  "approved_by": "repository-owner",
+  "base_ref": "f72809b7e21781c1b125588f70961af0042840ee",
+  "changed_generated_bytes": 18713284,
+  "changed_generated_files": 199,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "0fad21115665bd6cc8d8e8c15fe0ab983e2f53042cfd1f580249d32b946591c1",
+  "reason": "Refresh existing storage automation family after CLI-safe lease capability generation and its deterministic compatibility tests.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30225685,
+  "tracked_bytes_max": 27262976
+}

@@ -62,6 +62,12 @@
         "abyss-machine-doctor.timer",
         "abyss-stack-resource-guards-apply.service"
       ]
+    },
+    "aoa-session-memory-storage": {
+      "system": [],
+      "user": [
+        "abyss-aoa-session-memory-raw-block-compact.timer"
+      ]
     }
   }
 }

@@ -53156,6 +53156,15 @@ def main(argv: list[str]) -> int:
     if argv[:2] == ["storage", "codex"]:
         from abyss_machine.codex_storage_lifecycle import main as codex_storage_main
         return codex_storage_main(argv[2:])
+    if argv[:2] == ["storage", "capacity"]:
+        from abyss_machine.storage_capacity import main as storage_capacity_main
+        return storage_capacity_main(argv[2:])
+    if argv[:2] == ["storage", "aoa-session-memory-compact"]:
+        from abyss_machine.aoa_session_memory_storage_runner import main as storage_runner_main
+        return storage_runner_main(argv[2:])
+    if argv[:2] == ["storage", "aoa-session-memory-compact-child"]:
+        from abyss_machine.aoa_session_memory_storage_runner import child_main
+        return child_main(argv[2:])
     parser = argparse.ArgumentParser(description="Abyss OS host-machine bridge")
     sub = parser.add_subparsers(dest="command", required=True)
     known_top_level_commands = {
@@ -53314,6 +53323,8 @@ def main(argv: list[str]) -> int:
     storage_parser = add_top_level_parser("storage", help="inspect host storage routing, policy, hooks and cache pressure")
     storage_sub = storage_parser.add_subparsers(dest="storage_command", required=True)
     storage_sub.add_parser("codex", help="native Codex scratch ownership and closeout")
+    storage_capacity_parser = storage_sub.add_parser("capacity", help="record cheap bounded filesystem capacity observations")
+    storage_capacity_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_status_parser = storage_sub.add_parser("status")
     storage_status_parser.add_argument("--full", action="store_true", help="run a fresh AI model/cache storage scan")
     storage_status_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")

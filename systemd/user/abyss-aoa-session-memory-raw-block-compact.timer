@@ -1,0 +1,15 @@
+[Unit]
+Description=Run bounded AoA raw-block storage maintenance every 30 minutes
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/storage/AGENTS.md
+
+[Timer]
+OnBootSec=20min
+OnUnitInactiveSec=30min
+RandomizedDelaySec=2min
+AccuracySec=1min
+Persistent=true
+Unit=abyss-aoa-session-memory-raw-block-compact.service
+
+[Install]
+WantedBy=timers.target

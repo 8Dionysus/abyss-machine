@@ -746,6 +746,7 @@ abyss-machine storage pressure --json
 abyss-machine storage pressure --refresh-inventory --json
 abyss-machine storage cleanup-plan --json
 abyss-machine storage cleanup-plan --refresh-inventory --json
+abyss-machine storage capacity --json
 abyss-machine storage monitor --json
 abyss-machine storage candidates refresh --json
 abyss-machine storage candidates refresh --deep --json
@@ -906,6 +907,7 @@ classification rule: rebuildable_cache/redownloadable_heavy are cleanup candidat
 storage pressure rule: `abyss-machine storage pressure --json` classifies `/` and `/srv`, ranks pressure valves, and never deletes anything
 cleanup-plan rule: `abyss-machine storage cleanup-plan --json` runs process guard by default and produces operator steps only; it does not execute cleanup
 storage monitor rule: `abyss-machine storage monitor --json` refreshes light inventory, pressure, cleanup-plan and status; it is the recurring first-read route and does not run full inventory
+storage capacity rule: `abyss-machine storage capacity --json` performs the bounded statvfs capacity observation before monitor resource admission; it shares the monitor's locked, interval-limited capacity history and does not run inventory, process guards, or cleanup
 storage candidate rule: hourly refresh carries the last deep evidence age without promoting readiness; bounded continuation, daily, pressure, or significant-growth deep refresh rechecks exact owner/process/mount/service/container/config/runtime/Git/Podman/Vault/fingerprint gates
 storage candidate apply boundary: a ready verdict still requires `storage candidates validate`, a candidate-bound approval, immediate no-drift preflight, and an external owner executor; this source stage records approval/receipt but performs no automatic deletion
 .aoa candidate rule: use only the session-memory owner `maintenance-cleanup` dry-run verdict; generic age/size/process heuristics cannot override it

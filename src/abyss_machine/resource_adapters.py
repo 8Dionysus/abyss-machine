@@ -390,6 +390,54 @@ def remove_lease(root: Path, lease_id: str) -> bool:
         return False
 
 
+def _mark_lease_terminal_pending(
+    root: Path,
+    lease: Mapping[str, Any],
+    completion: Mapping[str, Any],
+) -> bool:
+    """Persist uncertainty for a launch that may have outlived its waiter.
+
+    The marker is written only to an existing lease with the same launch
+    identity.  That keeps a never-started lease eligible for its normal
+    pre-launch cleanup while making an uncertain transient unit fail closed in
+    the later reservation snapshot path.
+    """
+    lease_id = str(lease.get("id") or "").strip()
+    if not lease_id:
+        return False
+    path = lease_path(root, lease_id)
+    try:
+        # The launch handoff runs after its admission section has released the
+        # lock.  Re-enter the same per-root admission lock for this
+        # read/identity-check/write so a concurrent snapshot or reservation
+        # update cannot be overwritten by a stale lease document.
+        with admission_lock(root):
+            current_value = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(current_value, dict) or str(current_value.get("id") or "") != lease_id:
+                return False
+            for key in ("unit", "launcher_pid"):
+                expected = lease.get(key)
+                if expected is not None and current_value.get(key) != expected:
+                    return False
+            completion_unit = str(completion.get("unit") or "").strip()
+            current_unit = str(current_value.get("unit") or "").strip()
+            if completion_unit and current_unit and completion_unit != current_unit:
+                return False
+            current_value.update(
+                {
+                    "terminal_pending": True,
+                    "terminal_pending_reason": "launch_terminal_unconfirmed",
+                    "terminal_pending_since_epoch": time.time(),
+                }
+            )
+            if completion_unit:
+                current_value["terminal_pending_unit"] = completion_unit
+            atomic_write_lease(root, current_value)
+    except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return True
+
+
 def systemd_user_unit_cleanup(
     unit: str | None,
     *,
@@ -614,6 +662,7 @@ def execute_systemd_launch(
 
     result: dict[str, Any]
     lease_released = False
+    lease_terminal_pending = False
     launch_completed = False
     completion: dict[str, Any] = {
         "confirmed_terminal": False,
@@ -717,7 +766,21 @@ def execute_systemd_launch(
     finally:
         if isinstance(lease, Mapping):
             lease_id = str(lease.get("id") or "")
-            lease_released = remove_lease(reservation_root, lease_id) or not lease_path(reservation_root, lease_id).exists()
+            # The admission lease is the only durable indication that this
+            # transient workload may still be consuming the admitted budget.
+            # Keep it when terminal state is unknown so the next admission
+            # cannot start concurrently with a unit that may still be alive.
+            # The reservation accounting path below has the same fail-closed
+            # rule, but is a separate storage reservation and must not be
+            # conflated with this memory/admission lease.
+            if completion.get("confirmed_terminal") is True:
+                lease_released = remove_lease(reservation_root, lease_id) or not lease_path(reservation_root, lease_id).exists()
+            else:
+                lease_terminal_pending = _mark_lease_terminal_pending(
+                    reservation_root,
+                    lease,
+                    completion,
+                )
 
     result["completion"] = completion
     storage_reservation_release = _release_storage_reservation(
@@ -778,6 +841,7 @@ def execute_systemd_launch(
         "elapsed_sec": round(time.monotonic() - started, 3),
         "execution": result,
         "lease_released": lease_released,
+        "lease_terminal_pending": lease_terminal_pending,
         "demand_observation": demand_observation,
         "completion": completion,
         "storage_reservation_release": storage_reservation_release,
@@ -869,6 +933,29 @@ def lease_status(
     runtime_cold_load = lease_kind == "runtime_cold_load"
     runtime_workload = lease_kind == "runtime_workload"
     runtime_lease = runtime_cold_load or runtime_workload
+    terminal_pending = lease.get("terminal_pending") is True and not runtime_lease
+    unit_state_error = bool(unit_state.get("error") or unit_state.get("state_error"))
+    unit_state_name = str(unit_state.get("state") or "").strip().lower()
+    unit_terminal = unit_state_name in {
+        "inactive",
+        "failed",
+        "dead",
+        "exited",
+        "missing",
+        "not-found",
+        "not_found",
+        "gone",
+    }
+    named_startup_lease = bool(unit) and not runtime_lease
+    unit_probe_unresolved = named_startup_lease and (
+        unit_state_error or (not unit_active and not unit_terminal)
+    )
+    pending_terminal_resolved = (
+        terminal_pending
+        and not unit_state_error
+        and not unit_active
+        and unit_terminal
+    )
     runtime_identity_valid = bool(
         lease.get("owner")
         and lease.get("workload_id")
@@ -890,11 +977,25 @@ def lease_status(
     runtime_deadline_elapsed = runtime_cold_load and expired
     workload_deadline_elapsed = runtime_workload and expired
     workload_owner_gone = runtime_workload and not owner_alive
-    stale = invalid or runtime_deadline_elapsed or startup_deadline_elapsed or (
-        not runtime_lease and not launcher_alive and not unit_active
-    ) or workload_deadline_elapsed or workload_owner_gone
+    stale = (
+        invalid
+        or (pending_terminal_resolved if terminal_pending else False)
+        or (
+            not terminal_pending
+            and not unit_probe_unresolved
+            and (
+                runtime_deadline_elapsed
+                or startup_deadline_elapsed
+                or (not runtime_lease and not launcher_alive and not unit_active)
+                or workload_deadline_elapsed
+                or workload_owner_gone
+            )
+        )
+    )
     if invalid:
         stale_reason = "invalid_identity"
+    elif pending_terminal_resolved:
+        stale_reason = "terminal_pending_unit_terminal"
     elif runtime_deadline_elapsed:
         stale_reason = "runtime_lease_deadline_elapsed"
     elif workload_deadline_elapsed:
