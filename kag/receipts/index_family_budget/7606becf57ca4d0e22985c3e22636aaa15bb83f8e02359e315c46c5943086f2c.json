@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 18048758,
+  "allowed_tracked_bytes": 29106345,
+  "approved_by": "repository-owner",
+  "base_ref": "8045d3c7c5bdf4f94e740533e32a1bf48e2f6fef",
+  "changed_generated_bytes": 18048758,
+  "changed_generated_files": 206,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "7606becf57ca4d0e22985c3e22636aaa15bb83f8e02359e315c46c5943086f2c",
+  "reason": "Regenerated portable owner family for exact reviewed validation-speed-machine candidate 59d4853d; CI sentinel requires a matching receipt and no gate limits or semantics changed.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 29106345,
+  "tracked_bytes_max": 27262976
+}
