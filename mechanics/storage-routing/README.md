@@ -68,11 +68,13 @@ approval, and external receipts but does not add automatic deletion.
 ### Next route
 
 The storage monitor keeps at most 168 capacity samples per mount in compact
-state. Forecasts use bytes available to the user, including reserved-block
-effects, and require four observations spanning at least three hours on the
-same filesystem. A missing mount or insufficient history produces an unknown
-forecast. The net-rate estimate includes cleanup and reports time to the
-five-GiB free-space floor and exhaustion; it is an extrapolation, not a write
-reservation or a deletion decision.
+state. `storage capacity` records the same observation before the monitor's
+resource admission, allowing the next sample when monitor admission is
+deferred by memory pressure. It uses bytes available to the user, including
+reserved-block effects, and requires four observations spanning at least three
+hours on the same filesystem. A missing mount or insufficient history produces
+an unknown forecast. The net-rate estimate includes cleanup and reports time to
+the five-GiB free-space floor and exhaustion; it is an extrapolation, not a
+write reservation or a deletion decision.
 
 Use `host-facts` for machine posture and `local-ai-runtime` for AI caches.

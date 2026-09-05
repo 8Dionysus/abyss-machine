@@ -1604,6 +1604,49 @@ def test_managed_launcher_holds_only_its_generation_lock_from_read_only_files(
         process.wait(timeout=10)
 
 
+def test_managed_launcher_dispatches_capacity_without_importing_heavy_cli(
+    tmp_path: Path,
+) -> None:
+    namespace = runpy.run_path(
+        str(BOOTSTRAP),
+        run_name="abyss_machine_bootstrap_capacity_dispatch_test",
+    )
+    libexec = tmp_path / "libexec"
+    generation = libexec / namespace["CODE_GENERATIONS_DIR_NAME"] / ("a" * 64)
+    package = generation / "abyss_machine"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "cli.py").write_text(
+        "raise AssertionError('heavy cli imported')\n",
+        encoding="utf-8",
+    )
+    (package / "storage_capacity.py").write_text(
+        "import json\n"
+        "if __name__ == '__main__':\n"
+        "    print(json.dumps({'ok': True, 'route': 'capacity'}))\n",
+        encoding="utf-8",
+    )
+    refresh_lock = libexec / ".abyss-machine-code-refresh.lock"
+    refresh_lock.touch(mode=0o600)
+    active_lock = generation / namespace["CODE_GENERATION_ACTIVE_LOCK_NAME"]
+    active_lock.touch(mode=0o600)
+    current = libexec / namespace["CODE_CURRENT_LINK_NAME"]
+    current.symlink_to(Path(namespace["CODE_GENERATIONS_DIR_NAME"]) / generation.name)
+    launcher = libexec / "abyss-machine"
+    launcher.write_text(namespace["CLI_LAUNCHER"], encoding="utf-8")
+    launcher.chmod(0o755)
+
+    result = subprocess.run(
+        [str(launcher), "storage", "capacity", "--json"],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr[-1000:]
+    assert json.loads(result.stdout) == {"ok": True, "route": "capacity"}
+
+
 def test_bootstrap_atomic_projection_rolls_back_prior_exchange(tmp_path: Path) -> None:
     namespace = runpy.run_path(str(BOOTSTRAP), run_name="abyss_machine_bootstrap_atomic_test")
     commit_projection = namespace["_commit_projection"]

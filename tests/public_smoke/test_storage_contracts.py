@@ -189,6 +189,12 @@ def test_storage_paths_cli_surface_is_json_read_only() -> None:
 
 def test_storage_monitor_timer_reserves_measured_startup_memory() -> None:
     unit = (ROOT / "systemd" / "user" / "abyss-storage-monitor.service").read_text(encoding="utf-8")
+    lines = unit.splitlines()
+    pre_index = next(index for index, line in enumerate(lines) if line.startswith("ExecStartPre="))
+    start_index = next(index for index, line in enumerate(lines) if line.startswith("ExecStart="))
+    assert pre_index < start_index
+    assert lines[pre_index].endswith("/abyss-machine storage capacity --json")
+
     exec_start = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
 
     assert " resource launch --class medium --kind indexing --unattended " in exec_start

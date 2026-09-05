@@ -68,6 +68,9 @@ elif sys.argv[1:3] == ["storage", "codex"]:
 elif sys.argv[1:3] == ["storage", "process-probe"]:
     del sys.argv[1:3]
     module = "abyss_machine.storage_process_probe"
+elif sys.argv[1:3] == ["storage", "capacity"]:
+    del sys.argv[1:3]
+    module = "abyss_machine.storage_capacity"
 runpy.run_module(module, run_name="__main__")
 """
 CODE_GENERATIONS_DIR_NAME = ".abyss-machine-code-generations"
