@@ -4,6 +4,9 @@ import datetime as dt
 from pathlib import Path
 import subprocess
 import sys
+
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -2147,3 +2150,121 @@ def test_bounded_deep_complete_absence_clears_disappeared_candidate_error() -> N
     assert "reclaim-gone" in {item["candidate_id"] for item in result["retired"]}
     retired = next(item for item in result["retired"] if item["candidate_id"] == "reclaim-gone")
     assert retired["prior_runtime_errors"][0]["error"] == "permission"
+
+
+_AOA_REQUIRED_SURFACES = (
+    "process_refs",
+    "mount_refs",
+    "service_refs",
+    "container_refs",
+    "config_refs",
+    "runtime_refs",
+)
+
+
+def _aoa_coverage_record(
+    candidate_id: str,
+    *,
+    owner: str = "cache-owner",
+    source_adapter: str = "tmp_children",
+    discovery_absent: bool = False,
+    error: str | None = None,
+) -> dict[str, object]:
+    evidence = {
+        key: {"checked": True, "active": False}
+        for key in _AOA_REQUIRED_SURFACES
+    }
+    if error is not None:
+        evidence["process_refs"] = {"checked": False, "error": error}
+    return {
+        "candidate_id": candidate_id,
+        "path": f"/srv/abyss-machine/tmp/{candidate_id}",
+        "owner": owner,
+        "source_adapter": source_adapter,
+        "discovery_absent": discovery_absent,
+        "physical_bytes": 1,
+        "reclaimable_bytes": 1,
+        "fingerprint": {"digest": candidate_id, "complete": True},
+        "observed_at": "2026-09-05T17:00:00+00:00",
+        "evidence": evidence,
+    }
+
+
+@pytest.mark.parametrize(
+    ("current_error", "expected_current_error"),
+    [(None, None), ("current permission", "current permission")],
+    ids=["absent-only", "current-error-preserved"],
+)
+def test_aoa_deferred_coverage_filters_absent_non_aoa_and_preserves_owner_errors(
+    current_error: str | None,
+    expected_current_error: str | None,
+) -> None:
+    absent = _aoa_coverage_record(
+        "reclaim-old", discovery_absent=True, error="stale permission"
+    )
+    current = _aoa_coverage_record("reclaim-current", error=current_error)
+    aoa = _aoa_coverage_record(
+        "reclaim-aoa",
+        owner="aoa-session-memory",
+        source_adapter="aoa_owner_verdict",
+        discovery_absent=True,
+        error="aoa owner error",
+    )
+    old_error = {
+        "candidate_id": "reclaim-old",
+        "surface": "process_refs",
+        "error": "stale permission",
+    }
+    global_error = {
+        "candidate_id": "aoa-global",
+        "surface": "global",
+        "error": "owner result incomplete",
+    }
+    result = cli._storage_candidate_apply_aoa_deferred_carry_forward(
+        {
+            "candidates": [absent, current],
+            "coverage": {
+                "runtime_errors": [old_error, global_error],
+                "runtime_errors_full": [old_error, global_error],
+                "pressure_findings": [],
+            },
+            "refresh_result": {},
+        },
+        {"last_deep_at": "2026-09-05T17:00:00+00:00", "candidates": [aoa]},
+        generated_at="2026-09-05T19:00:00+00:00",
+        owner_status={
+            "status": "deferred_active_writer",
+            "lock_active": True,
+            "returncode": 1,
+            "reason": "maintenance writer is active",
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["partial"] is True
+    assert result["coverage"]["partial"] is True
+    assert result["coverage"]["owner_coverage"]["status"] == "deferred_active_writer"
+    assert result["coverage"]["owner_coverage"]["lock_active"] is True
+    assert {item["candidate_id"] for item in result["candidates"]} == {
+        "reclaim-old",
+        "reclaim-current",
+        "reclaim-aoa",
+    }
+
+    errors = result["coverage"]["runtime_errors_full"]
+    identities = {
+        (item["candidate_id"], item["surface"], item["error"])
+        for item in errors
+    }
+    assert ("reclaim-old", "process_refs", "stale permission") not in identities
+    assert ("aoa-global", "global", "owner result incomplete") in identities
+    assert ("reclaim-aoa", "process_refs", "aoa owner error") in identities
+    if expected_current_error is None:
+        assert not any(item["candidate_id"] == "reclaim-current" for item in errors)
+    else:
+        assert (
+            "reclaim-current",
+            "process_refs",
+            expected_current_error,
+        ) in identities
+    assert result["runtime_errors"] == errors
