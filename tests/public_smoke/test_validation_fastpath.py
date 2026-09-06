@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -988,11 +989,20 @@ def test_run_node_converts_launch_decode_and_timeout_failures_to_receipts(
 
 def test_node_elapsed_includes_launch_overhead(monkeypatch: pytest.MonkeyPatch) -> None:
     original_popen = fastpath.subprocess.Popen
+    clock_offset = 0.0
+    clock = SimpleNamespace(
+        perf_counter=lambda: time.perf_counter() + clock_offset,
+        sleep=time.sleep,
+    )
 
     def delayed_popen(*args, **kwargs):
-        time.sleep(fastpath.FAST_NODE_BUDGET_SEC + 0.05)
+        nonlocal clock_offset
+        # Advance the node's clock without delaying a real process launch.
+        # Keep the offset thereafter so execution/cleanup clocks never go back.
+        clock_offset += fastpath.FAST_NODE_BUDGET_SEC + 0.05
         return original_popen(*args, **kwargs)
 
+    monkeypatch.setattr(fastpath, "time", clock)
     monkeypatch.setattr(fastpath.subprocess, "Popen", delayed_popen)
     result = fastpath._run_node(
         REPO_ROOT,
