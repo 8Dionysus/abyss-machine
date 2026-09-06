@@ -91,9 +91,49 @@ def _read(path: Path) -> dict[str, Any] | None:
 def _filesystem_key(path: Path) -> str:
     anchor = existing_ancestor(path)
     try:
-        return f"dev:{int(anchor.stat().st_dev)}"
+        return _filesystem_key_for_device(int(anchor.stat().st_dev))
     except OSError:
         return f"anchor:{anchor}"
+
+
+def _filesystem_key_for_device(st_dev: int) -> str:
+    """Build the shared accounting key from one validated device identity."""
+    return f"dev:{int(st_dev)}"
+
+
+def _target_filesystem_device(target: Path) -> int | None:
+    """Read the target's current filesystem device from one path snapshot."""
+    try:
+        return int(existing_ancestor(target).stat().st_dev)
+    except OSError:
+        return None
+
+
+def _route_filesystem_device(target: Path, route_metadata: Mapping[str, Any] | None) -> int | None:
+    """Validate route identity and return the same device used for accounting.
+
+    Route identity is receipt metadata only.  Capacity accounting continues to
+    use the shared ``filesystem_key`` so leases from every route aggregate on
+    one filesystem.  The returned device is read under the reservation lock so
+    a path remount cannot leave a lease in a pre-lock bucket.
+    """
+    actual_device = _target_filesystem_device(target)
+    if actual_device is None:
+        return None
+    if not route_metadata:
+        return actual_device
+    identity = route_metadata.get("archive_binding")
+    if not isinstance(identity, Mapping):
+        return None
+    expected_device = identity.get("st_dev")
+    if isinstance(expected_device, bool) or not isinstance(expected_device, int):
+        return None
+    return actual_device if actual_device == expected_device else None
+
+
+def _route_filesystem_identity_ok(target: Path, route_metadata: Mapping[str, Any] | None) -> bool:
+    """Compatibility predicate for callers that only need the guard result."""
+    return _route_filesystem_device(target, route_metadata) is not None
 
 
 def _lock(root: Path):
@@ -335,6 +375,7 @@ def acquire_reservation(
     min_free_after: int = 0,
     hold_until_terminal: bool = False,
     execution_identity: str | None = None,
+    route_metadata: Mapping[str, Any] | None = None,
     now: dt.datetime | None = None,
     disk_usage: Callable[..., Mapping[str, Any]] = disk_usage_summary,
 ) -> dict[str, Any]:
@@ -346,7 +387,7 @@ def acquire_reservation(
     if int(ttl_seconds) <= 0:
         return {"schema": SCHEMA, "ok": False, "decision": "invalid", "error": "ttl_must_be_positive", "reservation_id": reservation_id}
     target = Path(target).expanduser()
-    filesystem_key = _filesystem_key(target)
+    normalized_route_metadata = dict(route_metadata) if isinstance(route_metadata, Mapping) else None
     with _lock(root) as handle:
         try:
             expired = _expire_unlocked(root, now)
@@ -363,12 +404,31 @@ def acquire_reservation(
                     "state_errors": state_errors[:200],
                     "expired_count": len(expired),
                 }
+            # Do not derive the accounting bucket before taking the shared
+            # lock.  A mount can change while waiting for the lock; archive
+            # route identity and capacity must use this same post-lock device
+            # snapshot or a lease can be counted against the wrong filesystem.
+            filesystem_device = _route_filesystem_device(target, normalized_route_metadata)
+            if filesystem_device is None:
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": (
+                        "route_filesystem_identity_mismatch"
+                        if normalized_route_metadata
+                        else "target_filesystem_unavailable"
+                    ),
+                }
+            filesystem_key = _filesystem_key_for_device(filesystem_device)
             existing = next((item for item in records if item.get("reservation_id") == reservation_id), None)
             if existing and existing.get("active") is True:
                 same_request = (
                     int(existing.get("requested_bytes") or 0) == requested_bytes
                     and str(existing.get("target") or "") == str(target)
                     and str(existing.get("owner") or "") == str(owner)
+                    and existing.get("route_metadata") == normalized_route_metadata
                 )
                 if same_request:
                     if hold_until_terminal and existing.get("hold_until_terminal") is not True:
@@ -388,6 +448,20 @@ def acquire_reservation(
                 return {"schema": SCHEMA, "ok": False, "decision": "conflict", "reservation_id": reservation_id, "error": "active_reservation_id_conflict"}
 
             usage = _capacity(target, disk_usage=disk_usage)
+            # Capacity is path-based, so ensure the path still names the same
+            # device after the capacity read.  This closes a remount window
+            # without retaining a pre-lock key or silently oversubscribing a
+            # route-specific namespace.
+            capacity_device = _target_filesystem_device(target)
+            if capacity_device != filesystem_device:
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "target_filesystem_changed_during_capacity",
+                    "filesystem_key": filesystem_key,
+                }
             available = usage.get("available_to_user_bytes")
             if not isinstance(available, int):
                 available = usage.get("free_bytes") if isinstance(usage.get("free_bytes"), int) else None
@@ -424,6 +498,7 @@ def acquire_reservation(
                 "active": True,
                 "status": "active",
                 "filesystem_key": filesystem_key,
+                "route_metadata": normalized_route_metadata,
                 "hold_until_terminal": bool(hold_until_terminal),
                 "execution_identity": str(execution_identity)[:240] if execution_identity else None,
                 "capacity": {

@@ -165,6 +165,78 @@ def test_storage_write_preflight_decision_keeps_large_writes_on_host_owned_route
     assert recommended.endswith("/artifacts/unsafe-name-.bin")
 
 
+def test_vault_archive_routes_are_explicit_and_suffix_bound(tmp_path: Path) -> None:
+    source_prefix = tmp_path / "source" / "owner"
+    destination_prefix = tmp_path / "vault" / "owner"
+    route = {
+        "id": "owner-vault",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "source_prefix": str(source_prefix) + "/",
+        "destination_prefix": str(destination_prefix) + "/",
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+
+    assert storage_contracts.validate_archive_routes([]) == {"ok": True, "routes": [], "errors": []}
+    denied = storage_contracts.archive_route_match(destination_prefix / "result.json", [])
+    assert denied["decision"] == "deny"
+    assert denied["reason"] == "archive_route_not_configured"
+
+    allowed = storage_contracts.archive_route_match(destination_prefix / "result.json", [route])
+    assert allowed["decision"] == "allow_candidate"
+    assert allowed["class"] == "vault_archive_allowed"
+    assert allowed["owner"] == "fixture-owner"
+
+    pair = storage_contracts.archive_route_pair(
+        source_prefix / "result.json",
+        destination_prefix / "result.json",
+        route,
+    )
+    assert pair["ok"] is True
+    mismatch = storage_contracts.archive_route_pair(
+        source_prefix / "other.json",
+        destination_prefix / "result.json",
+        route,
+    )
+    assert mismatch == {"ok": False, "reason": "archive_route_suffix_mismatch"}
+    requested = destination_prefix / "result.json"
+    assert storage_contracts.preflight_recommended_target(
+        "vault-archive",
+        requested,
+        routes={"artifact": tmp_path / "artifacts", "vault-archive": destination_prefix},
+    ) == str(requested)
+
+
+def test_vault_archive_preflight_requires_explicit_route_class() -> None:
+    allowed = storage_contracts.write_preflight_decision(
+        kind="vault-archive",
+        requested_bytes=1024,
+        protection={"class": "vault_archive_allowed", "decision": "allow_candidate"},
+        pressure_summary={"root_pressure_class": "critical"},
+        target_usage={"available_to_user_bytes": 20 * 1024 * 1024 * 1024},
+        recommended_usage={"available_to_user_bytes": 20 * 1024 * 1024 * 1024},
+        large_write_threshold=1024,
+        min_free_after=1,
+    )
+    assert allowed["decision"] == "allow"
+
+    denied = storage_contracts.write_preflight_decision(
+        kind="vault-archive",
+        requested_bytes=1024,
+        protection={"class": "host_owned_allowed", "decision": "allow_candidate"},
+        pressure_summary={},
+        target_usage={"free_bytes": 20 * 1024 * 1024 * 1024},
+        recommended_usage={"free_bytes": 20 * 1024 * 1024 * 1024},
+        large_write_threshold=1024,
+        min_free_after=1,
+    )
+    assert denied["decision"] == "deny"
+    assert denied["reasons"] == ["archive_route_required"]
+
+
 def test_storage_paths_cli_surface_is_json_read_only() -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
@@ -209,3 +281,24 @@ def test_storage_monitor_timer_reserves_measured_startup_memory() -> None:
     assert exec_start.endswith("/abyss-machine storage monitor --json")
     assert "MemoryHigh=" not in unit
     assert "MemoryMax=" not in unit
+
+
+def test_storage_capacity_timer_is_independent_and_capacity_only() -> None:
+    service = (ROOT / "systemd" / "user" / "abyss-storage-capacity.service").read_text(encoding="utf-8")
+    timer = (ROOT / "systemd" / "user" / "abyss-storage-capacity.timer").read_text(encoding="utf-8")
+
+    start_lines = [line for line in service.splitlines() if line.startswith("ExecStart=")]
+    assert start_lines == [
+        "ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage capacity --json"
+    ]
+    assert "ExecStartPre=" not in service
+    assert "TimeoutStartSec=30s" in service
+    assert "StandardOutput=truncate:{{ABYSS_MACHINE_STATE}}/storage/capacity-latest.json" in service
+    forbidden = ("resource launch", "monitor", "inventory", "candidate", "deep", "cleanup", "lifecycle", "reap")
+    service_lower = service.lower()
+    assert all(token not in service_lower for token in forbidden)
+
+    assert "OnBootSec=2min" in timer
+    assert "OnUnitInactiveSec=5min" in timer
+    assert "Persistent=true" in timer
+    assert "WantedBy=timers.target" in timer

@@ -1,0 +1,13 @@
+[Unit]
+Description=Record bounded storage capacity only every five minutes
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/storage/AGENTS.md
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

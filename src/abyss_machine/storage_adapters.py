@@ -304,12 +304,13 @@ def disk_usage_summary(
             blocks = int(getattr(stats, "f_blocks"))
             blocks_free = int(getattr(stats, "f_bfree"))
             blocks_available = int(getattr(stats, "f_bavail"))
-            if block_size > 0:
+            if block_size > 0 and blocks > 0:
                 stat_total = blocks * block_size
                 stat_free = blocks_free * block_size
                 available = max(0, blocks_available * block_size)
                 result.update({
                     "available_to_user_bytes": available,
+                    "available_to_user_percent": round((available / float(stat_total)) * 100.0, 2),
                     "reserved_bytes": max(0, stat_free - available),
                     "capacity_basis": "statvfs",
                     "statvfs_total_bytes": stat_total,

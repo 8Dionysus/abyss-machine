@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 from contextlib import contextmanager
 from pathlib import Path
 import secrets
@@ -16,6 +17,7 @@ from typing import Any, Iterator, Mapping, Sequence
 from . import storage_candidate_adapters
 from . import storage_lifecycle_contracts as contracts
 from . import resource_adapters
+from . import storage_adapters
 from . import storage_process_probe
 
 
@@ -23,6 +25,8 @@ LEASE_TOKEN_PREFIX = "lease-"
 DEFAULT_REAP_SCAN_LIMIT = 8
 MAX_REAP_SCAN_LIMIT = 32
 REAPER_STATE_SCHEMA = "abyss_machine_storage_workspace_reaper_state_v1"
+ARCHIVE_FILE_COPY_CHUNK_BYTES = 1024 * 1024
+DEFAULT_ARCHIVE_FILE_COPY_LIMIT = 4 * 1024 * 1024 * 1024
 
 
 def _new_lease_token() -> str:
@@ -771,6 +775,16 @@ def _decode_mountinfo_path(value: str) -> str:
     return re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), value)
 
 
+def archive_path_has_symlink(path: Path) -> bool:
+    """Fail closed when any component of an archive path is a symlink."""
+    if not path.is_absolute() or ".." in path.parts:
+        return True
+    try:
+        return any(candidate.is_symlink() for candidate in (*reversed(path.parents), path))
+    except OSError:
+        return True
+
+
 def _mount_points_snapshot() -> tuple[set[str] | None, list[str]]:
     """Read mountpoints once and fail closed if the snapshot is unusable."""
     try:
@@ -906,26 +920,31 @@ def archive_mount_binding(target: Path, required_mount: Path) -> dict[str, Any]:
     if (not target.is_absolute() or not required_mount.is_absolute()
             or required_mount == Path("/") or ".." in target.parts
             or ".." in required_mount.parts or target == required_mount
-            or not target.is_relative_to(required_mount)):
+            or not target.is_relative_to(required_mount)
+            or archive_path_has_symlink(required_mount)):
         return {"ok": False, "reasons": ["archive_target_outside_required_mount"]}
     try:
-        for path in (*reversed(target.parents), target):
-            if path.is_symlink():
-                return {"ok": False, "reasons": ["archive_symlink_path"]}
+        if archive_path_has_symlink(target):
+            return {"ok": False, "reasons": ["archive_symlink_path"]}
         matches = []
+        nested_mounts: list[str] = []
         for line in _read_mountinfo().splitlines():
             fields = line.split()
             if "-" not in fields or len(fields) < 10:
                 continue
             separator = fields.index("-")
-            mountpoint = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), fields[4])
-            if Path(mountpoint) == required_mount:
+            mountpoint = Path(_decode_mountinfo_path(fields[4]))
+            if mountpoint == required_mount:
                 matches.append((fields, separator))
+            elif mountpoint.is_relative_to(required_mount) and target.is_relative_to(mountpoint):
+                nested_mounts.append(str(mountpoint))
         if len(matches) != 1:
             return {"ok": False, "reasons": ["archive_required_mount_absent_or_ambiguous"]}
         fields, separator = matches[0]
         if "rw" not in fields[5].split(","):
             reasons.append("archive_mount_read_only")
+        if nested_mounts:
+            reasons.append("archive_nested_mount_mismatch")
         info = required_mount.stat()
         existing = target
         while not existing.exists():
@@ -942,6 +961,595 @@ def archive_mount_binding(target: Path, required_mount: Path) -> dict[str, Any]:
     except (OSError, IndexError, ValueError) as exc:
         return {"ok": False, "reasons": ["archive_mount_binding_unavailable"], "error": str(exc)}
 
+
+def read_vault_device_identity(
+    mapper_device: str,
+    *,
+    command_runner: Any | None = None,
+) -> dict[str, Any]:
+    """Read the mapped device identity through a bounded, injectable port."""
+    runner = command_runner or storage_adapters.run_tool_process
+    # util-linux exposes the no-dependency selector as ``-d``/``--nodeps``.
+    # ``--device`` is not a supported lsblk option on the host and must not
+    # turn an otherwise valid Vault binding into a false unavailable result.
+    result = runner(["lsblk", "--noheadings", "--pairs", "--nodeps", "--output", "UUID,LABEL", mapper_device], 2.0)
+    if not isinstance(result, Mapping) or result.get("ok") is not True:
+        return {"ok": False, "reasons": ["vault_device_identity_unavailable"]}
+    lines = [line.strip() for line in str(result.get("stdout") or "").splitlines() if line.strip()]
+    if len(lines) != 1:
+        return {"ok": False, "reasons": ["vault_device_identity_ambiguous"]}
+    try:
+        values = dict(
+            token.split("=", 1)
+            for token in shlex.split(lines[0])
+            if "=" in token
+        )
+    except ValueError:
+        return {"ok": False, "reasons": ["vault_device_identity_invalid"]}
+    uuid = str(values.get("UUID") or "").strip()
+    label = str(values.get("LABEL") or "").strip()
+    if not uuid:
+        return {"ok": False, "reasons": ["vault_runtime_uuid_missing"]}
+    return {
+        "ok": True,
+        "uuid": uuid,
+        "label": label,
+        "mapper": str(mapper_device),
+    }
+
+
+def archive_vault_mount_binding(
+    target: Path,
+    required_mount: Path,
+    *,
+    expected_mapper: str,
+    expected_label: str,
+    device_identity_reader: Any | None = None,
+) -> dict[str, Any]:
+    """Bind an archive target to the policy-selected mapped Vault device.
+
+    The host policy authenticates the mount, mapper and label.  The UUID is
+    then observed from that already-authenticated device and included in the
+    returned identity so a later before/after check detects device, mount,
+    filesystem or subvolume changes.
+    """
+    binding = archive_mount_binding(target, required_mount)
+    if not binding.get("ok"):
+        return binding
+    identity = binding.get("identity")
+    if not isinstance(identity, Mapping):
+        return {"ok": False, "reasons": ["archive_mount_identity_missing"]}
+    mapper = str(expected_mapper or "").strip()
+    if not mapper:
+        return {"ok": False, "reasons": ["vault_policy_mapper_missing"]}
+    expected_device = mapper if mapper.startswith("/") else f"/dev/mapper/{mapper}"
+    actual_source = str(identity.get("source") or "")
+    actual_device = actual_source.split("[", 1)[0]
+    if actual_device != expected_device:
+        return {
+            "ok": False,
+            "reasons": ["vault_mapper_source_mismatch"],
+            "archive_binding": binding,
+            "expected_device": expected_device,
+            "actual_device": actual_device,
+        }
+    reader = device_identity_reader or read_vault_device_identity
+    device = reader(actual_device)
+    if not isinstance(device, Mapping) or device.get("ok") is not True:
+        return {
+            "ok": False,
+            "reasons": [*(device.get("reasons", []) if isinstance(device, Mapping) else []), "vault_device_identity_unavailable"],
+            "archive_binding": binding,
+        }
+    reported_mapper = str(device.get("mapper") or actual_device)
+    if reported_mapper != actual_device:
+        return {
+            "ok": False,
+            "reasons": ["vault_device_mapper_mismatch"],
+            "archive_binding": binding,
+            "expected_device": actual_device,
+            "actual_device": reported_mapper,
+        }
+    label = str(device.get("label") or "")
+    expected = str(expected_label or "").strip()
+    if not expected:
+        return {"ok": False, "reasons": ["vault_policy_label_missing"], "archive_binding": binding}
+    if label != expected:
+        return {
+            "ok": False,
+            "reasons": ["vault_device_label_mismatch"],
+            "archive_binding": binding,
+            "expected_label": expected,
+            "actual_label": label,
+        }
+    runtime_uuid = str(device.get("uuid") or "").strip()
+    if not runtime_uuid:
+        return {"ok": False, "reasons": ["vault_runtime_uuid_missing"], "archive_binding": binding}
+    bound_identity = dict(identity)
+    bound_identity.update({
+        "mapper": expected_device,
+        "label": label,
+        "uuid": runtime_uuid,
+    })
+    return {
+        "ok": True,
+        "identity": bound_identity,
+        "device": {"mapper": expected_device, "label": label, "uuid": runtime_uuid},
+        "archive_binding": binding,
+    }
+
+
+def _archive_file_stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    """Return the source identity fields needed for a bounded copy check."""
+    return (
+        int(value.st_dev),
+        int(value.st_ino),
+        int(value.st_size),
+        int(value.st_mode),
+        int(value.st_mtime_ns),
+        int(value.st_ctime_ns),
+    )
+
+
+def _sha256_regular_fd(fd: int, *, max_bytes: int) -> tuple[str, int] | None:
+    """Hash one already-open regular file descriptor with a byte bound."""
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or int(info.st_size) > max_bytes:
+            return None
+        os.lseek(fd, 0, os.SEEK_SET)
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            chunk = os.read(fd, ARCHIVE_FILE_COPY_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                return None
+            digest.update(chunk)
+        return digest.hexdigest(), total
+    except OSError:
+        return None
+
+
+def _archive_destination_components(destination: Path, required_mount: Path) -> tuple[tuple[str, ...], str] | None:
+    """Return safe directory components and basename beneath the mount."""
+    if (
+        not destination.is_absolute()
+        or not required_mount.is_absolute()
+        or required_mount == Path("/")
+        or ".." in destination.parts
+        or ".." in required_mount.parts
+        or destination == required_mount
+    ):
+        return None
+    try:
+        relative = destination.relative_to(required_mount)
+    except ValueError:
+        return None
+    if not relative.parts:
+        return None
+    components = tuple(str(item) for item in relative.parts)
+    if any(not item or item in {".", ".."} or "/" in item or "\x00" in item for item in components):
+        return None
+    return components[:-1], components[-1]
+
+
+def _open_archive_destination_directory(
+    destination: Path,
+    required_mount: Path,
+    expected_binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Open the Vault mount and destination parent using only dirfds.
+
+    All descendant creation and file operations must use the returned
+    ``directory_fd``.  A pathname is never recreated through ``/`` after the
+    mount guard, so an unmount cannot redirect the copy into a fallback root.
+    """
+    components = _archive_destination_components(destination, required_mount)
+    if components is None:
+        return {"ok": False, "reasons": ["archive_destination_mount_relative_path_invalid"]}
+    if archive_path_has_symlink(required_mount):
+        return {"ok": False, "reasons": ["archive_mount_symlink_path"]}
+    parent_components, filename = components
+    expected_device = expected_binding.get("st_dev")
+    if isinstance(expected_device, bool) or not isinstance(expected_device, int):
+        return {"ok": False, "reasons": ["archive_binding_device_missing"]}
+    expected_inode = expected_binding.get("st_ino")
+    if isinstance(expected_inode, bool) or (expected_inode is not None and not isinstance(expected_inode, int)):
+        return {"ok": False, "reasons": ["archive_binding_inode_invalid"]}
+    flags = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    sync_flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    opened: list[int] = []
+    sync_opened: list[int] = []
+    try:
+        anchor_fd = os.open(required_mount, flags)
+        opened.append(anchor_fd)
+        anchor_sync_fd = os.open(required_mount, sync_flags)
+        sync_opened.append(anchor_sync_fd)
+        anchor_stat = os.fstat(anchor_fd)
+        anchor_sync_stat = os.fstat(anchor_sync_fd)
+        if (
+            not stat.S_ISDIR(anchor_stat.st_mode)
+            or not stat.S_ISDIR(anchor_sync_stat.st_mode)
+            or int(anchor_stat.st_dev) != int(expected_device)
+            or int(anchor_sync_stat.st_dev) != int(anchor_stat.st_dev)
+            or int(anchor_sync_stat.st_ino) != int(anchor_stat.st_ino)
+        ):
+            raise OSError("archive mount fd device mismatch")
+        if expected_inode is not None and int(anchor_stat.st_ino) != int(expected_inode):
+            raise OSError("archive mount fd inode mismatch")
+        current_fd = anchor_fd
+        current_sync_fd = anchor_sync_fd
+        for component in parent_components:
+            try:
+                child_fd = os.open(component, flags, dir_fd=current_fd)
+            except FileNotFoundError:
+                os.mkdir(component, 0o750, dir_fd=current_fd)
+                child_fd = os.open(component, flags, dir_fd=current_fd)
+            opened.append(child_fd)
+            child_sync_fd = os.open(component, sync_flags, dir_fd=current_sync_fd)
+            sync_opened.append(child_sync_fd)
+            child_stat = os.fstat(child_fd)
+            child_sync_stat = os.fstat(child_sync_fd)
+            if (
+                not stat.S_ISDIR(child_stat.st_mode)
+                or not stat.S_ISDIR(child_sync_stat.st_mode)
+                or int(child_stat.st_dev) != int(expected_device)
+                or int(child_sync_stat.st_dev) != int(child_stat.st_dev)
+                or int(child_sync_stat.st_ino) != int(child_stat.st_ino)
+            ):
+                raise OSError("archive destination directory device mismatch")
+            current_fd = child_fd
+            current_sync_fd = child_sync_fd
+        return {
+            "ok": True,
+            "anchor_fd": anchor_fd,
+            "directory_fd": current_fd,
+            "opened_fds": opened,
+            "sync_fds": sync_opened,
+            "filename": filename,
+            "anchor_identity": {
+                "st_dev": int(anchor_stat.st_dev),
+                "st_ino": int(anchor_stat.st_ino),
+            },
+        }
+    except OSError as exc:
+        for fd in reversed(sync_opened):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        for fd in reversed(opened):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        return {"ok": False, "reasons": ["archive_destination_anchor_unavailable"], "error": str(exc)}
+
+
+def _fsync_archive_directories(sync_fds: Sequence[int], *, stage: str) -> dict[str, Any] | None:
+    """Flush archive directory entries from the deepest parent to the mount."""
+    for fd in reversed(tuple(sync_fds)):
+        try:
+            os.fsync(int(fd))
+        except OSError as exc:
+            return {
+                "stage": stage,
+                "reasons": ["archive_directory_durability_failed"],
+                "error": str(exc),
+            }
+    return None
+
+
+def copy_vault_archive_file(
+    source: Path,
+    destination: Path,
+    *,
+    owner: str,
+    pair: Mapping[str, Any],
+    reservation_record: Mapping[str, Any],
+    expected_binding: Mapping[str, Any],
+    required_mount: Path,
+    expected_mapper: str,
+    expected_label: str,
+    mount_binding_reader: Any | None = None,
+    device_identity_reader: Any | None = None,
+    max_bytes: int = DEFAULT_ARCHIVE_FILE_COPY_LIMIT,
+) -> dict[str, Any]:
+    """Copy one admitted regular file to Vault with no-overwrite semantics.
+
+    The caller must provide the exact pair and active reservation produced by
+    the owner route. This helper never removes the source. It revalidates the
+    full Vault identity immediately before and after the byte copy, anchors all
+    destination operations to an already-open verified Vault directory fd, and
+    commits with an atomic hard link so an existing destination cannot be
+    replaced. It records a bounded hash/preservation proof.
+    """
+    source = Path(source).expanduser()
+    destination = Path(destination).expanduser()
+    if not isinstance(pair, Mapping) or pair.get("ok") is not True:
+        return {"ok": False, "decision": "deny", "reasons": ["archive_pair_missing_or_invalid"]}
+    if (
+        str(pair.get("source") or "") != str(source)
+        or str(pair.get("destination") or "") != str(destination)
+        or str(pair.get("owner") or "") != str(owner)
+        or not str(pair.get("route_id") or "")
+    ):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_pair_identity_mismatch"]}
+    if not isinstance(reservation_record, Mapping):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_reservation_missing"]}
+    if (
+        reservation_record.get("active") is not True
+        or str(reservation_record.get("kind") or "") != "vault-archive"
+        or str(reservation_record.get("owner") or "") != str(owner)
+        or str(reservation_record.get("target") or "") != str(destination)
+        or not str(reservation_record.get("reservation_id") or "")
+    ):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_reservation_identity_mismatch"]}
+    route_metadata = reservation_record.get("route_metadata")
+    if not isinstance(route_metadata, Mapping):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_reservation_route_binding_missing"]}
+    if (
+        str(route_metadata.get("route_id") or "") != str(pair.get("route_id") or "")
+        or str(route_metadata.get("owner") or "") != str(owner)
+        or str(route_metadata.get("required_mount") or "") != str(required_mount)
+        or route_metadata.get("archive_binding") != dict(expected_binding)
+    ):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_reservation_route_binding_mismatch"]}
+    try:
+        requested_bytes = int(reservation_record.get("requested_bytes"))
+        limit = int(max_bytes)
+    except (TypeError, ValueError):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_reservation_size_invalid"]}
+    if requested_bytes < 0 or limit <= 0:
+        return {"ok": False, "decision": "deny", "reasons": ["archive_copy_limit_invalid"]}
+    copy_limit = min(requested_bytes, limit)
+    if not source.is_absolute() or not destination.is_absolute() or ".." in source.parts or ".." in destination.parts:
+        return {"ok": False, "decision": "deny", "reasons": ["archive_copy_path_invalid"]}
+    if archive_path_has_symlink(source) or archive_path_has_symlink(destination):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_copy_symlink_path"]}
+    try:
+        source_lstat = source.stat(follow_symlinks=False)
+    except OSError as exc:
+        return {"ok": False, "decision": "deny", "reasons": ["archive_source_unavailable"], "error": str(exc)}
+    if not stat.S_ISREG(source_lstat.st_mode):
+        return {"ok": False, "decision": "deny", "reasons": ["archive_source_not_regular_file"]}
+    source_size = int(source_lstat.st_size)
+    if source_size > copy_limit:
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reasons": ["archive_source_exceeds_reservation"],
+            "source_bytes": source_size,
+            "reserved_bytes": requested_bytes,
+            "copy_limit_bytes": copy_limit,
+        }
+
+    reader = mount_binding_reader or archive_vault_mount_binding
+
+    def check_binding(stage: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        try:
+            checked = reader(
+                destination,
+                required_mount,
+                expected_mapper=expected_mapper,
+                expected_label=expected_label,
+                device_identity_reader=device_identity_reader,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            return None, {"ok": False, "stage": stage, "reasons": ["archive_vault_identity_check_failed"], "error": str(exc)}
+        if not isinstance(checked, Mapping) or checked.get("ok") is not True:
+            reasons = list(checked.get("reasons", [])) if isinstance(checked, Mapping) else []
+            return None, {"ok": False, "stage": stage, "reasons": ["archive_vault_identity_invalid", *reasons]}
+        identity = checked.get("identity")
+        if not isinstance(identity, Mapping) or dict(identity) != dict(expected_binding):
+            return None, {
+                "ok": False,
+                "stage": stage,
+                "reasons": ["archive_vault_identity_changed"],
+                "observed_identity": dict(identity) if isinstance(identity, Mapping) else None,
+            }
+        return dict(checked), None
+
+    before_binding, binding_error = check_binding("before_copy")
+    if binding_error is not None:
+        return {"ok": False, "decision": "deny", **binding_error}
+    anchor = _open_archive_destination_directory(destination, required_mount, expected_binding)
+    if anchor.get("ok") is not True:
+        return {"ok": False, "decision": "deny", **anchor}
+    opened_fds = [int(fd) for fd in anchor.get("opened_fds", [])]
+    sync_fds = [int(fd) for fd in anchor.get("sync_fds", [])]
+    destination_dir_fd = int(anchor["directory_fd"])
+    destination_name = str(anchor["filename"])
+    reservation_id = str(reservation_record.get("reservation_id"))
+    partial_digest = hashlib.sha256(f"{destination}\0{reservation_id}".encode("utf-8", errors="surrogateescape")).hexdigest()[:20]
+    partial_name = f".{destination_name}.archive-{partial_digest}.partial"
+    partial_created = False
+    committed = False
+
+    def cleanup_partial() -> bool:
+        nonlocal partial_created
+        if not partial_created:
+            return True
+        try:
+            os.unlink(partial_name, dir_fd=destination_dir_fd)
+        except FileNotFoundError:
+            partial_created = False
+            return True
+        except OSError:
+            return False
+        partial_created = False
+        return True
+
+    try:
+        # The open fd is the write anchor. A detached mount cannot redirect
+        # these openat/mkdirat/linkat operations to the pathname fallback.
+        before_anchor_binding, binding_error = check_binding("before_copy_after_anchor")
+        if binding_error is not None:
+            return {"ok": False, "decision": "deny", **binding_error}
+        durability_error = _fsync_archive_directories(sync_fds, stage="destination_prepare")
+        if durability_error is not None:
+            return {"ok": False, "decision": "blocked", **durability_error}
+        try:
+            os.stat(destination_name, dir_fd=destination_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            return {"ok": False, "decision": "deny", "reasons": ["archive_target_exists"]}
+        try:
+            os.stat(partial_name, dir_fd=destination_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            return {"ok": False, "decision": "deny", "reasons": ["archive_partial_exists"], "partial": str(destination.parent / partial_name)}
+
+        source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        source_fd = os.open(source, source_flags)
+        source_identity: tuple[int, int, int, int, int, int]
+        source_digest: str | None = None
+        try:
+            with os.fdopen(source_fd, "rb", closefd=True) as source_handle:
+                source_identity = _archive_file_stat_identity(os.fstat(source_handle.fileno()))
+                if source_identity != _archive_file_stat_identity(source_lstat):
+                    return {"ok": False, "decision": "deny", "reasons": ["archive_source_changed_before_copy"]}
+                if source_identity[2] > copy_limit or source_identity[2] != source_size:
+                    return {"ok": False, "decision": "deny", "reasons": ["archive_source_changed_before_copy"]}
+                partial_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+                partial_fd = os.open(partial_name, partial_flags, 0o640, dir_fd=destination_dir_fd)
+                partial_created = True
+                with os.fdopen(partial_fd, "wb", closefd=True) as partial_handle:
+                    digest = hashlib.sha256()
+                    total = 0
+                    while True:
+                        chunk = source_handle.read(ARCHIVE_FILE_COPY_CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > copy_limit:
+                            return {"ok": False, "decision": "deny", "reasons": ["archive_copy_limit_exceeded"]}
+                        partial_handle.write(chunk)
+                        digest.update(chunk)
+                    partial_handle.flush()
+                    os.fchmod(partial_handle.fileno(), stat.S_IMODE(source_identity[3]))
+                if _archive_file_stat_identity(os.fstat(source_handle.fileno())) != source_identity:
+                    return {"ok": False, "decision": "deny", "reasons": ["archive_source_changed_during_copy"]}
+                source_digest = digest.hexdigest()
+        except OSError as exc:
+            return {"ok": False, "decision": "deny", "reasons": ["archive_copy_failed"], "error": str(exc)}
+        if source_digest is None:
+            return {"ok": False, "decision": "deny", "reasons": ["archive_source_hash_missing"]}
+        try:
+            os.utime(partial_name, ns=(int(source_lstat.st_atime_ns), int(source_identity[4])), dir_fd=destination_dir_fd, follow_symlinks=False)
+        except OSError as exc:
+            return {"ok": False, "decision": "deny", "reasons": ["archive_partial_metadata_failed"], "error": str(exc)}
+
+        after_copy_binding, binding_error = check_binding("after_copy")
+        if binding_error is not None:
+            return {"ok": False, "decision": "deny", **binding_error}
+        verify_fd = os.open(partial_name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=destination_dir_fd)
+        try:
+            os.fsync(verify_fd)
+            partial_check = _sha256_regular_fd(verify_fd, max_bytes=copy_limit)
+            partial_identity = os.fstat(verify_fd)
+        except OSError as exc:
+            return {
+                "ok": False,
+                "decision": "blocked",
+                "reasons": ["archive_file_durability_failed"],
+                "error": str(exc),
+            }
+        finally:
+            os.close(verify_fd)
+        if (
+            partial_check is None
+            or partial_check[1] != source_size
+            or partial_check[0] != source_digest
+            or not stat.S_ISREG(partial_identity.st_mode)
+        ):
+            return {"ok": False, "decision": "deny", "reasons": ["archive_copy_hash_mismatch"]}
+        os.link(partial_name, destination_name, src_dir_fd=destination_dir_fd, dst_dir_fd=destination_dir_fd, follow_symlinks=False)
+        committed = True
+        durability_error = _fsync_archive_directories(sync_fds, stage="after_commit")
+        if durability_error is not None:
+            return {"ok": False, "decision": "blocked", "committed": True, **durability_error}
+        destination_identity = os.stat(destination_name, dir_fd=destination_dir_fd, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(destination_identity.st_mode)
+            or int(destination_identity.st_size) != source_size
+            or int(destination_identity.st_dev) != int(partial_identity.st_dev)
+            or int(destination_identity.st_ino) != int(partial_identity.st_ino)
+        ):
+            return {"ok": False, "decision": "blocked", "reasons": ["archive_destination_identity_mismatch"], "committed": True}
+        if not cleanup_partial():
+            return {
+                "ok": False,
+                "decision": "blocked",
+                "committed": True,
+                "reasons": ["archive_partial_cleanup_failed"],
+            }
+        durability_error = _fsync_archive_directories(sync_fds, stage="after_partial_cleanup")
+        if durability_error is not None:
+            return {"ok": False, "decision": "blocked", "committed": True, **durability_error}
+
+        final_binding, binding_error = check_binding("after_commit")
+        if binding_error is not None:
+            return {"ok": False, "decision": "blocked", "committed": True, **binding_error}
+        try:
+            source_final_identity = _archive_file_stat_identity(source.stat(follow_symlinks=False))
+        except OSError as exc:
+            return {"ok": False, "decision": "blocked", "committed": True, "reasons": ["archive_source_postcheck_failed"], "error": str(exc)}
+        if source_final_identity != source_identity:
+            return {"ok": False, "decision": "blocked", "committed": True, "reasons": ["archive_source_changed_after_copy"]}
+        return {
+            "ok": True,
+            "decision": "copied",
+            "owner": str(owner),
+            "reservation_id": reservation_id,
+            "route_id": str(pair.get("route_id") or ""),
+            "source": str(source),
+            "destination": str(destination),
+            "bytes": source_size,
+            "source_sha256": source_digest,
+            "destination_sha256": partial_check[0],
+            "hash_verified": True,
+            "source_preserved": True,
+            "restore_proof": {
+                "source_identity_stable": True,
+                "destination_inode_verified": True,
+                "destination_hash_matches_source": True,
+                "source_was_not_removed": True,
+                "file_metadata_fsynced": True,
+                "directory_entries_fsynced": True,
+                "ancestor_directories_fsynced": True,
+            },
+            "archive_binding_before": before_binding.get("identity") if before_binding else None,
+            "archive_binding_before_anchor": before_anchor_binding.get("identity") if before_anchor_binding else None,
+            "archive_binding_after_copy": after_copy_binding.get("identity") if after_copy_binding else None,
+            "archive_binding_after_commit": final_binding.get("identity") if final_binding else None,
+            "destination_anchor": anchor.get("anchor_identity"),
+            "partial": str(destination.parent / partial_name),
+            "committed": True,
+        }
+    except FileExistsError:
+        cleanup_partial()
+        return {"ok": False, "decision": "deny", "reasons": ["archive_target_exists"]}
+    except OSError as exc:
+        cleanup_partial()
+        return {"ok": False, "decision": "blocked", "reasons": ["archive_commit_failed"], "error": str(exc), "committed": committed}
+    finally:
+        cleanup_partial()
+        for fd in reversed(sync_fds):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        for fd in reversed(opened_fds):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 def execute_released_workspace(
     root: Path,

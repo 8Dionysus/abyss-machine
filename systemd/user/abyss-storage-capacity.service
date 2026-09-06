@@ -1,0 +1,15 @@
+[Unit]
+Description=Abyss Machine capacity-only five-minute storage forecast feed
+Documentation=file://{{ABYSS_MACHINE_ETC}}/AGENTS.md
+Documentation=file://{{ABYSS_MACHINE_STATE}}/storage/AGENTS.md
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10
+TimeoutStartSec=30s
+ExecStart={{ABYSS_LOCAL_BIN_DIR}}/abyss-machine storage capacity --json
+StandardOutput=truncate:{{ABYSS_MACHINE_STATE}}/storage/capacity-latest.json
+StandardError=journal

@@ -78,6 +78,46 @@ def test_disk_capacity_exposes_user_available_and_reserved_blocks(tmp_path: Path
     assert summary["capacity_basis"] == "statvfs"
 
 
+def test_storage_pressure_uses_user_headroom_without_reserved_block_drift(tmp_path: Path) -> None:
+    class Stat:
+        f_frsize = 10
+        f_blocks = 100
+        f_bavail = 4
+
+        def __init__(self, free_blocks: int) -> None:
+            self.f_bfree = free_blocks
+
+    def summary(reserved_blocks: int) -> dict[str, Any]:
+        return storage_adapters.disk_usage_summary(
+            tmp_path / "missing",
+            disk_usage=lambda path: (1000, 910, 40),
+            statvfs=lambda path: Stat(4 + reserved_blocks),
+        )
+
+    low_reserved = summary(6)
+    high_reserved = summary(26)
+    assert low_reserved["used_percent"] == high_reserved["used_percent"] == 91.0
+    assert low_reserved["available_to_user_bytes"] == high_reserved["available_to_user_bytes"] == 40
+    assert low_reserved["reserved_bytes"] != high_reserved["reserved_bytes"]
+
+    low_assessment = storage_contracts.pressure_class_from_usage(low_reserved, 85.0, 92.0, 5.0)
+    high_assessment = storage_contracts.pressure_class_from_usage(high_reserved, 85.0, 92.0, 5.0)
+    assert low_assessment == high_assessment
+    assert low_assessment["pressure_class"] == "critical"
+    assert low_assessment["physical_used_pressure_class"] == "warning"
+    assert low_assessment["user_available_pressure_class"] == "critical"
+    assert low_assessment["pressure_basis"] == "physical_used_percent_and_user_available_headroom_percent"
+    assert low_assessment["available_to_user_percent"] == 4.0
+
+    critical_threshold = storage_contracts.threshold_bytes(high_reserved, 92.0)
+    assert critical_threshold["basis"] == "user_available_headroom_bytes"
+    assert critical_threshold["bytes_to_threshold"] == 0
+    assert critical_threshold["bytes_over_threshold"] == 40
+    assert critical_threshold["physical"]["basis"] == "physical_used_bytes"
+    assert critical_threshold["physical"]["bytes_to_threshold"] == 10
+    assert critical_threshold["physical"]["bytes_over_threshold"] == 0
+
+
 def test_inventory_reports_physical_primary_and_apparent_companion(tmp_path: Path) -> None:
     target = tmp_path / "cache"
     target.mkdir()
@@ -941,6 +981,263 @@ def test_cli_reservation_rejects_reroute_target(monkeypatch) -> None:
     assert result["error"] == "reservation_target_protected_or_unknown"
 
 
+def test_vault_archive_admission_requires_host_route_and_binds_mount_identity(monkeypatch, tmp_path: Path) -> None:
+    source_prefix = tmp_path / "source" / "owner"
+    destination_prefix = tmp_path / "vault" / "owner"
+    target = destination_prefix / "result.json"
+    route = {
+        "id": "fixture-vault-route",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "source_prefix": str(source_prefix) + "/",
+        "destination_prefix": str(destination_prefix) + "/",
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+    monkeypatch.setattr(
+        cli,
+        "backup_policy_document",
+        lambda: {
+            "ok": True,
+            "document": {
+                "vault": {
+                    "mount": str(tmp_path / "vault"),
+                    "device_label": "FIXTURE",
+                    "luks_mapper": "fixture",
+                },
+                "archive_routes": [route],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda path, mount, **kwargs: {
+            "ok": True,
+            "identity": {
+                "required_mount": str(mount),
+                "mount_id": "42",
+                "device": "0:99",
+                "fs_root": "/",
+                "filesystem": "btrfs",
+                "source": "/dev/mapper/fixture",
+                "st_dev": int(tmp_path.stat().st_dev),
+                "st_ino": 1,
+                "uuid": "runtime-fixture-uuid",
+                "mapper": "/dev/mapper/fixture",
+                "label": "FIXTURE",
+            },
+            "device": {"mapper": "/dev/mapper/fixture", "label": "FIXTURE", "uuid": "runtime-fixture-uuid"},
+        },
+    )
+
+    allowed = cli.storage_write_path_protection("vault-archive", target, owner="fixture-owner")
+    assert allowed["decision"] == "allow_candidate"
+    assert allowed["class"] == "vault_archive_allowed"
+    assert allowed["route_id"] == "fixture-vault-route"
+    assert allowed["archive_binding"]["uuid"] == "runtime-fixture-uuid"
+
+    generic = cli.storage_write_path_protection("artifact", Path("/abyss/Backups/unconfigured/result.json"))
+    assert generic["decision"] == "deny"
+
+    pair = cli.storage_archive_pair_admission(
+        str(source_prefix / "result.json"),
+        str(target),
+        owner="fixture-owner",
+    )
+    assert pair["ok"] is True
+    assert pair["pair"]["relative_suffix"] == "result.json"
+
+    bad_pair = cli.storage_archive_pair_admission(
+        str(source_prefix / "other.json"),
+        str(target),
+        owner="fixture-owner",
+    )
+    assert bad_pair["ok"] is False
+    assert bad_pair["reason"] == "archive_route_suffix_mismatch"
+
+
+def test_vault_archive_file_copy_wires_exact_pair_and_reservation(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "source" / "result.json"
+    destination = tmp_path / "vault" / "result.json"
+    binding = {
+        "required_mount": str(tmp_path / "vault"),
+        "mount_id": "42",
+        "device": "0:99",
+        "fs_root": "/",
+        "filesystem": "btrfs",
+        "source": "/dev/mapper/fixture",
+        "st_dev": int(tmp_path.stat().st_dev),
+        "st_ino": 1,
+        "uuid": "runtime-fixture-uuid",
+        "mapper": "/dev/mapper/fixture",
+        "label": "FIXTURE",
+    }
+    pair = {
+        "ok": True,
+        "source": str(source),
+        "destination": str(destination),
+        "relative_suffix": "result.json",
+        "route_id": "fixture-vault-route",
+        "owner": "fixture-owner",
+    }
+    route = {
+        "id": "fixture-vault-route",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+    protection = {
+        "decision": "allow_candidate",
+        "class": "vault_archive_allowed",
+        "route_id": "fixture-vault-route",
+        "owner": "fixture-owner",
+        "required_mount": str(tmp_path / "vault"),
+        "route": route,
+        "archive_binding": binding,
+    }
+    monkeypatch.setattr(cli, "storage_archive_pair_admission", lambda *_args, **_kwargs: {
+        "ok": True,
+        "decision": "allow_candidate",
+        "pair": pair,
+        "protection": protection,
+    })
+    monkeypatch.setattr(
+        cli,
+        "storage_archive_policy",
+        lambda: {
+            "ok": True,
+            "vault": {
+                "mount": str(tmp_path / "vault"),
+                "device_label": "FIXTURE",
+                "luks_mapper": "fixture",
+            },
+            "routes": [route],
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def copy(*args: object, **kwargs: object) -> dict[str, object]:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return {"ok": True, "decision": "copied", "reservation_id": "copy-fixture"}
+
+    monkeypatch.setattr(cli.storage_lifecycle_adapters, "copy_vault_archive_file", copy)
+    reservation = {
+        "ok": True,
+        "decision": "reserved",
+        "reservation": {
+            "active": True,
+            "kind": "vault-archive",
+            "owner": "fixture-owner",
+            "target": str(destination),
+            "reservation_id": "copy-fixture",
+            "requested_bytes": 10,
+            "route_metadata": {
+                "route_id": "fixture-vault-route",
+                "owner": "fixture-owner",
+                "required_mount": str(tmp_path / "vault"),
+                "archive_binding": binding,
+            },
+        },
+    }
+    result = cli.storage_archive_file_copy(
+        str(source),
+        str(destination),
+        owner="fixture-owner",
+        reservation=reservation,
+    )
+    assert result["ok"] is True
+    assert captured["kwargs"]["pair"] == pair
+    assert captured["kwargs"]["reservation_record"] == reservation["reservation"]
+    assert captured["kwargs"]["expected_binding"] == binding
+
+
+def test_vault_archive_preflight_uses_actual_target_without_srv_fallback(monkeypatch, tmp_path: Path) -> None:
+    destination_prefix = tmp_path / "vault" / "owner"
+    target = destination_prefix / "result.json"
+    route = {
+        "id": "fixture-vault-route",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "source_prefix": str(tmp_path / "source" / "owner") + "/",
+        "destination_prefix": str(destination_prefix) + "/",
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+    monkeypatch.setattr(
+        cli,
+        "backup_policy_document",
+        lambda: {
+            "ok": True,
+            "document": {
+                "vault": {"mount": str(tmp_path / "vault"), "device_label": "FIXTURE", "luks_mapper": "fixture"},
+                "archive_routes": [route],
+            },
+        },
+    )
+    binding = {
+        "required_mount": str(tmp_path / "vault"),
+        "mount_id": "42",
+        "device": "0:99",
+        "fs_root": "/",
+        "filesystem": "btrfs",
+        "source": "/dev/mapper/fixture",
+        "st_dev": int(tmp_path.stat().st_dev),
+        "st_ino": 1,
+        "uuid": "runtime-fixture-uuid",
+        "mapper": "/dev/mapper/fixture",
+        "label": "FIXTURE",
+    }
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda *_args, **_kwargs: {"ok": True, "identity": binding, "device": {"uuid": binding["uuid"]}},
+    )
+    monkeypatch.setattr(
+        cli,
+        "storage_pressure",
+        lambda **_kwargs: {"ok": True, "summary": {"root_pressure_class": "critical", "srv_pressure_class": "critical"}, "roots": {}},
+    )
+    monkeypatch.setattr(
+        cli,
+        "disk_usage_summary",
+        lambda _path, **_kwargs: {
+            "available_to_user_bytes": 10_000_000_000,
+            "free_bytes": 10_000_000_000,
+        },
+    )
+    monkeypatch.setattr(
+        cli.storage_reservations,
+        "capacity_snapshot",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "available_to_user_bytes": 10_000_000_000,
+            "available_after_reservations_bytes": 10_000_000_000,
+        },
+    )
+    monkeypatch.setattr(cli, "run_storage_hooks", lambda *_args, **_kwargs: {"ok": True})
+
+    result = cli.storage_write_preflight(
+        kind="vault-archive",
+        bytes_required=1024,
+        target=str(target),
+        write_latest=False,
+    )
+    assert result["ok"] is True
+    assert result["decision"] == "allow"
+    assert result["recommendation"]["target_recommended"] == str(target)
+    assert result["recommendation"]["use_recommended_target"] is False
+    assert result["recommended_target"]["protection"]["class"] == "vault_archive_allowed"
+
+
 def test_reservations_fail_closed_on_corrupt_record(tmp_path: Path) -> None:
     root = tmp_path / "reservations"
     records = root / "records"
@@ -983,6 +1280,154 @@ def test_candidate_deep_timer_does_not_hide_resource_blocks() -> None:
     service = (ROOT / "systemd" / "user" / "abyss-storage-candidates-deep.service").read_text(encoding="utf-8")
     assert "storage candidates refresh --deep --if-due --json" in service
     assert "--success-on-block" not in service
+
+
+def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    def remember(name: str, result: dict[str, object]):
+        def collector(**kwargs):
+            calls[name] = kwargs
+            return result
+
+        return collector
+
+    monkeypatch.setattr(
+        cli.storage_forecast,
+        "observe",
+        lambda *_args, **_kwargs: {"ok": True, "summary": {}},
+    )
+    monkeypatch.setattr(cli, "storage_inventory", remember("inventory", {
+        "ok": True,
+        "summary": {},
+        "drift": {"grown": True},
+    }))
+    monkeypatch.setattr(cli, "storage_pressure", remember("pressure", {
+        "ok": True,
+        "summary": {
+            "root_pressure_class": "green",
+            "srv_pressure_class": "critical",
+        },
+    }))
+    monkeypatch.setattr(cli, "storage_cleanup_plan", remember("cleanup", {
+        "ok": True,
+        "summary": {},
+        "guard": {"summary": {}, "paths": []},
+    }))
+    monkeypatch.setattr(cli, "storage_status", remember("status", {
+        "ok": True,
+        "summary": {"root_used_percent": 1, "srv_used_percent": 2},
+    }))
+    recent = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=30)).isoformat()
+    preserved_freshness = {
+        "status": "fresh",
+        "last_deep_at": recent,
+        "partial": True,
+        "complete": False,
+        "deferred": True,
+        "reason": "aoa_owner_deferred_last_good_preserved",
+    }
+    previous = {
+        "generated_at": recent,
+        "last_deep_at": recent,
+        "candidates": [],
+    }
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (previous, None) if path == cli.STORAGE_CANDIDATES_LATEST_PATH else ({}, None))
+    monkeypatch.setattr(
+        cli.storage_candidate_adapters,
+        "load_json_records",
+        lambda _root: [{"candidate_id": "reclaim-new", "valid": True}],
+    )
+    monkeypatch.setattr(
+        cli,
+        "storage_candidate_policy",
+        lambda: {"deep_max_age_seconds": 172800},
+    )
+    monkeypatch.setattr(cli, "artifacts_snapshot", remember("artifacts", {
+        "ok": True,
+        "summary": {
+            "records": 0,
+            "current_live_records": 0,
+            "backed_records": 0,
+            "by_classification": {},
+        },
+    }))
+
+    def refresh(**kwargs):
+        calls["candidates"] = kwargs
+        return {
+            "ok": False,
+            "summary": {},
+            "freshness": preserved_freshness,
+            "last_deep_at": recent,
+            "refresh_result": {"mode": "light", "status": "carry_forward_deep_partial", "continuation_required": True},
+            "deep_progress": {"status": "partial", "continuation_required": True},
+        }
+
+    monkeypatch.setattr(cli, "storage_candidates_refresh", refresh)
+
+    result = cli.storage_monitor(write_latest=False)
+
+    assert calls["artifacts"]["scope"] == "ai-cache"
+    assert calls["candidates"]["deep"] is False
+    assert result["summary"]["candidate_scan_deep"] is False
+    assert result["summary"]["candidate_deep_requested"] is True
+    assert result["summary"]["candidate_deep_due"] is True
+    assert result["summary"]["candidate_deep_deferred"] is True
+    assert result["summary"]["candidate_deep_trigger_reasons"] == [
+        "srv_pressure_critical",
+        "significant_inventory_growth",
+        "pending_candidate_manifests",
+    ]
+    followup = result["summary"]["candidate_deep_followup"]
+    assert followup["status"] == "deferred_to_dedicated_route"
+    assert followup["freshness"] == preserved_freshness
+    assert followup["freshness"]["partial"] is True
+    assert followup["freshness"]["complete"] is False
+    assert followup["freshness"]["deferred"] is True
+    assert followup["freshness"]["reason"] == "aoa_owner_deferred_last_good_preserved"
+    assert followup["continuation_required"] is True
+    assert followup["route"]["service"] == "abyss-storage-candidates-deep.service"
+    assert followup["route"]["command"][-3:] == ["--deep", "--if-due", "--json"]
+    assert result["policy"]["monitor_embeds_deep_candidate_scan"] is False
+    assert result["policy"]["deep_candidate_scan_owned_by_dedicated_route"] is True
+    assert not any(step["name"] == "candidates_deep_pressure" for step in result["steps"])
+
+    # A cleared trigger must not erase an unfinished deep sweep: continuation
+    # is evidence from the candidate document, independent of this monitor's
+    # current pressure/growth reasons.
+    monkeypatch.setattr(cli, "storage_inventory", remember("inventory_cleared", {
+        "ok": True,
+        "summary": {},
+        "drift": {"grown": False},
+    }))
+    monkeypatch.setattr(cli, "storage_pressure", remember("pressure_cleared", {
+        "ok": True,
+        "summary": {
+            "root_pressure_class": "green",
+            "srv_pressure_class": "green",
+        },
+    }))
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda _root: [])
+    cleared = cli.storage_monitor(write_latest=False)
+    cleared_followup = cleared["summary"]["candidate_deep_followup"]
+    assert cleared["summary"]["candidate_deep_requested"] is False
+    assert cleared["summary"]["candidate_deep_trigger_reasons"] == []
+    assert cleared_followup["status"] == "not_requested"
+    assert cleared_followup["continuation_required"] is True
+
+    def refresh_without_continuation(**kwargs):
+        calls["candidates_missing"] = kwargs
+        return {
+            "ok": True,
+            "summary": {},
+            "freshness": preserved_freshness,
+            "last_deep_at": recent,
+        }
+
+    monkeypatch.setattr(cli, "storage_candidates_refresh", refresh_without_continuation)
+    missing = cli.storage_monitor(write_latest=False)
+    assert missing["summary"]["candidate_deep_followup"]["continuation_required"] is None
 
 
 def test_bounded_deep_refresh_resumes_without_premature_retirement_or_false_freshness(monkeypatch) -> None:

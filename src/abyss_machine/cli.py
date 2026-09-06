@@ -448,6 +448,7 @@ STATE_DIR = PATH_POLICY.state_root
 RUNTIME_DIR = PATH_POLICY.run_root
 STORAGE_POLICY_PATH = path_from_env("ABYSS_MACHINE_STORAGE_POLICY", PATH_POLICY.etc_file("storage-policy.json"))
 STORAGE_POLICY_ENV_PATH = path_from_env("ABYSS_MACHINE_STORAGE_POLICY_ENV", PATH_POLICY.etc_file("storage-policy.env"))
+BACKUP_POLICY_PATH = path_from_env("ABYSS_MACHINE_BACKUP_POLICY", PATH_POLICY.etc_file("backup-policy.json"))
 STORAGE_STATE_ROOT = STATE_DIR / "storage"
 STORAGE_LATEST_PATH = STORAGE_STATE_ROOT / "latest.json"
 STORAGE_INDEX_PATH = STORAGE_STATE_ROOT / "index.json"
@@ -7769,6 +7770,20 @@ def storage_policy_document() -> dict[str, Any]:
     )
 
 
+def backup_policy_document() -> dict[str, Any]:
+    document, error = load_json_document(BACKUP_POLICY_PATH)
+    return {
+        "schema": f"{SCHEMA_PREFIX}_backup_policy_read_v1",
+        "version": VERSION,
+        "generated_at": now_iso(),
+        "path": str(BACKUP_POLICY_PATH),
+        "exists": BACKUP_POLICY_PATH.exists(),
+        "ok": document is not None,
+        "load_error": error,
+        "document": document if document is not None else {},
+    }
+
+
 def storage_hook_stage_definitions() -> list[dict[str, Any]]:
     return storage_contracts.hook_stage_definitions()
 
@@ -8842,6 +8857,15 @@ def storage_pressure_class(used_percent: Any, warning: float, critical: float, w
     return storage_contracts.pressure_class(used_percent, warning, critical, watch_margin)
 
 
+def storage_pressure_class_from_usage(
+    usage: dict[str, Any],
+    warning: float,
+    critical: float,
+    watch_margin: float,
+) -> dict[str, Any]:
+    return storage_contracts.pressure_class_from_usage(usage, warning, critical, watch_margin)
+
+
 def storage_threshold_bytes(usage: dict[str, Any], threshold_percent: float) -> dict[str, Any]:
     return storage_contracts.threshold_bytes(usage, threshold_percent)
 
@@ -8881,18 +8905,20 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
     root_usage = status.get("roots", {}).get("system", {}) if isinstance(status.get("roots"), dict) else {}
     srv_usage = status.get("roots", {}).get("srv", {}) if isinstance(status.get("roots"), dict) else {}
     watch_margin = thresholds["watch_margin_percent"]
-    root_class = storage_pressure_class(
-        root_usage.get("used_percent"),
+    root_pressure = storage_pressure_class_from_usage(
+        root_usage,
         thresholds["system_warning_percent"],
         thresholds["system_critical_percent"],
         watch_margin,
     )
-    srv_class = storage_pressure_class(
-        srv_usage.get("used_percent"),
+    srv_pressure = storage_pressure_class_from_usage(
+        srv_usage,
         thresholds["srv_warning_percent"],
         thresholds["srv_critical_percent"],
         watch_margin,
     )
+    root_class = root_pressure["pressure_class"]
+    srv_class = srv_pressure["pressure_class"]
     items = [item for item in inventory.get("items", []) if isinstance(item, dict)]
     candidates = [item for item in items if storage_item_is_pressure_candidate(item)]
     by_scope: dict[str, dict[str, Any]] = {}
@@ -8938,18 +8964,20 @@ def storage_pressure(refresh_inventory: bool = False, write_latest: bool = True)
         "roots": {
             "system": {
                 **root_usage,
-                "pressure_class": root_class,
+                **root_pressure,
                 "thresholds": root_thresholds,
             },
             "srv": {
                 **srv_usage,
-                "pressure_class": srv_class,
+                **srv_pressure,
                 "thresholds": srv_thresholds,
             },
         },
         "summary": {
             "root_pressure_class": root_class,
             "srv_pressure_class": srv_class,
+            "root_pressure_basis": root_pressure["pressure_basis"],
+            "srv_pressure_basis": srv_pressure["pressure_basis"],
             "pressure_candidates": len(candidates),
             "pressure_candidate_bytes": sum(storage_item_size_bytes(item) for item in candidates),
             "root_pressure_candidate_bytes": by_scope.get("root", {}).get("size_bytes", 0),
@@ -9235,10 +9263,46 @@ def storage_monitor(
     significant_growth = bool(nested_get(inventory, ["drift", "grown"]))
     known_candidate_ids = {str(item.get("candidate_id") or "") for item in previous_candidates.get("candidates", []) if isinstance(item, dict)}
     pending_manifests = [item for item in storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT) if item.get("valid") is True and str(item.get("candidate_id") or "") not in known_candidate_ids]
-    deep_requested = pressure_class in {"warning", "critical"} or significant_growth or bool(pending_manifests)
+    deep_trigger_reasons: list[str] = []
+    if pressure_class in {"warning", "critical"}:
+        deep_trigger_reasons.append(f"srv_pressure_{pressure_class}")
+    if significant_growth:
+        deep_trigger_reasons.append("significant_inventory_growth")
+    if pending_manifests:
+        deep_trigger_reasons.append("pending_candidate_manifests")
+    deep_requested = bool(deep_trigger_reasons)
     deep_due = bool(pending_manifests) or deep_age_seconds is None or deep_age_seconds >= 12 * 3600
-    deep_candidates = deep_requested and deep_due
-    artifact_scope = "all" if deep_candidates else "ai-cache"
+    deep_deferred = deep_requested and deep_due
+    deep_followup = {
+        "needed": deep_requested,
+        "due": deep_due,
+        "deferred": deep_deferred,
+        "status": (
+            "deferred_to_dedicated_route"
+            if deep_deferred
+            else ("requested_but_not_due" if deep_requested else "not_requested")
+        ),
+        "trigger_reasons": deep_trigger_reasons,
+        "route": {
+            "timer": "abyss-storage-candidates-deep.timer",
+            "service": "abyss-storage-candidates-deep.service",
+            "command": [
+                "abyss-machine",
+                "storage",
+                "candidates",
+                "refresh",
+                "--deep",
+                "--if-due",
+                "--json",
+            ],
+            "resource_timeout_seconds": 300,
+        },
+    }
+    # The hourly monitor is deliberately light.  Pressure, growth, and new
+    # manifests are trigger evidence for the dedicated bounded deep route;
+    # embedding that route here would let its 120-second scan outlive the
+    # monitor's 110-second resource budget and hide the monitor receipt.
+    artifact_scope = "ai-cache"
     step_started = time.monotonic()
     artifact_snapshot = artifacts_snapshot(scope=artifact_scope, history_days=14, write_latest=write_latest)
     step_summary(
@@ -9249,16 +9313,45 @@ def storage_monitor(
     )
     step_started = time.monotonic()
     candidates = storage_candidates_refresh(
-        deep=deep_candidates,
+        deep=False,
         artifact_snapshot=artifact_snapshot,
         write_latest=write_latest,
     )
     step_summary(
-        "candidates_deep_pressure" if deep_candidates else "candidates_light",
-        ["abyss-machine", "storage", "candidates", "refresh", *( ["--deep"] if deep_candidates else []), "--json"],
+        "candidates_light",
+        ["abyss-machine", "storage", "candidates", "refresh", "--json"],
         step_started,
         candidates,
     )
+
+    # The light refresh preserves partial/deferred owner state from the last
+    # deep attempt.  Surface that resulting freshness verbatim so a recent
+    # timestamp cannot turn an incomplete owner result into a fresh/complete
+    # follow-up claim.  Missing freshness is fail-closed and never complete.
+    candidate_freshness = candidates.get("freshness")
+    if not isinstance(candidate_freshness, Mapping):
+        candidate_freshness = {
+            "status": "unknown",
+            "complete": False,
+            "partial": True,
+            "reason": "candidate_light_refresh_freshness_missing",
+        }
+    deep_followup["freshness"] = dict(candidate_freshness)
+    deep_followup["last_deep_at"] = candidates.get("last_deep_at")
+    # Freshness and continuation are separate facts.  A light refresh may
+    # carry a recent timestamp while the prior deep sweep is still partial or
+    # owner-deferred.  Surface the explicit deep continuation flag when the
+    # candidate document has one; absent or malformed evidence stays unknown.
+    continuation_required: bool | None = None
+    for section_name in ("refresh_result", "deep_progress"):
+        section = candidates.get(section_name)
+        if not isinstance(section, Mapping) or "continuation_required" not in section:
+            continue
+        value = section.get("continuation_required")
+        if isinstance(value, bool):
+            continuation_required = value
+            break
+    deep_followup["continuation_required"] = continuation_required
 
     guard_summary = cleanup.get("guard", {}).get("summary", {}) if isinstance(cleanup.get("guard"), dict) else {}
     active_paths = [
@@ -9317,9 +9410,12 @@ def storage_monitor(
             "artifact_snapshot_current_live_records": nested_get(artifact_snapshot, ["summary", "current_live_records"]),
             "artifact_snapshot_backed_records": nested_get(artifact_snapshot, ["summary", "backed_records"]),
             "artifact_snapshot_classes": nested_get(artifact_snapshot, ["summary", "by_classification"]),
-            "candidate_scan_deep": deep_candidates,
+            "candidate_scan_deep": False,
             "candidate_deep_requested": deep_requested,
             "candidate_deep_due": deep_due,
+            "candidate_deep_deferred": deep_deferred,
+            "candidate_deep_trigger_reasons": deep_trigger_reasons,
+            "candidate_deep_followup": deep_followup,
             "candidate_previous_deep_age_seconds": deep_age_seconds,
             "candidate_significant_growth": significant_growth,
             "candidate_pending_manifests": len(pending_manifests),
@@ -9340,7 +9436,9 @@ def storage_monitor(
             "timer_uses_light_inventory_only": True,
             "timer_refreshes_artifact_snapshot": True,
             "timer_refreshes_candidate_lifecycle": True,
-            "pressure_triggers_deep_candidate_scan": True,
+            "pressure_requests_deep_candidate_scan": True,
+            "monitor_embeds_deep_candidate_scan": False,
+            "deep_candidate_scan_owned_by_dedicated_route": True,
             "artifact_snapshot_is_facts_only": True,
             "cleanup_plan_is_not_permission_to_delete": True,
         },
@@ -9373,6 +9471,173 @@ def storage_path_protection(path: Path) -> dict[str, Any]:
         abyss_machine_root=ABYSS_MACHINE_ROOT,
         protected_roots=storage_protected_roots(),
     )
+
+
+def storage_archive_policy() -> dict[str, Any]:
+    """Read the explicit host-local Vault archive route, if configured."""
+    policy = backup_policy_document()
+    document = policy.get("document") if isinstance(policy.get("document"), dict) else {}
+    if not policy.get("ok"):
+        return {
+            "ok": False,
+            "routes": [],
+            "vault": {},
+            "errors": [str(policy.get("load_error") or "backup_policy_unavailable")],
+        }
+    checked = storage_contracts.validate_archive_routes(document.get("archive_routes", []))
+    vault = document.get("vault") if isinstance(document.get("vault"), dict) else {}
+    return {
+        "ok": bool(checked.get("ok")) and bool(vault),
+        "routes": checked.get("routes", []),
+        "vault": vault,
+        "errors": list(checked.get("errors", [])) + ([] if vault else ["vault_policy_missing"]),
+    }
+
+
+def _archive_vault_policy_value(vault: Mapping[str, Any], route: Mapping[str, Any], ref_key: str, vault_key: str) -> str | None:
+    reference = str(route.get(ref_key) or "")
+    if reference != f"vault.{vault_key}":
+        return None
+    value = str(vault.get(vault_key) or "").strip()
+    return value or None
+
+
+def storage_write_path_protection(kind: str, path: Path, *, owner: str | None = None) -> dict[str, Any]:
+    """Classify a write target without widening generic path protection."""
+    if kind != storage_contracts.VAULT_ARCHIVE_KIND:
+        return storage_path_protection(path)
+    archive_policy = storage_archive_policy()
+    if archive_policy.get("ok") is not True:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": "unknown",
+            "matched_root": None,
+            "reason": "archive_vault_policy_unavailable",
+            "archive_policy_errors": list(archive_policy.get("errors", [])),
+        }
+    route_match = storage_contracts.archive_route_match(path, archive_policy.get("routes", []))
+    if route_match.get("decision") != "allow_candidate":
+        return route_match
+    route = route_match.get("route") if isinstance(route_match.get("route"), dict) else {}
+    route_owner = str(route.get("owner") or "")
+    if owner is not None and str(owner) != route_owner:
+        return {
+            **route_match,
+            "class": "unknown",
+            "decision": "deny",
+            "reason": "archive_route_owner_mismatch",
+        }
+    vault = archive_policy.get("vault") if isinstance(archive_policy.get("vault"), dict) else {}
+    required_mount = _archive_vault_policy_value(vault, route, "required_mount_ref", "mount")
+    expected_label = _archive_vault_policy_value(vault, route, "device_label_ref", "device_label")
+    expected_mapper = _archive_vault_policy_value(vault, route, "luks_mapper_ref", "luks_mapper")
+    if not required_mount or not expected_label or not expected_mapper or str(route.get("uuid_source") or "") != "runtime":
+        return {
+            **route_match,
+            "class": "unknown",
+            "decision": "deny",
+            "reason": "archive_vault_policy_identity_invalid",
+        }
+    binding = storage_lifecycle_adapters.archive_vault_mount_binding(
+        path,
+        Path(required_mount),
+        expected_mapper=expected_mapper,
+        expected_label=expected_label,
+    )
+    if binding.get("ok") is not True:
+        return {
+            **route_match,
+            "class": "unknown",
+            "decision": "deny",
+            "reason": "archive_vault_identity_invalid",
+            "archive_binding_reasons": list(binding.get("reasons", [])),
+        }
+    return {
+        **route_match,
+        "archive_binding": binding.get("identity"),
+        "required_mount": required_mount,
+        "device": binding.get("device"),
+    }
+
+
+def storage_archive_pair_admission(source: str, destination: str, *, owner: str) -> dict[str, Any]:
+    """Validate an owner source/destination suffix pair before file copy."""
+    source_path = Path(source).expanduser()
+    destination_path = Path(destination).expanduser()
+    policy = storage_archive_policy()
+    if policy.get("ok") is not True:
+        return {"ok": False, "decision": "deny", "reason": "archive_vault_policy_unavailable"}
+    route_match = storage_contracts.archive_route_match(destination_path, policy.get("routes", []))
+    if route_match.get("decision") != "allow_candidate":
+        return {"ok": False, "decision": "deny", "reason": route_match.get("reason"), "protection": route_match}
+    route = route_match.get("route") if isinstance(route_match.get("route"), dict) else {}
+    if str(route.get("owner") or "") != str(owner):
+        return {"ok": False, "decision": "deny", "reason": "archive_route_owner_mismatch", "protection": route_match}
+    pair = storage_contracts.archive_route_pair(source_path, destination_path, route)
+    if pair.get("ok") is not True:
+        return {"ok": False, "decision": "deny", "reason": pair.get("reason"), "protection": route_match}
+    if storage_lifecycle_adapters.archive_path_has_symlink(source_path):
+        return {"ok": False, "decision": "deny", "reason": "archive_source_symlink_path", "pair": pair}
+    protection = storage_write_path_protection(storage_contracts.VAULT_ARCHIVE_KIND, destination_path, owner=owner)
+    if protection.get("decision") != "allow_candidate":
+        return {"ok": False, "decision": "deny", "reason": protection.get("reason"), "protection": protection, "pair": pair}
+    return {"ok": True, "decision": "allow_candidate", "pair": pair, "protection": protection}
+
+
+def storage_archive_file_copy(
+    source: str,
+    destination: str,
+    *,
+    owner: str,
+    reservation: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Run the existing owner route's bounded single-file archive copy.
+
+    This is intentionally an owner helper rather than a generic CLI command:
+    the caller must hand in the exact active reservation returned by the
+    reservation route.  Pair admission and the reservation's full binding are
+    checked again before any destination mutation.
+    """
+    pair_admission = storage_archive_pair_admission(source, destination, owner=owner)
+    if pair_admission.get("ok") is not True:
+        return pair_admission
+    pair = pair_admission.get("pair") if isinstance(pair_admission.get("pair"), Mapping) else {}
+    protection = pair_admission.get("protection") if isinstance(pair_admission.get("protection"), Mapping) else {}
+    route = protection.get("route") if isinstance(protection.get("route"), Mapping) else {}
+    policy = storage_archive_policy()
+    vault = policy.get("vault") if isinstance(policy.get("vault"), Mapping) else {}
+    required_mount = _archive_vault_policy_value(vault, route, "required_mount_ref", "mount")
+    expected_label = _archive_vault_policy_value(vault, route, "device_label_ref", "device_label")
+    expected_mapper = _archive_vault_policy_value(vault, route, "luks_mapper_ref", "luks_mapper")
+    expected_binding = protection.get("archive_binding")
+    reservation_record = reservation.get("reservation") if isinstance(reservation.get("reservation"), Mapping) else reservation
+    if (
+        not required_mount
+        or not expected_label
+        or not expected_mapper
+        or not isinstance(expected_binding, Mapping)
+        or not isinstance(reservation_record, Mapping)
+    ):
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "archive_copy_owner_contract_invalid",
+            "pair": dict(pair),
+            "protection": dict(protection),
+        }
+    copied = storage_lifecycle_adapters.copy_vault_archive_file(
+        Path(source).expanduser(),
+        Path(destination).expanduser(),
+        owner=owner,
+        pair=pair,
+        reservation_record=reservation_record,
+        expected_binding=expected_binding,
+        required_mount=Path(required_mount),
+        expected_mapper=expected_mapper,
+        expected_label=expected_label,
+    )
+    return {**copied, "pair": dict(pair), "protection": dict(protection)}
 
 
 ARTIFACT_TRUST_TOOL_SPECS: tuple[dict[str, Any], ...] = (
@@ -15058,6 +15323,7 @@ def storage_preflight_recommended_base(kind: str) -> Path:
         "container": ABYSS_MACHINE_STORAGE_ROOT / "containers",
         "tmp": ABYSS_MACHINE_TMP_ROOT,
         "artifact": ABYSS_MACHINE_STORAGE_ROOT / "artifacts",
+        "vault-archive": ABYSS_BACKUP_ROOT / "archive",
     }
     return storage_contracts.preflight_recommended_base(kind, routes=routes)
 
@@ -15071,6 +15337,7 @@ def storage_preflight_recommended_target(kind: str, requested: Path) -> str:
         "container": ABYSS_MACHINE_STORAGE_ROOT / "containers",
         "tmp": ABYSS_MACHINE_TMP_ROOT,
         "artifact": ABYSS_MACHINE_STORAGE_ROOT / "artifacts",
+        "vault-archive": ABYSS_BACKUP_ROOT / "archive",
     }
     return storage_contracts.preflight_recommended_target(kind, requested, routes=routes)
 
@@ -15089,8 +15356,13 @@ def storage_reservation_acquire(
     ttl_seconds: int,
 ) -> dict[str, Any]:
     target_path = Path(target).expanduser()
-    protection = storage_path_protection(target_path)
-    if protection.get("decision") != "allow_candidate" or protection.get("class") != "host_owned_allowed":
+    protection = storage_write_path_protection(kind, target_path, owner=owner)
+    allowed_class = (
+        "vault_archive_allowed"
+        if kind == storage_contracts.VAULT_ARCHIVE_KIND
+        else "host_owned_allowed"
+    )
+    if protection.get("decision") != "allow_candidate" or protection.get("class") != allowed_class:
         return {
             "schema": storage_reservations.SCHEMA,
             "ok": False,
@@ -15098,6 +15370,14 @@ def storage_reservation_acquire(
             "reservation_id": reservation_id,
             "error": "reservation_target_protected_or_unknown",
             "protection": protection,
+        }
+    route_metadata = None
+    if kind == storage_contracts.VAULT_ARCHIVE_KIND:
+        route_metadata = {
+            "route_id": protection.get("route_id"),
+            "owner": protection.get("owner"),
+            "required_mount": protection.get("required_mount"),
+            "archive_binding": protection.get("archive_binding"),
         }
     return storage_reservations.acquire_reservation(
         STORAGE_RESERVATIONS_ROOT,
@@ -15107,6 +15387,7 @@ def storage_reservation_acquire(
         target=target_path,
         owner=owner,
         ttl_seconds=ttl_seconds,
+        route_metadata=route_metadata,
     )
 
 
@@ -15149,13 +15430,17 @@ def storage_write_preflight(
         if isinstance(pressure.get("summary"), dict)
         else {}
     )
-    protection = storage_path_protection(target_path)
+    protection = storage_write_path_protection(kind, target_path)
     recommended = storage_preflight_recommended_target(kind, target_path)
     recommended_path = Path(recommended)
     recommended_usage = disk_usage_summary(recommended_path)
     target_usage = disk_usage_summary(target_path)
     target_reservations = storage_reservations.capacity_snapshot(STORAGE_RESERVATIONS_ROOT, target_path)
-    recommended_reservations = storage_reservations.capacity_snapshot(STORAGE_RESERVATIONS_ROOT, recommended_path)
+    recommended_reservations = (
+        target_reservations
+        if kind == storage_contracts.VAULT_ARCHIVE_KIND and recommended_path == target_path
+        else storage_reservations.capacity_snapshot(STORAGE_RESERVATIONS_ROOT, recommended_path)
+    )
     target_decision_usage = dict(target_usage)
     recommended_decision_usage = dict(recommended_usage)
     available_after_reservations = target_reservations.get("available_after_reservations_bytes")
@@ -15277,6 +15562,7 @@ def storage_write_preflight(
             "pressure_latest": str(STORAGE_PRESSURE_LATEST_PATH),
             "monitor_latest": str(STORAGE_MONITOR_LATEST_PATH),
             "policy": str(STORAGE_POLICY_PATH),
+            "backup_policy": str(BACKUP_POLICY_PATH),
         },
         "request": {
             "kind": kind,
@@ -15286,7 +15572,15 @@ def storage_write_preflight(
         "recommendation": {
             "target_recommended": recommended,
             "base": str(storage_preflight_recommended_base(kind)),
-            "use_recommended_target": decision in {"reroute", "cleanup_first", "deny"} or protection.get("class") != "host_owned_allowed",
+            "use_recommended_target": decision in {"reroute", "cleanup_first", "deny"}
+            or (
+                protection.get("class") != "host_owned_allowed"
+                and not (
+                    kind == storage_contracts.VAULT_ARCHIVE_KIND
+                    and protection.get("class") == "vault_archive_allowed"
+                    and protection.get("decision") == "allow_candidate"
+                )
+            ),
         },
         "pressure": {
             "root_pressure_class": pressure_summary.get("root_pressure_class"),
@@ -15312,7 +15606,11 @@ def storage_write_preflight(
             "available_after_reservations_bytes": target_reservations.get("available_after_reservations_bytes"),
         },
         "recommended_target": {
-            "protection": storage_path_protection(recommended_path),
+            "protection": (
+                protection
+                if recommended_path == target_path
+                else storage_write_path_protection(kind, recommended_path)
+            ),
             "usage": recommended_usage,
             "free_after_bytes": decision_result["recommended_free_after_bytes"],
         },
@@ -53613,7 +53911,7 @@ def main(argv: list[str]) -> int:
     storage_monitor_parser.add_argument("--top", type=int, default=30, help="process guard snapshot top limit")
     storage_monitor_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     storage_write_parser = storage_sub.add_parser("write-preflight")
-    storage_write_parser.add_argument("--kind", required=True, choices=["model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact"])
+    storage_write_parser.add_argument("--kind", required=True, choices=["model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact", "vault-archive"])
     storage_write_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
     storage_write_parser.add_argument("--target", required=True)
     storage_write_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -53625,7 +53923,7 @@ def main(argv: list[str]) -> int:
     storage_reservation_sub = storage_reservation_parser.add_subparsers(dest="storage_reservation_command", required=True)
     storage_reservation_acquire_parser = storage_reservation_sub.add_parser("acquire")
     storage_reservation_acquire_parser.add_argument("--reservation-id", required=True)
-    storage_reservation_acquire_parser.add_argument("--kind", required=True, choices=["model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact"])
+    storage_reservation_acquire_parser.add_argument("--kind", required=True, choices=["model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact", "vault-archive"])
     storage_reservation_acquire_parser.add_argument("--bytes", dest="bytes_required", type=int, required=True)
     storage_reservation_acquire_parser.add_argument("--target", required=True)
     storage_reservation_acquire_parser.add_argument("--owner", required=True)

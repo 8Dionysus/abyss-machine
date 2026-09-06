@@ -164,5 +164,6 @@
     "mount": "{{ABYSS_VAULT_MOUNT}}",
     "rule": "The SSD is manually unlocked by the operator; backup timers skip when {{ABYSS_VAULT_MOUNT}} is absent."
   },
+  "archive_routes": [],
   "version": "0.3.0"
 }
