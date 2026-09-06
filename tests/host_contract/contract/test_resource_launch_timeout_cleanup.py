@@ -329,6 +329,18 @@ def test_storage_monitor_no_write_is_transitive(
         "artifacts_snapshot",
         fake_collector("artifacts", {"ok": True, "summary": {}}),
     )
+    monkeypatch.setattr(
+        abyss_machine_module,
+        "storage_candidates_refresh",
+        fake_collector(
+            "candidates",
+            {
+                "ok": True,
+                "summary": {},
+                "freshness": {"status": "unknown", "complete": False},
+            },
+        ),
+    )
     monkeypatch.setattr(abyss_machine_module, "safe_atomic_write_json", unexpected_write)
     monkeypatch.setattr(abyss_machine_module, "safe_append_jsonl", unexpected_write)
 
@@ -339,6 +351,7 @@ def test_storage_monitor_no_write_is_transitive(
     assert calls["cleanup"]["write_latest"] is False
     assert calls["status"]["write_latest"] is False
     assert calls["artifacts"]["write_latest"] is False
+    assert calls["candidates"]["write_latest"] is False
     assert result["ok"] is True
 
 

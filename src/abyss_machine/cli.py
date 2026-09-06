@@ -9245,12 +9245,6 @@ def storage_monitor(
     deep_requested = bool(deep_trigger_reasons)
     deep_due = bool(pending_manifests) or deep_age_seconds is None or deep_age_seconds >= 12 * 3600
     deep_deferred = deep_requested and deep_due
-    deep_freshness = storage_candidate_contracts.freshness_status(
-        generated_at=previous_candidates.get("generated_at"),
-        last_deep_at=previous_candidates.get("last_deep_at"),
-        now_time=current_time,
-        max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
-    )
     deep_followup = {
         "needed": deep_requested,
         "due": deep_due,
@@ -9261,8 +9255,6 @@ def storage_monitor(
             else ("requested_but_not_due" if deep_requested else "not_requested")
         ),
         "trigger_reasons": deep_trigger_reasons,
-        "freshness": deep_freshness,
-        "last_deep_at": previous_candidates.get("last_deep_at"),
         "route": {
             "timer": "abyss-storage-candidates-deep.timer",
             "service": "abyss-storage-candidates-deep.service",
@@ -9303,6 +9295,21 @@ def storage_monitor(
         step_started,
         candidates,
     )
+
+    # The light refresh preserves partial/deferred owner state from the last
+    # deep attempt.  Surface that resulting freshness verbatim so a recent
+    # timestamp cannot turn an incomplete owner result into a fresh/complete
+    # follow-up claim.  Missing freshness is fail-closed and never complete.
+    candidate_freshness = candidates.get("freshness")
+    if not isinstance(candidate_freshness, Mapping):
+        candidate_freshness = {
+            "status": "unknown",
+            "complete": False,
+            "partial": True,
+            "reason": "candidate_light_refresh_freshness_missing",
+        }
+    deep_followup["freshness"] = dict(candidate_freshness)
+    deep_followup["last_deep_at"] = candidates.get("last_deep_at")
 
     guard_summary = cleanup.get("guard", {}).get("summary", {}) if isinstance(cleanup.get("guard"), dict) else {}
     active_paths = [

@@ -1021,9 +1021,18 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
         "ok": True,
         "summary": {"root_used_percent": 1, "srv_used_percent": 2},
     }))
+    recent = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=30)).isoformat()
+    preserved_freshness = {
+        "status": "fresh",
+        "last_deep_at": recent,
+        "partial": True,
+        "complete": False,
+        "deferred": True,
+        "reason": "aoa_owner_deferred_last_good_preserved",
+    }
     previous = {
-        "generated_at": "2026-09-04T00:00:00+00:00",
-        "last_deep_at": "2026-09-04T00:00:00+00:00",
+        "generated_at": recent,
+        "last_deep_at": recent,
         "candidates": [],
     }
     monkeypatch.setattr(cli, "load_json_document", lambda path: (previous, None) if path == cli.STORAGE_CANDIDATES_LATEST_PATH else ({}, None))
@@ -1049,7 +1058,12 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
 
     def refresh(**kwargs):
         calls["candidates"] = kwargs
-        return {"ok": True, "summary": {}}
+        return {
+            "ok": False,
+            "summary": {},
+            "freshness": preserved_freshness,
+            "last_deep_at": recent,
+        }
 
     monkeypatch.setattr(cli, "storage_candidates_refresh", refresh)
 
@@ -1068,6 +1082,11 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
     ]
     followup = result["summary"]["candidate_deep_followup"]
     assert followup["status"] == "deferred_to_dedicated_route"
+    assert followup["freshness"] == preserved_freshness
+    assert followup["freshness"]["partial"] is True
+    assert followup["freshness"]["complete"] is False
+    assert followup["freshness"]["deferred"] is True
+    assert followup["freshness"]["reason"] == "aoa_owner_deferred_last_good_preserved"
     assert followup["route"]["service"] == "abyss-storage-candidates-deep.service"
     assert followup["route"]["command"][-3:] == ["--deep", "--if-due", "--json"]
     assert result["policy"]["monitor_embeds_deep_candidate_scan"] is False
