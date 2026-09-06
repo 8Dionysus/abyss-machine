@@ -9310,6 +9310,20 @@ def storage_monitor(
         }
     deep_followup["freshness"] = dict(candidate_freshness)
     deep_followup["last_deep_at"] = candidates.get("last_deep_at")
+    # Freshness and continuation are separate facts.  A light refresh may
+    # carry a recent timestamp while the prior deep sweep is still partial or
+    # owner-deferred.  Surface the explicit deep continuation flag when the
+    # candidate document has one; absent or malformed evidence stays unknown.
+    continuation_required: bool | None = None
+    for section_name in ("refresh_result", "deep_progress"):
+        section = candidates.get(section_name)
+        if not isinstance(section, Mapping) or "continuation_required" not in section:
+            continue
+        value = section.get("continuation_required")
+        if isinstance(value, bool):
+            continuation_required = value
+            break
+    deep_followup["continuation_required"] = continuation_required
 
     guard_summary = cleanup.get("guard", {}).get("summary", {}) if isinstance(cleanup.get("guard"), dict) else {}
     active_paths = [

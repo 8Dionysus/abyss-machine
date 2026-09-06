@@ -1063,6 +1063,8 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
             "summary": {},
             "freshness": preserved_freshness,
             "last_deep_at": recent,
+            "refresh_result": {"mode": "light", "status": "carry_forward_deep_partial", "continuation_required": True},
+            "deep_progress": {"status": "partial", "continuation_required": True},
         }
 
     monkeypatch.setattr(cli, "storage_candidates_refresh", refresh)
@@ -1087,11 +1089,48 @@ def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypat
     assert followup["freshness"]["complete"] is False
     assert followup["freshness"]["deferred"] is True
     assert followup["freshness"]["reason"] == "aoa_owner_deferred_last_good_preserved"
+    assert followup["continuation_required"] is True
     assert followup["route"]["service"] == "abyss-storage-candidates-deep.service"
     assert followup["route"]["command"][-3:] == ["--deep", "--if-due", "--json"]
     assert result["policy"]["monitor_embeds_deep_candidate_scan"] is False
     assert result["policy"]["deep_candidate_scan_owned_by_dedicated_route"] is True
     assert not any(step["name"] == "candidates_deep_pressure" for step in result["steps"])
+
+    # A cleared trigger must not erase an unfinished deep sweep: continuation
+    # is evidence from the candidate document, independent of this monitor's
+    # current pressure/growth reasons.
+    monkeypatch.setattr(cli, "storage_inventory", remember("inventory_cleared", {
+        "ok": True,
+        "summary": {},
+        "drift": {"grown": False},
+    }))
+    monkeypatch.setattr(cli, "storage_pressure", remember("pressure_cleared", {
+        "ok": True,
+        "summary": {
+            "root_pressure_class": "green",
+            "srv_pressure_class": "green",
+        },
+    }))
+    monkeypatch.setattr(cli.storage_candidate_adapters, "load_json_records", lambda _root: [])
+    cleared = cli.storage_monitor(write_latest=False)
+    cleared_followup = cleared["summary"]["candidate_deep_followup"]
+    assert cleared["summary"]["candidate_deep_requested"] is False
+    assert cleared["summary"]["candidate_deep_trigger_reasons"] == []
+    assert cleared_followup["status"] == "not_requested"
+    assert cleared_followup["continuation_required"] is True
+
+    def refresh_without_continuation(**kwargs):
+        calls["candidates_missing"] = kwargs
+        return {
+            "ok": True,
+            "summary": {},
+            "freshness": preserved_freshness,
+            "last_deep_at": recent,
+        }
+
+    monkeypatch.setattr(cli, "storage_candidates_refresh", refresh_without_continuation)
+    missing = cli.storage_monitor(write_latest=False)
+    assert missing["summary"]["candidate_deep_followup"]["continuation_required"] is None
 
 
 def test_bounded_deep_refresh_resumes_without_premature_retirement_or_false_freshness(monkeypatch) -> None:
