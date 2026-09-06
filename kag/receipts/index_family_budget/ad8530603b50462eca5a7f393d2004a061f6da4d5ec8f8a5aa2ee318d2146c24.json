@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 584395,
+  "allowed_tracked_bytes": 30360990,
+  "approved_by": "repository-owner",
+  "base_ref": "074b6f72c3cd637fa7cae44c348778e9dc644e3d",
+  "changed_generated_bytes": 584395,
+  "changed_generated_files": 5,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "ad8530603b50462eca5a7f393d2004a061f6da4d5ec8f8a5aa2ee318d2146c24",
+  "reason": "Owner-approved bounded coverage-fix regeneration from merged 074b; deterministic incremental generated delta remains under the exact CI-pinned family contract.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "tracked_size",
+  "tracked_bytes": 30360990,
+  "tracked_bytes_max": 27262976
+}

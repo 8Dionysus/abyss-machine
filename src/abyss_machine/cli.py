@@ -17173,11 +17173,31 @@ def _storage_candidate_apply_aoa_deferred_carry_forward(
 
     base_coverage = data.get("coverage") if isinstance(data.get("coverage"), Mapping) else {}
     base_refresh = data.get("refresh_result") if isinstance(data.get("refresh_result"), Mapping) else {}
-    coverage = storage_candidate_contracts.coverage_summary(records, error_limit=None)
+    # Keep absent records in the returned candidate/provenance set, but do not
+    # let stale evidence from a disappeared non-AoA candidate block this
+    # deferred owner snapshot.  The AoA owner record remains in coverage so
+    # its active-writer gate is still represented by the owner verdict.
+    absent_non_aoa_ids = {
+        str(item.get("candidate_id") or "")
+        for item in records
+        if item.get("discovery_absent") is True
+        and not _storage_candidate_is_aoa_owner_record(item)
+        and item.get("candidate_id")
+    }
+    coverage_records = [
+        item
+        for item in records
+        if str(item.get("candidate_id") or "") not in absent_non_aoa_ids
+    ]
+    coverage = storage_candidate_contracts.coverage_summary(coverage_records, error_limit=None)
     for key in ("discovered", "observed", "current_results", "carried_forward_count", "partial", "complete"):
         if key in base_coverage:
             coverage[key] = base_coverage.get(key)
-    base_errors = _storage_candidate_full_runtime_errors(base_coverage, records=current)
+    base_errors = [
+        item
+        for item in _storage_candidate_full_runtime_errors(base_coverage, records=coverage_records)
+        if str(item.get("candidate_id") or "") not in absent_non_aoa_ids
+    ]
     merged_errors = _storage_candidate_unique_runtime_errors(
         base_errors,
         coverage.get("runtime_errors", []) if isinstance(coverage.get("runtime_errors"), list) else [],
