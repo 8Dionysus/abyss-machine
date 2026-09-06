@@ -32,7 +32,17 @@ PRESSURE_CANDIDATE_CATEGORIES = {
     "migrate_not_delete",
 }
 
-VALID_WRITE_KINDS = {"model-cache", "cache", "runtime", "benchmark", "container", "tmp", "artifact"}
+VAULT_ARCHIVE_KIND = "vault-archive"
+VALID_WRITE_KINDS = {
+    "model-cache",
+    "cache",
+    "runtime",
+    "benchmark",
+    "container",
+    "tmp",
+    "artifact",
+    VAULT_ARCHIVE_KIND,
+}
 
 
 def _schema(schema_prefix: str, suffix: str) -> str:
@@ -541,11 +551,147 @@ def path_protection(path: Path, *, abyss_machine_root: Path, protected_roots: li
     }
 
 
+def _safe_absolute_path(value: Any) -> Path | None:
+    candidate = Path(str(value or ""))
+    if not candidate.is_absolute() or ".." in candidate.parts:
+        return None
+    return candidate
+
+
+def _safe_relative_path(path: Path, prefix: Path) -> Path | None:
+    """Return a lexical suffix without resolving symlinks or missing paths."""
+    if not path.is_absolute() or not prefix.is_absolute() or ".." in path.parts or ".." in prefix.parts:
+        return None
+    try:
+        relative = path.relative_to(prefix)
+    except ValueError:
+        return None
+    if relative == Path(".") or not relative.parts:
+        return None
+    return relative
+
+
+def validate_archive_routes(routes: Any) -> dict[str, Any]:
+    """Validate explicit owner routes without granting any route by default."""
+    if routes is None:
+        routes = []
+    if not isinstance(routes, list):
+        return {"ok": False, "routes": [], "errors": ["archive_routes_not_a_list"]}
+    valid: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(routes):
+        route_errors: list[str] = []
+        if not isinstance(raw, dict):
+            errors.append(f"archive_route_{index}_not_an_object")
+            continue
+        route_id = str(raw.get("id") or "").strip()
+        owner = str(raw.get("owner") or "").strip()
+        kind = str(raw.get("kind") or "").strip()
+        source_prefix = _safe_absolute_path(raw.get("source_prefix"))
+        destination_prefix = _safe_absolute_path(raw.get("destination_prefix"))
+        if not route_id or route_id in seen_ids:
+            error = f"archive_route_{index}_id_invalid_or_duplicate"
+            errors.append(error)
+            continue
+        seen_ids.add(route_id)
+        if kind != VAULT_ARCHIVE_KIND:
+            route_errors.append(f"archive_route_{route_id}_kind_invalid")
+        if not owner:
+            route_errors.append(f"archive_route_{route_id}_owner_missing")
+        if source_prefix is None or destination_prefix is None:
+            route_errors.append(f"archive_route_{route_id}_prefix_invalid")
+        if source_prefix == destination_prefix and source_prefix is not None:
+            route_errors.append(f"archive_route_{route_id}_source_destination_same")
+        errors.extend(route_errors)
+        if not route_errors and source_prefix is not None and destination_prefix is not None and owner and kind == VAULT_ARCHIVE_KIND:
+            valid.append({
+                "id": route_id,
+                "kind": kind,
+                "owner": owner,
+                "source_prefix": str(source_prefix),
+                "destination_prefix": str(destination_prefix),
+                "required_mount_ref": str(raw.get("required_mount_ref") or "vault.mount"),
+                "device_label_ref": str(raw.get("device_label_ref") or "vault.device_label"),
+                "luks_mapper_ref": str(raw.get("luks_mapper_ref") or "vault.luks_mapper"),
+                "uuid_source": str(raw.get("uuid_source") or "runtime"),
+            })
+    return {"ok": not errors, "routes": valid, "errors": errors}
+
+
+def archive_route_match(target: Path, routes: Any) -> dict[str, Any]:
+    """Match one destination under an explicit owner route.
+
+    This is deliberately separate from generic ``path_protection``: an empty
+    route list keeps every Vault path denied.
+    """
+    checked = validate_archive_routes(routes)
+    if not checked["ok"]:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": "unknown",
+            "matched_root": None,
+            "reason": "archive_route_policy_invalid",
+            "route_errors": checked["errors"],
+        }
+    matches: list[dict[str, Any]] = []
+    for route in checked["routes"]:
+        prefix = Path(str(route["destination_prefix"]))
+        relative = _safe_relative_path(target, prefix)
+        if relative is not None:
+            matches.append({"route": route, "relative_suffix": str(relative)})
+    if len(matches) != 1:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": "unknown",
+            "matched_root": None,
+            "reason": "archive_route_not_configured" if not matches else "archive_route_ambiguous",
+        }
+    match = matches[0]
+    route = match["route"]
+    return {
+        "class": "vault_archive_allowed",
+        "decision": "allow_candidate",
+        "owner": route["owner"],
+        "matched_root": route["destination_prefix"],
+        "reason": "explicit_owner_vault_archive_route",
+        "route_id": route["id"],
+        "route": route,
+        "relative_suffix": match["relative_suffix"],
+    }
+
+
+def archive_route_pair(source: Path, destination: Path, route: dict[str, Any]) -> dict[str, Any]:
+    """Require a source/destination pair to preserve one safe relative suffix."""
+    source_prefix = _safe_absolute_path(route.get("source_prefix"))
+    destination_prefix = _safe_absolute_path(route.get("destination_prefix"))
+    source_suffix = _safe_relative_path(source, source_prefix) if source_prefix else None
+    destination_suffix = _safe_relative_path(destination, destination_prefix) if destination_prefix else None
+    if source_suffix is None or destination_suffix is None or source_suffix != destination_suffix:
+        return {"ok": False, "reason": "archive_route_suffix_mismatch"}
+    return {
+        "ok": True,
+        "source": str(source),
+        "destination": str(destination),
+        "relative_suffix": str(source_suffix),
+        "route_id": str(route.get("id") or ""),
+        "owner": str(route.get("owner") or ""),
+    }
+
+
 def preflight_recommended_base(kind: str, *, routes: dict[str, Path]) -> Path:
+    if kind == VAULT_ARCHIVE_KIND:
+        # Archive callers must supply the host-policy Vault base explicitly;
+        # never synthesize an artifact or /srv fallback for this kind.
+        return routes[kind]
     return routes.get(kind, routes["artifact"])
 
 
 def preflight_recommended_target(kind: str, requested: Path, *, routes: dict[str, Path]) -> str:
+    if kind == VAULT_ARCHIVE_KIND:
+        return str(requested)
     base = preflight_recommended_base(kind, routes=routes)
     name = requested.name if requested.name not in {"", ".", "/"} else kind
     clean = re.sub(r"[^A-Za-z0-9_.-]+", "-", name).strip("-") or kind
@@ -604,7 +750,10 @@ def write_preflight_decision(
     elif free_after is not None and free_after < min_free_after:
         decision = "cleanup_first"
         reasons.append("target_free_space_after_write_below_policy")
-    elif protection.get("class") != "host_owned_allowed":
+    elif kind == VAULT_ARCHIVE_KIND and protection.get("class") != "vault_archive_allowed":
+        decision = "deny"
+        reasons.append("archive_route_required")
+    elif kind != VAULT_ARCHIVE_KIND and protection.get("class") != "host_owned_allowed":
         decision = "reroute"
         reasons.append("target_not_host_owned_large_root")
     if decision in {"reroute", "cleanup_first"} and recommended_free_after is not None and recommended_free_after < min_free_after:

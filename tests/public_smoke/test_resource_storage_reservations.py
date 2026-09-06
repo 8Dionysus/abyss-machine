@@ -573,3 +573,71 @@ def test_completed_reservation_records_are_bounded(tmp_path: Path) -> None:
     assert listing["terminal_retention_limit"] == 3
     assert len(listing["records"]) == 3
     assert all(item["active"] is False for item in listing["records"])
+
+
+def test_archive_route_metadata_does_not_split_shared_filesystem_accounting(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage-reservations"
+    target = tmp_path / "vault" / "result.json"
+    assert storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="generic-shared-fs",
+        kind="artifact",
+        requested_bytes=100,
+        target=target,
+        owner="generic",
+        ttl_seconds=60,
+        disk_usage=_fake_capacity,
+    )["ok"]
+
+    route_metadata = {
+        "route_id": "owner-vault",
+        "owner": "fixture-owner",
+        "required_mount": str(tmp_path / "vault"),
+        "archive_binding": {
+            "st_dev": int(tmp_path.stat().st_dev),
+            "mount_id": "42",
+            "fs_root": "/",
+            "uuid": "runtime-uuid",
+            "mapper": "/dev/mapper/fixture",
+            "label": "FIXTURE",
+        },
+    }
+    blocked = storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="archive-shared-fs",
+        kind="vault-archive",
+        requested_bytes=9_999_999_950,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        route_metadata=route_metadata,
+        disk_usage=_fake_capacity,
+    )
+    assert blocked["ok"] is False
+    assert blocked["error"] == "available_capacity_after_reservations_below_policy"
+
+    listing = storage_reservations.list_reservations(storage_root)
+    assert listing["active_reserved_bytes"] == 100
+    assert listing["active"][0]["filesystem_key"].startswith("dev:")
+
+
+def test_archive_route_metadata_rejects_stale_target_device(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage-reservations"
+    target = tmp_path / "target"
+    stale = {
+        "route_id": "owner-vault",
+        "archive_binding": {"st_dev": int(tmp_path.stat().st_dev) + 1},
+    }
+    result = storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="archive-stale-device",
+        kind="vault-archive",
+        requested_bytes=1,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        route_metadata=stale,
+        disk_usage=_fake_capacity,
+    )
+    assert result["ok"] is False
+    assert result["error"] == "route_filesystem_identity_mismatch"

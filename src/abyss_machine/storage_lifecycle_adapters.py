@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 from contextlib import contextmanager
 from pathlib import Path
 import secrets
@@ -16,6 +17,7 @@ from typing import Any, Iterator, Mapping, Sequence
 from . import storage_candidate_adapters
 from . import storage_lifecycle_contracts as contracts
 from . import resource_adapters
+from . import storage_adapters
 from . import storage_process_probe
 
 
@@ -771,6 +773,16 @@ def _decode_mountinfo_path(value: str) -> str:
     return re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), value)
 
 
+def archive_path_has_symlink(path: Path) -> bool:
+    """Fail closed when any component of an archive path is a symlink."""
+    if not path.is_absolute() or ".." in path.parts:
+        return True
+    try:
+        return any(candidate.is_symlink() for candidate in (*reversed(path.parents), path))
+    except OSError:
+        return True
+
+
 def _mount_points_snapshot() -> tuple[set[str] | None, list[str]]:
     """Read mountpoints once and fail closed if the snapshot is unusable."""
     try:
@@ -909,23 +921,27 @@ def archive_mount_binding(target: Path, required_mount: Path) -> dict[str, Any]:
             or not target.is_relative_to(required_mount)):
         return {"ok": False, "reasons": ["archive_target_outside_required_mount"]}
     try:
-        for path in (*reversed(target.parents), target):
-            if path.is_symlink():
-                return {"ok": False, "reasons": ["archive_symlink_path"]}
+        if archive_path_has_symlink(target):
+            return {"ok": False, "reasons": ["archive_symlink_path"]}
         matches = []
+        nested_mounts: list[str] = []
         for line in _read_mountinfo().splitlines():
             fields = line.split()
             if "-" not in fields or len(fields) < 10:
                 continue
             separator = fields.index("-")
-            mountpoint = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), fields[4])
-            if Path(mountpoint) == required_mount:
+            mountpoint = Path(_decode_mountinfo_path(fields[4]))
+            if mountpoint == required_mount:
                 matches.append((fields, separator))
+            elif mountpoint.is_relative_to(required_mount) and target.is_relative_to(mountpoint):
+                nested_mounts.append(str(mountpoint))
         if len(matches) != 1:
             return {"ok": False, "reasons": ["archive_required_mount_absent_or_ambiguous"]}
         fields, separator = matches[0]
         if "rw" not in fields[5].split(","):
             reasons.append("archive_mount_read_only")
+        if nested_mounts:
+            reasons.append("archive_nested_mount_mismatch")
         info = required_mount.stat()
         existing = target
         while not existing.exists():
@@ -941,6 +957,120 @@ def archive_mount_binding(target: Path, required_mount: Path) -> dict[str, Any]:
         }
     except (OSError, IndexError, ValueError) as exc:
         return {"ok": False, "reasons": ["archive_mount_binding_unavailable"], "error": str(exc)}
+
+
+def read_vault_device_identity(
+    mapper_device: str,
+    *,
+    command_runner: Any | None = None,
+) -> dict[str, Any]:
+    """Read the mapped device identity through a bounded, injectable port."""
+    runner = command_runner or storage_adapters.run_tool_process
+    result = runner(["lsblk", "--noheadings", "--pairs", "--device", "--output", "UUID,LABEL", mapper_device], 2.0)
+    if not isinstance(result, Mapping) or result.get("ok") is not True:
+        return {"ok": False, "reasons": ["vault_device_identity_unavailable"]}
+    lines = [line.strip() for line in str(result.get("stdout") or "").splitlines() if line.strip()]
+    if len(lines) != 1:
+        return {"ok": False, "reasons": ["vault_device_identity_ambiguous"]}
+    try:
+        values = dict(
+            token.split("=", 1)
+            for token in shlex.split(lines[0])
+            if "=" in token
+        )
+    except ValueError:
+        return {"ok": False, "reasons": ["vault_device_identity_invalid"]}
+    uuid = str(values.get("UUID") or "").strip()
+    label = str(values.get("LABEL") or "").strip()
+    if not uuid:
+        return {"ok": False, "reasons": ["vault_runtime_uuid_missing"]}
+    return {
+        "ok": True,
+        "uuid": uuid,
+        "label": label,
+        "mapper": str(mapper_device),
+    }
+
+
+def archive_vault_mount_binding(
+    target: Path,
+    required_mount: Path,
+    *,
+    expected_mapper: str,
+    expected_label: str,
+    device_identity_reader: Any | None = None,
+) -> dict[str, Any]:
+    """Bind an archive target to the policy-selected mapped Vault device.
+
+    The host policy authenticates the mount, mapper and label.  The UUID is
+    then observed from that already-authenticated device and included in the
+    returned identity so a later before/after check detects device, mount,
+    filesystem or subvolume changes.
+    """
+    binding = archive_mount_binding(target, required_mount)
+    if not binding.get("ok"):
+        return binding
+    identity = binding.get("identity")
+    if not isinstance(identity, Mapping):
+        return {"ok": False, "reasons": ["archive_mount_identity_missing"]}
+    mapper = str(expected_mapper or "").strip()
+    if not mapper:
+        return {"ok": False, "reasons": ["vault_policy_mapper_missing"]}
+    expected_device = mapper if mapper.startswith("/") else f"/dev/mapper/{mapper}"
+    actual_source = str(identity.get("source") or "")
+    actual_device = actual_source.split("[", 1)[0]
+    if actual_device != expected_device:
+        return {
+            "ok": False,
+            "reasons": ["vault_mapper_source_mismatch"],
+            "archive_binding": binding,
+            "expected_device": expected_device,
+            "actual_device": actual_device,
+        }
+    reader = device_identity_reader or read_vault_device_identity
+    device = reader(actual_device)
+    if not isinstance(device, Mapping) or device.get("ok") is not True:
+        return {
+            "ok": False,
+            "reasons": [*(device.get("reasons", []) if isinstance(device, Mapping) else []), "vault_device_identity_unavailable"],
+            "archive_binding": binding,
+        }
+    reported_mapper = str(device.get("mapper") or actual_device)
+    if reported_mapper != actual_device:
+        return {
+            "ok": False,
+            "reasons": ["vault_device_mapper_mismatch"],
+            "archive_binding": binding,
+            "expected_device": actual_device,
+            "actual_device": reported_mapper,
+        }
+    label = str(device.get("label") or "")
+    expected = str(expected_label or "").strip()
+    if not expected:
+        return {"ok": False, "reasons": ["vault_policy_label_missing"], "archive_binding": binding}
+    if label != expected:
+        return {
+            "ok": False,
+            "reasons": ["vault_device_label_mismatch"],
+            "archive_binding": binding,
+            "expected_label": expected,
+            "actual_label": label,
+        }
+    runtime_uuid = str(device.get("uuid") or "").strip()
+    if not runtime_uuid:
+        return {"ok": False, "reasons": ["vault_runtime_uuid_missing"], "archive_binding": binding}
+    bound_identity = dict(identity)
+    bound_identity.update({
+        "mapper": expected_device,
+        "label": label,
+        "uuid": runtime_uuid,
+    })
+    return {
+        "ok": True,
+        "identity": bound_identity,
+        "device": {"mapper": expected_device, "label": label, "uuid": runtime_uuid},
+        "archive_binding": binding,
+    }
 
 
 def execute_released_workspace(

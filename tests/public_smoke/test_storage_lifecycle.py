@@ -683,6 +683,141 @@ def test_archive_binding_refuses_symlink_escape_and_root_mount(tmp_path: Path, m
     assert not adapters.archive_mount_binding(tmp_path, Path("/"))["ok"]
 
 
+def test_archive_vault_binding_authenticates_policy_mapper_and_label(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    target = vault / "archive" / "result.json"
+    monkeypatch.setattr(
+        adapters,
+        "_read_mountinfo",
+        lambda: f"42 1 0:99 / {vault} rw - btrfs /dev/mapper/fixture rw\n",
+    )
+
+    result = adapters.archive_vault_mount_binding(
+        target,
+        vault,
+        expected_mapper="fixture",
+        expected_label="FIXTURE",
+        device_identity_reader=lambda device: {
+            "ok": True,
+            "mapper": device,
+            "label": "FIXTURE",
+            "uuid": "runtime-fixture-uuid",
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["identity"]["mapper"] == "/dev/mapper/fixture"
+    assert result["identity"]["label"] == "FIXTURE"
+    assert result["identity"]["uuid"] == "runtime-fixture-uuid"
+    assert result["identity"]["fs_root"] == "/"
+
+    wrong_label = adapters.archive_vault_mount_binding(
+        target,
+        vault,
+        expected_mapper="fixture",
+        expected_label="OTHER",
+        device_identity_reader=lambda device: {
+            "ok": True,
+            "mapper": device,
+            "label": "FIXTURE",
+            "uuid": "runtime-fixture-uuid",
+        },
+    )
+    assert wrong_label["ok"] is False
+    assert "vault_device_label_mismatch" in wrong_label["reasons"]
+
+    wrong_mapper = adapters.archive_vault_mount_binding(
+        target,
+        vault,
+        expected_mapper="other",
+        expected_label="FIXTURE",
+        device_identity_reader=lambda device: {"ok": True, "mapper": device, "label": "FIXTURE", "uuid": "u"},
+    )
+    assert wrong_mapper["ok"] is False
+    assert "vault_mapper_source_mismatch" in wrong_mapper["reasons"]
+
+
+def test_archive_vault_binding_requires_runtime_uuid_and_source_path_is_symlink_free(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    target = vault / "archive" / "result.json"
+    monkeypatch.setattr(
+        adapters,
+        "_read_mountinfo",
+        lambda: f"42 1 0:99 / {vault} rw - btrfs /dev/mapper/fixture rw\n",
+    )
+    missing_uuid = adapters.archive_vault_mount_binding(
+        target,
+        vault,
+        expected_mapper="fixture",
+        expected_label="FIXTURE",
+        device_identity_reader=lambda device: {"ok": True, "mapper": device, "label": "FIXTURE"},
+    )
+    assert missing_uuid["ok"] is False
+    assert "vault_runtime_uuid_missing" in missing_uuid["reasons"]
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "link").symlink_to(tmp_path / "outside")
+    assert adapters.archive_path_has_symlink(source / "link" / "result.json") is True
+
+
+def test_archive_vault_binding_rejects_nested_mount_even_when_device_matches(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "vault"
+    nested = vault / "nested"
+    vault.mkdir()
+    nested.mkdir()
+    target = nested / "result.json"
+    monkeypatch.setattr(
+        adapters,
+        "_read_mountinfo",
+        lambda: (
+            f"42 1 0:99 / {vault} rw - btrfs /dev/mapper/fixture rw\n"
+            f"43 42 0:99 /sub {nested} rw - btrfs /dev/mapper/fixture rw\n"
+        ),
+    )
+    result = adapters.archive_vault_mount_binding(
+        target,
+        vault,
+        expected_mapper="fixture",
+        expected_label="FIXTURE",
+        device_identity_reader=lambda device: {
+            "ok": True,
+            "mapper": device,
+            "label": "FIXTURE",
+            "uuid": "runtime-fixture-uuid",
+        },
+    )
+    assert result["ok"] is False
+    assert "archive_nested_mount_mismatch" in result["reasons"]
+
+
+def test_runtime_vault_device_identity_reader_is_bounded_and_requires_one_uuid_record() -> None:
+    result = adapters.read_vault_device_identity(
+        "/dev/mapper/fixture",
+        command_runner=lambda command, timeout: {
+            "ok": True,
+            "stdout": 'UUID="runtime-uuid" LABEL="FIXTURE"\n',
+        },
+    )
+    assert result == {
+        "ok": True,
+        "uuid": "runtime-uuid",
+        "label": "FIXTURE",
+        "mapper": "/dev/mapper/fixture",
+    }
+    ambiguous = adapters.read_vault_device_identity(
+        "/dev/mapper/fixture",
+        command_runner=lambda command, timeout: {
+            "ok": True,
+            "stdout": 'UUID="one" LABEL="FIXTURE"\nUUID="two" LABEL="FIXTURE"\n',
+        },
+    )
+    assert ambiguous["ok"] is False
+    assert ambiguous["reasons"] == ["vault_device_identity_ambiguous"]
+
+
 def test_reaper_does_not_hold_registry_lock_during_disposition(monkeypatch, tmp_path: Path) -> None:
     root = tmp_path / "state"
     workspace = tmp_path / "work" / "job"

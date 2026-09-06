@@ -96,6 +96,28 @@ def _filesystem_key(path: Path) -> str:
         return f"anchor:{anchor}"
 
 
+def _route_filesystem_identity_ok(target: Path, route_metadata: Mapping[str, Any] | None) -> bool:
+    """Check route metadata against the real target filesystem.
+
+    Route identity is receipt metadata only.  Capacity accounting continues to
+    use the shared ``filesystem_key`` so leases from every route aggregate on
+    one filesystem.
+    """
+    if not route_metadata:
+        return True
+    identity = route_metadata.get("archive_binding")
+    if not isinstance(identity, Mapping):
+        return False
+    expected_device = identity.get("st_dev")
+    if not isinstance(expected_device, int):
+        return False
+    try:
+        actual_device = int(existing_ancestor(target).stat().st_dev)
+    except OSError:
+        return False
+    return actual_device == expected_device
+
+
 def _lock(root: Path):
     root.mkdir(parents=True, exist_ok=True)
     handle = open(root / ".lock", "a+", encoding="utf-8")
@@ -335,6 +357,7 @@ def acquire_reservation(
     min_free_after: int = 0,
     hold_until_terminal: bool = False,
     execution_identity: str | None = None,
+    route_metadata: Mapping[str, Any] | None = None,
     now: dt.datetime | None = None,
     disk_usage: Callable[..., Mapping[str, Any]] = disk_usage_summary,
 ) -> dict[str, Any]:
@@ -347,6 +370,7 @@ def acquire_reservation(
         return {"schema": SCHEMA, "ok": False, "decision": "invalid", "error": "ttl_must_be_positive", "reservation_id": reservation_id}
     target = Path(target).expanduser()
     filesystem_key = _filesystem_key(target)
+    normalized_route_metadata = dict(route_metadata) if isinstance(route_metadata, Mapping) else None
     with _lock(root) as handle:
         try:
             expired = _expire_unlocked(root, now)
@@ -363,12 +387,21 @@ def acquire_reservation(
                     "state_errors": state_errors[:200],
                     "expired_count": len(expired),
                 }
+            if not _route_filesystem_identity_ok(target, normalized_route_metadata):
+                return {
+                    "schema": SCHEMA,
+                    "ok": False,
+                    "decision": "blocked",
+                    "reservation_id": reservation_id,
+                    "error": "route_filesystem_identity_mismatch",
+                }
             existing = next((item for item in records if item.get("reservation_id") == reservation_id), None)
             if existing and existing.get("active") is True:
                 same_request = (
                     int(existing.get("requested_bytes") or 0) == requested_bytes
                     and str(existing.get("target") or "") == str(target)
                     and str(existing.get("owner") or "") == str(owner)
+                    and existing.get("route_metadata") == normalized_route_metadata
                 )
                 if same_request:
                     if hold_until_terminal and existing.get("hold_until_terminal") is not True:
@@ -424,6 +457,7 @@ def acquire_reservation(
                 "active": True,
                 "status": "active",
                 "filesystem_key": filesystem_key,
+                "route_metadata": normalized_route_metadata,
                 "hold_until_terminal": bool(hold_until_terminal),
                 "execution_identity": str(execution_identity)[:240] if execution_identity else None,
                 "capacity": {

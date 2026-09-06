@@ -941,6 +941,164 @@ def test_cli_reservation_rejects_reroute_target(monkeypatch) -> None:
     assert result["error"] == "reservation_target_protected_or_unknown"
 
 
+def test_vault_archive_admission_requires_host_route_and_binds_mount_identity(monkeypatch, tmp_path: Path) -> None:
+    source_prefix = tmp_path / "source" / "owner"
+    destination_prefix = tmp_path / "vault" / "owner"
+    target = destination_prefix / "result.json"
+    route = {
+        "id": "fixture-vault-route",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "source_prefix": str(source_prefix) + "/",
+        "destination_prefix": str(destination_prefix) + "/",
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+    monkeypatch.setattr(
+        cli,
+        "backup_policy_document",
+        lambda: {
+            "ok": True,
+            "document": {
+                "vault": {
+                    "mount": str(tmp_path / "vault"),
+                    "device_label": "FIXTURE",
+                    "luks_mapper": "fixture",
+                },
+                "archive_routes": [route],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda path, mount, **kwargs: {
+            "ok": True,
+            "identity": {
+                "required_mount": str(mount),
+                "mount_id": "42",
+                "device": "0:99",
+                "fs_root": "/",
+                "filesystem": "btrfs",
+                "source": "/dev/mapper/fixture",
+                "st_dev": int(tmp_path.stat().st_dev),
+                "st_ino": 1,
+                "uuid": "runtime-fixture-uuid",
+                "mapper": "/dev/mapper/fixture",
+                "label": "FIXTURE",
+            },
+            "device": {"mapper": "/dev/mapper/fixture", "label": "FIXTURE", "uuid": "runtime-fixture-uuid"},
+        },
+    )
+
+    allowed = cli.storage_write_path_protection("vault-archive", target, owner="fixture-owner")
+    assert allowed["decision"] == "allow_candidate"
+    assert allowed["class"] == "vault_archive_allowed"
+    assert allowed["route_id"] == "fixture-vault-route"
+    assert allowed["archive_binding"]["uuid"] == "runtime-fixture-uuid"
+
+    generic = cli.storage_write_path_protection("artifact", Path("/abyss/Backups/unconfigured/result.json"))
+    assert generic["decision"] == "deny"
+
+    pair = cli.storage_archive_pair_admission(
+        str(source_prefix / "result.json"),
+        str(target),
+        owner="fixture-owner",
+    )
+    assert pair["ok"] is True
+    assert pair["pair"]["relative_suffix"] == "result.json"
+
+    bad_pair = cli.storage_archive_pair_admission(
+        str(source_prefix / "other.json"),
+        str(target),
+        owner="fixture-owner",
+    )
+    assert bad_pair["ok"] is False
+    assert bad_pair["reason"] == "archive_route_suffix_mismatch"
+
+
+def test_vault_archive_preflight_uses_actual_target_without_srv_fallback(monkeypatch, tmp_path: Path) -> None:
+    destination_prefix = tmp_path / "vault" / "owner"
+    target = destination_prefix / "result.json"
+    route = {
+        "id": "fixture-vault-route",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "source_prefix": str(tmp_path / "source" / "owner") + "/",
+        "destination_prefix": str(destination_prefix) + "/",
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+    monkeypatch.setattr(
+        cli,
+        "backup_policy_document",
+        lambda: {
+            "ok": True,
+            "document": {
+                "vault": {"mount": str(tmp_path / "vault"), "device_label": "FIXTURE", "luks_mapper": "fixture"},
+                "archive_routes": [route],
+            },
+        },
+    )
+    binding = {
+        "required_mount": str(tmp_path / "vault"),
+        "mount_id": "42",
+        "device": "0:99",
+        "fs_root": "/",
+        "filesystem": "btrfs",
+        "source": "/dev/mapper/fixture",
+        "st_dev": int(tmp_path.stat().st_dev),
+        "st_ino": 1,
+        "uuid": "runtime-fixture-uuid",
+        "mapper": "/dev/mapper/fixture",
+        "label": "FIXTURE",
+    }
+    monkeypatch.setattr(
+        cli.storage_lifecycle_adapters,
+        "archive_vault_mount_binding",
+        lambda *_args, **_kwargs: {"ok": True, "identity": binding, "device": {"uuid": binding["uuid"]}},
+    )
+    monkeypatch.setattr(
+        cli,
+        "storage_pressure",
+        lambda **_kwargs: {"ok": True, "summary": {"root_pressure_class": "critical", "srv_pressure_class": "critical"}, "roots": {}},
+    )
+    monkeypatch.setattr(
+        cli,
+        "disk_usage_summary",
+        lambda _path, **_kwargs: {
+            "available_to_user_bytes": 10_000_000_000,
+            "free_bytes": 10_000_000_000,
+        },
+    )
+    monkeypatch.setattr(
+        cli.storage_reservations,
+        "capacity_snapshot",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "available_to_user_bytes": 10_000_000_000,
+            "available_after_reservations_bytes": 10_000_000_000,
+        },
+    )
+    monkeypatch.setattr(cli, "run_storage_hooks", lambda *_args, **_kwargs: {"ok": True})
+
+    result = cli.storage_write_preflight(
+        kind="vault-archive",
+        bytes_required=1024,
+        target=str(target),
+        write_latest=False,
+    )
+    assert result["ok"] is True
+    assert result["decision"] == "allow"
+    assert result["recommendation"]["target_recommended"] == str(target)
+    assert result["recommendation"]["use_recommended_target"] is False
+    assert result["recommended_target"]["protection"]["class"] == "vault_archive_allowed"
+
+
 def test_reservations_fail_closed_on_corrupt_record(tmp_path: Path) -> None:
     root = tmp_path / "reservations"
     records = root / "records"
