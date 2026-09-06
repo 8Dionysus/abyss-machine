@@ -9235,10 +9235,54 @@ def storage_monitor(
     significant_growth = bool(nested_get(inventory, ["drift", "grown"]))
     known_candidate_ids = {str(item.get("candidate_id") or "") for item in previous_candidates.get("candidates", []) if isinstance(item, dict)}
     pending_manifests = [item for item in storage_candidate_adapters.load_json_records(STORAGE_CANDIDATES_MANIFESTS_ROOT) if item.get("valid") is True and str(item.get("candidate_id") or "") not in known_candidate_ids]
-    deep_requested = pressure_class in {"warning", "critical"} or significant_growth or bool(pending_manifests)
+    deep_trigger_reasons: list[str] = []
+    if pressure_class in {"warning", "critical"}:
+        deep_trigger_reasons.append(f"srv_pressure_{pressure_class}")
+    if significant_growth:
+        deep_trigger_reasons.append("significant_inventory_growth")
+    if pending_manifests:
+        deep_trigger_reasons.append("pending_candidate_manifests")
+    deep_requested = bool(deep_trigger_reasons)
     deep_due = bool(pending_manifests) or deep_age_seconds is None or deep_age_seconds >= 12 * 3600
-    deep_candidates = deep_requested and deep_due
-    artifact_scope = "all" if deep_candidates else "ai-cache"
+    deep_deferred = deep_requested and deep_due
+    deep_freshness = storage_candidate_contracts.freshness_status(
+        generated_at=previous_candidates.get("generated_at"),
+        last_deep_at=previous_candidates.get("last_deep_at"),
+        now_time=current_time,
+        max_age_seconds=int(storage_candidate_policy().get("deep_max_age_seconds", 172800)),
+    )
+    deep_followup = {
+        "needed": deep_requested,
+        "due": deep_due,
+        "deferred": deep_deferred,
+        "status": (
+            "deferred_to_dedicated_route"
+            if deep_deferred
+            else ("requested_but_not_due" if deep_requested else "not_requested")
+        ),
+        "trigger_reasons": deep_trigger_reasons,
+        "freshness": deep_freshness,
+        "last_deep_at": previous_candidates.get("last_deep_at"),
+        "route": {
+            "timer": "abyss-storage-candidates-deep.timer",
+            "service": "abyss-storage-candidates-deep.service",
+            "command": [
+                "abyss-machine",
+                "storage",
+                "candidates",
+                "refresh",
+                "--deep",
+                "--if-due",
+                "--json",
+            ],
+            "resource_timeout_seconds": 300,
+        },
+    }
+    # The hourly monitor is deliberately light.  Pressure, growth, and new
+    # manifests are trigger evidence for the dedicated bounded deep route;
+    # embedding that route here would let its 120-second scan outlive the
+    # monitor's 110-second resource budget and hide the monitor receipt.
+    artifact_scope = "ai-cache"
     step_started = time.monotonic()
     artifact_snapshot = artifacts_snapshot(scope=artifact_scope, history_days=14, write_latest=write_latest)
     step_summary(
@@ -9249,13 +9293,13 @@ def storage_monitor(
     )
     step_started = time.monotonic()
     candidates = storage_candidates_refresh(
-        deep=deep_candidates,
+        deep=False,
         artifact_snapshot=artifact_snapshot,
         write_latest=write_latest,
     )
     step_summary(
-        "candidates_deep_pressure" if deep_candidates else "candidates_light",
-        ["abyss-machine", "storage", "candidates", "refresh", *( ["--deep"] if deep_candidates else []), "--json"],
+        "candidates_light",
+        ["abyss-machine", "storage", "candidates", "refresh", "--json"],
         step_started,
         candidates,
     )
@@ -9317,9 +9361,12 @@ def storage_monitor(
             "artifact_snapshot_current_live_records": nested_get(artifact_snapshot, ["summary", "current_live_records"]),
             "artifact_snapshot_backed_records": nested_get(artifact_snapshot, ["summary", "backed_records"]),
             "artifact_snapshot_classes": nested_get(artifact_snapshot, ["summary", "by_classification"]),
-            "candidate_scan_deep": deep_candidates,
+            "candidate_scan_deep": False,
             "candidate_deep_requested": deep_requested,
             "candidate_deep_due": deep_due,
+            "candidate_deep_deferred": deep_deferred,
+            "candidate_deep_trigger_reasons": deep_trigger_reasons,
+            "candidate_deep_followup": deep_followup,
             "candidate_previous_deep_age_seconds": deep_age_seconds,
             "candidate_significant_growth": significant_growth,
             "candidate_pending_manifests": len(pending_manifests),
@@ -9340,7 +9387,9 @@ def storage_monitor(
             "timer_uses_light_inventory_only": True,
             "timer_refreshes_artifact_snapshot": True,
             "timer_refreshes_candidate_lifecycle": True,
-            "pressure_triggers_deep_candidate_scan": True,
+            "pressure_requests_deep_candidate_scan": True,
+            "monitor_embeds_deep_candidate_scan": False,
+            "deep_candidate_scan_owned_by_dedicated_route": True,
             "artifact_snapshot_is_facts_only": True,
             "cleanup_plan_is_not_permission_to_delete": True,
         },

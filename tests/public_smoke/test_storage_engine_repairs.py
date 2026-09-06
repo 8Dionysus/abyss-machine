@@ -985,6 +985,96 @@ def test_candidate_deep_timer_does_not_hide_resource_blocks() -> None:
     assert "--success-on-block" not in service
 
 
+def test_storage_monitor_defers_deep_candidate_work_to_dedicated_route(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    def remember(name: str, result: dict[str, object]):
+        def collector(**kwargs):
+            calls[name] = kwargs
+            return result
+
+        return collector
+
+    monkeypatch.setattr(
+        cli.storage_forecast,
+        "observe",
+        lambda *_args, **_kwargs: {"ok": True, "summary": {}},
+    )
+    monkeypatch.setattr(cli, "storage_inventory", remember("inventory", {
+        "ok": True,
+        "summary": {},
+        "drift": {"grown": True},
+    }))
+    monkeypatch.setattr(cli, "storage_pressure", remember("pressure", {
+        "ok": True,
+        "summary": {
+            "root_pressure_class": "green",
+            "srv_pressure_class": "critical",
+        },
+    }))
+    monkeypatch.setattr(cli, "storage_cleanup_plan", remember("cleanup", {
+        "ok": True,
+        "summary": {},
+        "guard": {"summary": {}, "paths": []},
+    }))
+    monkeypatch.setattr(cli, "storage_status", remember("status", {
+        "ok": True,
+        "summary": {"root_used_percent": 1, "srv_used_percent": 2},
+    }))
+    previous = {
+        "generated_at": "2026-09-04T00:00:00+00:00",
+        "last_deep_at": "2026-09-04T00:00:00+00:00",
+        "candidates": [],
+    }
+    monkeypatch.setattr(cli, "load_json_document", lambda path: (previous, None) if path == cli.STORAGE_CANDIDATES_LATEST_PATH else ({}, None))
+    monkeypatch.setattr(
+        cli.storage_candidate_adapters,
+        "load_json_records",
+        lambda _root: [{"candidate_id": "reclaim-new", "valid": True}],
+    )
+    monkeypatch.setattr(
+        cli,
+        "storage_candidate_policy",
+        lambda: {"deep_max_age_seconds": 172800},
+    )
+    monkeypatch.setattr(cli, "artifacts_snapshot", remember("artifacts", {
+        "ok": True,
+        "summary": {
+            "records": 0,
+            "current_live_records": 0,
+            "backed_records": 0,
+            "by_classification": {},
+        },
+    }))
+
+    def refresh(**kwargs):
+        calls["candidates"] = kwargs
+        return {"ok": True, "summary": {}}
+
+    monkeypatch.setattr(cli, "storage_candidates_refresh", refresh)
+
+    result = cli.storage_monitor(write_latest=False)
+
+    assert calls["artifacts"]["scope"] == "ai-cache"
+    assert calls["candidates"]["deep"] is False
+    assert result["summary"]["candidate_scan_deep"] is False
+    assert result["summary"]["candidate_deep_requested"] is True
+    assert result["summary"]["candidate_deep_due"] is True
+    assert result["summary"]["candidate_deep_deferred"] is True
+    assert result["summary"]["candidate_deep_trigger_reasons"] == [
+        "srv_pressure_critical",
+        "significant_inventory_growth",
+        "pending_candidate_manifests",
+    ]
+    followup = result["summary"]["candidate_deep_followup"]
+    assert followup["status"] == "deferred_to_dedicated_route"
+    assert followup["route"]["service"] == "abyss-storage-candidates-deep.service"
+    assert followup["route"]["command"][-3:] == ["--deep", "--if-due", "--json"]
+    assert result["policy"]["monitor_embeds_deep_candidate_scan"] is False
+    assert result["policy"]["deep_candidate_scan_owned_by_dedicated_route"] is True
+    assert not any(step["name"] == "candidates_deep_pressure" for step in result["steps"])
+
+
 def test_bounded_deep_refresh_resumes_without_premature_retirement_or_false_freshness(monkeypatch) -> None:
     generated = iter((
         "2026-09-05T19:00:00+00:00",
