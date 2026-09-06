@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 12840224,
+  "allowed_tracked_bytes": 30111794,
+  "approved_by": "repository-owner",
+  "base_ref": "3868b07d20d8e18a02c60c5f9a62682771370a5d",
+  "changed_generated_bytes": 12840224,
+  "changed_generated_files": 135,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "271f954055915c9a07f8eb0312d5cb89291f178f40fa3c3999ac26e8f2cc4dbe",
+  "reason": "Refresh the Machine owner family after removing the unused validation fastpath source/test pair; preserve the existing evidence graph, direct affected-pytest route, and full owner gate.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30111794,
+  "tracked_bytes_max": 27262976
+}
