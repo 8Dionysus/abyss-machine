@@ -301,6 +301,7 @@ memory validation: `abyss-machine memory validate --json`
 resource plan: `abyss-machine resource plan --class CLASS --kind KIND --memory-demand-mib MIB --demand-key ID --demand-owner OWNER --json`, unified host pre-launch decision with runtime-only startup demand projection
 resource orchestrator: `abyss-machine resource orchestrator --json`, broad read-only matrix audit for future agents and stack bridges
 resource launch: `abyss-machine resource launch --class CLASS --kind KIND -- COMMAND`, starts new work through user systemd-run only; medium-or-larger starts use a fresh live decision plus an atomic runtime-only startup reservation, without a resident controller; add `--no-thermal-sample` for dry-run/diagnostic paths that should consume the latest thermal plan instead of taking a fresh sample; add `--success-on-block` only for scheduled unattended ticks that should skip cleanly on soft gates
+owner-routed project resource writes: pass `--demand-owner OWNER --owner-route ROUTE_ID --owner-operation OPERATION --owner-claim CLAIM` together with `--bytes BYTES --target PATH` on `resource plan`/`resource launch`; the route admits capacity accounting only and does not grant filesystem or cleanup authority
 resource validation: `abyss-machine resource validate --json`
 
 Bounded light maintenance is opt-in through
@@ -789,6 +790,7 @@ abyss-machine resource launch --workspace /srv/abyss-machine/tmp/OWNER/JOB --wor
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_USER_HOME}}/.cache/example --json
 abyss-machine storage write-preflight --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --json
 abyss-machine storage write-reservation acquire --reservation-id ID --kind model-cache --bytes 10000000000 --target {{ABYSS_MACHINE_SRV}}/cache/ai/example --owner OWNER --ttl-seconds 3600 --json
+# owner-routed project writes additionally supply --owner-route ROUTE_ID --owner-operation OPERATION --owner-claim CLAIM on both preflight and acquire; the configured route binds one existing exact directory (device/inode, no symlink ancestors) and admits capacity only
 abyss-machine storage write-reservation release --reservation-id ID --json
 abyss-machine storage write-reservation expire --json
 abyss-machine storage write-reservation list --json

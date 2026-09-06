@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
+import stat
 from typing import Any
 
 
@@ -635,6 +637,179 @@ def _safe_absolute_path(value: Any) -> Path | None:
     return candidate
 
 
+def _owner_write_target_identity(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """Capture an existing exact directory without following a symlink route."""
+    target = Path(path).expanduser()
+    if not target.is_absolute() or ".." in target.parts:
+        return None, "owner_write_route_path_escape"
+    lexical = Path(os.path.abspath(str(target)))
+    try:
+        target_stat = target.lstat()
+    except FileNotFoundError:
+        return None, "owner_write_route_target_missing"
+    except OSError:
+        return None, "owner_write_route_target_unstatable"
+    if stat.S_ISLNK(target_stat.st_mode):
+        return None, "owner_write_route_symlink_target"
+    if not stat.S_ISDIR(target_stat.st_mode):
+        return None, "owner_write_route_target_not_directory"
+    try:
+        resolved = target.resolve(strict=True)
+    except OSError:
+        return None, "owner_write_route_target_unresolvable"
+    if resolved != lexical:
+        return None, "owner_write_route_symlink_ancestor"
+    return {
+        "st_dev": int(target_stat.st_dev),
+        "st_ino": int(target_stat.st_ino),
+        "type": "directory",
+    }, None
+
+
+def validate_owner_write_routes(routes: Any) -> dict[str, Any]:
+    """Validate narrow owner write routes without widening generic protection.
+
+    These routes are capacity-admission exceptions only.  They identify one
+    exact target, owner, write kind, operation, and claim.  They never grant
+    filesystem permission or cleanup authority.
+    """
+    if routes is None:
+        routes = []
+    if not isinstance(routes, list):
+        return {"ok": False, "routes": [], "errors": ["owner_write_routes_not_a_list"]}
+    valid: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(routes):
+        if not isinstance(raw, dict):
+            errors.append(f"owner_write_route_{index}_not_an_object")
+            continue
+        route_id = str(raw.get("id") or "").strip()
+        owner = str(raw.get("owner") or "").strip()
+        kind = str(raw.get("kind") or "").strip()
+        target = _safe_absolute_path(raw.get("target"))
+        operations = raw.get("operations")
+        claims = raw.get("claims")
+        route_errors: list[str] = []
+        if not route_id or route_id in seen_ids:
+            route_errors.append("id_invalid_or_duplicate")
+        if route_id:
+            seen_ids.add(route_id)
+        if not owner:
+            route_errors.append("owner_missing")
+        if kind not in VALID_WRITE_KINDS or kind == VAULT_ARCHIVE_KIND:
+            route_errors.append("kind_invalid")
+        if target is None or target == Path("/") or target == Path("."):
+            route_errors.append("target_invalid")
+        if not isinstance(operations, list) or not operations or any(
+            not isinstance(item, str) or not item.strip() for item in operations
+        ):
+            route_errors.append("operations_invalid")
+        if not isinstance(claims, list) or not claims or any(
+            not isinstance(item, str) or not item.strip() for item in claims
+        ):
+            route_errors.append("claims_invalid")
+        if route_errors:
+            errors.extend(f"owner_write_route_{route_id or index}_{item}" for item in route_errors)
+            continue
+        valid.append(
+            {
+                "id": route_id,
+                "owner": owner,
+                "kind": kind,
+                "target": str(target),
+                "operations": sorted({str(item).strip() for item in operations}),
+                "claims": sorted({str(item).strip() for item in claims}),
+            }
+        )
+    return {"ok": not errors, "routes": valid, "errors": errors}
+
+
+def owner_write_route_match(
+    target: Path,
+    routes: Any,
+    *,
+    kind: str,
+    owner: str | None,
+    operation: str | None,
+    route_id: str | None,
+    claim: str | None,
+) -> dict[str, Any]:
+    """Admit one exact owner route only with all explicit bindings present."""
+    checked = validate_owner_write_routes(routes)
+    if not checked["ok"]:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": owner,
+            "matched_root": None,
+            "reason": "owner_write_route_policy_invalid",
+            "route_errors": checked["errors"],
+        }
+    if not route_id or not operation or not claim:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": owner,
+            "matched_root": None,
+            "reason": "owner_write_route_operation_and_claim_required",
+        }
+    route = next((item for item in checked["routes"] if item["id"] == str(route_id)), None)
+    if route is None:
+        return {
+            "class": "unknown",
+            "decision": "deny",
+            "owner": owner,
+            "matched_root": None,
+            "reason": "owner_write_route_not_configured",
+            "route_id": str(route_id),
+        }
+    target_path = Path(target).expanduser()
+    if ".." in target_path.parts:
+        reason = "owner_write_route_path_escape"
+    elif not target_path.is_absolute():
+        reason = "owner_write_route_target_not_absolute"
+    elif str(target_path) != str(route["target"]):
+        reason = "owner_write_route_target_mismatch"
+    elif str(kind) != route["kind"]:
+        reason = "owner_write_route_kind_mismatch"
+    elif str(owner or "") != route["owner"]:
+        reason = "owner_write_route_owner_mismatch"
+    elif str(operation) not in route["operations"]:
+        reason = "owner_write_route_operation_mismatch"
+    elif str(claim) not in route["claims"]:
+        reason = "owner_write_route_claim_mismatch"
+    else:
+        target_identity, identity_error = _owner_write_target_identity(target_path)
+        if target_identity is None:
+            reason = identity_error or "owner_write_route_target_identity_unavailable"
+        else:
+            return {
+                "class": "owner_route_allowed",
+                "decision": "allow_candidate",
+                "owner": route["owner"],
+                "matched_root": route["target"],
+                "reason": "explicit_owner_write_route",
+                "route_id": route["id"],
+                "operation": str(operation),
+                "claim": str(claim),
+                "route": route,
+                "target_identity": target_identity,
+                "write_permission": False,
+                "cleanup_authority": False,
+            }
+    return {
+        "class": "unknown",
+        "decision": "deny",
+        "owner": owner,
+        "matched_root": route["target"],
+        "reason": reason,
+        "route_id": route["id"],
+        "operation": str(operation),
+        "claim": str(claim),
+    }
+
+
 def _safe_relative_path(path: Path, prefix: Path) -> Path | None:
     """Return a lexical suffix without resolving symlinks or missing paths."""
     if not path.is_absolute() or not prefix.is_absolute() or ".." in path.parts or ".." in prefix.parts:
@@ -830,7 +1005,7 @@ def write_preflight_decision(
     elif kind == VAULT_ARCHIVE_KIND and protection.get("class") != "vault_archive_allowed":
         decision = "deny"
         reasons.append("archive_route_required")
-    elif kind != VAULT_ARCHIVE_KIND and protection.get("class") != "host_owned_allowed":
+    elif kind != VAULT_ARCHIVE_KIND and protection.get("class") not in {"host_owned_allowed", "owner_route_allowed"}:
         decision = "reroute"
         reasons.append("target_not_host_owned_large_root")
     if decision in {"reroute", "cleanup_first"} and recommended_free_after is not None and recommended_free_after < min_free_after:

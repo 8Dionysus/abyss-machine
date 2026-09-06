@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 26540696,
+  "allowed_tracked_bytes": 30359442,
+  "approved_by": "repository-owner",
+  "base_ref": "f97cc849367e98015c39dbed3dc6fca31e7f908c",
+  "changed_generated_bytes": 26540696,
+  "changed_generated_files": 354,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "cfee51821bae6889df3886a9a590a7b3c67e093da5a9deca9fbbd4129893d703",
+  "reason": "Owner-approved incremental sentinel parity regeneration for final ce2befbb (a340ce04) landing; deterministic generated delta is bounded by the explicit family receipt.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30359442,
+  "tracked_bytes_max": 27262976
+}
