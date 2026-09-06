@@ -794,12 +794,19 @@ def test_archive_vault_binding_rejects_nested_mount_even_when_device_matches(tmp
 
 
 def test_runtime_vault_device_identity_reader_is_bounded_and_requires_one_uuid_record() -> None:
-    result = adapters.read_vault_device_identity(
-        "/dev/mapper/fixture",
-        command_runner=lambda command, timeout: {
+    commands: list[list[str]] = []
+
+    def run(command: list[str], timeout: float) -> dict[str, object]:
+        commands.append(command)
+        assert timeout == 2.0
+        return {
             "ok": True,
             "stdout": 'UUID="runtime-uuid" LABEL="FIXTURE"\n',
-        },
+        }
+
+    result = adapters.read_vault_device_identity(
+        "/dev/mapper/fixture",
+        command_runner=run,
     )
     assert result == {
         "ok": True,
@@ -807,6 +814,9 @@ def test_runtime_vault_device_identity_reader_is_bounded_and_requires_one_uuid_r
         "label": "FIXTURE",
         "mapper": "/dev/mapper/fixture",
     }
+    assert commands == [[
+        "lsblk", "--noheadings", "--pairs", "--nodeps", "--output", "UUID,LABEL", "/dev/mapper/fixture",
+    ]]
     ambiguous = adapters.read_vault_device_identity(
         "/dev/mapper/fixture",
         command_runner=lambda command, timeout: {
@@ -816,6 +826,93 @@ def test_runtime_vault_device_identity_reader_is_bounded_and_requires_one_uuid_r
     )
     assert ambiguous["ok"] is False
     assert ambiguous["reasons"] == ["vault_device_identity_ambiguous"]
+
+
+def test_bounded_vault_file_copy_uses_anchor_fd_hash_and_preserves_source(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    source = tmp_path / "source" / "result.json"
+    vault.mkdir()
+    source.parent.mkdir()
+    source.write_bytes(b"bounded archive payload\n")
+    destination = vault / "nested" / "result.json"
+    mount_stat = vault.stat()
+    binding = {
+        "required_mount": str(vault),
+        "mount_id": "42",
+        "device": "0:99",
+        "fs_root": "/",
+        "filesystem": "btrfs",
+        "source": "/dev/mapper/fixture",
+        "st_dev": int(mount_stat.st_dev),
+        "st_ino": int(mount_stat.st_ino),
+        "uuid": "runtime-fixture-uuid",
+        "mapper": "/dev/mapper/fixture",
+        "label": "FIXTURE",
+    }
+    pair = {
+        "ok": True,
+        "source": str(source),
+        "destination": str(destination),
+        "relative_suffix": "result.json",
+        "route_id": "fixture-vault-route",
+        "owner": "fixture-owner",
+    }
+    reservation = {
+        "active": True,
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "target": str(destination),
+        "reservation_id": "fixture-copy",
+        "requested_bytes": source.stat().st_size,
+        "route_metadata": {
+            "route_id": "fixture-vault-route",
+            "owner": "fixture-owner",
+            "required_mount": str(vault),
+            "archive_binding": binding,
+        },
+    }
+    binding_checks: list[str] = []
+
+    def reader(_target: Path, _mount: Path, **_kwargs: object) -> dict[str, object]:
+        binding_checks.append("checked")
+        return {"ok": True, "identity": binding}
+
+    result = adapters.copy_vault_archive_file(
+        source,
+        destination,
+        owner="fixture-owner",
+        pair=pair,
+        reservation_record=reservation,
+        expected_binding=binding,
+        required_mount=vault,
+        expected_mapper="fixture",
+        expected_label="FIXTURE",
+        mount_binding_reader=reader,
+    )
+
+    assert result["ok"] is True
+    assert result["hash_verified"] is True
+    assert result["restore_proof"]["source_was_not_removed"] is True
+    assert result["destination_anchor"]["st_dev"] == binding["st_dev"]
+    assert len(binding_checks) == 4
+    assert destination.read_bytes() == b"bounded archive payload\n"
+    assert source.read_bytes() == b"bounded archive payload\n"
+    assert not list(destination.parent.glob(".*.partial"))
+
+    second = adapters.copy_vault_archive_file(
+        source,
+        destination,
+        owner="fixture-owner",
+        pair=pair,
+        reservation_record={**reservation, "reservation_id": "fixture-copy-retry"},
+        expected_binding=binding,
+        required_mount=vault,
+        expected_mapper="fixture",
+        expected_label="FIXTURE",
+        mount_binding_reader=reader,
+    )
+    assert second["ok"] is False
+    assert second["reasons"] == ["archive_target_exists"]
 
 
 def test_reaper_does_not_hold_registry_lock_during_disposition(monkeypatch, tmp_path: Path) -> None:

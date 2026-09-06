@@ -1019,6 +1019,105 @@ def test_vault_archive_admission_requires_host_route_and_binds_mount_identity(mo
     assert bad_pair["reason"] == "archive_route_suffix_mismatch"
 
 
+def test_vault_archive_file_copy_wires_exact_pair_and_reservation(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "source" / "result.json"
+    destination = tmp_path / "vault" / "result.json"
+    binding = {
+        "required_mount": str(tmp_path / "vault"),
+        "mount_id": "42",
+        "device": "0:99",
+        "fs_root": "/",
+        "filesystem": "btrfs",
+        "source": "/dev/mapper/fixture",
+        "st_dev": int(tmp_path.stat().st_dev),
+        "st_ino": 1,
+        "uuid": "runtime-fixture-uuid",
+        "mapper": "/dev/mapper/fixture",
+        "label": "FIXTURE",
+    }
+    pair = {
+        "ok": True,
+        "source": str(source),
+        "destination": str(destination),
+        "relative_suffix": "result.json",
+        "route_id": "fixture-vault-route",
+        "owner": "fixture-owner",
+    }
+    route = {
+        "id": "fixture-vault-route",
+        "kind": "vault-archive",
+        "owner": "fixture-owner",
+        "required_mount_ref": "vault.mount",
+        "device_label_ref": "vault.device_label",
+        "luks_mapper_ref": "vault.luks_mapper",
+        "uuid_source": "runtime",
+    }
+    protection = {
+        "decision": "allow_candidate",
+        "class": "vault_archive_allowed",
+        "route_id": "fixture-vault-route",
+        "owner": "fixture-owner",
+        "required_mount": str(tmp_path / "vault"),
+        "route": route,
+        "archive_binding": binding,
+    }
+    monkeypatch.setattr(cli, "storage_archive_pair_admission", lambda *_args, **_kwargs: {
+        "ok": True,
+        "decision": "allow_candidate",
+        "pair": pair,
+        "protection": protection,
+    })
+    monkeypatch.setattr(
+        cli,
+        "storage_archive_policy",
+        lambda: {
+            "ok": True,
+            "vault": {
+                "mount": str(tmp_path / "vault"),
+                "device_label": "FIXTURE",
+                "luks_mapper": "fixture",
+            },
+            "routes": [route],
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def copy(*args: object, **kwargs: object) -> dict[str, object]:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return {"ok": True, "decision": "copied", "reservation_id": "copy-fixture"}
+
+    monkeypatch.setattr(cli.storage_lifecycle_adapters, "copy_vault_archive_file", copy)
+    reservation = {
+        "ok": True,
+        "decision": "reserved",
+        "reservation": {
+            "active": True,
+            "kind": "vault-archive",
+            "owner": "fixture-owner",
+            "target": str(destination),
+            "reservation_id": "copy-fixture",
+            "requested_bytes": 10,
+            "route_metadata": {
+                "route_id": "fixture-vault-route",
+                "owner": "fixture-owner",
+                "required_mount": str(tmp_path / "vault"),
+                "archive_binding": binding,
+            },
+        },
+    }
+    result = cli.storage_archive_file_copy(
+        str(source),
+        str(destination),
+        owner="fixture-owner",
+        reservation=reservation,
+    )
+    assert result["ok"] is True
+    assert captured["kwargs"]["pair"] == pair
+    assert captured["kwargs"]["reservation_record"] == reservation["reservation"]
+    assert captured["kwargs"]["expected_binding"] == binding
+
+
 def test_vault_archive_preflight_uses_actual_target_without_srv_fallback(monkeypatch, tmp_path: Path) -> None:
     destination_prefix = tmp_path / "vault" / "owner"
     target = destination_prefix / "result.json"

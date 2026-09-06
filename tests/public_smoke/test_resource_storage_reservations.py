@@ -641,3 +641,30 @@ def test_archive_route_metadata_rejects_stale_target_device(tmp_path: Path) -> N
     )
     assert result["ok"] is False
     assert result["error"] == "route_filesystem_identity_mismatch"
+
+
+def test_archive_reservation_rechecks_filesystem_after_capacity_read(monkeypatch, tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage-reservations"
+    target = tmp_path / "target"
+    devices = iter((7, 8))
+    monkeypatch.setattr(storage_reservations, "_target_filesystem_device", lambda _target: next(devices))
+    route_metadata = {
+        "route_id": "owner-vault",
+        "owner": "fixture-owner",
+        "required_mount": str(tmp_path),
+        "archive_binding": {"st_dev": 7},
+    }
+    result = storage_reservations.acquire_reservation(
+        storage_root,
+        reservation_id="archive-device-changed",
+        kind="vault-archive",
+        requested_bytes=1,
+        target=target,
+        owner="fixture-owner",
+        ttl_seconds=60,
+        route_metadata=route_metadata,
+        disk_usage=_fake_capacity,
+    )
+    assert result["ok"] is False
+    assert result["error"] == "target_filesystem_changed_during_capacity"
+    assert not (storage_root / "records").exists()

@@ -9572,6 +9572,61 @@ def storage_archive_pair_admission(source: str, destination: str, *, owner: str)
     return {"ok": True, "decision": "allow_candidate", "pair": pair, "protection": protection}
 
 
+def storage_archive_file_copy(
+    source: str,
+    destination: str,
+    *,
+    owner: str,
+    reservation: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Run the existing owner route's bounded single-file archive copy.
+
+    This is intentionally an owner helper rather than a generic CLI command:
+    the caller must hand in the exact active reservation returned by the
+    reservation route.  Pair admission and the reservation's full binding are
+    checked again before any destination mutation.
+    """
+    pair_admission = storage_archive_pair_admission(source, destination, owner=owner)
+    if pair_admission.get("ok") is not True:
+        return pair_admission
+    pair = pair_admission.get("pair") if isinstance(pair_admission.get("pair"), Mapping) else {}
+    protection = pair_admission.get("protection") if isinstance(pair_admission.get("protection"), Mapping) else {}
+    route = protection.get("route") if isinstance(protection.get("route"), Mapping) else {}
+    policy = storage_archive_policy()
+    vault = policy.get("vault") if isinstance(policy.get("vault"), Mapping) else {}
+    required_mount = _archive_vault_policy_value(vault, route, "required_mount_ref", "mount")
+    expected_label = _archive_vault_policy_value(vault, route, "device_label_ref", "device_label")
+    expected_mapper = _archive_vault_policy_value(vault, route, "luks_mapper_ref", "luks_mapper")
+    expected_binding = protection.get("archive_binding")
+    reservation_record = reservation.get("reservation") if isinstance(reservation.get("reservation"), Mapping) else reservation
+    if (
+        not required_mount
+        or not expected_label
+        or not expected_mapper
+        or not isinstance(expected_binding, Mapping)
+        or not isinstance(reservation_record, Mapping)
+    ):
+        return {
+            "ok": False,
+            "decision": "deny",
+            "reason": "archive_copy_owner_contract_invalid",
+            "pair": dict(pair),
+            "protection": dict(protection),
+        }
+    copied = storage_lifecycle_adapters.copy_vault_archive_file(
+        Path(source).expanduser(),
+        Path(destination).expanduser(),
+        owner=owner,
+        pair=pair,
+        reservation_record=reservation_record,
+        expected_binding=expected_binding,
+        required_mount=Path(required_mount),
+        expected_mapper=expected_mapper,
+        expected_label=expected_label,
+    )
+    return {**copied, "pair": dict(pair), "protection": dict(protection)}
+
+
 ARTIFACT_TRUST_TOOL_SPECS: tuple[dict[str, Any], ...] = (
     {
         "id": "cosign",
