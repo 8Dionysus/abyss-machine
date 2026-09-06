@@ -652,6 +652,7 @@ def test_resource_launch_collects_attestation_dag_outside_atomic_lock(
     tmp_path,
 ):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    monkeypatch.setenv("ABYSS_MACHINE_RESOURCE_LIVE_INPUT_COALESCE_SEC", "1.0")
     policy = abyss_machine_module.resource_planning.default_policy(
         version="test"
     )
@@ -663,6 +664,23 @@ def test_resource_launch_collects_attestation_dag_outside_atomic_lock(
     inside_lock = False
     collector_barrier = threading.Barrier(4)
     collector_threads: set[int] = set()
+    plan_calls = 0
+
+    class MonotonicClock:
+        def __init__(self):
+            self.offset = 0.0
+
+        def monotonic(self):
+            return time.monotonic() + self.offset
+
+        def advance(self, seconds):
+            self.offset += seconds
+
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+    clock = MonotonicClock()
+    monkeypatch.setattr(abyss_machine_module, "time", clock)
 
     def collect_thermal_map(**_kwargs):
         assert inside_lock is False
@@ -742,6 +760,7 @@ def test_resource_launch_collects_attestation_dag_outside_atomic_lock(
             inside_lock = False
 
     def fake_plan(**kwargs):
+        nonlocal plan_calls
         assert inside_lock is True
         assert kwargs["force_fresh_live_inputs"] is True
         assert kwargs["thermal_plan_data"]["schema"] == (
@@ -754,6 +773,9 @@ def test_resource_launch_collects_attestation_dag_outside_atomic_lock(
         assert kwargs["write_preflight_data"]["schema"] == (
             "fixture_storage_preflight_v1"
         )
+        plan_calls += 1
+        if plan_calls == 1:
+            clock.advance(1.05)
         requested = (
             abyss_machine_module.resource_planning.resolve_startup_demand(
                 policy,
@@ -883,6 +905,15 @@ def test_resource_launch_collects_attestation_dag_outside_atomic_lock(
     assert result["planning"]["admission_lock"][
         "contains_expensive_preflight"
     ] is False
+    assert plan_calls == 1
+    assert result["planning"]["pre_admission_dag"]["refresh_count"] == 1
+    assert result["planning"]["pre_admission_dag"][
+        "configured_max_age_sec"
+    ] == 120.0
+    assert result["planning"]["pre_admission_dag"]["max_age_sec"] == 120.0
+    assert result["planning"]["pre_admission_dag"][
+        "age_at_admission_sec"
+    ] > 1.0
     assert result["planning"]["admission_lock"]["attempts"] == 1
     assert result["total_elapsed_sec"] >= result["elapsed_sec"]
 
@@ -905,6 +936,22 @@ def test_resource_launch_refreshes_attestation_that_ages_during_atomic_plan(
     inside_lock = False
     collector_calls = 0
     plan_calls = 0
+
+    class MonotonicClock:
+        def __init__(self):
+            self.offset = 0.0
+
+        def monotonic(self):
+            return time.monotonic() + self.offset
+
+        def advance(self, seconds):
+            self.offset += seconds
+
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+    clock = MonotonicClock()
+    monkeypatch.setattr(abyss_machine_module, "time", clock)
 
     def collect_storage(**_kwargs):
         nonlocal collector_calls
@@ -936,7 +983,7 @@ def test_resource_launch_refreshes_attestation_that_ages_during_atomic_plan(
         )
         plan_calls += 1
         if plan_calls == 1:
-            time.sleep(1.05)
+            clock.advance(1.05)
         return {
             "ok": True,
             "decision": "allow",
@@ -982,6 +1029,12 @@ def test_resource_launch_refreshes_attestation_that_ages_during_atomic_plan(
             "execution": {"ok": True, "returncode": 0},
             "lease_released": True,
             "demand_observation": None,
+            "storage_reservation_release": {
+                "requested": True,
+                "ok": True,
+                "decision": "released",
+                "release_pending": False,
+            },
         },
     )
 

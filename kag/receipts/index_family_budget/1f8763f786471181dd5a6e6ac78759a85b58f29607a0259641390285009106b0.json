@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 24646640,
+  "allowed_tracked_bytes": 30371496,
+  "approved_by": "repository-owner",
+  "base_ref": "11cefe5de63f5726c16a4332bf14b7bdbf03abae",
+  "changed_generated_bytes": 24646640,
+  "changed_generated_files": 307,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "1f8763f786471181dd5a6e6ac78759a85b58f29607a0259641390285009106b0",
+  "reason": "Refresh the exact owner family for the resource-launch attestation freshness correction and deterministic contract fixtures without raising standing budgets.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30371496,
+  "tracked_bytes_max": 27262976
+}
