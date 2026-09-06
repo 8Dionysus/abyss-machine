@@ -1,0 +1,17 @@
+{
+  "allowed_bytes": 6434318,
+  "allowed_tracked_bytes": 30373091,
+  "approved_by": "repository-owner",
+  "base_ref": "247b0edbf358875c8db2ea909d1f2001663e8df7",
+  "changed_generated_bytes": 6434318,
+  "changed_generated_files": 66,
+  "decision_ref": "aoa-kag:docs/decisions/AOA-KAG-D-0017-portable-content-addressed-repository-family.md",
+  "default_limit_bytes": 1048576,
+  "head_family_digest": "1fd7b631671564fe8ae04cc8498972da08bb74db3e7bd74813a1622545afae08",
+  "reason": "Refresh the Machine owner family for the reviewed launch-overhead clock test and its required generated companions.",
+  "repo": "abyss-machine",
+  "schema_version": "aoa-repo-local-kag-budget-receipt-v1",
+  "scope": "generated_delta_and_tracked_size",
+  "tracked_bytes": 30373091,
+  "tracked_bytes_max": 27262976
+}
