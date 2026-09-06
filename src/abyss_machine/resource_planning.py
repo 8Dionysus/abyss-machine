@@ -1410,6 +1410,9 @@ def build_plan(
     generated_at: str,
     startup_demand: dict[str, Any] | None = None,
     activity: str | None = None,
+    owner_route: str | None = None,
+    owner_operation: str | None = None,
+    owner_claim: str | None = None,
 ) -> dict[str, Any]:
     normalized_class = normalize_class(workload_class)
     normalized_kind = normalize_kind(kind)
@@ -1518,6 +1521,9 @@ def build_plan(
             "unit_type": unit_type,
             "bytes_required": bytes_required,
             "target": target,
+            "owner_route": owner_route,
+            "owner_operation": owner_operation,
+            "owner_claim": owner_claim,
             "sample_thermal": bool(sample_thermal),
             "activity": activity_data,
             "memory_demand_mib": _nested_get(demand_data, ["requested", "demand_mib"]),
