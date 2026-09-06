@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -30,6 +31,133 @@ MAX_HANDOFF_BYTES = 16 * 1024 * 1024
 
 def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def validate_launch_attestation(execution: dict[str, Any]) -> dict[str, Any]:
+    """Validate the private handoff's required monotonic freshness boundary."""
+    raw = execution.get("launch_attestation")
+    if not isinstance(raw, dict):
+        return {
+            "ok": False,
+            "reason": "launch_attestation_handoff_missing",
+            "status": "missing",
+        }
+    required = raw.get("required")
+    if not isinstance(required, bool):
+        return {
+            "ok": False,
+            "reason": "launch_attestation_handoff_malformed",
+            "status": "malformed",
+        }
+    if "deadline_monotonic" not in raw:
+        return {
+            "ok": False,
+            "reason": "launch_attestation_handoff_malformed",
+            "status": "malformed",
+        }
+    deadline = raw.get("deadline_monotonic")
+    if required:
+        if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
+            return {
+                "ok": False,
+                "reason": "launch_attestation_handoff_malformed",
+                "status": "malformed",
+            }
+        try:
+            deadline_value = float(deadline)
+        except (OverflowError, TypeError, ValueError):
+            return {
+                "ok": False,
+                "reason": "launch_attestation_handoff_malformed",
+                "status": "malformed",
+            }
+        if not math.isfinite(deadline_value):
+            return {
+                "ok": False,
+                "reason": "launch_attestation_handoff_malformed",
+                "status": "malformed",
+            }
+        checked_at = monotonic()
+        if checked_at >= deadline_value:
+            return {
+                "ok": False,
+                "reason": "launch_attestation_expired_before_execute",
+                "status": "expired",
+                "checked_at_monotonic": checked_at,
+                "deadline_monotonic": deadline_value,
+            }
+        return {
+            "ok": True,
+            "status": "fresh",
+            "checked_at_monotonic": checked_at,
+            "deadline_monotonic": deadline_value,
+        }
+    if deadline is not None:
+        return {
+            "ok": False,
+            "reason": "launch_attestation_handoff_malformed",
+            "status": "malformed",
+        }
+    return {"ok": True, "status": "not_required"}
+
+
+def preserve_managed_workspace_failure(
+    lifecycle: dict[str, Any],
+    *,
+    reason: str,
+    execution_started: bool | None = False,
+    execution_status: str | None = None,
+    cleanup_errors: list[str] | None = None,
+) -> dict[str, Any]:
+    """Seal and preserve a delegated workspace after a pre-execute denial."""
+    workspace_id = str(lifecycle.get("workspace_id") or "")
+    failure = {
+        "reason": str(reason),
+        "stage": "pre_execute",
+        "execution_started": execution_started,
+        "execution_status": execution_status or (
+            "not_started" if execution_started is False else "unknown"
+        ),
+        "preserved": True,
+        "cleanup_errors": list(cleanup_errors or []),
+    }
+    try:
+        sealed = storage_lifecycle_adapters.seal_registered_workspace(
+            Path(str(lifecycle.get("root") or "")),
+            workspace_id=workspace_id,
+            lease_token=str(lifecycle.get("lease_token") or ""),
+            preserved_failure=failure,
+        )
+    except (OSError, TypeError, ValueError, RuntimeError) as exc:
+        sealed = {"ok": False, "errors": [str(exc)[:500]]}
+    record = sealed.get("record") if isinstance(sealed.get("record"), dict) else {}
+    disposition = record.get("disposition") if isinstance(record.get("disposition"), dict) else {}
+    return {
+        "attempted": True,
+        "ok": bool(
+            sealed.get("ok") is True
+            and record.get("state") == "sealed"
+            and disposition.get("decision") == "UNKNOWN"
+            and disposition.get("released") is False
+        ),
+        "workspace_id": workspace_id,
+        "path": lifecycle.get("path"),
+        "owner": lifecycle.get("owner"),
+        "state": record.get("state"),
+        "disposition": {
+            "decision": disposition.get("decision"),
+            "released": disposition.get("released"),
+            "failure": disposition.get("failure"),
+        },
+        "execution_started": execution_started,
+        "execution_status": execution_status or (
+            "not_started" if execution_started is False else "unknown"
+        ),
+        "auto_deleted": False,
+        "reason": str(reason),
+        "cleanup_errors": list(cleanup_errors or []),
+        "errors": [str(item) for item in sealed.get("errors", []) if str(item)],
+    }
 
 
 def read_handoff(environ: dict[str, str] | None = None) -> dict[str, Any]:
@@ -70,34 +198,125 @@ def finish_document(handoff: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(document, dict) or not isinstance(execution, dict):
         raise RuntimeError("resource launch handoff is incomplete")
 
-    outcome = resource_adapters.execute_systemd_launch(
-        systemd_command=[str(item) for item in execution.get("systemd_command", [])],
-        launch_unit=str(execution.get("launch_unit") or "") or None,
-        generated_unit=str(execution.get("generated_unit") or "") or None,
-        unit_type=str(execution.get("unit_type") or "service"),
-        timeout_sec=float(execution.get("timeout_sec") or 0.0),
-        lease=execution.get("lease") if isinstance(execution.get("lease"), dict) else None,
-        reservation_root=Path(str(execution.get("reservation_root") or "")),
-        demand_profile_path=Path(str(execution.get("demand_profile_path") or "")),
-        demand_key=str(execution.get("demand_key") or "") or None,
-        demand_owner=str(execution.get("demand_owner") or "") or None,
-        kind=str(execution.get("kind") or "generic"),
-        observed_peak_multiplier=float(execution.get("observed_peak_multiplier") or 1.25),
-        profile_max_entries=int(execution.get("profile_max_entries") or 64),
-        profile_max_samples=int(execution.get("profile_max_samples") or 16),
-        parse_output=resource_planning.parse_systemd_run_output,
-        command_identity=str(execution.get("command_identity") or "") or None,
-        storage_reservation=(
+    attestation = validate_launch_attestation(execution)
+    handoff_failure = None if attestation.get("ok") is True else attestation
+    if handoff_failure is not None:
+        reason = str(handoff_failure.get("reason") or "launch_attestation_handoff_malformed")
+        denied_reasons = list(document.get("denied_reasons") or [])
+        if reason not in denied_reasons:
+            denied_reasons.append(reason)
+        document["denied_reasons"] = denied_reasons
+        planning = document.get("planning")
+        if not isinstance(planning, dict):
+            planning = {}
+            document["planning"] = planning
+        pre_admission = planning.get("pre_admission_dag")
+        if not isinstance(pre_admission, dict):
+            pre_admission = {}
+            planning["pre_admission_dag"] = pre_admission
+        pre_admission["handoff_validation"] = {
+            "required": True,
+            "status": handoff_failure.get("status"),
+            "reason": reason,
+            "checked_before_execute": True,
+            "checked_at_monotonic": handoff_failure.get("checked_at_monotonic"),
+            "deadline_monotonic": handoff_failure.get("deadline_monotonic"),
+        }
+        lease = execution.get("lease") if isinstance(execution.get("lease"), dict) else None
+        lease_released = False
+        lease_cleanup_error: str | None = None
+        if isinstance(lease, dict):
+            lease_id = str(lease.get("id") or "")
+            reservation_root = Path(str(execution.get("reservation_root") or ""))
+            if lease_id:
+                try:
+                    lease_released = resource_adapters.remove_lease(
+                        reservation_root,
+                        lease_id,
+                    ) or not resource_adapters.lease_path(
+                        reservation_root,
+                        lease_id,
+                    ).exists()
+                except (OSError, TypeError, ValueError, RuntimeError) as exc:
+                    lease_cleanup_error = str(exc)[:500]
+            else:
+                lease_cleanup_error = "lease_identity_missing"
+        if lease_cleanup_error:
+            denied_reasons.append("startup_lease_release_failed")
+        storage_reservation = (
             execution.get("storage_reservation")
             if isinstance(execution.get("storage_reservation"), dict)
             else None
-        ),
-        storage_reservation_root=(
+        )
+        storage_reservation_root = (
             Path(str(execution.get("storage_reservation_root") or ""))
             if execution.get("storage_reservation_root")
             else None
-        ),
-    )
+        )
+        try:
+            storage_release = resource_adapters._release_storage_reservation(
+                storage_reservation,
+                storage_reservation_root,
+                {
+                    "confirmed_terminal": True,
+                    "confirmation": "launch_attestation_handoff_rejected_before_execute",
+                    "unit": str(execution.get("launch_unit") or "") or None,
+                },
+            )
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            storage_release = {
+                "requested": isinstance(storage_reservation, dict),
+                "ok": False,
+                "decision": "blocked",
+                "error": "storage_reservation_release_error",
+                "detail": str(exc)[:500],
+            }
+        if storage_release.get("requested") and storage_release.get("ok") is not True:
+            denied_reasons.append("storage_reservation_release_failed")
+        pre_admission["handoff_validation"]["cleanup"] = {
+            "memory_lease": {
+                "attempted": isinstance(lease, dict),
+                "released": lease_released,
+                "error": lease_cleanup_error,
+            },
+            "storage_reservation": storage_release,
+        }
+        outcome = {
+            "elapsed_sec": 0.0,
+            "execution": None,
+            "lease_released": lease_released,
+            "demand_observation": None,
+            "storage_reservation_release": storage_release,
+        }
+    else:
+        outcome = resource_adapters.execute_systemd_launch(
+            systemd_command=[str(item) for item in execution.get("systemd_command", [])],
+            launch_unit=str(execution.get("launch_unit") or "") or None,
+            generated_unit=str(execution.get("generated_unit") or "") or None,
+            unit_type=str(execution.get("unit_type") or "service"),
+            timeout_sec=float(execution.get("timeout_sec") or 0.0),
+            lease=execution.get("lease") if isinstance(execution.get("lease"), dict) else None,
+            reservation_root=Path(str(execution.get("reservation_root") or "")),
+            demand_profile_path=Path(str(execution.get("demand_profile_path") or "")),
+            demand_key=str(execution.get("demand_key") or "") or None,
+            demand_owner=str(execution.get("demand_owner") or "") or None,
+            kind=str(execution.get("kind") or "generic"),
+            observed_peak_multiplier=float(execution.get("observed_peak_multiplier") or 1.25),
+            profile_max_entries=int(execution.get("profile_max_entries") or 64),
+            profile_max_samples=int(execution.get("profile_max_samples") or 16),
+            parse_output=resource_planning.parse_systemd_run_output,
+            command_identity=str(execution.get("command_identity") or "") or None,
+            storage_reservation=(
+                execution.get("storage_reservation")
+                if isinstance(execution.get("storage_reservation"), dict)
+                else None
+            ),
+            storage_reservation_root=(
+                Path(str(execution.get("storage_reservation_root") or ""))
+                if execution.get("storage_reservation_root")
+                else None
+            ),
+        )
 
     result = outcome.get("execution") if isinstance(outcome.get("execution"), dict) else None
     document["generated_at"] = now_iso()
@@ -147,13 +366,22 @@ def finish_document(handoff: dict[str, Any]) -> dict[str, Any]:
     document["startup_admission"] = startup
     lifecycle = execution.get("workspace_lifecycle")
     if isinstance(lifecycle, dict):
-        finalized = storage_lifecycle_adapters.finalize_managed_workspace(
-            Path(str(lifecycle.get("root") or "")),
-            lifecycle,
-            grace_seconds=int(lifecycle.get("grace_seconds") or 0),
-        )
-        if isinstance(result, dict):
-            result["managed_workspace"] = finalized
+        if handoff_failure is not None:
+            cleanup = preserve_managed_workspace_failure(
+                lifecycle,
+                reason=str(handoff_failure.get("reason") or "launch_attestation_handoff_rejected_before_execute"),
+            )
+            document["managed_workspace_cleanup"] = cleanup
+            if not cleanup.get("ok"):
+                document["denied_reasons"].append("managed_workspace_failure_cleanup_failed")
+        else:
+            finalized = storage_lifecycle_adapters.finalize_managed_workspace(
+                Path(str(lifecycle.get("root") or "")),
+                lifecycle,
+                grace_seconds=int(lifecycle.get("grace_seconds") or 0),
+            )
+            if isinstance(result, dict):
+                result["managed_workspace"] = finalized
         request = document.get("request") if isinstance(document.get("request"), dict) else {}
         request["managed_workspace"] = {
             key: value for key, value in lifecycle.items() if key not in {"lease_token", "root"}

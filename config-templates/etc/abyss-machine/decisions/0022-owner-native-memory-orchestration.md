@@ -18,7 +18,7 @@ accepted
 
 ## Current Applicability
 
-As of 2026-08-13, `abyss-machine` owns live pressure and swap-reserve facts,
+As of 2026-09-05, `abyss-machine` owns live pressure and swap-reserve facts,
 synchronous launch admission, runtime-only startup reservations, bounded
 runtime peak learning, one canonical resource-launch path, a narrow runtime
 cold-load admission lease for existing owner processes, and shadow-only
@@ -104,6 +104,22 @@ receipts are reused while the lock protects the final fresh memory/PSI plan,
 reservation snapshot, sufficiency decision, and atomic lease creation. If a
 receipt ages out while waiting for the lock or while the final plan is
 computed, it is refreshed outside the lock before any lease may be created.
+
+The request-specific launch attestation has a bounded retry budget: after the
+initial collection, at most three additional complete evidence rounds may be
+collected when the configured attestation TTL expires during planning. This
+small source-owned bound is separate from the configured TTL and from the
+unknown-demand wait policy. Exhaustion records
+`launch_attestation_refresh_exhausted` and denies before command preparation;
+it never turns stale evidence into a launch. The private execution handoff
+carries the required flag and the absolute monotonic deadline. The child
+checks both immediately before execution and fails closed when the fields are
+missing, malformed, or expired. A pre-execution denial seals a managed
+workspace with a preserved `UNKNOWN` failure disposition, retains the workspace
+for owner review, and does not consume the owner DELETE callback. Delegate
+handoff failures preserve `execution_started: null` with status `unknown` so
+the record does not claim that a child never started; direct stale denials use
+`execution_started: false`.
 
 Storage inventory measurement outside that critical path must also remain
 bounded and truthful. `du` and its portable fallback share one per-path time
@@ -232,6 +248,14 @@ change rather than silently reactivating the removed controller.
   pre-launch admission for more than 312 seconds. Explicit tool timeout now
   remains unmeasured, fast tool failure may spend only the remaining budget,
   and incomplete traversal cannot publish a partial size as complete.
+- 2026-09-05: Bounded launch-attestation refresh to three complete retries
+  after the initial collection, kept its TTL independent from live-input
+  coalescing and unknown-demand waiting, and carried the required monotonic
+  deadline through the private execution handoff. The child now fails closed
+  before execution on missing, malformed, or expired evidence. Pre-execution
+  workspace failures seal and preserve an `UNKNOWN` disposition without
+  consuming the owner DELETE callback; an uncertain delegate handoff records
+  that execution status is unknown.
 
 ## Source Surfaces
 

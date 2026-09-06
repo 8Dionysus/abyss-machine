@@ -144,6 +144,10 @@ def test_resource_runner_finalizes_lifecycle_without_exposing_capability(monkeyp
         },
         "execution": {
             "systemd_command": ["true"],
+            "launch_attestation": {
+                "required": False,
+                "deadline_monotonic": None,
+            },
             "request_started_monotonic": 0,
             "unit_type": "service",
             "timeout_sec": 1,
